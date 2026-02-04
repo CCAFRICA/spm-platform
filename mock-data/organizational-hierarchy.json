@@ -1,0 +1,191 @@
+{
+  "organizationalUnits": [
+    {
+      "id": "ORG-001",
+      "name": "Sales Organization",
+      "type": "department",
+      "parentId": null,
+      "managerId": "U055",
+      "headcount": 55
+    },
+    {
+      "id": "ORG-002",
+      "name": "West Region",
+      "type": "region",
+      "parentId": "ORG-001",
+      "managerId": "U051",
+      "headcount": 15
+    },
+    {
+      "id": "ORG-003",
+      "name": "East Region",
+      "type": "region",
+      "parentId": "ORG-001",
+      "managerId": "U052",
+      "headcount": 14
+    },
+    {
+      "id": "ORG-004",
+      "name": "North Region",
+      "type": "region",
+      "parentId": "ORG-001",
+      "managerId": "U053",
+      "headcount": 13
+    },
+    {
+      "id": "ORG-005",
+      "name": "South Region",
+      "type": "region",
+      "parentId": "ORG-001",
+      "managerId": "U054",
+      "headcount": 12
+    },
+    {
+      "id": "ORG-006",
+      "name": "West-Enterprise",
+      "type": "team",
+      "parentId": "ORG-002",
+      "managerId": "U041",
+      "headcount": 5
+    },
+    {
+      "id": "ORG-007",
+      "name": "West-Mid-Market",
+      "type": "team",
+      "parentId": "ORG-002",
+      "managerId": "U045",
+      "headcount": 5
+    },
+    {
+      "id": "ORG-008",
+      "name": "West-SMB",
+      "type": "team",
+      "parentId": "ORG-002",
+      "managerId": "U049",
+      "headcount": 4
+    },
+    {
+      "id": "ORG-009",
+      "name": "East-Enterprise",
+      "type": "team",
+      "parentId": "ORG-003",
+      "managerId": "U042",
+      "headcount": 5
+    },
+    {
+      "id": "ORG-010",
+      "name": "East-SMB",
+      "type": "team",
+      "parentId": "ORG-003",
+      "managerId": "U046",
+      "headcount": 4
+    },
+    {
+      "id": "ORG-011",
+      "name": "East-Mid-Market",
+      "type": "team",
+      "parentId": "ORG-003",
+      "managerId": "U050",
+      "headcount": 4
+    },
+    {
+      "id": "ORG-012",
+      "name": "North-SMB",
+      "type": "team",
+      "parentId": "ORG-004",
+      "managerId": "U043",
+      "headcount": 4
+    },
+    {
+      "id": "ORG-013",
+      "name": "North-Enterprise",
+      "type": "team",
+      "parentId": "ORG-004",
+      "managerId": "U047",
+      "headcount": 5
+    },
+    {
+      "id": "ORG-014",
+      "name": "North-Mid-Market",
+      "type": "team",
+      "parentId": "ORG-004",
+      "managerId": "U043",
+      "headcount": 3
+    },
+    {
+      "id": "ORG-015",
+      "name": "South-Enterprise",
+      "type": "team",
+      "parentId": "ORG-005",
+      "managerId": "U044",
+      "headcount": 5
+    },
+    {
+      "id": "ORG-016",
+      "name": "South-Mid-Market",
+      "type": "team",
+      "parentId": "ORG-005",
+      "managerId": "U048",
+      "headcount": 4
+    },
+    {
+      "id": "ORG-017",
+      "name": "South-SMB",
+      "type": "team",
+      "parentId": "ORG-005",
+      "managerId": "U044",
+      "headcount": 3
+    }
+  ],
+  "hierarchy": {
+    "id": "ORG-001",
+    "name": "Sales Organization",
+    "manager": {
+      "id": "U055",
+      "name": "Margaret Torres",
+      "role": "director"
+    },
+    "children": [
+      {
+        "id": "ORG-002",
+        "name": "West Region",
+        "manager": {"id": "U051", "name": "Sandra Richardson", "role": "vp"},
+        "children": [
+          {"id": "ORG-006", "name": "West-Enterprise", "manager": {"id": "U041", "name": "Catherine Morris", "role": "manager"}, "repCount": 4},
+          {"id": "ORG-007", "name": "West-Mid-Market", "manager": {"id": "U045", "name": "Maria Morgan", "role": "manager"}, "repCount": 4},
+          {"id": "ORG-008", "name": "West-SMB", "manager": {"id": "U049", "name": "Linda Rivera", "role": "manager"}, "repCount": 3}
+        ]
+      },
+      {
+        "id": "ORG-003",
+        "name": "East Region",
+        "manager": {"id": "U052", "name": "Paul Cox", "role": "vp"},
+        "children": [
+          {"id": "ORG-009", "name": "East-Enterprise", "manager": {"id": "U042", "name": "William Rogers", "role": "manager"}, "repCount": 4},
+          {"id": "ORG-010", "name": "East-SMB", "manager": {"id": "U046", "name": "Charles Bell", "role": "manager"}, "repCount": 3},
+          {"id": "ORG-011", "name": "East-Mid-Market", "manager": {"id": "U050", "name": "Donald Cooper", "role": "manager"}, "repCount": 3}
+        ]
+      },
+      {
+        "id": "ORG-004",
+        "name": "North Region",
+        "manager": {"id": "U053", "name": "Nancy Howard", "role": "vp"},
+        "children": [
+          {"id": "ORG-012", "name": "North-SMB", "manager": {"id": "U043", "name": "Rebecca Reed", "role": "manager"}, "repCount": 3},
+          {"id": "ORG-013", "name": "North-Enterprise", "manager": {"id": "U047", "name": "Patricia Murphy", "role": "manager"}, "repCount": 4},
+          {"id": "ORG-014", "name": "North-Mid-Market", "manager": {"id": "U043", "name": "Rebecca Reed", "role": "manager"}, "repCount": 2}
+        ]
+      },
+      {
+        "id": "ORG-005",
+        "name": "South Region",
+        "manager": {"id": "U054", "name": "Kenneth Ward", "role": "vp"},
+        "children": [
+          {"id": "ORG-015", "name": "South-Enterprise", "manager": {"id": "U044", "name": "Thomas Cook", "role": "manager"}, "repCount": 4},
+          {"id": "ORG-016", "name": "South-Mid-Market", "manager": {"id": "U048", "name": "Steven Bailey", "role": "manager"}, "repCount": 3},
+          {"id": "ORG-017", "name": "South-SMB", "manager": {"id": "U044", "name": "Thomas Cook", "role": "manager"}, "repCount": 2}
+        ]
+      }
+    ]
+  }
+}

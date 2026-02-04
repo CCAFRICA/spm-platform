@@ -1,0 +1,91 @@
+{
+  "compensationPlans": [
+    {
+      "id": "CP001",
+      "name": "Basic Commission Plan",
+      "type": "basic",
+      "description": "Standard 5% commission on all closed sales. Ideal for new sales representatives building their pipeline.",
+      "effectiveDate": "2024-01-01",
+      "endDate": null,
+      "status": "active",
+      "structure": {
+        "baseRate": 0.05
+      },
+      "eligibleRoles": ["sales_rep"],
+      "quotaAmount": 500000
+    },
+    {
+      "id": "CP002",
+      "name": "Tiered Commission Plan",
+      "type": "tiered",
+      "description": "Progressive commission rates that increase as sales volume grows. Rewards consistent high performers.",
+      "effectiveDate": "2024-01-01",
+      "endDate": null,
+      "status": "active",
+      "structure": {
+        "tiers": [
+          {"minAmount": 0, "maxAmount": 50000, "rate": 0.03},
+          {"minAmount": 50000, "maxAmount": 100000, "rate": 0.05},
+          {"minAmount": 100000, "maxAmount": null, "rate": 0.07}
+        ]
+      },
+      "eligibleRoles": ["sales_rep"],
+      "quotaAmount": 750000
+    },
+    {
+      "id": "CP003",
+      "name": "Accelerator Plan",
+      "type": "accelerator",
+      "description": "Base commission plus accelerated earnings when exceeding quota. Designed for enterprise account executives.",
+      "effectiveDate": "2024-01-01",
+      "endDate": null,
+      "status": "active",
+      "structure": {
+        "baseRate": 0.04,
+        "acceleratorRate": 0.02,
+        "acceleratorThreshold": 1.0
+      },
+      "eligibleRoles": ["sales_rep"],
+      "quotaAmount": 1000000
+    },
+    {
+      "id": "CP004",
+      "name": "Team-Based Plan",
+      "type": "team_based",
+      "description": "Individual commission plus team pool bonus. Encourages collaboration while rewarding personal achievement.",
+      "effectiveDate": "2024-01-01",
+      "endDate": null,
+      "status": "active",
+      "structure": {
+        "baseRate": 0.03,
+        "teamPoolPercentage": 0.01,
+        "bonusStructure": {
+          "type": "quarterly",
+          "amount": 5000,
+          "criteria": "Team achieves 100% of collective quota"
+        }
+      },
+      "eligibleRoles": ["manager"],
+      "quotaAmount": 2000000
+    },
+    {
+      "id": "CP005",
+      "name": "Executive Compensation Plan",
+      "type": "executive",
+      "description": "Comprehensive package including base salary, equity participation, and performance-based bonuses.",
+      "effectiveDate": "2024-01-01",
+      "endDate": null,
+      "status": "active",
+      "structure": {
+        "baseRate": 0.02,
+        "bonusStructure": {
+          "type": "annual",
+          "amount": 50000,
+          "criteria": "Region achieves 110% of annual target"
+        }
+      },
+      "eligibleRoles": ["vp", "director"],
+      "quotaAmount": 10000000
+    }
+  ]
+}
