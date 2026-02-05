@@ -90,9 +90,9 @@ function LoginAuditsPageContent() {
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  const pages = [...new Set(audits.map(a => a.page))];
-  const channels = [...new Set(audits.map(a => a.salesChannel))];
-  const regions = [...new Set(audits.map(a => a.region))];
+  const pages = Array.from(new Set(audits.map(a => a.page)));
+  const channels = Array.from(new Set(audits.map(a => a.salesChannel)));
+  const regions = Array.from(new Set(audits.map(a => a.region)));
 
   const filteredAudits = useMemo(() => {
     return audits.filter(audit => {

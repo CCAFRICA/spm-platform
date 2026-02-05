@@ -232,9 +232,9 @@ function AuditsPageContent() {
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [channelFilter, setChannelFilter] = useState<string>('all');
 
-  const entities = [...new Set(audits.map(a => a.entity))];
-  const regions = [...new Set(audits.map(a => a.region))];
-  const channels = [...new Set(audits.map(a => a.salesChannel))];
+  const entities = Array.from(new Set(audits.map(a => a.entity)));
+  const regions = Array.from(new Set(audits.map(a => a.region)));
+  const channels = Array.from(new Set(audits.map(a => a.salesChannel)));
 
   const filteredAudits = useMemo(() => {
     return audits.filter(audit => {
