@@ -1,0 +1,217 @@
+'use client';
+
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+import type { TenantConfig, TenantSummary, TenantTerminology, Currency, Locale } from '@/types/tenant';
+import { DEFAULT_TERMINOLOGY, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
+
+interface TenantContextState {
+  currentTenant: TenantConfig | null;
+  isLoading: boolean;
+  error: string | null;
+  isCCAdmin: boolean;
+  availableTenants: TenantSummary[];
+  setTenant: (tenantId: string) => Promise<void>;
+  clearTenant: () => void;
+  refreshTenant: () => Promise<void>;
+}
+
+const TenantContext = createContext<TenantContextState | undefined>(undefined);
+
+const STORAGE_KEY_TENANT = 'entityb_current_tenant';
+const STORAGE_KEY_USER_ROLE = 'entityb_user_role';
+
+// Tenant config cache to avoid repeated imports
+const tenantConfigCache: Record<string, TenantConfig> = {};
+
+async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
+  if (tenantConfigCache[tenantId]) {
+    return tenantConfigCache[tenantId];
+  }
+
+  try {
+    const config = await import(`@/data/tenants/${tenantId}/config.json`);
+    const tenantConfig = config.default || config;
+    tenantConfigCache[tenantId] = tenantConfig;
+    return tenantConfig;
+  } catch {
+    throw new Error(`Failed to load tenant config: ${tenantId}`);
+  }
+}
+
+export function TenantProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const [currentTenant, setCurrentTenant] = useState<TenantConfig | null>(null);
+  const [availableTenants, setAvailableTenants] = useState<TenantSummary[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isCCAdmin, setIsCCAdmin] = useState(false);
+
+  useEffect(() => {
+    initializeTenant();
+  }, []);
+
+  const initializeTenant = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Check if user is CC Admin
+      const userRole = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_USER_ROLE) : null;
+      const isAdmin = userRole === 'cc_admin';
+      setIsCCAdmin(isAdmin);
+
+      // Load available tenants for CC Admin
+      if (isAdmin) {
+        try {
+          const registry = await import('@/data/tenants/index.json');
+          setAvailableTenants(registry.tenants || []);
+        } catch {
+          console.warn('Failed to load tenant registry');
+        }
+      }
+
+      // Check for stored tenant
+      const storedTenantId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_TENANT) : null;
+
+      if (storedTenantId) {
+        await loadTenant(storedTenantId);
+      } else if (isAdmin) {
+        // CC Admin without selected tenant - will redirect in component
+        setIsLoading(false);
+      } else {
+        // Default tenant for regular users
+        await loadTenant('techcorp');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to initialize tenant');
+      setIsLoading(false);
+    }
+  };
+
+  const loadTenant = async (tenantId: string): Promise<void> => {
+    try {
+      const config = await loadTenantConfig(tenantId);
+      setCurrentTenant(config);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_TENANT, tenantId);
+      }
+      setIsLoading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to load tenant: ${tenantId}`);
+      setIsLoading(false);
+      throw err;
+    }
+  };
+
+  const setTenant = useCallback(async (tenantId: string): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await loadTenant(tenantId);
+      router.push('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to switch tenant');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router]);
+
+  const clearTenant = useCallback((): void => {
+    setCurrentTenant(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY_TENANT);
+    }
+    if (isCCAdmin) {
+      router.push('/select-tenant');
+    }
+  }, [isCCAdmin, router]);
+
+  const refreshTenant = useCallback(async (): Promise<void> => {
+    if (currentTenant) {
+      // Clear cache to force reload
+      delete tenantConfigCache[currentTenant.id];
+      await loadTenant(currentTenant.id);
+    }
+  }, [currentTenant]);
+
+  return (
+    <TenantContext.Provider value={{
+      currentTenant,
+      isLoading,
+      error,
+      isCCAdmin,
+      availableTenants,
+      setTenant,
+      clearTenant,
+      refreshTenant,
+    }}>
+      {children}
+    </TenantContext.Provider>
+  );
+}
+
+export function useTenant(): TenantContextState {
+  const context = useContext(TenantContext);
+  if (!context) {
+    throw new Error('useTenant must be used within TenantProvider');
+  }
+  return context;
+}
+
+export function useTerminology(): TenantTerminology {
+  const { currentTenant } = useTenant();
+  return currentTenant?.terminology || DEFAULT_TERMINOLOGY;
+}
+
+export function useTerm(key: keyof TenantTerminology, plural: boolean = false): string {
+  const terminology = useTerminology();
+  if (plural) {
+    const pluralKey = `${key}Plural` as keyof TenantTerminology;
+    if (pluralKey in terminology) {
+      return terminology[pluralKey];
+    }
+  }
+  return terminology[key] || key;
+}
+
+export function useCurrency() {
+  const { currentTenant } = useTenant();
+  const currency = currentTenant?.currency || 'USD';
+  const locale = currentTenant?.locale || 'en-US';
+
+  const symbols: Record<Currency, string> = {
+    USD: '$',
+    MXN: '$',
+    EUR: '€',
+    GBP: '£',
+    CAD: '$',
+  };
+
+  return {
+    format: (amount: number) => formatTenantCurrency(amount, currency, locale),
+    currency,
+    symbol: symbols[currency],
+    locale,
+  };
+}
+
+export function useTenantDate() {
+  const { currentTenant } = useTenant();
+  const locale = currentTenant?.locale || 'en-US';
+
+  return {
+    format: (date: string | Date) => formatTenantDate(date, locale),
+    locale,
+  };
+}
+
+export function useFeature(featureKey: keyof TenantConfig['features']): boolean {
+  const { currentTenant } = useTenant();
+  if (!currentTenant?.features) return false;
+  return currentTenant.features[featureKey] ?? false;
+}
+
+// Storage key exports for use in auth context
+export { STORAGE_KEY_TENANT, STORAGE_KEY_USER_ROLE };
