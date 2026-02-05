@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { UserMenu } from "@/components/layout/user-menu";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
+import { TenantSwitcher } from "@/components/tenant/tenant-switcher";
 
 interface NavbarProps {
   onMenuToggle?: () => void;
@@ -132,6 +133,9 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
 
           {/* Language Switcher */}
           <LanguageSwitcher />
+
+          {/* Tenant Switcher (CC Admin only) */}
+          <TenantSwitcher />
 
           {/* Settings */}
           <Button variant="ghost" size="icon" className="hidden md:flex">
