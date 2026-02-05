@@ -79,7 +79,7 @@ export default function LoginPage() {
       case 'admin': return 'Admin';
       case 'manager': return 'Manager';
       case 'sales_rep': return 'Sales Rep';
-      default: return user.role;
+      default: return 'User';
     }
   };
 

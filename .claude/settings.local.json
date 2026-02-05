@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(npx shadcn@latest add select input dropdown-menu -y)",
+      "Bash(npm run dev:*)",
+      "Bash(git init:*)",
+      "Bash(npm install:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nSession 2A: Add polish enhancements with animations and loading states\n\n- Add framer-motion, sonner, date-fns dependencies\n- Create animation utilities \\(page, container, item, modal variants\\)\n- Add skeleton loaders, loading button, and empty state components\n- Add Toaster for toast notifications\n\nEnhanced pages with animations and mobile responsiveness:\n- Orders page: loading skeletons, staggered animations, mobile card view\n- Transaction modal: 3 tabs with timeline, animated numbers\n- Inquiry form: inline validation, success animation\n- Audit page: stats cards, animated table rows, mobile view\n- Approvals page: animated cards, success states on approve/reject\n- Login page: animated persona selection, loading state\n- User menu: role-colored avatar, toast on logout\n- Terminology page: loading state, animated terms, reset confirmation\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo set-default:*)",
+      "Bash(npx shadcn@latest add scroll-area accordion -y)",
+      "Bash(lsof:*)",
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\n2C.1: Add tenant types and registry\n\n- TenantConfig, TenantFeatures, TenantTerminology types\n- Currency and Locale types \\(USD, MXN, EUR, GBP, CAD\\)\n- Default features and terminology constants\n- Helper functions for currency/date formatting\n- Tenant registry with TechCorp and RestaurantMX entries\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit:*)"
+    ]
+  }
+}

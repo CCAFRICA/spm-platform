@@ -36,8 +36,8 @@ export async function loadTenantData<T>(
 
   // Fall back to static JSON files
   try {
-    const module = await import(`@/data/tenants/${tenantId}/${dataType}.json`);
-    return (module.default || module) as T;
+    const imported = await import(`@/data/tenants/${tenantId}/${dataType}.json`);
+    return (imported.default || imported) as T;
   } catch {
     return defaultValue;
   }
@@ -75,8 +75,8 @@ export function clearTenantData(tenantId: string, dataType?: string): void {
  */
 export async function loadTenantConfig(tenantId: string): Promise<TenantConfig | null> {
   try {
-    const module = await import(`@/data/tenants/${tenantId}/config.json`);
-    return (module.default || module) as TenantConfig;
+    const imported = await import(`@/data/tenants/${tenantId}/config.json`);
+    return (imported.default || imported) as TenantConfig;
   } catch {
     return null;
   }

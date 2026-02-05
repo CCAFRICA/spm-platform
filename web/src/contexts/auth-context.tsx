@@ -167,7 +167,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isCCAdmin: boolean;
-  login: (email: string, password?: string) => Promise<boolean>;
+  login: (email: string) => Promise<boolean>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
 }
@@ -200,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string, _password?: string): Promise<boolean> => {
+  const login = async (email: string): Promise<boolean> => {
     const normalizedEmail = email.toLowerCase().trim();
     const foundUser = USER_BY_EMAIL[normalizedEmail];
 

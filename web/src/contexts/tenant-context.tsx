@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import type { TenantConfig, TenantSummary, TenantTerminology, Currency, Locale } from '@/types/tenant';
+import type { TenantConfig, TenantSummary, TenantTerminology, Currency } from '@/types/tenant';
 import { DEFAULT_TERMINOLOGY, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
 
 interface TenantContextState {
@@ -47,49 +47,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [isCCAdmin, setIsCCAdmin] = useState(false);
 
-  useEffect(() => {
-    initializeTenant();
-  }, []);
-
-  const initializeTenant = async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Check if user is CC Admin
-      const userRole = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_USER_ROLE) : null;
-      const isAdmin = userRole === 'cc_admin';
-      setIsCCAdmin(isAdmin);
-
-      // Load available tenants for CC Admin
-      if (isAdmin) {
-        try {
-          const registry = await import('@/data/tenants/index.json');
-          setAvailableTenants(registry.tenants || []);
-        } catch {
-          console.warn('Failed to load tenant registry');
-        }
-      }
-
-      // Check for stored tenant
-      const storedTenantId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_TENANT) : null;
-
-      if (storedTenantId) {
-        await loadTenant(storedTenantId);
-      } else if (isAdmin) {
-        // CC Admin without selected tenant - will redirect in component
-        setIsLoading(false);
-      } else {
-        // Default tenant for regular users
-        await loadTenant('techcorp');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to initialize tenant');
-      setIsLoading(false);
-    }
-  };
-
-  const loadTenant = async (tenantId: string): Promise<void> => {
+  const loadTenant = useCallback(async (tenantId: string): Promise<void> => {
     try {
       const config = await loadTenantConfig(tenantId);
       setCurrentTenant(config);
@@ -102,7 +60,49 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       throw err;
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const initializeTenant = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        // Check if user is CC Admin
+        const userRole = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_USER_ROLE) : null;
+        const isAdmin = userRole === 'cc_admin';
+        setIsCCAdmin(isAdmin);
+
+        // Load available tenants for CC Admin
+        if (isAdmin) {
+          try {
+            const registry = await import('@/data/tenants/index.json');
+            setAvailableTenants((registry.tenants || []) as TenantSummary[]);
+          } catch {
+            console.warn('Failed to load tenant registry');
+          }
+        }
+
+        // Check for stored tenant
+        const storedTenantId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_TENANT) : null;
+
+        if (storedTenantId) {
+          await loadTenant(storedTenantId);
+        } else if (isAdmin) {
+          // CC Admin without selected tenant - will redirect in component
+          setIsLoading(false);
+        } else {
+          // Default tenant for regular users
+          await loadTenant('techcorp');
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to initialize tenant');
+        setIsLoading(false);
+      }
+    };
+
+    initializeTenant();
+  }, [loadTenant]);
 
   const setTenant = useCallback(async (tenantId: string): Promise<void> => {
     setIsLoading(true);
@@ -116,7 +116,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [router]);
+  }, [router, loadTenant]);
 
   const clearTenant = useCallback((): void => {
     setCurrentTenant(null);
@@ -134,7 +134,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       delete tenantConfigCache[currentTenant.id];
       await loadTenant(currentTenant.id);
     }
-  }, [currentTenant]);
+  }, [currentTenant, loadTenant]);
 
   return (
     <TenantContext.Provider value={{

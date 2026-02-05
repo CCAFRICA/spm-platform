@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { LogOut, Settings, User, Shield, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { usePermissions } from '@/hooks/use-permissions';
+import { isCCAdmin, isTenantUser } from '@/types/auth';
 
 export function UserMenu() {
   const router = useRouter();
@@ -42,12 +43,22 @@ export function UserMenu() {
 
   const getRoleColor = (role: string) => {
     const colors: Record<string, string> = {
-      'Sales Rep': 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-      'Manager': 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-      'VP': 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
-      'Admin': 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
+      'cc_admin': 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
+      'admin': 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
+      'manager': 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
+      'sales_rep': 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
     };
     return colors[role] || 'bg-gray-100 text-gray-700';
+  };
+
+  const getRoleLabel = (role: string) => {
+    const labels: Record<string, string> = {
+      'cc_admin': 'Platform Admin',
+      'admin': 'Admin',
+      'manager': 'Manager',
+      'sales_rep': 'Sales Rep',
+    };
+    return labels[role] || role;
   };
 
   return (
@@ -65,7 +76,7 @@ export function UserMenu() {
           </Avatar>
           <div className="text-left hidden md:block">
             <p className="text-sm font-medium leading-none">{user.name}</p>
-            <p className="text-xs text-muted-foreground">{user.role}</p>
+            <p className="text-xs text-muted-foreground">{getRoleLabel(user.role)}</p>
           </div>
           <ChevronDown className="h-4 w-4 text-muted-foreground hidden md:block" />
         </motion.button>
@@ -86,11 +97,13 @@ export function UserMenu() {
                 </span>
                 <div className="flex gap-1 mt-1">
                   <Badge variant="outline" className="w-fit text-xs">
-                    {user.role}
+                    {isCCAdmin(user) ? 'Platform Admin' : user.role}
                   </Badge>
-                  <Badge variant="secondary" className="w-fit text-xs">
-                    {user.region}
-                  </Badge>
+                  {isTenantUser(user) && user.regionId && (
+                    <Badge variant="secondary" className="w-fit text-xs">
+                      {user.regionId}
+                    </Badge>
+                  )}
                 </div>
               </div>
             </DropdownMenuLabel>

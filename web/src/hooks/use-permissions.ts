@@ -1,27 +1,32 @@
 import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin, isTenantUser } from '@/types/auth';
 
 export function usePermissions() {
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, isCCAdmin: isCCAdminUser } = useAuth();
+
+  // CC Admin has all permissions
+  const isAdmin = isCCAdminUser || user?.role === 'admin';
 
   return {
     // Role checks
-    isAdmin: user?.role === 'Admin',
-    isVP: user?.role === 'VP',
-    isManager: user?.role === 'Manager' || user?.role === 'VP',
-    isRep: user?.role === 'Sales Rep',
+    isCCAdmin: isCCAdminUser,
+    isAdmin,
+    isManager: user?.role === 'manager' || isAdmin,
+    isRep: user?.role === 'sales_rep',
 
     // Permission checks
     hasPermission,
 
-    // Common shortcuts
-    canViewTeam: hasPermission('view_team_compensation'),
-    canViewAll: hasPermission('view_all_compensation'),
-    canApprove: hasPermission('approve_adjustment_tier2') || hasPermission('approve_adjustment_tier3'),
-    canEditConfig: hasPermission('edit_terminology'),
-    canManageUsers: hasPermission('manage_users'),
-    canViewAudit: hasPermission('view_audit_log'),
+    // Common shortcuts - CC Admin has all permissions
+    canViewTeam: isCCAdminUser || hasPermission('view_team_compensation'),
+    canViewAll: isCCAdminUser || hasPermission('view_all_compensation'),
+    canApprove: isCCAdminUser || hasPermission('approve_adjustment_tier2') || hasPermission('approve_adjustment_tier3'),
+    canEditConfig: isCCAdminUser || hasPermission('edit_terminology'),
+    canManageUsers: isCCAdminUser || hasPermission('manage_users'),
+    canViewAudit: isCCAdminUser || hasPermission('view_audit_log'),
+    canImportData: isCCAdminUser || hasPermission('import_transactions'),
 
-    // Data access level
-    dataAccessLevel: user?.dataAccessLevel || 'own',
+    // Data access level - CC Admin has 'all' access
+    dataAccessLevel: user && isCCAdmin(user) ? 'all' : (user && isTenantUser(user) ? user.dataAccessLevel : 'own'),
   };
 }

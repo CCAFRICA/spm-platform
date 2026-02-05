@@ -1,8 +1,9 @@
-import customersData from '@/data/customers.json';
-import productsData from '@/data/products.json';
-import transactionDetailsData from '@/data/transaction-details.json';
-import financialSummariesData from '@/data/financial-summaries.json';
-import importHistoryData from '@/data/import-history.json';
+// Default to TechCorp tenant data for backwards compatibility
+import customersData from '@/data/tenants/techcorp/customers.json';
+import productsData from '@/data/tenants/techcorp/products.json';
+import transactionDetailsData from '@/data/tenants/techcorp/transactions.json';
+import financialSummariesData from '@/data/tenants/techcorp/financial-summaries.json';
+import importHistoryData from '@/data/tenants/techcorp/import-history.json';
 
 // Types
 export interface Customer {
