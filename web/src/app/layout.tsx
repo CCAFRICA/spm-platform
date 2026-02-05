@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import { Sidebar } from "@/components/navigation/Sidebar";
-import { Navbar } from "@/components/navigation/Navbar";
 import { AuthProvider } from "@/contexts/auth-context";
 import { ConfigProvider } from "@/contexts/config-context";
 import { LocaleProvider } from "@/contexts/locale-context";
 import { TenantProvider } from "@/contexts/tenant-context";
+import { AuthShell } from "@/components/layout/auth-shell";
 import { Toaster } from "sonner";
 
 const geistSans = localFont({
@@ -39,11 +38,7 @@ export default function RootLayout({
           <TenantProvider>
             <LocaleProvider>
               <ConfigProvider>
-                <Sidebar />
-                <div className="md:pl-64">
-                  <Navbar />
-                  <main>{children}</main>
-                </div>
+                <AuthShell>{children}</AuthShell>
                 <Toaster position="top-right" richColors closeButton />
               </ConfigProvider>
             </LocaleProvider>
