@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useTenant } from '@/contexts/tenant-context';
+import { AccessControl, MANAGER_ROLES } from '@/components/access-control';
 
 interface LoginAudit {
   id: string;
@@ -67,6 +68,14 @@ const techCorpLoginAudits: LoginAudit[] = [
 ];
 
 export default function LoginAuditsPage() {
+  return (
+    <AccessControl allowedRoles={MANAGER_ROLES}>
+      <LoginAuditsPageContent />
+    </AccessControl>
+  );
+}
+
+function LoginAuditsPageContent() {
   const { currentTenant } = useTenant();
   const isSpanish = currentTenant?.locale === 'es-MX';
   const isHospitality = currentTenant?.industry === 'Hospitality';

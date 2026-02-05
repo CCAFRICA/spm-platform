@@ -26,8 +26,19 @@ import { pageVariants, containerVariants, itemVariants, modalVariants } from '@/
 import { TableSkeleton } from '@/components/ui/skeleton-loaders';
 import { LoadingButton } from '@/components/ui/loading-button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { AccessControl, ADMIN_ROLES } from '@/components/access-control';
+import { useTenant } from '@/contexts/tenant-context';
 
 export default function AuditPage() {
+  return (
+    <AccessControl allowedRoles={ADMIN_ROLES}>
+      <AuditPageContent />
+    </AccessControl>
+  );
+}
+
+function AuditPageContent() {
+  const { currentTenant } = useTenant();
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -39,7 +50,8 @@ export default function AuditPage() {
 
   useEffect(() => {
     loadLogs();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTenant?.id]);
 
   const loadLogs = async (showRefresh = false) => {
     if (showRefresh) {
@@ -51,14 +63,19 @@ export default function AuditPage() {
     // Simulate network delay for demo
     await new Promise(r => setTimeout(r, showRefresh ? 500 : 800));
 
-    const data = audit.getAuditLogs({ limit: 500 });
-    setLogs(data);
+    // Filter audit logs by current tenant
+    const allLogs = audit.getAuditLogs({ limit: 500 });
+    const tenantFilteredLogs = currentTenant
+      ? allLogs.filter(log => !log.metadata?.tenantId || log.metadata.tenantId === currentTenant.id)
+      : allLogs;
+
+    setLogs(tenantFilteredLogs);
     setIsLoading(false);
     setIsRefreshing(false);
 
     if (showRefresh) {
       toast.success('Refreshed', {
-        description: `Loaded ${data.length} audit entries`
+        description: `Loaded ${tenantFilteredLogs.length} audit entries`
       });
     }
   };

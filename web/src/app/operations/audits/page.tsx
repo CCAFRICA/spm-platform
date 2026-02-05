@@ -40,6 +40,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { useTenant } from '@/contexts/tenant-context';
+import { AccessControl, MANAGER_ROLES } from '@/components/access-control';
 
 interface FieldChange {
   field: string;
@@ -208,6 +209,14 @@ const techCorpChangeAudits: ChangeAudit[] = [
 ];
 
 export default function AuditsPage() {
+  return (
+    <AccessControl allowedRoles={MANAGER_ROLES}>
+      <AuditsPageContent />
+    </AccessControl>
+  );
+}
+
+function AuditsPageContent() {
   const { currentTenant } = useTenant();
   const isSpanish = currentTenant?.locale === 'es-MX';
   const isHospitality = currentTenant?.industry === 'Hospitality';
