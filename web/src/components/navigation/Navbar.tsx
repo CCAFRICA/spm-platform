@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -23,6 +22,7 @@ import {
 import { UserMenu } from "@/components/layout/user-menu";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { TenantSwitcher } from "@/components/tenant/tenant-switcher";
+import { GlobalSearch } from "@/components/search/global-search";
 
 interface NavbarProps {
   onMenuToggle?: () => void;
@@ -56,14 +56,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
 
         {/* Center - Search Bar */}
         <div className="hidden flex-1 max-w-xl mx-auto md:flex">
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              type="search"
-              placeholder="Search transactions, employees, reports..."
-              className="w-full pl-10 bg-slate-50 border-slate-200 focus:bg-white dark:bg-slate-900 dark:border-slate-700"
-            />
-          </div>
+          <GlobalSearch />
         </div>
 
         {/* Right Section - Actions */}
