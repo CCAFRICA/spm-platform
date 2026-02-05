@@ -7,24 +7,34 @@ import { Upload, FileText, X, CheckCircle, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+interface FileWithContent {
+  file: File;
+  content: string;
+}
+
 interface FileUploadProps {
   onFileSelect: (file: File, content: string) => void;
+  onFilesSelect?: (files: FileWithContent[]) => void;
   accept?: Record<string, string[]>;
   maxSize?: number;
+  multiple?: boolean;
   className?: string;
 }
 
 export function FileUpload({
   onFileSelect,
+  onFilesSelect,
   accept = {
     'text/csv': ['.csv'],
+    'text/tab-separated-values': ['.tsv', '.txt'],
     'application/vnd.ms-excel': ['.xls'],
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
   },
   maxSize = 10 * 1024 * 1024, // 10MB
+  multiple = true,
   className,
 }: FileUploadProps) {
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -40,33 +50,49 @@ export function FileUpload({
 
       if (acceptedFiles.length === 0) return;
 
-      const file = acceptedFiles[0];
-      setUploadedFile(file);
+      setUploadedFiles(acceptedFiles);
       setIsProcessing(true);
 
       try {
-        const content = await file.text();
-        onFileSelect(file, content);
+        if (multiple && onFilesSelect) {
+          // Handle multiple files
+          const filesWithContent: FileWithContent[] = await Promise.all(
+            acceptedFiles.map(async (file) => ({
+              file,
+              content: await file.text(),
+            }))
+          );
+          onFilesSelect(filesWithContent);
+        } else {
+          // Handle single file (backward compatibility)
+          const file = acceptedFiles[0];
+          const content = await file.text();
+          onFileSelect(file, content);
+        }
       } catch {
         setError('Failed to read file content');
-        setUploadedFile(null);
+        setUploadedFiles([]);
       } finally {
         setIsProcessing(false);
       }
     },
-    [onFileSelect]
+    [onFileSelect, onFilesSelect, multiple]
   );
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     onDrop,
     accept,
     maxSize,
-    multiple: false,
+    multiple,
   });
 
-  const clearFile = () => {
-    setUploadedFile(null);
+  const clearFiles = () => {
+    setUploadedFiles([]);
     setError(null);
+  };
+
+  const removeFile = (index: number) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const formatFileSize = (bytes: number) => {
@@ -78,7 +104,7 @@ export function FileUpload({
   return (
     <div className={className}>
       <AnimatePresence mode="wait">
-        {!uploadedFile ? (
+        {uploadedFiles.length === 0 ? (
           <motion.div
             key="dropzone"
             initial={{ opacity: 0 }}
@@ -107,11 +133,12 @@ export function FileUpload({
                 />
               </motion.div>
               <p className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-1">
-                {isDragActive ? 'Drop your file here' : 'Drag and drop your file here'}
+                {isDragActive ? 'Drop your file(s) here' : 'Drag and drop your file(s) here'}
               </p>
               <p className="text-sm text-slate-500 mb-4">or click to browse</p>
               <p className="text-xs text-slate-400">
-                Supported formats: CSV, XLS, XLSX (max {formatFileSize(maxSize)})
+                Supported formats: CSV, TSV, XLS, XLSX (max {formatFileSize(maxSize)})
+                {multiple && ' • Multiple files supported'}
               </p>
             </div>
           </motion.div>
@@ -121,40 +148,54 @@ export function FileUpload({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="border rounded-lg p-4 bg-slate-50 dark:bg-slate-900"
+            className="space-y-2"
           >
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
-                <FileText className="h-6 w-6 text-emerald-600" />
+            {uploadedFiles.map((file, index) => (
+              <div
+                key={`${file.name}-${index}`}
+                className="border rounded-lg p-4 bg-slate-50 dark:bg-slate-900"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
+                    <FileText className="h-6 w-6 text-emerald-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-700 dark:text-slate-200 truncate">
+                      {file.name}
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      {formatFileSize(file.size)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isProcessing ? (
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        className="h-5 w-5 border-2 border-sky-500 border-t-transparent rounded-full"
+                      />
+                    ) : (
+                      <CheckCircle className="h-5 w-5 text-emerald-500" />
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeFile(index)}
+                      className="h-8 w-8"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-slate-700 dark:text-slate-200 truncate">
-                  {uploadedFile.name}
-                </p>
-                <p className="text-sm text-slate-500">
-                  {formatFileSize(uploadedFile.size)}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {isProcessing ? (
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    className="h-5 w-5 border-2 border-sky-500 border-t-transparent rounded-full"
-                  />
-                ) : (
-                  <CheckCircle className="h-5 w-5 text-emerald-500" />
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={clearFile}
-                  className="h-8 w-8"
-                >
-                  <X className="h-4 w-4" />
+            ))}
+            {uploadedFiles.length > 1 && (
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" onClick={clearFiles}>
+                  Clear all
                 </Button>
               </div>
-            </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
