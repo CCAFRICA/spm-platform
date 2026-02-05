@@ -1,0 +1,7 @@
+{
+  "turnos": [
+    { "turno_id": 1, "nombre": "Matutino", "nombre_en": "Morning", "hora_inicio": "07:00:00", "hora_fin": "15:00:00", "multiplier": 1.0 },
+    { "turno_id": 2, "nombre": "Vespertino", "nombre_en": "Afternoon", "hora_inicio": "15:00:00", "hora_fin": "23:00:00", "multiplier": 1.0 },
+    { "turno_id": 3, "nombre": "Nocturno", "nombre_en": "Night", "hora_inicio": "23:00:00", "hora_fin": "07:00:00", "multiplier": 1.15 }
+  ]
+}

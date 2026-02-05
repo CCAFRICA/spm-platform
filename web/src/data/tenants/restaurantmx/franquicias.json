@@ -1,0 +1,11 @@
+{
+  "franquicias": [
+    { "numero_franquicia": "MX-GDL-001", "nombre": "Guadalajara Centro", "ciudad": "Guadalajara", "estado": "Jalisco", "region": "West", "tier": "Premium", "target_avg_ticket": 285.00, "fecha_apertura": "2021-03-15", "gerente": "Roberto Sánchez", "status": "active" },
+    { "numero_franquicia": "MX-GDL-002", "nombre": "Guadalajara Chapultepec", "ciudad": "Guadalajara", "estado": "Jalisco", "region": "West", "tier": "Standard", "target_avg_ticket": 245.00, "fecha_apertura": "2022-06-01", "gerente": "Ana Martínez", "status": "active" },
+    { "numero_franquicia": "MX-MTY-001", "nombre": "Monterrey San Pedro", "ciudad": "Monterrey", "estado": "Nuevo León", "region": "North", "tier": "Premium", "target_avg_ticket": 320.00, "fecha_apertura": "2020-11-20", "gerente": "Carlos Rodríguez", "status": "active" },
+    { "numero_franquicia": "MX-MTY-002", "nombre": "Monterrey Valle", "ciudad": "Monterrey", "estado": "Nuevo León", "region": "North", "tier": "Standard", "target_avg_ticket": 275.00, "fecha_apertura": "2023-01-10", "gerente": "Laura Hernández", "status": "active" },
+    { "numero_franquicia": "MX-CDMX-001", "nombre": "CDMX Polanco", "ciudad": "Ciudad de México", "estado": "CDMX", "region": "Central", "tier": "Premium", "target_avg_ticket": 380.00, "fecha_apertura": "2019-08-05", "gerente": "Fernando López", "status": "active" },
+    { "numero_franquicia": "MX-CDMX-002", "nombre": "CDMX Roma Norte", "ciudad": "Ciudad de México", "estado": "CDMX", "region": "Central", "tier": "Standard", "target_avg_ticket": 295.00, "fecha_apertura": "2021-02-28", "gerente": "Patricia Gómez", "status": "active" },
+    { "numero_franquicia": "MX-CDMX-003", "nombre": "CDMX Santa Fe", "ciudad": "Ciudad de México", "estado": "CDMX", "region": "Central", "tier": "Premium", "target_avg_ticket": 350.00, "fecha_apertura": "2022-09-15", "gerente": "Miguel Torres", "status": "active" }
+  ]
+}
