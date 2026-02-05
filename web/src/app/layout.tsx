@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/navigation/Sidebar";
 import { Navbar } from "@/components/navigation/Navbar";
 import { AuthProvider } from "@/contexts/auth-context";
 import { ConfigProvider } from "@/contexts/config-context";
+import { Toaster } from "sonner";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -39,6 +40,7 @@ export default function RootLayout({
               <Navbar />
               <main>{children}</main>
             </div>
+            <Toaster position="top-right" richColors closeButton />
           </ConfigProvider>
         </AuthProvider>
       </body>

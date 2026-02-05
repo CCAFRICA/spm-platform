@@ -2,20 +2,33 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { User, Users, Building, Settings, DollarSign, Check } from 'lucide-react';
+import { User, Users, Building, Settings, DollarSign, Check, Loader2 } from 'lucide-react';
 import { useAuth, DEMO_USERS } from '@/contexts/auth-context';
+import { containerVariants, itemVariants } from '@/lib/animations';
+import { LoadingButton } from '@/components/ui/loading-button';
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (selectedId) {
+      setIsLoading(true);
+      await new Promise(r => setTimeout(r, 800));
+
       login(selectedId);
+      const user = DEMO_USERS.find(u => u.id === selectedId);
+
+      toast.success(`Welcome, ${user?.name}!`, {
+        description: `Logged in as ${user?.role}`
+      });
+
       router.push('/');
     }
   };
@@ -42,81 +55,136 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-4">
-      <div className="w-full max-w-2xl">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="w-full max-w-2xl"
+      >
         {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-navy-600 to-sky-500 text-white mb-4">
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.1 }}
+          className="text-center mb-8"
+        >
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-slate-700 to-sky-500 text-white mb-4 shadow-lg">
             <DollarSign className="h-8 w-8" />
           </div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50">ClearComp</h1>
-          <p className="text-muted-foreground">Sales Performance Management</p>
-        </div>
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-50">ClearComp</h1>
+          <p className="text-muted-foreground text-sm md:text-base">Sales Performance Management</p>
+        </motion.div>
 
         <Card className="border-0 shadow-xl">
-          <CardHeader>
-            <CardTitle>Select Demo User</CardTitle>
+          <CardHeader className="px-4 md:px-6">
+            <CardTitle className="text-lg md:text-xl">Select Demo User</CardTitle>
             <CardDescription>
               Choose a persona to explore different permission levels
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 px-4 md:px-6">
             {/* User Selection */}
-            <div className="grid gap-3">
-              {DEMO_USERS.map((demoUser) => (
-                <button
+            <motion.div
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+              className="grid gap-3"
+            >
+              {DEMO_USERS.map((demoUser, index) => (
+                <motion.button
                   key={demoUser.id}
+                  variants={itemVariants}
+                  custom={index}
                   onClick={() => setSelectedId(demoUser.id)}
-                  className={`w-full p-4 rounded-lg border-2 transition-all text-left ${
+                  disabled={isLoading}
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  className={`w-full p-3 md:p-4 rounded-lg border-2 transition-all text-left disabled:opacity-50 ${
                     selectedId === demoUser.id
-                      ? 'border-primary bg-primary/5'
+                      ? 'border-primary bg-primary/5 shadow-md'
                       : 'border-transparent bg-muted/50 hover:bg-muted'
                   }`}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className={`p-2 rounded-full ${getRoleColor(demoUser.role)}`}>
+                  <div className="flex items-start gap-3 md:gap-4">
+                    <motion.div
+                      animate={selectedId === demoUser.id ? { scale: [1, 1.1, 1] } : {}}
+                      transition={{ duration: 0.3 }}
+                      className={`p-2 rounded-full flex-shrink-0 ${getRoleColor(demoUser.role)}`}
+                    >
                       {getRoleIcon(demoUser.role)}
-                    </div>
+                    </motion.div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <h3 className="font-semibold truncate">{demoUser.name}</h3>
-                        <Badge variant="outline">{demoUser.role}</Badge>
+                        <h3 className="font-semibold truncate text-sm md:text-base">{demoUser.name}</h3>
+                        <Badge variant="outline" className="hidden sm:flex">{demoUser.role}</Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground truncate">
+                      <p className="text-xs md:text-sm text-muted-foreground truncate">
                         {demoUser.email}
                       </p>
                       <div className="flex gap-2 mt-2 flex-wrap">
+                        <Badge variant="secondary" className="text-xs sm:hidden">
+                          {demoUser.role}
+                        </Badge>
                         <Badge variant="secondary" className="text-xs">
                           {demoUser.region}
                         </Badge>
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge variant="secondary" className="text-xs hidden sm:flex">
                           {demoUser.dataAccessLevel} access
                         </Badge>
                       </div>
                     </div>
-                    {selectedId === demoUser.id && (
-                      <Check className="h-5 w-5 text-primary flex-shrink-0" />
-                    )}
+                    <AnimatePresence>
+                      {selectedId === demoUser.id && (
+                        <motion.div
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          exit={{ scale: 0 }}
+                          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                          className="flex-shrink-0"
+                        >
+                          <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
+                            <Check className="h-4 w-4 text-primary-foreground" />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                </button>
+                </motion.button>
               ))}
-            </div>
+            </motion.div>
 
             {/* Login Button */}
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={handleLogin}
-              disabled={!selectedId}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
             >
-              Continue as {DEMO_USERS.find((u) => u.id === selectedId)?.name || '...'}
-            </Button>
+              <LoadingButton
+                className="w-full"
+                size="lg"
+                onClick={handleLogin}
+                disabled={!selectedId}
+                loading={isLoading}
+                loadingText="Signing in..."
+              >
+                {isLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Continue as {DEMO_USERS.find((u) => u.id === selectedId)?.name || '...'}
+              </LoadingButton>
+            </motion.div>
 
-            <p className="text-xs text-center text-muted-foreground">
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6 }}
+              className="text-xs text-center text-muted-foreground"
+            >
               Demo environment • Azure AD B2C in production
-            </p>
+            </motion.p>
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
     </div>
   );
 }

@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -16,15 +17,21 @@ import {
 } from '@/components/ui/dialog';
 import {
   Search, RefreshCw, Download, Shield, Eye, Filter,
-  LogIn, LogOut, Plus, Pencil, Trash, FileText, Check, X
+  LogIn, LogOut, Plus, Pencil, Trash, FileText, Check, X, Clock
 } from 'lucide-react';
 import { audit } from '@/lib/audit-service';
 import { AuditLogEntry, AuditAction } from '@/types/audit';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
+import { pageVariants, containerVariants, itemVariants, modalVariants } from '@/lib/animations';
+import { TableSkeleton } from '@/components/ui/skeleton-loaders';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export default function AuditPage() {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState<string>('all');
   const [entityFilter, setEntityFilter] = useState<string>('all');
@@ -34,11 +41,26 @@ export default function AuditPage() {
     loadLogs();
   }, []);
 
-  const loadLogs = () => {
-    setIsLoading(true);
+  const loadLogs = async (showRefresh = false) => {
+    if (showRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+
+    // Simulate network delay for demo
+    await new Promise(r => setTimeout(r, showRefresh ? 500 : 800));
+
     const data = audit.getAuditLogs({ limit: 500 });
     setLogs(data);
     setIsLoading(false);
+    setIsRefreshing(false);
+
+    if (showRefresh) {
+      toast.success('Refreshed', {
+        description: `Loaded ${data.length} audit entries`
+      });
+    }
   };
 
   const filteredLogs = logs.filter((log) => {
@@ -54,7 +76,10 @@ export default function AuditPage() {
     return matchesSearch && matchesAction && matchesEntity;
   });
 
-  const handleExport = () => {
+  const handleExport = async () => {
+    setIsExporting(true);
+    await new Promise(r => setTimeout(r, 1000));
+
     const csv = audit.exportAsCSV(filteredLogs);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -63,6 +88,11 @@ export default function AuditPage() {
     a.download = `audit-log-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+
+    setIsExporting(false);
+    toast.success('Export Complete', {
+      description: `Exported ${filteredLogs.length} audit entries to CSV`
+    });
   };
 
   const getActionIcon = (action: AuditAction) => {
@@ -98,44 +128,111 @@ export default function AuditPage() {
     return (
       <Badge variant={variants[action] || 'outline'} className="flex items-center gap-1 w-fit">
         {getActionIcon(action)}
-        {action.replace('_', ' ')}
+        <span className="hidden sm:inline">{action.replace('_', ' ')}</span>
       </Badge>
     );
   };
 
+  // Stats for the header
+  const stats = {
+    total: logs.length,
+    today: logs.filter(l => new Date(l.timestamp).toDateString() === new Date().toDateString()).length,
+    actions: new Set(logs.map(l => l.action)).size,
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-      <div className="container mx-auto px-6 py-8">
+    <motion.div
+      variants={pageVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900"
+    >
+      <div className="container mx-auto px-4 md:px-6 py-6 md:py-8">
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-lg">
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+                className="p-2 bg-primary/10 rounded-lg"
+              >
                 <Shield className="h-6 w-6 text-primary" />
-              </div>
+              </motion.div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">Audit Log</h1>
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+                  Audit Log
+                </h1>
                 <p className="text-muted-foreground text-sm">
                   Complete history of system changes • SOC2 Compliant
                 </p>
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={loadLogs}>
+              <LoadingButton
+                variant="outline"
+                onClick={() => loadLogs(true)}
+                loading={isRefreshing}
+                loadingText="Refreshing..."
+                size="sm"
+                className="flex-1 sm:flex-none"
+              >
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh
-              </Button>
-              <Button variant="outline" onClick={handleExport}>
+              </LoadingButton>
+              <LoadingButton
+                variant="outline"
+                onClick={handleExport}
+                loading={isExporting}
+                loadingText="Exporting..."
+                size="sm"
+                className="flex-1 sm:flex-none"
+              >
                 <Download className="mr-2 h-4 w-4" />
-                Export CSV
-              </Button>
+                Export
+              </LoadingButton>
             </div>
           </div>
 
+          {/* Stats Cards */}
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="visible"
+            className="grid gap-3 md:gap-4 grid-cols-3"
+          >
+            <motion.div variants={itemVariants}>
+              <Card className="border-0 shadow-md">
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Total Entries</p>
+                  <p className="text-2xl font-bold">{stats.total}</p>
+                </CardContent>
+              </Card>
+            </motion.div>
+            <motion.div variants={itemVariants}>
+              <Card className="border-0 shadow-md">
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Today</p>
+                  <p className="text-2xl font-bold">{stats.today}</p>
+                </CardContent>
+              </Card>
+            </motion.div>
+            <motion.div variants={itemVariants}>
+              <Card className="border-0 shadow-md">
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Action Types</p>
+                  <p className="text-2xl font-bold">{stats.actions}</p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </motion.div>
+
           {/* Filters */}
           <Card className="border-0 shadow-lg">
-            <CardContent className="pt-6">
-              <div className="flex gap-4">
+            <CardContent className="pt-4 md:pt-6">
+              <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -146,7 +243,7 @@ export default function AuditPage() {
                   />
                 </div>
                 <Select value={actionFilter} onValueChange={setActionFilter}>
-                  <SelectTrigger className="w-[150px]">
+                  <SelectTrigger className="w-full sm:w-[150px]">
                     <Filter className="mr-2 h-4 w-4" />
                     <SelectValue placeholder="Action" />
                   </SelectTrigger>
@@ -163,7 +260,7 @@ export default function AuditPage() {
                   </SelectContent>
                 </Select>
                 <Select value={entityFilter} onValueChange={setEntityFilter}>
-                  <SelectTrigger className="w-[150px]">
+                  <SelectTrigger className="w-full sm:w-[150px]">
                     <SelectValue placeholder="Entity" />
                   </SelectTrigger>
                   <SelectContent>
@@ -180,19 +277,17 @@ export default function AuditPage() {
             </CardContent>
           </Card>
 
-          {/* Log Table */}
-          <Card className="border-0 shadow-lg">
+          {/* Desktop Table View */}
+          <Card className="border-0 shadow-lg hidden md:block">
             <CardContent className="pt-6">
               {isLoading ? (
-                <div className="flex justify-center py-8">
-                  <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
+                <TableSkeleton rows={10} cols={6} />
               ) : filteredLogs.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Shield className="mx-auto h-12 w-12 mb-4 opacity-50" />
-                  <p>No audit logs found</p>
-                  <p className="text-sm">Actions will appear here as they occur</p>
-                </div>
+                <EmptyState
+                  icon={Shield}
+                  title="No audit logs found"
+                  description="Actions will appear here as they occur"
+                />
               ) : (
                 <>
                   <Table>
@@ -207,8 +302,15 @@ export default function AuditPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredLogs.slice(0, 100).map((log) => (
-                        <TableRow key={log.id}>
+                      {filteredLogs.slice(0, 100).map((log, index) => (
+                        <motion.tr
+                          key={log.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.02 }}
+                          className="cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => setSelectedLog(log)}
+                        >
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                             {formatDistanceToNow(new Date(log.timestamp), { addSuffix: true })}
                           </TableCell>
@@ -232,15 +334,18 @@ export default function AuditPage() {
                               : log.reason || '—'}
                           </TableCell>
                           <TableCell>
-                            <Button
+                            <LoadingButton
                               variant="ghost"
                               size="sm"
-                              onClick={() => setSelectedLog(log)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedLog(log);
+                              }}
                             >
                               <Eye className="h-4 w-4" />
-                            </Button>
+                            </LoadingButton>
                           </TableCell>
-                        </TableRow>
+                        </motion.tr>
                       ))}
                     </TableBody>
                   </Table>
@@ -252,79 +357,202 @@ export default function AuditPage() {
             </CardContent>
           </Card>
 
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-3">
+            {isLoading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <Card key={i} className="border-0 shadow-md">
+                  <CardContent className="p-4">
+                    <div className="space-y-2 animate-pulse">
+                      <div className="h-4 bg-muted rounded w-1/3" />
+                      <div className="h-5 bg-muted rounded w-1/2" />
+                      <div className="h-4 bg-muted rounded w-2/3" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : filteredLogs.length === 0 ? (
+              <Card className="border-0 shadow-lg">
+                <CardContent className="pt-6">
+                  <EmptyState
+                    icon={Shield}
+                    title="No audit logs found"
+                    description="Actions will appear here as they occur"
+                  />
+                </CardContent>
+              </Card>
+            ) : (
+              <motion.div
+                variants={containerVariants}
+                initial="hidden"
+                animate="visible"
+                className="space-y-3"
+              >
+                {filteredLogs.slice(0, 50).map((log) => (
+                  <motion.div key={log.id} variants={itemVariants}>
+                    <Card
+                      className="border-0 shadow-md cursor-pointer transition-all hover:shadow-lg active:scale-[0.99]"
+                      onClick={() => setSelectedLog(log)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            {formatDistanceToNow(new Date(log.timestamp), { addSuffix: true })}
+                          </div>
+                          {getActionBadge(log.action)}
+                        </div>
+                        <p className="font-medium">{log.userName || log.userId}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {log.entityType}
+                          {log.entityId && (
+                            <span className="font-mono text-xs ml-1">
+                              #{log.entityId.slice(0, 8)}
+                            </span>
+                          )}
+                        </p>
+                        {(log.changes || log.reason) && (
+                          <p className="text-xs text-muted-foreground mt-2 truncate">
+                            {log.changes
+                              ? `${log.changes.length} field(s) changed`
+                              : log.reason}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  Showing {Math.min(filteredLogs.length, 50)} of {filteredLogs.length} entries
+                </p>
+              </motion.div>
+            )}
+          </div>
+
           {/* Detail Modal */}
           <Dialog open={!!selectedLog} onOpenChange={() => setSelectedLog(null)}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Audit Entry Details</DialogTitle>
-              </DialogHeader>
-              {selectedLog && (
-                <div className="space-y-4 text-sm">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-muted-foreground">Timestamp</p>
-                      <p className="font-mono text-xs">{selectedLog.timestamp}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">User</p>
-                      <p>{selectedLog.userName || selectedLog.userId}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Action</p>
-                      {getActionBadge(selectedLog.action)}
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Entity</p>
-                      <p>
-                        {selectedLog.entityType}
-                        {selectedLog.entityId && (
-                          <span className="font-mono text-xs ml-1">
-                            ({selectedLog.entityId})
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <AnimatePresence mode="wait">
+                {selectedLog && (
+                  <motion.div
+                    key="detail"
+                    variants={modalVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                  >
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <Shield className="h-5 w-5" />
+                        Audit Entry Details
+                      </DialogTitle>
+                    </DialogHeader>
 
-                  {selectedLog.changes && selectedLog.changes.length > 0 && (
-                    <div>
-                      <p className="text-muted-foreground mb-2">Changes</p>
-                      <div className="bg-muted rounded-lg p-3 space-y-2 font-mono text-xs">
-                        {selectedLog.changes.map((change, i) => (
-                          <div key={i}>
-                            <span className="text-muted-foreground">{change.field}:</span>{' '}
-                            <span className="text-red-500 line-through">
-                              {JSON.stringify(change.oldValue)}
-                            </span>{' '}
-                            →{' '}
-                            <span className="text-green-500">
-                              {JSON.stringify(change.newValue)}
-                            </span>
+                    <div className="space-y-4 text-sm mt-4">
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="grid grid-cols-2 gap-4"
+                      >
+                        <div>
+                          <p className="text-muted-foreground text-xs uppercase">Timestamp</p>
+                          <p className="font-mono text-xs mt-1">
+                            {format(new Date(selectedLog.timestamp), 'PPpp')}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground text-xs uppercase">User</p>
+                          <p className="mt-1">{selectedLog.userName || selectedLog.userId}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground text-xs uppercase mb-1">Action</p>
+                          {getActionBadge(selectedLog.action)}
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground text-xs uppercase">Entity</p>
+                          <p className="mt-1">
+                            {selectedLog.entityType}
+                            {selectedLog.entityId && (
+                              <span className="font-mono text-xs ml-1 block truncate">
+                                {selectedLog.entityId}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </motion.div>
+
+                      {selectedLog.changes && selectedLog.changes.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.1 }}
+                        >
+                          <p className="text-muted-foreground text-xs uppercase mb-2">Changes</p>
+                          <div className="bg-muted rounded-lg p-3 space-y-2 font-mono text-xs overflow-x-auto">
+                            {selectedLog.changes.map((change, i) => (
+                              <motion.div
+                                key={i}
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: 0.1 + i * 0.05 }}
+                              >
+                                <span className="text-muted-foreground">{change.field}:</span>{' '}
+                                <span className="text-red-500 line-through">
+                                  {JSON.stringify(change.oldValue)}
+                                </span>{' '}
+                                →{' '}
+                                <span className="text-green-500">
+                                  {JSON.stringify(change.newValue)}
+                                </span>
+                              </motion.div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                        </motion.div>
+                      )}
 
-                  {selectedLog.reason && (
-                    <div>
-                      <p className="text-muted-foreground mb-1">Reason</p>
-                      <p className="bg-muted rounded p-2">{selectedLog.reason}</p>
-                    </div>
-                  )}
+                      {selectedLog.reason && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.15 }}
+                        >
+                          <p className="text-muted-foreground text-xs uppercase mb-1">Reason</p>
+                          <p className="bg-muted rounded p-2">{selectedLog.reason}</p>
+                        </motion.div>
+                      )}
 
-                  {selectedLog.sessionId && (
-                    <div>
-                      <p className="text-muted-foreground">Session ID</p>
-                      <p className="font-mono text-xs">{selectedLog.sessionId}</p>
+                      {selectedLog.metadata && Object.keys(selectedLog.metadata).length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.2 }}
+                        >
+                          <p className="text-muted-foreground text-xs uppercase mb-1">Metadata</p>
+                          <pre className="bg-muted rounded p-2 font-mono text-xs overflow-x-auto">
+                            {JSON.stringify(selectedLog.metadata, null, 2)}
+                          </pre>
+                        </motion.div>
+                      )}
+
+                      {selectedLog.sessionId && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.25 }}
+                        >
+                          <p className="text-muted-foreground text-xs uppercase">Session ID</p>
+                          <p className="font-mono text-xs truncate">{selectedLog.sessionId}</p>
+                        </motion.div>
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </DialogContent>
           </Dialog>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
