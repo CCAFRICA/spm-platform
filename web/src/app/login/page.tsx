@@ -10,10 +10,12 @@ import { User, Users, Building, Settings, DollarSign, Check, Loader2 } from 'luc
 import { useAuth, DEMO_USERS } from '@/contexts/auth-context';
 import { containerVariants, itemVariants } from '@/lib/animations';
 import { LoadingButton } from '@/components/ui/loading-button';
+import { useLocale } from '@/contexts/locale-context';
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
+  const { t } = useLocale();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -25,8 +27,8 @@ export default function LoginPage() {
       login(selectedId);
       const user = DEMO_USERS.find(u => u.id === selectedId);
 
-      toast.success(`Welcome, ${user?.name}!`, {
-        description: `Logged in as ${user?.role}`
+      toast.success(t('auth.welcomeBack', { name: user?.name || '' }), {
+        description: t('auth.loggedInAs', { role: user?.role || '' })
       });
 
       router.push('/');
@@ -71,15 +73,15 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-slate-700 to-sky-500 text-white mb-4 shadow-lg">
             <DollarSign className="h-8 w-8" />
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-50">ClearComp</h1>
-          <p className="text-muted-foreground text-sm md:text-base">Sales Performance Management</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-50">{t('app.name')}</h1>
+          <p className="text-muted-foreground text-sm md:text-base">{t('app.tagline')}</p>
         </motion.div>
 
         <Card className="border-0 shadow-xl">
           <CardHeader className="px-4 md:px-6">
-            <CardTitle className="text-lg md:text-xl">Select Demo User</CardTitle>
+            <CardTitle className="text-lg md:text-xl">{t('auth.selectUser')}</CardTitle>
             <CardDescription>
-              Choose a persona to explore different permission levels
+              {t('auth.selectUserDesc')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-4 md:px-6">

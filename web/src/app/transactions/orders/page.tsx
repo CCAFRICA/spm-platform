@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { audit } from '@/lib/audit-service';
 import { pageVariants, containerVariants, itemVariants } from '@/lib/animations';
+import { useLocale } from '@/contexts/locale-context';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +38,7 @@ const mockTransactions = Array.from({ length: 50 }, (_, i) => ({
 }));
 
 export default function OrdersPage() {
+  const { t } = useLocale();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedTransaction, setSelectedTransaction] = useState<typeof mockTransactions[0] | null>(null);
@@ -132,18 +134,18 @@ export default function OrdersPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-                Orders
+                {t('nav.orders')}
               </h1>
               <p className="text-muted-foreground text-sm md:text-base">
-                View and manage all transaction orders
+                {t('orders.subtitle')}
               </p>
             </div>
             <LoadingButton
               loading={isExporting}
-              loadingText="Exporting..."
+              loadingText={t('common.exporting')}
               onClick={handleExport}
             >
-              <Download className="mr-2 h-4 w-4" />Export
+              <Download className="mr-2 h-4 w-4" />{t('common.export')}
             </LoadingButton>
           </div>
 

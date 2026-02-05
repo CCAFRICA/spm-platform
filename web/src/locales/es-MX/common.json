@@ -1,0 +1,114 @@
+{
+  "app": {
+    "name": "ClearComp",
+    "tagline": "Gestión del Rendimiento de Ventas"
+  },
+  "common": {
+    "export": "Exportar",
+    "exporting": "Exportando...",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "all": "Todos",
+    "allOrders": "Todos los Pedidos"
+  },
+  "orders": {
+    "title": "Pedidos",
+    "subtitle": "Ver y gestionar todos los pedidos de transacciones",
+    "searchPlaceholder": "Buscar pedidos...",
+    "orderId": "ID de Pedido",
+    "date": "Fecha",
+    "customer": "Cliente",
+    "product": "Producto",
+    "salesRep": "Representante",
+    "amount": "Monto",
+    "commission": "Comisión",
+    "status": "Estado",
+    "exportSuccess": "Exportación Completada",
+    "exportDescription": "Se exportaron {{count}} pedidos a CSV"
+  },
+  "nav": {
+    "dashboard": "Panel",
+    "transactions": "Transacciones",
+    "orders": "Pedidos",
+    "performance": "Rendimiento",
+    "goals": "Metas",
+    "plans": "Planes",
+    "approvals": "Aprobaciones",
+    "acceleration": "Aceleración",
+    "insights": "Análisis",
+    "data": "Datos",
+    "import": "Importar",
+    "configuration": "Configuración",
+    "terminology": "Terminología",
+    "admin": "Admin",
+    "auditLog": "Registro de Auditoría"
+  },
+  "actions": {
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "submit": "Enviar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "view": "Ver",
+    "export": "Exportar",
+    "import": "Importar",
+    "refresh": "Actualizar",
+    "reset": "Restablecer",
+    "approve": "Aprobar",
+    "reject": "Rechazar",
+    "close": "Cerrar",
+    "continue": "Continuar",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "clear": "Limpiar"
+  },
+  "status": {
+    "pending": "Pendiente",
+    "approved": "Aprobado",
+    "rejected": "Rechazado",
+    "completed": "Completado",
+    "cancelled": "Cancelado",
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "draft": "Borrador"
+  },
+  "time": {
+    "today": "Hoy",
+    "yesterday": "Ayer",
+    "thisWeek": "Esta Semana",
+    "thisMonth": "Este Mes",
+    "thisQuarter": "Este Trimestre",
+    "thisYear": "Este Año",
+    "allTime": "Todo el Tiempo"
+  },
+  "messages": {
+    "loading": "Cargando...",
+    "saving": "Guardando...",
+    "success": "¡Éxito!",
+    "error": "Ocurrió un error",
+    "noData": "No hay datos disponibles",
+    "noResults": "No se encontraron resultados",
+    "confirmDelete": "¿Estás seguro de que quieres eliminar esto?",
+    "unsavedChanges": "Tienes cambios sin guardar"
+  },
+  "auth": {
+    "login": "Iniciar Sesión",
+    "logout": "Cerrar Sesión",
+    "profile": "Perfil",
+    "settings": "Configuración",
+    "selectUser": "Seleccionar Usuario Demo",
+    "selectUserDesc": "Elige un persona para explorar diferentes niveles de permisos",
+    "continueAs": "Continuar como {{name}}",
+    "welcomeBack": "¡Bienvenido, {{name}}!",
+    "loggedInAs": "Conectado como {{role}}",
+    "loggedOut": "Sesión cerrada",
+    "seeYou": "¡Hasta la próxima!"
+  },
+  "language": {
+    "select": "Seleccionar Idioma",
+    "english": "Inglés",
+    "spanish": "Español"
+  }
+}

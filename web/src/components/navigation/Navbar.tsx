@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { UserMenu } from "@/components/layout/user-menu";
+import { LanguageSwitcher } from "@/components/layout/language-switcher";
 
 interface NavbarProps {
   onMenuToggle?: () => void;
@@ -128,6 +129,9 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Language Switcher */}
+          <LanguageSwitcher />
 
           {/* Settings */}
           <Button variant="ghost" size="icon" className="hidden md:flex">

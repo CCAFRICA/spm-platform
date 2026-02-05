@@ -76,6 +76,12 @@ const navigation: NavItem[] = [
     name: "Data",
     href: "/data",
     icon: Database,
+    children: [
+      { name: "Overview", href: "/data" },
+      { name: "Transactions", href: "/data/transactions" },
+      { name: "Reports", href: "/data/reports" },
+      { name: "Import Data", href: "/data/imports" },
+    ],
   },
   {
     name: "Acceleration",

@@ -1,0 +1,22 @@
+[
+  { "id": "prod-001", "name": "Enterprise Suite", "category": "Software", "type": "Subscription", "basePrice": 50000, "commissionRate": 0.08, "status": "active", "description": "Complete enterprise solution with all modules" },
+  { "id": "prod-002", "name": "Analytics Module", "category": "Software", "type": "Subscription", "basePrice": 15000, "commissionRate": 0.10, "status": "active", "description": "Advanced analytics and reporting capabilities" },
+  { "id": "prod-003", "name": "Cloud Infrastructure", "category": "Infrastructure", "type": "Subscription", "basePrice": 25000, "commissionRate": 0.07, "status": "active", "description": "Scalable cloud hosting and infrastructure" },
+  { "id": "prod-004", "name": "Support Package - Gold", "category": "Services", "type": "Subscription", "basePrice": 8000, "commissionRate": 0.05, "status": "active", "description": "24/7 premium support with dedicated team" },
+  { "id": "prod-005", "name": "Support Package - Silver", "category": "Services", "type": "Subscription", "basePrice": 4000, "commissionRate": 0.05, "status": "active", "description": "Business hours support with priority queue" },
+  { "id": "prod-006", "name": "Data Integration Hub", "category": "Software", "type": "Subscription", "basePrice": 20000, "commissionRate": 0.09, "status": "active", "description": "Connect and sync data across all systems" },
+  { "id": "prod-007", "name": "Mobile App Suite", "category": "Software", "type": "Subscription", "basePrice": 12000, "commissionRate": 0.08, "status": "active", "description": "Native iOS and Android applications" },
+  { "id": "prod-008", "name": "Security Module", "category": "Software", "type": "Subscription", "basePrice": 18000, "commissionRate": 0.09, "status": "active", "description": "Advanced security and compliance features" },
+  { "id": "prod-009", "name": "Implementation Services", "category": "Services", "type": "One-time", "basePrice": 30000, "commissionRate": 0.06, "status": "active", "description": "Full implementation and onboarding" },
+  { "id": "prod-010", "name": "Training Program", "category": "Services", "type": "One-time", "basePrice": 5000, "commissionRate": 0.04, "status": "active", "description": "Comprehensive user training package" },
+  { "id": "prod-011", "name": "Custom Development", "category": "Services", "type": "One-time", "basePrice": 40000, "commissionRate": 0.07, "status": "active", "description": "Custom feature development" },
+  { "id": "prod-012", "name": "API Access - Standard", "category": "Software", "type": "Subscription", "basePrice": 6000, "commissionRate": 0.06, "status": "active", "description": "Standard API access with rate limits" },
+  { "id": "prod-013", "name": "API Access - Premium", "category": "Software", "type": "Subscription", "basePrice": 15000, "commissionRate": 0.08, "status": "active", "description": "Unlimited API access with priority" },
+  { "id": "prod-014", "name": "Workflow Automation", "category": "Software", "type": "Subscription", "basePrice": 10000, "commissionRate": 0.09, "status": "active", "description": "Automated business workflows" },
+  { "id": "prod-015", "name": "Compliance Package", "category": "Software", "type": "Subscription", "basePrice": 22000, "commissionRate": 0.08, "status": "active", "description": "SOC2, HIPAA, GDPR compliance tools" },
+  { "id": "prod-016", "name": "Starter Bundle", "category": "Software", "type": "Subscription", "basePrice": 8000, "commissionRate": 0.10, "status": "active", "description": "Entry-level package for small teams" },
+  { "id": "prod-017", "name": "Professional Bundle", "category": "Software", "type": "Subscription", "basePrice": 25000, "commissionRate": 0.09, "status": "active", "description": "Mid-tier package with advanced features" },
+  { "id": "prod-018", "name": "Migration Services", "category": "Services", "type": "One-time", "basePrice": 15000, "commissionRate": 0.05, "status": "active", "description": "Data migration from legacy systems" },
+  { "id": "prod-019", "name": "Consulting Hours", "category": "Services", "type": "One-time", "basePrice": 200, "commissionRate": 0.03, "status": "active", "description": "Per-hour consulting rate" },
+  { "id": "prod-020", "name": "Annual Maintenance", "category": "Services", "type": "Subscription", "basePrice": 12000, "commissionRate": 0.04, "status": "active", "description": "Annual maintenance and updates" }
+]

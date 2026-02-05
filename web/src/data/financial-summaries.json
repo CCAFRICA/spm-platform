@@ -1,0 +1,79 @@
+{
+  "revenueByPeriod": {
+    "monthly": [
+      { "period": "Jan 2024", "revenue": 245000, "deals": 12, "avgDealSize": 20417 },
+      { "period": "Feb 2024", "revenue": 312000, "deals": 15, "avgDealSize": 20800 },
+      { "period": "Mar 2024", "revenue": 287000, "deals": 14, "avgDealSize": 20500 },
+      { "period": "Apr 2024", "revenue": 356000, "deals": 18, "avgDealSize": 19778 },
+      { "period": "May 2024", "revenue": 298000, "deals": 16, "avgDealSize": 18625 },
+      { "period": "Jun 2024", "revenue": 425000, "deals": 22, "avgDealSize": 19318 },
+      { "period": "Jul 2024", "revenue": 378000, "deals": 19, "avgDealSize": 19895 },
+      { "period": "Aug 2024", "revenue": 412000, "deals": 21, "avgDealSize": 19619 },
+      { "period": "Sep 2024", "revenue": 389000, "deals": 20, "avgDealSize": 19450 },
+      { "period": "Oct 2024", "revenue": 456000, "deals": 24, "avgDealSize": 19000 },
+      { "period": "Nov 2024", "revenue": 523000, "deals": 27, "avgDealSize": 19370 },
+      { "period": "Dec 2024", "revenue": 478000, "deals": 25, "avgDealSize": 19120 }
+    ],
+    "quarterly": [
+      { "period": "Q1 2024", "revenue": 844000, "target": 800000, "attainment": 105.5 },
+      { "period": "Q2 2024", "revenue": 1079000, "target": 950000, "attainment": 113.6 },
+      { "period": "Q3 2024", "revenue": 1179000, "target": 1100000, "attainment": 107.2 },
+      { "period": "Q4 2024", "revenue": 1457000, "target": 1400000, "attainment": 104.1 }
+    ],
+    "yearOverYear": {
+      "2023": { "revenue": 3850000, "growth": null },
+      "2024": { "revenue": 4559000, "growth": 18.4 }
+    }
+  },
+  "revenueBySalesRep": [
+    { "repId": "user-001", "name": "Sarah Chen", "region": "West", "revenue": 892000, "deals": 42, "quota": 800000, "attainment": 111.5 },
+    { "repId": "user-002", "name": "Marcus Johnson", "region": "East", "revenue": 756000, "deals": 38, "quota": 700000, "attainment": 108.0 },
+    { "repId": "user-003", "name": "Emily Rodriguez", "region": "South", "revenue": 634000, "deals": 31, "quota": 650000, "attainment": 97.5 },
+    { "repId": "user-004", "name": "David Kim", "region": "North", "revenue": 578000, "deals": 29, "quota": 600000, "attainment": 96.3 },
+    { "repId": "user-005", "name": "Jennifer Lee", "region": "West", "revenue": 523000, "deals": 26, "quota": 500000, "attainment": 104.6 },
+    { "repId": "user-006", "name": "Michael Brown", "region": "East", "revenue": 489000, "deals": 24, "quota": 450000, "attainment": 108.7 },
+    { "repId": "user-007", "name": "Amanda White", "region": "South", "revenue": 412000, "deals": 21, "quota": 400000, "attainment": 103.0 },
+    { "repId": "user-008", "name": "Robert Taylor", "region": "North", "revenue": 275000, "deals": 14, "quota": 300000, "attainment": 91.7 }
+  ],
+  "revenueByProduct": [
+    { "productId": "prod-001", "name": "Enterprise Suite", "revenue": 1450000, "deals": 29, "percentage": 31.8 },
+    { "productId": "prod-017", "name": "Professional Bundle", "revenue": 625000, "deals": 25, "percentage": 13.7 },
+    { "productId": "prod-003", "name": "Cloud Infrastructure", "revenue": 475000, "deals": 19, "percentage": 10.4 },
+    { "productId": "prod-009", "name": "Implementation Services", "revenue": 420000, "deals": 14, "percentage": 9.2 },
+    { "productId": "prod-015", "name": "Compliance Package", "revenue": 352000, "deals": 16, "percentage": 7.7 },
+    { "productId": "prod-006", "name": "Data Integration Hub", "revenue": 320000, "deals": 16, "percentage": 7.0 },
+    { "productId": "prod-002", "name": "Analytics Module", "revenue": 285000, "deals": 19, "percentage": 6.3 },
+    { "productId": "prod-008", "name": "Security Module", "revenue": 234000, "deals": 13, "percentage": 5.1 },
+    { "productId": "prod-016", "name": "Starter Bundle", "revenue": 168000, "deals": 21, "percentage": 3.7 },
+    { "productId": "other", "name": "Other Products", "revenue": 230000, "deals": 53, "percentage": 5.1 }
+  ],
+  "revenueByRegion": [
+    { "region": "West", "revenue": 1523000, "target": 1400000, "attainment": 108.8, "repCount": 15, "deals": 78 },
+    { "region": "East", "revenue": 1245000, "target": 1150000, "attainment": 108.3, "repCount": 14, "deals": 62 },
+    { "region": "South", "revenue": 1046000, "target": 1050000, "attainment": 99.6, "repCount": 13, "deals": 52 },
+    { "region": "North", "revenue": 745000, "target": 800000, "attainment": 93.1, "repCount": 13, "deals": 38 }
+  ],
+  "commissionExpense": {
+    "monthly": [
+      { "period": "Jan 2024", "revenue": 245000, "commission": 19600, "rate": 8.0, "budget": 22000 },
+      { "period": "Feb 2024", "revenue": 312000, "commission": 25584, "rate": 8.2, "budget": 25000 },
+      { "period": "Mar 2024", "revenue": 287000, "commission": 22960, "rate": 8.0, "budget": 24000 },
+      { "period": "Apr 2024", "revenue": 356000, "commission": 29192, "rate": 8.2, "budget": 28000 },
+      { "period": "May 2024", "revenue": 298000, "commission": 23840, "rate": 8.0, "budget": 26000 },
+      { "period": "Jun 2024", "revenue": 425000, "commission": 35700, "rate": 8.4, "budget": 34000 },
+      { "period": "Jul 2024", "revenue": 378000, "commission": 30996, "rate": 8.2, "budget": 32000 },
+      { "period": "Aug 2024", "revenue": 412000, "commission": 33784, "rate": 8.2, "budget": 34000 },
+      { "period": "Sep 2024", "revenue": 389000, "commission": 31898, "rate": 8.2, "budget": 33000 },
+      { "period": "Oct 2024", "revenue": 456000, "commission": 38304, "rate": 8.4, "budget": 37000 },
+      { "period": "Nov 2024", "revenue": 523000, "commission": 44455, "rate": 8.5, "budget": 42000 },
+      { "period": "Dec 2024", "revenue": 478000, "commission": 40630, "rate": 8.5, "budget": 40000 }
+    ],
+    "summary": {
+      "totalRevenue": 4559000,
+      "totalCommission": 376943,
+      "averageRate": 8.27,
+      "totalBudget": 377000,
+      "budgetVariance": -57
+    }
+  }
+}

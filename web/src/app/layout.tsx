@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/navigation/Sidebar";
 import { Navbar } from "@/components/navigation/Navbar";
 import { AuthProvider } from "@/contexts/auth-context";
 import { ConfigProvider } from "@/contexts/config-context";
+import { LocaleProvider } from "@/contexts/locale-context";
 import { Toaster } from "sonner";
 
 const geistSans = localFont({
@@ -34,14 +35,16 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <AuthProvider>
-          <ConfigProvider>
-            <Sidebar />
-            <div className="md:pl-64">
-              <Navbar />
-              <main>{children}</main>
-            </div>
-            <Toaster position="top-right" richColors closeButton />
-          </ConfigProvider>
+          <LocaleProvider>
+            <ConfigProvider>
+              <Sidebar />
+              <div className="md:pl-64">
+                <Navbar />
+                <main>{children}</main>
+              </div>
+              <Toaster position="top-right" richColors closeButton />
+            </ConfigProvider>
+          </LocaleProvider>
         </AuthProvider>
       </body>
     </html>
