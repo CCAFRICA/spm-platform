@@ -11,92 +11,27 @@ import {
   Target,
   Settings,
   Database,
-  Zap,
   LayoutDashboard,
   ChevronDown,
   ChevronRight,
   DollarSign,
   Shield,
 } from "lucide-react";
+import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
+
+interface NavChild {
+  name: string;
+  href: string;
+  feature?: keyof import("@/types/tenant").TenantConfig["features"];
+}
 
 interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  children?: { name: string; href: string }[];
+  children?: NavChild[];
+  feature?: keyof import("@/types/tenant").TenantConfig["features"];
 }
-
-const navigation: NavItem[] = [
-  {
-    name: "Dashboard",
-    href: "/",
-    icon: LayoutDashboard,
-  },
-  {
-    name: "Insights",
-    href: "/insights",
-    icon: BarChart3,
-    children: [
-      { name: "Overview", href: "/insights" },
-      { name: "Compensation", href: "/insights/compensation" },
-      { name: "Performance", href: "/insights/performance" },
-      { name: "Trends", href: "/insights/trends" },
-    ],
-  },
-  {
-    name: "Transactions",
-    href: "/transactions",
-    icon: Receipt,
-    children: [
-      { name: "Overview", href: "/transactions" },
-      { name: "Orders", href: "/transactions/orders" },
-    ],
-  },
-  {
-    name: "Performance",
-    href: "/performance",
-    icon: Target,
-    children: [
-      { name: "Overview", href: "/performance" },
-      { name: "Plans", href: "/performance/plans" },
-      { name: "Goals", href: "/performance/goals" },
-      { name: "Approvals", href: "/performance/approvals" },
-    ],
-  },
-  {
-    name: "Configuration",
-    href: "/configuration",
-    icon: Settings,
-    children: [
-      { name: "Overview", href: "/configuration" },
-      { name: "Terminology", href: "/configuration/terminology" },
-    ],
-  },
-  {
-    name: "Data",
-    href: "/data",
-    icon: Database,
-    children: [
-      { name: "Overview", href: "/data" },
-      { name: "Transactions", href: "/data/transactions" },
-      { name: "Reports", href: "/data/reports" },
-      { name: "Import Data", href: "/data/imports" },
-    ],
-  },
-  {
-    name: "Acceleration",
-    href: "/acceleration",
-    icon: Zap,
-  },
-  {
-    name: "Admin",
-    href: "/admin",
-    icon: Shield,
-    children: [
-      { name: "Audit Log", href: "/admin/audit" },
-    ],
-  },
-];
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -105,7 +40,85 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const [expandedItems, setExpandedItems] = useState<string[]>(["Insights", "Performance"]);
+  const { currentTenant } = useTenant();
+  const transactionTerm = useTerm("transaction", true);
+  const locationTerm = useTerm("location", true);
+  const salesFinanceEnabled = useFeature("salesFinance");
+
+  const [expandedItems, setExpandedItems] = useState<string[]>(["Insights", "Transactions"]);
+
+  // Dynamic navigation based on tenant terminology and features
+  const navigation: NavItem[] = [
+    {
+      name: "Dashboard",
+      href: "/",
+      icon: LayoutDashboard,
+    },
+    {
+      name: "Insights",
+      href: "/insights",
+      icon: BarChart3,
+      children: [
+        { name: "Overview", href: "/insights" },
+        { name: "Compensation", href: "/insights/compensation" },
+        { name: "Performance", href: "/insights/performance" },
+        { name: "Sales Finance", href: "/insights/sales-finance", feature: "salesFinance" },
+        { name: "Trends", href: "/insights/trends" },
+      ],
+    },
+    {
+      name: transactionTerm || "Transactions",
+      href: "/transactions",
+      icon: Receipt,
+      children: [
+        { name: transactionTerm || "Orders", href: "/transactions" },
+        { name: "Find My Order", href: "/transactions/find" },
+        { name: "Inquiries", href: "/transactions/inquiries" },
+      ],
+    },
+    {
+      name: "Performance",
+      href: "/performance",
+      icon: Target,
+      children: [
+        { name: "Plan Management", href: "/performance/plans" },
+        { name: "Goals", href: "/performance/goals" },
+        { name: "Adjustments", href: "/performance/adjustments" },
+        { name: "Approvals", href: "/performance/approvals" },
+      ],
+    },
+    {
+      name: "Configuration",
+      href: "/configuration",
+      icon: Settings,
+      children: [
+        { name: "Overview", href: "/configuration" },
+        { name: "Personnel", href: "/configuration/personnel" },
+        { name: "Teams", href: "/configuration/teams" },
+        { name: locationTerm || "Locations", href: "/configuration/locations" },
+        { name: "Terminology", href: "/configuration/terminology" },
+      ],
+    },
+    {
+      name: "Data",
+      href: "/data",
+      icon: Database,
+      children: [
+        { name: "Import", href: "/data/import" },
+        { name: "Daily Operations", href: "/data/operations" },
+        { name: "Data Readiness", href: "/data/readiness" },
+        { name: "Data Quality", href: "/data/quality" },
+      ],
+    },
+    {
+      name: "Admin",
+      href: "/admin",
+      icon: Shield,
+      children: [
+        { name: "Audit Log", href: "/admin/audit" },
+      ],
+    },
+  ];
 
   const toggleExpand = (name: string) => {
     setExpandedItems((prev) =>
@@ -121,6 +134,15 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const isChildActive = (item: NavItem) => {
     if (!item.children) return false;
     return item.children.some((child) => pathname === child.href);
+  };
+
+  // Filter children based on feature flags
+  const filterChildren = (children: NavChild[]) => {
+    return children.filter((child) => {
+      if (!child.feature) return true;
+      if (child.feature === "salesFinance") return salesFinanceEnabled;
+      return true;
+    });
   };
 
   return (
@@ -147,10 +169,10 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
           </div>
           <div className="flex flex-col">
             <span className="text-lg font-bold text-slate-900 dark:text-slate-50">
-              ClearComp
+              Entity B
             </span>
             <span className="text-[10px] text-slate-500 -mt-1">
-              Sales Performance Management
+              {currentTenant?.displayName || "Sales Performance"}
             </span>
           </div>
         </div>
@@ -163,6 +185,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
               const hasActiveChild = isChildActive(item);
               const isExpanded = expandedItems.includes(item.name);
               const showAsActive = isItemActive || hasActiveChild;
+              const filteredChildItems = item.children ? filterChildren(item.children) : [];
 
               return (
                 <div key={item.name}>
@@ -196,7 +219,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                       </button>
                       {isExpanded && (
                         <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-200 pl-4 dark:border-slate-700">
-                          {item.children.map((child) => (
+                          {filteredChildItems.map((child) => (
                             <Link
                               key={child.href}
                               href={child.href}

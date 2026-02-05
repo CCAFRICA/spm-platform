@@ -10,12 +10,36 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { containerVariants, itemVariants } from '@/lib/animations';
+import type { TenantSummary } from '@/types/tenant';
 
 export default function SelectTenantPage() {
   const router = useRouter();
   const { user, isCCAdmin, logout, isLoading: authLoading } = useAuth();
-  const { availableTenants, setTenant, isLoading: tenantLoading } = useTenant();
+  const { availableTenants: contextTenants, setTenant, isLoading: tenantLoading } = useTenant();
   const [selectingTenant, setSelectingTenant] = useState<string | null>(null);
+  const [localTenants, setLocalTenants] = useState<TenantSummary[]>([]);
+  const [loadingTenants, setLoadingTenants] = useState(false);
+
+  // Load tenants directly if context doesn't have them (timing issue after login)
+  useEffect(() => {
+    async function loadTenants() {
+      if (isCCAdmin && contextTenants.length === 0 && !loadingTenants) {
+        setLoadingTenants(true);
+        try {
+          const registry = await import('@/data/tenants/index.json');
+          setLocalTenants((registry.tenants || []) as TenantSummary[]);
+        } catch (e) {
+          console.error('Failed to load tenant registry:', e);
+        } finally {
+          setLoadingTenants(false);
+        }
+      }
+    }
+    loadTenants();
+  }, [isCCAdmin, contextTenants.length, loadingTenants]);
+
+  // Use context tenants if available, otherwise use locally loaded ones
+  const availableTenants = contextTenants.length > 0 ? contextTenants : localTenants;
 
   useEffect(() => {
     // Redirect non-CC Admin users to home
@@ -58,7 +82,7 @@ export default function SelectTenantPage() {
   };
 
   // Show loading state
-  if (authLoading || tenantLoading) {
+  if (authLoading || tenantLoading || loadingTenants) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

@@ -94,6 +94,7 @@
     "unsavedChanges": "Tienes cambios sin guardar"
   },
   "auth": {
+    "signIn": "Iniciar Sesión",
     "login": "Iniciar Sesión",
     "logout": "Cerrar Sesión",
     "profile": "Perfil",

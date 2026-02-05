@@ -16,7 +16,8 @@
       "Bash(curl:*)",
       "Bash(node:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\n2C.1: Add tenant types and registry\n\n- TenantConfig, TenantFeatures, TenantTerminology types\n- Currency and Locale types \\(USD, MXN, EUR, GBP, CAD\\)\n- Default features and terminology constants\n- Helper functions for currency/date formatting\n- Tenant registry with TechCorp and RestaurantMX entries\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(npm run lint:*)"
     ]
   }
 }

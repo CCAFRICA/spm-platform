@@ -94,6 +94,7 @@
     "unsavedChanges": "You have unsaved changes"
   },
   "auth": {
+    "signIn": "Sign In",
     "login": "Log In",
     "logout": "Log Out",
     "profile": "Profile",
