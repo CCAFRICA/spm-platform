@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronRight,
   DollarSign,
+  Shield,
 } from "lucide-react";
 
 interface NavItem {
@@ -59,12 +60,17 @@ const navigation: NavItem[] = [
       { name: "Overview", href: "/performance" },
       { name: "Plans", href: "/performance/plans" },
       { name: "Goals", href: "/performance/goals" },
+      { name: "Approvals", href: "/performance/approvals" },
     ],
   },
   {
     name: "Configuration",
     href: "/configuration",
     icon: Settings,
+    children: [
+      { name: "Overview", href: "/configuration" },
+      { name: "Terminology", href: "/configuration/terminology" },
+    ],
   },
   {
     name: "Data",
@@ -75,6 +81,14 @@ const navigation: NavItem[] = [
     name: "Acceleration",
     href: "/acceleration",
     icon: Zap,
+  },
+  {
+    name: "Admin",
+    href: "/admin",
+    icon: Shield,
+    children: [
+      { name: "Audit Log", href: "/admin/audit" },
+    ],
   },
 ];
 

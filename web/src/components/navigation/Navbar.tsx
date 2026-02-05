@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -17,12 +16,11 @@ import {
   Search,
   Bell,
   Settings,
-  LogOut,
-  User,
   HelpCircle,
   Menu,
   X,
 } from "lucide-react";
+import { UserMenu } from "@/components/layout/user-menu";
 
 interface NavbarProps {
   onMenuToggle?: () => void;
@@ -137,46 +135,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
           </Button>
 
           {/* User Menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                className="flex items-center gap-2 pl-2 pr-3"
-              >
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src="/avatars/user.jpg" />
-                  <AvatarFallback className="bg-navy-100 text-navy-700 text-xs">
-                    SC
-                  </AvatarFallback>
-                </Avatar>
-                <div className="hidden md:flex flex-col items-start">
-                  <span className="text-sm font-medium">Sarah Chen</span>
-                  <span className="text-xs text-slate-500">Senior AE</span>
-                </div>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>My Account</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <User className="mr-2 h-4 w-4" />
-                Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Settings className="mr-2 h-4 w-4" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <HelpCircle className="mr-2 h-4 w-4" />
-                Help & Support
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-red-600">
-                <LogOut className="mr-2 h-4 w-4" />
-                Log out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <UserMenu />
         </div>
       </div>
     </header>
