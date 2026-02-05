@@ -153,7 +153,7 @@ export default function TransactionsPage() {
       <Card>
         <CardContent className="pt-4">
           {isLoading ? (
-            <TableSkeleton rows={8} columns={isHospitality ? 6 : 7} />
+            <TableSkeleton rows={8} cols={isHospitality ? 7 : 8} />
           ) : filteredTransactions.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No {transactionTerm.toLowerCase()} found

@@ -179,7 +179,7 @@ export default function InquiriesPage() {
       <Card>
         <CardContent className="pt-4">
           {isLoading ? (
-            <TableSkeleton rows={5} columns={6} />
+            <TableSkeleton rows={5} cols={6} />
           ) : filteredInquiries.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No inquiries found

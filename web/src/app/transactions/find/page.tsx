@@ -160,7 +160,7 @@ export default function FindOrderPage() {
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">Tip</p>
-                            <p className="font-medium text-green-600">{format(result.tip)}</p>
+                            <p className="font-medium text-green-600">{format(result.tip || 0)}</p>
                           </div>
                         </>
                       ) : (
@@ -179,7 +179,7 @@ export default function FindOrderPage() {
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">Commission</p>
-                            <p className="font-medium text-green-600">{format(result.commission)}</p>
+                            <p className="font-medium text-green-600">{format(result.commission || 0)}</p>
                           </div>
                         </>
                       )}
