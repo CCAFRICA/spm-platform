@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { Receipt, Plus, Upload, Search, Download } from 'lucide-react';
+import { Receipt, Plus, Upload, Search, Download, RefreshCw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,17 @@ import {
 import { useTenant, useTerm, useCurrency } from '@/contexts/tenant-context';
 import { pageVariants } from '@/lib/animations';
 import { TableSkeleton } from '@/components/ui/skeleton-loaders';
+import { toast } from 'sonner';
+
+// Import restaurant service
+import {
+  getCheques,
+  getMeseros,
+  getTurnos,
+  getFranquicias,
+  getChequesMetadata,
+} from '@/lib/restaurant-service';
+import type { Cheque, Mesero, Turno, Franquicia } from '@/types/cheques';
 
 // Mock transaction data for TechCorp (Deals)
 const mockTechCorpTransactions = [
@@ -30,18 +41,6 @@ const mockTechCorpTransactions = [
   { id: 'TXN-008', date: '2024-12-08', customer: 'CloudFirst Inc', product: 'Cloud Platform', amount: 78000, commission: 5460, status: 'pending', rep: 'David Kim' },
 ];
 
-// Mock transaction data for RestaurantMX (Checks)
-const mockRestaurantMXTransactions = [
-  { id: 'CHK-001', date: '2024-12-15', table: 'Mesa 12', items: 8, amount: 2450, tip: 490, status: 'paid', server: 'Carlos García' },
-  { id: 'CHK-002', date: '2024-12-15', table: 'Mesa 5', items: 4, amount: 1200, tip: 240, status: 'paid', server: 'María López' },
-  { id: 'CHK-003', date: '2024-12-15', table: 'Mesa 8', items: 6, amount: 1850, tip: 370, status: 'pending', server: 'Carlos García' },
-  { id: 'CHK-004', date: '2024-12-14', table: 'Mesa 3', items: 3, amount: 890, tip: 178, status: 'paid', server: 'Ana Martínez' },
-  { id: 'CHK-005', date: '2024-12-14', table: 'Mesa 15', items: 10, amount: 3200, tip: 640, status: 'paid', server: 'María López' },
-  { id: 'CHK-006', date: '2024-12-14', table: 'Mesa 7', items: 5, amount: 1450, tip: 290, status: 'cancelled', server: 'Carlos García' },
-  { id: 'CHK-007', date: '2024-12-13', table: 'Mesa 11', items: 7, amount: 2100, tip: 420, status: 'paid', server: 'Ana Martínez' },
-  { id: 'CHK-008', date: '2024-12-13', table: 'Mesa 2', items: 2, amount: 650, tip: 130, status: 'paid', server: 'María López' },
-];
-
 export default function TransactionsPage() {
   const { currentTenant } = useTenant();
   const transactionTerm = useTerm('transaction', true);
@@ -50,31 +49,109 @@ export default function TransactionsPage() {
   const { format } = useCurrency();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [franquiciaFilter, setFranquiciaFilter] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
 
+  // Restaurant data
+  const [cheques, setCheques] = useState<Cheque[]>([]);
+  const [meseros, setMeseros] = useState<Mesero[]>([]);
+  const [turnos, setTurnos] = useState<Turno[]>([]);
+  const [franquicias, setFranquicias] = useState<Franquicia[]>([]);
+  const [metadata, setMetadata] = useState<{ lastImport: string | null; totalImported: number } | null>(null);
+
   const isHospitality = currentTenant?.industry === 'Hospitality';
-  const transactions = isHospitality ? mockRestaurantMXTransactions : mockTechCorpTransactions;
 
+  // Load data based on tenant type
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 600);
-    return () => clearTimeout(timer);
-  }, []);
+    async function loadData() {
+      setIsLoading(true);
+      try {
+        if (isHospitality) {
+          const [chequesData, meserosData, turnosData, franquiciasData, metadataData] = await Promise.all([
+            getCheques(),
+            getMeseros(),
+            getTurnos(),
+            getFranquicias(),
+            getChequesMetadata(),
+          ]);
+          setCheques(chequesData);
+          setMeseros(meserosData);
+          setTurnos(turnosData);
+          setFranquicias(franquiciasData);
+          setMetadata(metadataData);
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+        toast.error('Failed to load data');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadData();
+  }, [isHospitality]);
 
+  // Helper functions for hospitality
+  const getMeseroName = useCallback((meseroId: number) => {
+    const mesero = meseros.find(m => m.mesero_id === meseroId);
+    return mesero?.nombre || `Server #${meseroId}`;
+  }, [meseros]);
+
+  const getTurnoName = useCallback((turnoId: number) => {
+    const turno = turnos.find(t => t.turno_id === turnoId);
+    return turno?.nombre || `Turno ${turnoId}`;
+  }, [turnos]);
+
+  const getFranquiciaName = useCallback((numeroFranquicia: string) => {
+    const franquicia = franquicias.find(f => f.numero_franquicia === numeroFranquicia);
+    return franquicia?.nombre || numeroFranquicia;
+  }, [franquicias]);
+
+  // Filter transactions
   const filteredTransactions = useMemo(() => {
-    return transactions.filter((t) => {
-      if (statusFilter !== 'all' && t.status !== statusFilter) return false;
+    if (!isHospitality) {
+      return mockTechCorpTransactions.filter((t) => {
+        if (statusFilter !== 'all' && t.status !== statusFilter) return false;
+        if (searchQuery) {
+          const search = searchQuery.toLowerCase();
+          return [t.id, t.customer, t.product, t.rep].some(field => field?.toLowerCase().includes(search));
+        }
+        return true;
+      });
+    }
+
+    return cheques.filter((c) => {
+      // Status filter
+      if (statusFilter === 'paid' && c.pagado !== 1) return false;
+      if (statusFilter === 'pending' && c.pagado !== 0) return false;
+      if (statusFilter === 'cancelled' && c.cancelado !== 1) return false;
+
+      // Franchise filter
+      if (franquiciaFilter !== 'all' && c.numero_franquicia !== franquiciaFilter) return false;
+
+      // Search
       if (searchQuery) {
         const search = searchQuery.toLowerCase();
-        const searchFields = isHospitality
-          ? [t.id, (t as typeof mockRestaurantMXTransactions[0]).table, (t as typeof mockRestaurantMXTransactions[0]).server]
-          : [t.id, (t as typeof mockTechCorpTransactions[0]).customer, (t as typeof mockTechCorpTransactions[0]).product, (t as typeof mockTechCorpTransactions[0]).rep];
-        return searchFields.some(field => field?.toLowerCase().includes(search));
+        const meseroName = getMeseroName(c.mesero_id).toLowerCase();
+        const franquiciaName = getFranquiciaName(c.numero_franquicia).toLowerCase();
+        return (
+          c.numero_cheque.toString().includes(search) ||
+          meseroName.includes(search) ||
+          franquiciaName.includes(search)
+        );
       }
       return true;
     });
-  }, [transactions, statusFilter, searchQuery, isHospitality]);
+  }, [isHospitality, cheques, statusFilter, franquiciaFilter, searchQuery, getMeseroName, getFranquiciaName]);
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | number, cancelado?: number) => {
+    if (cancelado === 1) {
+      return <Badge variant="destructive">Cancelado</Badge>;
+    }
+    if (typeof status === 'number') {
+      return status === 1
+        ? <Badge variant="default">Pagado</Badge>
+        : <Badge variant="secondary">Pendiente</Badge>;
+    }
     const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
       completed: 'default',
       paid: 'default',
@@ -82,6 +159,38 @@ export default function TransactionsPage() {
       cancelled: 'destructive',
     };
     return <Badge variant={variants[status] || 'outline'}>{status}</Badge>;
+  };
+
+  const getTurnoBadge = (turnoId: number) => {
+    const colors: Record<number, string> = {
+      1: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+      2: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      3: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+    };
+    return (
+      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[turnoId] || 'bg-gray-100'}`}>
+        {getTurnoName(turnoId)}
+      </span>
+    );
+  };
+
+  const handleRefresh = async () => {
+    setIsLoading(true);
+    try {
+      if (isHospitality) {
+        const [chequesData, metadataData] = await Promise.all([
+          getCheques(),
+          getChequesMetadata(),
+        ]);
+        setCheques(chequesData);
+        setMetadata(metadataData);
+        toast.success('Data refreshed');
+      }
+    } catch {
+      toast.error('Failed to refresh data');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -100,9 +209,20 @@ export default function TransactionsPage() {
           </h1>
           <p className="text-muted-foreground">
             {filteredTransactions.length} {transactionTerm.toLowerCase()} found
+            {isHospitality && metadata?.lastImport && (
+              <span className="ml-2 text-xs">
+                (Last import: {new Date(metadata.lastImport).toLocaleDateString()})
+              </span>
+            )}
           </p>
         </div>
         <div className="flex gap-2">
+          {isHospitality && (
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          )}
           <Button variant="outline" size="sm" asChild>
             <Link href="/data/import">
               <Upload className="mr-2 h-4 w-4" />
@@ -129,17 +249,32 @@ export default function TransactionsPage() {
                 className="pl-10"
               />
             </div>
+            {isHospitality && (
+              <Select value={franquiciaFilter} onValueChange={setFranquiciaFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Franquicia" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las Franquicias</SelectItem>
+                  {franquicias.map((f) => (
+                    <SelectItem key={f.numero_franquicia} value={f.numero_franquicia}>
+                      {f.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="all">{isHospitality ? 'Todos' : 'All Status'}</SelectItem>
                 <SelectItem value={isHospitality ? 'paid' : 'completed'}>
-                  {isHospitality ? 'Paid' : 'Completed'}
+                  {isHospitality ? 'Pagado' : 'Completed'}
                 </SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="pending">{isHospitality ? 'Pendiente' : 'Pending'}</SelectItem>
+                <SelectItem value="cancelled">{isHospitality ? 'Cancelado' : 'Cancelled'}</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" size="icon">
@@ -149,82 +284,101 @@ export default function TransactionsPage() {
         </CardContent>
       </Card>
 
+      {/* Empty State for Hospitality */}
+      {isHospitality && !isLoading && cheques.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Receipt className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+            <h3 className="text-lg font-semibold mb-2">No hay cheques importados</h3>
+            <p className="text-muted-foreground mb-4">
+              Importa tu archivo de cheques para comenzar a ver los datos.
+            </p>
+            <Button asChild>
+              <Link href="/data/import">
+                <Upload className="mr-2 h-4 w-4" />
+                Importar Cheques
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Table */}
-      <Card>
-        <CardContent className="pt-4">
-          {isLoading ? (
-            <TableSkeleton rows={8} cols={isHospitality ? 7 : 8} />
-          ) : filteredTransactions.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No {transactionTerm.toLowerCase()} found
-            </div>
-          ) : isHospitality ? (
-            // Restaurant/Hospitality table (Checks)
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Check #</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Table</TableHead>
-                  <TableHead>{repTerm}</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Tip</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTransactions.map((t) => {
-                  const check = t as typeof mockRestaurantMXTransactions[0];
-                  return (
-                    <TableRow key={t.id}>
-                      <TableCell className="font-mono font-medium">{check.id}</TableCell>
-                      <TableCell>{check.date}</TableCell>
-                      <TableCell>{check.table}</TableCell>
-                      <TableCell>{check.server}</TableCell>
-                      <TableCell className="text-right">{format(check.amount)}</TableCell>
-                      <TableCell className="text-right text-green-600">{format(check.tip)}</TableCell>
-                      <TableCell>{getStatusBadge(check.status)}</TableCell>
+      {((!isHospitality) || (isHospitality && cheques.length > 0)) && (
+        <Card>
+          <CardContent className="pt-4">
+            {isLoading ? (
+              <TableSkeleton rows={8} cols={isHospitality ? 8 : 8} />
+            ) : filteredTransactions.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No {transactionTerm.toLowerCase()} found
+              </div>
+            ) : isHospitality ? (
+              // Restaurant/Hospitality table (Cheques)
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cheque #</TableHead>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Franquicia</TableHead>
+                    <TableHead>Turno</TableHead>
+                    <TableHead>{repTerm}</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Propina</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(filteredTransactions as Cheque[]).slice(0, 50).map((cheque) => (
+                    <TableRow key={`${cheque.numero_franquicia}-${cheque.numero_cheque}`}>
+                      <TableCell className="font-mono font-medium">{cheque.numero_cheque}</TableCell>
+                      <TableCell>{cheque.fecha.split(' ')[0]}</TableCell>
+                      <TableCell className="max-w-[150px] truncate" title={getFranquiciaName(cheque.numero_franquicia)}>
+                        {getFranquiciaName(cheque.numero_franquicia)}
+                      </TableCell>
+                      <TableCell>{getTurnoBadge(cheque.turno_id)}</TableCell>
+                      <TableCell>{getMeseroName(cheque.mesero_id)}</TableCell>
+                      <TableCell className="text-right">{format(cheque.total)}</TableCell>
+                      <TableCell className="text-right text-green-600">{format(cheque.propina)}</TableCell>
+                      <TableCell>{getStatusBadge(cheque.pagado, cheque.cancelado)}</TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          ) : (
-            // Tech company table (Deals/Orders)
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>{repTerm}</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Commission</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTransactions.map((t) => {
-                  const deal = t as typeof mockTechCorpTransactions[0];
-                  return (
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              // Tech company table (Deals/Orders)
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>{repTerm}</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Commission</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(filteredTransactions as typeof mockTechCorpTransactions).map((t) => (
                     <TableRow key={t.id}>
-                      <TableCell className="font-mono font-medium">{deal.id}</TableCell>
-                      <TableCell>{deal.date}</TableCell>
-                      <TableCell>{deal.customer}</TableCell>
-                      <TableCell>{deal.product}</TableCell>
-                      <TableCell>{deal.rep}</TableCell>
-                      <TableCell className="text-right">{format(deal.amount)}</TableCell>
-                      <TableCell className="text-right text-green-600">{format(deal.commission)}</TableCell>
-                      <TableCell>{getStatusBadge(deal.status)}</TableCell>
+                      <TableCell className="font-mono font-medium">{t.id}</TableCell>
+                      <TableCell>{t.date}</TableCell>
+                      <TableCell>{t.customer}</TableCell>
+                      <TableCell>{t.product}</TableCell>
+                      <TableCell>{t.rep}</TableCell>
+                      <TableCell className="text-right">{format(t.amount)}</TableCell>
+                      <TableCell className="text-right text-green-600">{format(t.commission)}</TableCell>
+                      <TableCell>{getStatusBadge(t.status)}</TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </motion.div>
   );
 }
