@@ -17,7 +17,7 @@
     { "mesero_id": 4001, "nombre": "Emilio Navarro", "numero_franquicia": "MX-MTY-002", "fecha_ingreso": "2023-01-20", "turno_default": 2, "commission_rate": 0.02, "status": "active" },
     { "mesero_id": 4002, "nombre": "Regina Guerrero", "numero_franquicia": "MX-MTY-002", "fecha_ingreso": "2023-02-15", "turno_default": 1, "commission_rate": 0.02, "status": "active" },
     { "mesero_id": 4003, "nombre": "Andrés Medina", "numero_franquicia": "MX-MTY-002", "fecha_ingreso": "2023-05-01", "turno_default": 2, "commission_rate": 0.018, "status": "active" },
-    { "mesero_id": 5001, "nombre": "Daniela Romero", "numero_franquicia": "MX-CDMX-001", "fecha_ingreso": "2019-09-01", "turno_default": 2, "commission_rate": 0.025, "status": "active" },
+    { "mesero_id": 5001, "nombre": "María López", "numero_franquicia": "MX-CDMX-001", "fecha_ingreso": "2024-02-01", "turno_default": 2, "commission_rate": 0.025, "status": "active" },
     { "mesero_id": 5002, "nombre": "Sebastián Luna", "numero_franquicia": "MX-CDMX-001", "fecha_ingreso": "2020-02-10", "turno_default": 1, "commission_rate": 0.022, "status": "active" },
     { "mesero_id": 5003, "nombre": "Valeria Herrera", "numero_franquicia": "MX-CDMX-001", "fecha_ingreso": "2020-08-15", "turno_default": 2, "commission_rate": 0.022, "status": "active" },
     { "mesero_id": 5004, "nombre": "Nicolás Jiménez", "numero_franquicia": "MX-CDMX-001", "fecha_ingreso": "2021-04-20", "turno_default": 3, "commission_rate": 0.02, "status": "active" },

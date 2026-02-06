@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { Receipt, Plus, Upload, Search, Download, RefreshCw } from 'lucide-react';
+import { Receipt, Plus, Upload, Search, Download, RefreshCw, Lock } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useTenant, useTerm, useCurrency } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
+import { useLocale } from '@/contexts/locale-context';
+import { accessControl } from '@/lib/access-control';
+import { isTenantUser } from '@/types/auth';
 import { pageVariants } from '@/lib/animations';
 import { TableSkeleton } from '@/components/ui/skeleton-loaders';
 import { toast } from 'sonner';
@@ -41,8 +45,23 @@ const mockTechCorpTransactions = [
   { id: 'TXN-008', date: '2024-12-08', customer: 'CloudFirst Inc', product: 'Cloud Platform', amount: 78000, commission: 5460, status: 'pending', rep: 'David Kim' },
 ];
 
+// RetailCo demo transactions (Maria's transactions from my-compensation)
+// User IDs match auth-context.tsx: rc-rep-001 (Maria), rc-rep-002 (James), rc-manager-001 (Carlos), rc-admin-001 (Sofia)
+const mockRetailCoTransactions = [
+  { id: 'TXN-2025-0162', date: '2025-01-20', customer: 'Williams Family', product: 'Progressive Lenses + Designer Frame', type: 'Optical', amount: 1450, incentive: 72.50, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
+  { id: 'TXN-2025-0158', date: '2025-01-18', customer: 'Chen Family', product: 'Vision Protection Plan', type: 'Insurance', amount: 680, incentive: 34.00, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
+  { id: 'TXN-2025-0147', date: '2025-01-15', customer: 'Johnson Family', product: 'Premium Protection Plan', type: 'Insurance', amount: 850, incentive: 0, status: 'disputed', rep: 'James Wilson', repId: 'rc-rep-002', notes: 'Split credit issue - Maria assisted but not credited', involvedReps: ['rc-rep-001', 'rc-rep-002'] },
+  { id: 'TXN-2025-0142', date: '2025-01-12', customer: 'Mitchell Family', product: 'Bifocal Lenses + Frame', type: 'Optical', amount: 980, incentive: 49.00, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
+  { id: 'TXN-2025-0135', date: '2025-01-10', customer: 'Garcia Family', product: 'Eye Exam + Fitting', type: 'Services', amount: 320, incentive: 16.00, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
+  { id: 'TXN-2025-0128', date: '2025-01-08', customer: 'Thompson Corp', product: 'Corporate Vision Plan', type: 'Insurance', amount: 2400, incentive: 168.00, status: 'credited', rep: 'James Wilson', repId: 'rc-rep-002' },
+  { id: 'TXN-2025-0121', date: '2025-01-05', customer: 'Davis Family', product: 'Designer Sunglasses', type: 'Optical', amount: 890, incentive: 44.50, status: 'credited', rep: 'Carlos Mendez', repId: 'rc-manager-001' },
+  { id: 'TXN-2025-0115', date: '2025-01-03', customer: 'Brown Family', product: 'Contact Lens Fitting', type: 'Services', amount: 275, incentive: 13.75, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
+];
+
 export default function TransactionsPage() {
   const { currentTenant } = useTenant();
+  const { user } = useAuth();
+  const { locale } = useLocale();
   const transactionTerm = useTerm('transaction', true);
   const transactionSingular = useTerm('transaction');
   const repTerm = useTerm('salesRep');
@@ -52,6 +71,18 @@ export default function TransactionsPage() {
   const [franquiciaFilter, setFranquiciaFilter] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
 
+  // Access control
+  const dataAccessLevel = accessControl.getDataAccessLevel(user);
+  const isSpanish = locale === 'es-MX';
+
+  // Get user's meseroId for hospitality filtering
+  const userMeseroId = useMemo(() => {
+    if (user && isTenantUser(user) && 'meseroId' in user) {
+      return (user as { meseroId?: number }).meseroId;
+    }
+    return undefined;
+  }, [user]);
+
   // Restaurant data
   const [cheques, setCheques] = useState<Cheque[]>([]);
   const [meseros, setMeseros] = useState<Mesero[]>([]);
@@ -60,6 +91,7 @@ export default function TransactionsPage() {
   const [metadata, setMetadata] = useState<{ lastImport: string | null; totalImported: number } | null>(null);
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
+  const isRetail = currentTenant?.industry === 'Retail';
 
   // Load data based on tenant type
   useEffect(() => {
@@ -106,8 +138,32 @@ export default function TransactionsPage() {
     return franquicia?.nombre || numeroFranquicia;
   }, [franquicias]);
 
+  // Filter transactions based on access level first
+  const accessFilteredRetailTransactions = useMemo(() => {
+    if (!user) return [];
+
+    // Filter by access level for RetailCo
+    return accessControl.filterByAccess(
+      user,
+      mockRetailCoTransactions,
+      (t) => t.repId,
+      undefined // No team filtering for transactions
+    );
+  }, [user]);
+
   // Filter transactions
   const filteredTransactions = useMemo(() => {
+    if (isRetail) {
+      return accessFilteredRetailTransactions.filter((t) => {
+        if (statusFilter !== 'all' && t.status !== statusFilter) return false;
+        if (searchQuery) {
+          const search = searchQuery.toLowerCase();
+          return [t.id, t.customer, t.product, t.rep, t.type].some(field => field?.toLowerCase().includes(search));
+        }
+        return true;
+      });
+    }
+
     if (!isHospitality) {
       return mockTechCorpTransactions.filter((t) => {
         if (statusFilter !== 'all' && t.status !== statusFilter) return false;
@@ -119,7 +175,13 @@ export default function TransactionsPage() {
       });
     }
 
-    return cheques.filter((c) => {
+    // First apply access control for hospitality
+    let accessFilteredCheques = cheques;
+    if (dataAccessLevel === 'own' && userMeseroId) {
+      accessFilteredCheques = cheques.filter(c => c.mesero_id === userMeseroId);
+    }
+
+    return accessFilteredCheques.filter((c) => {
       // Status filter
       if (statusFilter === 'paid' && c.pagado !== 1) return false;
       if (statusFilter === 'pending' && c.pagado !== 0) return false;
@@ -141,7 +203,7 @@ export default function TransactionsPage() {
       }
       return true;
     });
-  }, [isHospitality, cheques, statusFilter, franquiciaFilter, searchQuery, getMeseroName, getFranquiciaName]);
+  }, [isHospitality, isRetail, cheques, statusFilter, franquiciaFilter, searchQuery, getMeseroName, getFranquiciaName, accessFilteredRetailTransactions, dataAccessLevel, userMeseroId]);
 
   const getStatusBadge = (status: string | number, cancelado?: number) => {
     if (cancelado === 1) {
@@ -200,6 +262,18 @@ export default function TransactionsPage() {
       animate="animate"
       className="p-6 space-y-6"
     >
+      {/* Access Level Banner */}
+      {dataAccessLevel === 'own' && (isRetail || isHospitality) && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2 dark:bg-blue-900/20 dark:border-blue-800">
+          <Lock className="h-4 w-4 text-blue-600" />
+          <span className="text-sm text-blue-700 dark:text-blue-400">
+            {isSpanish
+              ? 'Mostrando solo tus registros. Contacta a tu gerente para acceso a datos del equipo.'
+              : 'Showing only your records. Contact your manager for access to team data.'}
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between gap-4">
         <div>
@@ -208,10 +282,13 @@ export default function TransactionsPage() {
             {transactionTerm}
           </h1>
           <p className="text-muted-foreground">
-            {filteredTransactions.length} {transactionTerm.toLowerCase()} found
+            {filteredTransactions.length} {transactionTerm.toLowerCase()} {isSpanish ? 'encontrados' : 'found'}
+            {dataAccessLevel !== 'all' && (
+              <span className="ml-2 text-blue-600">({isSpanish ? 'vista limitada' : 'limited view'})</span>
+            )}
             {isHospitality && metadata?.lastImport && (
               <span className="ml-2 text-xs">
-                (Last import: {new Date(metadata.lastImport).toLocaleDateString()})
+                ({isSpanish ? 'Última importación' : 'Last import'}: {new Date(metadata.lastImport).toLocaleDateString(locale)})
               </span>
             )}
           </p>
@@ -220,18 +297,24 @@ export default function TransactionsPage() {
           {isHospitality && (
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh
+              {isSpanish ? 'Actualizar' : 'Refresh'}
             </Button>
           )}
           <Button variant="outline" size="sm" asChild>
             <Link href="/data/import">
               <Upload className="mr-2 h-4 w-4" />
-              Import
+              {isSpanish ? 'Importar' : 'Import'}
             </Link>
           </Button>
-          <Button size="sm">
+          <Button size="sm" onClick={() => {
+            toast.info(
+              isSpanish
+                ? `La creación manual de ${transactionSingular.toLowerCase()} estará disponible próximamente. Usa la importación por ahora.`
+                : `Manual ${transactionSingular.toLowerCase()} creation coming soon. Use import for now.`
+            );
+          }}>
             <Plus className="mr-2 h-4 w-4" />
-            New {transactionSingular}
+            {isSpanish ? `Nuevo ${transactionSingular}` : `New ${transactionSingular}`}
           </Button>
         </div>
       </div>
@@ -243,7 +326,7 @@ export default function TransactionsPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={`Search ${transactionTerm.toLowerCase()}...`}
+                placeholder={isSpanish ? `Buscar ${transactionTerm.toLowerCase()}...` : `Search ${transactionTerm.toLowerCase()}...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -266,15 +349,15 @@ export default function TransactionsPage() {
             )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Status" />
+                <SelectValue placeholder={isSpanish ? 'Estado' : 'Status'} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{isHospitality ? 'Todos' : 'All Status'}</SelectItem>
+                <SelectItem value="all">{isSpanish ? 'Todos' : 'All Status'}</SelectItem>
                 <SelectItem value={isHospitality ? 'paid' : 'completed'}>
-                  {isHospitality ? 'Pagado' : 'Completed'}
+                  {isSpanish ? 'Pagado' : 'Completed'}
                 </SelectItem>
-                <SelectItem value="pending">{isHospitality ? 'Pendiente' : 'Pending'}</SelectItem>
-                <SelectItem value="cancelled">{isHospitality ? 'Cancelado' : 'Cancelled'}</SelectItem>
+                <SelectItem value="pending">{isSpanish ? 'Pendiente' : 'Pending'}</SelectItem>
+                <SelectItem value="cancelled">{isSpanish ? 'Cancelado' : 'Cancelled'}</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" size="icon">
@@ -311,7 +394,7 @@ export default function TransactionsPage() {
               <TableSkeleton rows={8} cols={isHospitality ? 8 : 8} />
             ) : filteredTransactions.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                No {transactionTerm.toLowerCase()} found
+                {isSpanish ? `No se encontraron ${transactionTerm.toLowerCase()}` : `No ${transactionTerm.toLowerCase()} found`}
               </div>
             ) : isHospitality ? (
               // Restaurant/Hospitality table (Cheques)
@@ -325,7 +408,7 @@ export default function TransactionsPage() {
                     <TableHead>{repTerm}</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Propina</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>{isSpanish ? 'Estado' : 'Status'}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -341,6 +424,50 @@ export default function TransactionsPage() {
                       <TableCell className="text-right">{format(cheque.total)}</TableCell>
                       <TableCell className="text-right text-green-600">{format(cheque.propina)}</TableCell>
                       <TableCell>{getStatusBadge(cheque.pagado, cheque.cancelado)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : isRetail ? (
+              // RetailCo table (Optical Sales)
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Transaction ID</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>{repTerm}</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Incentive</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(filteredTransactions as typeof mockRetailCoTransactions).map((t) => (
+                    <TableRow key={t.id} className="cursor-pointer hover:bg-muted/50">
+                      <TableCell className="font-mono font-medium">
+                        <Link href={`/transactions/${t.id}`} className="text-primary hover:underline">
+                          {t.id}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{t.date}</TableCell>
+                      <TableCell>{t.customer}</TableCell>
+                      <TableCell className="max-w-[200px] truncate">{t.product}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{t.type}</Badge>
+                      </TableCell>
+                      <TableCell>{t.rep}</TableCell>
+                      <TableCell className="text-right">{format(t.amount)}</TableCell>
+                      <TableCell className="text-right text-green-600">
+                        {t.incentive > 0 ? format(t.incentive) : '-'}
+                      </TableCell>
+                      <TableCell>
+                        {t.status === 'credited' && <Badge variant="default">Credited</Badge>}
+                        {t.status === 'disputed' && <Badge variant="destructive">Disputed</Badge>}
+                        {t.status === 'pending' && <Badge variant="secondary">Pending</Badge>}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

@@ -141,9 +141,85 @@ const RESTAURANTMX_USERS: TenantUser[] = [
     tenantId: 'restaurantmx',
     regionId: 'cdmx',
     teamId: 'polanco',
+    storeId: 'MX-CDMX-001', // Franquicia
     managerId: 'rmx-manager-001',
     status: 'active',
     createdAt: '2024-02-01T00:00:00Z',
+    permissions: ['view_own_compensation', 'view_reports', 'submit_inquiry'],
+    dataAccessLevel: 'own',
+    meseroId: 5001, // Links to mesero record for cheques
+  },
+];
+
+// RetailCo Tenant Users (Demo Environment)
+const RETAILCO_USERS: TenantUser[] = [
+  {
+    id: 'rc-admin-001',
+    email: 'sofia.chen@retailco.com',
+    name: 'Sofia Chen',
+    role: 'admin',
+    tenantId: 'retailco',
+    status: 'active',
+    createdAt: '2018-01-15T00:00:00Z',
+    permissions: [
+      'view_all_compensation',
+      'view_reports',
+      'view_configuration',
+      'edit_terminology',
+      'manage_users',
+      'view_audit_log',
+      'import_transactions',
+      'export_data',
+    ],
+    dataAccessLevel: 'all',
+  },
+  {
+    id: 'rc-manager-001',
+    email: 'carlos.mendez@retailco.com',
+    name: 'Carlos Mendez',
+    role: 'manager',
+    tenantId: 'retailco',
+    regionId: 'west',
+    teamId: 'west-region',
+    status: 'active',
+    createdAt: '2019-08-01T00:00:00Z',
+    permissions: [
+      'view_own_compensation',
+      'view_team_compensation',
+      'view_reports',
+      'submit_inquiry',
+      'create_adjustment',
+      'approve_adjustment_tier2',
+    ],
+    dataAccessLevel: 'team',
+  },
+  {
+    id: 'rc-rep-001',
+    email: 'maria.rodriguez@retailco.com',
+    name: 'Maria Rodriguez',
+    role: 'sales_rep',
+    tenantId: 'retailco',
+    regionId: 'west',
+    teamId: 'west-region',
+    storeId: 'store-101',
+    managerId: 'rc-manager-001',
+    status: 'active',
+    createdAt: '2023-03-15T00:00:00Z',
+    permissions: ['view_own_compensation', 'view_reports', 'submit_inquiry'],
+    dataAccessLevel: 'own',
+  },
+  {
+    id: 'rc-rep-002',
+    email: 'james.wilson@retailco.com',
+    name: 'James Wilson',
+    role: 'sales_rep',
+    tenantId: 'retailco',
+    regionId: 'west',
+    teamId: 'west-region',
+    storeId: 'store-101',
+    managerId: 'rc-manager-001',
+    status: 'active',
+    createdAt: '2022-06-10T00:00:00Z',
     permissions: ['view_own_compensation', 'view_reports', 'submit_inquiry'],
     dataAccessLevel: 'own',
   },
@@ -154,6 +230,7 @@ export const ALL_USERS: User[] = [
   ...CC_ADMIN_USERS,
   ...TECHCORP_USERS,
   ...RESTAURANTMX_USERS,
+  ...RETAILCO_USERS,
 ];
 
 // Email to user lookup
@@ -292,4 +369,4 @@ export function useAuth() {
 }
 
 // Export user lists for use elsewhere
-export { CC_ADMIN_USERS, TECHCORP_USERS, RESTAURANTMX_USERS };
+export { CC_ADMIN_USERS, TECHCORP_USERS, RESTAURANTMX_USERS, RETAILCO_USERS };

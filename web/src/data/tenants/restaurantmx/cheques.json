@@ -1,5 +1,26 @@
 {
-  "cheques": [],
-  "lastImport": null,
-  "totalImported": 0
+  "cheques": [
+    { "numero_cheque": 10001, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-20 14:30:00", "mesero_id": 5001, "turno_id": 2, "subtotal": 850.00, "propina": 127.50, "total": 977.50, "numero_de_personas": 4, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10002, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-20 15:45:00", "mesero_id": 5001, "turno_id": 2, "subtotal": 420.00, "propina": 63.00, "total": 483.00, "numero_de_personas": 2, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10003, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-20 19:00:00", "mesero_id": 5001, "turno_id": 2, "subtotal": 1250.00, "propina": 187.50, "total": 1437.50, "numero_de_personas": 6, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10004, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-19 13:15:00", "mesero_id": 5001, "turno_id": 2, "subtotal": 680.00, "propina": 102.00, "total": 782.00, "numero_de_personas": 3, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10005, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-19 20:30:00", "mesero_id": 5001, "turno_id": 2, "subtotal": 1450.00, "propina": 217.50, "total": 1667.50, "numero_de_personas": 5, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10006, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-18 14:00:00", "mesero_id": 5001, "turno_id": 2, "subtotal": 520.00, "propina": 78.00, "total": 598.00, "numero_de_personas": 2, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10007, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-18 21:00:00", "mesero_id": 5001, "turno_id": 2, "subtotal": 980.00, "propina": 147.00, "total": 1127.00, "numero_de_personas": 4, "pagado": 0, "cancelado": 0 },
+    { "numero_cheque": 10008, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-17 19:45:00", "mesero_id": 5001, "turno_id": 2, "subtotal": 750.00, "propina": 112.50, "total": 862.50, "numero_de_personas": 3, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10009, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-20 12:30:00", "mesero_id": 5002, "turno_id": 1, "subtotal": 380.00, "propina": 57.00, "total": 437.00, "numero_de_personas": 2, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10010, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-20 13:00:00", "mesero_id": 5002, "turno_id": 1, "subtotal": 920.00, "propina": 138.00, "total": 1058.00, "numero_de_personas": 4, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10011, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-19 11:45:00", "mesero_id": 5003, "turno_id": 2, "subtotal": 650.00, "propina": 97.50, "total": 747.50, "numero_de_personas": 3, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10012, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-19 22:15:00", "mesero_id": 5004, "turno_id": 3, "subtotal": 1100.00, "propina": 165.00, "total": 1265.00, "numero_de_personas": 5, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10013, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-18 10:30:00", "mesero_id": 5005, "turno_id": 1, "subtotal": 290.00, "propina": 43.50, "total": 333.50, "numero_de_personas": 2, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10014, "numero_franquicia": "MX-CDMX-001", "fecha": "2025-01-17 14:30:00", "mesero_id": 5006, "turno_id": 2, "subtotal": 780.00, "propina": 117.00, "total": 897.00, "numero_de_personas": 4, "pagado": 0, "cancelado": 0 },
+    { "numero_cheque": 10015, "numero_franquicia": "MX-GDL-001", "fecha": "2025-01-20 13:30:00", "mesero_id": 1001, "turno_id": 2, "subtotal": 560.00, "propina": 84.00, "total": 644.00, "numero_de_personas": 3, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10016, "numero_franquicia": "MX-GDL-001", "fecha": "2025-01-20 19:00:00", "mesero_id": 1002, "turno_id": 1, "subtotal": 890.00, "propina": 133.50, "total": 1023.50, "numero_de_personas": 4, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10017, "numero_franquicia": "MX-GDL-001", "fecha": "2025-01-19 20:30:00", "mesero_id": 1003, "turno_id": 2, "subtotal": 1200.00, "propina": 180.00, "total": 1380.00, "numero_de_personas": 5, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10018, "numero_franquicia": "MX-MTY-001", "fecha": "2025-01-20 14:00:00", "mesero_id": 3001, "turno_id": 2, "subtotal": 720.00, "propina": 108.00, "total": 828.00, "numero_de_personas": 3, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10019, "numero_franquicia": "MX-MTY-001", "fecha": "2025-01-19 18:45:00", "mesero_id": 3002, "turno_id": 1, "subtotal": 450.00, "propina": 67.50, "total": 517.50, "numero_de_personas": 2, "pagado": 1, "cancelado": 0 },
+    { "numero_cheque": 10020, "numero_franquicia": "MX-CDMX-002", "fecha": "2025-01-20 21:00:00", "mesero_id": 6001, "turno_id": 2, "subtotal": 1350.00, "propina": 202.50, "total": 1552.50, "numero_de_personas": 6, "pagado": 1, "cancelado": 0 }
+  ],
+  "lastImport": "2025-01-21T08:00:00Z",
+  "totalImported": 20
 }

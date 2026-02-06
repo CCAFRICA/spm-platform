@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ClipboardCheck, Clock, CheckCircle, XCircle, Plus, Inbox } from 'lucide-react';
+import { ClipboardCheck, Clock, CheckCircle, XCircle, Plus, Inbox, Wallet, ChevronRight, FileText } from 'lucide-react';
+import Link from 'next/link';
 import { ApprovalCard } from '@/components/approvals/approval-card';
 import { approvalService } from '@/lib/approval-service';
 import { ApprovalRequest } from '@/types/audit';
@@ -156,6 +157,68 @@ export default function ApprovalsPage() {
               </motion.div>
             </motion.div>
           )}
+
+          {/* Quick Links */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="grid md:grid-cols-2 gap-4"
+          >
+            {/* Payout Approvals */}
+            <Link href="/performance/approvals/payouts">
+              <Card className="border-0 shadow-md hover:shadow-lg transition-all cursor-pointer bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border-green-200 dark:border-green-800 h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 rounded-lg bg-green-100 dark:bg-green-900/50 flex items-center justify-center">
+                        <Wallet className="h-6 w-6 text-green-600" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-green-900 dark:text-green-100">Payout Approvals</h3>
+                        <p className="text-sm text-green-700 dark:text-green-300">
+                          Review and approve incentive payout batches
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        1 pending
+                      </Badge>
+                      <ChevronRight className="h-5 w-5 text-green-600" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            {/* Plan Approvals */}
+            <Link href="/performance/approvals/plans">
+              <Card className="border-0 shadow-md hover:shadow-lg transition-all cursor-pointer bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-blue-200 dark:border-blue-800 h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                        <FileText className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-blue-900 dark:text-blue-100">Plan Approvals</h3>
+                        <p className="text-sm text-blue-700 dark:text-blue-300">
+                          Review compensation plan changes
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                        2 pending
+                      </Badge>
+                      <ChevronRight className="h-5 w-5 text-blue-600" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          </motion.div>
 
           {/* Tabs */}
           <Tabs defaultValue="pending">

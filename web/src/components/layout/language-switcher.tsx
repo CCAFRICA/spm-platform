@@ -11,22 +11,20 @@ import {
 import { Button } from '@/components/ui/button';
 import { Globe, Check } from 'lucide-react';
 import { useLocale } from '@/contexts/locale-context';
-import { useTenant } from '@/contexts/tenant-context';
 import { SUPPORTED_LOCALES, Locale } from '@/lib/i18n';
 
 export function LanguageSwitcher() {
-  const { locale, setLocale, t } = useLocale();
-  const { currentTenant } = useTenant();
+  const { locale, setLocale } = useLocale();
 
-  // Use tenant locale as the source of truth for display
-  const effectiveLocale = (currentTenant?.locale as Locale) || locale;
-  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === effectiveLocale);
+  // Use context locale as source of truth (user selection overrides tenant default)
+  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
+  const isSpanish = locale === 'es-MX';
 
   const handleLocaleChange = (newLocale: Locale) => {
     if (newLocale !== locale) {
       setLocale(newLocale);
       const selectedLocale = SUPPORTED_LOCALES.find((l) => l.code === newLocale);
-      toast.success(t('language.select'), {
+      toast.success(isSpanish ? 'Idioma cambiado' : 'Language changed', {
         description: selectedLocale?.name || newLocale,
       });
     }
@@ -65,7 +63,7 @@ export function LanguageSwitcher() {
                   <span>{loc.flag}</span>
                   <span>{loc.name}</span>
                 </span>
-                {effectiveLocale === loc.code && (
+                {locale === loc.code && (
                   <Check className="h-4 w-4 text-primary" />
                 )}
               </DropdownMenuItem>

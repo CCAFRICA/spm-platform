@@ -6,6 +6,7 @@ import { ConfigProvider } from "@/contexts/config-context";
 import { LocaleProvider } from "@/contexts/locale-context";
 import { TenantProvider } from "@/contexts/tenant-context";
 import { AuthShell } from "@/components/layout/auth-shell";
+import { DemoUserSwitcher } from "@/components/demo/DemoUserSwitcher";
 import { Toaster } from "sonner";
 
 const geistSans = localFont({
@@ -20,7 +21,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "ClearComp - Sales Performance Management",
+  title: "Entity B - Sales Performance Management",
   description: "Enterprise Sales Performance Management Platform",
 };
 
@@ -39,6 +40,7 @@ export default function RootLayout({
             <LocaleProvider>
               <ConfigProvider>
                 <AuthShell>{children}</AuthShell>
+                <DemoUserSwitcher />
                 <Toaster position="top-right" richColors closeButton />
               </ConfigProvider>
             </LocaleProvider>

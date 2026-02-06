@@ -17,6 +17,10 @@ import {
   Calendar,
   Utensils,
   Wine,
+  Store,
+  Package,
+  DollarSign,
+  FileText,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,8 +34,15 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
 import { getCheques, getMeseros, getFranquicias, getTurnos } from '@/lib/restaurant-service';
 import type { Cheque, Mesero, Franquicia, Turno } from '@/types/cheques';
+import {
+  CalculationBreakdown,
+  AttributionDetails,
+} from '@/components/compensation';
+import { calculateIncentive, getMariaMetrics, getJamesMetrics } from '@/lib/compensation/calculation-engine';
+import type { CalculationResult } from '@/types/compensation-plan';
 
 // Mock line items for demo (in real app, this would come from a separate API)
 function generateMockLineItems(cheque: Cheque) {
@@ -128,16 +139,88 @@ const techCorpTransaction = {
   contractLength: '12 months',
 };
 
+// RetailCo transaction demo data
+const retailCoTransactions: Record<string, {
+  id: string;
+  date: string;
+  type: string;
+  product: string;
+  amount: number;
+  customer: string;
+  status: string;
+  repId: string;
+  repName: string;
+  storeId: string;
+  storeName: string;
+  isSplit: boolean;
+  splitDetails?: {
+    originalSplit: Record<string, number>;
+    appliedSplit: Record<string, number>;
+    notes: string;
+  };
+}> = {
+  'TXN-2025-0147': {
+    id: 'TXN-2025-0147',
+    date: '2025-01-15T14:30:00Z',
+    type: 'Insurance',
+    product: 'Premium Protection Plan',
+    amount: 850,
+    customer: 'Johnson Family',
+    status: 'completed',
+    repId: 'james-wilson',
+    repName: 'James Wilson',
+    storeId: 'store-101',
+    storeName: 'Downtown Flagship',
+    isSplit: true,
+    splitDetails: {
+      originalSplit: { 'james-wilson': 0.50, 'maria-rodriguez': 0.50 },
+      appliedSplit: { 'james-wilson': 1.00, 'maria-rodriguez': 0.00 },
+      notes: 'Maria Rodriguez assisted with customer consultation and product demo but was not credited. She should receive 50% credit ($425 incentive value).',
+    },
+  },
+  'TXN-2025-0142': {
+    id: 'TXN-2025-0142',
+    date: '2025-01-02T09:15:00Z',
+    type: 'Optical',
+    product: 'Progressive Lenses + Frame',
+    amount: 1250,
+    customer: 'Sarah Mitchell',
+    status: 'completed',
+    repId: 'maria-rodriguez',
+    repName: 'Maria Rodriguez',
+    storeId: 'store-101',
+    storeName: 'Downtown Flagship',
+    isSplit: false,
+  },
+};
+
 export default function TransactionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const { currentTenant } = useTenant();
+  const { user } = useAuth();
   const { format } = useCurrency();
   const [data, setData] = useState<TransactionDetailData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
+  const isRetail = currentTenant?.industry === 'Retail';
+
+  // Load calculation for retail transactions
+  useEffect(() => {
+    if (isRetail && currentTenant?.id) {
+      // Get appropriate metrics based on transaction
+      const txn = retailCoTransactions[id];
+      if (txn) {
+        const metrics = txn.repId === 'maria-rodriguez' ? getMariaMetrics() : getJamesMetrics();
+        const result = calculateIncentive(metrics, currentTenant.id);
+        setCalculationResult(result);
+      }
+      setIsLoading(false);
+    }
+  }, [isRetail, currentTenant?.id, id]);
 
   const loadChequeData = useCallback(async () => {
     setIsLoading(true);
@@ -175,10 +258,214 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
   useEffect(() => {
     if (isHospitality) {
       loadChequeData();
-    } else {
+    } else if (!isRetail) {
       setIsLoading(false);
     }
-  }, [isHospitality, loadChequeData]);
+  }, [isHospitality, isRetail, loadChequeData]);
+
+  const handleReportProblem = () => {
+    router.push(`/transactions/${id}/dispute`);
+  };
+
+  // RetailCo view
+  if (isRetail) {
+    const transaction = retailCoTransactions[id];
+    const isAdmin = user?.role === 'admin' || user?.role === 'cc_admin';
+    const currentUserId = user?.id || 'maria-rodriguez';
+
+    // Get attribution details for disputed transaction
+    const getAttributionDetails = () => {
+      if (!transaction) return { creditedTo: [], expectedCredits: undefined };
+
+      if (transaction.splitDetails) {
+        const creditedTo = Object.entries(transaction.splitDetails.appliedSplit)
+          .filter(([, pct]) => pct > 0)
+          .map(([personId, pct]) => ({
+            id: personId,
+            name: personId === 'james-wilson' ? 'James Wilson' : 'Maria Rodriguez',
+            role: 'Sales Associate',
+            percentage: pct * 100,
+          }));
+
+        const expectedCredits = Object.entries(transaction.splitDetails.originalSplit).map(
+          ([personId, pct]) => ({
+            id: personId,
+            name: personId === 'james-wilson' ? 'James Wilson' : 'Maria Rodriguez',
+            role: 'Sales Associate',
+            percentage: pct * 100,
+          })
+        );
+
+        return { creditedTo, expectedCredits };
+      }
+
+      return {
+        creditedTo: [
+          {
+            id: transaction.repId,
+            name: transaction.repName,
+            role: 'Sales Associate',
+            percentage: 100,
+          },
+        ],
+        expectedCredits: undefined,
+      };
+    };
+
+    const { creditedTo, expectedCredits } = getAttributionDetails();
+
+    if (isLoading) {
+      return (
+        <div className="p-6 flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading transaction...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (!transaction) {
+      return (
+        <div className="p-6 space-y-6">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => router.back()}>
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <h1 className="text-2xl font-bold">Transaction Not Found</h1>
+          </div>
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Receipt className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+              <p className="text-muted-foreground">Transaction {id} not found</p>
+              <Button className="mt-4" asChild>
+                <Link href="/transactions">View All Transactions</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    const formatDate = (dateString: string) => {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    };
+
+    return (
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex-1">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <Receipt className="h-6 w-6 text-primary" />
+                {transaction.id}
+              </h1>
+              <Badge variant="default">{transaction.status}</Badge>
+            </div>
+            <p className="text-muted-foreground">{formatDate(transaction.date)}</p>
+          </div>
+        </div>
+
+        {/* Transaction Details */}
+        <div className="grid lg:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Package className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Product</p>
+                  <p className="font-medium">{transaction.product}</p>
+                  <p className="text-xs text-muted-foreground">{transaction.type}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 rounded-lg dark:bg-green-900/30">
+                  <DollarSign className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Amount</p>
+                  <p className="font-bold text-lg">{format(transaction.amount)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-900/30">
+                  <Store className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Store</p>
+                  <p className="font-medium">{transaction.storeName}</p>
+                  <p className="text-xs text-muted-foreground">{transaction.storeId}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Customer Info */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <User className="h-5 w-5 text-muted-foreground" />
+              <span className="text-muted-foreground">Customer:</span>
+              <span className="font-medium">{transaction.customer}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Calculation Breakdown */}
+        {calculationResult && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              How Your Incentive Was Calculated
+            </h2>
+            <CalculationBreakdown result={calculationResult} showPlanLink={isAdmin} />
+          </div>
+        )}
+
+        {/* Attribution */}
+        <AttributionDetails
+          creditedTo={creditedTo}
+          expectedCredits={expectedCredits}
+          isSplit={transaction.isSplit}
+          hasDispute={false}
+          disputeEligible={!!transaction.splitDetails}
+          notes={transaction.splitDetails?.notes}
+          currentUserId={currentUserId}
+          onReportProblem={handleReportProblem}
+        />
+
+        {/* Actions */}
+        <div className="flex gap-4">
+          <Button variant="outline" asChild>
+            <Link href="/transactions">Back to Transactions</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // TechCorp view
   if (!isHospitality) {

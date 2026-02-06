@@ -19,9 +19,11 @@ export interface TenantUser extends BaseUser {
   tenantId: string;
   teamId?: string;
   regionId?: string;
+  storeId?: string;
   managerId?: string;
   permissions: string[];
   dataAccessLevel: 'own' | 'team' | 'region' | 'all';
+  meseroId?: number; // Links to mesero record for hospitality tenants
 }
 
 export interface CCAdminUser extends BaseUser {

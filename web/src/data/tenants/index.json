@@ -17,8 +17,17 @@
       "status": "active",
       "userCount": 32,
       "lastActivityAt": "2024-12-15T14:22:00Z"
+    },
+    {
+      "id": "retailco",
+      "displayName": "RetailCo",
+      "industry": "Retail",
+      "country": "US",
+      "status": "active",
+      "userCount": 15,
+      "lastActivityAt": "2025-01-15T00:00:00Z"
     }
   ],
   "defaultTenantId": null,
-  "lastUpdated": "2024-12-15T00:00:00Z"
+  "lastUpdated": "2025-01-15T00:00:00Z"
 }

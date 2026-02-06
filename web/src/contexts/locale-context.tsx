@@ -19,6 +19,21 @@ import {
 } from '@/lib/i18n';
 import { audit } from '@/lib/audit-service';
 
+// Get tenant locale from localStorage (set by tenant-context)
+function getTenantLocale(): Locale | null {
+  if (typeof window === 'undefined') return null;
+  const tenantId = localStorage.getItem('entityb_tenant');
+  if (!tenantId) return null;
+
+  // Map tenant to locale
+  const tenantLocales: Record<string, Locale> = {
+    'restaurantmx': 'es-MX',
+    'retailco': 'en-US',
+    'techcorp': 'en-US',
+  };
+  return tenantLocales[tenantId] || null;
+}
+
 interface LocaleContextType {
   locale: Locale;
   setLocale: (locale: Locale) => void;
@@ -70,12 +85,33 @@ export function LocaleProvider({
     loadAllTranslations();
   }, [locale]);
 
-  // Initialize from localStorage
+  // Initialize from localStorage or tenant locale
   useEffect(() => {
+    // First check user's stored preference (takes priority)
     const stored = localStorage.getItem('locale');
     if (stored && (stored === 'en-US' || stored === 'es-MX')) {
       setLocaleState(stored as Locale);
+      return;
     }
+
+    // Fall back to tenant locale if no user preference
+    const tenantLocale = getTenantLocale();
+    if (tenantLocale) {
+      setLocaleState(tenantLocale);
+    }
+  }, []);
+
+  // Listen for tenant changes
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const tenantLocale = getTenantLocale();
+      if (tenantLocale) {
+        setLocaleState(tenantLocale);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const setLocale = useCallback((newLocale: Locale) => {

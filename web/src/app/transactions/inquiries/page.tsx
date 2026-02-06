@@ -18,7 +18,8 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useTerm } from '@/contexts/tenant-context';
+import { useTerm, useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { pageVariants } from '@/lib/animations';
 import { TableSkeleton } from '@/components/ui/skeleton-loaders';
 
@@ -33,6 +34,9 @@ const mockInquiries = [
 
 export default function InquiriesPage() {
   const transactionTerm = useTerm('transaction');
+  const { currentTenant } = useTenant();
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
   const [inquiries, setInquiries] = useState(mockInquiries);
   const [statusFilter, setStatusFilter] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
@@ -54,11 +58,17 @@ export default function InquiriesPage() {
       in_progress: { variant: 'default', icon: <Clock className="h-3 w-3 mr-1" /> },
       resolved: { variant: 'outline', icon: <CheckCircle className="h-3 w-3 mr-1" /> },
     };
+    const statusLabels: Record<string, { en: string; es: string }> = {
+      open: { en: 'Open', es: 'Abierto' },
+      in_progress: { en: 'In Progress', es: 'En Progreso' },
+      resolved: { en: 'Resolved', es: 'Resuelto' },
+    };
     const { variant, icon } = config[status] || { variant: 'outline', icon: null };
+    const label = statusLabels[status] || { en: status, es: status };
     return (
       <Badge variant={variant} className="flex items-center w-fit">
         {icon}
-        {status.replace('_', ' ')}
+        {isSpanish ? label.es : label.en}
       </Badge>
     );
   };
@@ -69,9 +79,15 @@ export default function InquiriesPage() {
       medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
       low: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
     };
+    const priorityLabels: Record<string, { en: string; es: string }> = {
+      high: { en: 'High', es: 'Alta' },
+      medium: { en: 'Medium', es: 'Media' },
+      low: { en: 'Low', es: 'Baja' },
+    };
+    const label = priorityLabels[priority] || { en: priority, es: priority };
     return (
       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[priority]}`}>
-        {priority}
+        {isSpanish ? label.es : label.en}
       </span>
     );
   };
@@ -106,15 +122,15 @@ export default function InquiriesPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <MessageSquare className="h-6 w-6 text-primary" />
-            Inquiries
+            {isSpanish ? 'Consultas' : 'Inquiries'}
           </h1>
           <p className="text-muted-foreground">
-            {transactionTerm} disputes and questions
+            {isSpanish ? `Disputas y preguntas sobre ${transactionTerm.toLowerCase()}` : `${transactionTerm} disputes and questions`}
           </p>
         </div>
         <Button onClick={() => setIsDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          New Inquiry
+          {isSpanish ? 'Nueva Consulta' : 'New Inquiry'}
         </Button>
       </div>
 
@@ -124,7 +140,7 @@ export default function InquiriesPage() {
           <CardContent className="pt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Open</p>
+                <p className="text-sm text-muted-foreground">{isSpanish ? 'Abiertas' : 'Open'}</p>
                 <p className="text-2xl font-bold">{openCount}</p>
               </div>
               <AlertCircle className="h-8 w-8 text-yellow-500" />
@@ -135,7 +151,7 @@ export default function InquiriesPage() {
           <CardContent className="pt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">In Progress</p>
+                <p className="text-sm text-muted-foreground">{isSpanish ? 'En Progreso' : 'In Progress'}</p>
                 <p className="text-2xl font-bold">{inProgressCount}</p>
               </div>
               <Clock className="h-8 w-8 text-blue-500" />
@@ -146,7 +162,7 @@ export default function InquiriesPage() {
           <CardContent className="pt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total</p>
+                <p className="text-sm text-muted-foreground">{isSpanish ? 'Total' : 'Total'}</p>
                 <p className="text-2xl font-bold">{inquiries.length}</p>
               </div>
               <MessageSquare className="h-8 w-8 text-muted-foreground" />
@@ -162,13 +178,13 @@ export default function InquiriesPage() {
             <Filter className="h-4 w-4 text-muted-foreground" />
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Filter by status" />
+                <SelectValue placeholder={isSpanish ? 'Filtrar por estado' : 'Filter by status'} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="open">Open</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="resolved">Resolved</SelectItem>
+                <SelectItem value="all">{isSpanish ? 'Todos' : 'All Status'}</SelectItem>
+                <SelectItem value="open">{isSpanish ? 'Abierto' : 'Open'}</SelectItem>
+                <SelectItem value="in_progress">{isSpanish ? 'En Progreso' : 'In Progress'}</SelectItem>
+                <SelectItem value="resolved">{isSpanish ? 'Resuelto' : 'Resolved'}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -182,7 +198,7 @@ export default function InquiriesPage() {
             <TableSkeleton rows={5} cols={6} />
           ) : filteredInquiries.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No inquiries found
+              {isSpanish ? 'No se encontraron consultas' : 'No inquiries found'}
             </div>
           ) : (
             <Table>
@@ -190,10 +206,10 @@ export default function InquiriesPage() {
                 <TableRow>
                   <TableHead>ID</TableHead>
                   <TableHead>{transactionTerm} #</TableHead>
-                  <TableHead>Subject</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Updated</TableHead>
+                  <TableHead>{isSpanish ? 'Asunto' : 'Subject'}</TableHead>
+                  <TableHead>{isSpanish ? 'Prioridad' : 'Priority'}</TableHead>
+                  <TableHead>{isSpanish ? 'Estado' : 'Status'}</TableHead>
+                  <TableHead>{isSpanish ? 'Actualizado' : 'Updated'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -217,9 +233,11 @@ export default function InquiriesPage() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Submit New Inquiry</DialogTitle>
+            <DialogTitle>{isSpanish ? 'Enviar Nueva Consulta' : 'Submit New Inquiry'}</DialogTitle>
             <DialogDescription>
-              Have a question about a {transactionTerm.toLowerCase()}? Submit an inquiry and our team will respond.
+              {isSpanish
+                ? `¿Tienes una pregunta sobre un ${transactionTerm.toLowerCase()}? Envía una consulta y nuestro equipo responderá.`
+                : `Have a question about a ${transactionTerm.toLowerCase()}? Submit an inquiry and our team will respond.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -227,25 +245,25 @@ export default function InquiriesPage() {
               <Label htmlFor="transactionId">{transactionTerm} ID</Label>
               <Input
                 id="transactionId"
-                placeholder="e.g., TXN-001"
+                placeholder={isSpanish ? 'ej., CHQ-10001' : 'e.g., TXN-001'}
                 value={newInquiry.transactionId}
                 onChange={(e) => setNewInquiry({ ...newInquiry, transactionId: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="subject">Subject</Label>
+              <Label htmlFor="subject">{isSpanish ? 'Asunto' : 'Subject'}</Label>
               <Input
                 id="subject"
-                placeholder="Brief description of your inquiry"
+                placeholder={isSpanish ? 'Breve descripción de tu consulta' : 'Brief description of your inquiry'}
                 value={newInquiry.subject}
                 onChange={(e) => setNewInquiry({ ...newInquiry, subject: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{isSpanish ? 'Descripción' : 'Description'}</Label>
               <Textarea
                 id="description"
-                placeholder="Provide more details about your inquiry..."
+                placeholder={isSpanish ? 'Proporciona más detalles sobre tu consulta...' : 'Provide more details about your inquiry...'}
                 rows={4}
                 value={newInquiry.description}
                 onChange={(e) => setNewInquiry({ ...newInquiry, description: e.target.value })}
@@ -254,10 +272,10 @@ export default function InquiriesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              Cancel
+              {isSpanish ? 'Cancelar' : 'Cancel'}
             </Button>
             <Button onClick={handleSubmitInquiry} disabled={!newInquiry.transactionId || !newInquiry.subject}>
-              Submit Inquiry
+              {isSpanish ? 'Enviar Consulta' : 'Submit Inquiry'}
             </Button>
           </DialogFooter>
         </DialogContent>

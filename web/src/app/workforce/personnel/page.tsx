@@ -14,6 +14,7 @@ import {
   CheckCircle,
   XCircle,
   Save,
+  Lock,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -51,6 +52,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
+import { accessControl, canAccessModule } from '@/lib/access-control';
 
 interface Personnel {
   id: string;
@@ -62,29 +65,73 @@ interface Personnel {
   territory: string;
   status: 'active' | 'inactive';
   hireDate: string;
+  userId?: string; // Links to auth user
 }
 
 const mockPersonnel: Personnel[] = [
-  { id: '1', name: 'María García', email: 'maria.garcia@restaurantmx.com', role: 'Gerente Regional', channel: 'Dine-in', location: 'CDMX Norte', territory: 'CDMX', status: 'active', hireDate: '2022-03-15' },
-  { id: '2', name: 'Carlos López', email: 'carlos.lopez@restaurantmx.com', role: 'Mesero', channel: 'Dine-in', location: 'Centro Histórico', territory: 'CDMX', status: 'active', hireDate: '2023-01-10' },
-  { id: '3', name: 'Ana Martínez', email: 'ana.martinez@restaurantmx.com', role: 'Gerente de Franquicia', channel: 'Dine-in', location: 'Polanco', territory: 'CDMX', status: 'active', hireDate: '2021-06-20' },
-  { id: '4', name: 'Roberto Hernández', email: 'roberto.h@restaurantmx.com', role: 'Supervisor', channel: 'Delivery', location: 'Guadalajara Centro', territory: 'Jalisco', status: 'active', hireDate: '2022-09-01' },
-  { id: '5', name: 'Laura Sánchez', email: 'laura.s@restaurantmx.com', role: 'Mesero', channel: 'Takeout', location: 'Santa Fe', territory: 'CDMX', status: 'inactive', hireDate: '2023-04-15' },
-  { id: '6', name: 'Miguel Torres', email: 'miguel.t@restaurantmx.com', role: 'Mesero', channel: 'Dine-in', location: 'Monterrey Centro', territory: 'Nuevo León', status: 'active', hireDate: '2023-07-01' },
-  { id: '7', name: 'Patricia Ruiz', email: 'patricia.r@restaurantmx.com', role: 'Gerente de Franquicia', channel: 'Dine-in', location: 'Condesa', territory: 'CDMX', status: 'active', hireDate: '2020-11-15' },
-  { id: '8', name: 'Fernando Díaz', email: 'fernando.d@restaurantmx.com', role: 'Mesero', channel: 'Delivery', location: 'Puebla Centro', territory: 'Puebla', status: 'active', hireDate: '2024-01-08' },
+  { id: '1', userId: 'U001', name: 'María García', email: 'maria.garcia@restaurantmx.com', role: 'Gerente Regional', channel: 'Dine-in', location: 'CDMX Norte', territory: 'CDMX', status: 'active', hireDate: '2022-03-15' },
+  { id: '2', userId: 'U002', name: 'Carlos López', email: 'carlos.lopez@restaurantmx.com', role: 'Mesero', channel: 'Dine-in', location: 'Centro Histórico', territory: 'CDMX', status: 'active', hireDate: '2023-01-10' },
+  { id: '3', userId: 'U003', name: 'Ana Martínez', email: 'ana.martinez@restaurantmx.com', role: 'Gerente de Franquicia', channel: 'Dine-in', location: 'Polanco', territory: 'CDMX', status: 'active', hireDate: '2021-06-20' },
+  { id: '4', userId: 'U004', name: 'Roberto Hernández', email: 'roberto.h@restaurantmx.com', role: 'Supervisor', channel: 'Delivery', location: 'Guadalajara Centro', territory: 'Jalisco', status: 'active', hireDate: '2022-09-01' },
+  { id: '5', userId: 'U005', name: 'Laura Sánchez', email: 'laura.s@restaurantmx.com', role: 'Mesero', channel: 'Takeout', location: 'Santa Fe', territory: 'CDMX', status: 'inactive', hireDate: '2023-04-15' },
+  { id: '6', userId: 'U006', name: 'Miguel Torres', email: 'miguel.t@restaurantmx.com', role: 'Mesero', channel: 'Dine-in', location: 'Monterrey Centro', territory: 'Nuevo León', status: 'active', hireDate: '2023-07-01' },
+  { id: '7', userId: 'U007', name: 'Patricia Ruiz', email: 'patricia.r@restaurantmx.com', role: 'Gerente de Franquicia', channel: 'Dine-in', location: 'Condesa', territory: 'CDMX', status: 'active', hireDate: '2020-11-15' },
+  { id: '8', userId: 'U008', name: 'Fernando Díaz', email: 'fernando.d@restaurantmx.com', role: 'Mesero', channel: 'Delivery', location: 'Puebla Centro', territory: 'Puebla', status: 'active', hireDate: '2024-01-08' },
+];
+
+// RetailCo personnel - IDs match auth-context.tsx
+const retailCoPersonnel: Personnel[] = [
+  { id: 'R1', userId: 'rc-rep-001', name: 'Maria Rodriguez', email: 'maria.rodriguez@retailco.com', role: 'Sales Associate', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2023-03-15' },
+  { id: 'R2', userId: 'rc-rep-002', name: 'James Wilson', email: 'james.wilson@retailco.com', role: 'Sales Associate', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2022-06-10' },
+  { id: 'R3', userId: 'rc-manager-001', name: 'Carlos Mendez', email: 'carlos.mendez@retailco.com', role: 'Store Manager', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2019-08-01' },
+  { id: 'R4', userId: 'rc-rep-003', name: 'Emily Johnson', email: 'emily.johnson@retailco.com', role: 'Sales Associate', channel: 'Optical', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2023-09-01' },
+  { id: 'R5', userId: 'rc-rep-004', name: 'Michael Brown', email: 'michael.brown@retailco.com', role: 'Sales Associate', channel: 'Optical', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2022-11-15' },
+  { id: 'R6', userId: 'rc-admin-001', name: 'Sofia Chen', email: 'sofia.chen@retailco.com', role: 'Regional Manager', channel: 'Optical', location: 'Regional HQ', territory: 'West Region', status: 'active', hireDate: '2018-01-15' },
 ];
 
 const roles = ['Mesero', 'Supervisor', 'Gerente de Franquicia', 'Gerente Regional', 'Director'];
+const retailRoles = ['Sales Associate', 'Store Manager', 'Regional Manager', 'Director'];
 const channels = ['Dine-in', 'Delivery', 'Takeout'];
+const retailChannels = ['Optical', 'Insurance', 'Services'];
 const locations = ['Centro Histórico', 'Polanco', 'Santa Fe', 'Condesa', 'CDMX Norte', 'Guadalajara Centro', 'Monterrey Centro', 'Puebla Centro'];
+const retailLocations = ['Store #142', 'Store #143', 'Store #144', 'Regional HQ'];
 const territories = ['CDMX', 'Jalisco', 'Nuevo León', 'Puebla'];
+const retailTerritories = ['West Region', 'East Region', 'Central Region'];
 
 export default function PersonnelPage() {
   const { currentTenant } = useTenant();
+  const { user } = useAuth();
   const isSpanish = currentTenant?.locale === 'es-MX';
+  const isRetail = currentTenant?.industry === 'Retail';
 
-  const [personnel, setPersonnel] = useState<Personnel[]>(mockPersonnel);
+  // Check if user can access personnel module
+  const canAccess = canAccessModule(user, 'personnel');
+  const dataAccessLevel = accessControl.getDataAccessLevel(user);
+  const isManagerOrAbove = accessControl.isManagerOrAbove(user);
+
+  // Get base personnel data based on tenant
+  const basePersonnel = isRetail ? retailCoPersonnel : mockPersonnel;
+
+  // Filter personnel based on user's access level
+  const accessFilteredPersonnel = useMemo(() => {
+    if (!user) return [];
+
+    return accessControl.filterByAccess(
+      user,
+      basePersonnel,
+      (person) => person.userId || person.id,
+      (person) => person.territory // Team grouping by territory
+    );
+  }, [user, basePersonnel]);
+
+  // Local state for personnel modifications (add/edit/delete) - starts with access-filtered data
+  const [localPersonnelChanges, setLocalPersonnelChanges] = useState<{added: Personnel[], deleted: string[]}>({added: [], deleted: []});
+
+  // Combine access-filtered with local changes
+  const personnel = useMemo(() => {
+    const base = accessFilteredPersonnel.filter(p => !localPersonnelChanges.deleted.includes(p.id));
+    return [...base, ...localPersonnelChanges.added];
+  }, [accessFilteredPersonnel, localPersonnelChanges]);
   const [searchTerm, setSearchTerm] = useState('');
   const [channelFilter, setChannelFilter] = useState<string>('all');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -111,8 +158,19 @@ export default function PersonnelPage() {
     hierarchy: '',
   });
 
+  // Use personnel (access-filtered + local changes) as the base
+  const availablePersonnel = useMemo(() => {
+    return personnel;
+  }, [personnel]);
+
+  // Get the correct lists based on tenant
+  const availableRoles = isRetail ? retailRoles : roles;
+  const availableChannels = isRetail ? retailChannels : channels;
+  const availableLocations = isRetail ? retailLocations : locations;
+  const availableTerritories = isRetail ? retailTerritories : territories;
+
   const filteredPersonnel = useMemo(() => {
-    return personnel.filter(person => {
+    return availablePersonnel.filter(person => {
       const matchesSearch = !searchTerm ||
         person.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         person.email.toLowerCase().includes(searchTerm.toLowerCase());
@@ -123,7 +181,7 @@ export default function PersonnelPage() {
 
       return matchesSearch && matchesChannel && matchesRole && matchesLocation && matchesStatus;
     });
-  }, [personnel, searchTerm, channelFilter, roleFilter, locationFilter, statusFilter]);
+  }, [availablePersonnel, searchTerm, channelFilter, roleFilter, locationFilter, statusFilter]);
 
   const handleCreateUser = () => {
     const person: Personnel = {
@@ -133,34 +191,30 @@ export default function PersonnelPage() {
       role: newPerson.role,
       channel: newPerson.channel,
       location: newPerson.location,
-      territory: territories[0],
+      territory: availableTerritories[0],
       status: 'active',
       hireDate: new Date().toISOString().split('T')[0],
     };
-    setPersonnel([...personnel, person]);
+    setLocalPersonnelChanges(prev => ({
+      ...prev,
+      added: [...prev.added, person]
+    }));
     setNewPerson({ name: '', email: '', role: '', channel: '', location: '' });
     setCreateModalOpen(false);
   };
 
   const handleTransfer = () => {
-    if (selectedPerson) {
-      setPersonnel(personnel.map(p =>
-        p.id === selectedPerson.id
-          ? {
-              ...p,
-              territory: transferData.territory || p.territory,
-              location: transferData.location || p.location,
-              role: transferData.role || p.role,
-            }
-          : p
-      ));
-    }
+    // In a real app, this would update the backend
+    // For demo, we just close the modal
     setTransferModalOpen(false);
     setTransferData({ territory: '', location: '', role: '', hierarchy: '' });
   };
 
   const handleDelete = (id: string) => {
-    setPersonnel(personnel.filter(p => p.id !== id));
+    setLocalPersonnelChanges(prev => ({
+      ...prev,
+      deleted: [...prev.deleted, id]
+    }));
   };
 
   const openTransferModal = (person: Personnel) => {
@@ -174,8 +228,41 @@ export default function PersonnelPage() {
     setTransferModalOpen(true);
   };
 
+  // Access denied view
+  if (!canAccess) {
+    return (
+      <div className="p-6">
+        <Card className="max-w-md mx-auto mt-12">
+          <CardContent className="pt-6 text-center">
+            <Lock className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+            <h2 className="text-lg font-semibold mb-2">
+              {isSpanish ? 'Acceso Restringido' : 'Access Restricted'}
+            </h2>
+            <p className="text-muted-foreground">
+              {isSpanish
+                ? 'No tienes permiso para ver esta página.'
+                : 'You do not have permission to view this page.'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
+      {/* Access Level Banner */}
+      {dataAccessLevel === 'own' && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2 dark:bg-blue-900/20 dark:border-blue-800">
+          <Lock className="h-4 w-4 text-blue-600" />
+          <span className="text-sm text-blue-700 dark:text-blue-400">
+            {isSpanish
+              ? 'Solo puedes ver tu propio perfil de personal.'
+              : 'You can only view your own personnel profile.'}
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -187,16 +274,18 @@ export default function PersonnelPage() {
             {isSpanish ? 'Administra usuarios y asignaciones' : 'Manage users and assignments'}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setImportModalOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            {isSpanish ? 'Importar CSV' : 'Import CSV'}
-          </Button>
-          <Button onClick={() => setCreateModalOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            {isSpanish ? 'Nuevo Usuario' : 'New User'}
-          </Button>
-        </div>
+        {isManagerOrAbove && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setImportModalOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Importar CSV' : 'Import CSV'}
+            </Button>
+            <Button onClick={() => setCreateModalOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Nuevo Usuario' : 'New User'}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -224,7 +313,7 @@ export default function PersonnelPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{isSpanish ? 'Todos los canales' : 'All channels'}</SelectItem>
-                {channels.map(ch => (
+                {availableChannels.map(ch => (
                   <SelectItem key={ch} value={ch}>{ch}</SelectItem>
                 ))}
               </SelectContent>
@@ -235,7 +324,7 @@ export default function PersonnelPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{isSpanish ? 'Todos los roles' : 'All roles'}</SelectItem>
-                {roles.map(role => (
+                {availableRoles.map(role => (
                   <SelectItem key={role} value={role}>{role}</SelectItem>
                 ))}
               </SelectContent>
@@ -246,7 +335,7 @@ export default function PersonnelPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{isSpanish ? 'Todas las ubicaciones' : 'All locations'}</SelectItem>
-                {locations.map(loc => (
+                {availableLocations.map(loc => (
                   <SelectItem key={loc} value={loc}>{loc}</SelectItem>
                 ))}
               </SelectContent>
@@ -268,8 +357,13 @@ export default function PersonnelPage() {
       {/* Results */}
       <div className="text-sm text-muted-foreground">
         {isSpanish
-          ? `Mostrando ${filteredPersonnel.length} de ${personnel.length} usuarios`
-          : `Showing ${filteredPersonnel.length} of ${personnel.length} users`}
+          ? `Mostrando ${filteredPersonnel.length} de ${availablePersonnel.length} usuarios`
+          : `Showing ${filteredPersonnel.length} of ${availablePersonnel.length} users`}
+        {dataAccessLevel !== 'all' && (
+          <span className="ml-2 text-blue-600">
+            ({isSpanish ? 'vista limitada' : 'limited view'})
+          </span>
+        )}
       </div>
 
       {/* Table */}
@@ -383,7 +477,7 @@ export default function PersonnelPage() {
                   <SelectValue placeholder={isSpanish ? 'Seleccionar rol' : 'Select role'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {roles.map(role => (
+                  {availableRoles.map(role => (
                     <SelectItem key={role} value={role}>{role}</SelectItem>
                   ))}
                 </SelectContent>
@@ -396,7 +490,7 @@ export default function PersonnelPage() {
                   <SelectValue placeholder={isSpanish ? 'Seleccionar canal' : 'Select channel'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {channels.map(ch => (
+                  {availableChannels.map(ch => (
                     <SelectItem key={ch} value={ch}>{ch}</SelectItem>
                   ))}
                 </SelectContent>
@@ -409,7 +503,7 @@ export default function PersonnelPage() {
                   <SelectValue placeholder={isSpanish ? 'Seleccionar ubicación' : 'Select location'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {locations.map(loc => (
+                  {availableLocations.map(loc => (
                     <SelectItem key={loc} value={loc}>{loc}</SelectItem>
                   ))}
                 </SelectContent>
@@ -448,7 +542,7 @@ export default function PersonnelPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {territories.map(t => (
+                  {availableTerritories.map(t => (
                     <SelectItem key={t} value={t}>{t}</SelectItem>
                   ))}
                 </SelectContent>
@@ -461,7 +555,7 @@ export default function PersonnelPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {locations.map(loc => (
+                  {availableLocations.map(loc => (
                     <SelectItem key={loc} value={loc}>{loc}</SelectItem>
                   ))}
                 </SelectContent>
@@ -474,7 +568,7 @@ export default function PersonnelPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {roles.map(role => (
+                  {availableRoles.map(role => (
                     <SelectItem key={role} value={role}>{role}</SelectItem>
                   ))}
                 </SelectContent>
