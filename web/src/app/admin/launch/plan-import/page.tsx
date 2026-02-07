@@ -158,6 +158,39 @@ const labels = {
   },
 };
 
+interface TierDetail {
+  min: number;
+  max: number;
+  label?: string;
+  payout: number;
+}
+
+interface MatrixDetail {
+  rowMetric: string;
+  rowLabel: string;
+  rowRanges: Array<{ min: number; max: number; label: string }>;
+  columnMetric: string;
+  columnLabel: string;
+  columnRanges: Array<{ min: number; max: number; label: string }>;
+  values: number[][];
+}
+
+interface PercentageDetail {
+  rate: number;
+  appliedTo: string;
+}
+
+interface ConditionalDetail {
+  conditions: Array<{
+    threshold: number;
+    operator: string;
+    rate: number;
+    label?: string;
+  }>;
+  appliedTo: string;
+  conditionMetric: string;
+}
+
 interface DetectedComponent {
   id: string;
   name: string;
@@ -168,6 +201,11 @@ interface DetectedComponent {
   confidence: number;
   reasoning: string;
   config: Partial<PlanComponent>;
+  // Detailed calculation data from AI
+  tiers?: TierDetail[];
+  matrix?: MatrixDetail;
+  percentage?: PercentageDetail;
+  conditional?: ConditionalDetail;
 }
 
 interface ParsedPlan {
@@ -325,36 +363,90 @@ export default function PlanImportPage() {
         description += ` (${parsedFile.slides.length} slides, ${parsedFile.slides.reduce((sum, s) => sum + s.tables.length, 0)} tables found)`;
       }
 
-      // Convert AI components to DetectedComponent format
-      const components: DetectedComponent[] = interpretation.components.map((comp) => ({
-        id: comp.id,
-        name: comp.name,
-        nameEs: comp.nameEs,
-        type:
+      // Convert AI components to DetectedComponent format with full calculation details
+      const components: DetectedComponent[] = interpretation.components.map((comp) => {
+        const calcMethod = comp.calculationMethod as unknown as Record<string, unknown>;
+        const componentType =
           comp.type === 'tiered_lookup'
             ? 'tier_lookup'
             : comp.type === 'flat_percentage'
               ? 'percentage'
-              : (comp.type as PlanComponent['componentType']),
-        metricSource:
-          'metric' in comp.calculationMethod
-            ? (comp.calculationMethod.metric as string)
-            : 'rowAxis' in comp.calculationMethod
-              ? comp.calculationMethod.rowAxis.metric
-              : 'metric',
-        measurementLevel: 'individual',
-        confidence: comp.confidence,
-        reasoning: comp.reasoning,
-        config: {
-          componentType:
-            comp.type === 'tiered_lookup'
-              ? 'tier_lookup'
-              : comp.type === 'flat_percentage'
-                ? 'percentage'
-                : (comp.type as PlanComponent['componentType']),
+              : (comp.type as PlanComponent['componentType']);
+
+        const detected: DetectedComponent = {
+          id: comp.id,
+          name: comp.name,
+          nameEs: comp.nameEs,
+          type: componentType,
+          metricSource:
+            'metric' in calcMethod
+              ? String(calcMethod.metric)
+              : 'rowAxis' in calcMethod
+                ? String((calcMethod.rowAxis as Record<string, unknown>)?.metric || 'metric')
+                : 'metric',
           measurementLevel: 'individual',
-        },
-      }));
+          confidence: comp.confidence,
+          reasoning: comp.reasoning,
+          config: {
+            componentType,
+            measurementLevel: 'individual',
+          },
+        };
+
+        // Extract detailed calculation data based on type
+        if (comp.type === 'tiered_lookup' && 'tiers' in calcMethod) {
+          detected.tiers = (calcMethod.tiers as Array<Record<string, unknown>>).map((t) => ({
+            min: Number(t.min) || 0,
+            max: t.max === 'Infinity' || t.max === Infinity ? Infinity : Number(t.max) || 100,
+            label: String(t.label || ''),
+            payout: Number(t.payout) || 0,
+          }));
+        }
+
+        if (comp.type === 'matrix_lookup' && 'rowAxis' in calcMethod) {
+          const rowAxis = calcMethod.rowAxis as Record<string, unknown>;
+          const columnAxis = calcMethod.columnAxis as Record<string, unknown>;
+          detected.matrix = {
+            rowMetric: String(rowAxis.metric || ''),
+            rowLabel: String(rowAxis.label || ''),
+            rowRanges: ((rowAxis.ranges || []) as Array<Record<string, unknown>>).map((r) => ({
+              min: Number(r.min) || 0,
+              max: r.max === 'Infinity' || r.max === Infinity ? Infinity : Number(r.max) || 100,
+              label: String(r.label || ''),
+            })),
+            columnMetric: String(columnAxis?.metric || ''),
+            columnLabel: String(columnAxis?.label || ''),
+            columnRanges: ((columnAxis?.ranges || []) as Array<Record<string, unknown>>).map((r) => ({
+              min: Number(r.min) || 0,
+              max: r.max === 'Infinity' || r.max === Infinity ? Infinity : Number(r.max) || 100,
+              label: String(r.label || ''),
+            })),
+            values: (calcMethod.values as number[][]) || [],
+          };
+        }
+
+        if ((comp.type === 'percentage' || comp.type === 'flat_percentage') && 'rate' in calcMethod) {
+          detected.percentage = {
+            rate: Number(calcMethod.rate) || 0,
+            appliedTo: String(calcMethod.metric || ''),
+          };
+        }
+
+        if (comp.type === 'conditional_percentage' && 'conditions' in calcMethod) {
+          detected.conditional = {
+            conditions: ((calcMethod.conditions || []) as Array<Record<string, unknown>>).map((c) => ({
+              threshold: Number(c.threshold) || 0,
+              operator: String(c.operator || '>='),
+              rate: Number(c.rate) || 0,
+              label: String(c.label || ''),
+            })),
+            appliedTo: String(calcMethod.metric || ''),
+            conditionMetric: String(calcMethod.conditionMetric || ''),
+          };
+        }
+
+        return detected;
+      });
 
       const parsed: ParsedPlan = {
         name: interpretation.planName,
@@ -909,78 +1001,350 @@ export default function PlanImportPage() {
 
       {/* Edit Component Dialog */}
       <Dialog open={!!editingComponent} onOpenChange={() => setEditingComponent(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           {editingComponent && (
             <>
               <DialogHeader>
-                <DialogTitle>{t.editComponent}</DialogTitle>
-                <DialogDescription>{editingComponent.name}</DialogDescription>
+                <DialogTitle className="flex items-center gap-2">
+                  <Edit2 className="h-5 w-5" />
+                  {t.editComponent}
+                </DialogTitle>
+                <DialogDescription>
+                  {editingComponent.name}
+                  <Badge className={cn('ml-2', getConfidenceColor(editingComponent.confidence))}>
+                    {editingComponent.confidence}% {t.confidence}
+                  </Badge>
+                </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label>{locale === 'es-MX' ? 'Nombre' : 'Name'}</Label>
-                  <Input
-                    value={editingComponent.name}
-                    onChange={(e) =>
-                      setEditingComponent({ ...editingComponent, name: e.target.value })
-                    }
-                  />
+
+              <div className="space-y-6 pt-4">
+                {/* Basic Info */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>{locale === 'es-MX' ? 'Nombre' : 'Name'}</Label>
+                    <Input
+                      value={editingComponent.name}
+                      onChange={(e) =>
+                        setEditingComponent({ ...editingComponent, name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t.componentType}</Label>
+                    <Select
+                      value={editingComponent.type}
+                      onValueChange={(value) =>
+                        setEditingComponent({
+                          ...editingComponent,
+                          type: value as PlanComponent['componentType'],
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="matrix_lookup">Matrix Lookup</SelectItem>
+                        <SelectItem value="tier_lookup">Tier Lookup</SelectItem>
+                        <SelectItem value="percentage">Percentage</SelectItem>
+                        <SelectItem value="conditional_percentage">Conditional Percentage</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t.metricSource}</Label>
+                    <Input
+                      value={editingComponent.metricSource}
+                      onChange={(e) =>
+                        setEditingComponent({ ...editingComponent, metricSource: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t.measurementLevel}</Label>
+                    <Select
+                      value={editingComponent.measurementLevel}
+                      onValueChange={(value) =>
+                        setEditingComponent({ ...editingComponent, measurementLevel: value })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="individual">Individual</SelectItem>
+                        <SelectItem value="store">Store</SelectItem>
+                        <SelectItem value="team">Team</SelectItem>
+                        <SelectItem value="region">Region</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>{t.componentType}</Label>
-                  <Select
-                    value={editingComponent.type}
-                    onValueChange={(value) =>
-                      setEditingComponent({
-                        ...editingComponent,
-                        type: value as PlanComponent['componentType'],
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="matrix_lookup">Matrix Lookup</SelectItem>
-                      <SelectItem value="tier_lookup">Tier Lookup</SelectItem>
-                      <SelectItem value="percentage">Percentage</SelectItem>
-                      <SelectItem value="conditional_percentage">Conditional Percentage</SelectItem>
-                    </SelectContent>
-                  </Select>
+
+                {/* Reasoning */}
+                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    <strong>{t.reasoning}:</strong> {editingComponent.reasoning}
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label>{t.metricSource}</Label>
-                  <Input
-                    value={editingComponent.metricSource}
-                    onChange={(e) =>
-                      setEditingComponent({ ...editingComponent, metricSource: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t.measurementLevel}</Label>
-                  <Select
-                    value={editingComponent.measurementLevel}
-                    onValueChange={(value) =>
-                      setEditingComponent({ ...editingComponent, measurementLevel: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="individual">Individual</SelectItem>
-                      <SelectItem value="store">Store</SelectItem>
-                      <SelectItem value="team">Team</SelectItem>
-                      <SelectItem value="region">Region</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex justify-end gap-2 pt-4">
+
+                {/* Tier Lookup Details */}
+                {editingComponent.type === 'tier_lookup' && editingComponent.tiers && (
+                  <div className="space-y-3">
+                    <Label className="text-base font-semibold">
+                      {locale === 'es-MX' ? 'Tabla de Niveles' : 'Tier Table'}
+                    </Label>
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{locale === 'es-MX' ? 'Rango' : 'Range'}</TableHead>
+                            <TableHead>{locale === 'es-MX' ? 'Mín' : 'Min'}</TableHead>
+                            <TableHead>{locale === 'es-MX' ? 'Máx' : 'Max'}</TableHead>
+                            <TableHead>{locale === 'es-MX' ? 'Pago' : 'Payout'}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {editingComponent.tiers.map((tier, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell className="font-medium">{tier.label || `Tier ${idx + 1}`}</TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  className="w-20 h-8"
+                                  value={tier.min}
+                                  onChange={(e) => {
+                                    const newTiers = [...editingComponent.tiers!];
+                                    newTiers[idx] = { ...tier, min: Number(e.target.value) };
+                                    setEditingComponent({ ...editingComponent, tiers: newTiers });
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  className="w-20 h-8"
+                                  value={tier.max === Infinity ? '' : tier.max}
+                                  placeholder="∞"
+                                  onChange={(e) => {
+                                    const newTiers = [...editingComponent.tiers!];
+                                    newTiers[idx] = { ...tier, max: e.target.value === '' ? Infinity : Number(e.target.value) };
+                                    setEditingComponent({ ...editingComponent, tiers: newTiers });
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  className="w-24 h-8"
+                                  value={tier.payout}
+                                  onChange={(e) => {
+                                    const newTiers = [...editingComponent.tiers!];
+                                    newTiers[idx] = { ...tier, payout: Number(e.target.value) };
+                                    setEditingComponent({ ...editingComponent, tiers: newTiers });
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Matrix Lookup Details */}
+                {editingComponent.type === 'matrix_lookup' && editingComponent.matrix && (
+                  <div className="space-y-3">
+                    <Label className="text-base font-semibold">
+                      {locale === 'es-MX' ? 'Matriz de Pagos' : 'Payout Matrix'}
+                    </Label>
+                    <div className="grid gap-2 md:grid-cols-2 text-sm">
+                      <div>
+                        <span className="text-slate-500">{locale === 'es-MX' ? 'Filas' : 'Rows'}:</span>{' '}
+                        {editingComponent.matrix.rowLabel} ({editingComponent.matrix.rowMetric})
+                      </div>
+                      <div>
+                        <span className="text-slate-500">{locale === 'es-MX' ? 'Columnas' : 'Columns'}:</span>{' '}
+                        {editingComponent.matrix.columnLabel} ({editingComponent.matrix.columnMetric})
+                      </div>
+                    </div>
+                    <div className="border rounded-lg overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="bg-slate-100 dark:bg-slate-800"></TableHead>
+                            {editingComponent.matrix.columnRanges.map((col, idx) => (
+                              <TableHead key={idx} className="text-center bg-slate-100 dark:bg-slate-800">
+                                {col.label}
+                              </TableHead>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {editingComponent.matrix.rowRanges.map((row, rowIdx) => (
+                            <TableRow key={rowIdx}>
+                              <TableCell className="font-medium bg-slate-50 dark:bg-slate-800/50">
+                                {row.label}
+                              </TableCell>
+                              {editingComponent.matrix!.values[rowIdx]?.map((val, colIdx) => (
+                                <TableCell key={colIdx} className="text-center">
+                                  <Input
+                                    type="number"
+                                    className="w-20 h-8 text-center"
+                                    value={val}
+                                    onChange={(e) => {
+                                      const newValues = editingComponent.matrix!.values.map((r) => [...r]);
+                                      newValues[rowIdx][colIdx] = Number(e.target.value);
+                                      setEditingComponent({
+                                        ...editingComponent,
+                                        matrix: { ...editingComponent.matrix!, values: newValues },
+                                      });
+                                    }}
+                                  />
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Percentage Details */}
+                {editingComponent.type === 'percentage' && editingComponent.percentage && (
+                  <div className="space-y-3">
+                    <Label className="text-base font-semibold">
+                      {locale === 'es-MX' ? 'Configuración de Porcentaje' : 'Percentage Configuration'}
+                    </Label>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>{locale === 'es-MX' ? 'Tasa (%)' : 'Rate (%)'}</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={(editingComponent.percentage.rate * 100).toFixed(2)}
+                          onChange={(e) =>
+                            setEditingComponent({
+                              ...editingComponent,
+                              percentage: {
+                                ...editingComponent.percentage!,
+                                rate: Number(e.target.value) / 100,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{locale === 'es-MX' ? 'Aplicado a' : 'Applied To'}</Label>
+                        <Input
+                          value={editingComponent.percentage.appliedTo}
+                          onChange={(e) =>
+                            setEditingComponent({
+                              ...editingComponent,
+                              percentage: {
+                                ...editingComponent.percentage!,
+                                appliedTo: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Conditional Percentage Details */}
+                {editingComponent.type === 'conditional_percentage' && editingComponent.conditional && (
+                  <div className="space-y-3">
+                    <Label className="text-base font-semibold">
+                      {locale === 'es-MX' ? 'Porcentaje Condicional' : 'Conditional Percentage'}
+                    </Label>
+                    <div className="grid gap-4 md:grid-cols-2 text-sm">
+                      <div>
+                        <span className="text-slate-500">{locale === 'es-MX' ? 'Aplicado a' : 'Applied To'}:</span>{' '}
+                        {editingComponent.conditional.appliedTo}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">{locale === 'es-MX' ? 'Condición basada en' : 'Condition based on'}:</span>{' '}
+                        {editingComponent.conditional.conditionMetric}
+                      </div>
+                    </div>
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{locale === 'es-MX' ? 'Condición' : 'Condition'}</TableHead>
+                            <TableHead>{locale === 'es-MX' ? 'Umbral' : 'Threshold'}</TableHead>
+                            <TableHead>{locale === 'es-MX' ? 'Tasa (%)' : 'Rate (%)'}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {editingComponent.conditional.conditions.map((cond, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell>{cond.label || `${cond.operator} ${cond.threshold}`}</TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  className="w-20 h-8"
+                                  value={cond.threshold}
+                                  onChange={(e) => {
+                                    const newConds = [...editingComponent.conditional!.conditions];
+                                    newConds[idx] = { ...cond, threshold: Number(e.target.value) };
+                                    setEditingComponent({
+                                      ...editingComponent,
+                                      conditional: { ...editingComponent.conditional!, conditions: newConds },
+                                    });
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  className="w-20 h-8"
+                                  value={(cond.rate * 100).toFixed(2)}
+                                  onChange={(e) => {
+                                    const newConds = [...editingComponent.conditional!.conditions];
+                                    newConds[idx] = { ...cond, rate: Number(e.target.value) / 100 };
+                                    setEditingComponent({
+                                      ...editingComponent,
+                                      conditional: { ...editingComponent.conditional!, conditions: newConds },
+                                    });
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
+                {/* No Details Available Message */}
+                {!editingComponent.tiers &&
+                  !editingComponent.matrix &&
+                  !editingComponent.percentage &&
+                  !editingComponent.conditional && (
+                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                      <p className="text-sm text-amber-800 dark:text-amber-200">
+                        <AlertTriangle className="inline h-4 w-4 mr-2" />
+                        {locale === 'es-MX'
+                          ? 'No se extrajeron detalles de cálculo. Los valores predeterminados se usarán al importar.'
+                          : 'No calculation details were extracted. Default values will be used when importing.'}
+                      </p>
+                    </div>
+                  )}
+
+                {/* Actions */}
+                <div className="flex justify-end gap-2 pt-4 border-t">
                   <Button variant="outline" onClick={() => setEditingComponent(null)}>
                     {t.cancel}
                   </Button>
                   <Button onClick={() => handleUpdateComponent(editingComponent)}>
+                    <Save className="h-4 w-4 mr-2" />
                     {t.saveChanges}
                   </Button>
                 </div>

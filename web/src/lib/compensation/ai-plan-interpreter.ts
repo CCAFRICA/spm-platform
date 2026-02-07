@@ -131,7 +131,12 @@ export interface AIInterpreterConfig {
 // API PROMPT
 // ============================================
 
-const SYSTEM_PROMPT = `You are an expert at analyzing compensation and commission plan documents. Your task is to extract the complete structure of a compensation plan from the provided document content.
+const SYSTEM_PROMPT = `You are an expert at analyzing compensation and commission plan documents. Your task is to extract the COMPLETE structure of a compensation plan from the provided document content.
+
+CRITICAL REQUIREMENTS:
+1. Extract EVERY distinct compensation component - do NOT merge similar components
+2. Each table, each metric, each KPI with its own payout structure is a SEPARATE component
+3. Detect ALL employee types/classifications if the document has different payout levels for different roles
 
 IMPORTANT GUIDELINES:
 1. Documents may be in Spanish, English, or mixed languages. Preserve original language labels where found.
@@ -140,22 +145,51 @@ IMPORTANT GUIDELINES:
 4. Extract worked examples if present — these are critical for validation.
 5. Return confidence scores (0-100) for each component and overall.
 6. If something is ambiguous, flag it in the reasoning rather than guessing.
-7. Pay special attention to:
-   - Matrix lookups: Two-dimensional tables where payout depends on two metrics
-   - Tiered lookups: Single-dimension tables with thresholds and corresponding payouts
-   - Percentage calculations: Rate applied to a base amount
-   - Conditional percentages: Rate varies based on another metric's value
 
-COMMON PATTERNS TO DETECT:
-- "% cumplimiento" / "% attainment" / "goal attainment" → Attainment metric (percentage)
-- "Venta de..." / "Sales of..." → Revenue or volume metric (currency amount)
-- Tables with headers like "<80%", "80%-90%", etc. → Tiered or matrix lookup
-- "X% de..." / "X% of..." → Percentage calculation
-- "Si cumple X% entonces Y%" / "If attainment X% then Y%" → Conditional percentage
+COMPONENT DETECTION RULES:
+- Each slide or section with a distinct title/header is likely a separate component
+- Each table measuring a DIFFERENT metric is a SEPARATE component (even if similar structure)
+- Common component types in retail plans:
+  * Optical/Product Sales (often a 2D matrix with attainment % and sales volume)
+  * Store Sales Attainment (tiered lookup based on store goal %)
+  * New Customers (tiered lookup based on customer acquisition %)
+  * Collections/Cobranza (tiered lookup based on collection goal %)
+  * Insurance/Seguros Sales (percentage of individual sales, may be conditional)
+  * Warranty/Servicios Sales (flat percentage of individual sales)
+- DO NOT combine "New Customers" and "Collections" into one component - they are separate
+- DO NOT combine any tiered lookups just because they have similar tier structures
+
+EMPLOYEE TYPE DETECTION:
+- Look for phrases like "Certificado/Certified", "No Certificado/Non-Certified", "Senior", "Junior"
+- Look for different payout matrices or values for different employee classifications
+- If a component shows TWO different payout tables (e.g., one labeled for certified, one for non-certified), create TWO employee types
+- Components that are the same for all employee types should have appliesToEmployeeTypes: ["all"]
+- Components that differ should specify which employee type they apply to
+
+PAY ATTENTION TO:
+- Matrix lookups: Two-dimensional tables where payout depends on two metrics (row and column)
+- Tiered lookups: Single-dimension tables with thresholds and corresponding payouts
+- Percentage calculations: Rate applied to a base amount
+- Conditional percentages: Rate varies based on another metric's value
+
+COMMON SPANISH TERMS:
+- "% cumplimiento" = "% attainment"
+- "Venta de..." = "Sales of..."
+- "Meta" = "Goal/Target"
+- "Tienda" = "Store"
+- "Clientes Nuevos" = "New Customers"
+- "Cobranza" = "Collections"
+- "Seguros" = "Insurance"
+- "Servicios/Garantía Extendida" = "Warranty/Extended Services"
 
 Return your analysis as valid JSON matching the specified schema.`;
 
-const USER_PROMPT_TEMPLATE = `Analyze the following compensation plan document and extract its complete structure.
+const USER_PROMPT_TEMPLATE = `Analyze the following compensation plan document and extract its COMPLETE structure.
+
+IMPORTANT:
+- Extract ALL distinct components (typically 4-8 components in a retail plan)
+- Each metric/KPI with its own payout table is a SEPARATE component
+- Detect if there are multiple employee types with different payout levels
 
 DOCUMENT CONTENT:
 ---
