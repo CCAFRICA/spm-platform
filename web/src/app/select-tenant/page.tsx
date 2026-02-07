@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Users, ChevronRight, LogOut, Loader2 } from 'lucide-react';
+import { Users, ChevronRight, LogOut, Loader2, Plus, Rocket } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -131,7 +132,34 @@ export default function SelectTenantPage() {
             className="text-center mb-10"
           >
             <h2 className="text-3xl font-bold mb-2">Select Tenant</h2>
-            <p className="text-muted-foreground">Choose a tenant to manage</p>
+            <p className="text-muted-foreground">Choose a tenant to manage or start a new customer launch</p>
+          </motion.div>
+
+          {/* CC Admin Quick Actions */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="mb-8"
+          >
+            <Link href="/admin/launch">
+              <Card className="bg-gradient-to-r from-sky-500 to-indigo-600 text-white hover:from-sky-600 hover:to-indigo-700 transition-all cursor-pointer hover:shadow-xl">
+                <CardContent className="py-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 rounded-full bg-white/20 flex items-center justify-center">
+                        <Rocket className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold">Customer Launch</h3>
+                        <p className="text-white/80 text-sm">Start the O1→O8 onboarding flow for a new customer</p>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-6 w-6" />
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
           </motion.div>
 
           {/* Tenant Cards */}
@@ -194,16 +222,47 @@ export default function SelectTenantPage() {
                 </Card>
               </motion.div>
             ))}
+
+            {/* Create New Tenant Card */}
+            <motion.div
+              variants={itemVariants}
+              custom={availableTenants.length}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Link href="/admin/tenants/new">
+                <Card className="cursor-pointer transition-all hover:shadow-lg hover:border-primary/50 border-2 border-dashed border-muted-foreground/30 bg-muted/20 h-full min-h-[140px] flex flex-col justify-center">
+                  <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                      <Plus className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <h3 className="font-semibold text-foreground">Create New Tenant</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Provision a new customer environment</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            </motion.div>
           </motion.div>
 
-          {/* Empty State */}
+          {/* Empty State - Still show Create New Tenant option */}
           {availableTenants.length === 0 && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="text-center py-12"
+              className="text-center py-8"
             >
-              <p className="text-muted-foreground">No tenants available</p>
+              <p className="text-muted-foreground mb-6">No tenants available yet</p>
+              <Link href="/admin/tenants/new">
+                <Card className="cursor-pointer transition-all hover:shadow-lg hover:border-primary/50 border-2 border-dashed border-muted-foreground/30 bg-muted/20 max-w-md mx-auto">
+                  <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                      <Plus className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <h3 className="font-semibold text-foreground">Create Your First Tenant</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Provision a new customer environment</p>
+                  </CardContent>
+                </Card>
+              </Link>
             </motion.div>
           )}
         </div>

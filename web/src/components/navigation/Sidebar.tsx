@@ -23,6 +23,7 @@ import {
 import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
+import { isCCAdmin } from "@/types/auth";
 import { accessControl, type AppModule } from "@/lib/access-control";
 import { MODULE_TOKENS, type ModuleId } from "@/lib/design-system/tokens";
 
@@ -31,6 +32,7 @@ interface NavChild {
   href: string;
   feature?: keyof import("@/types/tenant").TenantConfig["features"];
   module?: AppModule; // For access control
+  ccAdminOnly?: boolean; // Only visible to CC Admin users
 }
 
 interface NavItem {
@@ -175,6 +177,11 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       moduleId: "admin",
       children: [
         { name: isSpanish ? "Registro de Auditoría" : "Audit Log", href: "/admin/audit", module: "audit_log" },
+        { name: isSpanish ? "Nuevo Inquilino" : "New Tenant", href: "/admin/tenants/new", ccAdminOnly: true },
+        { name: isSpanish ? "Lanzamiento de Cliente" : "Customer Launch", href: "/admin/launch", ccAdminOnly: true },
+        { name: isSpanish ? "Importar Plan" : "Plan Import", href: "/admin/launch/plan-import", ccAdminOnly: true },
+        { name: isSpanish ? "Ejecutar Cálculos" : "Run Calculations", href: "/admin/launch/calculate", ccAdminOnly: true },
+        { name: isSpanish ? "Reconciliación" : "Reconciliation", href: "/admin/launch/reconciliation", ccAdminOnly: true },
       ],
     },
   ];
@@ -195,15 +202,20 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     return item.children.some((child) => pathname === child.href);
   };
 
-  // Filter children based on feature flags and access control
+  // Check if user is CC Admin
+  const userIsCCAdmin = user && isCCAdmin(user);
+
+  // Filter children based on feature flags, access control, and CC Admin status
   const filterChildren = (children: NavChild[]) => {
     return children.filter((child) => {
+      // Check CC Admin only items
+      if (child.ccAdminOnly && !userIsCCAdmin) return false;
       // Check feature flag
       if (child.feature) {
         if (child.feature === "salesFinance" && !salesFinanceEnabled) return false;
       }
-      // Check module access
-      if (child.module && !accessibleModules.includes(child.module)) return false;
+      // Check module access (skip for CC Admin only items)
+      if (!child.ccAdminOnly && child.module && !accessibleModules.includes(child.module)) return false;
       return true;
     });
   };
