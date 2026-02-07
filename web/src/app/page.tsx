@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant, useCurrency } from "@/contexts/tenant-context";
-import { isTenantUser } from "@/types/auth";
+import { isTenantUser, isCCAdmin } from "@/types/auth";
 import { getCheques } from "@/lib/restaurant-service";
 import { isStaticTenant } from "@/lib/tenant-data-service";
 import type { Cheque } from "@/types/cheques";
@@ -118,7 +118,10 @@ export default function DashboardPage() {
   const { format } = useCurrency();
   const { stats, recentActivity, quickLinks } = dashboardData;
 
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  // Language follows the LOGGED-IN USER's context, not the tenant's setting
+  // CC Admin always sees English; tenant users see their tenant's locale
+  const userIsCCAdmin = authUser && isCCAdmin(authUser);
+  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
   // Only show mock data for static tenants
@@ -601,7 +604,7 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Performance Summary */}
+        {/* Performance Summary - only show for hospitality with data OR static tenants with mock data */}
         {isHospitality && hospitalityStats ? (
           <Card className="border-0 shadow-lg mt-6">
             <CardHeader>
@@ -647,7 +650,7 @@ export default function DashboardPage() {
               </div>
             </CardContent>
           </Card>
-        ) : (
+        ) : hasMockData ? (
           <Card className="border-0 shadow-lg mt-6">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -688,7 +691,7 @@ export default function DashboardPage() {
               </div>
             </CardContent>
           </Card>
-        )}
+        ) : null}
       </div>
     </div>
   );
