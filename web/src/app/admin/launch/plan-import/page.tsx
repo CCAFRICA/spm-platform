@@ -11,7 +11,6 @@ import { parseFile } from '@/lib/import-pipeline/file-parser';
 import {
   interpretPlanDocument,
   isAIInterpreterAvailable,
-  configureAIInterpreter,
   type PlanInterpretation,
 } from '@/lib/compensation/plan-interpreter';
 import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation-plan';
@@ -56,7 +55,6 @@ import {
   ArrowLeft,
   Brain,
   Cpu,
-  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -72,7 +70,8 @@ const labels = {
     aiAnalyzing: 'AI is analyzing your plan...',
     aiAnalyzingDesc: 'Using Claude AI to intelligently interpret your compensation plan structure',
     heuristicAnalyzing: 'Analyzing with pattern matching...',
-    heuristicAnalyzingDesc: 'No API key configured. Using heuristic pattern detection.',
+    heuristicAnalyzingDesc: 'AI interpretation not configured. Using heuristic pattern detection.',
+    aiNotConfigured: 'AI plan interpretation is not configured. Contact platform administrator.',
     detected: 'Detected Plan Structure',
     confidence: 'Confidence',
     reasoning: 'Reasoning',
@@ -103,11 +102,6 @@ const labels = {
     heuristicMode: 'Pattern Matching',
     overallConfidence: 'Overall Confidence',
     interpretationMethod: 'Interpretation Method',
-    configureApiKey: 'Configure API Key',
-    apiKeyPlaceholder: 'Enter your Anthropic API key',
-    apiKeyConfigured: 'API key configured',
-    apiKeyNotConfigured: 'API key not configured - using heuristic detection',
-    enableAI: 'Enable AI',
     workedExamples: 'Worked Examples',
     employeeTypes: 'Employee Types',
     requiredInputs: 'Required Inputs',
@@ -124,7 +118,8 @@ const labels = {
     aiAnalyzing: 'La IA está analizando su plan...',
     aiAnalyzingDesc: 'Usando Claude AI para interpretar inteligentemente la estructura de su plan de compensación',
     heuristicAnalyzing: 'Analizando con coincidencia de patrones...',
-    heuristicAnalyzingDesc: 'No hay clave API configurada. Usando detección heurística de patrones.',
+    heuristicAnalyzingDesc: 'Interpretación IA no configurada. Usando detección heurística de patrones.',
+    aiNotConfigured: 'La interpretación IA del plan no está configurada. Contacte al administrador de la plataforma.',
     detected: 'Estructura del Plan Detectada',
     confidence: 'Confianza',
     reasoning: 'Razonamiento',
@@ -155,11 +150,6 @@ const labels = {
     heuristicMode: 'Coincidencia de Patrones',
     overallConfidence: 'Confianza General',
     interpretationMethod: 'Método de Interpretación',
-    configureApiKey: 'Configurar Clave API',
-    apiKeyPlaceholder: 'Ingrese su clave API de Anthropic',
-    apiKeyConfigured: 'Clave API configurada',
-    apiKeyNotConfigured: 'Clave API no configurada - usando detección heurística',
-    enableAI: 'Habilitar IA',
     workedExamples: 'Ejemplos Trabajados',
     employeeTypes: 'Tipos de Empleado',
     requiredInputs: 'Entradas Requeridas',
@@ -218,11 +208,9 @@ export default function PlanImportPage() {
   const [eligibleRoles, _setEligibleRoles] = useState<string[]>(['sales_rep']);
 
   // AI configuration
-  const [showApiKeyDialog, setShowApiKeyDialog] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [aiAvailable, setAiAvailable] = useState(isAIInterpreterAvailable());
   const [showRawResponse, setShowRawResponse] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
+  const aiAvailable = isAIInterpreterAvailable();
 
   // CC Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
@@ -257,16 +245,6 @@ export default function PlanImportPage() {
       processFile(files[0]);
     }
   }, []);
-
-  // Save API key
-  const handleSaveApiKey = () => {
-    if (apiKeyInput.trim()) {
-      configureAIInterpreter(apiKeyInput.trim());
-      setAiAvailable(true);
-      setApiKeyInput('');
-      setShowApiKeyDialog(false);
-    }
-  };
 
   // Process uploaded file
   const processFile = async (file: File) => {
@@ -642,14 +620,6 @@ export default function PlanImportPage() {
                     {t.heuristicMode}
                   </Badge>
                 )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowApiKeyDialog(true)}
-                  className="text-slate-500 hover:text-slate-700"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
               </div>
             </div>
           </CardHeader>
@@ -1020,53 +990,6 @@ export default function PlanImportPage() {
         </DialogContent>
       </Dialog>
 
-      {/* API Key Configuration Dialog */}
-      <Dialog open={showApiKeyDialog} onOpenChange={setShowApiKeyDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Brain className="h-5 w-5 text-purple-500" />
-              {t.configureApiKey}
-            </DialogTitle>
-            <DialogDescription>
-              {aiAvailable ? t.apiKeyConfigured : t.apiKeyNotConfigured}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <Label>{locale === 'es-MX' ? 'Clave API de Anthropic' : 'Anthropic API Key'}</Label>
-              <Input
-                type="password"
-                placeholder={t.apiKeyPlaceholder}
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-              />
-              <p className="text-xs text-slate-500">
-                {locale === 'es-MX'
-                  ? 'Su clave API se almacena localmente y nunca se envía a nuestros servidores.'
-                  : 'Your API key is stored locally and never sent to our servers.'}
-              </p>
-            </div>
-            {aiAvailable && (
-              <div className="flex items-center gap-2 p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm text-emerald-700 dark:text-emerald-300">
-                  {t.apiKeyConfigured}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onClick={() => setShowApiKeyDialog(false)}>
-                {t.cancel}
-              </Button>
-              <Button onClick={handleSaveApiKey} disabled={!apiKeyInput.trim()}>
-                <Brain className="h-4 w-4 mr-2" />
-                {t.enableAI}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

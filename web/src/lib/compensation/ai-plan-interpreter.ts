@@ -286,14 +286,9 @@ export class AIPlainInterpreter {
   }
 
   private getApiKey(): string | null {
-    // Try multiple sources for API key
-    if (typeof window !== 'undefined') {
-      // Browser: check localStorage
-      const stored = localStorage.getItem('anthropic_api_key');
-      if (stored) return stored;
-    }
-
-    // Check environment variable (works in Node.js or if exposed to client)
+    // Read from environment variable only
+    // In Next.js, server-side env vars are available via process.env
+    // For client-side, we need to use NEXT_PUBLIC_ prefix or call an API route
     if (typeof process !== 'undefined' && process.env?.ANTHROPIC_API_KEY) {
       return process.env.ANTHROPIC_API_KEY;
     }
@@ -305,27 +300,13 @@ export class AIPlainInterpreter {
     return this.apiKey !== null && this.apiKey.length > 0;
   }
 
-  public setApiKey(key: string): void {
-    this.apiKey = key;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('anthropic_api_key', key);
-    }
-  }
-
-  public clearApiKey(): void {
-    this.apiKey = null;
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('anthropic_api_key');
-    }
-  }
-
   /**
    * Interpret a plan document using Claude API
    */
   public async interpretPlan(documentContent: string): Promise<PlanInterpretation> {
     if (!this.isConfigured()) {
       throw new Error(
-        'AI plan interpretation requires an API key. Configure in settings or use manual plan entry.'
+        'AI plan interpretation is not configured. Contact platform administrator.'
       );
     }
 

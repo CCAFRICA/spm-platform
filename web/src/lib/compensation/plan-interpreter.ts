@@ -1477,12 +1477,6 @@ export function isAIInterpreterAvailable(): boolean {
   return getAIInterpreter().isConfigured();
 }
 
-/**
- * Configure AI interpreter with API key
- */
-export function configureAIInterpreter(apiKey: string): void {
-  getAIInterpreter().setApiKey(apiKey);
-}
 
 /**
  * Re-export AI interpreter types for convenience
