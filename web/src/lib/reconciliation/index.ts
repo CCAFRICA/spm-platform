@@ -5,3 +5,4 @@
  */
 
 export * from './engine';
+export * from './reconciliation-bridge';

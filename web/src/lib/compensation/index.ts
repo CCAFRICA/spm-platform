@@ -12,3 +12,6 @@ export * from './plan-storage';
 
 // Calculation engine
 export * from './calculation-engine';
+
+// Plan interpreter
+export * from './plan-interpreter';
