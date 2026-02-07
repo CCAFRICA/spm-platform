@@ -4,10 +4,20 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Users, ChevronRight, LogOut, Loader2, Plus, Rocket } from 'lucide-react';
+import { Users, ChevronRight, LogOut, Loader2, Plus, Rocket, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { containerVariants, itemVariants } from '@/lib/animations';
@@ -20,6 +30,78 @@ export default function SelectTenantPage() {
   const [selectingTenant, setSelectingTenant] = useState<string | null>(null);
   const [localTenants, setLocalTenants] = useState<TenantSummary[]>([]);
   const [loadingTenants, setLoadingTenants] = useState(false);
+  const [deletingTenant, setDeletingTenant] = useState<TenantSummary | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Static tenant IDs that cannot be deleted
+  const STATIC_TENANT_IDS = ['retailco', 'restaurantmx', 'techcorp'];
+
+  const isDynamicTenant = (tenantId: string) => !STATIC_TENANT_IDS.includes(tenantId);
+
+  const handleDeleteTenant = async (tenant: TenantSummary, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click
+    setDeletingTenant(tenant);
+  };
+
+  const confirmDeleteTenant = async () => {
+    if (!deletingTenant) return;
+
+    setIsDeleting(true);
+    try {
+      const tenantId = deletingTenant.id;
+
+      // Remove from clearcomp_tenants array
+      const tenantsJson = localStorage.getItem('clearcomp_tenants');
+      if (tenantsJson) {
+        const tenants = JSON.parse(tenantsJson);
+        const filtered = tenants.filter((t: { id: string }) => t.id !== tenantId);
+        localStorage.setItem('clearcomp_tenants', JSON.stringify(filtered));
+      }
+
+      // Remove from clearcomp_tenant_registry
+      const registryJson = localStorage.getItem('clearcomp_tenant_registry');
+      if (registryJson) {
+        const registry = JSON.parse(registryJson);
+        registry.tenants = (registry.tenants || []).filter((t: { id: string }) => t.id !== tenantId);
+        registry.lastUpdated = new Date().toISOString();
+        localStorage.setItem('clearcomp_tenant_registry', JSON.stringify(registry));
+      }
+
+      // Remove all tenant-specific data (clearcomp_tenant_data_${tenantId}_*)
+      const prefix = `clearcomp_tenant_data_${tenantId}_`;
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+          keysToRemove.push(key);
+        }
+      }
+      for (const key of keysToRemove) {
+        localStorage.removeItem(key);
+      }
+
+      // Also remove any spm_ prefixed keys for this tenant
+      const spmPrefix = `spm_${tenantId}_`;
+      const spmKeysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(spmPrefix)) {
+          spmKeysToRemove.push(key);
+        }
+      }
+      for (const key of spmKeysToRemove) {
+        localStorage.removeItem(key);
+      }
+
+      // Update local state
+      setLocalTenants(prev => prev.filter(t => t.id !== tenantId));
+    } catch (error) {
+      console.error('Failed to delete tenant:', error);
+    } finally {
+      setIsDeleting(false);
+      setDeletingTenant(null);
+    }
+  };
 
   // Load tenants directly if context doesn't have them (timing issue after login)
   useEffect(() => {
@@ -244,11 +326,23 @@ export default function SelectTenantPage() {
                       <span className="text-sm text-muted-foreground flex items-center gap-1">
                         <Users className="h-4 w-4" /> {tenant.userCount} users
                       </span>
-                      {selectingTenant === tenant.id ? (
-                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                      ) : (
-                        <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                      )}
+                      <div className="flex items-center gap-2">
+                        {isDynamicTenant(tenant.id) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={(e) => handleDeleteTenant(tenant, e)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {selectingTenant === tenant.id ? (
+                          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        ) : (
+                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -299,6 +393,41 @@ export default function SelectTenantPage() {
           )}
         </div>
       </main>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deletingTenant} onOpenChange={(open) => !open && setDeletingTenant(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Tenant</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                Are you sure you want to delete <strong>{deletingTenant?.displayName}</strong>?
+              </p>
+              <p className="text-destructive font-medium">
+                This will permanently remove this tenant and all associated data including users, plans, transactions, and calculations.
+              </p>
+              <p>This action cannot be undone.</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteTenant}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Tenant'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
