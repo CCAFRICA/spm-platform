@@ -32,6 +32,7 @@ export default function SelectTenantPage() {
   const [loadingTenants, setLoadingTenants] = useState(false);
   const [deletingTenant, setDeletingTenant] = useState<TenantSummary | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [forceLocalTenants, setForceLocalTenants] = useState(false);
 
   // Static tenant IDs that cannot be deleted
   const STATIC_TENANT_IDS = ['retailco', 'restaurantmx', 'techcorp'];
@@ -93,8 +94,33 @@ export default function SelectTenantPage() {
         localStorage.removeItem(key);
       }
 
-      // Update local state
-      setLocalTenants(prev => prev.filter(t => t.id !== tenantId));
+      // Reload tenant list from localStorage to get fresh data
+      const reloadTenants = async () => {
+        try {
+          const registry = await import('@/data/tenants/index.json');
+          const staticTenants = (registry.tenants || []) as TenantSummary[];
+
+          let dynamicTenants: TenantSummary[] = [];
+          const dynamicRegistry = localStorage.getItem('clearcomp_tenant_registry');
+          if (dynamicRegistry) {
+            const parsed = JSON.parse(dynamicRegistry);
+            dynamicTenants = (parsed.tenants || []) as TenantSummary[];
+          }
+
+          const staticIds = new Set(staticTenants.map(t => t.id));
+          const mergedTenants = [
+            ...staticTenants,
+            ...dynamicTenants.filter(t => !staticIds.has(t.id)),
+          ];
+
+          setLocalTenants(mergedTenants);
+          setForceLocalTenants(true); // Force use of local tenants after deletion
+        } catch (err) {
+          console.error('Failed to reload tenants:', err);
+        }
+      };
+
+      await reloadTenants();
     } catch (error) {
       console.error('Failed to delete tenant:', error);
     } finally {
@@ -154,7 +180,8 @@ export default function SelectTenantPage() {
   }, [isCCAdmin, contextTenants.length, loadingTenants]);
 
   // Use context tenants if available, otherwise use locally loaded ones
-  const availableTenants = contextTenants.length > 0 ? contextTenants : localTenants;
+  // Use localTenants if we just deleted something (forceLocalTenants) or if contextTenants is empty
+  const availableTenants = forceLocalTenants || contextTenants.length === 0 ? localTenants : contextTenants;
 
   useEffect(() => {
     // Redirect non-CC Admin users to home
