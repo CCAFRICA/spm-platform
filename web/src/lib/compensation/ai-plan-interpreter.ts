@@ -344,9 +344,16 @@ export class AIPlainInterpreter {
       );
     }
 
+    console.log('\n========== AI INTERPRETER DEBUG ==========');
+    console.log('Document content length:', documentContent.length, 'chars');
+    console.log('Model:', this.model);
+    console.log('Max tokens:', this.maxTokens);
+
     const userPrompt = USER_PROMPT_TEMPLATE.replace('{CONTENT}', documentContent);
+    console.log('User prompt length:', userPrompt.length, 'chars');
 
     try {
+      console.log('Calling Anthropic API...');
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -369,6 +376,7 @@ export class AIPlainInterpreter {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        console.error('API error:', response.status, errorData);
         throw new Error(
           `API request failed: ${response.status} ${response.statusText}. ${
             errorData.error?.message || ''
@@ -379,6 +387,12 @@ export class AIPlainInterpreter {
       const data = await response.json();
       const content = data.content?.[0]?.text;
 
+      console.log('\n========== RAW AI RESPONSE ==========');
+      console.log('Response length:', content?.length || 0, 'chars');
+      console.log('Full response:');
+      console.log(content);
+      console.log('======================================\n');
+
       if (!content) {
         throw new Error('No content in API response');
       }
@@ -386,6 +400,21 @@ export class AIPlainInterpreter {
       // Parse the JSON response
       const interpretation = this.parseApiResponse(content);
       interpretation.rawApiResponse = content;
+
+      console.log('\n========== PARSED INTERPRETATION ==========');
+      console.log('Plan name:', interpretation.planName);
+      console.log('Employee types:', interpretation.employeeTypes.length);
+      interpretation.employeeTypes.forEach((et, i) => {
+        console.log(`  ${i + 1}. ${et.name} (${et.id})`);
+      });
+      console.log('Components:', interpretation.components.length);
+      interpretation.components.forEach((comp, i) => {
+        console.log(`  ${i + 1}. ${comp.name} (${comp.type}) - ${comp.confidence}% confidence`);
+        console.log(`     Calculation method:`, JSON.stringify(comp.calculationMethod).substring(0, 200));
+      });
+      console.log('Worked examples:', interpretation.workedExamples.length);
+      console.log('Overall confidence:', interpretation.confidence);
+      console.log('============================================\n');
 
       return interpretation;
     } catch (error) {

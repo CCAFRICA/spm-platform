@@ -295,8 +295,15 @@ export default function PlanImportPage() {
       // Progress: File parsing
       setAnalysisProgress(20);
 
+      console.log('\n========== PLAN IMPORT DEBUG ==========');
+      console.log('Processing file:', file.name);
+
       // Use unified file parser (handles CSV, TSV, JSON, PPTX)
       const parsedFile = await parseFile(file);
+
+      console.log('Parsed file format:', parsedFile.format);
+      console.log('Slides available:', parsedFile.slides?.length || 0);
+      console.log('Rows available:', parsedFile.rows?.length || 0);
 
       // Build document content string for AI interpretation
       let documentContent = '';
@@ -307,24 +314,31 @@ export default function PlanImportPage() {
 
       // If PPTX, include slide text and tables
       if (parsedFile.format === 'pptx' && parsedFile.slides) {
+        console.log('\nBuilding document content from PPTX slides...');
         for (const slide of parsedFile.slides) {
           documentContent += `--- Slide ${slide.slideNumber} ---\n`;
           documentContent += slide.texts.join('\n') + '\n';
+
+          console.log(`Slide ${slide.slideNumber}: ${slide.texts.length} texts, ${slide.tables.length} tables`);
+
           for (const table of slide.tables) {
             documentContent += '\nTable:\n';
             if (table.headers.length > 0) {
               documentContent += '| ' + table.headers.join(' | ') + ' |\n';
               documentContent += '|' + table.headers.map(() => '---').join('|') + '|\n';
             }
+            // table.rows is string[][] not Record[], so iterate directly
             for (const row of table.rows) {
-              documentContent += '| ' + Object.values(row).join(' | ') + ' |\n';
+              // row is string[] - join directly
+              const rowValues = Array.isArray(row) ? row : Object.values(row);
+              documentContent += '| ' + rowValues.join(' | ') + ' |\n';
             }
           }
           documentContent += '\n';
         }
       }
 
-      // Add parsed row data
+      // Add parsed row data (for non-PPTX or as supplement)
       if (parsedFile.rows.length > 0) {
         documentContent += '\n--- Data Rows ---\n';
         const headers = Object.keys(parsedFile.rows[0]);
@@ -335,6 +349,13 @@ export default function PlanImportPage() {
           documentContent += '| ' + Object.values(row).join(' | ') + ' |\n';
         }
       }
+
+      console.log('\n========== DOCUMENT CONTENT FOR AI ==========');
+      console.log('Content length:', documentContent.length, 'chars');
+      console.log('Content preview (first 2000 chars):');
+      console.log(documentContent.substring(0, 2000));
+      console.log('...');
+      console.log('==============================================\n');
 
       // Progress: Starting interpretation
       setAnalysisProgress(40);

@@ -30,6 +30,9 @@ export async function parsePPTX(
   file: File,
   options: ParseOptions = {}
 ): Promise<PPTXParseResult> {
+  console.log('\n========== PPTX PARSER DEBUG ==========');
+  console.log('Parsing file:', file.name);
+
   const arrayBuffer = await file.arrayBuffer();
   const zip = await JSZip.loadAsync(arrayBuffer);
 
@@ -45,6 +48,8 @@ export async function parsePPTX(
       return numA - numB;
     });
 
+  console.log('Found slide files:', slideFiles.length);
+
   for (let i = 0; i < slideFiles.length; i++) {
     const slideFile = slideFiles[i];
     const content = await zip.file(slideFile)?.async('string');
@@ -53,7 +58,25 @@ export async function parsePPTX(
     const slideContent = parseSlideXML(content, i + 1);
     slides.push(slideContent);
     allTables.push(...slideContent.tables);
+
+    console.log(`\nSlide ${i + 1}:`);
+    console.log('  Texts found:', slideContent.texts.length);
+    console.log('  Text preview:', slideContent.texts.slice(0, 5).join(' | '));
+    console.log('  Tables found:', slideContent.tables.length);
+    for (let t = 0; t < slideContent.tables.length; t++) {
+      const table = slideContent.tables[t];
+      console.log(`  Table ${t + 1}: ${table.headers.length} cols, ${table.rows.length} data rows`);
+      console.log(`    Headers: ${table.headers.join(' | ')}`);
+      if (table.rows.length > 0) {
+        console.log(`    First row: ${table.rows[0].join(' | ')}`);
+      }
+    }
   }
+
+  console.log('\n========== PPTX PARSER SUMMARY ==========');
+  console.log('Total slides:', slides.length);
+  console.log('Total tables:', allTables.length);
+  console.log('==========================================\n');
 
   // Convert tables to ParsedFile format
   const { headers, rows } = convertTablesToUniformFormat(allTables, options);
