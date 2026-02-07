@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -70,6 +70,29 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   // Get user's accessible modules
   const accessibleModules = accessControl.getAccessibleModules(user);
+
+  // Calculate current period dynamically based on current date
+  const currentPeriod = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const monthNames = isSpanish
+      ? ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+      : ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const shortMonthNames = isSpanish
+      ? ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+      : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const dayOfMonth = now.getDate();
+    const progress = Math.round((dayOfMonth / daysInMonth) * 100);
+
+    return {
+      name: `${monthNames[month]} ${year}`,
+      dateRange: `${shortMonthNames[month]} 1 - ${shortMonthNames[month]} ${daysInMonth}`,
+      progress,
+    };
+  }, [isSpanish]);
 
   // Dynamic navigation based on tenant terminology and features
   const navigation: NavItem[] = [
@@ -379,20 +402,20 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
               </span>
             </div>
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-              {isSpanish ? "Enero 2025" : "January 2025"}
+              {currentPeriod.name}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-500">
-              {isSpanish ? "1 Ene - 31 Ene" : "Jan 1 - Jan 31"}
+              {currentPeriod.dateRange}
             </p>
             <div className="mt-3">
               <div className="flex items-center justify-between text-xs mb-1">
                 <span className="text-slate-500">{isSpanish ? "Progreso" : "Progress"}</span>
-                <span className="font-medium text-slate-700 dark:text-slate-300">90%</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300">{currentPeriod.progress}%</span>
               </div>
               <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden dark:bg-slate-700">
                 <div
                   className="h-full bg-gradient-to-r from-navy-500 to-sky-500 rounded-full"
-                  style={{ width: "90%" }}
+                  style={{ width: `${currentPeriod.progress}%` }}
                 />
               </div>
             </div>
