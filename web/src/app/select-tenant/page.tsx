@@ -27,10 +27,42 @@ export default function SelectTenantPage() {
       if (isCCAdmin && contextTenants.length === 0 && !loadingTenants) {
         setLoadingTenants(true);
         try {
+          // Load static tenants from registry file
           const registry = await import('@/data/tenants/index.json');
-          setLocalTenants((registry.tenants || []) as TenantSummary[]);
+          const staticTenants = (registry.tenants || []) as TenantSummary[];
+
+          // Load dynamic tenants from localStorage
+          let dynamicTenants: TenantSummary[] = [];
+          try {
+            const dynamicRegistry = localStorage.getItem('clearcomp_tenant_registry');
+            if (dynamicRegistry) {
+              const parsed = JSON.parse(dynamicRegistry);
+              dynamicTenants = (parsed.tenants || []) as TenantSummary[];
+            }
+          } catch {
+            // Ignore localStorage errors
+          }
+
+          // Merge, with dynamic tenants for IDs not in static
+          const staticIds = new Set(staticTenants.map(t => t.id));
+          const mergedTenants = [
+            ...staticTenants,
+            ...dynamicTenants.filter(t => !staticIds.has(t.id)),
+          ];
+
+          setLocalTenants(mergedTenants);
         } catch (e) {
           console.error('Failed to load tenant registry:', e);
+          // Still try to load dynamic tenants if static fails
+          try {
+            const dynamicRegistry = localStorage.getItem('clearcomp_tenant_registry');
+            if (dynamicRegistry) {
+              const parsed = JSON.parse(dynamicRegistry);
+              setLocalTenants((parsed.tenants || []) as TenantSummary[]);
+            }
+          } catch {
+            // Ignore
+          }
         } finally {
           setLoadingTenants(false);
         }

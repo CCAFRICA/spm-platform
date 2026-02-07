@@ -21,14 +21,60 @@ const TenantContext = createContext<TenantContextState | undefined>(undefined);
 const STORAGE_KEY_TENANT = 'entityb_current_tenant';
 const STORAGE_KEY_USER_ROLE = 'entityb_user_role';
 
+// Storage keys for dynamic tenants (matches provisioning-engine.ts)
+const DYNAMIC_TENANTS_KEY = 'clearcomp_tenants';
+const DYNAMIC_REGISTRY_KEY = 'clearcomp_tenant_registry';
+
 // Tenant config cache to avoid repeated imports
 const tenantConfigCache: Record<string, TenantConfig> = {};
+
+/**
+ * Load dynamic tenants from localStorage (created via provisioning wizard)
+ */
+function loadDynamicTenants(): TenantConfig[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const stored = localStorage.getItem(DYNAMIC_TENANTS_KEY);
+    if (stored) {
+      return JSON.parse(stored) as TenantConfig[];
+    }
+  } catch (e) {
+    console.warn('Failed to load dynamic tenants:', e);
+  }
+  return [];
+}
+
+/**
+ * Load dynamic tenant registry summaries from localStorage
+ */
+function loadDynamicTenantSummaries(): TenantSummary[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const stored = localStorage.getItem(DYNAMIC_REGISTRY_KEY);
+    if (stored) {
+      const registry = JSON.parse(stored);
+      return (registry.tenants || []) as TenantSummary[];
+    }
+  } catch (e) {
+    console.warn('Failed to load dynamic tenant registry:', e);
+  }
+  return [];
+}
 
 async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
   if (tenantConfigCache[tenantId]) {
     return tenantConfigCache[tenantId];
   }
 
+  // First, check localStorage for dynamically provisioned tenants
+  const dynamicTenants = loadDynamicTenants();
+  const dynamicTenant = dynamicTenants.find(t => t.id === tenantId);
+  if (dynamicTenant) {
+    tenantConfigCache[tenantId] = dynamicTenant;
+    return dynamicTenant;
+  }
+
+  // Fall back to static tenant config files
   try {
     const config = await import(`@/data/tenants/${tenantId}/config.json`);
     const tenantConfig = config.default || config;
@@ -73,13 +119,31 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         const isAdmin = userRole === 'cc_admin';
         setIsCCAdmin(isAdmin);
 
-        // Load available tenants for CC Admin
+        // Load available tenants for CC Admin (both static and dynamic)
         if (isAdmin) {
           try {
+            // Load static tenants from registry file
             const registry = await import('@/data/tenants/index.json');
-            setAvailableTenants((registry.tenants || []) as TenantSummary[]);
+            const staticTenants = (registry.tenants || []) as TenantSummary[];
+
+            // Load dynamic tenants from localStorage
+            const dynamicTenants = loadDynamicTenantSummaries();
+
+            // Merge, with dynamic tenants taking precedence for duplicates
+            const staticIds = new Set(staticTenants.map(t => t.id));
+            const mergedTenants = [
+              ...staticTenants,
+              ...dynamicTenants.filter(t => !staticIds.has(t.id)),
+            ];
+
+            setAvailableTenants(mergedTenants);
           } catch {
             console.warn('Failed to load tenant registry');
+            // Still try to load dynamic tenants if static fails
+            const dynamicTenants = loadDynamicTenantSummaries();
+            if (dynamicTenants.length > 0) {
+              setAvailableTenants(dynamicTenants);
+            }
           }
         }
 

@@ -225,7 +225,7 @@ const RETAILCO_USERS: TenantUser[] = [
   },
 ];
 
-// All users combined
+// All static users combined
 export const ALL_USERS: User[] = [
   ...CC_ADMIN_USERS,
   ...TECHCORP_USERS,
@@ -233,11 +233,106 @@ export const ALL_USERS: User[] = [
   ...RETAILCO_USERS,
 ];
 
-// Email to user lookup
+// Email to user lookup (static users)
 const USER_BY_EMAIL: Record<string, User> = {};
 ALL_USERS.forEach((user) => {
   USER_BY_EMAIL[user.email.toLowerCase()] = user;
 });
+
+// Storage keys for dynamic tenants/users (matches provisioning-engine.ts)
+const DYNAMIC_TENANTS_KEY = 'clearcomp_tenants';
+const TENANT_DATA_PREFIX = 'clearcomp_tenant_data_';
+
+/**
+ * Load dynamic users from all provisioned tenants in localStorage
+ */
+function loadDynamicUsers(): TenantUser[] {
+  if (typeof window === 'undefined') return [];
+
+  const dynamicUsers: TenantUser[] = [];
+
+  try {
+    // Get all dynamic tenants
+    const tenantsJson = localStorage.getItem(DYNAMIC_TENANTS_KEY);
+    if (!tenantsJson) return [];
+
+    const tenants = JSON.parse(tenantsJson) as Array<{ id: string }>;
+
+    // Load users from each tenant's data store
+    for (const tenant of tenants) {
+      const usersKey = `${TENANT_DATA_PREFIX}${tenant.id}_users`;
+      const usersJson = localStorage.getItem(usersKey);
+      if (usersJson) {
+        const users = JSON.parse(usersJson) as Array<{
+          id: string;
+          email: string;
+          name?: string;
+          role: string;
+          status: string;
+          createdAt: string;
+        }>;
+
+        // Convert to TenantUser format
+        for (const u of users) {
+          dynamicUsers.push({
+            id: u.id,
+            email: u.email,
+            name: u.name || u.email.split('@')[0],
+            role: u.role as 'admin' | 'manager' | 'sales_rep',
+            tenantId: tenant.id,
+            status: u.status as 'active' | 'inactive',
+            createdAt: u.createdAt,
+            permissions: u.role === 'admin'
+              ? [
+                  'view_all_compensation',
+                  'view_reports',
+                  'view_configuration',
+                  'edit_terminology',
+                  'manage_users',
+                  'view_audit_log',
+                  'import_transactions',
+                  'export_data',
+                ]
+              : ['view_own_compensation', 'view_reports'],
+            dataAccessLevel: u.role === 'admin' ? 'all' : 'own',
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load dynamic users:', e);
+  }
+
+  return dynamicUsers;
+}
+
+/**
+ * Find a user by email, checking both static and dynamic users
+ */
+function findUserByEmail(email: string): User | undefined {
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // Check static users first
+  const staticUser = USER_BY_EMAIL[normalizedEmail];
+  if (staticUser) return staticUser;
+
+  // Check dynamic users from localStorage
+  const dynamicUsers = loadDynamicUsers();
+  return dynamicUsers.find(u => u.email.toLowerCase() === normalizedEmail);
+}
+
+/**
+ * Find a user by ID, checking both static and dynamic users
+ */
+function findUserById(userId: string): User | undefined {
+  // Check static users first
+  const staticUser = ALL_USERS.find(u => u.id === userId);
+  if (staticUser) return staticUser;
+
+  // Check dynamic users from localStorage
+  const dynamicUsers = loadDynamicUsers();
+  return dynamicUsers.find(u => u.id === userId);
+}
 
 interface AuthContextType {
   user: User | null;
@@ -264,7 +359,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (stored) {
       try {
         const userData = JSON.parse(stored);
-        const fullUser = ALL_USERS.find((u) => u.id === userData.id);
+        // Check both static and dynamic users
+        const fullUser = findUserById(userData.id);
         if (fullUser) {
           setUser(fullUser);
           // Ensure role is stored for tenant context
@@ -278,8 +374,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string): Promise<boolean> => {
-    const normalizedEmail = email.toLowerCase().trim();
-    const foundUser = USER_BY_EMAIL[normalizedEmail];
+    // Check both static and dynamic users
+    const foundUser = findUserByEmail(email);
 
     if (!foundUser) {
       return false;
