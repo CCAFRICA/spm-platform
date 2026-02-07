@@ -8,6 +8,12 @@ import { isCCAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { savePlan } from '@/lib/compensation/plan-storage';
 import { parseFile } from '@/lib/import-pipeline/file-parser';
+import {
+  interpretPlanDocument,
+  isAIInterpreterAvailable,
+  configureAIInterpreter,
+  type PlanInterpretation,
+} from '@/lib/compensation/plan-interpreter';
 import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation-plan';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -48,6 +54,9 @@ import {
   Edit2,
   Save,
   ArrowLeft,
+  Brain,
+  Cpu,
+  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -60,6 +69,10 @@ const labels = {
     uploadDesc: 'Drag and drop or click to upload CSV, Excel, JSON, TSV, or PowerPoint files',
     supportedFormats: 'Supported formats: CSV, XLSX, XLS, JSON, TSV, PPTX',
     analyzing: 'Analyzing plan structure...',
+    aiAnalyzing: 'AI is analyzing your plan...',
+    aiAnalyzingDesc: 'Using Claude AI to intelligently interpret your compensation plan structure',
+    heuristicAnalyzing: 'Analyzing with pattern matching...',
+    heuristicAnalyzingDesc: 'No API key configured. Using heuristic pattern detection.',
     detected: 'Detected Plan Structure',
     confidence: 'Confidence',
     reasoning: 'Reasoning',
@@ -86,6 +99,20 @@ const labels = {
     highConfidence: 'High confidence',
     mediumConfidence: 'Medium confidence - review recommended',
     lowConfidence: 'Low confidence - manual review required',
+    aiPowered: 'AI-Powered',
+    heuristicMode: 'Pattern Matching',
+    overallConfidence: 'Overall Confidence',
+    interpretationMethod: 'Interpretation Method',
+    configureApiKey: 'Configure API Key',
+    apiKeyPlaceholder: 'Enter your Anthropic API key',
+    apiKeyConfigured: 'API key configured',
+    apiKeyNotConfigured: 'API key not configured - using heuristic detection',
+    enableAI: 'Enable AI',
+    workedExamples: 'Worked Examples',
+    employeeTypes: 'Employee Types',
+    requiredInputs: 'Required Inputs',
+    currency: 'Currency',
+    viewRawResponse: 'View Raw Response',
   },
   'es-MX': {
     title: 'Importar Plan',
@@ -94,6 +121,10 @@ const labels = {
     uploadDesc: 'Arrastre y suelte o haga clic para subir archivos CSV, Excel, JSON, TSV o PowerPoint',
     supportedFormats: 'Formatos soportados: CSV, XLSX, XLS, JSON, TSV, PPTX',
     analyzing: 'Analizando estructura del plan...',
+    aiAnalyzing: 'La IA está analizando su plan...',
+    aiAnalyzingDesc: 'Usando Claude AI para interpretar inteligentemente la estructura de su plan de compensación',
+    heuristicAnalyzing: 'Analizando con coincidencia de patrones...',
+    heuristicAnalyzingDesc: 'No hay clave API configurada. Usando detección heurística de patrones.',
     detected: 'Estructura del Plan Detectada',
     confidence: 'Confianza',
     reasoning: 'Razonamiento',
@@ -120,12 +151,27 @@ const labels = {
     highConfidence: 'Alta confianza',
     mediumConfidence: 'Confianza media - revisión recomendada',
     lowConfidence: 'Baja confianza - revisión manual requerida',
+    aiPowered: 'Impulsado por IA',
+    heuristicMode: 'Coincidencia de Patrones',
+    overallConfidence: 'Confianza General',
+    interpretationMethod: 'Método de Interpretación',
+    configureApiKey: 'Configurar Clave API',
+    apiKeyPlaceholder: 'Ingrese su clave API de Anthropic',
+    apiKeyConfigured: 'Clave API configurada',
+    apiKeyNotConfigured: 'Clave API no configurada - usando detección heurística',
+    enableAI: 'Habilitar IA',
+    workedExamples: 'Ejemplos Trabajados',
+    employeeTypes: 'Tipos de Empleado',
+    requiredInputs: 'Entradas Requeridas',
+    currency: 'Moneda',
+    viewRawResponse: 'Ver Respuesta Raw',
   },
 };
 
 interface DetectedComponent {
   id: string;
   name: string;
+  nameEs?: string;
   type: PlanComponent['componentType'];
   metricSource: string;
   measurementLevel: string;
@@ -136,10 +182,21 @@ interface DetectedComponent {
 
 interface ParsedPlan {
   name: string;
+  nameEs?: string;
   description: string;
+  descriptionEs?: string;
   components: DetectedComponent[];
   rawData: Record<string, unknown>[];
   detectedFormat: string;
+  interpretationMethod: 'ai' | 'heuristic';
+  overallConfidence: number;
+  overallReasoning: string;
+  currency?: string;
+  employeeTypes?: Array<{ id: string; name: string; nameEs?: string }>;
+  workedExamples?: PlanInterpretation['workedExamples'];
+  requiredInputs?: PlanInterpretation['requiredInputs'];
+  planConfig?: CompensationPlanConfig;
+  rawApiResponse?: string;
 }
 
 export default function PlanImportPage() {
@@ -159,6 +216,13 @@ export default function PlanImportPage() {
   const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [eligibleRoles, _setEligibleRoles] = useState<string[]>(['sales_rep']);
+
+  // AI configuration
+  const [showApiKeyDialog, setShowApiKeyDialog] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [aiAvailable, setAiAvailable] = useState(isAIInterpreterAvailable());
+  const [showRawResponse, setShowRawResponse] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
 
   // CC Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
@@ -194,144 +258,160 @@ export default function PlanImportPage() {
     }
   }, []);
 
+  // Save API key
+  const handleSaveApiKey = () => {
+    if (apiKeyInput.trim()) {
+      configureAIInterpreter(apiKeyInput.trim());
+      setAiAvailable(true);
+      setApiKeyInput('');
+      setShowApiKeyDialog(false);
+    }
+  };
+
   // Process uploaded file
   const processFile = async (file: File) => {
     setIsAnalyzing(true);
     setParsedPlan(null);
     setImportResult(null);
+    setAnalysisProgress(0);
 
     try {
+      // Progress: File parsing
+      setAnalysisProgress(20);
+
       // Use unified file parser (handles CSV, TSV, JSON, PPTX)
       const parsedFile = await parseFile(file);
 
-      // Build ParsedPlan from parsed file
-      const data = parsedFile.rows;
+      // Build document content string for AI interpretation
+      let documentContent = '';
+
+      // Add file metadata
+      documentContent += `File: ${file.name}\n`;
+      documentContent += `Format: ${parsedFile.format.toUpperCase()}\n\n`;
+
+      // If PPTX, include slide text and tables
+      if (parsedFile.format === 'pptx' && parsedFile.slides) {
+        for (const slide of parsedFile.slides) {
+          documentContent += `--- Slide ${slide.slideNumber} ---\n`;
+          documentContent += slide.texts.join('\n') + '\n';
+          for (const table of slide.tables) {
+            documentContent += '\nTable:\n';
+            if (table.headers.length > 0) {
+              documentContent += '| ' + table.headers.join(' | ') + ' |\n';
+              documentContent += '|' + table.headers.map(() => '---').join('|') + '|\n';
+            }
+            for (const row of table.rows) {
+              documentContent += '| ' + Object.values(row).join(' | ') + ' |\n';
+            }
+          }
+          documentContent += '\n';
+        }
+      }
+
+      // Add parsed row data
+      if (parsedFile.rows.length > 0) {
+        documentContent += '\n--- Data Rows ---\n';
+        const headers = Object.keys(parsedFile.rows[0]);
+        documentContent += '| ' + headers.join(' | ') + ' |\n';
+        documentContent += '|' + headers.map(() => '---').join('|') + '|\n';
+        for (const row of parsedFile.rows.slice(0, 50)) {
+          // Limit to first 50 rows for AI
+          documentContent += '| ' + Object.values(row).join(' | ') + ' |\n';
+        }
+      }
+
+      // Progress: Starting interpretation
+      setAnalysisProgress(40);
+
+      // Use AI-powered interpretation (with heuristic fallback)
+      const result = await interpretPlanDocument(
+        documentContent,
+        currentTenant?.id || 'default',
+        user?.id || 'system',
+        locale
+      );
+
+      // Progress: Processing results
+      setAnalysisProgress(80);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Interpretation failed');
+      }
+
+      const interpretation = result.interpretation!;
       const detectedFormat = parsedFile.format.toUpperCase();
 
-      // If PPTX, add info about slides
-      let description = `Imported from ${file.name}`;
+      // Build description
+      let description = interpretation.description || `Imported from ${file.name}`;
       if (parsedFile.format === 'pptx' && parsedFile.slides) {
         description += ` (${parsedFile.slides.length} slides, ${parsedFile.slides.reduce((sum, s) => sum + s.tables.length, 0)} tables found)`;
       }
 
-      // Detect components from data structure
-      const components = detectComponents(data);
+      // Convert AI components to DetectedComponent format
+      const components: DetectedComponent[] = interpretation.components.map((comp) => ({
+        id: comp.id,
+        name: comp.name,
+        nameEs: comp.nameEs,
+        type:
+          comp.type === 'tiered_lookup'
+            ? 'tier_lookup'
+            : comp.type === 'flat_percentage'
+              ? 'percentage'
+              : (comp.type as PlanComponent['componentType']),
+        metricSource:
+          'metric' in comp.calculationMethod
+            ? (comp.calculationMethod.metric as string)
+            : 'rowAxis' in comp.calculationMethod
+              ? comp.calculationMethod.rowAxis.metric
+              : 'metric',
+        measurementLevel: 'individual',
+        confidence: comp.confidence,
+        reasoning: comp.reasoning,
+        config: {
+          componentType:
+            comp.type === 'tiered_lookup'
+              ? 'tier_lookup'
+              : comp.type === 'flat_percentage'
+                ? 'percentage'
+                : (comp.type as PlanComponent['componentType']),
+          measurementLevel: 'individual',
+        },
+      }));
 
       const parsed: ParsedPlan = {
-        name: file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+        name: interpretation.planName,
+        nameEs: interpretation.planNameEs,
         description,
+        descriptionEs: interpretation.descriptionEs,
         components,
-        rawData: data,
+        rawData: parsedFile.rows,
         detectedFormat,
+        interpretationMethod: result.method,
+        overallConfidence: result.confidence,
+        overallReasoning: interpretation.reasoning,
+        currency: interpretation.currency,
+        employeeTypes: interpretation.employeeTypes,
+        workedExamples: interpretation.workedExamples,
+        requiredInputs: interpretation.requiredInputs,
+        planConfig: result.planConfig,
+        rawApiResponse: interpretation.rawApiResponse,
       };
 
+      setAnalysisProgress(100);
       setParsedPlan(parsed);
       setPlanName(parsed.name);
+      setPlanDescription(parsed.description);
     } catch (error) {
       console.error('Error processing file:', error);
+      setImportResult({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // Detect plan components from data
-  const detectComponents = (data: Record<string, unknown>[]): DetectedComponent[] => {
-    if (data.length === 0) return [];
-
-    const components: DetectedComponent[] = [];
-    const headers = Object.keys(data[0]);
-
-    // Look for common patterns
-    const matrixPatterns = ['attainment', 'quota', 'tier', 'level', 'band'];
-    const percentagePatterns = ['rate', 'percentage', 'commission', '%'];
-    const tierPatterns = ['threshold', 'min', 'max', 'range'];
-
-    // Check for matrix-like structures (multiple numeric columns)
-    const numericColumns = headers.filter((h) =>
-      data.every((row) => !isNaN(Number(row[h])))
-    );
-
-    // Detect matrix lookup
-    if (
-      headers.some((h) => matrixPatterns.some((p) => h.toLowerCase().includes(p))) &&
-      numericColumns.length >= 2
-    ) {
-      components.push({
-        id: `comp-${Date.now()}-1`,
-        name: 'Sales Performance Matrix',
-        type: 'matrix_lookup',
-        metricSource: headers.find((h) => h.toLowerCase().includes('attainment')) || numericColumns[0],
-        measurementLevel: 'individual',
-        confidence: 85,
-        reasoning: locale === 'es-MX'
-          ? 'Detectado patrón de matriz con columnas de rendimiento y valores de pago'
-          : 'Detected matrix pattern with attainment columns and payout values',
-        config: {
-          componentType: 'matrix_lookup',
-          measurementLevel: 'individual',
-        },
-      });
-    }
-
-    // Detect tier lookup
-    if (headers.some((h) => tierPatterns.some((p) => h.toLowerCase().includes(p)))) {
-      components.push({
-        id: `comp-${Date.now()}-2`,
-        name: 'Tiered Bonus',
-        type: 'tier_lookup',
-        metricSource: headers.find((h) => h.toLowerCase().includes('metric')) || headers[0],
-        measurementLevel: 'individual',
-        confidence: 78,
-        reasoning: locale === 'es-MX'
-          ? 'Detectada estructura de niveles con umbrales mínimos y máximos'
-          : 'Detected tier structure with min/max thresholds',
-        config: {
-          componentType: 'tier_lookup',
-          measurementLevel: 'individual',
-        },
-      });
-    }
-
-    // Detect percentage commission
-    if (headers.some((h) => percentagePatterns.some((p) => h.toLowerCase().includes(p)))) {
-      components.push({
-        id: `comp-${Date.now()}-3`,
-        name: 'Commission Rate',
-        type: 'percentage',
-        metricSource: headers.find((h) => h.toLowerCase().includes('sales') || h.toLowerCase().includes('revenue')) || headers[0],
-        measurementLevel: 'individual',
-        confidence: 72,
-        reasoning: locale === 'es-MX'
-          ? 'Detectada columna de porcentaje/tasa indicando comisión'
-          : 'Detected percentage/rate column indicating commission',
-        config: {
-          componentType: 'percentage',
-          measurementLevel: 'individual',
-        },
-      });
-    }
-
-    // If no patterns detected, create generic component
-    if (components.length === 0 && data.length > 0) {
-      components.push({
-        id: `comp-${Date.now()}-0`,
-        name: 'Custom Component',
-        type: 'tier_lookup',
-        metricSource: headers[0],
-        measurementLevel: 'individual',
-        confidence: 45,
-        reasoning: locale === 'es-MX'
-          ? 'No se detectaron patrones específicos - se requiere configuración manual'
-          : 'No specific patterns detected - manual configuration required',
-        config: {
-          componentType: 'tier_lookup',
-          measurementLevel: 'individual',
-        },
-      });
-    }
-
-    return components;
-  };
 
   // Update component
   const handleUpdateComponent = (updated: DetectedComponent) => {
@@ -354,88 +434,104 @@ export default function PlanImportPage() {
 
     try {
       const now = new Date().toISOString();
+      let planConfig: CompensationPlanConfig;
 
-      // Build plan configuration
-      const planConfig: CompensationPlanConfig = {
-        id: `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        tenantId: currentTenant.id,
-        name: planName,
-        description: planDescription,
-        planType: 'additive_lookup',
-        status: 'draft',
-        effectiveDate: new Date(effectiveDate).toISOString(),
-        endDate: null,
-        eligibleRoles,
-        version: 1,
-        previousVersionId: null,
-        createdBy: user?.name || 'system',
-        createdAt: now,
-        updatedBy: user?.name || 'system',
-        updatedAt: now,
-        approvedBy: null,
-        approvedAt: null,
-        configuration: {
-          type: 'additive_lookup',
-          variants: [
-            {
-              variantId: 'default',
-              variantName: 'Default',
-              description: 'Imported plan variant',
-              components: parsedPlan.components.map((c, index) => ({
-                id: c.id,
-                name: c.name,
-                description: c.reasoning,
-                order: index + 1,
-                enabled: true,
-                componentType: c.type,
-                measurementLevel: (c.measurementLevel === 'bu' ? 'team' : c.measurementLevel) as 'individual' | 'store' | 'team' | 'region',
-                ...(c.type === 'tier_lookup' && {
-                  tierConfig: {
-                    metric: c.metricSource,
-                    metricLabel: c.metricSource,
-                    tiers: [
-                      { min: 0, max: 79.99, label: '< 80%', value: 0 },
-                      { min: 80, max: 99.99, label: '80-100%', value: 500 },
-                      { min: 100, max: Infinity, label: '100%+', value: 1000 },
-                    ],
-                    currency: 'USD',
-                  },
-                }),
-                ...(c.type === 'percentage' && {
-                  percentageConfig: {
-                    rate: 0.05,
-                    appliedTo: c.metricSource,
-                    appliedToLabel: c.metricSource,
-                  },
-                }),
-                ...(c.type === 'matrix_lookup' && {
-                  matrixConfig: {
-                    rowMetric: c.metricSource,
-                    rowMetricLabel: c.metricSource,
-                    rowBands: [
-                      { min: 0, max: 79.99, label: '< 80%' },
-                      { min: 80, max: 99.99, label: '80-100%' },
-                      { min: 100, max: Infinity, label: '100%+' },
-                    ],
-                    columnMetric: 'volume',
-                    columnMetricLabel: 'Volume',
-                    columnBands: [
-                      { min: 0, max: 99999, label: '< $100K' },
-                      { min: 100000, max: Infinity, label: '$100K+' },
-                    ],
-                    values: [
-                      [0, 0],
-                      [500, 750],
-                      [1000, 1500],
-                    ],
-                    currency: 'USD',
-                  },
-                }),
-              })),
-            },
-          ],
-        },
-      };
+      // Use the pre-built plan config from AI interpretation if available
+      if (parsedPlan.planConfig) {
+        planConfig = {
+          ...parsedPlan.planConfig,
+          name: planName,
+          description: planDescription,
+          effectiveDate: new Date(effectiveDate).toISOString(),
+          tenantId: currentTenant.id,
+          createdBy: user?.name || 'system',
+          updatedBy: user?.name || 'system',
+          createdAt: now,
+          updatedAt: now,
+        };
+      } else {
+        // Fallback: Build plan configuration from detected components
+        planConfig = {
+          id: `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          tenantId: currentTenant.id,
+          name: planName,
+          description: planDescription,
+          planType: 'additive_lookup',
+          status: 'draft',
+          effectiveDate: new Date(effectiveDate).toISOString(),
+          endDate: null,
+          eligibleRoles,
+          version: 1,
+          previousVersionId: null,
+          createdBy: user?.name || 'system',
+          createdAt: now,
+          updatedBy: user?.name || 'system',
+          updatedAt: now,
+          approvedBy: null,
+          approvedAt: null,
+          configuration: {
+            type: 'additive_lookup',
+            variants: [
+              {
+                variantId: 'default',
+                variantName: 'Default',
+                description: 'Imported plan variant',
+                components: parsedPlan.components.map((c, index) => ({
+                  id: c.id,
+                  name: c.name,
+                  description: c.reasoning,
+                  order: index + 1,
+                  enabled: true,
+                  componentType: c.type,
+                  measurementLevel: (c.measurementLevel === 'bu' ? 'team' : c.measurementLevel) as 'individual' | 'store' | 'team' | 'region',
+                  ...(c.type === 'tier_lookup' && {
+                    tierConfig: {
+                      metric: c.metricSource,
+                      metricLabel: c.metricSource,
+                      tiers: [
+                        { min: 0, max: 79.99, label: '< 80%', value: 0 },
+                        { min: 80, max: 99.99, label: '80-100%', value: 500 },
+                        { min: 100, max: Infinity, label: '100%+', value: 1000 },
+                      ],
+                      currency: parsedPlan.currency || 'USD',
+                    },
+                  }),
+                  ...(c.type === 'percentage' && {
+                    percentageConfig: {
+                      rate: 0.05,
+                      appliedTo: c.metricSource,
+                      appliedToLabel: c.metricSource,
+                    },
+                  }),
+                  ...(c.type === 'matrix_lookup' && {
+                    matrixConfig: {
+                      rowMetric: c.metricSource,
+                      rowMetricLabel: c.metricSource,
+                      rowBands: [
+                        { min: 0, max: 79.99, label: '< 80%' },
+                        { min: 80, max: 99.99, label: '80-100%' },
+                        { min: 100, max: Infinity, label: '100%+' },
+                      ],
+                      columnMetric: 'volume',
+                      columnMetricLabel: 'Volume',
+                      columnBands: [
+                        { min: 0, max: 99999, label: '< $100K' },
+                        { min: 100000, max: Infinity, label: '$100K+' },
+                      ],
+                      values: [
+                        [0, 0],
+                        [500, 750],
+                        [1000, 1500],
+                      ],
+                      currency: parsedPlan.currency || 'USD',
+                    },
+                  }),
+                })),
+              },
+            ],
+          },
+        };
+      }
 
       // Save the plan
       savePlan(planConfig);
@@ -526,11 +622,36 @@ export default function PlanImportPage() {
       {!parsedPlan && !isAnalyzing && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
-              {t.uploadTitle}
-            </CardTitle>
-            <CardDescription>{t.supportedFormats}</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Upload className="h-5 w-5" />
+                  {t.uploadTitle}
+                </CardTitle>
+                <CardDescription>{t.supportedFormats}</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {aiAvailable ? (
+                  <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
+                    <Brain className="h-3 w-3 mr-1" />
+                    {t.aiPowered}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-amber-600 border-amber-300">
+                    <Cpu className="h-3 w-3 mr-1" />
+                    {t.heuristicMode}
+                  </Badge>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowApiKeyDialog(true)}
+                  className="text-slate-500 hover:text-slate-700"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div
@@ -563,9 +684,21 @@ export default function PlanImportPage() {
       {isAnalyzing && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <Sparkles className="h-12 w-12 text-blue-500 animate-pulse mb-4" />
-            <p className="text-lg font-medium mb-4">{t.analyzing}</p>
-            <Progress value={66} className="w-64" />
+            {aiAvailable ? (
+              <>
+                <Brain className="h-12 w-12 text-purple-500 animate-pulse mb-4" />
+                <p className="text-lg font-medium mb-2">{t.aiAnalyzing}</p>
+                <p className="text-sm text-slate-500 mb-4">{t.aiAnalyzingDesc}</p>
+              </>
+            ) : (
+              <>
+                <Cpu className="h-12 w-12 text-blue-500 animate-pulse mb-4" />
+                <p className="text-lg font-medium mb-2">{t.heuristicAnalyzing}</p>
+                <p className="text-sm text-slate-500 mb-4">{t.heuristicAnalyzingDesc}</p>
+              </>
+            )}
+            <Progress value={analysisProgress} className="w-64" />
+            <p className="text-xs text-slate-400 mt-2">{analysisProgress}%</p>
           </CardContent>
         </Card>
       )}
@@ -573,13 +706,73 @@ export default function PlanImportPage() {
       {/* Parsed Plan */}
       {parsedPlan && !importResult?.success && (
         <>
+          {/* Interpretation Summary */}
+          <Card className={cn(
+            'border-2',
+            parsedPlan.interpretationMethod === 'ai'
+              ? 'border-purple-200 dark:border-purple-800'
+              : 'border-blue-200 dark:border-blue-800'
+          )}>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {parsedPlan.interpretationMethod === 'ai' ? (
+                    <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                      <Brain className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                  ) : (
+                    <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                      <Cpu className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                  )}
+                  <div>
+                    <CardTitle className="text-lg">{t.detected}</CardTitle>
+                    <CardDescription>
+                      {t.interpretationMethod}: {parsedPlan.interpretationMethod === 'ai' ? t.aiPowered : t.heuristicMode}
+                      {' | '}Format: {parsedPlan.detectedFormat}
+                      {' | '}{parsedPlan.rawData.length} rows
+                      {parsedPlan.currency && ` | ${t.currency}: ${parsedPlan.currency}`}
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-slate-500">{t.overallConfidence}</div>
+                  <Badge className={getConfidenceColor(parsedPlan.overallConfidence)}>
+                    {parsedPlan.overallConfidence}%
+                  </Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-sm">
+                <p className="text-slate-600 dark:text-slate-400">
+                  <strong>{t.reasoning}:</strong> {parsedPlan.overallReasoning}
+                </p>
+              </div>
+              {parsedPlan.rawApiResponse && (
+                <div className="mt-3">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowRawResponse(!showRawResponse)}
+                    className="text-slate-500"
+                  >
+                    {t.viewRawResponse}
+                  </Button>
+                  {showRawResponse && (
+                    <pre className="mt-2 p-3 bg-slate-900 text-slate-100 rounded-lg text-xs overflow-auto max-h-48">
+                      {parsedPlan.rawApiResponse}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Plan Metadata */}
           <Card>
             <CardHeader>
-              <CardTitle>{t.detected}</CardTitle>
-              <CardDescription>
-                Format: {parsedPlan.detectedFormat} | {parsedPlan.rawData.length} rows
-              </CardDescription>
+              <CardTitle>{t.planName}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -612,6 +805,51 @@ export default function PlanImportPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Employee Types & Worked Examples (if available from AI) */}
+          {parsedPlan.interpretationMethod === 'ai' && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Employee Types */}
+              {parsedPlan.employeeTypes && parsedPlan.employeeTypes.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{t.employeeTypes}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      {parsedPlan.employeeTypes.map((et) => (
+                        <Badge key={et.id} variant="outline">
+                          {et.name}
+                          {et.nameEs && locale === 'es-MX' && ` (${et.nameEs})`}
+                        </Badge>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Worked Examples */}
+              {parsedPlan.workedExamples && parsedPlan.workedExamples.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{t.workedExamples}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {parsedPlan.workedExamples.map((ex, idx) => (
+                        <div key={idx} className="bg-emerald-50 dark:bg-emerald-900/20 rounded p-2 text-sm">
+                          <span className="font-medium">{ex.employeeType}:</span>{' '}
+                          <span className="text-emerald-700 dark:text-emerald-300">
+                            ${ex.expectedTotal.toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
 
           {/* Detected Components */}
           <Card>
@@ -779,6 +1017,54 @@ export default function PlanImportPage() {
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* API Key Configuration Dialog */}
+      <Dialog open={showApiKeyDialog} onOpenChange={setShowApiKeyDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Brain className="h-5 w-5 text-purple-500" />
+              {t.configureApiKey}
+            </DialogTitle>
+            <DialogDescription>
+              {aiAvailable ? t.apiKeyConfigured : t.apiKeyNotConfigured}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label>{locale === 'es-MX' ? 'Clave API de Anthropic' : 'Anthropic API Key'}</Label>
+              <Input
+                type="password"
+                placeholder={t.apiKeyPlaceholder}
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+              />
+              <p className="text-xs text-slate-500">
+                {locale === 'es-MX'
+                  ? 'Su clave API se almacena localmente y nunca se envía a nuestros servidores.'
+                  : 'Your API key is stored locally and never sent to our servers.'}
+              </p>
+            </div>
+            {aiAvailable && (
+              <div className="flex items-center gap-2 p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                <span className="text-sm text-emerald-700 dark:text-emerald-300">
+                  {t.apiKeyConfigured}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setShowApiKeyDialog(false)}>
+                {t.cancel}
+              </Button>
+              <Button onClick={handleSaveApiKey} disabled={!apiKeyInput.trim()}>
+                <Brain className="h-4 w-4 mr-2" />
+                {t.enableAI}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -3,6 +3,12 @@
  *
  * Universal plan parser supporting 20+ calculation types.
  * Evaluates plan components against actual metrics to produce incentive payouts.
+ *
+ * Features:
+ * - AI-powered plan interpretation using Anthropic Claude API
+ * - Fallback to heuristic detection when API unavailable
+ * - Support for any document format (PPTX, CSV, Excel, JSON)
+ * - Bilingual support (Spanish/English)
  */
 
 import type {
@@ -15,6 +21,11 @@ import type {
   PlanVariant,
 } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig, isWeightedKPIConfig } from '@/types/compensation-plan';
+import {
+  getAIInterpreter,
+  interpretationToPlanConfig,
+  type PlanInterpretation,
+} from './ai-plan-interpreter';
 
 // ============================================
 // EXTENDED COMPONENT TYPES
@@ -1062,3 +1073,419 @@ export function getRequiredMetrics(plan: CompensationPlanConfig): string[] {
 
   return Array.from(metrics);
 }
+
+// ============================================
+// AI-POWERED INTERPRETATION
+// ============================================
+
+/**
+ * Result of document interpretation (AI or heuristic)
+ */
+export interface DocumentInterpretationResult {
+  success: boolean;
+  method: 'ai' | 'heuristic';
+  interpretation?: PlanInterpretation;
+  planConfig?: CompensationPlanConfig;
+  error?: string;
+  confidence: number;
+}
+
+/**
+ * Detected component for heuristic fallback
+ */
+export interface HeuristicDetectedComponent {
+  id: string;
+  name: string;
+  type: PlanComponent['componentType'];
+  metricSource: string;
+  measurementLevel: string;
+  confidence: number;
+  reasoning: string;
+}
+
+/**
+ * Interpret a plan document using AI first, with heuristic fallback
+ *
+ * @param documentContent - The extracted text/table content from the document
+ * @param tenantId - Current tenant ID
+ * @param userId - Current user ID
+ * @param locale - Current locale for reasoning messages
+ * @returns Interpretation result with plan configuration
+ */
+export async function interpretPlanDocument(
+  documentContent: string,
+  tenantId: string,
+  userId: string,
+  locale: 'en-US' | 'es-MX' = 'en-US'
+): Promise<DocumentInterpretationResult> {
+  const aiInterpreter = getAIInterpreter();
+
+  // Try AI interpretation first if configured
+  if (aiInterpreter.isConfigured()) {
+    try {
+      console.log('Attempting AI-powered plan interpretation...');
+      const interpretation = await aiInterpreter.interpretPlan(documentContent);
+
+      // Convert to plan config
+      const planConfig = interpretationToPlanConfig(interpretation, tenantId, userId);
+
+      return {
+        success: true,
+        method: 'ai',
+        interpretation,
+        planConfig,
+        confidence: interpretation.confidence,
+      };
+    } catch (error) {
+      console.warn('AI interpretation failed, falling back to heuristics:', error);
+      // Fall through to heuristic detection
+    }
+  } else {
+    console.log('AI interpreter not configured, using heuristic detection');
+  }
+
+  // Fallback to heuristic detection
+  try {
+    const heuristicResult = detectComponentsHeuristically(documentContent, locale);
+
+    // Build a minimal plan config from heuristics
+    const now = new Date().toISOString();
+    const planId = `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    const planConfig: CompensationPlanConfig = {
+      id: planId,
+      tenantId,
+      name: 'Imported Plan',
+      description: 'Plan imported via heuristic detection. Manual configuration recommended.',
+      planType: 'additive_lookup',
+      status: 'draft',
+      effectiveDate: now,
+      endDate: null,
+      eligibleRoles: ['sales_rep'],
+      version: 1,
+      previousVersionId: null,
+      createdBy: userId,
+      createdAt: now,
+      updatedBy: userId,
+      updatedAt: now,
+      approvedBy: null,
+      approvedAt: null,
+      configuration: {
+        type: 'additive_lookup',
+        variants: [
+          {
+            variantId: 'default',
+            variantName: 'Default',
+            description: 'Default variant from heuristic detection',
+            components: heuristicResult.components.map((c, index) =>
+              convertHeuristicComponent(c, index)
+            ),
+          },
+        ],
+      },
+    };
+
+    // Build interpretation-like response for UI compatibility
+    const interpretation: PlanInterpretation = {
+      planName: 'Imported Plan',
+      description: 'Detected via heuristic pattern matching',
+      currency: 'USD',
+      employeeTypes: [{ id: 'default', name: 'Default Employee Type' }],
+      components: heuristicResult.components.map((c) => ({
+        id: c.id,
+        name: c.name,
+        type: c.type === 'tier_lookup' ? 'tiered_lookup' : c.type,
+        appliesToEmployeeTypes: ['all'],
+        calculationMethod: {
+          type: 'tiered_lookup',
+          metric: c.metricSource,
+          tiers: [],
+        },
+        confidence: c.confidence,
+        reasoning: c.reasoning,
+      })),
+      requiredInputs: [],
+      workedExamples: [],
+      confidence: heuristicResult.overallConfidence,
+      reasoning: heuristicResult.overallReasoning,
+    };
+
+    return {
+      success: true,
+      method: 'heuristic',
+      interpretation,
+      planConfig,
+      confidence: heuristicResult.overallConfidence,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      method: 'heuristic',
+      error: error instanceof Error ? error.message : 'Unknown error during interpretation',
+      confidence: 0,
+    };
+  }
+}
+
+/**
+ * Detect components using heuristic pattern matching
+ */
+function detectComponentsHeuristically(
+  content: string,
+  locale: 'en-US' | 'es-MX'
+): {
+  components: HeuristicDetectedComponent[];
+  overallConfidence: number;
+  overallReasoning: string;
+} {
+  const components: HeuristicDetectedComponent[] = [];
+  const contentLower = content.toLowerCase();
+
+  // Pattern definitions with bilingual reasoning
+  const patterns = {
+    matrix: {
+      keywords: ['matrix', 'matriz', 'attainment', 'cumplimiento', 'quota', 'cuota', 'tier', 'nivel'],
+      tableIndicators: ['%', '<', '>', '80', '90', '100', '105', '110'],
+      name: locale === 'es-MX' ? 'Matriz de Rendimiento' : 'Performance Matrix',
+      reasoning:
+        locale === 'es-MX'
+          ? 'Detectado patrón de matriz con columnas de rendimiento y valores de pago'
+          : 'Detected matrix pattern with attainment columns and payout values',
+    },
+    tier: {
+      keywords: ['tier', 'nivel', 'threshold', 'umbral', 'min', 'max', 'range', 'rango'],
+      name: locale === 'es-MX' ? 'Bono por Niveles' : 'Tiered Bonus',
+      reasoning:
+        locale === 'es-MX'
+          ? 'Detectada estructura de niveles con umbrales mínimos y máximos'
+          : 'Detected tier structure with min/max thresholds',
+    },
+    percentage: {
+      keywords: ['rate', 'tasa', 'percentage', 'porcentaje', 'commission', 'comisión', '%'],
+      name: locale === 'es-MX' ? 'Comisión Porcentual' : 'Percentage Commission',
+      reasoning:
+        locale === 'es-MX'
+          ? 'Detectada columna de porcentaje/tasa indicando comisión'
+          : 'Detected percentage/rate column indicating commission',
+    },
+    conditional: {
+      keywords: ['if', 'si', 'when', 'cuando', 'conditional', 'condicional', 'then', 'entonces'],
+      name: locale === 'es-MX' ? 'Porcentaje Condicional' : 'Conditional Percentage',
+      reasoning:
+        locale === 'es-MX'
+          ? 'Detectadas reglas condicionales basadas en métricas'
+          : 'Detected conditional rules based on metrics',
+    },
+  };
+
+  // Score each pattern type
+  const patternScores: Record<string, number> = {};
+
+  for (const [patternType, config] of Object.entries(patterns)) {
+    let score = 0;
+    for (const keyword of config.keywords) {
+      const matches = (contentLower.match(new RegExp(keyword, 'g')) || []).length;
+      score += matches * 10;
+    }
+
+    if (patternType === 'matrix' && 'tableIndicators' in config) {
+      for (const indicator of config.tableIndicators) {
+        if (contentLower.includes(indicator)) {
+          score += 5;
+        }
+      }
+    }
+
+    patternScores[patternType] = score;
+  }
+
+  // Create components for detected patterns
+  let componentIndex = 0;
+
+  if (patternScores.matrix > 30) {
+    components.push({
+      id: `comp-${Date.now()}-${componentIndex++}`,
+      name: patterns.matrix.name,
+      type: 'matrix_lookup',
+      metricSource: 'attainment',
+      measurementLevel: 'individual',
+      confidence: Math.min(95, 60 + patternScores.matrix / 2),
+      reasoning: patterns.matrix.reasoning,
+    });
+  }
+
+  if (patternScores.tier > 20) {
+    components.push({
+      id: `comp-${Date.now()}-${componentIndex++}`,
+      name: patterns.tier.name,
+      type: 'tier_lookup',
+      metricSource: 'performance',
+      measurementLevel: 'individual',
+      confidence: Math.min(90, 55 + patternScores.tier / 2),
+      reasoning: patterns.tier.reasoning,
+    });
+  }
+
+  if (patternScores.percentage > 15) {
+    components.push({
+      id: `comp-${Date.now()}-${componentIndex++}`,
+      name: patterns.percentage.name,
+      type: 'percentage',
+      metricSource: 'sales',
+      measurementLevel: 'individual',
+      confidence: Math.min(85, 50 + patternScores.percentage / 2),
+      reasoning: patterns.percentage.reasoning,
+    });
+  }
+
+  if (patternScores.conditional > 25) {
+    components.push({
+      id: `comp-${Date.now()}-${componentIndex++}`,
+      name: patterns.conditional.name,
+      type: 'conditional_percentage',
+      metricSource: 'sales',
+      measurementLevel: 'individual',
+      confidence: Math.min(80, 45 + patternScores.conditional / 2),
+      reasoning: patterns.conditional.reasoning,
+    });
+  }
+
+  // If no patterns detected, create a generic component
+  if (components.length === 0) {
+    components.push({
+      id: `comp-${Date.now()}-0`,
+      name: locale === 'es-MX' ? 'Componente Personalizado' : 'Custom Component',
+      type: 'tier_lookup',
+      metricSource: 'metric',
+      measurementLevel: 'individual',
+      confidence: 35,
+      reasoning:
+        locale === 'es-MX'
+          ? 'No se detectaron patrones específicos - se requiere configuración manual'
+          : 'No specific patterns detected - manual configuration required',
+    });
+  }
+
+  const overallConfidence = Math.round(
+    components.reduce((sum, c) => sum + c.confidence, 0) / components.length
+  );
+
+  const overallReasoning =
+    locale === 'es-MX'
+      ? `Análisis heurístico completado. ${components.length} componente(s) detectado(s) con confianza promedio de ${overallConfidence}%.`
+      : `Heuristic analysis complete. ${components.length} component(s) detected with average confidence of ${overallConfidence}%.`;
+
+  return {
+    components,
+    overallConfidence,
+    overallReasoning,
+  };
+}
+
+/**
+ * Convert heuristic component to PlanComponent
+ */
+function convertHeuristicComponent(
+  heuristic: HeuristicDetectedComponent,
+  order: number
+): PlanComponent {
+  const base = {
+    id: heuristic.id,
+    name: heuristic.name,
+    description: heuristic.reasoning,
+    order: order + 1,
+    enabled: true,
+    measurementLevel: heuristic.measurementLevel as 'individual' | 'store' | 'team' | 'region',
+  };
+
+  switch (heuristic.type) {
+    case 'matrix_lookup':
+      return {
+        ...base,
+        componentType: 'matrix_lookup',
+        matrixConfig: {
+          rowMetric: heuristic.metricSource,
+          rowMetricLabel: heuristic.metricSource,
+          rowBands: [
+            { min: 0, max: 79.99, label: '< 80%' },
+            { min: 80, max: 99.99, label: '80-100%' },
+            { min: 100, max: Infinity, label: '100%+' },
+          ],
+          columnMetric: 'volume',
+          columnMetricLabel: 'Volume',
+          columnBands: [
+            { min: 0, max: 99999, label: '< $100K' },
+            { min: 100000, max: Infinity, label: '$100K+' },
+          ],
+          values: [
+            [0, 0],
+            [500, 750],
+            [1000, 1500],
+          ],
+          currency: 'USD',
+        },
+      };
+
+    case 'percentage':
+      return {
+        ...base,
+        componentType: 'percentage',
+        percentageConfig: {
+          rate: 0.05,
+          appliedTo: heuristic.metricSource,
+          appliedToLabel: heuristic.metricSource,
+        },
+      };
+
+    case 'conditional_percentage':
+      return {
+        ...base,
+        componentType: 'conditional_percentage',
+        conditionalConfig: {
+          conditions: [
+            { metric: 'attainment', metricLabel: 'Attainment', min: 0, max: 100, rate: 0.03, label: '< 100%' },
+            { metric: 'attainment', metricLabel: 'Attainment', min: 100, max: Infinity, rate: 0.05, label: '100%+' },
+          ],
+          appliedTo: heuristic.metricSource,
+          appliedToLabel: heuristic.metricSource,
+        },
+      };
+
+    case 'tier_lookup':
+    default:
+      return {
+        ...base,
+        componentType: 'tier_lookup',
+        tierConfig: {
+          metric: heuristic.metricSource,
+          metricLabel: heuristic.metricSource,
+          tiers: [
+            { min: 0, max: 79.99, label: '< 80%', value: 0 },
+            { min: 80, max: 99.99, label: '80-100%', value: 500 },
+            { min: 100, max: Infinity, label: '100%+', value: 1000 },
+          ],
+          currency: 'USD',
+        },
+      };
+  }
+}
+
+/**
+ * Check if AI interpreter is available
+ */
+export function isAIInterpreterAvailable(): boolean {
+  return getAIInterpreter().isConfigured();
+}
+
+/**
+ * Configure AI interpreter with API key
+ */
+export function configureAIInterpreter(apiKey: string): void {
+  getAIInterpreter().setApiKey(apiKey);
+}
+
+/**
+ * Re-export AI interpreter types for convenience
+ */
+export type { PlanInterpretation, InterpretedComponent } from './ai-plan-interpreter';
+export { AIPlainInterpreter, getAIInterpreter } from './ai-plan-interpreter';
