@@ -298,6 +298,7 @@ export default function NewTenantPage() {
         industry: formData.industry,
         country: formData.country,
         adminEmail: formData.adminEmail,
+        adminName: formData.adminName, // Pass admin name to provisioning
         currency: formData.currency,
         locale: formData.locale,
         timezone: formData.timezone,

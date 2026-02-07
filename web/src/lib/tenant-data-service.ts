@@ -7,6 +7,29 @@ import type { TenantConfig } from '@/types/tenant';
 const TENANT_DATA_PREFIX = 'entityb_tenant_';
 
 /**
+ * Static tenant IDs that have pre-seeded demo/mock data
+ * Dynamic tenants (created via provisioning wizard) start empty
+ */
+export const STATIC_TENANT_IDS = ['retailco', 'restaurantmx', 'techcorp'] as const;
+export type StaticTenantId = typeof STATIC_TENANT_IDS[number];
+
+/**
+ * Check if a tenant is a static tenant (has demo data)
+ */
+export function isStaticTenant(tenantId: string | undefined | null): tenantId is StaticTenantId {
+  if (!tenantId) return false;
+  return STATIC_TENANT_IDS.includes(tenantId as StaticTenantId);
+}
+
+/**
+ * Check if a tenant is dynamic (created via provisioning, starts empty)
+ */
+export function isDynamicTenant(tenantId: string | undefined | null): boolean {
+  if (!tenantId) return false;
+  return !isStaticTenant(tenantId);
+}
+
+/**
  * Get the localStorage key for tenant-specific data
  */
 function getStorageKey(tenantId: string, dataType: string): string {

@@ -31,6 +31,7 @@ import {
   getFranquicias,
   getChequesMetadata,
 } from '@/lib/restaurant-service';
+import { isStaticTenant } from '@/lib/tenant-data-service';
 import type { Cheque, Mesero, Turno, Franquicia } from '@/types/cheques';
 
 // Mock transaction data for TechCorp (Deals)
@@ -93,6 +94,10 @@ export default function TransactionsPage() {
   const isHospitality = currentTenant?.industry === 'Hospitality';
   const isRetail = currentTenant?.industry === 'Retail';
 
+  // Only use mock data for static tenants (retailco, restaurantmx, techcorp)
+  // Dynamic tenants start empty
+  const hasMockData = isStaticTenant(currentTenant?.id);
+
   // Load data based on tenant type
   useEffect(() => {
     async function loadData() {
@@ -153,7 +158,12 @@ export default function TransactionsPage() {
 
   // Filter transactions
   const filteredTransactions = useMemo(() => {
-    if (isRetail) {
+    // Dynamic tenants have no mock data - return empty
+    if (!hasMockData && !isHospitality) {
+      return [];
+    }
+
+    if (isRetail && hasMockData) {
       return accessFilteredRetailTransactions.filter((t) => {
         if (statusFilter !== 'all' && t.status !== statusFilter) return false;
         if (searchQuery) {
@@ -164,7 +174,7 @@ export default function TransactionsPage() {
       });
     }
 
-    if (!isHospitality) {
+    if (!isHospitality && hasMockData) {
       return mockTechCorpTransactions.filter((t) => {
         if (statusFilter !== 'all' && t.status !== statusFilter) return false;
         if (searchQuery) {
@@ -203,7 +213,7 @@ export default function TransactionsPage() {
       }
       return true;
     });
-  }, [isHospitality, isRetail, cheques, statusFilter, franquiciaFilter, searchQuery, getMeseroName, getFranquiciaName, accessFilteredRetailTransactions, dataAccessLevel, userMeseroId]);
+  }, [isHospitality, isRetail, hasMockData, cheques, statusFilter, franquiciaFilter, searchQuery, getMeseroName, getFranquiciaName, accessFilteredRetailTransactions, dataAccessLevel, userMeseroId]);
 
   const getStatusBadge = (status: string | number, cancelado?: number) => {
     if (cancelado === 1) {

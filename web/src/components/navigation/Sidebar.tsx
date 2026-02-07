@@ -61,7 +61,12 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   const [expandedItems, setExpandedItems] = useState<string[]>(["Insights", "Transactions"]);
 
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  // Check if user is CC Admin
+  const userIsCCAdmin = user && isCCAdmin(user);
+
+  // Language follows the LOGGED-IN USER's context, not the tenant's setting
+  // CC Admin always sees English; tenant users see their tenant's locale
+  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
 
   // Get user's accessible modules
   const accessibleModules = accessControl.getAccessibleModules(user);
@@ -201,9 +206,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     if (!item.children) return false;
     return item.children.some((child) => pathname === child.href);
   };
-
-  // Check if user is CC Admin
-  const userIsCCAdmin = user && isCCAdmin(user);
 
   // Filter children based on feature flags, access control, and CC Admin status
   const filterChildren = (children: NavChild[]) => {

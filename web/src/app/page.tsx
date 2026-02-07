@@ -31,6 +31,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useTenant, useCurrency } from "@/contexts/tenant-context";
 import { isTenantUser } from "@/types/auth";
 import { getCheques } from "@/lib/restaurant-service";
+import { isStaticTenant } from "@/lib/tenant-data-service";
 import type { Cheque } from "@/types/cheques";
 
 // Mock dashboard data
@@ -119,6 +120,23 @@ export default function DashboardPage() {
 
   const isSpanish = currentTenant?.locale === 'es-MX';
   const isHospitality = currentTenant?.industry === 'Hospitality';
+
+  // Only show mock data for static tenants
+  const hasMockData = isStaticTenant(currentTenant?.id);
+
+  // Empty stats for dynamic tenants
+  const emptyStats = {
+    ytdCompensation: 0,
+    mtdCompensation: 0,
+    quotaAttainment: 0,
+    ranking: 0,
+    rankingTotal: 0,
+    pendingCommissions: 0,
+  };
+
+  // Use mock data only for static tenants
+  const displayStats = hasMockData ? stats : emptyStats;
+  const displayActivity = hasMockData ? recentActivity : [];
 
   // Hospitality-specific data
   const [cheques, setCheques] = useState<Cheque[]>([]);
@@ -337,7 +355,7 @@ export default function DashboardPage() {
                         YTD Compensation
                       </p>
                       <p className="text-3xl font-bold mt-1">
-                        {format(stats.ytdCompensation)}
+                        {format(displayStats.ytdCompensation)}
                       </p>
                       <div className="flex items-center gap-1 mt-2">
                         <ArrowUpRight className="h-4 w-4 text-emerald-300" />
@@ -362,7 +380,7 @@ export default function DashboardPage() {
                         Quota Attainment
                       </p>
                       <p className="text-3xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                        {stats.quotaAttainment}%
+                        {displayStats.quotaAttainment}%
                       </p>
                       <Badge className="mt-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
                         Exceeding
@@ -384,10 +402,10 @@ export default function DashboardPage() {
                         Team Ranking
                       </p>
                       <p className="text-3xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                        #{stats.ranking}
+                        #{displayStats.ranking}
                       </p>
                       <p className="text-sm text-slate-500 mt-2">
-                        of {stats.rankingTotal} reps
+                        of {displayStats.rankingTotal} reps
                       </p>
                     </div>
                     <div className="p-3 bg-amber-100 rounded-full dark:bg-amber-900/30">
@@ -406,7 +424,7 @@ export default function DashboardPage() {
                         Pending Commissions
                       </p>
                       <p className="text-3xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                        {format(stats.pendingCommissions)}
+                        {format(displayStats.pendingCommissions)}
                       </p>
                       <p className="text-sm text-slate-500 mt-2">2 transactions</p>
                     </div>
@@ -494,7 +512,7 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {recentActivity.map((activity) => (
+                  {displayActivity.map((activity) => (
                     <div
                       key={activity.id}
                       className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50"

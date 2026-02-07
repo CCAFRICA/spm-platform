@@ -228,6 +228,7 @@ export interface TenantProvisioningRequest {
   industry: TenantIndustry;
   country: string;
   adminEmail: string;
+  adminName?: string; // Optional admin name, falls back to email prefix
 
   // Optional overrides
   currency?: Currency;
@@ -448,7 +449,7 @@ export class TenantProvisioningEngine {
     this.saveToStorage();
 
     // Initialize tenant data isolation
-    this.initializeTenantDataStore(tenantId, request.adminEmail);
+    this.initializeTenantDataStore(tenantId, request.adminEmail, request.adminName);
 
     // Check for common issues
     if (!features.compensation) {
@@ -470,7 +471,7 @@ export class TenantProvisioningEngine {
   /**
    * Initialize isolated data store for tenant
    */
-  private initializeTenantDataStore(tenantId: string, adminEmail: string): void {
+  private initializeTenantDataStore(tenantId: string, adminEmail: string, adminName?: string): void {
     if (typeof window === 'undefined') return;
 
     const prefix = `${STORAGE_KEYS.TENANT_DATA_PREFIX}${tenantId}_`;
@@ -481,6 +482,7 @@ export class TenantProvisioningEngine {
         {
           id: `${tenantId}_admin_1`,
           email: adminEmail,
+          name: adminName || adminEmail.split('@')[0], // Use provided name or fallback to email prefix
           role: 'admin',
           status: 'active',
           createdAt: new Date().toISOString(),
