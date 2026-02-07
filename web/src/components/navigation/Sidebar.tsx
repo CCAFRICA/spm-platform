@@ -24,6 +24,7 @@ import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
 import { accessControl, type AppModule } from "@/lib/access-control";
+import { MODULE_TOKENS, type ModuleId } from "@/lib/design-system/tokens";
 
 interface NavChild {
   name: string;
@@ -35,10 +36,11 @@ interface NavChild {
 interface NavItem {
   name: string;
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   children?: NavChild[];
   feature?: keyof import("@/types/tenant").TenantConfig["features"];
   module?: AppModule; // For access control
+  moduleId?: ModuleId; // For design system wayfinding
 }
 
 interface SidebarProps {
@@ -69,18 +71,21 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       href: "/",
       icon: LayoutDashboard,
       module: "dashboard",
+      moduleId: "insights", // Dashboard uses insights styling
     },
     {
       name: isSpanish ? "Mi Compensación" : "My Compensation",
       href: "/my-compensation",
       icon: Wallet,
       module: "my_compensation",
+      moduleId: "insights", // Part of insights family
     },
     {
       name: isSpanish ? "Análisis" : "Insights",
       href: "/insights",
       icon: BarChart3,
       module: "insights",
+      moduleId: "insights",
       children: [
         { name: isSpanish ? "Resumen" : "Overview", href: "/insights", module: "insights" },
         { name: isSpanish ? "Compensación" : "Compensation", href: "/insights/compensation", module: "insights" },
@@ -95,6 +100,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       href: "/transactions",
       icon: Receipt,
       module: "transactions",
+      moduleId: "transactions",
       children: [
         { name: transactionTerm || (isSpanish ? "Cheques" : "Orders"), href: "/transactions", module: "transactions" },
         { name: isSpanish ? "Buscar Cheque" : "Find My Order", href: "/transactions/find", module: "transactions" },
@@ -107,6 +113,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       href: "/performance",
       icon: Target,
       module: "performance",
+      moduleId: "performance",
       children: [
         { name: isSpanish ? "Gestión de Planes" : "Plan Management", href: "/performance/plans", module: "plans" },
         { name: isSpanish ? "Modelado de Escenarios" : "Scenario Modeling", href: "/performance/scenarios", module: "scenarios" },
@@ -120,6 +127,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       href: "/configuration",
       icon: Settings,
       module: "configuration",
+      moduleId: "configuration",
       children: [
         { name: isSpanish ? "Resumen" : "Overview", href: "/configuration", module: "configuration" },
         { name: isSpanish ? "Personal" : "Personnel", href: "/configuration/personnel", module: "personnel" },
@@ -133,6 +141,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       href: "/data",
       icon: Database,
       module: "data_import",
+      moduleId: "data",
       children: [
         { name: isSpanish ? "Importar" : "Import", href: "/data/import", module: "data_import" },
         { name: isSpanish ? "Importación Avanzada" : "Enhanced Import", href: "/data/import/enhanced", module: "data_import" },
@@ -146,12 +155,14 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       href: "/approvals",
       icon: CheckSquare,
       module: "approvals",
+      moduleId: "approvals",
     },
     {
       name: isSpanish ? "Operaciones" : "Operations",
       href: "/operations",
       icon: RotateCcw,
       module: "data_import",
+      moduleId: "operations",
       children: [
         { name: isSpanish ? "Reversión" : "Rollback", href: "/operations/rollback", module: "data_import" },
       ],
@@ -161,6 +172,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       href: "/admin",
       icon: Shield,
       module: "audit_log",
+      moduleId: "admin",
       children: [
         { name: isSpanish ? "Registro de Auditoría" : "Audit Log", href: "/admin/audit", module: "audit_log" },
       ],
@@ -249,8 +261,20 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
               const showAsActive = isItemActive || hasActiveChild;
               const filteredChildItems = item.children ? filterChildren(item.children) : [];
 
+              // Get module accent color for wayfinding
+              const moduleToken = item.moduleId ? MODULE_TOKENS[item.moduleId] : null;
+              const accentColor = moduleToken?.accent || 'hsl(210, 70%, 50%)';
+              const accentLight = moduleToken?.accentLight || 'hsl(210, 70%, 95%)';
+
               return (
-                <div key={item.name}>
+                <div key={item.name} className="relative">
+                  {/* Module accent bar for active section */}
+                  {showAsActive && (
+                    <div
+                      className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full transition-all duration-200"
+                      style={{ backgroundColor: accentColor }}
+                    />
+                  )}
                   {item.children ? (
                     <>
                       <button
@@ -258,18 +282,15 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                         className={cn(
                           "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                           showAsActive
-                            ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-50"
+                            ? "text-slate-900 dark:text-slate-50"
                             : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-50"
                         )}
+                        style={showAsActive ? { backgroundColor: accentLight } : undefined}
                       >
                         <div className="flex items-center gap-3">
                           <item.icon
-                            className={cn(
-                              "h-5 w-5",
-                              showAsActive
-                                ? "text-navy-600 dark:text-sky-400"
-                                : "text-slate-400 dark:text-slate-500"
-                            )}
+                            className="h-5 w-5 transition-colors"
+                            style={{ color: showAsActive ? accentColor : undefined }}
                           />
                           {item.name}
                         </div>
@@ -280,7 +301,10 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                         )}
                       </button>
                       {isExpanded && (
-                        <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-200 pl-4 dark:border-slate-700">
+                        <div
+                          className="ml-4 mt-1 space-y-1 border-l-2 pl-4 transition-colors"
+                          style={{ borderColor: showAsActive ? accentColor : undefined }}
+                        >
                           {filteredChildItems.map((child) => (
                             <Link
                               key={child.href}
@@ -288,9 +312,14 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                               className={cn(
                                 "block rounded-md px-3 py-2 text-sm transition-all",
                                 pathname === child.href
-                                  ? "bg-navy-50 text-navy-700 font-medium dark:bg-navy-900/30 dark:text-sky-400"
+                                  ? "font-medium"
                                   : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-300"
                               )}
+                              style={
+                                pathname === child.href
+                                  ? { backgroundColor: accentLight, color: moduleToken?.accentDark || accentColor }
+                                  : undefined
+                              }
                             >
                               {child.name}
                             </Link>
@@ -304,17 +333,14 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                         isItemActive
-                          ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-50"
+                          ? "text-slate-900 dark:text-slate-50"
                           : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-50"
                       )}
+                      style={isItemActive ? { backgroundColor: accentLight } : undefined}
                     >
                       <item.icon
-                        className={cn(
-                          "h-5 w-5",
-                          isItemActive
-                            ? "text-navy-600 dark:text-sky-400"
-                            : "text-slate-400 dark:text-slate-500"
-                        )}
+                        className="h-5 w-5 transition-colors"
+                        style={{ color: isItemActive ? accentColor : undefined }}
                       />
                       {item.name}
                     </Link>
