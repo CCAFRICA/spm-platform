@@ -17,6 +17,8 @@ import {
   DollarSign,
   Shield,
   Wallet,
+  CheckSquare,
+  RotateCcw,
 } from "lucide-react";
 import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
@@ -133,9 +135,25 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       module: "data_import",
       children: [
         { name: isSpanish ? "Importar" : "Import", href: "/data/import", module: "data_import" },
+        { name: isSpanish ? "Importación Avanzada" : "Enhanced Import", href: "/data/import/enhanced", module: "data_import" },
         { name: isSpanish ? "Operaciones Diarias" : "Daily Operations", href: "/data/operations", module: "data_import" },
         { name: isSpanish ? "Preparación de Datos" : "Data Readiness", href: "/data/readiness", module: "data_import" },
         { name: isSpanish ? "Calidad de Datos" : "Data Quality", href: "/data/quality", module: "data_import" },
+      ],
+    },
+    {
+      name: isSpanish ? "Aprobaciones" : "Approvals",
+      href: "/approvals",
+      icon: CheckSquare,
+      module: "approvals",
+    },
+    {
+      name: isSpanish ? "Operaciones" : "Operations",
+      href: "/operations",
+      icon: RotateCcw,
+      module: "data_import",
+      children: [
+        { name: isSpanish ? "Reversión" : "Rollback", href: "/operations/rollback", module: "data_import" },
       ],
     },
     {

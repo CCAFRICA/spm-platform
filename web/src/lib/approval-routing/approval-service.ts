@@ -20,6 +20,7 @@ import {
   generateImpactDetails,
   generateRecommendation,
 } from './impact-calculator';
+import { getSeededApprovalRequests } from '../demo/foundation-demo-data';
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -69,6 +70,14 @@ export function initializeApprovalService(): void {
   // Seed default rules if none exist
   if (rulesCache.size === 0) {
     seedDefaultRules();
+  }
+
+  // Load seeded approval requests into memory cache if empty
+  if (requestsCache.size === 0) {
+    const seededRequests = getSeededApprovalRequests();
+    seededRequests.forEach((request) => {
+      requestsCache.set(request.id, request);
+    });
   }
 }
 

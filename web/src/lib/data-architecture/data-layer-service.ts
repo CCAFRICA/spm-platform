@@ -17,6 +17,12 @@ import type {
   Checkpoint,
 } from './types';
 import { runTransformPipeline } from './transform-pipeline';
+import {
+  getSeededImportBatches,
+  getSeededCheckpoints,
+  isFoundationDataSeeded,
+  seedFoundationDemoData,
+} from '../demo/foundation-demo-data';
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -71,6 +77,27 @@ export function initializeDataLayer(): void {
   memoryCache.committed = loadFromStorage<CommittedRecord>(STORAGE_KEYS.COMMITTED);
   memoryCache.batches = loadFromStorage<ImportBatch>(STORAGE_KEYS.BATCHES);
   memoryCache.checkpoints = loadFromStorage<Checkpoint>(STORAGE_KEYS.CHECKPOINTS);
+
+  // Seed foundation demo data if not already present
+  if (!isFoundationDataSeeded()) {
+    seedFoundationDemoData();
+  }
+
+  // Load seeded batches into memory cache
+  if (memoryCache.batches.size === 0) {
+    const seededBatches = getSeededImportBatches();
+    seededBatches.forEach((batch) => {
+      memoryCache.batches.set(batch.id, batch);
+    });
+  }
+
+  // Load seeded checkpoints into memory cache
+  if (memoryCache.checkpoints.size === 0) {
+    const seededCheckpoints = getSeededCheckpoints();
+    seededCheckpoints.forEach((checkpoint) => {
+      memoryCache.checkpoints.set(checkpoint.id, checkpoint);
+    });
+  }
 }
 
 function persistAll(): void {
