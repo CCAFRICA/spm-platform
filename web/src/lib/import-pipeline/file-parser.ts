@@ -2,13 +2,15 @@
  * File Parser
  *
  * Multi-format parser for import files.
- * Supports CSV, TSV, JSON with format auto-detection.
+ * Supports CSV, TSV, JSON, PPTX with format auto-detection.
  */
+
+import { parsePPTX, isPPTXFile, type SlideContent } from './pptx-parser';
 
 export interface ParsedFile {
   headers: string[];
   rows: Record<string, unknown>[];
-  format: 'csv' | 'tsv' | 'json' | 'unknown';
+  format: 'csv' | 'tsv' | 'json' | 'pptx' | 'unknown';
   rowCount: number;
   metadata: {
     fileName?: string;
@@ -16,6 +18,8 @@ export interface ParsedFile {
     encoding?: string;
     detectedDelimiter?: string;
   };
+  /** Slide content when parsing PPTX files */
+  slides?: SlideContent[];
 }
 
 export interface ParseOptions {
@@ -44,6 +48,16 @@ export async function parseFile(
   options: ParseOptions = {}
 ): Promise<ParsedFile> {
   const mergedOptions = { ...DEFAULT_OPTIONS, ...options };
+
+  // Check for PPTX files first (binary format)
+  if (isPPTXFile(file)) {
+    const pptxResult = await parsePPTX(file, mergedOptions);
+    return {
+      ...pptxResult,
+      format: 'pptx',
+    };
+  }
+
   const content = await readFileContent(file);
   const format = detectFormat(file.name, content);
 

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { isCCAdmin } from '@/types/auth';
+import { useAdminLocale } from '@/hooks/useAdminLocale';
 import {
   runPeriodCalculation,
   previewPeriodCalculation,
@@ -161,7 +162,8 @@ export default function CalculatePage() {
   const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
 
-  const locale = currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US';
+  // CC Admin always sees English, tenant users see tenant locale
+  const { locale } = useAdminLocale();
   const t = labels[locale];
 
   // Check CC Admin access

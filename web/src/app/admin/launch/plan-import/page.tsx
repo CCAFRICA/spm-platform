@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { isCCAdmin } from '@/types/auth';
+import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { savePlan } from '@/lib/compensation/plan-storage';
+import { parseFile } from '@/lib/import-pipeline/file-parser';
 import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation-plan';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -55,8 +57,8 @@ const labels = {
     title: 'Plan Import',
     subtitle: 'Import and interpret compensation plan structure',
     uploadTitle: 'Upload Plan File',
-    uploadDesc: 'Drag and drop or click to upload CSV, Excel, JSON, or TSV files',
-    supportedFormats: 'Supported formats: CSV, XLSX, XLS, JSON, TSV',
+    uploadDesc: 'Drag and drop or click to upload CSV, Excel, JSON, TSV, or PowerPoint files',
+    supportedFormats: 'Supported formats: CSV, XLSX, XLS, JSON, TSV, PPTX',
     analyzing: 'Analyzing plan structure...',
     detected: 'Detected Plan Structure',
     confidence: 'Confidence',
@@ -89,8 +91,8 @@ const labels = {
     title: 'Importar Plan',
     subtitle: 'Importar e interpretar la estructura del plan de compensación',
     uploadTitle: 'Subir Archivo de Plan',
-    uploadDesc: 'Arrastre y suelte o haga clic para subir archivos CSV, Excel, JSON o TSV',
-    supportedFormats: 'Formatos soportados: CSV, XLSX, XLS, JSON, TSV',
+    uploadDesc: 'Arrastre y suelte o haga clic para subir archivos CSV, Excel, JSON, TSV o PowerPoint',
+    supportedFormats: 'Formatos soportados: CSV, XLSX, XLS, JSON, TSV, PPTX',
     analyzing: 'Analizando estructura del plan...',
     detected: 'Estructura del Plan Detectada',
     confidence: 'Confianza',
@@ -158,7 +160,8 @@ export default function PlanImportPage() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [eligibleRoles, _setEligibleRoles] = useState<string[]>(['sales_rep']);
 
-  const locale = currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US';
+  // CC Admin always sees English, tenant users see tenant locale
+  const { locale } = useAdminLocale();
   const t = labels[locale];
 
   // Check CC Admin access
@@ -198,72 +201,37 @@ export default function PlanImportPage() {
     setImportResult(null);
 
     try {
-      const content = await readFileContent(file);
-      const parsed = await analyzeContent(content, file.name);
+      // Use unified file parser (handles CSV, TSV, JSON, PPTX)
+      const parsedFile = await parseFile(file);
+
+      // Build ParsedPlan from parsed file
+      const data = parsedFile.rows;
+      const detectedFormat = parsedFile.format.toUpperCase();
+
+      // If PPTX, add info about slides
+      let description = `Imported from ${file.name}`;
+      if (parsedFile.format === 'pptx' && parsedFile.slides) {
+        description += ` (${parsedFile.slides.length} slides, ${parsedFile.slides.reduce((sum, s) => sum + s.tables.length, 0)} tables found)`;
+      }
+
+      // Detect components from data structure
+      const components = detectComponents(data);
+
+      const parsed: ParsedPlan = {
+        name: file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+        description,
+        components,
+        rawData: data,
+        detectedFormat,
+      };
+
       setParsedPlan(parsed);
-      setPlanName(parsed.name || file.name.replace(/\.[^.]+$/, ''));
+      setPlanName(parsed.name);
     } catch (error) {
       console.error('Error processing file:', error);
     } finally {
       setIsAnalyzing(false);
     }
-  };
-
-  // Read file content
-  const readFileContent = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target?.result as string);
-      reader.onerror = reject;
-      reader.readAsText(file);
-    });
-  };
-
-  // Analyze content and detect plan structure
-  const analyzeContent = async (content: string, filename: string): Promise<ParsedPlan> => {
-    // Simulate analysis delay
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    const extension = filename.split('.').pop()?.toLowerCase();
-    let data: Record<string, unknown>[] = [];
-    let detectedFormat = 'unknown';
-
-    // Parse based on format
-    if (extension === 'json') {
-      try {
-        const parsed = JSON.parse(content);
-        data = Array.isArray(parsed) ? parsed : [parsed];
-        detectedFormat = 'JSON';
-      } catch {
-        data = [];
-      }
-    } else if (extension === 'csv' || extension === 'tsv') {
-      const delimiter = extension === 'tsv' ? '\t' : ',';
-      const lines = content.split('\n').filter((l) => l.trim());
-      if (lines.length > 0) {
-        const headers = lines[0].split(delimiter).map((h) => h.trim().replace(/"/g, ''));
-        data = lines.slice(1).map((line) => {
-          const values = line.split(delimiter).map((v) => v.trim().replace(/"/g, ''));
-          const row: Record<string, unknown> = {};
-          headers.forEach((header, i) => {
-            row[header] = values[i];
-          });
-          return row;
-        });
-        detectedFormat = extension.toUpperCase();
-      }
-    }
-
-    // Detect components from data structure
-    const components = detectComponents(data);
-
-    return {
-      name: filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
-      description: `Imported from ${filename}`,
-      components,
-      rawData: data,
-      detectedFormat,
-    };
   };
 
   // Detect plan components from data
@@ -582,7 +550,7 @@ export default function PlanImportPage() {
               <input
                 id="file-input"
                 type="file"
-                accept=".csv,.xlsx,.xls,.json,.tsv"
+                accept=".csv,.xlsx,.xls,.json,.tsv,.pptx"
                 className="hidden"
                 onChange={handleFileSelect}
               />

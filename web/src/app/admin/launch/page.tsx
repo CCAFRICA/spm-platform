@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { isCCAdmin } from '@/types/auth';
 import {
   getCustomerLaunches,
@@ -196,14 +196,14 @@ function getStatusIcon(status: LaunchStep['status']) {
 export default function CustomerLaunchDashboard() {
   const router = useRouter();
   const { user } = useAuth();
-  const { currentTenant } = useTenant();
   const [launches, setLaunches] = useState<CustomerLaunch[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [newLaunch, setNewLaunch] = useState({ customerId: '', customerName: '' });
   const [selectedLaunch, setSelectedLaunch] = useState<CustomerLaunch | null>(null);
 
-  const locale = currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US';
+  // CC Admin always sees English, tenant users see tenant locale
+  const { locale } = useAdminLocale();
   const t = labels[locale];
 
   // Check CC Admin access

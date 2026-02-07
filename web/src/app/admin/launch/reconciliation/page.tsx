@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { isCCAdmin } from '@/types/auth';
+import { useAdminLocale } from '@/hooks/useAdminLocale';
 import {
   getReconciliationBridge,
   type ExtendedReconciliationSession,
@@ -186,7 +187,8 @@ export default function ReconciliationPage() {
   const [filter, setFilter] = useState<'all' | 'matched' | 'discrepancy' | 'missing'>('all');
   const [sortDesc, setSortDesc] = useState(true);
 
-  const locale = currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US';
+  // CC Admin always sees English, tenant users see tenant locale
+  const { locale } = useAdminLocale();
   const t = labels[locale];
 
   // Check CC Admin access
