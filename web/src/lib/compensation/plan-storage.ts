@@ -10,6 +10,7 @@ import type {
   PlanStatus,
   PlanChangeRecord,
 } from '@/types/compensation-plan';
+import { createRetailCGMXUnifiedPlan } from './retailcgmx-plan';
 
 const STORAGE_KEY_PLANS = 'compensation_plans';
 const STORAGE_KEY_PLAN_HISTORY = 'compensation_plan_history';
@@ -295,6 +296,7 @@ function getDefaultPlans(): CompensationPlanConfig[] {
   return [
     createRetailCoCertifiedPlan(),
     createRetailCoNonCertifiedPlan(),
+    createRetailCGMXUnifiedPlan(),
   ];
 }
 

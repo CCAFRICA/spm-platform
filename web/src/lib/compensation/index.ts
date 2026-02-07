@@ -15,3 +15,7 @@ export * from './calculation-engine';
 
 // Plan interpreter
 export * from './plan-interpreter';
+
+// RetailCGMX Plan
+export * from './retailcgmx-plan';
+export * from './retailcgmx-validation';

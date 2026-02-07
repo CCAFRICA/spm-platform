@@ -81,6 +81,16 @@ function calculateAdditiveLookup(
   const components: CalculationStep[] = [];
   let totalIncentive = 0;
 
+  // Determine currency from first component with a config
+  let currency = 'USD';
+  const firstComponent = selectedVariant.components.find((c) => c.enabled);
+  if (firstComponent) {
+    currency =
+      firstComponent.matrixConfig?.currency ||
+      firstComponent.tierConfig?.currency ||
+      'USD';
+  }
+
   // Process each enabled component
   selectedVariant.components
     .filter((c) => c.enabled)
@@ -108,7 +118,7 @@ function calculateAdditiveLookup(
     periodEnd: employeeMetrics.periodEnd,
     components,
     totalIncentive,
-    currency: 'USD',
+    currency,
     calculatedAt: new Date().toISOString(),
     warnings: warnings.length > 0 ? warnings : undefined,
   };
