@@ -2,15 +2,22 @@
  * File Parser
  *
  * Multi-format parser for import files.
- * Supports CSV, TSV, JSON, PPTX with format auto-detection.
+ * Supports CSV, TSV, JSON, PPTX, XLSX with format auto-detection.
  */
 
+import * as XLSX from 'xlsx';
 import { parsePPTX, isPPTXFile, type SlideContent } from './pptx-parser';
+
+export interface WorksheetInfo {
+  name: string;
+  rowCount: number;
+  columnCount: number;
+}
 
 export interface ParsedFile {
   headers: string[];
   rows: Record<string, unknown>[];
-  format: 'csv' | 'tsv' | 'json' | 'pptx' | 'unknown';
+  format: 'csv' | 'tsv' | 'json' | 'pptx' | 'xlsx' | 'unknown';
   rowCount: number;
   metadata: {
     fileName?: string;
@@ -20,6 +27,10 @@ export interface ParsedFile {
   };
   /** Slide content when parsing PPTX files */
   slides?: SlideContent[];
+  /** Available worksheets for xlsx files */
+  worksheets?: WorksheetInfo[];
+  /** Currently selected worksheet name */
+  selectedSheet?: string;
 }
 
 export interface ParseOptions {
@@ -56,6 +67,14 @@ export async function parseFile(
       ...pptxResult,
       format: 'pptx',
     };
+  }
+
+  // Check for Excel files
+  if (isExcelFile(file)) {
+    const xlsxResult = await parseExcel(file, mergedOptions);
+    xlsxResult.metadata.fileName = file.name;
+    xlsxResult.metadata.fileSize = file.size;
+    return xlsxResult;
   }
 
   const content = await readFileContent(file);
@@ -344,6 +363,161 @@ function parseJSON(content: string): ParsedFile {
     rowCount: 0,
     metadata: {},
   };
+}
+
+// ============================================
+// EXCEL PARSER
+// ============================================
+
+/**
+ * Check if a file is an Excel file
+ */
+export function isExcelFile(file: File): boolean {
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  return extension === 'xlsx' || extension === 'xls';
+}
+
+/**
+ * Parse Excel file and extract worksheet info
+ * Returns the first sheet by default, with info about all available sheets
+ */
+async function parseExcel(
+  file: File,
+  options: ParseOptions,
+  sheetName?: string
+): Promise<ParsedFile> {
+  console.log('\n========== EXCEL PARSER DEBUG ==========');
+  console.log('Parsing file:', file.name);
+
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+  console.log('Worksheets found:', workbook.SheetNames.length);
+  workbook.SheetNames.forEach((name, i) => {
+    const sheet = workbook.Sheets[name];
+    const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
+    console.log(`  ${i + 1}. "${name}" - ${range.e.r} rows, ${range.e.c + 1} columns`);
+  });
+
+  // Get worksheet info for all sheets
+  const worksheets: WorksheetInfo[] = workbook.SheetNames.map((name) => {
+    const sheet = workbook.Sheets[name];
+    const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
+    return {
+      name,
+      rowCount: range.e.r, // Excludes header row
+      columnCount: range.e.c + 1,
+    };
+  });
+
+  // Select which sheet to parse
+  const selectedSheetName = sheetName || workbook.SheetNames[0];
+  const sheet = workbook.Sheets[selectedSheetName];
+
+  if (!sheet) {
+    console.error('Sheet not found:', selectedSheetName);
+    return {
+      headers: [],
+      rows: [],
+      format: 'xlsx',
+      rowCount: 0,
+      metadata: {},
+      worksheets,
+      selectedSheet: selectedSheetName,
+    };
+  }
+
+  console.log('Parsing sheet:', selectedSheetName);
+
+  // Convert to JSON with header option
+  const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: null,
+    raw: false, // Convert all values to strings for consistency
+  });
+
+  // Get headers from the first row
+  const headers: string[] = [];
+  if (jsonData.length > 0) {
+    Object.keys(jsonData[0]).forEach((key) => {
+      headers.push(String(key));
+    });
+  }
+
+  console.log('Headers extracted:', headers.length);
+  console.log('  ', headers.slice(0, 5).join(', '), headers.length > 5 ? '...' : '');
+  console.log('Data rows:', jsonData.length);
+
+  // Apply options
+  let rows = jsonData;
+
+  if (options.maxRows && rows.length > options.maxRows) {
+    rows = rows.slice(0, options.maxRows);
+  }
+
+  if (options.skipEmptyRows) {
+    rows = rows.filter((row) => {
+      return Object.values(row).some((v) => v !== null && v !== '');
+    });
+  }
+
+  if (options.trimValues) {
+    rows = rows.map((row) => {
+      const trimmed: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(row)) {
+        trimmed[key] = typeof value === 'string' ? value.trim() : value;
+      }
+      return trimmed;
+    });
+  }
+
+  console.log('Final row count:', rows.length);
+  if (rows.length > 0) {
+    console.log('First row preview:', JSON.stringify(rows[0]).substring(0, 200));
+  }
+  console.log('==========================================\n');
+
+  return {
+    headers,
+    rows,
+    format: 'xlsx',
+    rowCount: rows.length,
+    metadata: {},
+    worksheets,
+    selectedSheet: selectedSheetName,
+  };
+}
+
+/**
+ * Parse a specific worksheet from an Excel file
+ */
+export async function parseExcelSheet(
+  file: File,
+  sheetName: string,
+  options: ParseOptions = {}
+): Promise<ParsedFile> {
+  const mergedOptions = { ...DEFAULT_OPTIONS, ...options };
+  const result = await parseExcel(file, mergedOptions, sheetName);
+  result.metadata.fileName = file.name;
+  result.metadata.fileSize = file.size;
+  return result;
+}
+
+/**
+ * Get worksheet info from an Excel file without parsing all data
+ */
+export async function getExcelWorksheets(file: File): Promise<WorksheetInfo[]> {
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+  return workbook.SheetNames.map((name) => {
+    const sheet = workbook.Sheets[name];
+    const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
+    return {
+      name,
+      rowCount: range.e.r,
+      columnCount: range.e.c + 1,
+    };
+  });
 }
 
 // ============================================

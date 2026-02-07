@@ -1118,31 +1118,69 @@ export async function interpretPlanDocument(
   userId: string,
   locale: 'en-US' | 'es-MX' = 'en-US'
 ): Promise<DocumentInterpretationResult> {
-  const aiInterpreter = getAIInterpreter();
+  console.log('\n========== PLAN INTERPRETER DEBUG ==========');
+  console.log('Document content length:', documentContent.length, 'chars');
+  console.log('Tenant ID:', tenantId);
+  console.log('User ID:', userId);
+  console.log('Locale:', locale);
 
-  // Try AI interpretation first if configured
-  if (aiInterpreter.isConfigured()) {
-    try {
-      console.log('Attempting AI-powered plan interpretation...');
-      const interpretation = await aiInterpreter.interpretPlan(documentContent);
+  // Try AI interpretation via server-side API route
+  try {
+    console.log('Calling /api/interpret-plan API route...');
+    const response = await fetch('/api/interpret-plan', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        documentContent,
+        tenantId,
+        userId,
+      }),
+    });
 
-      // Convert to plan config
-      const planConfig = interpretationToPlanConfig(interpretation, tenantId, userId);
+    console.log('API response status:', response.status);
 
-      return {
-        success: true,
-        method: 'ai',
-        interpretation,
-        planConfig,
-        confidence: interpretation.confidence,
-      };
-    } catch (error) {
-      console.warn('AI interpretation failed, falling back to heuristics:', error);
-      // Fall through to heuristic detection
+    if (response.ok) {
+      const data = await response.json();
+      console.log('API response success:', data.success);
+      console.log('API method:', data.method);
+      console.log('API confidence:', data.confidence);
+
+      if (data.success && data.interpretation) {
+        console.log('Interpretation received:');
+        console.log('  Plan name:', data.interpretation.planName);
+        console.log('  Employee types:', data.interpretation.employeeTypes?.length || 0);
+        console.log('  Components:', data.interpretation.components?.length || 0);
+        data.interpretation.components?.forEach((comp: { name: string; type: string; confidence: number }, i: number) => {
+          console.log(`    ${i + 1}. ${comp.name} (${comp.type}) - ${comp.confidence}% confidence`);
+        });
+
+        // Convert to plan config
+        const planConfig = interpretationToPlanConfig(data.interpretation, tenantId, userId);
+
+        console.log('==========================================\n');
+
+        return {
+          success: true,
+          method: 'ai',
+          interpretation: data.interpretation,
+          planConfig,
+          confidence: data.interpretation.confidence || data.confidence,
+        };
+      } else {
+        console.warn('API returned success but no interpretation:', data.error);
+      }
+    } else {
+      const errorData = await response.json().catch(() => ({}));
+      console.warn('API route failed:', response.status, errorData);
     }
-  } else {
-    console.log('AI interpreter not configured, using heuristic detection');
+  } catch (error) {
+    console.warn('AI interpretation via API route failed, falling back to heuristics:', error);
   }
+
+  console.log('Falling back to heuristic detection...');
+  console.log('==========================================\n');
 
   // Fallback to heuristic detection
   try {

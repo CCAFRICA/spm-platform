@@ -4,6 +4,7 @@
  * Enhanced Import Wizard
  *
  * Multi-step import workflow with smart mapping and approval integration.
+ * Supports CSV, TSV, JSON, and XLSX files with AI-assisted field mapping.
  */
 
 import { useState, useCallback } from 'react';
@@ -27,8 +28,17 @@ import {
   ArrowLeft,
   Loader2,
   AlertTriangle,
+  Sparkles,
+  Table,
 } from 'lucide-react';
-import { parseFile, type ParsedFile } from '@/lib/import-pipeline/file-parser';
+import {
+  parseFile,
+  parseExcelSheet,
+  getExcelWorksheets,
+  isExcelFile,
+  type ParsedFile,
+  type WorksheetInfo,
+} from '@/lib/import-pipeline/file-parser';
 import {
   suggestMappings,
   saveMappingTemplate,
@@ -41,6 +51,12 @@ import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
+
+// Extended FieldMapping with AI data
+interface AIFieldMapping extends FieldMapping {
+  reasoning?: string;
+  aiSuggested?: boolean;
+}
 
 type Step = 'upload' | 'map' | 'validate' | 'approve';
 
@@ -94,8 +110,15 @@ export default function EnhancedImportPage() {
   const [sourceSystem, setSourceSystem] = useState<string>('csv_export');
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
 
+  // Sheet selection state (for xlsx files)
+  const [worksheets, setWorksheets] = useState<WorksheetInfo[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string | null>(null);
+  const [showSheetSelector, setShowSheetSelector] = useState(false);
+
   // Mapping state
-  const [mappings, setMappings] = useState<FieldMapping[]>([]);
+  const [mappings, setMappings] = useState<AIFieldMapping[]>([]);
+  const [aiMappingStatus, setAiMappingStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [aiMappingConfidence, setAiMappingConfidence] = useState<number>(0);
 
   // Result state
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -103,19 +126,95 @@ export default function EnhancedImportPage() {
   const tenantId = currentTenant?.id || 'default';
   const userId = user?.id || 'admin';
 
+  // AI-assisted field mapping
+  const getAIMappings = useCallback(
+    async (parsed: ParsedFile): Promise<AIFieldMapping[]> => {
+      setAiMappingStatus('loading');
+
+      try {
+        console.log('Calling /api/interpret-import for AI mapping...');
+        const response = await fetch('/api/interpret-import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            headers: parsed.headers,
+            sampleData: parsed.rows.slice(0, 5),
+            tenantId,
+            planContext: null, // Could be enhanced with current plan info
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('AI mapping response:', data);
+
+          if (data.success && data.interpretation?.mappings) {
+            setAiMappingStatus('success');
+            setAiMappingConfidence(data.interpretation.overallConfidence || 0);
+
+            // Convert AI mappings to our format
+            return data.interpretation.mappings.map((m: {
+              sourceField: string;
+              targetField: string | null;
+              confidence: number;
+              matchType: string;
+              reasoning?: string;
+            }) => ({
+              sourceField: m.sourceField,
+              targetField: m.targetField,
+              confidence: m.confidence,
+              matchType: m.matchType === 'semantic' ? 'fuzzy' : m.matchType,
+              reasoning: m.reasoning,
+              aiSuggested: true,
+            }));
+          }
+        }
+
+        console.warn('AI mapping failed, falling back to heuristics');
+        setAiMappingStatus('error');
+      } catch (err) {
+        console.error('AI mapping error:', err);
+        setAiMappingStatus('error');
+      }
+
+      // Fallback to heuristic mapping
+      return suggestMappings(parsed.headers, tenantId, sourceSystem);
+    },
+    [tenantId, sourceSystem]
+  );
+
   // File upload handler
   const handleFileSelect = useCallback(
     async (file: File) => {
       setSelectedFile(file);
       setError(null);
       setIsProcessing(true);
+      setAiMappingStatus('idle');
+      setWorksheets([]);
+      setSelectedSheet(null);
+      setShowSheetSelector(false);
 
       try {
+        // Check if it's an Excel file with multiple sheets
+        if (isExcelFile(file)) {
+          const sheets = await getExcelWorksheets(file);
+          console.log('Excel worksheets found:', sheets);
+
+          if (sheets.length > 1) {
+            // Show sheet selector
+            setWorksheets(sheets);
+            setShowSheetSelector(true);
+            setIsProcessing(false);
+            return; // Wait for user to select a sheet
+          }
+          // Single sheet - proceed normally
+        }
+
         const parsed = await parseFile(file);
         setParsedFile(parsed);
 
-        // Get mapping suggestions
-        const suggestions = suggestMappings(parsed.headers, tenantId, sourceSystem);
+        // Get AI-assisted mapping suggestions
+        const suggestions = await getAIMappings(parsed);
         setMappings(suggestions);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to parse file');
@@ -123,7 +222,33 @@ export default function EnhancedImportPage() {
         setIsProcessing(false);
       }
     },
-    [tenantId, sourceSystem]
+    [getAIMappings]
+  );
+
+  // Handle sheet selection for Excel files
+  const handleSheetSelect = useCallback(
+    async (sheetName: string) => {
+      if (!selectedFile) return;
+
+      setSelectedSheet(sheetName);
+      setShowSheetSelector(false);
+      setIsProcessing(true);
+      setError(null);
+
+      try {
+        const parsed = await parseExcelSheet(selectedFile, sheetName);
+        setParsedFile(parsed);
+
+        // Get AI-assisted mapping suggestions
+        const suggestions = await getAIMappings(parsed);
+        setMappings(suggestions);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to parse worksheet');
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [selectedFile, getAIMappings]
   );
 
   // Drop zone handler
@@ -198,7 +323,8 @@ export default function EnhancedImportPage() {
   const canProceed = (): boolean => {
     switch (currentStep) {
       case 'upload':
-        return !!parsedFile;
+        // Can't proceed if waiting for sheet selection
+        return !!parsedFile && !showSheetSelector;
       case 'map':
         return mappings.some((m) => m.targetField);
       case 'validate':
@@ -318,78 +444,166 @@ export default function EnhancedImportPage() {
                 </Select>
               </div>
 
+              {/* Sheet Selector for Excel files */}
+              {showSheetSelector && worksheets.length > 0 && (
+                <div className="p-6 border-2 border-blue-200 bg-blue-50 rounded-lg">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Table className="h-5 w-5 text-blue-600" />
+                    <h3 className="font-medium text-blue-800">
+                      {isSpanish ? 'Seleccionar Hoja de Cálculo' : 'Select Worksheet'}
+                    </h3>
+                  </div>
+                  <p className="text-sm text-blue-700 mb-4">
+                    {isSpanish
+                      ? `El archivo Excel contiene ${worksheets.length} hojas. Seleccione cuál desea importar:`
+                      : `This Excel file contains ${worksheets.length} worksheets. Select which one to import:`}
+                  </p>
+                  <div className="grid gap-3">
+                    {worksheets.map((sheet) => (
+                      <button
+                        key={sheet.name}
+                        onClick={() => handleSheetSelect(sheet.name)}
+                        className="flex items-center justify-between p-4 bg-white border rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors text-left"
+                      >
+                        <div>
+                          <p className="font-medium">{sheet.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {sheet.rowCount} {isSpanish ? 'filas' : 'rows'} •{' '}
+                            {sheet.columnCount} {isSpanish ? 'columnas' : 'columns'}
+                          </p>
+                        </div>
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Drop zone */}
-              <div
-                onDrop={handleDrop}
-                onDragOver={(e) => e.preventDefault()}
-                className={cn(
-                  'border-2 border-dashed rounded-lg p-12 text-center transition-colors',
-                  'hover:border-primary hover:bg-primary/5',
-                  selectedFile && 'border-green-500 bg-green-50'
-                )}
-              >
-                {isProcessing ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                    <p>{isSpanish ? 'Procesando archivo...' : 'Processing file...'}</p>
-                  </div>
-                ) : selectedFile ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <FileText className="h-12 w-12 text-green-600" />
-                    <div>
-                      <p className="font-medium">{selectedFile.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {parsedFile?.rowCount} {isSpanish ? 'registros' : 'records'} •{' '}
-                        {parsedFile?.headers.length} {isSpanish ? 'columnas' : 'columns'}
-                      </p>
+              {!showSheetSelector && (
+                <div
+                  onDrop={handleDrop}
+                  onDragOver={(e) => e.preventDefault()}
+                  className={cn(
+                    'border-2 border-dashed rounded-lg p-12 text-center transition-colors',
+                    'hover:border-primary hover:bg-primary/5',
+                    selectedFile && parsedFile && 'border-green-500 bg-green-50'
+                  )}
+                >
+                  {isProcessing ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                      <p>{isSpanish ? 'Procesando archivo...' : 'Processing file...'}</p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedFile(null);
-                        setParsedFile(null);
-                      }}
-                    >
-                      {isSpanish ? 'Cambiar archivo' : 'Change file'}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-3">
-                    <Upload className="h-12 w-12 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium">
-                        {isSpanish
-                          ? 'Arrastre un archivo aquí o haga clic para seleccionar'
-                          : 'Drag a file here or click to select'}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {isSpanish
-                          ? 'Soporta CSV, TSV, JSON, Excel'
-                          : 'Supports CSV, TSV, JSON, Excel'}
-                      </p>
+                  ) : selectedFile && parsedFile ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <FileText className="h-12 w-12 text-green-600" />
+                      <div>
+                        <p className="font-medium">{selectedFile.name}</p>
+                        {selectedSheet && (
+                          <p className="text-sm text-blue-600">
+                            {isSpanish ? 'Hoja' : 'Sheet'}: {selectedSheet}
+                          </p>
+                        )}
+                        <p className="text-sm text-muted-foreground">
+                          {parsedFile?.rowCount} {isSpanish ? 'registros' : 'records'} •{' '}
+                          {parsedFile?.headers.length} {isSpanish ? 'columnas' : 'columns'}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedFile(null);
+                          setParsedFile(null);
+                          setWorksheets([]);
+                          setSelectedSheet(null);
+                          setShowSheetSelector(false);
+                          setAiMappingStatus('idle');
+                        }}
+                      >
+                        {isSpanish ? 'Cambiar archivo' : 'Change file'}
+                      </Button>
                     </div>
-                    <input
-                      type="file"
-                      accept=".csv,.tsv,.json,.xlsx,.xls"
-                      className="hidden"
-                      id="file-input"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileSelect(file);
-                      }}
-                    />
-                    <Button asChild variant="outline">
-                      <label htmlFor="file-input" className="cursor-pointer">
-                        {isSpanish ? 'Seleccionar Archivo' : 'Select File'}
-                      </label>
-                    </Button>
-                  </div>
-                )}
-              </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-3">
+                      <Upload className="h-12 w-12 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium">
+                          {isSpanish
+                            ? 'Arrastre un archivo aquí o haga clic para seleccionar'
+                            : 'Drag a file here or click to select'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {isSpanish
+                            ? 'Soporta CSV, TSV, JSON, Excel (.xlsx)'
+                            : 'Supports CSV, TSV, JSON, Excel (.xlsx)'}
+                        </p>
+                      </div>
+                      <input
+                        type="file"
+                        accept=".csv,.tsv,.json,.xlsx,.xls"
+                        className="hidden"
+                        id="file-input"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileSelect(file);
+                        }}
+                      />
+                      <Button asChild variant="outline">
+                        <label htmlFor="file-input" className="cursor-pointer">
+                          {isSpanish ? 'Seleccionar Archivo' : 'Select File'}
+                        </label>
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* AI Mapping Status */}
+              {parsedFile && !showSheetSelector && (
+                <div className={cn(
+                  'p-4 rounded-lg flex items-center gap-3',
+                  aiMappingStatus === 'loading' && 'bg-blue-50 border border-blue-200',
+                  aiMappingStatus === 'success' && 'bg-green-50 border border-green-200',
+                  aiMappingStatus === 'error' && 'bg-yellow-50 border border-yellow-200'
+                )}>
+                  {aiMappingStatus === 'loading' && (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                      <span className="text-blue-700">
+                        {isSpanish ? 'AI analizando campos...' : 'AI analyzing fields...'}
+                      </span>
+                    </>
+                  )}
+                  {aiMappingStatus === 'success' && (
+                    <>
+                      <Sparkles className="h-5 w-5 text-green-600" />
+                      <span className="text-green-700">
+                        {isSpanish
+                          ? `AI sugirió mapeos con ${aiMappingConfidence}% de confianza`
+                          : `AI suggested mappings with ${aiMappingConfidence}% confidence`}
+                      </span>
+                      <Badge variant="secondary" className="ml-auto">
+                        AI-Assisted
+                      </Badge>
+                    </>
+                  )}
+                  {aiMappingStatus === 'error' && (
+                    <>
+                      <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                      <span className="text-yellow-700">
+                        {isSpanish
+                          ? 'AI no disponible - usando mapeo heurístico'
+                          : 'AI unavailable - using heuristic mapping'}
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Preview */}
-              {parsedFile && parsedFile.rows.length > 0 && (
+              {parsedFile && parsedFile.rows.length > 0 && !showSheetSelector && (
                 <div>
                   <h3 className="font-medium mb-2">
                     {isSpanish ? 'Vista Previa' : 'Preview'}
