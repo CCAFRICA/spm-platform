@@ -1,16 +1,20 @@
 'use client';
 
 /**
- * Data Package Import
+ * Data Package Import - Phase 1 Redesign
  *
  * AI-powered multi-sheet workbook import with:
- * - Automatic sheet classification and relationship detection
- * - Visual graph presentation of data package structure
- * - Plan component matching with field mapping
- * - Calculation preview before approval
+ * - Sheet-by-sheet navigation (Next advances to next sheet, not Validate)
+ * - Plan-derived target fields from tenant's compensation plan
+ * - AI pre-selection of mappings (>70% confidence auto-selected)
+ * - Column header translation (Spanish ↔ English)
+ * - Sheet-to-component banner showing matched component
+ * - Required vs optional field indicators
+ * - Custom field creation option
+ * - Formula value resolution (not formula text)
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +39,9 @@ import {
   Link2,
   AlertCircle,
   Info,
+  Languages,
+  Plus,
+  Star,
 } from 'lucide-react';
 import {
   parseFile,
@@ -47,6 +54,9 @@ import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
+import { getPlans } from '@/lib/compensation/plan-storage';
+import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation-plan';
+import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 
 // Step definitions
 type Step = 'upload' | 'analyze' | 'map' | 'validate' | 'approve';
@@ -156,8 +166,69 @@ interface SheetFieldMapping {
     targetField: string | null;
     confidence: number;
     confirmed: boolean;
+    isRequired: boolean;
   }>;
+  isComplete: boolean;
 }
+
+// Target field definition (derived from plan)
+interface TargetField {
+  id: string;
+  label: string;
+  labelEs: string;
+  isRequired: boolean;
+  category: 'identifier' | 'metric' | 'dimension' | 'date' | 'amount' | 'custom';
+  componentId?: string;
+  componentName?: string;
+}
+
+// Spanish to English column name translations
+const COLUMN_TRANSLATIONS: Record<string, string> = {
+  // Identifiers
+  'num_empleado': 'Employee ID',
+  'numero_empleado': 'Employee ID',
+  'id_empleado': 'Employee ID',
+  'empleado': 'Employee',
+  'no_tienda': 'Store ID',
+  'tienda': 'Store',
+  'id_tienda': 'Store ID',
+  'nombre_tienda': 'Store Name',
+
+  // Dates
+  'fecha': 'Date',
+  'fecha_corte': 'Cut-off Date',
+  'periodo': 'Period',
+  'mes': 'Month',
+  'año': 'Year',
+
+  // Metrics
+  'venta': 'Sales',
+  'ventas': 'Sales',
+  'venta_optica': 'Optical Sales',
+  'venta_tienda': 'Store Sales',
+  'cumplimiento': 'Attainment',
+  'meta': 'Goal',
+  'objetivo': 'Target',
+  'cobranza': 'Collections',
+  'clientes_nuevos': 'New Customers',
+  'seguros': 'Insurance',
+  'servicios': 'Services',
+  'garantia': 'Warranty',
+
+  // Amounts
+  'monto': 'Amount',
+  'importe': 'Amount',
+  'total': 'Total',
+  'subtotal': 'Subtotal',
+  'comision': 'Commission',
+  'incentivo': 'Incentive',
+  'bono': 'Bonus',
+
+  // Status
+  'estado': 'Status',
+  'activo': 'Active',
+  'certificado': 'Certified',
+};
 
 // Classification icon and color mapping
 const CLASSIFICATION_CONFIG: Record<SheetClassification, { icon: typeof Users; color: string; label: string; labelEs: string }> = {
@@ -168,6 +239,125 @@ const CLASSIFICATION_CONFIG: Record<SheetClassification, { icon: typeof Users; c
   period_summary: { icon: Calculator, color: 'bg-cyan-100 border-cyan-300 text-cyan-800', label: 'Period Summary', labelEs: 'Resumen del Período' },
   unrelated: { icon: AlertCircle, color: 'bg-gray-100 border-gray-300 text-gray-600', label: 'Unrelated', labelEs: 'No Relacionado' },
 };
+
+// Helper: Translate column name
+function translateColumn(column: string): string | null {
+  const normalized = column.toLowerCase().replace(/[\s_-]+/g, '_').trim();
+  return COLUMN_TRANSLATIONS[normalized] || null;
+}
+
+// Helper: Extract target fields from plan components
+function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): TargetField[] {
+  const baseFields: TargetField[] = [
+    // Always-required identifier fields
+    { id: 'employeeId', label: 'Employee ID', labelEs: 'ID Empleado', isRequired: true, category: 'identifier' },
+    { id: 'storeId', label: 'Store ID', labelEs: 'ID Tienda', isRequired: false, category: 'identifier' },
+    { id: 'date', label: 'Date', labelEs: 'Fecha', isRequired: true, category: 'date' },
+    { id: 'period', label: 'Period', labelEs: 'Período', isRequired: false, category: 'date' },
+  ];
+
+  // Check if plan has additive lookup config with variants
+  if (!plan?.configuration || !isAdditiveLookupConfig(plan.configuration)) {
+    // Return generic fields if no plan or not additive lookup
+    return [
+      ...baseFields,
+      { id: 'amount', label: 'Amount', labelEs: 'Monto', isRequired: true, category: 'amount' },
+      { id: 'quantity', label: 'Quantity', labelEs: 'Cantidad', isRequired: false, category: 'metric' },
+      { id: 'attainment', label: 'Attainment %', labelEs: '% Cumplimiento', isRequired: false, category: 'metric' },
+      { id: 'goal', label: 'Goal', labelEs: 'Meta', isRequired: false, category: 'metric' },
+    ];
+  }
+
+  // Extract component-specific fields from the plan
+  const componentFields: TargetField[] = [];
+  const firstVariant = plan.configuration.variants[0];
+
+  if (firstVariant?.components) {
+    firstVariant.components.forEach((comp: PlanComponent) => {
+      // Extract metrics from matrix configs
+      if (comp.matrixConfig) {
+        componentFields.push({
+          id: comp.matrixConfig.rowMetric,
+          label: comp.matrixConfig.rowMetricLabel,
+          labelEs: comp.matrixConfig.rowMetricLabel,
+          isRequired: true,
+          category: 'metric',
+          componentId: comp.id,
+          componentName: comp.name,
+        });
+        componentFields.push({
+          id: comp.matrixConfig.columnMetric,
+          label: comp.matrixConfig.columnMetricLabel,
+          labelEs: comp.matrixConfig.columnMetricLabel,
+          isRequired: true,
+          category: 'amount',
+          componentId: comp.id,
+          componentName: comp.name,
+        });
+      }
+
+      // Extract metrics from tier configs
+      if (comp.tierConfig) {
+        componentFields.push({
+          id: comp.tierConfig.metric,
+          label: comp.tierConfig.metricLabel,
+          labelEs: comp.tierConfig.metricLabel,
+          isRequired: true,
+          category: 'metric',
+          componentId: comp.id,
+          componentName: comp.name,
+        });
+      }
+
+      // Extract metrics from percentage configs
+      if (comp.percentageConfig) {
+        componentFields.push({
+          id: comp.percentageConfig.appliedTo,
+          label: comp.percentageConfig.appliedToLabel || comp.percentageConfig.appliedTo,
+          labelEs: comp.percentageConfig.appliedToLabel || comp.percentageConfig.appliedTo,
+          isRequired: true,
+          category: 'amount',
+          componentId: comp.id,
+          componentName: comp.name,
+        });
+      }
+
+      // Extract metrics from conditional configs
+      if (comp.conditionalConfig) {
+        comp.conditionalConfig.conditions.forEach(cond => {
+          componentFields.push({
+            id: cond.metric,
+            label: cond.metricLabel,
+            labelEs: cond.metricLabel,
+            isRequired: true,
+            category: 'metric',
+            componentId: comp.id,
+            componentName: comp.name,
+          });
+        });
+        componentFields.push({
+          id: comp.conditionalConfig.appliedTo,
+          label: comp.conditionalConfig.appliedToLabel,
+          labelEs: comp.conditionalConfig.appliedToLabel,
+          isRequired: true,
+          category: 'amount',
+          componentId: comp.id,
+          componentName: comp.name,
+        });
+      }
+    });
+  }
+
+  // Deduplicate by id
+  const seen = new Set<string>();
+  const uniqueFields = componentFields.filter(f => {
+    if (seen.has(f.id)) return false;
+    seen.add(f.id);
+    return true;
+  });
+
+  return [...baseFields, ...uniqueFields];
+}
 
 export default function DataPackageImportPage() {
   const { locale } = useLocale();
@@ -189,15 +379,48 @@ export default function DataPackageImportPage() {
 
   // Mapping state
   const [fieldMappings, setFieldMappings] = useState<SheetFieldMapping[]>([]);
-  const [selectedMappingSheet, setSelectedMappingSheet] = useState<string | null>(null);
+  const [currentMappingSheetIndex, setCurrentMappingSheetIndex] = useState(0);
   const [previewRowIndex, setPreviewRowIndex] = useState(0);
+  const [showTranslations, setShowTranslations] = useState(true);
+  const [customFields, setCustomFields] = useState<string[]>([]);
+  const [newCustomField, setNewCustomField] = useState('');
+
+  // Plan state
+  const [activePlan, setActivePlan] = useState<CompensationPlanConfig | null>(null);
+  const [targetFields, setTargetFields] = useState<TargetField[]>([]);
 
   // Validation state
   const [validationComplete, setValidationComplete] = useState(false);
 
-  const tenantId = currentTenant?.id || 'default';
+  const tenantId = currentTenant?.id || 'retailcgmx';
+  const currency = currentTenant?.currency || 'MXN';
 
-  // Parse all sheets from the workbook
+  // Load tenant's active plan on mount
+  useEffect(() => {
+    const plans = getPlans(tenantId);
+    const active = plans.find(p => p.status === 'active');
+    setActivePlan(active || null);
+    setTargetFields(extractTargetFieldsFromPlan(active || null));
+  }, [tenantId]);
+
+  // Get mappable sheets (exclude unrelated)
+  const mappableSheets = useMemo(() => {
+    if (!analysis) return [];
+    return analysis.sheets.filter(s => s.classification !== 'unrelated');
+  }, [analysis]);
+
+  // Current sheet being mapped
+  const currentMappingSheet = useMemo(() => {
+    return mappableSheets[currentMappingSheetIndex] || null;
+  }, [mappableSheets, currentMappingSheetIndex]);
+
+  // Current sheet's field mappings
+  const currentSheetMapping = useMemo(() => {
+    if (!currentMappingSheet) return null;
+    return fieldMappings.find(m => m.sheetName === currentMappingSheet.name) || null;
+  }, [fieldMappings, currentMappingSheet]);
+
+  // Parse all sheets from the workbook with formula resolution
   const parseAllSheets = useCallback(async (file: File): Promise<Array<{
     name: string;
     headers: string[];
@@ -205,13 +428,20 @@ export default function DataPackageImportPage() {
     sampleRows: Record<string, unknown>[];
   }>> => {
     const arrayBuffer = await file.arrayBuffer();
-    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    // IMPORTANT: cellFormula: false ensures we get computed values, not formula text
+    const workbook = XLSX.read(arrayBuffer, {
+      type: 'array',
+      cellFormula: false,  // Don't parse formulas as strings
+      cellNF: false,       // Don't apply number formatting
+      cellStyles: false,   // Don't extract styles
+    });
 
     return workbook.SheetNames.map((name) => {
       const sheet = workbook.Sheets[name];
+      // raw: true gets the computed values; defval ensures empty cells get null
       const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
         defval: null,
-        raw: false,
+        raw: true, // Get computed values, not formatted strings
       });
 
       const headers = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
@@ -235,6 +465,16 @@ export default function DataPackageImportPage() {
       const sheets = await parseAllSheets(file);
       console.log('Parsed sheets for analysis:', sheets.length);
 
+      // Get plan components for AI context
+      let planComponents = null;
+      if (activePlan?.configuration && isAdditiveLookupConfig(activePlan.configuration)) {
+        planComponents = activePlan.configuration.variants?.[0]?.components?.map(c => ({
+          id: c.id,
+          name: c.name,
+          type: c.componentType,
+        })) || null;
+      }
+
       // Call the AI analysis endpoint
       const response = await fetch('/api/analyze-workbook', {
         method: 'POST',
@@ -242,7 +482,7 @@ export default function DataPackageImportPage() {
         body: JSON.stringify({
           sheets,
           tenantId,
-          planComponents: null, // TODO: Load from tenant's imported plan
+          planComponents,
           expectedFields: null,
         }),
       });
@@ -271,29 +511,45 @@ export default function DataPackageImportPage() {
         });
         setAnalysisConfidence(data.confidence || 0);
 
-        // Initialize field mappings from AI suggestions
-        const mappings: SheetFieldMapping[] = analyzedSheets.map((sheet: AnalyzedSheet) => ({
-          sheetName: sheet.name,
-          mappings: sheet.headers.map(header => {
-            const suggestion = sheet.suggestedFieldMappings?.find(
-              m => m.sourceColumn === header
+        // Initialize field mappings from AI suggestions with auto-selection for high confidence
+        const mappings: SheetFieldMapping[] = analyzedSheets
+          .filter((sheet: AnalyzedSheet) => sheet.classification !== 'unrelated')
+          .map((sheet: AnalyzedSheet) => {
+            const sheetMappings = sheet.headers.map(header => {
+              const suggestion = sheet.suggestedFieldMappings?.find(
+                m => m.sourceColumn === header
+              );
+              const confidence = suggestion?.confidence || 0;
+              // Auto-select if confidence >= 70%
+              const autoSelected = confidence >= 70;
+
+              // Check if this is a required field
+              const targetField = autoSelected ? suggestion?.targetField : null;
+              const isRequired = targetFields.find(f => f.id === targetField)?.isRequired || false;
+
+              return {
+                sourceColumn: header,
+                targetField: autoSelected ? (suggestion?.targetField || null) : null,
+                confidence,
+                confirmed: autoSelected,
+                isRequired,
+              };
+            });
+
+            // Check if required fields are mapped
+            const hasRequiredMappings = sheetMappings.some(m =>
+              m.targetField && targetFields.find(f => f.id === m.targetField)?.isRequired
             );
+
             return {
-              sourceColumn: header,
-              targetField: suggestion?.targetField || null,
-              confidence: suggestion?.confidence || 0,
-              confirmed: false,
+              sheetName: sheet.name,
+              mappings: sheetMappings,
+              isComplete: hasRequiredMappings,
             };
-          }),
-        }));
+          });
+
         setFieldMappings(mappings);
-
-        // Select first component_data sheet for mapping
-        const firstComponentSheet = analyzedSheets.find(
-          (s: AnalyzedSheet) => s.classification === 'component_data'
-        );
-        setSelectedMappingSheet(firstComponentSheet?.name || analyzedSheets[0]?.name || null);
-
+        setCurrentMappingSheetIndex(0);
         setCurrentStep('analyze');
       } else {
         throw new Error(data.error || 'Analysis failed');
@@ -304,7 +560,7 @@ export default function DataPackageImportPage() {
     } finally {
       setIsProcessing(false);
     }
-  }, [parseAllSheets, tenantId]);
+  }, [parseAllSheets, tenantId, activePlan, targetFields]);
 
   // File upload handler
   const handleFileSelect = useCallback(async (file: File) => {
@@ -370,31 +626,49 @@ export default function DataPackageImportPage() {
   const updateFieldMapping = useCallback((sheetName: string, sourceColumn: string, targetField: string | null) => {
     setFieldMappings(prev => prev.map(sheet => {
       if (sheet.sheetName !== sheetName) return sheet;
+
+      const updatedMappings = sheet.mappings.map(m => {
+        if (m.sourceColumn !== sourceColumn) return m;
+        const isRequired = targetFields.find(f => f.id === targetField)?.isRequired || false;
+        return { ...m, targetField, confirmed: true, isRequired };
+      });
+
+      // Check if sheet has at least one mapping
+      const hasMapping = updatedMappings.some(m => m.targetField);
+
       return {
         ...sheet,
-        mappings: sheet.mappings.map(m => {
-          if (m.sourceColumn !== sourceColumn) return m;
-          return { ...m, targetField, confirmed: true };
-        }),
+        mappings: updatedMappings,
+        isComplete: hasMapping,
       };
     }));
-  }, []);
+  }, [targetFields]);
 
-  // Get current sheet's mapping
-  const currentSheetMapping = useMemo(() => {
-    if (!selectedMappingSheet) return null;
-    return fieldMappings.find(m => m.sheetName === selectedMappingSheet);
-  }, [fieldMappings, selectedMappingSheet]);
+  // Add custom field
+  const addCustomField = useCallback(() => {
+    if (newCustomField.trim() && !customFields.includes(newCustomField.trim())) {
+      setCustomFields(prev => [...prev, newCustomField.trim()]);
+      setNewCustomField('');
+    }
+  }, [newCustomField, customFields]);
 
-  // Get current sheet's analysis
-  const currentSheetAnalysis = useMemo(() => {
-    if (!selectedMappingSheet || !analysis) return null;
-    return analysis.sheets.find(s => s.name === selectedMappingSheet);
-  }, [analysis, selectedMappingSheet]);
+  // Navigation helpers
+  const goToNextSheet = useCallback(() => {
+    if (currentMappingSheetIndex < mappableSheets.length - 1) {
+      setCurrentMappingSheetIndex(prev => prev + 1);
+      setPreviewRowIndex(0);
+    }
+  }, [currentMappingSheetIndex, mappableSheets.length]);
 
-  // Navigation
+  const goToPrevSheet = useCallback(() => {
+    if (currentMappingSheetIndex > 0) {
+      setCurrentMappingSheetIndex(prev => prev - 1);
+      setPreviewRowIndex(0);
+    }
+  }, [currentMappingSheetIndex]);
+
+  // Main navigation
   const goToStep = (step: Step) => {
-    // Allow going back to analyze from map
     if (step === 'analyze' && currentStep === 'map') {
       setCurrentStep('analyze');
       return;
@@ -408,21 +682,46 @@ export default function DataPackageImportPage() {
 
   const goNext = () => {
     const currentIndex = STEPS.indexOf(currentStep);
-    if (currentIndex < STEPS.length - 1) {
-      if (currentStep === 'map') {
-        // Run validation
+
+    if (currentStep === 'map') {
+      // Check if on last mappable sheet
+      if (currentMappingSheetIndex < mappableSheets.length - 1) {
+        // Go to next sheet
+        goToNextSheet();
+        return;
+      } else {
+        // All sheets mapped, go to validate
         setValidationComplete(true);
+        setCurrentStep('validate');
+        return;
       }
+    }
+
+    if (currentIndex < STEPS.length - 1) {
       setCurrentStep(STEPS[currentIndex + 1]);
     }
   };
 
   const goBack = () => {
     const currentIndex = STEPS.indexOf(currentStep);
-    if (currentIndex > 0) {
-      // From map, go back to analyze (not upload)
-      if (currentStep === 'map') {
+
+    if (currentStep === 'map') {
+      if (currentMappingSheetIndex > 0) {
+        // Go to previous sheet
+        goToPrevSheet();
+        return;
+      } else {
+        // First sheet, go back to analyze
         setCurrentStep('analyze');
+        return;
+      }
+    }
+
+    if (currentIndex > 0) {
+      if (currentStep === 'validate') {
+        // Go back to last sheet in mapping
+        setCurrentMappingSheetIndex(mappableSheets.length - 1);
+        setCurrentStep('map');
       } else {
         setCurrentStep(STEPS[currentIndex - 1]);
       }
@@ -432,11 +731,12 @@ export default function DataPackageImportPage() {
   const canProceed = (): boolean => {
     switch (currentStep) {
       case 'upload':
-        return false; // Auto-advances after analysis
+        return false;
       case 'analyze':
         return !!analysis && analysis.sheets.length > 0;
       case 'map':
-        return fieldMappings.some(m => m.mappings.some(f => f.targetField));
+        // Can proceed if current sheet has at least one mapping
+        return currentSheetMapping?.mappings.some(m => m.targetField) || false;
       case 'validate':
         return validationComplete;
       case 'approve':
@@ -444,6 +744,17 @@ export default function DataPackageImportPage() {
       default:
         return false;
     }
+  };
+
+  // Format currency value
+  const formatCurrency = (value: unknown): string => {
+    if (value === null || value === undefined) return '-';
+    const num = typeof value === 'number' ? value : parseFloat(String(value));
+    if (isNaN(num)) return String(value);
+    return new Intl.NumberFormat(isSpanish ? 'es-MX' : 'en-US', {
+      style: 'currency',
+      currency: currency,
+    }).format(num);
   };
 
   // Render sheet node in the visual graph
@@ -461,8 +772,11 @@ export default function DataPackageImportPage() {
         )}
         onClick={() => {
           if (sheet.classification !== 'unrelated') {
-            setSelectedMappingSheet(sheet.name);
-            setCurrentStep('map');
+            const idx = mappableSheets.findIndex(s => s.name === sheet.name);
+            if (idx >= 0) {
+              setCurrentMappingSheetIndex(idx);
+              setCurrentStep('map');
+            }
           }
         }}
       >
@@ -511,6 +825,11 @@ export default function DataPackageImportPage() {
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           <Badge variant="secondary">AI-Powered</Badge>
+          {activePlan && (
+            <Badge variant="outline" className="ml-2">
+              {activePlan.name}
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -790,32 +1109,70 @@ export default function DataPackageImportPage() {
             </div>
           )}
 
-          {/* Map Step - Field Mapping */}
-          {currentStep === 'map' && analysis && currentSheetAnalysis && currentSheetMapping && (
+          {/* Map Step - Field Mapping with Sheet Navigation */}
+          {currentStep === 'map' && analysis && currentMappingSheet && currentSheetMapping && (
             <div className="space-y-6">
-              {/* Sheet Selector */}
-              <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                <span className="text-sm font-medium">
-                  {isSpanish ? 'Hoja:' : 'Sheet:'}
-                </span>
-                <div className="flex gap-2 flex-wrap">
-                  {analysis.sheets
-                    .filter(s => s.classification !== 'unrelated')
-                    .map(sheet => (
-                      <Button
+              {/* Sheet Navigation Header */}
+              <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+                <div className="flex items-center gap-4">
+                  {/* Sheet Progress */}
+                  <div className="flex items-center gap-2">
+                    {mappableSheets.map((sheet, idx) => (
+                      <button
                         key={sheet.name}
-                        variant={selectedMappingSheet === sheet.name ? 'default' : 'outline'}
-                        size="sm"
                         onClick={() => {
-                          setSelectedMappingSheet(sheet.name);
+                          setCurrentMappingSheetIndex(idx);
                           setPreviewRowIndex(0);
                         }}
+                        className={cn(
+                          'w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all',
+                          idx === currentMappingSheetIndex
+                            ? 'bg-primary text-primary-foreground'
+                            : fieldMappings.find(m => m.sheetName === sheet.name)?.isComplete
+                              ? 'bg-green-500 text-white'
+                              : 'bg-muted-foreground/20 text-muted-foreground'
+                        )}
                       >
-                        {sheet.name}
-                      </Button>
+                        {idx + 1}
+                      </button>
                     ))}
+                  </div>
+
+                  {/* Current Sheet Info */}
+                  <div>
+                    <p className="font-medium">{currentMappingSheet.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {isSpanish ? 'Hoja' : 'Sheet'} {currentMappingSheetIndex + 1} / {mappableSheets.length}
+                    </p>
+                  </div>
                 </div>
+
+                {/* Translation Toggle */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowTranslations(!showTranslations)}
+                  className={cn(showTranslations && 'bg-primary/10')}
+                >
+                  <Languages className="h-4 w-4 mr-2" />
+                  {isSpanish ? 'Traducciones' : 'Translations'}
+                </Button>
               </div>
+
+              {/* Component Banner (if matched) */}
+              {currentMappingSheet.matchedComponent && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+                  <Database className="h-5 w-5 text-green-600" />
+                  <div>
+                    <p className="font-medium text-green-800">
+                      {isSpanish ? 'Componente Detectado' : 'Matched Component'}: {currentMappingSheet.matchedComponent}
+                    </p>
+                    <p className="text-xs text-green-700">
+                      {currentMappingSheet.matchedComponentConfidence}% {isSpanish ? 'confianza' : 'confidence'}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Data Preview with Navigation */}
               <Card>
@@ -834,13 +1191,13 @@ export default function DataPackageImportPage() {
                         <ChevronLeft className="h-4 w-4" />
                       </Button>
                       <span className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Fila' : 'Row'} {previewRowIndex + 1} / {currentSheetAnalysis.sampleRows.length}
+                        {isSpanish ? 'Fila' : 'Row'} {previewRowIndex + 1} / {currentMappingSheet.sampleRows.length}
                       </span>
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={previewRowIndex >= currentSheetAnalysis.sampleRows.length - 1}
-                        onClick={() => setPreviewRowIndex(i => Math.min(currentSheetAnalysis.sampleRows.length - 1, i + 1))}
+                        disabled={previewRowIndex >= currentMappingSheet.sampleRows.length - 1}
+                        onClick={() => setPreviewRowIndex(i => Math.min(currentMappingSheet.sampleRows.length - 1, i + 1))}
                       >
                         <ChevronRight className="h-4 w-4" />
                       </Button>
@@ -852,20 +1209,37 @@ export default function DataPackageImportPage() {
                     <table className="w-full text-sm">
                       <thead className="bg-muted">
                         <tr>
-                          {currentSheetAnalysis.headers.slice(0, 8).map(header => (
-                            <th key={header} className="px-3 py-2 text-left font-medium">
-                              {header}
-                            </th>
-                          ))}
+                          {currentMappingSheet.headers.slice(0, 8).map(header => {
+                            const translation = translateColumn(header);
+                            return (
+                              <th key={header} className="px-3 py-2 text-left font-medium">
+                                <div>
+                                  {header}
+                                  {showTranslations && translation && (
+                                    <span className="block text-xs text-muted-foreground font-normal">
+                                      {translation}
+                                    </span>
+                                  )}
+                                </div>
+                              </th>
+                            );
+                          })}
                         </tr>
                       </thead>
                       <tbody>
                         <tr className="border-t">
-                          {currentSheetAnalysis.headers.slice(0, 8).map(header => (
-                            <td key={header} className="px-3 py-2">
-                              {String(currentSheetAnalysis.sampleRows[previewRowIndex]?.[header] ?? '')}
-                            </td>
-                          ))}
+                          {currentMappingSheet.headers.slice(0, 8).map(header => {
+                            const value = currentMappingSheet.sampleRows[previewRowIndex]?.[header];
+                            // Format currency values
+                            const isAmountField = header.toLowerCase().includes('monto') ||
+                              header.toLowerCase().includes('venta') ||
+                              header.toLowerCase().includes('total');
+                            return (
+                              <td key={header} className="px-3 py-2">
+                                {isAmountField ? formatCurrency(value) : String(value ?? '')}
+                              </td>
+                            );
+                          })}
                         </tr>
                       </tbody>
                     </table>
@@ -875,53 +1249,123 @@ export default function DataPackageImportPage() {
 
               {/* Field Mappings */}
               <div className="space-y-3">
-                <h3 className="font-medium">
-                  {isSpanish ? 'Mapeo de Campos' : 'Field Mappings'}
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-medium">
+                    {isSpanish ? 'Mapeo de Campos' : 'Field Mappings'}
+                  </h3>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Star className="h-3 w-3 text-amber-500" />
+                    {isSpanish ? 'Requerido' : 'Required'}
+                  </div>
+                </div>
+
                 <div className="grid gap-3">
-                  {currentSheetMapping.mappings.map((mapping) => (
-                    <div
-                      key={mapping.sourceColumn}
-                      className="flex items-center gap-4 p-3 border rounded-lg"
-                    >
-                      <div className="flex-1">
-                        <p className="font-medium">{mapping.sourceColumn}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {isSpanish ? 'Columna origen' : 'Source column'}
-                        </p>
-                      </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                      <div className="flex-1">
-                        <select
-                          className="w-full p-2 border rounded-md text-sm"
-                          value={mapping.targetField || ''}
-                          onChange={(e) => updateFieldMapping(
-                            currentSheetMapping.sheetName,
-                            mapping.sourceColumn,
-                            e.target.value || null
-                          )}
-                        >
-                          <option value="">{isSpanish ? '— Ignorar —' : '— Ignore —'}</option>
-                          <option value="repId">Rep ID</option>
-                          <option value="repName">Rep Name</option>
-                          <option value="date">Date</option>
-                          <option value="amount">Amount</option>
-                          <option value="quantity">Quantity</option>
-                          <option value="productId">Product ID</option>
-                          <option value="storeId">Store ID</option>
-                          <option value="storeName">Store Name</option>
-                          <option value="region">Region</option>
-                          <option value="attainment">Attainment %</option>
-                          <option value="metric">Custom Metric</option>
-                        </select>
-                      </div>
-                      <Badge
-                        variant={mapping.confidence >= 80 ? 'default' : mapping.confidence >= 50 ? 'secondary' : 'outline'}
+                  {currentSheetMapping.mappings.map((mapping) => {
+                    const translation = translateColumn(mapping.sourceColumn);
+                    const targetField = targetFields.find(f => f.id === mapping.targetField);
+
+                    return (
+                      <div
+                        key={mapping.sourceColumn}
+                        className={cn(
+                          'flex items-center gap-4 p-3 border rounded-lg',
+                          mapping.confidence >= 70 && 'border-green-200 bg-green-50/50'
+                        )}
                       >
-                        {mapping.confidence}%
-                      </Badge>
-                    </div>
-                  ))}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium truncate">{mapping.sourceColumn}</p>
+                            {mapping.confidence >= 70 && (
+                              <Badge variant="outline" className="text-xs bg-green-100 text-green-700 border-green-300">
+                                AI {mapping.confidence}%
+                              </Badge>
+                            )}
+                          </div>
+                          {showTranslations && translation && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Languages className="h-3 w-3" />
+                              {translation}
+                            </p>
+                          )}
+                        </div>
+
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+
+                        <div className="flex-1">
+                          <select
+                            className={cn(
+                              'w-full p-2 border rounded-md text-sm',
+                              mapping.targetField && 'border-primary'
+                            )}
+                            value={mapping.targetField || ''}
+                            onChange={(e) => updateFieldMapping(
+                              currentSheetMapping.sheetName,
+                              mapping.sourceColumn,
+                              e.target.value || null
+                            )}
+                          >
+                            <option value="">{isSpanish ? '— Ignorar —' : '— Ignore —'}</option>
+
+                            {/* Required Fields Group */}
+                            <optgroup label={isSpanish ? 'Campos Requeridos' : 'Required Fields'}>
+                              {targetFields.filter(f => f.isRequired).map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label} *
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            {/* Optional Fields Group */}
+                            <optgroup label={isSpanish ? 'Campos Opcionales' : 'Optional Fields'}>
+                              {targetFields.filter(f => !f.isRequired).map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
+                                  {field.componentName && ` (${field.componentName})`}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            {/* Custom Fields Group */}
+                            {customFields.length > 0 && (
+                              <optgroup label={isSpanish ? 'Campos Personalizados' : 'Custom Fields'}>
+                                {customFields.map(field => (
+                                  <option key={`custom_${field}`} value={`custom_${field}`}>
+                                    {field}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                        </div>
+
+                        {/* Required indicator */}
+                        {targetField?.isRequired && (
+                          <Star className="h-4 w-4 text-amber-500" />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Add Custom Field */}
+                <div className="flex items-center gap-2 pt-4 border-t">
+                  <input
+                    type="text"
+                    value={newCustomField}
+                    onChange={(e) => setNewCustomField(e.target.value)}
+                    placeholder={isSpanish ? 'Nuevo campo personalizado...' : 'New custom field...'}
+                    className="flex-1 p-2 border rounded-md text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addCustomField();
+                      }
+                    }}
+                  />
+                  <Button variant="outline" size="sm" onClick={addCustomField}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    {isSpanish ? 'Agregar' : 'Add'}
+                  </Button>
                 </div>
               </div>
             </div>
@@ -942,6 +1386,35 @@ export default function DataPackageImportPage() {
                 </p>
               </div>
 
+              {/* Mapping Summary */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {isSpanish ? 'Resumen de Mapeo' : 'Mapping Summary'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {fieldMappings.map((sheet) => {
+                      const mappedCount = sheet.mappings.filter(m => m.targetField).length;
+                      return (
+                        <div key={sheet.sheetName} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div>
+                            <p className="font-medium">{sheet.sheetName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {mappedCount} / {sheet.mappings.length} {isSpanish ? 'campos mapeados' : 'fields mapped'}
+                            </p>
+                          </div>
+                          <Badge variant={sheet.isComplete ? 'default' : 'secondary'}>
+                            {sheet.isComplete ? (isSpanish ? 'Completo' : 'Complete') : (isSpanish ? 'Incompleto' : 'Incomplete')}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Calculation Preview Placeholder */}
               <Card>
                 <CardHeader>
@@ -953,8 +1426,8 @@ export default function DataPackageImportPage() {
                 <CardContent>
                   <p className="text-muted-foreground text-sm">
                     {isSpanish
-                      ? 'Vista previa de cálculo de comisiones estará disponible próximamente'
-                      : 'Commission calculation preview coming soon'}
+                      ? 'Vista previa de cálculo de comisiones estará disponible en la siguiente fase'
+                      : 'Commission calculation preview will be available in Phase 2'}
                   </p>
                 </CardContent>
               </Card>
@@ -1016,13 +1489,17 @@ export default function DataPackageImportPage() {
           disabled={currentStep === 'upload' || currentStep === 'approve'}
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          {isSpanish ? 'Anterior' : 'Back'}
+          {currentStep === 'map' && currentMappingSheetIndex > 0
+            ? (isSpanish ? 'Hoja Anterior' : 'Previous Sheet')
+            : (isSpanish ? 'Anterior' : 'Back')}
         </Button>
 
         {currentStep !== 'approve' && currentStep !== 'upload' && (
           <Button onClick={goNext} disabled={!canProceed() || isProcessing}>
             {isProcessing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {isSpanish ? 'Siguiente' : 'Next'}
+            {currentStep === 'map' && currentMappingSheetIndex < mappableSheets.length - 1
+              ? (isSpanish ? 'Siguiente Hoja' : 'Next Sheet')
+              : (isSpanish ? 'Siguiente' : 'Next')}
             {!isProcessing && <ArrowRight className="h-4 w-4 ml-2" />}
           </Button>
         )}
