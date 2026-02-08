@@ -27,7 +27,13 @@
       "Bash(grep:*)",
       "Bash(git pull:*)",
       "Bash(pkill:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(while read f)",
+      "Bash(do if grep -q \"isCCAdmin\" \"$f\")",
+      "Bash(then echo \"HAS OVERRIDE: $f\" else echo \"MISSING OVERRIDE: $f\" fi done)",
+      "Bash(test:*)",
+      "Bash(npx tsx:*)",
+      "Bash(xargs kill:*)"
     ]
   }
 }

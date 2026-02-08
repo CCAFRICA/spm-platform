@@ -349,6 +349,96 @@ function translateColumn(column: string): string | null {
   return COLUMN_TRANSLATIONS[normalized] || null;
 }
 
+// Helper: Map AI-suggested field names to dropdown option IDs
+const FIELD_ID_MAPPINGS: Record<string, string> = {
+  // Employee identifiers
+  'employee_id': 'employeeId',
+  'employeeid': 'employeeId',
+  'emp_id': 'employeeId',
+  'empid': 'employeeId',
+  'num_empleado': 'employeeId',
+  'numero_empleado': 'employeeId',
+  'id_empleado': 'employeeId',
+  'rep_id': 'employeeId',
+  'repid': 'employeeId',
+  'sales_rep_id': 'employeeId',
+  // Store identifiers
+  'store_id': 'storeId',
+  'storeid': 'storeId',
+  'no_tienda': 'storeId',
+  'id_tienda': 'storeId',
+  'tienda': 'storeId',
+  'location_id': 'storeId',
+  // Date fields
+  'date': 'date',
+  'fecha': 'date',
+  'transaction_date': 'date',
+  'fecha_corte': 'date',
+  'fecha_transaccion': 'date',
+  'order_date': 'date',
+  // Period fields
+  'period': 'period',
+  'periodo': 'period',
+  'mes': 'period',
+  'month': 'period',
+  'ano': 'period',
+  'year': 'period',
+  // Amount fields
+  'amount': 'amount',
+  'monto': 'amount',
+  'total': 'amount',
+  'value': 'amount',
+  'venta': 'amount',
+  'revenue': 'amount',
+  // Attainment fields
+  'attainment': 'attainment',
+  'cumplimiento': 'attainment',
+  'porcentaje': 'attainment',
+  'percentage': 'attainment',
+  'pct_cumplimiento': 'attainment',
+  // Goal/target fields
+  'goal': 'goal',
+  'meta': 'goal',
+  'target': 'goal',
+  'quota': 'goal',
+  'cuota': 'goal',
+  // Quantity fields
+  'quantity': 'quantity',
+  'cantidad': 'quantity',
+  'count': 'quantity',
+  'units': 'quantity',
+};
+
+function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields: TargetField[]): string | null {
+  if (!suggestion) return null;
+
+  const normalized = suggestion.toLowerCase().replace(/[\s_-]+/g, '_').trim();
+
+  // First try direct mapping
+  const directMatch = FIELD_ID_MAPPINGS[normalized];
+  if (directMatch && targetFields.some(f => f.id === directMatch)) {
+    return directMatch;
+  }
+
+  // Try matching against targetFields directly
+  for (const field of targetFields) {
+    const fieldNorm = field.id.toLowerCase();
+    const labelNorm = field.label.toLowerCase().replace(/[\s_-]+/g, '_');
+    const labelEsNorm = field.labelEs?.toLowerCase().replace(/[\s_-]+/g, '_');
+
+    if (normalized === fieldNorm || normalized === labelNorm || normalized === labelEsNorm) {
+      return field.id;
+    }
+
+    // Partial match - suggestion contains field ID or vice versa
+    if (normalized.includes(fieldNorm) || fieldNorm.includes(normalized)) {
+      return field.id;
+    }
+  }
+
+  return null;
+}
+
 // Helper: Extract target fields from plan components
 function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): TargetField[] {
   const baseFields: TargetField[] = [
@@ -632,18 +722,26 @@ export default function DataPackageImportPage() {
                 m => m.sourceColumn === header
               );
               const confidence = suggestion?.confidence || 0;
-              // Auto-select if confidence >= 90% (high confidence only)
-              const autoSelected = confidence >= 90;
+              // Auto-confirm if confidence >= 90% (high confidence)
+              // Pre-populate dropdown if confidence >= 70% (suggested)
+              const autoConfirmed = confidence >= 90;
+              const showSuggestion = confidence >= 70;
 
-              // Check if this is a required field
-              const targetField = autoSelected ? suggestion?.targetField : null;
-              const isRequired = targetFields.find(f => f.id === targetField)?.isRequired || false;
+              // Normalize AI suggestion to a valid dropdown option ID
+              const normalizedTargetField = normalizeAISuggestionToFieldId(
+                suggestion?.targetField || null,
+                targetFields
+              );
+
+              // Use normalized field if confidence is high enough to show suggestion
+              const effectiveTargetField = showSuggestion ? normalizedTargetField : null;
+              const isRequired = targetFields.find(f => f.id === effectiveTargetField)?.isRequired || false;
 
               return {
                 sourceColumn: header,
-                targetField: autoSelected ? (suggestion?.targetField || null) : null,
+                targetField: effectiveTargetField,
                 confidence,
-                confirmed: autoSelected,
+                confirmed: autoConfirmed && !!effectiveTargetField,
                 isRequired,
               };
             });
@@ -2508,7 +2606,7 @@ export default function DataPackageImportPage() {
                   <div className="grid gap-4 md:grid-cols-2">
                     {/* Run Calculations */}
                     <a
-                      href="/performance/calculations"
+                      href="/operate/calculate"
                       className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
                     >
                       <div className="p-3 bg-primary/10 rounded-lg">
