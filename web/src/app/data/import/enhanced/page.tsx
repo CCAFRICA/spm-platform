@@ -71,11 +71,11 @@ import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 
 // Step definitions
-type Step = 'upload' | 'analyze' | 'map' | 'validate' | 'approve';
+type Step = 'upload' | 'analyze' | 'map' | 'validate' | 'approve' | 'complete';
 
 const STEPS: Step[] = ['upload', 'analyze', 'map', 'validate', 'approve'];
 
-const STEP_CONFIG = {
+const STEP_CONFIG: Record<Step, { icon: typeof Upload; title: { en: string; es: string }; description: { en: string; es: string } }> = {
   upload: {
     icon: Upload,
     title: { en: 'Upload Package', es: 'Cargar Paquete' },
@@ -100,6 +100,11 @@ const STEP_CONFIG = {
     icon: ClipboardCheck,
     title: { en: 'Approve Import', es: 'Aprobar Importación' },
     description: { en: 'Confirm and submit', es: 'Confirmar y enviar' },
+  },
+  complete: {
+    icon: CheckCircle,
+    title: { en: 'Complete', es: 'Completado' },
+    description: { en: 'Import successful', es: 'Importación exitosa' },
   },
 };
 
@@ -490,6 +495,12 @@ export default function DataPackageImportPage() {
   const [validationComplete, setValidationComplete] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isValidating, setIsValidating] = useState(false);
+
+  // Import state
+  const [isImporting, setIsImporting] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_importComplete, setImportComplete] = useState(false);
+  const [importId, setImportId] = useState<string | null>(null);
 
   const tenantId = currentTenant?.id || 'retailcgmx';
   const currency = currentTenant?.currency || 'MXN';
@@ -1035,6 +1046,21 @@ export default function DataPackageImportPage() {
       setValidationComplete(true);
     }, 1500);
   }, [analysis, fieldMappings, isSpanish, activePlan, currency]);
+
+  // Submit import handler
+  const handleSubmitImport = useCallback(() => {
+    setIsImporting(true);
+
+    // Simulate import processing
+    setTimeout(() => {
+      // Generate a mock import ID
+      const id = `IMP-${Date.now().toString(36).toUpperCase()}`;
+      setImportId(id);
+      setIsImporting(false);
+      setImportComplete(true);
+      setCurrentStep('complete');
+    }, 2000);
+  }, []);
 
   // Navigation helpers
   const goToNextSheet = useCallback(() => {
@@ -2336,39 +2362,249 @@ export default function DataPackageImportPage() {
                 <Button variant="outline" size="lg" onClick={() => setCurrentStep('analyze')}>
                   {isSpanish ? 'Revisar Análisis' : 'Review Analysis'}
                 </Button>
-                <Button size="lg" className="px-8">
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  {isSpanish ? 'Aprobar e Importar' : 'Approve & Import'}
+                <Button
+                  size="lg"
+                  className="px-8"
+                  onClick={handleSubmitImport}
+                  disabled={isImporting}
+                >
+                  {isImporting ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                  )}
+                  {isImporting
+                    ? (isSpanish ? 'Importando...' : 'Importing...')
+                    : (isSpanish ? 'Aprobar e Importar' : 'Approve & Import')}
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Complete Step - Phase 4 */}
+          {currentStep === 'complete' && (
+            <div className="space-y-8">
+              {/* Success Banner */}
+              <div className="p-8 bg-gradient-to-r from-green-50 to-green-100 border border-green-200 rounded-lg text-center">
+                <div className="w-20 h-20 mx-auto bg-green-500 rounded-full flex items-center justify-center mb-4">
+                  <CheckCircle className="h-12 w-12 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold text-green-800 mb-2">
+                  {isSpanish ? '¡Importación Completada!' : 'Import Complete!'}
+                </h2>
+                <p className="text-green-700 mb-4">
+                  {isSpanish
+                    ? 'Los datos han sido importados exitosamente al sistema.'
+                    : 'Data has been successfully imported into the system.'}
+                </p>
+                <Badge variant="outline" className="text-green-700 border-green-400 text-lg px-4 py-1">
+                  {isSpanish ? 'ID de Importación' : 'Import ID'}: {importId}
+                </Badge>
+              </div>
+
+              {/* Import Summary */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4" />
+                    {isSpanish ? 'Resumen de Importación' : 'Import Summary'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                      <p className="text-2xl font-bold text-green-600">{analysis?.sheets.length || 0}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {isSpanish ? 'Hojas Procesadas' : 'Sheets Processed'}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                      <p className="text-2xl font-bold text-green-600">
+                        {analysis?.sheets.reduce((sum, s) => sum + s.rowCount, 0).toLocaleString() || 0}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {isSpanish ? 'Registros Importados' : 'Records Imported'}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                      <p className="text-2xl font-bold text-green-600">
+                        {validationResult?.overallScore || analysisConfidence}%
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {isSpanish ? 'Calidad de Datos' : 'Data Quality'}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                      <p className="text-2xl font-bold text-green-600">
+                        {new Date().toLocaleDateString()}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {isSpanish ? 'Fecha de Importación' : 'Import Date'}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* What's Next Section */}
+              <Card className="border-primary/30 bg-primary/5">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    {isSpanish ? '¿Qué Sigue?' : "What's Next?"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {/* Run Calculations */}
+                    <a
+                      href="/performance/calculations"
+                      className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                    >
+                      <div className="p-3 bg-primary/10 rounded-lg">
+                        <Calculator className="h-6 w-6 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold mb-1">
+                          {isSpanish ? 'Ejecutar Cálculos' : 'Run Calculations'}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {isSpanish
+                            ? 'Procesar los datos importados con el plan de compensación activo para generar resultados de incentivos.'
+                            : 'Process imported data with the active compensation plan to generate incentive results.'}
+                        </p>
+                        <Button variant="link" className="p-0 h-auto mt-2 text-primary">
+                          {isSpanish ? 'Ir a Cálculos →' : 'Go to Calculations →'}
+                        </Button>
+                      </div>
+                    </a>
+
+                    {/* Review Data Quality */}
+                    <a
+                      href="/data/quality"
+                      className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                    >
+                      <div className="p-3 bg-primary/10 rounded-lg">
+                        <BarChart3 className="h-6 w-6 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold mb-1">
+                          {isSpanish ? 'Revisar Calidad de Datos' : 'Review Data Quality'}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {isSpanish
+                            ? 'Ver el análisis detallado de calidad de datos y resolver cualquier problema pendiente.'
+                            : 'View detailed data quality analysis and resolve any outstanding issues.'}
+                        </p>
+                        <Button variant="link" className="p-0 h-auto mt-2 text-primary">
+                          {isSpanish ? 'Ver Calidad →' : 'View Quality →'}
+                        </Button>
+                      </div>
+                    </a>
+
+                    {/* View Transactions */}
+                    <a
+                      href="/transactions"
+                      className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                    >
+                      <div className="p-3 bg-primary/10 rounded-lg">
+                        <Database className="h-6 w-6 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold mb-1">
+                          {isSpanish ? 'Ver Transacciones' : 'View Transactions'}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {isSpanish
+                            ? 'Explorar los registros importados y verificar que los datos se cargaron correctamente.'
+                            : 'Explore imported records and verify that data was loaded correctly.'}
+                        </p>
+                        <Button variant="link" className="p-0 h-auto mt-2 text-primary">
+                          {isSpanish ? 'Ver Transacciones →' : 'View Transactions →'}
+                        </Button>
+                      </div>
+                    </a>
+
+                    {/* Import More Data */}
+                    <button
+                      onClick={() => {
+                        // Reset all state for new import
+                        setCurrentStep('upload');
+                        setSelectedFile(null);
+                        setAnalysis(null);
+                        setFieldMappings([]);
+                        setValidationResult(null);
+                        setValidationComplete(false);
+                        setImportComplete(false);
+                        setImportId(null);
+                      }}
+                      className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4 text-left"
+                    >
+                      <div className="p-3 bg-primary/10 rounded-lg">
+                        <Upload className="h-6 w-6 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold mb-1">
+                          {isSpanish ? 'Importar Más Datos' : 'Import More Data'}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {isSpanish
+                            ? 'Iniciar una nueva importación de datos para agregar más información al sistema.'
+                            : 'Start a new data import to add more information to the system.'}
+                        </p>
+                        <Button variant="link" className="p-0 h-auto mt-2 text-primary">
+                          {isSpanish ? 'Nueva Importación →' : 'New Import →'}
+                        </Button>
+                      </div>
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Approval Status Notice */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-3">
+                <Info className="h-5 w-5 text-blue-600 mt-0.5" />
+                <div>
+                  <p className="font-medium text-blue-800">
+                    {isSpanish ? 'Estado de Aprobación' : 'Approval Status'}
+                  </p>
+                  <p className="text-sm text-blue-700">
+                    {isSpanish
+                      ? 'Los cálculos generados a partir de esta importación requerirán aprobación antes de ser finalizados. Se le notificará cuando los resultados estén listos para revisión.'
+                      : 'Calculations generated from this import will require approval before being finalized. You will be notified when results are ready for review.'}
+                  </p>
+                </div>
               </div>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Navigation */}
-      <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          onClick={goBack}
-          disabled={currentStep === 'upload' || currentStep === 'approve'}
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          {currentStep === 'map' && currentMappingSheetIndex > 0
-            ? (isSpanish ? 'Hoja Anterior' : 'Previous Sheet')
-            : (isSpanish ? 'Anterior' : 'Back')}
-        </Button>
-
-        {currentStep !== 'approve' && currentStep !== 'upload' && (
-          <Button onClick={goNext} disabled={!canProceed() || isProcessing}>
-            {isProcessing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {currentStep === 'map' && currentMappingSheetIndex < mappableSheets.length - 1
-              ? (isSpanish ? 'Siguiente Hoja' : 'Next Sheet')
-              : (isSpanish ? 'Siguiente' : 'Next')}
-            {!isProcessing && <ArrowRight className="h-4 w-4 ml-2" />}
+      {/* Navigation - hide on complete step */}
+      {currentStep !== 'complete' && (
+        <div className="flex items-center justify-between">
+          <Button
+            variant="outline"
+            onClick={goBack}
+            disabled={currentStep === 'upload' || currentStep === 'approve'}
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            {currentStep === 'map' && currentMappingSheetIndex > 0
+              ? (isSpanish ? 'Hoja Anterior' : 'Previous Sheet')
+              : (isSpanish ? 'Anterior' : 'Back')}
           </Button>
-        )}
-      </div>
+
+          {currentStep !== 'approve' && currentStep !== 'upload' && (
+            <Button onClick={goNext} disabled={!canProceed() || isProcessing}>
+              {isProcessing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {currentStep === 'map' && currentMappingSheetIndex < mappableSheets.length - 1
+                ? (isSpanish ? 'Siguiente Hoja' : 'Next Sheet')
+                : (isSpanish ? 'Siguiente' : 'Next')}
+              {!isProcessing && <ArrowRight className="h-4 w-4 ml-2" />}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
