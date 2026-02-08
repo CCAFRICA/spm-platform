@@ -7,10 +7,12 @@
  * Create and modify compensation plans, run scenarios, manage budgets.
  */
 
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isCCAdmin } from '@/types/auth';
+import { getPlans, getPlanChanges } from '@/lib/compensation/plan-storage';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,11 +25,65 @@ import {
   Wallet,
   ArrowRight,
   Clock,
+  Inbox,
 } from 'lucide-react';
 
 export default function DesignPage() {
   const router = useRouter();
   const { currentTenant } = useTenant();
+  const [activePlanCount, setActivePlanCount] = useState(0);
+  const [recentActivity, setRecentActivity] = useState<Array<{
+    action: string;
+    plan: string;
+    time: string;
+    user: string;
+  }>>([]);
+
+  // Load real plan data
+  useEffect(() => {
+    if (!currentTenant?.id) return;
+
+    // Helper to format time ago (inline to avoid dependency issues)
+    function formatTimeAgo(date: Date): string {
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 60) return `${diffMins} minutes ago`;
+      if (diffHours < 24) return `${diffHours} hours ago`;
+      if (diffDays === 1) return '1 day ago';
+      return `${diffDays} days ago`;
+    }
+
+    const plans = getPlans(currentTenant.id);
+    const activeCount = plans.filter(p => p.status === 'active').length;
+    setActivePlanCount(activeCount);
+
+    // Get recent changes for this tenant's plans
+    const planIds = plans.map(p => p.id);
+    const allChanges = planIds.flatMap(id => getPlanChanges(id));
+    const sortedChanges = allChanges
+      .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime())
+      .slice(0, 5);
+
+    const activity = sortedChanges.map(change => {
+      const plan = plans.find(p => p.id === change.planId);
+      const timeAgo = formatTimeAgo(new Date(change.changedAt));
+      return {
+        action: change.changeType === 'status_changed' ? 'Status changed' :
+                change.changeType === 'modified' ? 'Plan modified' :
+                change.changeType === 'approved' ? 'Plan approved' :
+                'Plan updated',
+        plan: plan?.name || 'Unknown Plan',
+        time: timeAgo,
+        user: change.changedBy || 'System',
+      };
+    });
+
+    setRecentActivity(activity);
+  }, [currentTenant?.id]);
   const { user } = useAuth();
 
   const userIsCCAdmin = user && isCCAdmin(user);
@@ -42,7 +98,7 @@ export default function DesignPage() {
         : 'View and edit existing compensation plans',
       route: '/design/plans',
       color: 'purple',
-      badge: '12 Active',
+      badge: activePlanCount > 0 ? `${activePlanCount} ${isSpanish ? 'Activos' : 'Active'}` : undefined,
     },
     {
       icon: PlusCircle,
@@ -88,28 +144,6 @@ export default function DesignPage() {
         : 'Manage compensation budgets',
       route: '/design/budget',
       color: 'slate',
-    },
-  ];
-
-  // Mock recent activity
-  const recentActivity = [
-    {
-      action: isSpanish ? 'Plan actualizado' : 'Plan updated',
-      plan: 'Enterprise Sales Q1 2024',
-      time: '2 hours ago',
-      user: 'Admin User',
-    },
-    {
-      action: isSpanish ? 'Nuevo SPIF creado' : 'New SPIF created',
-      plan: 'March Accelerator',
-      time: '5 hours ago',
-      user: 'Admin User',
-    },
-    {
-      action: isSpanish ? 'Cuotas ajustadas' : 'Quotas adjusted',
-      plan: 'SMB Team Goals',
-      time: '1 day ago',
-      user: 'Manager',
     },
   ];
 
@@ -178,23 +212,37 @@ export default function DesignPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {recentActivity.map((activity, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
-              >
-                <div>
-                  <p className="font-medium text-slate-900">{activity.action}</p>
-                  <p className="text-sm text-slate-500">{activity.plan}</p>
+          {recentActivity.length > 0 ? (
+            <div className="space-y-4">
+              {recentActivity.map((activity, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
+                >
+                  <div>
+                    <p className="font-medium text-slate-900">{activity.action}</p>
+                    <p className="text-sm text-slate-500">{activity.plan}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-slate-500">{activity.time}</p>
+                    <p className="text-xs text-slate-400">{activity.user}</p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm text-slate-500">{activity.time}</p>
-                  <p className="text-xs text-slate-400">{activity.user}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Inbox className="h-8 w-8 text-slate-300 mb-2" />
+              <p className="text-sm text-slate-500">
+                {isSpanish ? 'Sin actividad reciente' : 'No recent activity'}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {isSpanish
+                  ? 'Los cambios a los planes apareceran aqui'
+                  : 'Plan changes will appear here'}
+              </p>
+            </div>
+          )}
           <Button
             variant="outline"
             className="w-full mt-4"

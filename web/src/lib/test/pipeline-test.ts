@@ -11,6 +11,7 @@
 // Mock localStorage for Node.js
 const localStorageData: Record<string, string> = {};
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 (global as any).localStorage = {
   getItem: (key: string) => localStorageData[key] || null,
   setItem: (key: string, value: string) => { localStorageData[key] = value; },
@@ -77,7 +78,7 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeData[] {
 
     console.log(`[Test] Found ${committed.length} total committed records`);
 
-    for (const [recordId, record] of committed) {
+    for (const [, record] of committed) {
       if (!tenantBatchIds.includes(record.importBatchId) || record.status !== 'active') {
         continue;
       }
