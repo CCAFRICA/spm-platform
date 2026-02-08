@@ -6,7 +6,7 @@
  * PHASE 1:
  * - Sheet-by-sheet navigation (Next advances to next sheet, not Validate)
  * - Plan-derived target fields from tenant's compensation plan
- * - AI pre-selection of mappings (>70% confidence auto-selected)
+ * - AI pre-selection of mappings (>=90% confidence auto-selected, 70-89% shown as suggested)
  * - Column header translation (Spanish ↔ English)
  * - Sheet-to-component banner showing matched component
  * - Required vs optional field indicators
@@ -65,6 +65,7 @@ import * as XLSX from 'xlsx';
 import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 import { cn } from '@/lib/utils';
 import { getPlans } from '@/lib/compensation/plan-storage';
 import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation-plan';
@@ -464,8 +465,9 @@ function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): Targe
 export default function DataPackageImportPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
-  useAuth(); // For authentication check
-  const isSpanish = locale === 'es-MX';
+  const { user } = useAuth(); // For authentication check
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
 
   const [currentStep, setCurrentStep] = useState<Step>('upload');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -630,8 +632,8 @@ export default function DataPackageImportPage() {
                 m => m.sourceColumn === header
               );
               const confidence = suggestion?.confidence || 0;
-              // Auto-select if confidence >= 70%
-              const autoSelected = confidence >= 70;
+              // Auto-select if confidence >= 90% (high confidence only)
+              const autoSelected = confidence >= 90;
 
               // Check if this is a required field
               const targetField = autoSelected ? suggestion?.targetField : null;
@@ -1679,15 +1681,21 @@ export default function DataPackageImportPage() {
                         key={mapping.sourceColumn}
                         className={cn(
                           'flex items-center gap-4 p-3 border rounded-lg',
-                          mapping.confidence >= 70 && 'border-green-200 bg-green-50/50'
+                          mapping.confidence >= 90 && 'border-green-200 bg-green-50/50',
+                          mapping.confidence >= 70 && mapping.confidence < 90 && 'border-amber-200 bg-amber-50/30'
                         )}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="font-medium truncate">{mapping.sourceColumn}</p>
-                            {mapping.confidence >= 70 && (
+                            {mapping.confidence >= 90 && (
                               <Badge variant="outline" className="text-xs bg-green-100 text-green-700 border-green-300">
                                 AI {mapping.confidence}%
+                              </Badge>
+                            )}
+                            {mapping.confidence >= 70 && mapping.confidence < 90 && (
+                              <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300">
+                                {isSpanish ? 'Sugerido' : 'Suggested'} {mapping.confidence}%
                               </Badge>
                             )}
                           </div>
@@ -2212,6 +2220,48 @@ export default function DataPackageImportPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Validation Warnings Summary */}
+              {validationResult && validationResult.sheetScores.some(s => s.issues.length > 0) && (
+                <Card className="border-amber-200 bg-amber-50/50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2 text-amber-800">
+                      <AlertTriangle className="h-4 w-4" />
+                      {isSpanish ? 'Advertencias de Validación' : 'Validation Warnings'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {validationResult.sheetScores.flatMap(score =>
+                        score.issues.map((issue, idx) => (
+                          <div
+                            key={`${score.sheetName}-${idx}`}
+                            className={cn(
+                              'text-sm p-2 rounded flex items-start gap-2',
+                              issue.severity === 'error' ? 'bg-red-100 text-red-800' :
+                              issue.severity === 'warning' ? 'bg-amber-100 text-amber-800' :
+                              'bg-blue-100 text-blue-800'
+                            )}
+                          >
+                            {issue.severity === 'error' ? <XCircle className="h-4 w-4 mt-0.5" /> :
+                             issue.severity === 'warning' ? <AlertTriangle className="h-4 w-4 mt-0.5" /> :
+                             <Info className="h-4 w-4 mt-0.5" />}
+                            <div>
+                              <span className="font-medium">{score.sheetName}:</span>{' '}
+                              {issue.description}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <p className="text-xs text-amber-700 mt-3">
+                      {isSpanish
+                        ? 'Estas advertencias no bloquean la importación, pero se recomienda revisar antes de aprobar.'
+                        : 'These warnings do not block import, but review is recommended before approval.'}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Package Awareness - Complete Overview */}
               <Card>

@@ -24,6 +24,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 
 interface DailyJob {
   id: string;
@@ -43,7 +45,9 @@ const initialJobs: DailyJob[] = [];
 
 export default function DailyOperationsPage() {
   const { currentTenant } = useTenant();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { user } = useAuth();
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   const [jobs, setJobs] = useState<DailyJob[]>(initialJobs);
 

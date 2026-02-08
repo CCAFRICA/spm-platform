@@ -18,6 +18,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 
 interface AlertRule {
   id: string;
@@ -57,8 +59,10 @@ const metricLabels: Record<string, Record<string, string>> = {
 
 export default function AlertsPage() {
   const { currentTenant } = useTenant();
+  const { user } = useAuth();
   const { format } = useCurrency();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
   const lang = isSpanish ? 'es' : 'en';
 
   const [alerts, setAlerts] = useState<AlertRule[]>([

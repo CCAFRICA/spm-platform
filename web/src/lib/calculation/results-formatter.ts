@@ -58,22 +58,51 @@ export interface ReconciliationFormat {
   };
 }
 
+/**
+ * Legacy 30-Column Export Format
+ *
+ * Compatible with existing payroll and ERP systems.
+ * Columns 1-12: Employee/period metadata
+ * Columns 13-27: Component metrics (actual/target/attainment/bonus)
+ * Columns 28-30: Totals and audit fields
+ */
 export interface LegacyExportFormat {
+  // Columns 1-12: Employee/Period metadata
   EMP_ID: string;
   EMP_NAME: string;
+  EMP_ROLE: string;
+  DEPT_ID: string;
+  DEPT_NAME: string;
   STORE_ID: string;
   STORE_NAME: string;
+  MANAGER_ID: string;
+  HIRE_DATE: string;
   PERIOD: string;
   PLAN_NAME: string;
+  VARIANT_NAME: string;
+  // Columns 13-16: Optical Sales
+  OPTICAL_ACTUAL: number;
+  OPTICAL_TARGET: number;
+  OPTICAL_ATTAINMENT: number;
   OPTICAL_BONUS: number;
+  // Columns 17-20: Store Performance
+  STORE_ACTUAL: number;
+  STORE_TARGET: number;
+  STORE_ATTAINMENT: number;
   STORE_BONUS: number;
+  // Columns 21-23: Customer acquisition (no target)
+  CUSTOMER_ACTUAL: number;
+  CUSTOMER_TARGET: number;
   CUSTOMER_BONUS: number;
+  // Columns 24-26: Other components
   COLLECTION_BONUS: number;
   INSURANCE_BONUS: number;
   SERVICES_BONUS: number;
+  // Columns 27-30: Totals and audit
   TOTAL_INCENTIVE: number;
   CURRENCY: string;
   CALC_DATE: string;
+  CALC_VERSION: string;
 }
 
 export interface ExportOptions {
@@ -206,57 +235,86 @@ export function formatForReconciliation(result: CalculationResult): Reconciliati
 }
 
 /**
- * Format result for legacy system export
+ * Format result for legacy system export (30-column format)
  */
 export function formatForLegacyExport(result: CalculationResult): LegacyExportFormat {
-  // Map component names to legacy column names
-  const componentMap: Record<string, keyof LegacyExportFormat> = {
-    'comp-optical': 'OPTICAL_BONUS',
-    'optical': 'OPTICAL_BONUS',
-    'Optical Sales': 'OPTICAL_BONUS',
-    'comp-store': 'STORE_BONUS',
-    'store': 'STORE_BONUS',
-    'Store Performance': 'STORE_BONUS',
-    'comp-customers': 'CUSTOMER_BONUS',
-    'customers': 'CUSTOMER_BONUS',
-    'New Customers': 'CUSTOMER_BONUS',
-    'comp-collections': 'COLLECTION_BONUS',
-    'collections': 'COLLECTION_BONUS',
-    'Collections': 'COLLECTION_BONUS',
-    'comp-insurance': 'INSURANCE_BONUS',
-    'insurance': 'INSURANCE_BONUS',
-    'Insurance Sales': 'INSURANCE_BONUS',
-    'comp-services': 'SERVICES_BONUS',
-    'services': 'SERVICES_BONUS',
-    'Additional Services': 'SERVICES_BONUS',
-  };
+  // Component type identification patterns
+  const opticalPatterns = ['comp-optical', 'optical', 'Optical Sales', 'Venta Óptica'];
+  const storePatterns = ['comp-store', 'store', 'Store Performance', 'Tienda'];
+  const customerPatterns = ['comp-customers', 'customers', 'New Customers', 'Clientes Nuevos'];
+  const collectionPatterns = ['comp-collections', 'collections', 'Collections', 'Cobranza'];
+  const insurancePatterns = ['comp-insurance', 'insurance', 'Insurance Sales', 'Seguros'];
+  const servicesPatterns = ['comp-services', 'services', 'Additional Services', 'Servicios'];
+
+  const matchesComponent = (component: { componentId: string; componentName: string }, patterns: string[]) =>
+    patterns.some(p =>
+      component.componentId.toLowerCase().includes(p.toLowerCase()) ||
+      component.componentName.toLowerCase().includes(p.toLowerCase())
+    );
 
   const legacyResult: LegacyExportFormat = {
+    // Columns 1-12: Employee/Period metadata
     EMP_ID: result.employeeId,
     EMP_NAME: result.employeeName,
+    EMP_ROLE: result.employeeRole || '',
+    DEPT_ID: result.departmentId || '',
+    DEPT_NAME: result.departmentName || '',
     STORE_ID: result.storeId || '',
     STORE_NAME: result.storeName || '',
+    MANAGER_ID: result.managerId || '',
+    HIRE_DATE: result.hireDate || '',
     PERIOD: result.period,
     PLAN_NAME: result.planName,
+    VARIANT_NAME: result.variantName || 'Standard',
+    // Columns 13-16: Optical Sales
+    OPTICAL_ACTUAL: 0,
+    OPTICAL_TARGET: 0,
+    OPTICAL_ATTAINMENT: 0,
     OPTICAL_BONUS: 0,
+    // Columns 17-20: Store Performance
+    STORE_ACTUAL: 0,
+    STORE_TARGET: 0,
+    STORE_ATTAINMENT: 0,
     STORE_BONUS: 0,
+    // Columns 21-23: Customer acquisition
+    CUSTOMER_ACTUAL: 0,
+    CUSTOMER_TARGET: 0,
     CUSTOMER_BONUS: 0,
+    // Columns 24-26: Other components
     COLLECTION_BONUS: 0,
     INSURANCE_BONUS: 0,
     SERVICES_BONUS: 0,
+    // Columns 27-30: Totals and audit
     TOTAL_INCENTIVE: result.totalIncentive,
     CURRENCY: result.currency,
     CALC_DATE: result.calculatedAt,
+    CALC_VERSION: `v${result.planVersion || 1}`,
   };
 
-  // Map components to legacy columns
+  // Map components to legacy columns with full detail
   for (const component of result.components) {
-    const legacyKey =
-      componentMap[component.componentId] ||
-      componentMap[component.componentName];
+    const inputs = component.inputs || {};
 
-    if (legacyKey && legacyKey in legacyResult) {
-      (legacyResult[legacyKey] as number) = component.outputValue;
+    if (matchesComponent(component, opticalPatterns)) {
+      legacyResult.OPTICAL_ACTUAL = inputs.actual || 0;
+      legacyResult.OPTICAL_TARGET = inputs.target || 0;
+      legacyResult.OPTICAL_ATTAINMENT = inputs.attainment ? inputs.attainment * 100 : 0;
+      legacyResult.OPTICAL_BONUS = component.outputValue;
+    } else if (matchesComponent(component, storePatterns)) {
+      legacyResult.STORE_ACTUAL = inputs.actual || 0;
+      legacyResult.STORE_TARGET = inputs.target || 0;
+      legacyResult.STORE_ATTAINMENT = inputs.attainment ? inputs.attainment * 100 : 0;
+      legacyResult.STORE_BONUS = component.outputValue;
+    } else if (matchesComponent(component, customerPatterns)) {
+      legacyResult.CUSTOMER_ACTUAL = inputs.actual || 0;
+      legacyResult.CUSTOMER_TARGET = inputs.target || 0;
+      legacyResult.CUSTOMER_BONUS = component.outputValue;
+    } else if (matchesComponent(component, collectionPatterns)) {
+      legacyResult.COLLECTION_BONUS = component.outputValue;
+    } else if (matchesComponent(component, insurancePatterns)) {
+      legacyResult.INSURANCE_BONUS = component.outputValue;
+    } else if (matchesComponent(component, servicesPatterns)) {
+      legacyResult.SERVICES_BONUS = component.outputValue;
     }
   }
 
@@ -340,45 +398,88 @@ export function exportToCSV(
 }
 
 /**
- * Export to legacy CSV format
+ * Export to legacy CSV format (30 columns)
  */
 function exportLegacyCSV(results: CalculationResult[]): string {
+  // 30-column header structure
   const headers = [
+    // Columns 1-12: Employee/Period metadata
     'EMP_ID',
     'EMP_NAME',
+    'EMP_ROLE',
+    'DEPT_ID',
+    'DEPT_NAME',
     'STORE_ID',
     'STORE_NAME',
+    'MANAGER_ID',
+    'HIRE_DATE',
     'PERIOD',
     'PLAN_NAME',
+    'VARIANT_NAME',
+    // Columns 13-16: Optical Sales
+    'OPTICAL_ACTUAL',
+    'OPTICAL_TARGET',
+    'OPTICAL_ATTAINMENT',
     'OPTICAL_BONUS',
+    // Columns 17-20: Store Performance
+    'STORE_ACTUAL',
+    'STORE_TARGET',
+    'STORE_ATTAINMENT',
     'STORE_BONUS',
+    // Columns 21-23: Customer acquisition
+    'CUSTOMER_ACTUAL',
+    'CUSTOMER_TARGET',
     'CUSTOMER_BONUS',
+    // Columns 24-26: Other components
     'COLLECTION_BONUS',
     'INSURANCE_BONUS',
     'SERVICES_BONUS',
+    // Columns 27-30: Totals and audit
     'TOTAL_INCENTIVE',
     'CURRENCY',
     'CALC_DATE',
+    'CALC_VERSION',
   ];
 
   const rows = results.map((result) => {
     const legacy = formatForLegacyExport(result);
     return [
+      // Columns 1-12: Employee/Period metadata
       legacy.EMP_ID,
       legacy.EMP_NAME,
+      legacy.EMP_ROLE,
+      legacy.DEPT_ID,
+      legacy.DEPT_NAME,
       legacy.STORE_ID,
       legacy.STORE_NAME,
+      legacy.MANAGER_ID,
+      legacy.HIRE_DATE,
       legacy.PERIOD,
       legacy.PLAN_NAME,
+      legacy.VARIANT_NAME,
+      // Columns 13-16: Optical Sales
+      legacy.OPTICAL_ACTUAL.toFixed(2),
+      legacy.OPTICAL_TARGET.toFixed(2),
+      legacy.OPTICAL_ATTAINMENT.toFixed(1),
       legacy.OPTICAL_BONUS.toFixed(2),
+      // Columns 17-20: Store Performance
+      legacy.STORE_ACTUAL.toFixed(2),
+      legacy.STORE_TARGET.toFixed(2),
+      legacy.STORE_ATTAINMENT.toFixed(1),
       legacy.STORE_BONUS.toFixed(2),
+      // Columns 21-23: Customer acquisition
+      legacy.CUSTOMER_ACTUAL.toFixed(0),
+      legacy.CUSTOMER_TARGET.toFixed(0),
       legacy.CUSTOMER_BONUS.toFixed(2),
+      // Columns 24-26: Other components
       legacy.COLLECTION_BONUS.toFixed(2),
       legacy.INSURANCE_BONUS.toFixed(2),
       legacy.SERVICES_BONUS.toFixed(2),
+      // Columns 27-30: Totals and audit
       legacy.TOTAL_INCENTIVE.toFixed(2),
       legacy.CURRENCY,
       legacy.CALC_DATE,
+      legacy.CALC_VERSION,
     ];
   });
 

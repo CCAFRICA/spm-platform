@@ -53,6 +53,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 import { accessControl, canAccessModule } from '@/lib/access-control';
 
 interface Personnel {
@@ -101,7 +102,8 @@ const retailTerritories = ['West Region', 'East Region', 'Central Region'];
 export default function PersonnelPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
   const isRetail = currentTenant?.industry === 'Retail';
 
   // Check if user can access personnel module

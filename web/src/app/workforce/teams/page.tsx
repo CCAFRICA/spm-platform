@@ -57,6 +57,8 @@ import {
 } from '@/components/ui/collapsible';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 
 interface TeamMember {
   id: string;
@@ -150,7 +152,9 @@ const regions = ['CDMX', 'Jalisco', 'Nuevo León', 'Puebla', 'Nacional'];
 
 export default function TeamsPage() {
   const { currentTenant } = useTenant();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { user } = useAuth();
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   const [teams, setTeams] = useState<Team[]>(mockTeams);
   const [searchTerm, setSearchTerm] = useState('');

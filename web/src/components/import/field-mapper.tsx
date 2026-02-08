@@ -28,6 +28,9 @@ import {
 import type { FieldMapping } from '@/lib/import-pipeline/smart-mapper';
 import { getPlatformFields } from '@/lib/import-pipeline/smart-mapper';
 import { useLocale } from '@/contexts/locale-context';
+import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 import { cn } from '@/lib/utils';
 
 interface FieldMapperProps {
@@ -44,7 +47,10 @@ export function FieldMapper({
   className,
 }: FieldMapperProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const { currentTenant } = useTenant();
+  const { user } = useAuth();
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
   const [templateName, setTemplateName] = useState('');
 
   const platformFields = getPlatformFields();

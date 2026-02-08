@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 import { toast } from 'sonner';
 import {
   Bell,
@@ -61,7 +62,8 @@ export default function NotificationsPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX';
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
   const tenantId = currentTenant?.id || 'retailco';
   const userId = user?.id || 'user-1';
 

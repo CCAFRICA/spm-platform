@@ -203,8 +203,12 @@ export interface CalculationResult {
   employeeId: string;
   employeeName: string;
   employeeRole: string;
+  departmentId?: string;
+  departmentName?: string;
   storeId?: string;
   storeName?: string;
+  managerId?: string;
+  hireDate?: string;
   planId: string;
   planName: string;
   planVersion: number;

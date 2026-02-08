@@ -6,11 +6,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Users2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 
 export default function ConfigurationTeamsPage() {
   const router = useRouter();
   const { currentTenant } = useTenant();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { user } = useAuth();
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   // Auto-redirect to full teams management
   useEffect(() => {

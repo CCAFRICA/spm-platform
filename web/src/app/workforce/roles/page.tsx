@@ -35,6 +35,7 @@ import {
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 import { toast } from 'sonner';
 import {
   getRoles,
@@ -49,7 +50,8 @@ export default function RolesPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX';
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
   const tenantId = currentTenant?.id || 'retailco';
 
   const [roles, setRoles] = useState<Role[]>([]);

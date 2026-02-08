@@ -42,6 +42,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTenant, useTerm } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
 
 interface Location {
   id: string;
@@ -72,9 +74,11 @@ const states = ['CDMX', 'Jalisco', 'Nuevo León', 'Puebla', 'Querétaro'];
 
 export default function ConfigurationLocationsPage() {
   const { currentTenant } = useTenant();
+  const { user } = useAuth();
   const locationTerm = useTerm('location');
   const locationPluralTerm = useTerm('location', true);
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   const [locations, setLocations] = useState<Location[]>(mockLocations);
   const [searchTerm, setSearchTerm] = useState('');

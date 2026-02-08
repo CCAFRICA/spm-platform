@@ -33,10 +33,16 @@ import {
 import type { GuidedTour, DemoState } from '@/types/demo';
 import { TOUR_CATEGORIES } from '@/types/demo';
 import { useLocale } from '@/contexts/locale-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isCCAdmin } from '@/types/auth';
+import { useTenant } from '@/contexts/tenant-context';
 
 export default function DemoControlCenterPage() {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const { currentTenant } = useTenant();
+  const { user } = useAuth();
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const isSpanish = userIsCCAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
 
   const [activeTab, setActiveTab] = useState('reset');
   const [demoState, setDemoState] = useState<DemoState | null>(null);
