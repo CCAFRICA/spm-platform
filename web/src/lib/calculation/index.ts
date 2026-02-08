@@ -5,3 +5,6 @@
  */
 
 export * from './engine';
+export * from './data-component-mapper';
+export * from './context-resolver';
+export * from './results-formatter';

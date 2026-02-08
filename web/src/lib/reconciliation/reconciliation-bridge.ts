@@ -12,7 +12,8 @@ import type {
   ReconciliationRule,
   MatchStatus,
 } from '@/types/reconciliation';
-import { getOrchestrator } from '@/lib/orchestration/calculation-orchestrator';
+import { getOrchestrator, getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
+import { formatForReconciliation } from '@/lib/calculation/results-formatter';
 
 // ============================================
 // STORAGE KEYS
@@ -924,4 +925,170 @@ export function resolveDispute(
   resolvedBy: string
 ): Dispute | null {
   return getReconciliationBridge(tenantId).resolveDispute(disputeId, resolution, resolvedBy);
+}
+
+// ============================================
+// CALCULATION-TO-RECONCILIATION WIRING
+// ============================================
+
+export interface LegacyRecord {
+  employeeId: string;
+  employeeName?: string;
+  period: string;
+  totalIncentive: number;
+  components?: Record<string, number>;
+}
+
+/**
+ * Reconcile ClearComp calculation results against legacy system output
+ */
+export async function reconcileCalculationsWithLegacy(
+  tenantId: string,
+  periodId: string,
+  legacyData: LegacyRecord[],
+  userId: string
+): Promise<ExtendedReconciliationSession> {
+  const bridge = getReconciliationBridge(tenantId);
+
+  // Create reconciliation session
+  const session = bridge.createSession({
+    tenantId,
+    periodId,
+    mode: 'migration',
+    sourceSystem: 'ClearComp',
+    targetSystem: 'Legacy',
+    createdBy: userId,
+  });
+
+  // Get ClearComp results for this period
+  const clearCompResults = getPeriodResults(tenantId, periodId);
+
+  // Convert to reconciliation format
+  const sourceData = clearCompResults.map((result) => {
+    const formatted = formatForReconciliation(result);
+    return {
+      id: `cc-${result.employeeId}-${result.period}`,
+      employeeId: result.employeeId,
+      amount: result.totalIncentive,
+      date: result.period,
+      type: 'incentive',
+      description: `ClearComp: ${result.planName}`,
+      components: formatted.componentBreakdown,
+    };
+  });
+
+  // Convert legacy data to reconciliation format
+  const targetData = legacyData.map((record, index) => ({
+    id: `legacy-${record.employeeId}-${record.period}-${index}`,
+    employeeId: record.employeeId,
+    amount: record.totalIncentive,
+    date: record.period,
+    type: 'incentive',
+    description: `Legacy: ${record.employeeName || record.employeeId}`,
+    components: record.components,
+  }));
+
+  // Run reconciliation
+  return bridge.runReconciliation(session.id, sourceData, targetData);
+}
+
+/**
+ * Get calculation results formatted for reconciliation
+ */
+export function getCalculationResultsForReconciliation(
+  tenantId: string,
+  periodId: string
+): Array<{
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  amount: number;
+  date: string;
+  type: string;
+  description: string;
+  components: Record<string, number>;
+}> {
+  const results = getPeriodResults(tenantId, periodId);
+
+  return results.map((result) => {
+    const formatted = formatForReconciliation(result);
+    return {
+      id: `cc-${result.employeeId}-${result.period}`,
+      employeeId: result.employeeId,
+      employeeName: result.employeeName,
+      amount: result.totalIncentive,
+      date: result.period,
+      type: 'incentive',
+      description: `${result.planName} (${result.variantName || 'default'})`,
+      components: formatted.componentBreakdown,
+    };
+  });
+}
+
+/**
+ * Parse legacy CSV data for reconciliation
+ */
+export function parseLegacyCSV(csvContent: string): LegacyRecord[] {
+  const lines = csvContent.trim().split('\n');
+  if (lines.length < 2) return [];
+
+  // Parse header
+  const headers = lines[0].split(',').map((h) => h.trim().toUpperCase());
+
+  // Find column indices
+  const empIdIdx = headers.findIndex((h) =>
+    ['EMP_ID', 'EMPLOYEE_ID', 'EMPLOYEEID', 'ID_EMPLEADO'].includes(h)
+  );
+  const empNameIdx = headers.findIndex((h) =>
+    ['EMP_NAME', 'EMPLOYEE_NAME', 'EMPLOYEENAME', 'NOMBRE'].includes(h)
+  );
+  const periodIdx = headers.findIndex((h) =>
+    ['PERIOD', 'PERIODO', 'PAY_PERIOD', 'MONTH'].includes(h)
+  );
+  const totalIdx = headers.findIndex((h) =>
+    ['TOTAL', 'TOTAL_INCENTIVE', 'INCENTIVE', 'AMOUNT', 'MONTO'].includes(h)
+  );
+
+  if (empIdIdx === -1 || totalIdx === -1) {
+    console.warn('Could not find required columns in legacy CSV');
+    return [];
+  }
+
+  // Parse data rows
+  const records: LegacyRecord[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
+
+    const record: LegacyRecord = {
+      employeeId: values[empIdIdx] || '',
+      employeeName: empNameIdx >= 0 ? values[empNameIdx] : undefined,
+      period: periodIdx >= 0 ? values[periodIdx] : '',
+      totalIncentive: parseFloat(values[totalIdx]?.replace(/[$,]/g, '') || '0'),
+    };
+
+    // Parse component columns
+    const componentHeaders = [
+      'OPTICAL_BONUS',
+      'STORE_BONUS',
+      'CUSTOMER_BONUS',
+      'COLLECTION_BONUS',
+      'INSURANCE_BONUS',
+      'SERVICES_BONUS',
+    ];
+
+    record.components = {};
+    for (const compHeader of componentHeaders) {
+      const idx = headers.indexOf(compHeader);
+      if (idx >= 0 && values[idx]) {
+        record.components[compHeader] = parseFloat(values[idx].replace(/[$,]/g, '') || '0');
+      }
+    }
+
+    if (record.employeeId) {
+      records.push(record);
+    }
+  }
+
+  return records;
 }

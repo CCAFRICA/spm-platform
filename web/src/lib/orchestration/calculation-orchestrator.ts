@@ -9,6 +9,11 @@
 import type { CalculationResult } from '@/types/compensation-plan';
 import { calculateIncentive, type EmployeeMetrics } from '@/lib/compensation/calculation-engine';
 import { getPlans } from '@/lib/compensation/plan-storage';
+import {
+  buildCalculationContext,
+  buildEmployeeMetrics,
+  type CalculationContext,
+} from '@/lib/calculation/context-resolver';
 
 // ============================================
 // STORAGE KEYS
@@ -123,6 +128,7 @@ export interface OrchestrationResult {
 
 export class CalculationOrchestrator {
   private tenantId: string;
+  private calculationContext: CalculationContext | null = null;
 
   constructor(tenantId: string) {
     this.tenantId = tenantId;
@@ -141,6 +147,9 @@ export class CalculationOrchestrator {
       run.status = 'running';
       run.startedAt = new Date().toISOString();
       this.saveRun(run);
+
+      // Build calculation context for this period
+      this.calculationContext = buildCalculationContext(config.tenantId, config.periodId);
 
       // Get employees to process
       const employees = this.getEmployeesForRun(config);
@@ -304,6 +313,19 @@ export class CalculationOrchestrator {
         periodEnd: this.getPeriodEnd(periodId),
         metrics: aggregate.metrics,
       };
+    }
+
+    // Try to use calculation context with data-component mapper
+    if (this.calculationContext) {
+      const contextEmployee = this.calculationContext.employees.find(
+        (e) => e.id === employee.id
+      );
+      if (contextEmployee) {
+        const metrics = buildEmployeeMetrics(this.calculationContext, contextEmployee);
+        if (metrics) {
+          return metrics;
+        }
+      }
     }
 
     // Try to calculate metrics from transactions
