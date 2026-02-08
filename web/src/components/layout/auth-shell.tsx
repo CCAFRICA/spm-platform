@@ -3,8 +3,11 @@
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { Sidebar } from '@/components/navigation/Sidebar';
+import { NavigationProvider, useNavigation } from '@/contexts/navigation-context';
+import { MissionControlRail } from '@/components/navigation/mission-control';
+import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
 import { Navbar } from '@/components/navigation/Navbar';
+import { cn } from '@/lib/utils';
 
 // Routes that don't require authentication
 const PUBLIC_ROUTES = ['/login'];
@@ -14,6 +17,29 @@ const SHELL_EXCLUDED_ROUTES = ['/login', '/select-tenant'];
 
 interface AuthShellProps {
   children: React.ReactNode;
+}
+
+/**
+ * Inner shell component that uses navigation context
+ */
+function AuthShellInner({ children }: AuthShellProps) {
+  const { isRailCollapsed } = useNavigation();
+
+  return (
+    <>
+      <MissionControlRail />
+      <div
+        className={cn(
+          'transition-all duration-300 ease-in-out',
+          isRailCollapsed ? 'md:pl-16' : 'md:pl-[280px]'
+        )}
+      >
+        <Navbar />
+        <main>{children}</main>
+      </div>
+      <CommandPalette />
+    </>
+  );
 }
 
 export function AuthShell({ children }: AuthShellProps) {
@@ -56,14 +82,10 @@ export function AuthShell({ children }: AuthShellProps) {
     return <>{children}</>;
   }
 
-  // Full app shell with sidebar and navbar
+  // Full app shell with Mission Control Rail
   return (
-    <>
-      <Sidebar />
-      <div className="md:pl-64">
-        <Navbar />
-        <main>{children}</main>
-      </div>
-    </>
+    <NavigationProvider>
+      <AuthShellInner>{children}</AuthShellInner>
+    </NavigationProvider>
   );
 }
