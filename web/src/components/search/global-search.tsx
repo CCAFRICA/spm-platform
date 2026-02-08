@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Building2, User, Receipt } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
 import { useDebounce } from '@/hooks/use-debounce';
 import { getFranquicias, getMeseros, getCheques } from '@/lib/restaurant-service';
 import Link from 'next/link';
@@ -23,9 +24,14 @@ export function GlobalSearch() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { currentTenant } = useTenant();
+  const { user } = useAuth();
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // CC Admin locale override: CC Admins always see English regardless of tenant locale
+  const userIsCCAdmin = user?.role === 'cc_admin';
+  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   const performSearch = useCallback(async (q: string) => {
     if (!q || q.length < 2) {
@@ -138,20 +144,18 @@ export function GlobalSearch() {
   };
 
   const typeLabels = {
-    franchise: currentTenant?.locale === 'es-MX' ? 'Franquicia' : 'Franchise',
-    server: currentTenant?.locale === 'es-MX' ? 'Mesero' : 'Server',
-    check: currentTenant?.locale === 'es-MX' ? 'Cheque' : 'Check',
+    franchise: isSpanish ? 'Franquicia' : 'Franchise',
+    server: isSpanish ? 'Mesero' : 'Server',
+    check: isSpanish ? 'Cheque' : 'Check',
   };
 
-  const placeholder =
-    currentTenant?.locale === 'es-MX'
-      ? 'Buscar franquicias, meseros, cheques...'
-      : 'Search franchises, servers, checks...';
+  const placeholder = isSpanish
+    ? 'Buscar franquicias, meseros, cheques...'
+    : 'Search pages, people, actions...';
 
-  const noResultsText =
-    currentTenant?.locale === 'es-MX'
-      ? 'No se encontraron resultados'
-      : 'No results found';
+  const noResultsText = isSpanish
+    ? 'No se encontraron resultados'
+    : 'No results found';
 
   const handleClear = () => {
     setQuery('');

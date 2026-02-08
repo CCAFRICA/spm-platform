@@ -189,8 +189,9 @@ export default function NewTenantPage() {
     warnings: string[];
   } | null>(null);
 
-  // Get user's preferred locale from tenant context
-  const locale = (currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US') as 'en-US' | 'es-MX';
+  // CC Admin locale override: CC Admins always see English regardless of tenant locale
+  const userIsCCAdmin = user && isCCAdmin(user);
+  const locale = (userIsCCAdmin ? 'en-US' : (currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US')) as 'en-US' | 'es-MX';
   const t = labels[locale];
 
   // Form state

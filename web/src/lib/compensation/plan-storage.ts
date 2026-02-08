@@ -92,6 +92,46 @@ export function deletePlan(planId: string): boolean {
   return true;
 }
 
+/**
+ * Create a new plan with the provided configuration
+ */
+export function createPlan(params: {
+  name: string;
+  description: string;
+  tenantId: string;
+  effectiveDate: string;
+  endDate?: string | null;
+  createdBy: string;
+  configuration: CompensationPlanConfig['configuration'];
+  eligibleRoles?: string[];
+  planType?: 'weighted_kpi' | 'additive_lookup';
+}): CompensationPlanConfig | null {
+  const now = new Date().toISOString();
+
+  const newPlan: CompensationPlanConfig = {
+    id: generatePlanId(),
+    tenantId: params.tenantId,
+    name: params.name,
+    description: params.description,
+    planType: params.planType ?? 'additive_lookup',
+    status: 'draft',
+    effectiveDate: params.effectiveDate,
+    endDate: params.endDate || null,
+    eligibleRoles: params.eligibleRoles || ['sales_rep'],
+    version: 1,
+    previousVersionId: null,
+    createdBy: params.createdBy,
+    createdAt: now,
+    updatedBy: params.createdBy,
+    updatedAt: now,
+    approvedBy: null,
+    approvedAt: null,
+    configuration: params.configuration,
+  };
+
+  return savePlan(newPlan);
+}
+
 // ============================================
 // VERSIONING & CLONING
 // ============================================
