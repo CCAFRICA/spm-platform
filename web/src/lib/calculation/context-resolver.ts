@@ -200,7 +200,13 @@ function getPeriodById(tenantId: string, periodId: string): PeriodContext | null
 function getEmployees(tenantId: string): EmployeeContext[] {
   if (typeof window === 'undefined') return [];
 
-  // First try stored employee data
+  // PRIORITY 1: Committed import data (real imported employees take precedence)
+  const committedEmployees = extractEmployeesFromCommittedData(tenantId);
+  if (committedEmployees.length > 0) {
+    return committedEmployees;
+  }
+
+  // PRIORITY 2: Stored employee data (backward compatibility)
   const stored = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
   if (stored) {
     try {
@@ -214,13 +220,7 @@ function getEmployees(tenantId: string): EmployeeContext[] {
     }
   }
 
-  // Then try extracting employees from committed data (imported roster)
-  const committedEmployees = extractEmployeesFromCommittedData(tenantId);
-  if (committedEmployees.length > 0) {
-    return committedEmployees;
-  }
-
-  // Only fall back to demo employees if no real data exists
+  // PRIORITY 3: Demo fallback (only when no real data exists)
   return getDefaultEmployees(tenantId);
 }
 

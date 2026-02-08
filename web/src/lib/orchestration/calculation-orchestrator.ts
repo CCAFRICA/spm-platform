@@ -544,13 +544,22 @@ export class CalculationOrchestrator {
   private getEmployees(): EmployeeData[] {
     if (typeof window === 'undefined') return [];
 
-    // First try stored employee data
+    // PRIORITY 1: Committed import data (real imported employees take precedence)
+    // This ensures when a data import is committed, those employees are used
+    const committedEmployees = this.extractEmployeesFromCommittedData();
+    if (committedEmployees.length > 0) {
+      console.log(`[Orchestrator] Using ${committedEmployees.length} employees from committed import data`);
+      return committedEmployees;
+    }
+
+    // PRIORITY 2: Stored employee data (backward compatibility)
     const stored = localStorage.getItem(STORAGE_KEYS.EMPLOYEE_DATA);
     if (stored) {
       try {
         const employees: EmployeeData[] = JSON.parse(stored);
         const filtered = employees.filter((e) => e.tenantId === this.tenantId);
         if (filtered.length > 0) {
+          console.log(`[Orchestrator] Using ${filtered.length} employees from stored data`);
           return filtered;
         }
       } catch {
@@ -558,13 +567,8 @@ export class CalculationOrchestrator {
       }
     }
 
-    // Then try extracting employees from committed import data
-    const committedEmployees = this.extractEmployeesFromCommittedData();
-    if (committedEmployees.length > 0) {
-      return committedEmployees;
-    }
-
-    // Only fall back to demo employees if no real data exists
+    // PRIORITY 3: Demo fallback (only when no real data exists)
+    console.log('[Orchestrator] No real employees found, using demo fallback');
     return this.getDemoEmployees();
   }
 
