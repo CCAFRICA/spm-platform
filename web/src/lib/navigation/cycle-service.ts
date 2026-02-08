@@ -3,6 +3,12 @@
  *
  * Determines the current phase of the compensation cycle based on real system state.
  * Provides the data needed for the Cycle Indicator in Mission Control.
+ *
+ * Integrates with:
+ * - Data Layer Service (import batches, transformed data)
+ * - Approval Service (pending approvals)
+ * - Calculation Orchestrator (calculation status)
+ * - Reconciliation Bridge (reconciliation status)
  */
 
 import type { CycleState, CyclePhase, PhaseStatus } from '@/types/navigation';
@@ -166,61 +172,136 @@ function countPendingActions(statuses: Record<CyclePhase, PhaseStatus>): number 
 // DATA CHECKING FUNCTIONS
 // =============================================================================
 
+// Storage keys matching data-layer-service.ts
+const DATA_LAYER_KEYS = {
+  BATCHES: 'data_layer_batches',
+  COMMITTED: 'data_layer_committed',
+};
+
+// Storage key matching approval-service.ts
+const APPROVAL_KEYS = {
+  REQUESTS: 'approval_requests',
+};
+
+/**
+ * Check if import data exists by looking at data layer batches
+ */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function checkHasImportData(tenantId: string, periodId: string): boolean {
   try {
-    // Check if any transactions exist for the period
+    // Primary check: Data layer batches (from OB-03 import system)
+    const batchesData = localStorage.getItem(DATA_LAYER_KEYS.BATCHES);
+    if (batchesData) {
+      const batches: [string, { status: string }][] = JSON.parse(batchesData);
+      const hasCommittedBatch = batches.some(([, batch]) => batch.status === 'committed');
+      if (hasCommittedBatch) return true;
+    }
+
+    // Fallback: Check tenant-specific transactions
     const transactionsKey = `${tenantId}_transactions`;
     const transactions = localStorage.getItem(transactionsKey);
     if (transactions) {
       const parsed = JSON.parse(transactions);
       return Array.isArray(parsed) && parsed.length > 0;
     }
+
+    // Check committed data layer
+    const committedData = localStorage.getItem(DATA_LAYER_KEYS.COMMITTED);
+    if (committedData) {
+      const committed: [string, unknown][] = JSON.parse(committedData);
+      return committed.length > 0;
+    }
+
     return false;
   } catch {
     return false;
   }
 }
 
+/**
+ * Check for calculation results
+ */
 function checkHasCalculations(tenantId: string, periodId: string): boolean {
   try {
-    // Check for calculation results
+    // Check for calculation results stored by calculate page
     const calcKey = `${tenantId}_calculations_${periodId}`;
     const calculations = localStorage.getItem(calcKey);
-    return !!calculations;
+    if (calculations) return true;
+
+    // Check for commissions data (alternative calculation storage)
+    const commissionsKey = `${tenantId}_commissions`;
+    const commissions = localStorage.getItem(commissionsKey);
+    if (commissions) {
+      const parsed = JSON.parse(commissions);
+      return Array.isArray(parsed) && parsed.length > 0;
+    }
+
+    return false;
   } catch {
     return false;
   }
 }
 
+/**
+ * Check for reconciliation completion
+ */
 function checkHasReconciliation(tenantId: string, periodId: string): boolean {
   try {
     // Check for reconciliation results
     const reconKey = `${tenantId}_reconciliation_${periodId}`;
     const reconciliation = localStorage.getItem(reconKey);
-    return !!reconciliation;
+    if (reconciliation) return true;
+
+    // Check for reconciliation bridge data
+    const bridgeKey = `reconciliation_results_${tenantId}`;
+    const bridgeData = localStorage.getItem(bridgeKey);
+    if (bridgeData) {
+      const parsed = JSON.parse(bridgeData);
+      return parsed.status === 'completed';
+    }
+
+    return false;
   } catch {
     return false;
   }
 }
 
+/**
+ * Get count of pending approvals from approval service
+ */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function checkPendingApprovals(tenantId: string, periodId: string): number {
   try {
-    // Check pending approvals from the approval routing service
+    // Primary: Check approval service requests
+    const requestsData = localStorage.getItem(APPROVAL_KEYS.REQUESTS);
+    if (requestsData) {
+      const requests: [string, { status: string; tenantId?: string }][] = JSON.parse(requestsData);
+      const pendingCount = requests.filter(([, req]) =>
+        req.status === 'pending' && (!req.tenantId || req.tenantId === tenantId)
+      ).length;
+      if (pendingCount > 0) return pendingCount;
+    }
+
+    // Fallback: Check tenant-specific approvals
     const approvalsKey = `${tenantId}_pending_approvals`;
     const approvals = localStorage.getItem(approvalsKey);
     if (approvals) {
       const parsed = JSON.parse(approvals);
-      return Array.isArray(parsed) ? parsed.filter((a: { status: string }) => a.status === 'pending').length : 0;
+      return Array.isArray(parsed)
+        ? parsed.filter((a: { status: string }) => a.status === 'pending').length
+        : 0;
     }
-    // Return mock number for demo
+
+    // Demo default
     return 5;
   } catch {
-    return 5; // Mock pending approvals
+    return 5;
   }
 }
 
+/**
+ * Check payroll status
+ */
 function checkPayrollStatus(tenantId: string, periodId: string): 'not_started' | 'processing' | 'finalized' {
   try {
     const payrollKey = `${tenantId}_payroll_${periodId}`;
@@ -229,9 +310,64 @@ function checkPayrollStatus(tenantId: string, periodId: string): 'not_started' |
       const parsed = JSON.parse(payroll);
       return parsed.status || 'not_started';
     }
+
+    // Check period processor data
+    const processorKey = `payroll_period_${tenantId}_${periodId}`;
+    const processorData = localStorage.getItem(processorKey);
+    if (processorData) {
+      const parsed = JSON.parse(processorData);
+      if (parsed.finalized) return 'finalized';
+      if (parsed.processing) return 'processing';
+    }
+
     return 'not_started';
   } catch {
     return 'not_started';
+  }
+}
+
+/**
+ * Get import details for display
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function getImportDetails(tenantId: string): { count: number; lastImport?: string } {
+  try {
+    const batchesData = localStorage.getItem(DATA_LAYER_KEYS.BATCHES);
+    if (batchesData) {
+      const batches: [string, { status: string; recordCount: number; createdAt: string }][] = JSON.parse(batchesData);
+      const committedBatches = batches.filter(([, b]) => b.status === 'committed');
+      if (committedBatches.length > 0) {
+        const totalRecords = committedBatches.reduce((sum, [, b]) => sum + (b.recordCount || 0), 0);
+        const lastBatch = committedBatches.sort((a, b) =>
+          new Date(b[1].createdAt).getTime() - new Date(a[1].createdAt).getTime()
+        )[0];
+        return {
+          count: totalRecords,
+          lastImport: lastBatch?.[1]?.createdAt,
+        };
+      }
+    }
+    return { count: 0 };
+  } catch {
+    return { count: 0 };
+  }
+}
+
+/**
+ * Get reconciliation mismatch count
+ */
+export function getReconciliationMismatches(tenantId: string, periodId: string): number {
+  try {
+    const reconKey = `${tenantId}_reconciliation_mismatches_${periodId}`;
+    const mismatches = localStorage.getItem(reconKey);
+    if (mismatches) {
+      const parsed = JSON.parse(mismatches);
+      return Array.isArray(parsed) ? parsed.length : 0;
+    }
+    // Demo default
+    return 3;
+  } catch {
+    return 3;
   }
 }
 
