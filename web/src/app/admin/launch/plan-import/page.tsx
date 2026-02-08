@@ -53,8 +53,10 @@ import {
   Edit2,
   Save,
   ArrowLeft,
+  ArrowRight,
   Brain,
   Cpu,
+  Calendar,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -682,18 +684,67 @@ export default function PlanImportPage() {
 
       {/* Import Success */}
       {importResult?.success && (
-        <Card className="border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20">
-          <CardContent className="flex items-center gap-4 py-4">
-            <CheckCircle2 className="h-8 w-8 text-emerald-500" />
-            <div className="flex-1">
-              <p className="font-medium text-emerald-900 dark:text-emerald-100">{t.importSuccess}</p>
-              <p className="text-sm text-emerald-700 dark:text-emerald-300">Plan ID: {importResult.planId}</p>
-            </div>
-            <Button onClick={() => router.push('/admin/launch')}>
-              {t.back}
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <Card className="border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20">
+            <CardContent className="flex items-center gap-4 py-4">
+              <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+              <div className="flex-1">
+                <p className="font-medium text-emerald-900 dark:text-emerald-100">{t.importSuccess}</p>
+                <p className="text-sm text-emerald-700 dark:text-emerald-300">Plan ID: {importResult.planId}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Next Steps */}
+          <Card className="border-primary/30 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ArrowRight className="h-4 w-4 text-primary" />
+                {locale === 'es-MX' ? 'Siguiente Paso' : 'Next Step'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-2">
+                <a
+                  href="/operate/import"
+                  className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                >
+                  <div className="p-3 bg-primary/10 rounded-lg">
+                    <Upload className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold mb-1">
+                      {locale === 'es-MX' ? 'Importar Datos' : 'Import Data Package'}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {locale === 'es-MX'
+                        ? 'Cargar el paquete de datos de Excel con las metricas de rendimiento de los empleados.'
+                        : 'Upload the Excel data package with employee performance metrics.'}
+                    </p>
+                  </div>
+                </a>
+                <a
+                  href="/configure/periods"
+                  className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                >
+                  <div className="p-3 bg-muted rounded-lg">
+                    <Calendar className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold mb-1">
+                      {locale === 'es-MX' ? 'Configurar Periodos' : 'Configure Payroll Periods'}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {locale === 'es-MX'
+                        ? 'Definir los periodos de nomina para el procesamiento de incentivos.'
+                        : 'Define payroll periods for incentive processing.'}
+                    </p>
+                  </div>
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Import Error */}

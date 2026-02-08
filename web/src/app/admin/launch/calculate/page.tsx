@@ -58,7 +58,10 @@ import {
   DollarSign,
   TrendingUp,
   ArrowLeft,
+  ArrowRight,
   Info,
+  Scale,
+  Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -699,6 +702,46 @@ export default function CalculatePage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Next Steps */}
+          <Card className="border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-emerald-800 dark:text-emerald-200">
+                <CheckCircle2 className="h-5 w-5" />
+                {locale === 'es-MX' ? 'Próximos Pasos' : 'Next Steps'}
+              </CardTitle>
+              <CardDescription className="text-emerald-700 dark:text-emerald-300">
+                {locale === 'es-MX'
+                  ? 'El cálculo se completó. Elija qué hacer a continuación.'
+                  : 'Calculation complete. Choose what to do next.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Button
+                  onClick={() => router.push('/operate/reconcile')}
+                  className="w-full justify-between"
+                >
+                  <span className="flex items-center gap-2">
+                    <Scale className="h-4 w-4" />
+                    {locale === 'es-MX' ? 'Conciliar Resultados' : 'Reconcile Results'}
+                  </span>
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push('/investigate/calculations')}
+                  className="w-full justify-between"
+                >
+                  <span className="flex items-center gap-2">
+                    <Search className="h-4 w-4" />
+                    {locale === 'es-MX' ? 'Ver Detalles de Cálculo' : 'View Calculation Details'}
+                  </span>
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </>
       )}
 
