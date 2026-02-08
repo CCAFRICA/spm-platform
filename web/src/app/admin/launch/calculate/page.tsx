@@ -68,7 +68,7 @@ import { cn } from '@/lib/utils';
 // Bilingual labels
 const labels = {
   'en-US': {
-    title: 'Calculation Trigger',
+    title: 'Run Calculations',
     subtitle: 'Run compensation calculations for a period',
     selectPeriod: 'Select Period',
     noPeriods: 'No periods available',
@@ -105,6 +105,7 @@ const labels = {
     adjustment: 'Adjustment',
     pending: 'Pending',
     completed: 'Completed',
+    completedWithErrors: 'Completed with Errors',
     failed: 'Failed',
   },
   'es-MX': {
@@ -145,6 +146,7 @@ const labels = {
     adjustment: 'Ajuste',
     pending: 'Pendiente',
     completed: 'Completado',
+    completedWithErrors: 'Completado con Errores',
     failed: 'Fallido',
   },
 };
@@ -187,6 +189,18 @@ export default function CalculatePage() {
   // CC Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
   const t = labels[locale];
+
+  // Currency formatter based on tenant settings
+  const formatCurrency = (amount: number): string => {
+    const currencyCode = currentTenant?.currency || 'USD';
+    const currencyLocale = currencyCode === 'MXN' ? 'es-MX' : 'en-US';
+    return new Intl.NumberFormat(currencyLocale, {
+      style: 'currency',
+      currency: currencyCode,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
 
   // Check CC Admin access
   const hasAccess = user && isCCAdmin(user);
@@ -324,10 +338,28 @@ export default function CalculatePage() {
   };
 
   // Get status badge
-  const getStatusBadge = (status: CalculationRun['status']) => {
-    switch (status) {
+  // Derive display status from run data (accounts for error counts)
+  const getDisplayStatus = (run: CalculationRun): 'completed' | 'completedWithErrors' | 'failed' | 'running' | 'pending' => {
+    if (run.status === 'running') return 'running';
+    if (run.status !== 'completed') return run.status as 'pending' | 'failed';
+
+    // For completed runs, check error ratio
+    if (run.errorCount > 0) {
+      if (run.errorCount >= run.totalEmployees) {
+        return 'failed'; // All employees errored
+      }
+      return 'completedWithErrors'; // Some succeeded, some failed
+    }
+    return 'completed';
+  };
+
+  const getStatusBadge = (run: CalculationRun) => {
+    const displayStatus = getDisplayStatus(run);
+    switch (displayStatus) {
       case 'completed':
         return <Badge className="bg-emerald-100 text-emerald-800">{t.completed}</Badge>;
+      case 'completedWithErrors':
+        return <Badge className="bg-amber-100 text-amber-800">{t.completedWithErrors}</Badge>;
       case 'failed':
         return <Badge className="bg-red-100 text-red-800">{t.failed}</Badge>;
       case 'running':
@@ -527,7 +559,7 @@ export default function CalculatePage() {
                   </div>
                   <div>
                     <p className="text-sm text-slate-500">{t.totalCompensation}</p>
-                    <p className="text-2xl font-bold">${result.summary.totalPayout.toLocaleString()}</p>
+                    <p className="text-2xl font-bold">{formatCurrency(result.summary.totalPayout)}</p>
                   </div>
                 </div>
               </CardContent>
@@ -542,9 +574,9 @@ export default function CalculatePage() {
                   <div>
                     <p className="text-sm text-slate-500">{t.averagePayout}</p>
                     <p className="text-2xl font-bold">
-                      ${result.summary.employeesProcessed > 0
-                        ? Math.round(result.summary.totalPayout / result.summary.employeesProcessed).toLocaleString()
-                        : 0}
+                      {formatCurrency(result.summary.employeesProcessed > 0
+                        ? Math.round(result.summary.totalPayout / result.summary.employeesProcessed)
+                        : 0)}
                     </p>
                   </div>
                 </div>
@@ -624,7 +656,7 @@ export default function CalculatePage() {
                           </TableCell>
                           <TableCell>{employeeResult.storeName || '-'}</TableCell>
                           <TableCell className="text-right font-semibold text-emerald-600">
-                            ${employeeResult.totalIncentive.toLocaleString()}
+                            {formatCurrency(employeeResult.totalIncentive)}
                           </TableCell>
                           <TableCell>
                             {employeeResult.components.length} {t.components.toLowerCase()}
@@ -658,7 +690,7 @@ export default function CalculatePage() {
                                           'font-semibold',
                                           step.outputValue >= 0 ? 'text-emerald-600' : 'text-red-600'
                                         )}>
-                                          {step.outputValue >= 0 ? '+' : ''}${step.outputValue.toLocaleString()}
+                                          {step.outputValue >= 0 ? '+' : ''}{formatCurrency(step.outputValue)}
                                         </p>
                                         <Badge variant="outline" className="text-xs">
                                           {step.componentType}
@@ -774,10 +806,10 @@ export default function CalculatePage() {
                   <TableRow key={run.id}>
                     <TableCell>{getRunTypeBadge(run.runType)}</TableCell>
                     <TableCell>{run.periodId}</TableCell>
-                    <TableCell>{getStatusBadge(run.status)}</TableCell>
+                    <TableCell>{getStatusBadge(run)}</TableCell>
                     <TableCell>{run.processedEmployees}/{run.totalEmployees}</TableCell>
                     <TableCell className="text-right font-medium">
-                      ${run.totalPayout?.toLocaleString() || 0}
+                      {formatCurrency(run.totalPayout || 0)}
                     </TableCell>
                     <TableCell className="text-sm text-slate-500">
                       {new Date(run.startedAt).toLocaleString()}
