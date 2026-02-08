@@ -43,12 +43,13 @@ ensureTenantPlans(TENANT_ID);
 let plans = getPlans(TENANT_ID);
 console.log(`   Found ${plans.length} plans`);
 
-let activePlan = plans.find(p => p.status === 'active');
+let activePlan: CompensationPlanConfig | undefined = plans.find(p => p.status === 'active');
 if (!activePlan) {
   console.log('   No active plan found. Activating first available plan...');
   const draftPlan = plans.find(p => p.status === 'draft');
   if (draftPlan) {
-    activePlan = activatePlan(draftPlan.id, 'test-user');
+    const activated = activatePlan(draftPlan.id, 'test-user');
+    activePlan = activated ?? undefined;
     console.log(`   ACTIVATED: ${activePlan?.name || 'Failed'}`);
   }
 } else {
