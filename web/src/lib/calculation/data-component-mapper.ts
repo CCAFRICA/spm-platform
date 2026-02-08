@@ -95,25 +95,31 @@ const METRIC_KEYWORDS: Record<string, string[]> = {
   optical_volume: [
     'optical', 'optico', 'óptico', 'lenses', 'lentes', 'frames', 'armazones',
     'eyewear', 'glasses', 'anteojos', 'venta_optica', 'optical_sales',
-    'base_venta_individual', 'individual_sales'
+    'base_venta_individual', 'individual_sales', 'venta_individual'
   ],
   optical_attainment: [
     'optical_attainment', 'attainment_optical', 'cumplimiento_optico',
-    'optical_quota_pct', 'optical_percent', 'optico_porcentaje'
+    'optical_quota_pct', 'optical_percent', 'optico_porcentaje',
+    'pct_cumplimiento', 'porcentaje_cumplimiento', 'cumplimiento'
   ],
   optical_quota: [
     'optical_quota', 'quota_optical', 'meta_optica', 'cuota_optica',
-    'optical_target', 'objetivo_optico'
+    'optical_target', 'objetivo_optico', 'meta'
   ],
 
   // Store metrics
   store_attainment: [
     'store_attainment', 'tienda_cumplimiento', 'store_performance',
-    'store_quota_pct', 'sucursal_attainment', 'branch_attainment'
+    'store_quota_pct', 'sucursal_attainment', 'branch_attainment',
+    'cumplimiento_tienda', 'pct_tienda'
   ],
   store_volume: [
     'store_volume', 'store_sales', 'tienda_ventas', 'sucursal_ventas',
-    'branch_sales', 'total_store', 'venta_tienda'
+    'branch_sales', 'total_store', 'venta_tienda', 'venta_optica_tienda'
+  ],
+  store_optical_sales: [
+    'store_optical_sales', 'venta_optica_tienda', 'optical_tienda',
+    'tienda_optica', 'store_optical', 'tienda_optical'
   ],
 
   // Customer metrics

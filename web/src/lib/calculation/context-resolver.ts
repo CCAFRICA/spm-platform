@@ -9,7 +9,13 @@
  */
 
 import type { EmployeeMetrics } from '@/lib/compensation/calculation-engine';
-import { getPlanMappings, resolveMetrics } from './data-component-mapper';
+import {
+  getPlanMappings,
+  resolveMetrics,
+  autoMapPlan,
+  saveMappings,
+  getAvailableSourceFields,
+} from './data-component-mapper';
 import { getPlans } from '@/lib/compensation/plan-storage';
 
 // ============================================
@@ -405,8 +411,23 @@ function resolveMappingsForEmployees(
   const plans = getPlans(tenantId).filter((p) => p.status === 'active');
   if (plans.length === 0) return result;
 
-  // Get mappings for plans
+  // Get mappings for plans - if none exist, auto-generate them
   const allMappings = plans.flatMap((p) => getPlanMappings(tenantId, p.id));
+
+  // If no stored mappings, auto-generate from available fields
+  if (allMappings.length === 0) {
+    const sourceFields = getAvailableSourceFields(tenantId);
+    if (sourceFields.length > 0) {
+      for (const plan of plans) {
+        const autoResult = autoMapPlan(plan, sourceFields);
+        if (autoResult.mappings.length > 0) {
+          // Save auto-generated mappings for future use
+          saveMappings(autoResult.mappings);
+          allMappings.push(...autoResult.mappings);
+        }
+      }
+    }
+  }
 
   for (const [employeeId, records] of Array.from(committedData.entries())) {
     const employeeMetrics = new Map<string, number>();
