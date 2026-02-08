@@ -3,10 +3,23 @@
  *
  * Aggregates action items from multiple sources into a unified, prioritized queue.
  * Sources: approvals, data quality, disputes, reconciliation, alerts, notifications.
+ *
+ * IMPORTANT: No mock data. All items are derived from actual system state.
  */
 
 import type { QueueItem, QueueUrgency, QueueItemType, WorkspaceId } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
+
+// Storage keys for checking real system state
+const STORAGE_KEYS = {
+  PLANS: 'clearcomp_plans',
+  BATCHES: 'data_layer_batches',
+  COMMITTED: 'data_layer_committed',
+  CALCULATIONS: 'clearcomp_calculations',
+  CALCULATION_RUNS: 'clearcomp_calculation_runs',
+  PERIODS: 'clearcomp_payroll_periods',
+  RECONCILIATION: 'clearcomp_reconciliation_sessions',
+};
 
 // =============================================================================
 // QUEUE AGGREGATION
@@ -14,17 +27,18 @@ import type { UserRole } from '@/types/auth';
 
 /**
  * Get all queue items for a user, filtered by their role
+ * Items are derived from REAL system state - no hardcoded mock data
  */
 export function getQueueItems(userId: string, tenantId: string, role: UserRole): QueueItem[] {
   const allItems: QueueItem[] = [];
 
-  // Aggregate from various sources
+  // Aggregate from various sources based on real system state
+  allItems.push(...getOnboardingItems(tenantId, role));
+  allItems.push(...getPipelineItems(tenantId, role));
   allItems.push(...getApprovalItems(userId, tenantId, role));
   allItems.push(...getDataQualityItems(tenantId, role));
   allItems.push(...getDisputeItems(userId, tenantId, role));
-  allItems.push(...getReconciliationItems(tenantId, role));
-  allItems.push(...getAlertItems(userId, tenantId, role));
-  allItems.push(...getNotificationItems(userId, tenantId));
+  allItems.push(...getCalculationItems(tenantId, role));
 
   // Sort by urgency and timestamp
   return sortQueueItems(allItems);
@@ -49,11 +63,129 @@ function sortQueueItems(items: QueueItem[]): QueueItem[] {
 }
 
 // =============================================================================
-// SOURCE AGGREGATORS
+// REAL STATE-BASED ITEM GENERATORS
 // =============================================================================
 
+/**
+ * Generate onboarding items for new tenants with no data
+ */
+function getOnboardingItems(tenantId: string, role: UserRole): QueueItem[] {
+  if (role !== 'cc_admin' && role !== 'admin') return [];
+
+  const items: QueueItem[] = [];
+  const hasPlans = hasTenantPlans(tenantId);
+  const hasData = hasTenantCommittedData(tenantId);
+  const hasPeriods = hasTenantPeriods(tenantId);
+
+  // No plans at all - suggest importing one
+  if (!hasPlans) {
+    items.push({
+      id: `onboard-plan-${tenantId}`,
+      type: 'notification',
+      urgency: 'high',
+      title: 'Import Commission Plan',
+      titleEs: 'Importar Plan de Comisiones',
+      description: 'Start by importing your compensation plan document',
+      descriptionEs: 'Comience importando su documento de plan de compensacion',
+      workspace: 'operate',
+      route: '/admin/launch/plan-import',
+      timestamp: new Date().toISOString(),
+      read: false,
+    });
+  }
+
+  // Has plan but no data
+  if (hasPlans && !hasData) {
+    items.push({
+      id: `onboard-data-${tenantId}`,
+      type: 'notification',
+      urgency: 'medium',
+      title: 'Import Data Package',
+      titleEs: 'Importar Paquete de Datos',
+      description: 'Import your Excel data package with employee performance metrics',
+      descriptionEs: 'Importe su paquete de datos Excel con metricas de rendimiento',
+      workspace: 'operate',
+      route: '/data/import/enhanced',
+      timestamp: new Date().toISOString(),
+      read: false,
+    });
+  }
+
+  // Has data but no periods
+  if (hasData && !hasPeriods) {
+    items.push({
+      id: `onboard-periods-${tenantId}`,
+      type: 'notification',
+      urgency: 'medium',
+      title: 'Configure Payroll Periods',
+      titleEs: 'Configurar Periodos de Nomina',
+      description: 'Set up payroll periods for calculation processing',
+      descriptionEs: 'Configure los periodos de nomina para el procesamiento de calculos',
+      workspace: 'configure',
+      route: '/configure/periods',
+      timestamp: new Date().toISOString(),
+      read: false,
+    });
+  }
+
+  return items;
+}
+
+/**
+ * Generate pipeline status items based on actual workflow state
+ */
+function getPipelineItems(tenantId: string, role: UserRole): QueueItem[] {
+  if (role !== 'cc_admin' && role !== 'admin') return [];
+
+  const items: QueueItem[] = [];
+
+  // Check for draft plans that need activation
+  const draftPlans = getTenantDraftPlans(tenantId);
+  const hasActivePlan = hasTenantActivePlan(tenantId);
+
+  if (draftPlans.length > 0 && !hasActivePlan) {
+    items.push({
+      id: `pipeline-activate-plan-${tenantId}`,
+      type: 'alert',
+      urgency: 'high',
+      title: 'Plan Pending Activation',
+      titleEs: 'Plan Pendiente de Activacion',
+      description: `${draftPlans.length} plan(s) in draft status need activation`,
+      descriptionEs: `${draftPlans.length} plan(es) en borrador necesitan activacion`,
+      workspace: 'operate',
+      route: '/operate/calculate',
+      timestamp: new Date().toISOString(),
+      read: false,
+    });
+  }
+
+  // Check for committed data ready for calculation
+  const hasCommittedData = hasTenantCommittedData(tenantId);
+  const hasCalculations = hasTenantCalculations(tenantId);
+
+  if (hasActivePlan && hasCommittedData && !hasCalculations) {
+    items.push({
+      id: `pipeline-ready-calc-${tenantId}`,
+      type: 'alert',
+      urgency: 'high',
+      title: 'Data Ready for Calculation',
+      titleEs: 'Datos Listos para Calculo',
+      description: 'Committed data available - run calculations to generate payouts',
+      descriptionEs: 'Datos confirmados disponibles - ejecute calculos para generar pagos',
+      workspace: 'operate',
+      route: '/operate/calculate',
+      timestamp: new Date().toISOString(),
+      read: false,
+    });
+  }
+
+  return items;
+}
+
+/**
+ * Get approval items from localStorage
+ */
 function getApprovalItems(userId: string, tenantId: string, role: UserRole): QueueItem[] {
-  // Only admins and managers see approval items
   if (role === 'sales_rep') return [];
 
   try {
@@ -73,7 +205,7 @@ function getApprovalItems(userId: string, tenantId: string, role: UserRole): Que
             type: 'approval' as QueueItemType,
             urgency: (a.amount && a.amount > 10000 ? 'high' : 'medium') as QueueUrgency,
             title: `Approval Required: ${a.type}`,
-            titleEs: `Aprobación Requerida: ${a.type}`,
+            titleEs: `Aprobacion Requerida: ${a.type}`,
             description: a.employeeName ? `For ${a.employeeName}` : 'Review and approve',
             descriptionEs: a.employeeName ? `Para ${a.employeeName}` : 'Revisar y aprobar',
             workspace: 'operate' as WorkspaceId,
@@ -84,46 +216,16 @@ function getApprovalItems(userId: string, tenantId: string, role: UserRole): Que
       }
     }
   } catch {
-    // Return mock data for demo
-  }
-
-  // Mock approvals for demo
-  if (role === 'cc_admin' || role === 'admin') {
-    return [
-      {
-        id: 'approval-mock-1',
-        type: 'approval',
-        urgency: 'high',
-        title: 'Compensation Adjustment',
-        titleEs: 'Ajuste de Compensación',
-        description: '$12,500 adjustment for Maria Rodriguez',
-        descriptionEs: 'Ajuste de $12,500 para María Rodríguez',
-        workspace: 'operate',
-        route: '/operate/approve',
-        timestamp: new Date(Date.now() - 3600000).toISOString(),
-        read: false,
-      },
-      {
-        id: 'approval-mock-2',
-        type: 'approval',
-        urgency: 'medium',
-        title: 'Plan Amendment',
-        titleEs: 'Modificación de Plan',
-        description: 'West Region bonus tier update',
-        descriptionEs: 'Actualización de nivel de bono Región Oeste',
-        workspace: 'operate',
-        route: '/operate/approve',
-        timestamp: new Date(Date.now() - 7200000).toISOString(),
-        read: false,
-      },
-    ];
+    // No stored approvals
   }
 
   return [];
 }
 
+/**
+ * Get data quality items from stored issues
+ */
 function getDataQualityItems(tenantId: string, role: UserRole): QueueItem[] {
-  // Only admins see data quality items
   if (role !== 'cc_admin' && role !== 'admin') return [];
 
   try {
@@ -152,40 +254,15 @@ function getDataQualityItems(tenantId: string, role: UserRole): QueueItem[] {
       }
     }
   } catch {
-    // Return mock data
+    // No stored quality issues
   }
 
-  // Mock data quality items
-  return [
-    {
-      id: 'quality-mock-1',
-      type: 'data_quality',
-      urgency: 'critical',
-      title: 'Missing Employee IDs',
-      titleEs: 'IDs de Empleado Faltantes',
-      description: '12 records without valid employee mapping',
-      descriptionEs: '12 registros sin mapeo de empleado válido',
-      workspace: 'operate',
-      route: '/operate/monitor/quality',
-      timestamp: new Date(Date.now() - 1800000).toISOString(),
-      read: false,
-    },
-    {
-      id: 'quality-mock-2',
-      type: 'data_quality',
-      urgency: 'high',
-      title: 'Duplicate Transactions',
-      titleEs: 'Transacciones Duplicadas',
-      description: '5 potential duplicates detected',
-      descriptionEs: '5 posibles duplicados detectados',
-      workspace: 'operate',
-      route: '/operate/monitor/quality',
-      timestamp: new Date(Date.now() - 5400000).toISOString(),
-      read: false,
-    },
-  ];
+  return [];
 }
 
+/**
+ * Get dispute items from stored disputes
+ */
 function getDisputeItems(userId: string, tenantId: string, role: UserRole): QueueItem[] {
   try {
     const disputesKey = `${tenantId}_disputes`;
@@ -205,7 +282,7 @@ function getDisputeItems(userId: string, tenantId: string, role: UserRole): Queu
           title: d.type || 'Dispute',
           titleEs: d.type || 'Disputa',
           description: d.amount ? `Amount: $${d.amount.toLocaleString()}` : 'Review required',
-          descriptionEs: d.amount ? `Monto: $${d.amount.toLocaleString()}` : 'Revisión requerida',
+          descriptionEs: d.amount ? `Monto: $${d.amount.toLocaleString()}` : 'Revision requerida',
           workspace: (role === 'sales_rep' ? 'perform' : 'investigate') as WorkspaceId,
           route: role === 'sales_rep' ? '/perform/inquiries' : '/investigate/disputes',
           timestamp: d.createdAt || new Date().toISOString(),
@@ -214,110 +291,150 @@ function getDisputeItems(userId: string, tenantId: string, role: UserRole): Queu
       }
     }
   } catch {
-    // Return mock data
-  }
-
-  // Mock dispute for managers/admins
-  if (role === 'admin' || role === 'cc_admin' || role === 'manager') {
-    return [
-      {
-        id: 'dispute-mock-1',
-        type: 'dispute',
-        urgency: 'medium',
-        title: 'Commission Dispute',
-        titleEs: 'Disputa de Comisión',
-        description: 'James Wilson - $2,340 difference',
-        descriptionEs: 'James Wilson - diferencia de $2,340',
-        workspace: 'investigate',
-        route: '/investigate/disputes',
-        timestamp: new Date(Date.now() - 86400000).toISOString(),
-        read: false,
-      },
-    ];
+    // No stored disputes
   }
 
   return [];
 }
 
-function getReconciliationItems(tenantId: string, role: UserRole): QueueItem[] {
+/**
+ * Get calculation error items from stored runs
+ */
+function getCalculationItems(tenantId: string, role: UserRole): QueueItem[] {
   if (role !== 'cc_admin' && role !== 'admin') return [];
 
-  // Mock reconciliation items
-  return [
-    {
-      id: 'recon-mock-1',
-      type: 'reconciliation',
-      urgency: 'high',
-      title: 'Unresolved Variance',
-      titleEs: 'Varianza Sin Resolver',
-      description: '$8,240 variance in West Region',
-      descriptionEs: 'Varianza de $8,240 en Región Oeste',
-      workspace: 'operate',
-      route: '/operate/reconcile',
-      timestamp: new Date(Date.now() - 43200000).toISOString(),
-      read: false,
-    },
-  ];
-}
+  const items: QueueItem[] = [];
 
-function getAlertItems(userId: string, tenantId: string, role: UserRole): QueueItem[] {
-  const alerts: QueueItem[] = [];
+  try {
+    const runsStored = localStorage.getItem(STORAGE_KEYS.CALCULATION_RUNS);
+    if (runsStored) {
+      const runs: Array<{
+        id: string;
+        tenantId: string;
+        status: string;
+        errorCount: number;
+        startedAt: string;
+      }> = JSON.parse(runsStored);
 
-  // Budget alerts for admins
-  if (role === 'cc_admin' || role === 'admin') {
-    alerts.push({
-      id: 'alert-budget-1',
-      type: 'alert',
-      urgency: 'high',
-      title: 'Budget Threshold',
-      titleEs: 'Umbral de Presupuesto',
-      description: 'West Region at 92% of Q1 budget',
-      descriptionEs: 'Región Oeste al 92% del presupuesto Q1',
-      workspace: 'design',
-      route: '/design/budget',
-      timestamp: new Date(Date.now() - 10800000).toISOString(),
-      read: false,
-    });
+      // Find runs with errors
+      const errorRuns = runs
+        .filter(r => r.tenantId === tenantId && r.status === 'completed' && r.errorCount > 0)
+        .slice(0, 2);
+
+      for (const run of errorRuns) {
+        items.push({
+          id: `calc-errors-${run.id}`,
+          type: 'alert' as QueueItemType,
+          urgency: 'high' as QueueUrgency,
+          title: 'Calculation Errors',
+          titleEs: 'Errores de Calculo',
+          description: `${run.errorCount} errors in last calculation run`,
+          descriptionEs: `${run.errorCount} errores en la ultima ejecucion`,
+          workspace: 'investigate' as WorkspaceId,
+          route: '/investigate/calculations',
+          timestamp: run.startedAt,
+          read: false,
+        });
+      }
+    }
+  } catch {
+    // No calculation runs
   }
 
-  // Goal alerts for reps
-  if (role === 'sales_rep') {
-    alerts.push({
-      id: 'alert-goal-1',
-      type: 'alert',
-      urgency: 'medium',
-      title: 'Goal Milestone',
-      titleEs: 'Hito de Meta',
-      description: 'You are 85% to your monthly target',
-      descriptionEs: 'Estás al 85% de tu meta mensual',
-      workspace: 'perform',
-      route: '/perform/compensation',
-      timestamp: new Date(Date.now() - 21600000).toISOString(),
-      read: true,
-    });
-  }
-
-  return alerts;
+  return items;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function getNotificationItems(userId: string, tenantId: string): QueueItem[] {
-  // Mock notifications
-  return [
-    {
-      id: 'notif-mock-1',
-      type: 'notification',
-      urgency: 'low',
-      title: 'Import Complete',
-      titleEs: 'Importación Completa',
-      description: 'February transaction data imported',
-      descriptionEs: 'Datos de transacciones de febrero importados',
-      workspace: 'operate',
-      route: '/operate/import',
-      timestamp: new Date(Date.now() - 172800000).toISOString(),
-      read: true,
-    },
-  ];
+// =============================================================================
+// SYSTEM STATE HELPERS
+// =============================================================================
+
+function hasTenantPlans(tenantId: string): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.PLANS);
+    if (!stored) return false;
+    const plans = JSON.parse(stored);
+    return plans.some((p: { tenantId: string }) => p.tenantId === tenantId);
+  } catch {
+    return false;
+  }
+}
+
+function hasTenantActivePlan(tenantId: string): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.PLANS);
+    if (!stored) return false;
+    const plans = JSON.parse(stored);
+    return plans.some((p: { tenantId: string; status: string }) =>
+      p.tenantId === tenantId && p.status === 'active'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function getTenantDraftPlans(tenantId: string): string[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.PLANS);
+    if (!stored) return [];
+    const plans = JSON.parse(stored);
+    return plans
+      .filter((p: { tenantId: string; status: string }) =>
+        p.tenantId === tenantId && p.status === 'draft'
+      )
+      .map((p: { id: string }) => p.id);
+  } catch {
+    return [];
+  }
+}
+
+function hasTenantCommittedData(tenantId: string): boolean {
+  try {
+    const batchesStored = localStorage.getItem(STORAGE_KEYS.BATCHES);
+    if (!batchesStored) return false;
+
+    const batches: [string, { tenantId: string; status?: string }][] = JSON.parse(batchesStored);
+    const tenantBatchIds = batches
+      .filter(([, b]) => b.tenantId === tenantId)
+      .map(([id]) => id);
+
+    if (tenantBatchIds.length === 0) return false;
+
+    const committedStored = localStorage.getItem(STORAGE_KEYS.COMMITTED);
+    if (!committedStored) return false;
+
+    const committed: [string, { importBatchId: string; status: string }][] = JSON.parse(committedStored);
+    return committed.some(([, r]) =>
+      tenantBatchIds.includes(r.importBatchId) && r.status === 'active'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasTenantPeriods(tenantId: string): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.PERIODS);
+    if (!stored) return false;
+    const periods = JSON.parse(stored);
+    return Array.isArray(periods) && periods.some((p: { tenantId?: string }) =>
+      !p.tenantId || p.tenantId === tenantId
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasTenantCalculations(tenantId: string): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.CALCULATION_RUNS);
+    if (!stored) return false;
+    const runs = JSON.parse(stored);
+    return runs.some((r: { tenantId: string; status: string }) =>
+      r.tenantId === tenantId && r.status === 'completed'
+    );
+  } catch {
+    return false;
+  }
 }
 
 // =============================================================================
@@ -347,14 +464,28 @@ export function getQueueCountByUrgency(items: QueueItem[]): Record<QueueUrgency,
  * Mark item as read
  */
 export function markQueueItemRead(itemId: string): void {
-  // In a real implementation, this would update the source system
-  console.log('Marking item read:', itemId);
+  // Implementation would update the source storage
+  console.log('Marking item as read:', itemId);
 }
 
 /**
- * Mark all items as read
+ * Get queue items grouped by workspace
  */
-export function markAllQueueItemsRead(userId: string, tenantId: string): void {
-  // In a real implementation, this would update all source systems
-  console.log('Marking all items read for:', userId, tenantId);
+export function getQueueItemsByWorkspace(items: QueueItem[]): Record<WorkspaceId, QueueItem[]> {
+  const grouped: Record<WorkspaceId, QueueItem[]> = {
+    perform: [],
+    investigate: [],
+    design: [],
+    configure: [],
+    govern: [],
+    operate: [],
+  };
+
+  for (const item of items) {
+    if (grouped[item.workspace]) {
+      grouped[item.workspace].push(item);
+    }
+  }
+
+  return grouped;
 }
