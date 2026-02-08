@@ -714,12 +714,15 @@ export default function DataPackageImportPage() {
         setAnalysisConfidence(data.confidence || 0);
 
         // Initialize field mappings from AI suggestions with auto-selection for high confidence
+        console.log('[Field Mapping] Target fields available:', targetFields.length, targetFields.map(f => f.id));
         const mappings: SheetFieldMapping[] = analyzedSheets
           .filter((sheet: AnalyzedSheet) => sheet.classification !== 'unrelated')
           .map((sheet: AnalyzedSheet) => {
             const sheetMappings = sheet.headers.map(header => {
+              // Case-insensitive matching with whitespace normalization
+              const headerNorm = header.toLowerCase().trim();
               const suggestion = sheet.suggestedFieldMappings?.find(
-                m => m.sourceColumn === header
+                m => m.sourceColumn.toLowerCase().trim() === headerNorm
               );
               const confidence = suggestion?.confidence || 0;
               // Auto-confirm if confidence >= 90% (high confidence)
@@ -736,6 +739,11 @@ export default function DataPackageImportPage() {
               // Use normalized field if confidence is high enough to show suggestion
               const effectiveTargetField = showSuggestion ? normalizedTargetField : null;
               const isRequired = targetFields.find(f => f.id === effectiveTargetField)?.isRequired || false;
+
+              // Debug logging
+              if (confidence >= 70) {
+                console.log(`[Field Mapping] ${header}: AI suggested "${suggestion?.targetField}" (${confidence}%) -> normalized to "${normalizedTargetField}" -> effective: "${effectiveTargetField}"`);
+              }
 
               return {
                 sourceColumn: header,
