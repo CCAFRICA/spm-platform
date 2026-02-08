@@ -292,3 +292,38 @@ export function usePulse() {
   const { pulseMetrics, isSpanish } = useNavigation();
   return { metrics: pulseMetrics, isSpanish };
 }
+
+/**
+ * Hook for acceleration features (smart suggestions, alerts)
+ */
+export function useAcceleration() {
+  const { cycleState, queueItems, activeWorkspace, userRole, isSpanish } = useNavigation();
+
+  // Import dynamically to avoid circular dependencies
+  const getSmartSuggestions = async () => {
+    const { getSmartSuggestions: getSuggestions } = await import('@/lib/navigation/acceleration-hints');
+    if (!cycleState || !userRole) return [];
+    return getSuggestions(
+      userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep',
+      cycleState.currentPhase,
+      cycleState.pendingActions,
+      activeWorkspace
+    );
+  };
+
+  const getProactiveAlerts = async () => {
+    const { getProactiveAlerts: getAlerts } = await import('@/lib/navigation/acceleration-hints');
+    if (!cycleState || !userRole) return [];
+    return getAlerts(
+      userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep',
+      cycleState.currentPhase,
+      queueItems
+    );
+  };
+
+  return {
+    getSmartSuggestions,
+    getProactiveAlerts,
+    isSpanish,
+  };
+}
