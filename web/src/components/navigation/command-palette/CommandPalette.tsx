@@ -7,7 +7,7 @@
  * Provides instant access to any page or action.
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 // cn is available if needed for conditional classes
 import { useCommandPalette, useNavigation } from '@/contexts/navigation-context';
@@ -160,10 +160,11 @@ export function CommandPalette() {
   const [recentItems, setRecentItems] = useState<CommandItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Load all commands based on user role
-  const allCommands = userRole
-    ? getCommands(userRole as UserRole, isSpanish)
-    : [];
+  // Load all commands based on user role - memoized to prevent infinite loops
+  const allCommands = useMemo(
+    () => (userRole ? getCommands(userRole as UserRole, isSpanish) : []),
+    [userRole, isSpanish]
+  );
 
   // Load recent commands
   useEffect(() => {
