@@ -14,6 +14,11 @@ import {
   type OrchestrationResult,
 } from '@/lib/orchestration/calculation-orchestrator';
 import { getPeriodProcessor } from '@/lib/payroll/period-processor';
+import {
+  getPlansWithStatus,
+  activatePlan,
+  ensureTenantPlans,
+} from '@/lib/compensation/plan-storage';
 import type { CalculationStep } from '@/types/compensation-plan';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -149,6 +154,13 @@ interface Period {
   status: string;
 }
 
+interface PlanStatus {
+  hasPlans: boolean;
+  hasActivePlan: boolean;
+  activePlanName: string | null;
+  draftPlans: Array<{ id: string; name: string }>;
+}
+
 export default function CalculatePage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -161,6 +173,13 @@ export default function CalculatePage() {
   const [recentRuns, setRecentRuns] = useState<CalculationRun[]>([]);
   const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [planStatus, setPlanStatus] = useState<PlanStatus>({
+    hasPlans: false,
+    hasActivePlan: false,
+    activePlanName: null,
+    draftPlans: [],
+  });
+  const [isActivating, setIsActivating] = useState(false);
 
   // CC Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
@@ -169,9 +188,26 @@ export default function CalculatePage() {
   // Check CC Admin access
   const hasAccess = user && isCCAdmin(user);
 
-  // Load periods
+  // Load periods and check plans
   useEffect(() => {
     if (!currentTenant) return;
+
+    // Ensure tenant has plans seeded
+    ensureTenantPlans(currentTenant.id);
+
+    // Check plan status
+    const plansWithStatus = getPlansWithStatus(currentTenant.id);
+    const activePlan = plansWithStatus.find((p) => p.isActive);
+    const draftPlans = plansWithStatus
+      .filter((p) => p.canActivate)
+      .map((p) => ({ id: p.plan.id, name: p.plan.name }));
+
+    setPlanStatus({
+      hasPlans: plansWithStatus.length > 0,
+      hasActivePlan: !!activePlan,
+      activePlanName: activePlan?.plan.name || null,
+      draftPlans,
+    });
 
     // Get periods from period processor
     try {
@@ -250,6 +286,35 @@ export default function CalculatePage() {
     }
   };
 
+  // Activate a draft plan
+  const handleActivatePlan = async (planId: string) => {
+    if (!user || !currentTenant) return;
+
+    setIsActivating(true);
+    try {
+      const activated = activatePlan(planId, user.name);
+      if (activated) {
+        // Refresh plan status
+        const plansWithStatus = getPlansWithStatus(currentTenant.id);
+        const activePlan = plansWithStatus.find((p) => p.isActive);
+        const draftPlans = plansWithStatus
+          .filter((p) => p.canActivate)
+          .map((p) => ({ id: p.plan.id, name: p.plan.name }));
+
+        setPlanStatus({
+          hasPlans: plansWithStatus.length > 0,
+          hasActivePlan: !!activePlan,
+          activePlanName: activePlan?.plan.name || null,
+          draftPlans,
+        });
+      }
+    } catch (error) {
+      console.error('Error activating plan:', error);
+    } finally {
+      setIsActivating(false);
+    }
+  };
+
   // Toggle employee expansion
   const toggleEmployee = (employeeId: string) => {
     setExpandedEmployee(expandedEmployee === employeeId ? null : employeeId);
@@ -316,6 +381,54 @@ export default function CalculatePage() {
         </div>
       </div>
 
+      {/* Plan Status */}
+      {!planStatus.hasActivePlan && planStatus.draftPlans.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+              <AlertTriangle className="h-5 w-5" />
+              {locale === 'es-MX' ? 'Plan Pendiente de Activacion' : 'Plan Pending Activation'}
+            </CardTitle>
+            <CardDescription className="text-amber-700 dark:text-amber-300">
+              {locale === 'es-MX'
+                ? 'Los siguientes planes estan en borrador. Active uno para ejecutar calculos.'
+                : 'The following plans are in draft status. Activate one to run calculations.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {planStatus.draftPlans.map((plan) => (
+                <Button
+                  key={plan.id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleActivatePlan(plan.id)}
+                  disabled={isActivating}
+                  className="bg-white dark:bg-slate-800"
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  {locale === 'es-MX' ? 'Activar' : 'Activate'}: {plan.name}
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {planStatus.hasActivePlan && (
+        <Card className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 text-green-800 dark:text-green-200">
+              <CheckCircle2 className="h-5 w-5" />
+              <span className="font-medium">
+                {locale === 'es-MX' ? 'Plan Activo' : 'Active Plan'}:
+              </span>
+              <span>{planStatus.activePlanName}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Period Selection & Run */}
       <Card>
         <CardHeader>
@@ -353,7 +466,7 @@ export default function CalculatePage() {
                   setRunType('preview');
                   handleRunCalculation();
                 }}
-                disabled={!selectedPeriod || isRunning}
+                disabled={!selectedPeriod || isRunning || !planStatus.hasActivePlan}
               >
                 <Eye className="h-4 w-4 mr-2" />
                 {t.runPreview}
@@ -363,7 +476,7 @@ export default function CalculatePage() {
                   setRunType('official');
                   handleRunCalculation();
                 }}
-                disabled={!selectedPeriod || isRunning}
+                disabled={!selectedPeriod || isRunning || !planStatus.hasActivePlan}
               >
                 <Play className="h-4 w-4 mr-2" />
                 {t.runOfficial}

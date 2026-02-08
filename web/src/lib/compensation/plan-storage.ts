@@ -226,6 +226,43 @@ export function archivePlan(planId: string, userId: string): CompensationPlanCon
   });
 }
 
+/**
+ * Directly activate a plan (bypasses approval workflow).
+ * Use for demo/testing or when approval is handled externally.
+ */
+export function activatePlan(planId: string, userId: string): CompensationPlanConfig | null {
+  const plan = getPlan(planId);
+  if (!plan) return null;
+
+  // Can activate from draft or pending_approval
+  if (plan.status !== 'draft' && plan.status !== 'pending_approval') {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+
+  // Archive previous active versions for same tenant/roles
+  const plans = getAllPlans();
+  plans.forEach((p) => {
+    if (
+      p.id !== planId &&
+      p.tenantId === plan.tenantId &&
+      p.status === 'active' &&
+      p.eligibleRoles.some((r) => plan.eligibleRoles.includes(r))
+    ) {
+      savePlan({ ...p, status: 'archived', updatedBy: userId });
+    }
+  });
+
+  return savePlan({
+    ...plan,
+    status: 'active',
+    approvedBy: userId,
+    approvedAt: now,
+    updatedBy: userId,
+  });
+}
+
 // ============================================
 // CHANGE TRACKING
 // ============================================
@@ -656,6 +693,41 @@ export function initializePlans(): void {
     const defaults = getDefaultPlans();
     localStorage.setItem(STORAGE_KEY_PLANS, JSON.stringify(defaults));
   }
+}
+
+/**
+ * Ensure a tenant has at least default plans seeded.
+ * Call this when a tenant accesses calculation features.
+ */
+export function ensureTenantPlans(tenantId: string): void {
+  if (typeof window === 'undefined') return;
+
+  const existing = getPlans(tenantId);
+  if (existing.length > 0) return;
+
+  // No plans for this tenant - seed defaults based on tenant ID
+  const defaults = getDefaultPlans();
+  const tenantDefaults = defaults.filter((p) => p.tenantId === tenantId);
+
+  if (tenantDefaults.length > 0) {
+    // Tenant has matching default plans - save them
+    const allPlans = getAllPlans();
+    const updated = [...allPlans, ...tenantDefaults];
+    localStorage.setItem(STORAGE_KEY_PLANS, JSON.stringify(updated));
+  }
+}
+
+/**
+ * Get all plans (active or not) for a tenant with their status.
+ * Useful for UI to show available plans.
+ */
+export function getPlansWithStatus(tenantId: string): Array<{ plan: CompensationPlanConfig; isActive: boolean; canActivate: boolean }> {
+  const plans = getPlans(tenantId);
+  return plans.map((plan) => ({
+    plan,
+    isActive: plan.status === 'active',
+    canActivate: plan.status === 'draft' || plan.status === 'pending_approval',
+  }));
 }
 
 export function resetToDefaults(): void {
