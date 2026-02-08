@@ -33,7 +33,10 @@
       "Bash(then echo \"HAS OVERRIDE: $f\" else echo \"MISSING OVERRIDE: $f\" fi done)",
       "Bash(test:*)",
       "Bash(npx tsx:*)",
-      "Bash(xargs kill:*)"
+      "Bash(xargs kill:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(head -10 echo \"\" echo \"2.2 Orchestrator Employee Source Priority:\" grep -n \"extractEmployeesFromCommittedData\\\\|getDemoEmployees\\\\|Only fall back\" src/lib/orchestration/calculation-orchestrator.ts)",
+      "Bash(head -5 echo \"\" echo \"2.3 Context Resolver Employee Source Priority:\" grep -n \"extractEmployeesFromCommittedData\\\\|getDefaultEmployees\\\\|Only fall back\" src/lib/calculation/context-resolver.ts)"
     ]
   }
 }
