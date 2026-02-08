@@ -195,23 +195,132 @@ function getPeriodById(tenantId: string, periodId: string): PeriodContext | null
 }
 
 /**
- * Get employees for tenant
+ * Get employees for tenant - checks stored data, then committed data, then demo fallback
  */
 function getEmployees(tenantId: string): EmployeeContext[] {
   if (typeof window === 'undefined') return [];
 
+  // First try stored employee data
   const stored = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
-  if (!stored) {
-    // Return demo employees if no data
-    return getDefaultEmployees(tenantId);
+  if (stored) {
+    try {
+      const employees: EmployeeContext[] = JSON.parse(stored);
+      const filtered = employees.filter((e) => e.tenantId === tenantId);
+      if (filtered.length > 0) {
+        return filtered;
+      }
+    } catch {
+      // Continue to next source
+    }
   }
 
-  try {
-    const employees: EmployeeContext[] = JSON.parse(stored);
-    return employees.filter((e) => e.tenantId === tenantId);
-  } catch {
-    return getDefaultEmployees(tenantId);
+  // Then try extracting employees from committed data (imported roster)
+  const committedEmployees = extractEmployeesFromCommittedData(tenantId);
+  if (committedEmployees.length > 0) {
+    return committedEmployees;
   }
+
+  // Only fall back to demo employees if no real data exists
+  return getDefaultEmployees(tenantId);
+}
+
+/**
+ * Extract employee records from committed import data
+ * Looks for roster sheets (Datos Colaborador) in the committed data
+ */
+function extractEmployeesFromCommittedData(tenantId: string): EmployeeContext[] {
+  if (typeof window === 'undefined') return [];
+
+  const employees: EmployeeContext[] = [];
+  const seenIds = new Set<string>();
+
+  // Get tenant batch IDs
+  const batchesStored = localStorage.getItem(STORAGE_KEYS.BATCHES);
+  if (!batchesStored) return [];
+
+  let tenantBatchIds: string[] = [];
+  try {
+    const batches: [string, { tenantId: string; sourceFile?: string }][] = JSON.parse(batchesStored);
+    tenantBatchIds = batches
+      .filter(([, batch]) => batch.tenantId === tenantId)
+      .map(([id]) => id);
+  } catch {
+    return [];
+  }
+
+  if (tenantBatchIds.length === 0) return [];
+
+  // Get committed records
+  const committedStored = localStorage.getItem(STORAGE_KEYS.COMMITTED);
+  if (!committedStored) return [];
+
+  try {
+    const committed: [
+      string,
+      {
+        importBatchId: string;
+        status: string;
+        content: Record<string, unknown>;
+      }
+    ][] = JSON.parse(committedStored);
+
+    for (const [, record] of committed) {
+      if (
+        !tenantBatchIds.includes(record.importBatchId) ||
+        record.status !== 'active'
+      ) {
+        continue;
+      }
+
+      // Check if this record looks like an employee roster entry
+      const content = record.content;
+      const employeeId = extractEmployeeId(content);
+
+      if (!employeeId || seenIds.has(employeeId)) continue;
+
+      // Check for employee-like fields (name, role, store, etc.)
+      const hasNameField = content['nombre'] || content['name'] ||
+        content['first_name'] || content['firstName'] ||
+        content['nombre_completo'] || content['Nombre'];
+
+      if (!hasNameField) continue;
+
+      seenIds.add(employeeId);
+
+      // Extract employee context from record
+      const firstName = String(content['nombre'] || content['first_name'] ||
+        content['firstName'] || content['nombre_completo'] || content['Nombre'] || '').split(' ')[0];
+      const lastName = String(content['apellido'] || content['apellido_paterno'] ||
+        content['last_name'] || content['lastName'] || '').trim() ||
+        String(content['nombre'] || content['nombre_completo'] || content['Nombre'] || '').split(' ').slice(1).join(' ');
+
+      employees.push({
+        id: employeeId,
+        tenantId,
+        employeeNumber: String(content['num_empleado'] || content['Num_Empleado'] ||
+          content['employee_number'] || content['employeeNumber'] || employeeId),
+        firstName: firstName || 'Unknown',
+        lastName: lastName || 'Employee',
+        email: String(content['email'] || content['correo'] || ''),
+        role: String(content['puesto'] || content['Puesto'] || content['role'] ||
+          content['position'] || content['cargo'] || 'sales_rep'),
+        department: String(content['departamento'] || content['department'] || ''),
+        storeId: String(content['no_tienda'] || content['No_Tienda'] ||
+          content['store_id'] || content['storeId'] || content['tienda'] || ''),
+        storeName: String(content['nombre_tienda'] || content['store_name'] ||
+          content['storeName'] || ''),
+        managerId: String(content['manager_id'] || content['id_gerente'] || ''),
+        hireDate: String(content['fecha_ingreso'] || content['hire_date'] || ''),
+        status: 'active' as const,
+        isCertified: Boolean(content['certificado'] || content['certified'] ||
+          content['es_certificado'] || false),
+      });
+    }
+  } catch {
+    return [];
+  }
+
+  return employees;
 }
 
 /**
@@ -341,8 +450,10 @@ function resolveMappingsForEmployees(
  * Extract employee ID from record content
  */
 function extractEmployeeId(content: Record<string, unknown>): string | null {
-  // Try common employee ID fields
+  // Try common employee ID fields (including Spanish variants)
   const idFields = [
+    'num_empleado',        // RetailCGMX primary key
+    'Num_Empleado',        // Case variant
     'employee_id',
     'employeeId',
     'emp_id',
@@ -353,6 +464,7 @@ function extractEmployeeId(content: Record<string, unknown>): string | null {
     'emp_num',
     'numero_empleado',
     'id_empleado',
+    'No_Empleado',
   ];
 
   for (const field of idFields) {

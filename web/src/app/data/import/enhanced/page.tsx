@@ -2446,7 +2446,7 @@ export default function DataPackageImportPage() {
               </Card>
 
               {/* Active Plan Reference */}
-              {activePlan && (
+              {activePlan ? (
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
@@ -2467,7 +2467,7 @@ export default function DataPackageImportPage() {
                     {activePlan.configuration && isAdditiveLookupConfig(activePlan.configuration) && (
                       <div className="mt-3 pt-3 border-t">
                         <p className="text-xs text-muted-foreground mb-2">
-                          {isSpanish ? 'Componentes del Plan' : 'Plan Components'}:
+                          {isSpanish ? 'Componentes del Plan' : 'Plan Components'} ({activePlan.configuration.variants[0]?.components?.length || 0}):
                         </p>
                         <div className="flex flex-wrap gap-2">
                           {activePlan.configuration.variants[0]?.components?.map(comp => (
@@ -2478,6 +2478,25 @@ export default function DataPackageImportPage() {
                         </div>
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                      <AlertTriangle className="h-4 w-4" />
+                      {isSpanish ? 'Sin Plan Activo' : 'No Active Plan'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-amber-700 dark:text-amber-300 mb-3">
+                      {isSpanish
+                        ? 'Importe un plan de compensación primero para habilitar el mapeo de campos basado en componentes.'
+                        : 'Import a compensation plan first to enable component-based field mapping.'}
+                    </p>
+                    <a href="/admin/launch/plan-import" className="text-sm text-primary hover:underline">
+                      {isSpanish ? 'Importar Plan →' : 'Import Plan →'}
+                    </a>
                   </CardContent>
                 </Card>
               )}
