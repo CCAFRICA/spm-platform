@@ -254,13 +254,15 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
           {/* Tenant Switcher (CC Admin only) */}
           <TenantSwitcher />
 
-          {/* Settings */}
+          {/* Settings - Hidden on desktop as Rail has user menu */}
           <Button variant="ghost" size="icon" className="hidden md:flex">
             <Settings className="h-5 w-5 text-slate-500" />
           </Button>
 
-          {/* User Menu */}
-          <UserMenu />
+          {/* User Menu - Only show on mobile since Rail has UserIdentity on desktop */}
+          <div className="md:hidden">
+            <UserMenu />
+          </div>
         </div>
       </div>
 
