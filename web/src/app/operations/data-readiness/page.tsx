@@ -75,99 +75,17 @@ interface AlertConfig {
   frequency: 'every' | 'daily' | 'weekly';
 }
 
-const mockFiles: ExpectedFile[] = [
-  {
-    id: '1',
-    name: 'cheques_diarios.csv',
-    type: 'CSV',
-    frequency: 'Daily',
-    status: 'ready',
-    lastReceived: '2024-12-15 06:00',
-    columns: [
-      { id: '1', name: 'numero_cheque', type: 'number', required: true },
-      { id: '2', name: 'fecha', type: 'date', required: true },
-      { id: '3', name: 'mesero_id', type: 'string', required: true },
-      { id: '4', name: 'total_alimentos', type: 'number', required: true },
-      { id: '5', name: 'total_bebidas', type: 'number', required: true },
-      { id: '6', name: 'propina', type: 'number', required: false },
-    ],
-  },
-  {
-    id: '2',
-    name: 'meseros_actualizacion.csv',
-    type: 'CSV',
-    frequency: 'Weekly',
-    status: 'pending',
-    lastReceived: '2024-12-08 08:00',
-    columns: [
-      { id: '1', name: 'mesero_id', type: 'string', required: true },
-      { id: '2', name: 'nombre', type: 'string', required: true },
-      { id: '3', name: 'franquicia_id', type: 'string', required: true },
-      { id: '4', name: 'activo', type: 'boolean', required: true },
-    ],
-  },
-  {
-    id: '3',
-    name: 'ventas_consolidado.xlsx',
-    type: 'Excel',
-    frequency: 'Monthly',
-    status: 'ready',
-    lastReceived: '2024-12-01 09:00',
-    columns: [
-      { id: '1', name: 'periodo', type: 'string', required: true },
-      { id: '2', name: 'franquicia_id', type: 'string', required: true },
-      { id: '3', name: 'ventas_totales', type: 'number', required: true },
-      { id: '4', name: 'comisiones', type: 'number', required: true },
-    ],
-  },
-  {
-    id: '4',
-    name: 'inventario.json',
-    type: 'JSON',
-    frequency: 'Daily',
-    status: 'error',
-    lastReceived: '2024-12-14 06:00',
-    columns: [
-      { id: '1', name: 'sku', type: 'string', required: true },
-      { id: '2', name: 'producto', type: 'string', required: true },
-      { id: '3', name: 'cantidad', type: 'number', required: true },
-      { id: '4', name: 'ubicacion', type: 'string', required: true },
-    ],
-  },
-  {
-    id: '5',
-    name: 'metas_equipo.csv',
-    type: 'CSV',
-    frequency: 'Monthly',
-    status: 'overdue',
-    lastReceived: '2024-11-01 08:00',
-    columns: [
-      { id: '1', name: 'equipo_id', type: 'string', required: true },
-      { id: '2', name: 'meta_ventas', type: 'number', required: true },
-      { id: '3', name: 'periodo', type: 'date', required: true },
-    ],
-  },
-];
-
-const mockAlertConfigs: AlertConfig[] = [
-  {
-    id: '1',
-    fileId: '1',
-    recipients: ['admin@restaurantmx.com', 'ops@restaurantmx.com'],
-    timing: 'immediate',
-    includeDetails: true,
-    includeSummary: true,
-    includeErrorLog: false,
-    frequency: 'every',
-  },
-];
+// No mock data - expected files will be configured by admin
+// Empty arrays show proper empty state to user
+const initialFiles: ExpectedFile[] = [];
+const initialAlertConfigs: AlertConfig[] = [];
 
 export default function DataReadinessPage() {
   const { currentTenant } = useTenant();
   const isSpanish = currentTenant?.locale === 'es-MX';
 
-  const [files, setFiles] = useState<ExpectedFile[]>(mockFiles);
-  const [alertConfigs, setAlertConfigs] = useState<AlertConfig[]>(mockAlertConfigs);
+  const [files, setFiles] = useState<ExpectedFile[]>(initialFiles);
+  const [alertConfigs, setAlertConfigs] = useState<AlertConfig[]>(initialAlertConfigs);
   const [schemaModalOpen, setSchemaModalOpen] = useState(false);
   const [alertModalOpen, setAlertModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<ExpectedFile | null>(null);
@@ -327,49 +245,76 @@ export default function DataReadinessPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{isSpanish ? 'Nombre' : 'Name'}</TableHead>
-                <TableHead>{isSpanish ? 'Tipo' : 'Type'}</TableHead>
-                <TableHead>{isSpanish ? 'Frecuencia' : 'Frequency'}</TableHead>
-                <TableHead>{isSpanish ? 'Estado' : 'Status'}</TableHead>
-                <TableHead>{isSpanish ? 'Última Recepción' : 'Last Received'}</TableHead>
-                <TableHead className="text-right">{isSpanish ? 'Acciones' : 'Actions'}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {files.map(file => (
-                <TableRow key={file.id}>
-                  <TableCell className="font-medium font-mono">{file.name}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{file.type}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {isSpanish
-                      ? file.frequency === 'Daily' ? 'Diario' : file.frequency === 'Weekly' ? 'Semanal' : 'Mensual'
-                      : file.frequency}
-                  </TableCell>
-                  <TableCell>{getStatusBadge(file.status)}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {file.lastReceived || '-'}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openSchemaEditor(file)}>
-                        <Settings className="h-4 w-4 mr-1" />
-                        {isSpanish ? 'Esquema' : 'Schema'}
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => openAlertConfig(file)}>
-                        <Bell className="h-4 w-4 mr-1" />
-                        {isSpanish ? 'Alertas' : 'Alerts'}
-                      </Button>
-                    </div>
-                  </TableCell>
+          {files.length === 0 ? (
+            <div className="py-12 text-center">
+              <FileSpreadsheet className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+              <h3 className="text-lg font-medium mb-2">
+                {isSpanish ? 'No hay archivos configurados' : 'No Files Configured'}
+              </h3>
+              <p className="text-muted-foreground mb-4 max-w-md mx-auto">
+                {isSpanish
+                  ? 'Configure los archivos de datos esperados para monitorear su recepción y validar su estructura automáticamente.'
+                  : 'Configure expected data files to monitor their reception and automatically validate their structure.'}
+              </p>
+              <div className="flex justify-center gap-3">
+                <Button variant="outline" asChild>
+                  <a href="/data/import/enhanced">
+                    <Database className="h-4 w-4 mr-2" />
+                    {isSpanish ? 'Importar Datos' : 'Import Data'}
+                  </a>
+                </Button>
+                <Button variant="outline" asChild>
+                  <a href="/integrations/catalog">
+                    {isSpanish ? 'Configurar Integración' : 'Configure Integration'}
+                  </a>
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{isSpanish ? 'Nombre' : 'Name'}</TableHead>
+                  <TableHead>{isSpanish ? 'Tipo' : 'Type'}</TableHead>
+                  <TableHead>{isSpanish ? 'Frecuencia' : 'Frequency'}</TableHead>
+                  <TableHead>{isSpanish ? 'Estado' : 'Status'}</TableHead>
+                  <TableHead>{isSpanish ? 'Última Recepción' : 'Last Received'}</TableHead>
+                  <TableHead className="text-right">{isSpanish ? 'Acciones' : 'Actions'}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {files.map(file => (
+                  <TableRow key={file.id}>
+                    <TableCell className="font-medium font-mono">{file.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{file.type}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {isSpanish
+                        ? file.frequency === 'Daily' ? 'Diario' : file.frequency === 'Weekly' ? 'Semanal' : 'Mensual'
+                        : file.frequency}
+                    </TableCell>
+                    <TableCell>{getStatusBadge(file.status)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {file.lastReceived || '-'}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => openSchemaEditor(file)}>
+                          <Settings className="h-4 w-4 mr-1" />
+                          {isSpanish ? 'Esquema' : 'Schema'}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => openAlertConfig(file)}>
+                          <Bell className="h-4 w-4 mr-1" />
+                          {isSpanish ? 'Alertas' : 'Alerts'}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 

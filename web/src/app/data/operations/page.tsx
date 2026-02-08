@@ -37,20 +37,15 @@ interface DailyJob {
   recordsProcessed?: number;
 }
 
-const mockJobs: DailyJob[] = [
-  { id: '1', name: 'Transaction Import', description: 'Import daily transaction data from POS', schedule: '06:00 AM', lastRun: '2024-12-15 06:00:15', nextRun: '2024-12-16 06:00:00', status: 'success', duration: '2m 34s', recordsProcessed: 1247 },
-  { id: '2', name: 'Commission Calculation', description: 'Calculate daily commissions for all reps', schedule: '07:00 AM', lastRun: '2024-12-15 07:00:22', nextRun: '2024-12-16 07:00:00', status: 'success', duration: '5m 12s', recordsProcessed: 89 },
-  { id: '3', name: 'Performance Metrics', description: 'Aggregate performance metrics', schedule: '07:30 AM', lastRun: '2024-12-15 07:30:00', nextRun: '2024-12-16 07:30:00', status: 'success', duration: '1m 45s', recordsProcessed: 156 },
-  { id: '4', name: 'Report Generation', description: 'Generate daily summary reports', schedule: '08:00 AM', lastRun: '2024-12-15 08:00:00', nextRun: '2024-12-16 08:00:00', status: 'running', duration: '-' },
-  { id: '5', name: 'Data Backup', description: 'Backup transactional data', schedule: '11:00 PM', lastRun: '2024-12-14 23:00:00', nextRun: '2024-12-15 23:00:00', status: 'pending' },
-  { id: '6', name: 'Inventory Sync', description: 'Sync inventory from external system', schedule: '05:00 AM', lastRun: '2024-12-15 05:00:00', nextRun: '2024-12-16 05:00:00', status: 'failed', duration: '0m 45s', recordsProcessed: 0 },
-];
+// No mock data - jobs will be loaded from backend when available
+// Empty array shows proper empty state to user
+const initialJobs: DailyJob[] = [];
 
 export default function DailyOperationsPage() {
   const { currentTenant } = useTenant();
   const isSpanish = currentTenant?.locale === 'es-MX';
 
-  const [jobs, setJobs] = useState<DailyJob[]>(mockJobs);
+  const [jobs, setJobs] = useState<DailyJob[]>(initialJobs);
 
   const getStatusBadge = (status: string) => {
     const configs = {
@@ -168,56 +163,83 @@ export default function DailyOperationsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{isSpanish ? 'Trabajo' : 'Job'}</TableHead>
-                <TableHead>{isSpanish ? 'Horario' : 'Schedule'}</TableHead>
-                <TableHead>{isSpanish ? 'Última Ejecución' : 'Last Run'}</TableHead>
-                <TableHead>{isSpanish ? 'Duración' : 'Duration'}</TableHead>
-                <TableHead>{isSpanish ? 'Registros' : 'Records'}</TableHead>
-                <TableHead>{isSpanish ? 'Estado' : 'Status'}</TableHead>
-                <TableHead className="text-right">{isSpanish ? 'Acciones' : 'Actions'}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {jobs.map(job => (
-                <TableRow key={job.id}>
-                  <TableCell>
-                    <div>
-                      <p className="font-medium">{job.name}</p>
-                      <p className="text-sm text-muted-foreground">{job.description}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      {job.schedule}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm">{job.lastRun || '-'}</TableCell>
-                  <TableCell>{job.duration || '-'}</TableCell>
-                  <TableCell>
-                    {job.recordsProcessed !== undefined ? (
-                      <div className="flex items-center gap-1">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                        {job.recordsProcessed.toLocaleString()}
-                      </div>
-                    ) : '-'}
-                  </TableCell>
-                  <TableCell>{getStatusBadge(job.status)}</TableCell>
-                  <TableCell className="text-right">
-                    {job.status === 'failed' && (
-                      <Button variant="outline" size="sm" onClick={() => handleRetry(job.id)}>
-                        <RefreshCw className="h-4 w-4 mr-1" />
-                        {isSpanish ? 'Reintentar' : 'Retry'}
-                      </Button>
-                    )}
-                  </TableCell>
+          {jobs.length === 0 ? (
+            <div className="py-12 text-center">
+              <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+              <h3 className="text-lg font-medium mb-2">
+                {isSpanish ? 'No hay trabajos programados' : 'No Scheduled Jobs'}
+              </h3>
+              <p className="text-muted-foreground mb-4 max-w-md mx-auto">
+                {isSpanish
+                  ? 'Los trabajos automatizados aparecerán aquí una vez que se configuren las integraciones de datos y los flujos de cálculo.'
+                  : 'Automated jobs will appear here once data integrations and calculation workflows are configured.'}
+              </p>
+              <div className="flex justify-center gap-3">
+                <Button variant="outline" asChild>
+                  <a href="/data/import/enhanced">
+                    <Database className="h-4 w-4 mr-2" />
+                    {isSpanish ? 'Importar Datos' : 'Import Data'}
+                  </a>
+                </Button>
+                <Button variant="outline" asChild>
+                  <a href="/integrations/catalog">
+                    {isSpanish ? 'Ver Integraciones' : 'View Integrations'}
+                  </a>
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{isSpanish ? 'Trabajo' : 'Job'}</TableHead>
+                  <TableHead>{isSpanish ? 'Horario' : 'Schedule'}</TableHead>
+                  <TableHead>{isSpanish ? 'Última Ejecución' : 'Last Run'}</TableHead>
+                  <TableHead>{isSpanish ? 'Duración' : 'Duration'}</TableHead>
+                  <TableHead>{isSpanish ? 'Registros' : 'Records'}</TableHead>
+                  <TableHead>{isSpanish ? 'Estado' : 'Status'}</TableHead>
+                  <TableHead className="text-right">{isSpanish ? 'Acciones' : 'Actions'}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {jobs.map(job => (
+                  <TableRow key={job.id}>
+                    <TableCell>
+                      <div>
+                        <p className="font-medium">{job.name}</p>
+                        <p className="text-sm text-muted-foreground">{job.description}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        {job.schedule}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">{job.lastRun || '-'}</TableCell>
+                    <TableCell>{job.duration || '-'}</TableCell>
+                    <TableCell>
+                      {job.recordsProcessed !== undefined ? (
+                        <div className="flex items-center gap-1">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          {job.recordsProcessed.toLocaleString()}
+                        </div>
+                      ) : '-'}
+                    </TableCell>
+                    <TableCell>{getStatusBadge(job.status)}</TableCell>
+                    <TableCell className="text-right">
+                      {job.status === 'failed' && (
+                        <Button variant="outline" size="sm" onClick={() => handleRetry(job.id)}>
+                          <RefreshCw className="h-4 w-4 mr-1" />
+                          {isSpanish ? 'Reintentar' : 'Retry'}
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>
