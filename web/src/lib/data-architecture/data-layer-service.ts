@@ -652,6 +652,159 @@ export function getDataLayerStats(tenantId: string): {
   };
 }
 
+// ============================================
+// DIRECT COMMIT FOR UI IMPORTS
+// ============================================
+
+/**
+ * Directly commit import data from the UI without going through the full pipeline.
+ * Used by the enhanced import page when user clicks "Approve Import".
+ *
+ * This bypasses raw/transformed stages but still stores data in the format
+ * that extractEmployeesFromCommittedData() expects.
+ */
+export function directCommitImportData(
+  tenantId: string,
+  userId: string,
+  fileName: string,
+  sheetData: Array<{
+    sheetName: string;
+    rows: Record<string, unknown>[];
+    mappings?: Record<string, string>; // sourceColumn -> targetField
+  }>
+): { batchId: string; recordCount: number } {
+  const batchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+  // Create the import batch
+  const batch: ImportBatch = {
+    id: batchId,
+    tenantId,
+    sourceSystem: 'excel-import',
+    sourceFormat: 'xlsx',
+    fileName,
+    importedAt: new Date().toISOString(),
+    importedBy: userId,
+    status: 'approved',
+    summary: {
+      totalRecords: 0,
+      cleanRecords: 0,
+      autoCorrectedRecords: 0,
+      quarantinedRecords: 0,
+      rejectedRecords: 0,
+      dataQualityScore: 100,
+      anomalyFlags: [],
+    },
+  };
+
+  let totalRecords = 0;
+
+  // Process each sheet's data
+  for (const sheet of sheetData) {
+    for (let rowIndex = 0; rowIndex < sheet.rows.length; rowIndex++) {
+      const row = sheet.rows[rowIndex];
+      const recordId = `commit-${batchId}-${sheet.sheetName}-${rowIndex}`;
+
+      // Apply field mappings if provided
+      let content = { ...row };
+      if (sheet.mappings) {
+        const mappedContent: Record<string, unknown> = {};
+        for (const [sourceCol, value] of Object.entries(row)) {
+          const targetField = sheet.mappings[sourceCol];
+          if (targetField && targetField !== 'ignore') {
+            // Store both original and mapped field for flexibility
+            mappedContent[targetField] = value;
+          }
+          // Always keep original field too
+          mappedContent[sourceCol] = value;
+        }
+        content = mappedContent;
+      }
+
+      // Add sheet metadata
+      content._sheetName = sheet.sheetName;
+      content._rowIndex = rowIndex;
+
+      const committedRecord: CommittedRecord = {
+        id: recordId,
+        transformedRecordId: `trans-${recordId}`,
+        rawRecordId: `raw-${recordId}`,
+        importBatchId: batchId,
+        committedAt: new Date().toISOString(),
+        committedBy: userId,
+        content,
+        status: 'active',
+      };
+
+      memoryCache.committed.set(recordId, committedRecord);
+      totalRecords++;
+    }
+  }
+
+  // Update batch summary
+  batch.summary.totalRecords = totalRecords;
+  batch.summary.cleanRecords = totalRecords;
+  memoryCache.batches.set(batchId, batch);
+
+  // Persist to localStorage
+  persistAll();
+
+  console.log(`[DataLayer] Committed ${totalRecords} records from ${sheetData.length} sheets for tenant ${tenantId}`);
+
+  return { batchId, recordCount: totalRecords };
+}
+
+/**
+ * Store field mappings for a tenant/batch
+ */
+export function storeFieldMappings(
+  tenantId: string,
+  batchId: string,
+  mappings: Array<{
+    sheetName: string;
+    mappings: Record<string, string>;
+  }>
+): void {
+  const key = `field_mappings_${tenantId}`;
+  const existing = typeof window !== 'undefined'
+    ? JSON.parse(localStorage.getItem(key) || '{}')
+    : {};
+
+  existing[batchId] = {
+    timestamp: new Date().toISOString(),
+    mappings,
+  };
+
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(key, JSON.stringify(existing));
+  }
+}
+
+/**
+ * Get stored field mappings for a tenant
+ */
+export function getFieldMappings(tenantId: string, batchId?: string): Record<string, string> | null {
+  if (typeof window === 'undefined') return null;
+
+  const key = `field_mappings_${tenantId}`;
+  const stored = localStorage.getItem(key);
+  if (!stored) return null;
+
+  try {
+    const parsed = JSON.parse(stored);
+    if (batchId) {
+      return parsed[batchId]?.mappings || null;
+    }
+    // Return most recent batch's mappings
+    const batches = Object.entries(parsed).sort((a, b) =>
+      new Date((b[1] as { timestamp: string }).timestamp).getTime() -
+      new Date((a[1] as { timestamp: string }).timestamp).getTime()
+    );
+    return batches[0] ? (batches[0][1] as { mappings: Record<string, string> }).mappings : null;
+  } catch {
+    return null;
+  }
+}
+
 // Initialize on module load
 if (typeof window !== 'undefined') {
   initializeDataLayer();

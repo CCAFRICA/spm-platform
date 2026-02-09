@@ -8,14 +8,14 @@
  */
 
 // Mock localStorage for Node.js
-const mockStorage: Record<string, string> = {};
+const calcTriggerMockStorage: Record<string, string> = {};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (global as any).localStorage = {
-  getItem: (key: string) => mockStorage[key] || null,
-  setItem: (key: string, value: string) => { mockStorage[key] = value; },
-  removeItem: (key: string) => { delete mockStorage[key]; },
-  clear: () => { Object.keys(mockStorage).forEach(k => delete mockStorage[k]); },
+  getItem: (key: string) => calcTriggerMockStorage[key] || null,
+  setItem: (key: string, value: string) => { calcTriggerMockStorage[key] = value; },
+  removeItem: (key: string) => { delete calcTriggerMockStorage[key]; },
+  clear: () => { Object.keys(calcTriggerMockStorage).forEach(k => delete calcTriggerMockStorage[k]); },
   length: 0,
   key: () => null,
 };

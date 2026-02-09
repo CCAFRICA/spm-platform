@@ -70,6 +70,10 @@ import { cn } from '@/lib/utils';
 import { getPlans } from '@/lib/compensation/plan-storage';
 import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
+import {
+  directCommitImportData,
+  storeFieldMappings,
+} from '@/lib/data-architecture/data-layer-service';
 
 // Step definitions
 type Step = 'upload' | 'analyze' | 'map' | 'validate' | 'approve' | 'complete';
@@ -563,8 +567,8 @@ export default function DataPackageImportPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Upload state
-  const [, setSelectedFile] = useState<File | null>(null);
+  // Upload state - keep file reference for parsing all rows on submit
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [, setWorksheets] = useState<WorksheetInfo[]>([]);
 
   // Analysis state
@@ -782,7 +786,7 @@ export default function DataPackageImportPage() {
 
   // File upload handler
   const handleFileSelect = useCallback(async (file: File) => {
-    setSelectedFile(file);
+    setUploadedFile(file);
     setError(null);
     setAnalysis(null);
     setFieldMappings([]);
@@ -1155,20 +1159,96 @@ export default function DataPackageImportPage() {
     }, 1500);
   }, [analysis, fieldMappings, isSpanish, activePlan, currency]);
 
-  // Submit import handler
-  const handleSubmitImport = useCallback(() => {
-    setIsImporting(true);
+  // Submit import handler - ACTUALLY PERSISTS DATA
+  const handleSubmitImport = useCallback(async () => {
+    if (!uploadedFile || !analysis) {
+      setError('No file or analysis available');
+      return;
+    }
 
-    // Simulate import processing
-    setTimeout(() => {
-      // Generate a mock import ID
-      const id = `IMP-${Date.now().toString(36).toUpperCase()}`;
-      setImportId(id);
+    setIsImporting(true);
+    setError(null);
+
+    try {
+      // Parse ALL rows from the workbook (not just samples)
+      const arrayBuffer = await uploadedFile.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, {
+        type: 'array',
+        cellFormula: false,
+        cellNF: false,
+        cellStyles: false,
+      });
+
+      // Build sheet data with all rows and field mappings
+      const sheetData: Array<{
+        sheetName: string;
+        rows: Record<string, unknown>[];
+        mappings?: Record<string, string>;
+      }> = [];
+
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+          defval: null,
+          raw: true,
+        });
+
+        // Skip empty sheets
+        if (jsonData.length === 0) continue;
+
+        // Get field mappings for this sheet
+        const sheetMapping = fieldMappings.find(m => m.sheetName === sheetName);
+        const mappings: Record<string, string> = {};
+
+        if (sheetMapping) {
+          sheetMapping.mappings.forEach(m => {
+            if (m.targetField) {
+              mappings[m.sourceColumn] = m.targetField;
+            }
+          });
+        }
+
+        sheetData.push({
+          sheetName,
+          rows: jsonData,
+          mappings: Object.keys(mappings).length > 0 ? mappings : undefined,
+        });
+      }
+
+      // Get user ID
+      const userId = user?.id || 'system';
+
+      // Commit data to data layer
+      const result = directCommitImportData(
+        tenantId,
+        userId,
+        uploadedFile.name,
+        sheetData
+      );
+
+      // Store field mappings separately
+      const mappingsToStore = fieldMappings.map(m => ({
+        sheetName: m.sheetName,
+        mappings: Object.fromEntries(
+          m.mappings
+            .filter(mapping => mapping.targetField)
+            .map(mapping => [mapping.sourceColumn, mapping.targetField as string])
+        ),
+      }));
+      storeFieldMappings(tenantId, result.batchId, mappingsToStore);
+
+      console.log(`[Import] Committed ${result.recordCount} records, batch: ${result.batchId}`);
+
+      setImportId(result.batchId);
       setIsImporting(false);
       setImportComplete(true);
       setCurrentStep('complete');
-    }, 2000);
-  }, []);
+    } catch (err) {
+      console.error('Import commit error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to commit import');
+      setIsImporting(false);
+    }
+  }, [uploadedFile, analysis, fieldMappings, tenantId, user]);
 
   // Navigation helpers
   const goToNextSheet = useCallback(() => {
@@ -2705,7 +2785,7 @@ export default function DataPackageImportPage() {
                       onClick={() => {
                         // Reset all state for new import
                         setCurrentStep('upload');
-                        setSelectedFile(null);
+                        setUploadedFile(null);
                         setAnalysis(null);
                         setFieldMappings([]);
                         setValidationResult(null);

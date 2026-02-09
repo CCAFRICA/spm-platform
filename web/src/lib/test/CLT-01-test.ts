@@ -12,14 +12,14 @@
  */
 
 // Mock localStorage for Node.js
-const mockStorage: Record<string, string> = {};
+const cltMockStorage: Record<string, string> = {};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (global as any).localStorage = {
-  getItem: (key: string) => mockStorage[key] || null,
-  setItem: (key: string, value: string) => { mockStorage[key] = value; },
-  removeItem: (key: string) => { delete mockStorage[key]; },
-  clear: () => { Object.keys(mockStorage).forEach(k => delete mockStorage[k]); },
+  getItem: (key: string) => cltMockStorage[key] || null,
+  setItem: (key: string, value: string) => { cltMockStorage[key] = value; },
+  removeItem: (key: string) => { delete cltMockStorage[key]; },
+  clear: () => { Object.keys(cltMockStorage).forEach(k => delete cltMockStorage[k]); },
   length: 0,
   key: () => null,
 };
@@ -28,7 +28,7 @@ const mockStorage: Record<string, string> = {};
 (global as any).window = {};
 
 // Storage keys (must match orchestrator)
-const STORAGE_KEYS = {
+const CLT_STORAGE_KEYS = {
   DATA_LAYER_COMMITTED: 'data_layer_committed',
   DATA_LAYER_BATCHES: 'data_layer_batches',
   EMPLOYEE_DATA: 'clearcomp_employee_data',
@@ -191,8 +191,8 @@ function seedRetailCGMXData() {
     }]);
   });
 
-  localStorage.setItem(STORAGE_KEYS.DATA_LAYER_BATCHES, JSON.stringify(batches));
-  localStorage.setItem(STORAGE_KEYS.DATA_LAYER_COMMITTED, JSON.stringify(committed));
+  localStorage.setItem(CLT_STORAGE_KEYS.DATA_LAYER_BATCHES, JSON.stringify(batches));
+  localStorage.setItem(CLT_STORAGE_KEYS.DATA_LAYER_COMMITTED, JSON.stringify(committed));
 
   console.log(`[CLT-01] Seeded ${employees.length} employees with performance data`);
 
@@ -232,7 +232,7 @@ function seedRetailCGMXData() {
       status: 'active',
     },
   ];
-  localStorage.setItem(STORAGE_KEYS.EMPLOYEE_DATA, JSON.stringify(demoEmployees));
+  localStorage.setItem(CLT_STORAGE_KEYS.EMPLOYEE_DATA, JSON.stringify(demoEmployees));
   console.log('[CLT-01] Seeded 3 demo employees (should be bypassed)');
 }
 
@@ -274,7 +274,7 @@ function seedCompensationPlan() {
     updatedAt: new Date().toISOString(),
   };
 
-  localStorage.setItem(STORAGE_KEYS.PLANS, JSON.stringify([plan]));
+  localStorage.setItem(CLT_STORAGE_KEYS.PLANS, JSON.stringify([plan]));
   console.log(`[CLT-01] Created plan: ${plan.name}`);
 }
 
@@ -282,11 +282,11 @@ function seedCompensationPlan() {
 // EMPLOYEE EXTRACTION (same logic as orchestrator)
 // ============================================
 
-function extractEmployeesFromCommittedData(tenantId: string): CLTEmployee[] {
+function cltExtractEmployeesFromCommittedData(tenantId: string): CLTEmployee[] {
   const employees: CLTEmployee[] = [];
   const seenIds = new Set<string>();
 
-  const batchesStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_BATCHES);
+  const batchesStored = localStorage.getItem(CLT_STORAGE_KEYS.DATA_LAYER_BATCHES);
   if (!batchesStored) return [];
 
   let tenantBatchIds: string[] = [];
@@ -301,7 +301,7 @@ function extractEmployeesFromCommittedData(tenantId: string): CLTEmployee[] {
 
   if (tenantBatchIds.length === 0) return [];
 
-  const committedStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_COMMITTED);
+  const committedStored = localStorage.getItem(CLT_STORAGE_KEYS.DATA_LAYER_COMMITTED);
   if (!committedStored) return [];
 
   try {
@@ -356,14 +356,14 @@ function extractEmployeesFromCommittedData(tenantId: string): CLTEmployee[] {
 
 function getEmployees(tenantId: string): CLTEmployee[] {
   // PRIORITY 1: Committed import data (real imported employees take precedence)
-  const committedEmployees = extractEmployeesFromCommittedData(tenantId);
+  const committedEmployees = cltExtractEmployeesFromCommittedData(tenantId);
   if (committedEmployees.length > 0) {
     console.log(`[CLT-01] Using ${committedEmployees.length} employees from committed import data`);
     return committedEmployees;
   }
 
   // PRIORITY 2: Stored employee data (backward compatibility)
-  const stored = localStorage.getItem(STORAGE_KEYS.EMPLOYEE_DATA);
+  const stored = localStorage.getItem(CLT_STORAGE_KEYS.EMPLOYEE_DATA);
   if (stored) {
     try {
       const employees: CLTEmployee[] = JSON.parse(stored);
@@ -385,8 +385,9 @@ function getEmployees(tenantId: string): CLTEmployee[] {
 // CALCULATION SIMULATION
 // ============================================
 
-function getEmployeeMetrics(employeeId: string, tenantId: string): Record<string, number> {
-  const committedStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_COMMITTED);
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function getEmployeeMetrics(employeeId: string, _tenantId: string): Record<string, number> {
+  const committedStored = localStorage.getItem(CLT_STORAGE_KEYS.DATA_LAYER_COMMITTED);
   if (!committedStored) return {};
 
   try {
@@ -442,7 +443,7 @@ function runCalculation(tenantId: string, periodId: string): { run: CLTCalculati
   const results: CLTCalculationResult[] = [];
 
   // Get plan
-  const plansStored = localStorage.getItem(STORAGE_KEYS.PLANS);
+  const plansStored = localStorage.getItem(CLT_STORAGE_KEYS.PLANS);
   const plans: CLTCompensationPlan[] = plansStored ? JSON.parse(plansStored) : [];
   const activePlan = plans.find(p => p.status === 'active');
 
@@ -495,8 +496,8 @@ function runCalculation(tenantId: string, periodId: string): { run: CLTCalculati
   run.completedAt = new Date().toISOString();
 
   // Save results
-  localStorage.setItem(STORAGE_KEYS.CALCULATION_RUNS, JSON.stringify([run]));
-  localStorage.setItem(STORAGE_KEYS.CALCULATION_RESULTS, JSON.stringify(results));
+  localStorage.setItem(CLT_STORAGE_KEYS.CALCULATION_RUNS, JSON.stringify([run]));
+  localStorage.setItem(CLT_STORAGE_KEYS.CALCULATION_RESULTS, JSON.stringify(results));
 
   return { run, results };
 }
