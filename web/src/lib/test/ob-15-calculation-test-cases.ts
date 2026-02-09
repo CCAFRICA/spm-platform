@@ -81,7 +81,7 @@ export const TEST_HIGH_001: EmployeeMetrics = {
 export const EXPECTED_HIGH_001 = {
   total: 4100,
   components: {
-    'Venta Optica': 2500,
+    'Venta Óptica': 2500,
     'Venta de Tienda': 500,
     'Clientes Nuevos': 400,
     'Cobranza en Tienda': 350,
@@ -146,7 +146,7 @@ export const TEST_LOW_002: EmployeeMetrics = {
 export const EXPECTED_LOW_002 = {
   total: 50,
   components: {
-    'Venta Optica': 0,
+    'Venta Óptica': 0,
     'Venta de Tienda': 0,
     'Clientes Nuevos': 0,
     'Cobranza en Tienda': 0,
@@ -217,7 +217,7 @@ export const TEST_EDGE_003: EmployeeMetrics = {
 export const EXPECTED_EDGE_003 = {
   total: 2470,
   components: {
-    'Venta Optica': 1800,
+    'Venta Óptica': 1800,
     'Venta de Tienda': 150,
     'Clientes Nuevos': 150,
     'Cobranza en Tienda': 150,
@@ -288,7 +288,7 @@ export const TEST_PARTIAL_004: EmployeeMetrics = {
 export const EXPECTED_PARTIAL_004 = {
   total: 1245,
   components: {
-    'Venta Optica': 800,
+    'Venta Óptica': 800,
     'Venta de Tienda': 300,
     'Clientes Nuevos': 0,
     'Cobranza en Tienda': 0,
@@ -339,7 +339,7 @@ export const TEST_ZERO_005: EmployeeMetrics = {
 export const EXPECTED_ZERO_005 = {
   total: 0,
   components: {
-    'Venta Optica': 0,
+    'Venta Óptica': 0,
     'Venta de Tienda': 0,
     'Clientes Nuevos': 0,
     'Cobranza en Tienda': 0,
