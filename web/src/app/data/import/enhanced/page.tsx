@@ -74,6 +74,7 @@ import {
   directCommitImportData,
   storeFieldMappings,
 } from '@/lib/data-architecture/data-layer-service';
+import { getPeriodProcessor } from '@/lib/payroll/period-processor';
 
 // Step definitions
 type Step = 'upload' | 'analyze' | 'map' | 'validate' | 'approve' | 'complete';
@@ -1360,6 +1361,102 @@ export default function DataPackageImportPage() {
         console.log(`[Import] Batches count: ${batches.length}`);
         const thisBatch = batches.find(([id]: [string, unknown]) => id === result.batchId);
         console.log(`[Import] This batch found: ${thisBatch ? 'YES' : 'NO'}`);
+      }
+
+      // OB-13A: Auto-detect and create period from imported data
+      try {
+        // Look for year/month data in any sheet with 'period' field mapped
+        let detectedYear: number | null = null;
+        let detectedMonth: number | null = null;
+
+        for (const sheetInfo of sheetData) {
+          if (!sheetInfo.mappings) continue;
+
+          // Find columns mapped to 'period' (could be Ano, Mes, Year, Month)
+          const periodColumns = Object.entries(sheetInfo.mappings)
+            .filter(([, target]) => target === 'period')
+            .map(([source]) => source);
+
+          // Check first row for period data
+          const firstRow = sheetInfo.rows[0];
+          if (!firstRow) continue;
+
+          for (const col of periodColumns) {
+            const value = firstRow[col];
+            if (!value) continue;
+
+            const numValue = typeof value === 'number' ? value : parseInt(String(value), 10);
+            if (isNaN(numValue)) continue;
+
+            // Detect if it's a year (2020-2030) or month (1-12)
+            if (numValue >= 2020 && numValue <= 2030) {
+              detectedYear = numValue;
+            } else if (numValue >= 1 && numValue <= 12) {
+              detectedMonth = numValue;
+            }
+          }
+
+          // Also check for date fields
+          const dateColumns = Object.entries(sheetInfo.mappings)
+            .filter(([, target]) => target === 'date')
+            .map(([source]) => source);
+
+          for (const col of dateColumns) {
+            const value = firstRow[col];
+            if (!value) continue;
+
+            // Try to parse as date
+            const dateVal = new Date(String(value));
+            if (!isNaN(dateVal.getTime())) {
+              detectedYear = dateVal.getFullYear();
+              detectedMonth = dateVal.getMonth() + 1; // 1-indexed
+              break;
+            }
+          }
+
+          if (detectedYear && detectedMonth) break;
+        }
+
+        // If we detected a period, auto-create it
+        if (detectedYear && detectedMonth) {
+          const monthNames = [
+            'January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'
+          ];
+          const periodName = `${monthNames[detectedMonth - 1]} ${detectedYear}`;
+          const startDate = new Date(detectedYear, detectedMonth - 1, 1).toISOString().split('T')[0];
+          const lastDay = new Date(detectedYear, detectedMonth, 0).getDate();
+          const endDate = new Date(detectedYear, detectedMonth - 1, lastDay).toISOString().split('T')[0];
+
+          console.log(`[Import] Detected period: ${periodName} (${startDate} to ${endDate})`);
+
+          // Check if period already exists
+          const processor = getPeriodProcessor(tenantId);
+          const existingPeriods = processor.getPeriods();
+          const periodExists = existingPeriods.some(p =>
+            p.startDate === startDate || p.name === periodName
+          );
+
+          if (!periodExists) {
+            // Create the period
+            const newPeriod = processor.createPeriod({
+              name: periodName,
+              periodType: 'monthly',
+              startDate,
+              endDate,
+              payDate: endDate, // Default pay date to end of period
+              createdBy: userId,
+            });
+            console.log(`[Import] Auto-created period: ${newPeriod.id} (${newPeriod.name})`);
+          } else {
+            console.log(`[Import] Period already exists: ${periodName}`);
+          }
+        } else {
+          console.log('[Import] Could not auto-detect period from data');
+        }
+      } catch (periodErr) {
+        console.warn('[Import] Period auto-creation failed (non-blocking):', periodErr);
+        // Non-blocking - import succeeded even if period creation fails
       }
 
       setImportId(result.batchId);
