@@ -598,8 +598,32 @@ export default function DataPackageImportPage() {
   const [_importComplete, setImportComplete] = useState(false);
   const [importId, setImportId] = useState<string | null>(null);
 
-  const tenantId = currentTenant?.id || 'retailcgmx';
+  // CRITICAL: Use currentTenant.id directly - no fallback
+  // The orchestrator uses currentTenant.id, so import MUST use the same
+  // If no tenant selected, show error instead of using wrong tenantId
+  const tenantId = currentTenant?.id;
   const currency = currentTenant?.currency || 'MXN';
+
+  // Block import if no tenant is selected
+  if (!tenantId) {
+    return (
+      <div className="container mx-auto py-8 px-4">
+        <Card className="max-w-xl mx-auto">
+          <CardHeader>
+            <CardTitle className="text-red-600">No Tenant Selected</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-slate-600 mb-4">
+              Please select a tenant before importing data. The import must be associated with a specific tenant.
+            </p>
+            <Button onClick={() => window.location.href = '/admin/tenants/new'}>
+              Create Tenant
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Load tenant's active plan on mount
   useEffect(() => {

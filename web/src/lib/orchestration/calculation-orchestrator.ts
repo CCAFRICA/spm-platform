@@ -567,9 +567,11 @@ export class CalculationOrchestrator {
       }
     }
 
-    // PRIORITY 3: Demo fallback (only when no real data exists)
-    console.log('[Orchestrator] No real employees found, using demo fallback');
-    return this.getDemoEmployees();
+    // NO DEMO FALLBACK - Return empty array with clear error message
+    // Demo data masks real issues and is a compliance violation in production
+    console.error(`[Orchestrator] ERROR: No employee data found for tenant "${this.tenantId}". Import data first.`);
+    console.log(`[Orchestrator] Checked: committed data (0), stored data (0 for this tenant)`);
+    return [];
   }
 
   /**
@@ -848,53 +850,7 @@ export class CalculationOrchestrator {
     return periodId;
   }
 
-  // ============================================
-  // DEMO DATA
-  // ============================================
-
-  private getDemoEmployees(): EmployeeData[] {
-    return [
-      {
-        id: 'maria-rodriguez',
-        tenantId: this.tenantId,
-        employeeNumber: 'EMP-001',
-        firstName: 'Maria',
-        lastName: 'Rodriguez',
-        email: 'maria.rodriguez@example.com',
-        role: 'sales_rep',
-        storeId: 'store-101',
-        storeName: 'Downtown Flagship',
-        status: 'active',
-        attributes: { isCertified: true },
-      },
-      {
-        id: 'james-wilson',
-        tenantId: this.tenantId,
-        employeeNumber: 'EMP-002',
-        firstName: 'James',
-        lastName: 'Wilson',
-        email: 'james.wilson@example.com',
-        role: 'sales_rep',
-        storeId: 'store-101',
-        storeName: 'Downtown Flagship',
-        status: 'active',
-        attributes: { isCertified: true },
-      },
-      {
-        id: 'sarah-chen',
-        tenantId: this.tenantId,
-        employeeNumber: 'EMP-003',
-        firstName: 'Sarah',
-        lastName: 'Chen',
-        email: 'sarah.chen@example.com',
-        role: 'sales_rep',
-        storeId: 'store-102',
-        storeName: 'Mall Location',
-        status: 'active',
-        attributes: { isCertified: false },
-      },
-    ];
-  }
+  // Demo data removed - OB-13A: Never use demo employees in production calculations
 }
 
 // ============================================
