@@ -3,8 +3,7 @@
 import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { LineChart, Download, Calendar } from 'lucide-react';
+import { LineChart, Download } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isCCAdmin } from '@/types/auth';
@@ -336,7 +335,7 @@ export function RevenueTimeline({ data, className = '' }: RevenueTimelineProps) 
               {/* X-axis labels (show every few) */}
               {displayData
                 .filter((_, i) => i % Math.ceil(displayData.length / 6) === 0 || i === displayData.length - 1)
-                .map((d, _) => {
+                .map((d) => {
                   const originalIndex = displayData.findIndex((dd) => dd.date === d.date);
                   const date = new Date(d.date);
                   const label =

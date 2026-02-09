@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Activity, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Activity, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isCCAdmin } from '@/types/auth';
