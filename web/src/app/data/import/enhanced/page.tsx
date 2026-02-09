@@ -75,6 +75,8 @@ import {
   storeFieldMappings,
 } from '@/lib/data-architecture/data-layer-service';
 import { getPeriodProcessor } from '@/lib/payroll/period-processor';
+import { classifyFile, recordClassificationFeedback } from '@/lib/ai/file-classifier';
+import { AI_CONFIDENCE } from '@/lib/ai/types';
 
 // Step definitions
 type Step = 'upload' | 'analyze' | 'map' | 'validate' | 'approve' | 'complete';
@@ -115,7 +117,7 @@ const STEP_CONFIG: Record<Step, { icon: typeof Upload; title: { en: string; es: 
 };
 
 // Sheet classification types
-type SheetClassification = 'roster' | 'component_data' | 'reference' | 'regional_partition' | 'period_summary' | 'unrelated';
+type SheetClassification = 'roster' | 'component_data' | 'reference' | 'regional_partition' | 'period_summary' | 'unrelated' | 'pos_cheque';
 
 interface AnalyzedSheet {
   name: string;
@@ -346,6 +348,7 @@ const CLASSIFICATION_CONFIG: Record<SheetClassification, { icon: typeof Users; c
   regional_partition: { icon: GitBranch, color: 'bg-orange-100 border-orange-300 text-orange-800', label: 'Regional Data', labelEs: 'Datos Regionales' },
   period_summary: { icon: Calculator, color: 'bg-cyan-100 border-cyan-300 text-cyan-800', label: 'Period Summary', labelEs: 'Resumen del Período' },
   unrelated: { icon: AlertCircle, color: 'bg-gray-100 border-gray-300 text-gray-600', label: 'Unrelated', labelEs: 'No Relacionado' },
+  pos_cheque: { icon: BarChart3, color: 'bg-amber-100 border-amber-300 text-amber-800', label: 'POS Cheque Data', labelEs: 'Datos de Cheques POS' },
 };
 
 // Helper: Translate column name
@@ -685,6 +688,15 @@ export default function DataPackageImportPage() {
   const [_importComplete, setImportComplete] = useState(false);
   const [importId, setImportId] = useState<string | null>(null);
 
+  // AI Classification state
+  const [aiClassification, setAiClassification] = useState<{
+    fileType: string;
+    suggestedModule: string;
+    confidence: number;
+    reasoning: string;
+    signalId?: string;
+  } | null>(null);
+
   // CRITICAL: Use currentTenant.id directly - no fallback
   // The orchestrator uses currentTenant.id, so import MUST use the same
   // If no tenant selected, show error in UI (not early return to preserve hook order)
@@ -888,17 +900,48 @@ export default function DataPackageImportPage() {
       // Automatically analyze multi-sheet workbooks
       await analyzeWorkbook(file);
     } else {
-      // For single-file formats, parse directly
+      // For single-file formats (CSV, TSV, TXT), use AI classification
       setIsProcessing(true);
       try {
         const parsed = await parseFile(file);
-        // Create a simple analysis for single files
+
+        // Read file content for AI classification
+        const fileContent = await file.text();
+        const contentPreview = fileContent.substring(0, 5000);
+
+        // Call AI file classifier
+        console.log('Calling AI file classifier for:', file.name);
+        const classificationResult = await classifyFile(
+          file.name,
+          contentPreview,
+          {
+            fileSize: file.size,
+            mimeType: file.type,
+            columnCount: parsed.headers.length,
+            rowCount: parsed.rowCount,
+            headers: parsed.headers,
+            tenantModules: currentTenant?.features ? Object.keys(currentTenant.features).filter(k => currentTenant.features?.[k as keyof typeof currentTenant.features]) : [],
+          },
+          tenantId,
+          user?.id
+        );
+
+        console.log('AI Classification result:', classificationResult);
+
+        // Store classification for UI display
+        setAiClassification(classificationResult.classification);
+
+        // Determine classification to use based on confidence
+        const classification = classificationResult.classification;
+        const confidenceNorm = classification.confidence / 100;
+
+        // Create analysis with AI classification results
         const simpleAnalysis: WorkbookAnalysis = {
           sheets: [{
             name: file.name,
-            classification: 'component_data',
-            classificationConfidence: 50,
-            classificationReasoning: 'Single file import - manual classification recommended',
+            classification: classification.fileType === 'pos_cheque' ? 'pos_cheque' : 'component_data',
+            classificationConfidence: classification.confidence,
+            classificationReasoning: classification.reasoning,
             matchedComponent: null,
             matchedComponentConfidence: 0,
             detectedPrimaryKey: null,
@@ -915,10 +958,15 @@ export default function DataPackageImportPage() {
           periodDetected: { found: false, dateColumn: '', dateRange: { start: null, end: null }, periodType: 'unknown' },
           gaps: [],
           extras: [],
-          overallConfidence: 50,
-          summary: 'Single file import',
+          overallConfidence: classification.confidence,
+          summary: confidenceNorm >= AI_CONFIDENCE.AUTO_APPLY
+            ? `AI detected: ${classification.fileType} (auto-applied)`
+            : confidenceNorm >= AI_CONFIDENCE.SUGGEST
+              ? `AI suggests: ${classification.fileType} (please confirm)`
+              : `AI detected: ${classification.fileType} (low confidence - please verify)`,
         };
         setAnalysis(simpleAnalysis);
+        setAnalysisConfidence(classification.confidence);
         setCurrentStep('analyze');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to parse file');
@@ -926,7 +974,7 @@ export default function DataPackageImportPage() {
         setIsProcessing(false);
       }
     }
-  }, [analyzeWorkbook]);
+  }, [analyzeWorkbook, tenantId, currentTenant, user]);
 
   // Drop zone handler
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -1752,13 +1800,13 @@ export default function DataPackageImportPage() {
                       </p>
                       <p className="text-muted-foreground">
                         {isSpanish
-                          ? 'Soporta archivos .xlsx con múltiples hojas'
-                          : 'Supports .xlsx files with multiple sheets'}
+                          ? 'Soporta .xlsx, .csv, .txt, .tsv'
+                          : 'Supports .xlsx, .csv, .txt, .tsv'}
                       </p>
                     </div>
                     <input
                       type="file"
-                      accept=".xlsx,.xls,.csv"
+                      accept=".xlsx,.xls,.csv,.txt,.tsv"
                       className="hidden"
                       id="file-input"
                       onChange={(e) => {
@@ -1797,6 +1845,88 @@ export default function DataPackageImportPage() {
                   {analysisConfidence}% {isSpanish ? 'confianza' : 'confidence'}
                 </Badge>
               </div>
+
+              {/* AI Classification Alert */}
+              {aiClassification && (
+                <div className={cn(
+                  "p-4 border rounded-lg",
+                  aiClassification.confidence >= 90
+                    ? "bg-green-50 border-green-200"
+                    : aiClassification.confidence >= 70
+                      ? "bg-yellow-50 border-yellow-200"
+                      : "bg-orange-50 border-orange-200"
+                )}>
+                  <div className="flex items-start gap-3">
+                    <Sparkles className={cn(
+                      "h-5 w-5 mt-0.5",
+                      aiClassification.confidence >= 90
+                        ? "text-green-600"
+                        : aiClassification.confidence >= 70
+                          ? "text-yellow-600"
+                          : "text-orange-600"
+                    )} />
+                    <div className="flex-1">
+                      <p className={cn(
+                        "font-medium",
+                        aiClassification.confidence >= 90
+                          ? "text-green-800"
+                          : aiClassification.confidence >= 70
+                            ? "text-yellow-800"
+                            : "text-orange-800"
+                      )}>
+                        {isSpanish ? 'Clasificación AI' : 'AI Classification'}: {aiClassification.fileType}
+                        {aiClassification.confidence >= 90 && (
+                          <Badge className="ml-2" variant="default">
+                            {isSpanish ? 'Auto-aplicado' : 'Auto-applied'}
+                          </Badge>
+                        )}
+                      </p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {aiClassification.reasoning}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {isSpanish ? 'Módulo sugerido' : 'Suggested module'}: {aiClassification.suggestedModule} •{' '}
+                        {aiClassification.confidence}% {isSpanish ? 'confianza' : 'confidence'}
+                      </p>
+                      {aiClassification.confidence < 90 && aiClassification.signalId && (
+                        <div className="flex gap-2 mt-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              recordClassificationFeedback(
+                                aiClassification.signalId!,
+                                'accepted',
+                                undefined,
+                                tenantId
+                              );
+                            }}
+                          >
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            {isSpanish ? 'Confirmar' : 'Confirm'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              recordClassificationFeedback(
+                                aiClassification.signalId!,
+                                'rejected',
+                                undefined,
+                                tenantId
+                              );
+                              setAiClassification(null);
+                            }}
+                          >
+                            <XCircle className="h-3 w-3 mr-1" />
+                            {isSpanish ? 'Rechazar' : 'Reject'}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Roster Detection Alert */}
               {analysis.rosterDetected.found && (

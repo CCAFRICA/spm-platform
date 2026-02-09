@@ -29,6 +29,10 @@ import {
   Line,
   ResponsiveContainer,
 } from 'recharts';
+import {
+  isProvisioned,
+  provisionFRMXDemo,
+} from '@/lib/demo/frmx-demo-provisioner';
 
 // Types
 interface LocationMetrics {
@@ -201,7 +205,21 @@ export default function NetworkPulseDashboard() {
     const loadData = () => {
       try {
         const importService = new ChequeImportService(tenantId);
-        const cheques = importService.getAllCheques();
+        let cheques = importService.getAllCheques();
+
+        // FRMX Demo Auto-Provisioning
+        // If this is the FRMX demo tenant and no data exists, auto-provision
+        if (cheques.length === 0 && tenantId === 'frmx-demo' && !isProvisioned()) {
+          console.log('FRMX Demo: Auto-provisioning demo data...');
+          const result = provisionFRMXDemo();
+          if (result.success) {
+            console.log(`FRMX Demo: Provisioned ${result.chequeCount} cheques`);
+            // Reload cheques after provisioning
+            cheques = importService.getAllCheques();
+          } else {
+            console.error('FRMX Demo: Provisioning failed:', result.error);
+          }
+        }
 
         if (cheques.length === 0) {
           // Use seed data for demo
