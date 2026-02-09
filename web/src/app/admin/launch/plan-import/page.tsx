@@ -864,16 +864,16 @@ export default function PlanImportPage() {
                     <CardTitle className="text-lg">{t.detected}</CardTitle>
                     <CardDescription>
                       {t.interpretationMethod}: {parsedPlan.interpretationMethod === 'ai' ? t.aiPowered : t.heuristicMode}
-                      {' | '}Format: {parsedPlan.detectedFormat}
-                      {' | '}{parsedPlan.rawData.length} rows
+                      {' | '}Format: {parsedPlan.detectedFormat ?? 'unknown'}
+                      {' | '}{parsedPlan.rawData?.length ?? 0} rows
                       {parsedPlan.currency && ` | ${t.currency}: ${parsedPlan.currency}`}
                     </CardDescription>
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-sm text-slate-500">{t.overallConfidence}</div>
-                  <Badge className={getConfidenceColor(parsedPlan.overallConfidence)}>
-                    {parsedPlan.overallConfidence}%
+                  <Badge className={getConfidenceColor(parsedPlan.overallConfidence ?? 0)}>
+                    {parsedPlan.overallConfidence ?? 0}%
                   </Badge>
                 </div>
               </div>
@@ -971,11 +971,11 @@ export default function PlanImportPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {parsedPlan.workedExamples.map((ex, idx) => (
+                      {parsedPlan.workedExamples.filter(ex => ex != null).map((ex, idx) => (
                         <div key={idx} className="bg-emerald-50 dark:bg-emerald-900/20 rounded p-2 text-sm">
-                          <span className="font-medium">{ex.employeeType}:</span>{' '}
+                          <span className="font-medium">{ex?.employeeType ?? 'Employee'}:</span>{' '}
                           <span className="text-emerald-700 dark:text-emerald-300">
-                            ${ex.expectedTotal.toLocaleString()}
+                            ${(ex?.expectedTotal ?? 0).toLocaleString()}
                           </span>
                         </div>
                       ))}
@@ -1013,28 +1013,28 @@ export default function PlanImportPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {parsedPlan.components.map((component) => (
-                      <TableRow key={component.id}>
-                        <TableCell className="font-medium">{component.name}</TableCell>
+                    {(parsedPlan.components || []).filter(c => c != null).map((component) => (
+                      <TableRow key={component?.id || Math.random()}>
+                        <TableCell className="font-medium">{component?.name ?? 'Unknown'}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{component.type}</Badge>
+                          <Badge variant="outline">{component?.type ?? 'unknown'}</Badge>
                         </TableCell>
-                        <TableCell>{component.metricSource}</TableCell>
+                        <TableCell>{component?.metricSource ?? '-'}</TableCell>
                         <TableCell>
-                          <Badge className={getConfidenceColor(component.confidence)}>
-                            {component.confidence}%
+                          <Badge className={getConfidenceColor(component?.confidence ?? 0)}>
+                            {component?.confidence ?? 0}%
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-xs">
-                          <p className="text-sm text-slate-500 truncate" title={component.reasoning}>
-                            {component.reasoning}
+                          <p className="text-sm text-slate-500 truncate" title={component?.reasoning ?? ''}>
+                            {component?.reasoning ?? '-'}
                           </p>
                         </TableCell>
                         <TableCell>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setEditingComponent(component)}
+                            onClick={() => component && setEditingComponent(component)}
                           >
                             <Edit2 className="h-4 w-4" />
                           </Button>
