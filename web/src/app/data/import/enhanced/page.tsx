@@ -1285,9 +1285,36 @@ export default function DataPackageImportPage() {
       }
 
       // Calculate overall score
-      const overallScore = sheetScores.length > 0
+      let overallScore = sheetScores.length > 0
         ? Math.round(sheetScores.reduce((sum, s) => sum + s.overallScore, 0) / sheetScores.length)
         : 0;
+
+      // OB-16 Phase 4: Plan-aware required field validation
+      // Check that ALL required fields from the plan are mapped at least once across all sheets
+      const allMappedFields = fieldMappings.flatMap(s => s.mappings.filter(m => m.targetField));
+      const mappedFieldIds = new Set(allMappedFields.map(m => m.targetField));
+      const requiredFields = targetFields.filter(f => f.isRequired);
+      const missingRequiredFields = requiredFields.filter(f => !mappedFieldIds.has(f.id));
+
+      if (missingRequiredFields.length > 0) {
+        // Penalize score for missing required fields
+        const missingPenalty = Math.min(30, missingRequiredFields.length * 10);
+        overallScore = Math.max(0, overallScore - missingPenalty);
+
+        // Add issue to first sheet (cross-sheet issue)
+        if (sheetScores.length > 0) {
+          const missingNames = missingRequiredFields.map(f => isSpanish ? f.labelEs : f.label).join(', ');
+          sheetScores[0].issues.push({
+            type: 'missing',
+            severity: 'error',
+            field: isSpanish ? 'Campos Requeridos del Plan' : 'Plan Required Fields',
+            rowCount: 0,
+            description: isSpanish
+              ? `Campos requeridos no mapeados: ${missingNames}`
+              : `Required fields not mapped: ${missingNames}`,
+          });
+        }
+      }
 
       setValidationResult({
         isValid: overallScore >= 70,
