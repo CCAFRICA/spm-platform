@@ -194,6 +194,12 @@ export interface CalculationStep {
     inputAttainment: number;
     outputMultiplier: number;
   };
+  // Audit trail - source data tracking
+  sourceData?: {
+    sheetName: string;           // Which data sheet the metrics came from
+    columns: Record<string, string>; // metric name -> column name used
+    rowIdentifier?: string;      // How the employee row was matched
+  };
   calculation: string; // Human-readable calculation string
   outputValue: number;
   currency: string;
