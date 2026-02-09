@@ -354,8 +354,9 @@ function translateColumn(column: string): string | null {
 }
 
 // Helper: Map AI-suggested field names to dropdown option IDs
+// OB-13A: Expanded to 80+ entries to handle all AI suggestions from CLT-05 console logs
 const FIELD_ID_MAPPINGS: Record<string, string> = {
-  // Employee identifiers
+  // ========== Employee identifiers ==========
   'employee_id': 'employeeId',
   'employeeid': 'employeeId',
   'emp_id': 'employeeId',
@@ -366,51 +367,132 @@ const FIELD_ID_MAPPINGS: Record<string, string> = {
   'rep_id': 'employeeId',
   'repid': 'employeeId',
   'sales_rep_id': 'employeeId',
-  // Store identifiers
+  'worker_id': 'employeeId',
+  'staff_id': 'employeeId',
+  'associate_id': 'employeeId',
+
+  // ========== Store/Location identifiers ==========
   'store_id': 'storeId',
   'storeid': 'storeId',
   'no_tienda': 'storeId',
   'id_tienda': 'storeId',
   'tienda': 'storeId',
   'location_id': 'storeId',
-  // Date fields
+  'locationid': 'storeId',
+  'branch_id': 'storeId',
+  'site_id': 'storeId',
+  'franchise_id': 'storeId',
+
+  // ========== Date fields ==========
   'date': 'date',
   'fecha': 'date',
   'transaction_date': 'date',
   'fecha_corte': 'date',
   'fecha_transaccion': 'date',
   'order_date': 'date',
-  // Period fields
+  'sale_date': 'date',
+  'period_date': 'date',
+
+  // ========== Period fields ==========
   'period': 'period',
   'periodo': 'period',
   'mes': 'period',
   'month': 'period',
   'ano': 'period',
   'year': 'period',
-  // Amount fields
+  'pay_period': 'period',
+  'fiscal_period': 'period',
+  'reporting_period': 'period',
+
+  // ========== Amount/Sales Actual fields ==========
   'amount': 'amount',
   'monto': 'amount',
   'total': 'amount',
   'value': 'amount',
   'venta': 'amount',
   'revenue': 'amount',
-  // Attainment fields
+  'sales_actual': 'amount',
+  'sales_amount': 'amount',
+  'actual_sales': 'amount',
+  'venta_individual': 'amount',
+  'venta_real': 'amount',
+  'store_sales_actual': 'amount',
+  'store_revenue': 'amount',
+  'store_sales_amount': 'amount',
+  'collections_actual': 'amount',
+  'collections_amount': 'amount',
+  'amount_collected': 'amount',
+  'recovery_amount': 'amount',
+  'monto_recuperado': 'amount',
+  'monto_recuperado_actual': 'amount',
+  'protection_club_amount': 'amount',
+  'insurance_amount': 'amount',
+  'insurance_sales': 'amount',
+  'extended_warranty_amount': 'amount',
+  'warranty_amount': 'amount',
+  'warranty_sales': 'amount',
+  'total_amount': 'amount',
+  'actual_amount': 'amount',
+  'real': 'amount',
+  'actual': 'amount',
+
+  // ========== Attainment/Achievement fields ==========
   'attainment': 'attainment',
   'cumplimiento': 'attainment',
   'porcentaje': 'attainment',
   'percentage': 'attainment',
   'pct_cumplimiento': 'attainment',
-  // Goal/target fields
+  'achievement_percentage': 'attainment',
+  'attainment_percentage': 'attainment',
+  'attainment_rate': 'attainment',
+  'percent_attainment': 'attainment',
+  'completion_rate': 'attainment',
+  'pct_achievement': 'attainment',
+  'percent_complete': 'attainment',
+
+  // ========== Goal/Target fields ==========
   'goal': 'goal',
   'meta': 'goal',
   'target': 'goal',
   'quota': 'goal',
   'cuota': 'goal',
-  // Quantity fields
+  'sales_target': 'goal',
+  'meta_individual': 'goal',
+  'store_sales_target': 'goal',
+  'target_sales': 'goal',
+  'new_customers_target': 'goal',
+  'customers_target': 'goal',
+  'collections_target': 'goal',
+  'monto_recuperado_meta': 'goal',
+  'protection_club_count_target': 'goal',
+  'target_amount': 'goal',
+  'target_count': 'goal',
+  'objetivo': 'goal',
+
+  // ========== Quantity/Count fields ==========
   'quantity': 'quantity',
   'cantidad': 'quantity',
   'count': 'quantity',
   'units': 'quantity',
+  'new_customers_actual': 'quantity',
+  'new_customers_count': 'quantity',
+  'customer_count': 'quantity',
+  'customers_actual': 'quantity',
+  'clientes_actuales': 'quantity',
+  'protection_club_count_actual': 'quantity',
+  'insurance_count': 'quantity',
+  'warranty_count': 'quantity',
+  'actual_count': 'quantity',
+  'units_sold': 'quantity',
+
+  // ========== Role/Position fields (9th target field) ==========
+  'role': 'role',
+  'position': 'role',
+  'job_title': 'role',
+  'puesto': 'role',
+  'cargo': 'role',
+  'titulo': 'role',
+  'job_role': 'role',
 };
 
 function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields: TargetField[]): string | null {
@@ -444,6 +526,7 @@ function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields:
 }
 
 // Helper: Extract target fields from plan components
+// OB-13A: Base fields include role for position/puesto mapping
 function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): TargetField[] {
   const baseFields: TargetField[] = [
     // Always-required identifier fields
@@ -451,17 +534,20 @@ function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): Targe
     { id: 'storeId', label: 'Store ID', labelEs: 'ID Tienda', isRequired: false, category: 'identifier' },
     { id: 'date', label: 'Date', labelEs: 'Fecha', isRequired: true, category: 'date' },
     { id: 'period', label: 'Period', labelEs: 'Período', isRequired: false, category: 'date' },
+    { id: 'role', label: 'Role/Position', labelEs: 'Puesto', isRequired: false, category: 'identifier' },
   ];
 
   // Check if plan has additive lookup config with variants
   if (!plan?.configuration || !isAdditiveLookupConfig(plan.configuration)) {
     // Return generic fields if no plan or not additive lookup
+    // OB-13A: Added 'role' as 9th target field for position/puesto mapping
     return [
       ...baseFields,
       { id: 'amount', label: 'Amount', labelEs: 'Monto', isRequired: true, category: 'amount' },
       { id: 'quantity', label: 'Quantity', labelEs: 'Cantidad', isRequired: false, category: 'metric' },
       { id: 'attainment', label: 'Attainment %', labelEs: '% Cumplimiento', isRequired: false, category: 'metric' },
       { id: 'goal', label: 'Goal', labelEs: 'Meta', isRequired: false, category: 'metric' },
+      { id: 'role', label: 'Role/Position', labelEs: 'Puesto', isRequired: false, category: 'identifier' },
     ];
   }
 
