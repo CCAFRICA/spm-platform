@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { useRouter } from 'next/navigation';
 import type { TenantConfig, TenantSummary, TenantTerminology, Currency } from '@/types/tenant';
 import { DEFAULT_TERMINOLOGY, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
+import { cleanupStaleData } from '@/lib/data-architecture/data-layer-service';
 
 interface TenantContextState {
   currentTenant: TenantConfig | null;
@@ -122,6 +123,13 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined') {
         // Store the normalized ID to prevent dirty values from persisting
         localStorage.setItem(STORAGE_KEY_TENANT, normalizedId);
+
+        // OB-16C: Clean up stale data from other tenants to free localStorage space
+        try {
+          cleanupStaleData(normalizedId);
+        } catch (cleanupErr) {
+          console.warn('[TenantContext] Stale data cleanup failed:', cleanupErr);
+        }
       }
       setIsLoading(false);
     } catch (err) {

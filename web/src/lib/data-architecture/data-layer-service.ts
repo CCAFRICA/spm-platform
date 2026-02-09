@@ -98,10 +98,353 @@ function saveToStorage<T>(key: string, map: Map<string, T>): void {
   }
 }
 
+// ============================================
+// OB-16C: CHUNKED STORAGE + AGGREGATION
+// ============================================
+
+const CHUNK_SIZE = 400 * 1024; // 400KB per chunk (safe margin under localStorage limits)
+
+/**
+ * Report current localStorage usage
+ */
+function reportStorageUsage(): void {
+  if (typeof window === 'undefined') return;
+  let totalSize = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key) {
+      const value = localStorage.getItem(key);
+      if (value) totalSize += key.length + value.length;
+    }
+  }
+  console.log(`[DataLayer] Current localStorage usage: ${Math.round(totalSize / 1024)} KB / ~5120 KB`);
+}
+
+/**
+ * Clear all chunks for a base key
+ */
+function clearChunks(baseKey: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(baseKey);
+  localStorage.removeItem(`${baseKey}_meta`);
+  localStorage.removeItem(`${baseKey}_aggregated`);
+  // Remove all chunks (up to 200)
+  for (let i = 0; i < 200; i++) {
+    const key = `${baseKey}_chunk_${i}`;
+    if (localStorage.getItem(key) === null) break;
+    localStorage.removeItem(key);
+  }
+}
+
+/**
+ * Save data to localStorage with chunking support
+ */
+function saveToStorageChunked<T>(baseKey: string, map: Map<string, T>): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    clearChunks(baseKey);
+
+    const entries = Array.from(map.entries());
+    const serialized = JSON.stringify(entries);
+    const totalSizeKB = Math.round(serialized.length / 1024);
+
+    if (serialized.length <= CHUNK_SIZE) {
+      // Small enough for single key
+      localStorage.setItem(baseKey, serialized);
+      localStorage.setItem(`${baseKey}_meta`, JSON.stringify({
+        chunks: 0,
+        total: entries.length,
+        sizeKB: totalSizeKB,
+        timestamp: Date.now()
+      }));
+      console.log(`[DataLayer] Saved ${baseKey}: ${entries.length} entries, ${totalSizeKB} KB (single key)`);
+      return;
+    }
+
+    // Split into chunks
+    const chunks: string[] = [];
+    for (let i = 0; i < serialized.length; i += CHUNK_SIZE) {
+      chunks.push(serialized.substring(i, i + CHUNK_SIZE));
+    }
+
+    // Check if total size would exceed localStorage limit (~4MB safe limit)
+    if (totalSizeKB > 4000) {
+      console.warn(`[DataLayer] ${baseKey} is ${totalSizeKB} KB - may exceed localStorage limit. Consider using aggregation.`);
+    }
+
+    // Write chunks
+    for (let i = 0; i < chunks.length; i++) {
+      try {
+        localStorage.setItem(`${baseKey}_chunk_${i}`, chunks[i]);
+      } catch (chunkError) {
+        console.error(`[DataLayer] Chunk ${i}/${chunks.length} failed for ${baseKey}. Cleaning up.`);
+        for (let j = 0; j <= i; j++) {
+          localStorage.removeItem(`${baseKey}_chunk_${j}`);
+        }
+        throw chunkError;
+      }
+    }
+
+    // Write metadata
+    localStorage.setItem(`${baseKey}_meta`, JSON.stringify({
+      chunks: chunks.length,
+      total: entries.length,
+      sizeKB: totalSizeKB,
+      timestamp: Date.now()
+    }));
+
+    localStorage.removeItem(baseKey);
+    console.log(`[DataLayer] Saved ${baseKey}: ${entries.length} entries, ${totalSizeKB} KB (${chunks.length} chunks)`);
+
+  } catch (error) {
+    console.error(`[DataLayer] STORAGE ERROR for ${baseKey}:`, error);
+    console.error(`[DataLayer] ${map.size} records could not be persisted.`);
+    reportStorageUsage();
+  }
+}
+
+/**
+ * Load data from localStorage with chunking support (backward compatible)
+ */
+function loadFromStorageChunked<T>(baseKey: string): Map<string, T> {
+  if (typeof window === 'undefined') return new Map();
+
+  try {
+    const metaStr = localStorage.getItem(`${baseKey}_meta`);
+
+    if (!metaStr) {
+      // Try single-key format (backward compatible)
+      const singleStr = localStorage.getItem(baseKey);
+      if (singleStr) {
+        const entries: [string, T][] = JSON.parse(singleStr);
+        return new Map(entries);
+      }
+      return new Map();
+    }
+
+    const meta = JSON.parse(metaStr);
+
+    if (meta.chunks === 0) {
+      // Single-key storage
+      const singleStr = localStorage.getItem(baseKey);
+      if (singleStr) {
+        const entries: [string, T][] = JSON.parse(singleStr);
+        return new Map(entries);
+      }
+      return new Map();
+    }
+
+    // Reassemble chunks
+    let serialized = '';
+    for (let i = 0; i < meta.chunks; i++) {
+      const chunk = localStorage.getItem(`${baseKey}_chunk_${i}`);
+      if (!chunk) {
+        console.error(`[DataLayer] Missing chunk ${i} for ${baseKey}. Data corrupted.`);
+        return new Map();
+      }
+      serialized += chunk;
+    }
+
+    const entries: [string, T][] = JSON.parse(serialized);
+    console.log(`[DataLayer] Loaded ${baseKey}: ${entries.length} entries from ${meta.chunks} chunks`);
+    return new Map(entries);
+
+  } catch (error) {
+    console.error(`[DataLayer] Load error for ${baseKey}:`, error);
+    return new Map();
+  }
+}
+
+/**
+ * Aggregate fields from multiple records into a summary
+ */
+function aggregateFields(rows: Record<string, unknown>[]): Record<string, unknown> {
+  if (rows.length === 0) return {};
+
+  const result: Record<string, unknown> = {};
+  const first = rows[0];
+
+  for (const key of Object.keys(first)) {
+    // Skip internal fields
+    if (key.startsWith('_')) continue;
+
+    const values = rows.map(r => r[key]).filter(v => v != null);
+    if (values.length === 0) continue;
+
+    // If all values are numbers, sum them
+    if (values.every(v => typeof v === 'number' || (typeof v === 'string' && !isNaN(Number(v))))) {
+      const nums = values.map(Number);
+      result[key] = nums.reduce((a, b) => a + b, 0);
+      result[`${key}_count`] = nums.length;
+    } else {
+      // Take the first non-null value (for identifiers like storeId, role)
+      result[key] = values[0];
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Store aggregated employee data for calculation (reduces 119K records to ~2K employees)
+ */
+function storeAggregatedData(
+  tenantId: string,
+  batchId: string,
+  records: Array<{ content: Record<string, unknown> }>
+): { employeeCount: number; sizeKB: number } {
+  if (typeof window === 'undefined') return { employeeCount: 0, sizeKB: 0 };
+
+  // Group by employee ID
+  const byEmployee = new Map<string, Record<string, unknown>[]>();
+
+  for (const record of records) {
+    const content = record.content;
+    const empId = String(
+      content.employeeId || content.employee_id || content.num_empleado ||
+      content.Num_Empleado || content.id_empleado || ''
+    );
+    if (!empId) continue;
+
+    const existing = byEmployee.get(empId) || [];
+    existing.push(content);
+    byEmployee.set(empId, existing);
+  }
+
+  // Aggregate per employee
+  const aggregated = Array.from(byEmployee.entries()).map(([empId, rows]) => ({
+    employeeId: empId,
+    tenantId,
+    batchId,
+    recordCount: rows.length,
+    ...aggregateFields(rows)
+  }));
+
+  const serialized = JSON.stringify(aggregated);
+  const sizeKB = Math.round(serialized.length / 1024);
+
+  console.log(`[DataLayer] Aggregated ${records.length} records -> ${aggregated.length} employees (${sizeKB} KB)`);
+
+  try {
+    const storageKey = `${STORAGE_KEYS.COMMITTED}_aggregated_${tenantId}`;
+    localStorage.setItem(storageKey, serialized);
+    localStorage.setItem(`${storageKey}_meta`, JSON.stringify({
+      tenantId,
+      batchId,
+      sourceRecords: records.length,
+      employees: aggregated.length,
+      sizeKB,
+      timestamp: Date.now()
+    }));
+    return { employeeCount: aggregated.length, sizeKB };
+  } catch (error) {
+    console.error('[DataLayer] Failed to store aggregated data:', error);
+    reportStorageUsage();
+    return { employeeCount: 0, sizeKB: 0 };
+  }
+}
+
+/**
+ * Load aggregated employee data for a tenant
+ */
+export function loadAggregatedData(tenantId: string): Array<Record<string, unknown>> {
+  if (typeof window === 'undefined') return [];
+
+  const storageKey = `${STORAGE_KEYS.COMMITTED}_aggregated_${tenantId}`;
+  const stored = localStorage.getItem(storageKey);
+
+  if (!stored) {
+    console.log(`[DataLayer] No aggregated data found for tenant ${tenantId}`);
+    return [];
+  }
+
+  try {
+    const aggregated = JSON.parse(stored);
+    console.log(`[DataLayer] Loaded ${aggregated.length} aggregated employees for tenant ${tenantId}`);
+    return aggregated;
+  } catch (error) {
+    console.error('[DataLayer] Failed to parse aggregated data:', error);
+    return [];
+  }
+}
+
+/**
+ * OB-16C: Cleanup stale data from localStorage
+ */
+export function cleanupStaleData(currentTenantId: string): void {
+  if (typeof window === 'undefined') return;
+
+  console.log(`[DataLayer] Running stale data cleanup for tenant: ${currentTenantId}`);
+
+  let removedKeys = 0;
+  let freedBytes = 0;
+  const keysToRemove: string[] = [];
+
+  // Collect keys to process
+  const allKeys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key) allKeys.push(key);
+  }
+
+  for (const key of allKeys) {
+    const value = localStorage.getItem(key);
+    if (!value) continue;
+
+    // Remove chunk orphans (chunks without metadata)
+    if (key.includes('_chunk_')) {
+      const baseKey = key.replace(/_chunk_\d+$/, '');
+      if (!localStorage.getItem(`${baseKey}_meta`)) {
+        keysToRemove.push(key);
+        continue;
+      }
+    }
+
+    // Clean old tenant data from batches
+    if (key === STORAGE_KEYS.BATCHES || key.includes('data_layer_batches')) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          const filtered = parsed.filter((item: [string, { tenantId?: string }]) => {
+            const itemTenant = item[1]?.tenantId || '';
+            return itemTenant === currentTenantId || itemTenant === '';
+          });
+          if (filtered.length < parsed.length) {
+            console.log(`[DataLayer] Cleaned ${key}: ${parsed.length} -> ${filtered.length} batches`);
+            freedBytes += value.length - JSON.stringify(filtered).length;
+            localStorage.setItem(key, JSON.stringify(filtered));
+          }
+        }
+      } catch {
+        // Not parseable, skip
+      }
+    }
+
+    // Remove aggregated data for other tenants
+    if (key.includes('_aggregated_') && !key.includes(currentTenantId)) {
+      keysToRemove.push(key);
+      keysToRemove.push(`${key}_meta`);
+    }
+  }
+
+  // Remove identified keys
+  for (const key of keysToRemove) {
+    const size = localStorage.getItem(key)?.length || 0;
+    localStorage.removeItem(key);
+    removedKeys++;
+    freedBytes += size;
+  }
+
+  console.log(`[DataLayer] Cleanup complete: removed ${removedKeys} keys, freed ~${Math.round(freedBytes / 1024)} KB`);
+  reportStorageUsage();
+}
+
 export function initializeDataLayer(): void {
   memoryCache.raw = loadFromStorage<RawRecord>(STORAGE_KEYS.RAW);
   memoryCache.transformed = loadFromStorage<TransformedRecord>(STORAGE_KEYS.TRANSFORMED);
-  memoryCache.committed = loadFromStorage<CommittedRecord>(STORAGE_KEYS.COMMITTED);
+  // OB-16C: Use chunked loading for potentially large committed data
+  memoryCache.committed = loadFromStorageChunked<CommittedRecord>(STORAGE_KEYS.COMMITTED);
   memoryCache.batches = loadFromStorage<ImportBatch>(STORAGE_KEYS.BATCHES);
   memoryCache.checkpoints = loadFromStorage<Checkpoint>(STORAGE_KEYS.CHECKPOINTS);
 
@@ -128,11 +471,14 @@ export function initializeDataLayer(): void {
 }
 
 function persistAll(): void {
+  // Use regular storage for small datasets
   saveToStorage(STORAGE_KEYS.RAW, memoryCache.raw);
   saveToStorage(STORAGE_KEYS.TRANSFORMED, memoryCache.transformed);
-  saveToStorage(STORAGE_KEYS.COMMITTED, memoryCache.committed);
   saveToStorage(STORAGE_KEYS.BATCHES, memoryCache.batches);
   saveToStorage(STORAGE_KEYS.CHECKPOINTS, memoryCache.checkpoints);
+
+  // OB-16C: Use chunked storage for potentially large committed data
+  saveToStorageChunked(STORAGE_KEYS.COMMITTED, memoryCache.committed);
 }
 
 // ============================================
@@ -781,20 +1127,23 @@ export function directCommitImportData(
   persistAll();
 
   // OB-16B: Verify persistence
-  const committedVerify = localStorage.getItem(STORAGE_KEYS.COMMITTED);
+  const committedMeta = localStorage.getItem(`${STORAGE_KEYS.COMMITTED}_meta`);
   const batchesVerify = localStorage.getItem(STORAGE_KEYS.BATCHES);
   console.log(`[DataLayer] Post-persist verification:`);
-  console.log(`[DataLayer]   - Committed in localStorage: ${committedVerify ? 'YES' : 'NO'} (${committedVerify ? Math.round(committedVerify.length / 1024) : 0} KB)`);
+  if (committedMeta) {
+    const meta = JSON.parse(committedMeta);
+    console.log(`[DataLayer]   - Committed: ${meta.total} records, ${meta.sizeKB} KB, ${meta.chunks || 0} chunks`);
+  } else {
+    const committedVerify = localStorage.getItem(STORAGE_KEYS.COMMITTED);
+    console.log(`[DataLayer]   - Committed in localStorage: ${committedVerify ? 'YES' : 'NO'} (${committedVerify ? Math.round(committedVerify.length / 1024) : 0} KB)`);
+  }
   console.log(`[DataLayer]   - Batches in localStorage: ${batchesVerify ? 'YES' : 'NO'}`);
 
-  if (committedVerify) {
-    try {
-      const parsed = JSON.parse(committedVerify);
-      console.log(`[DataLayer]   - Committed records parsed: ${parsed.length}`);
-    } catch (e) {
-      console.error(`[DataLayer]   - Failed to parse committed data:`, e);
-    }
-  }
+  // OB-16C: Also store aggregated data for calculation engine (bypasses 5MB limit issue)
+  const allCommittedRecords = Array.from(memoryCache.committed.values())
+    .filter(r => r.importBatchId === batchId);
+  const aggregateResult = storeAggregatedData(tenantId, batchId, allCommittedRecords);
+  console.log(`[DataLayer]   - Aggregated: ${aggregateResult.employeeCount} employees, ${aggregateResult.sizeKB} KB`);
 
   console.log(`[DataLayer] Committed ${totalRecords} records from ${sheetData.length} sheets for tenant ${tenantId}`);
 

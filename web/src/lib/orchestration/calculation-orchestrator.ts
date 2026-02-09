@@ -549,6 +549,13 @@ export class CalculationOrchestrator {
   private getEmployees(): EmployeeData[] {
     if (typeof window === 'undefined') return [];
 
+    // OB-16C PRIORITY 0: Aggregated data (bypasses 5MB localStorage limit)
+    const aggregatedEmployees = this.loadAggregatedEmployees();
+    if (aggregatedEmployees.length > 0) {
+      console.log(`[Orchestrator] Using ${aggregatedEmployees.length} employees from AGGREGATED data`);
+      return aggregatedEmployees;
+    }
+
     // PRIORITY 1: Committed import data (real imported employees take precedence)
     // This ensures when a data import is committed, those employees are used
     const committedEmployees = this.extractEmployeesFromCommittedData();
@@ -575,8 +582,52 @@ export class CalculationOrchestrator {
     // NO DEMO FALLBACK - Return empty array with clear error message
     // Demo data masks real issues and is a compliance violation in production
     console.error(`[Orchestrator] ERROR: No employee data found for tenant "${this.tenantId}". Import data first.`);
-    console.log(`[Orchestrator] Checked: committed data (0), stored data (0 for this tenant)`);
+    console.log(`[Orchestrator] Checked: aggregated (0), committed data (0), stored data (0 for this tenant)`);
     return [];
+  }
+
+  /**
+   * OB-16C: Load employees from aggregated data (handles large imports)
+   */
+  private loadAggregatedEmployees(): EmployeeData[] {
+    const storageKey = `data_layer_committed_aggregated_${this.tenantId}`;
+    const stored = localStorage.getItem(storageKey);
+
+    if (!stored) {
+      console.log(`[Orchestrator] No aggregated data found for tenant ${this.tenantId}`);
+      return [];
+    }
+
+    try {
+      const aggregated: Array<Record<string, unknown>> = JSON.parse(stored);
+      console.log(`[Orchestrator] Found ${aggregated.length} aggregated employee records`);
+
+      return aggregated.map((record): EmployeeData => ({
+        id: String(record.employeeId || ''),
+        tenantId: this.tenantId,
+        employeeNumber: String(record.employeeId || record.num_empleado || ''),
+        firstName: String(record.nombre || record.name || record.firstName || 'Imported'),
+        lastName: String(record.apellido || record.lastName || 'Employee'),
+        email: String(record.email || `${record.employeeId}@import.local`),
+        role: String(record.puesto || record.role || record.cargo || 'imported'),
+        department: String(record.departamento || record.department || ''),
+        storeId: String(record.storeId || record.tienda || record.no_tienda || ''),
+        managerId: String(record.managerId || ''),
+        hireDate: String(record.fecha_ingreso || record.hireDate || ''),
+        status: 'active' as const,
+        // Include aggregated metrics as attributes
+        attributes: {
+          amount: Number(record.amount || record.monto || record.venta || 0),
+          goal: Number(record.goal || record.meta || 0),
+          attainment: Number(record.attainment || record.cumplimiento || 0),
+          quantity: Number(record.quantity || record.cantidad || 0),
+          recordCount: Number(record.recordCount || 1),
+        },
+      }));
+    } catch (error) {
+      console.error('[Orchestrator] Failed to parse aggregated data:', error);
+      return [];
+    }
   }
 
   /**
