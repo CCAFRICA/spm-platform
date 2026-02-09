@@ -583,7 +583,7 @@ export class TenantProvisioningEngine {
   /**
    * Delete tenant and all associated data (DESTRUCTIVE)
    */
-  deleteTenant(tenantId: string, confirmPhrase: string): boolean {
+  deleteTenant(tenantId: string, confirmPhrase: string, deletedBy?: string): boolean {
     if (confirmPhrase !== `DELETE_${tenantId.toUpperCase()}`) {
       console.error('Deletion confirmation phrase does not match');
       return false;
@@ -591,6 +591,26 @@ export class TenantProvisioningEngine {
 
     const tenant = this.tenants.get(tenantId);
     if (!tenant) return false;
+
+    // Log deletion to global audit log BEFORE removing data
+    if (typeof window !== 'undefined') {
+      const globalAuditKey = 'clearcomp_deletion_audit_log';
+      const auditLog = JSON.parse(localStorage.getItem(globalAuditKey) || '[]');
+      auditLog.push({
+        action: 'tenant_deleted',
+        tenantId,
+        tenantName: tenant.name,
+        tenantDisplayName: tenant.displayName,
+        tenantIndustry: tenant.industry,
+        tenantCountry: tenant.country,
+        deletedBy: deletedBy || 'unknown',
+        deletedAt: new Date().toISOString(),
+        tenantCreatedAt: tenant.createdAt,
+        tenantLastUpdated: tenant.updatedAt,
+      });
+      localStorage.setItem(globalAuditKey, JSON.stringify(auditLog));
+      console.log(`[Audit] Tenant deletion logged: ${tenantId} (${tenant.displayName})`);
+    }
 
     // Remove from memory
     this.tenants.delete(tenantId);

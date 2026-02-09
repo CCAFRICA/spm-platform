@@ -165,15 +165,19 @@ const LOCALES: { code: Locale; name: string }[] = [
   { code: 'fr-FR', name: 'Français (France)' },
 ];
 
-const TIMEZONES = [
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'America/Mexico_City',
-  'Europe/London',
-  'Europe/Paris',
-  'Europe/Madrid',
+// Timezone entries with display labels showing GMT offset
+const TIMEZONES: { value: string; label: string }[] = [
+  { value: 'America/New_York', label: 'America/New_York (GMT-5)' },
+  { value: 'America/Chicago', label: 'America/Chicago (GMT-6)' },
+  { value: 'America/Denver', label: 'America/Denver (GMT-7)' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (GMT-8)' },
+  { value: 'America/Mexico_City', label: 'America/Mexico_City (GMT-6)' },
+  { value: 'America/Mazatlan', label: 'America/Mazatlan (GMT-7)' },
+  { value: 'America/Tijuana', label: 'America/Tijuana (GMT-8)' },
+  { value: 'America/Cancun', label: 'America/Cancun (GMT-5, No DST)' },
+  { value: 'Europe/London', label: 'Europe/London (GMT+0)' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (GMT+1)' },
+  { value: 'Europe/Madrid', label: 'Europe/Madrid (GMT+1)' },
 ];
 
 export default function NewTenantPage() {
@@ -449,8 +453,8 @@ export default function NewTenantPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {TIMEZONES.map((tz) => (
-                    <SelectItem key={tz} value={tz}>
-                      {tz}
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {tz.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

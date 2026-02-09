@@ -275,15 +275,32 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       >
         {/* Logo */}
         <div className="flex h-16 items-center gap-2 px-6 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-navy-600 to-sky-500">
+          {currentTenant?.logo ? (
+            <img
+              src={currentTenant.logo}
+              alt={`${currentTenant.displayName} logo`}
+              className="h-9 w-9 rounded-lg object-contain"
+              onError={(e) => {
+                // Fallback to default icon on image load error
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+                const fallback = target.nextElementSibling as HTMLElement;
+                if (fallback) fallback.style.display = 'flex';
+              }}
+            />
+          ) : null}
+          <div
+            className={`h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-navy-600 to-sky-500 ${currentTenant?.logo ? 'hidden' : 'flex'}`}
+            style={currentTenant?.primaryColor ? { background: currentTenant.primaryColor } : undefined}
+          >
             <DollarSign className="h-5 w-5 text-white" />
           </div>
           <div className="flex flex-col">
             <span className="text-lg font-bold text-slate-900 dark:text-slate-50">
-              Entity B
+              {currentTenant?.displayName || "ClearComp"}
             </span>
             <span className="text-[10px] text-slate-500 -mt-1">
-              {currentTenant?.displayName || "Sales Performance"}
+              {currentTenant?.industry || "Sales Performance"}
             </span>
           </div>
         </div>
