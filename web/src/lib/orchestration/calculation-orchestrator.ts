@@ -620,8 +620,13 @@ export class CalculationOrchestrator {
     // Get committed records
     const committedStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_COMMITTED);
     console.log(`[Orchestrator] Committed in storage: ${committedStored ? 'YES' : 'NO'}`);
+    if (committedStored) {
+      console.log(`[Orchestrator] Committed storage size: ${Math.round(committedStored.length / 1024)} KB`);
+    }
     if (!committedStored) {
       console.log('[Orchestrator] No committed records in localStorage');
+      // OB-16B: List all localStorage keys for diagnostics
+      console.log('[Orchestrator] Available localStorage keys:', Object.keys(localStorage).filter(k => k.includes('data_layer') || k.includes('committed') || k.includes('batch')));
       return [];
     }
 

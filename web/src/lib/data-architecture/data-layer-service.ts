@@ -64,10 +64,37 @@ function saveToStorage<T>(key: string, map: Map<string, T>): void {
 
   try {
     const entries = Array.from(map.entries());
-    localStorage.setItem(key, JSON.stringify(entries));
-  } catch {
-    // Storage full - try to clean up old entries
-    console.warn('Storage full, clearing old data layer entries');
+    const serialized = JSON.stringify(entries);
+    const sizeKB = Math.round(serialized.length / 1024);
+
+    // OB-16B: Log storage size for diagnostics
+    console.log(`[DataLayer] Saving ${key}: ${entries.length} entries, ${sizeKB} KB`);
+
+    localStorage.setItem(key, serialized);
+
+    // Verify write succeeded
+    const verification = localStorage.getItem(key);
+    if (!verification) {
+      console.error(`[DataLayer] CRITICAL: Failed to persist ${key} - data may be lost!`);
+    } else if (verification.length !== serialized.length) {
+      console.error(`[DataLayer] WARNING: ${key} size mismatch - wrote ${serialized.length}, read ${verification.length}`);
+    }
+  } catch (error) {
+    // Storage full or other error - THIS IS CRITICAL, DATA IS BEING LOST
+    console.error(`[DataLayer] STORAGE ERROR for ${key}:`, error);
+    console.error(`[DataLayer] ${map.size} records may have been lost due to storage limits`);
+
+    // Try to determine storage usage
+    try {
+      let totalSize = 0;
+      for (const k of Object.keys(localStorage)) {
+        const item = localStorage.getItem(k);
+        if (item) totalSize += item.length;
+      }
+      console.error(`[DataLayer] Current localStorage usage: ${Math.round(totalSize / 1024)} KB`);
+    } catch {
+      // Ignore errors in diagnostics
+    }
   }
 }
 
@@ -745,8 +772,29 @@ export function directCommitImportData(
   batch.summary.cleanRecords = totalRecords;
   memoryCache.batches.set(batchId, batch);
 
+  // OB-16B: Log what we're about to persist
+  console.log(`[DataLayer] About to persist:`);
+  console.log(`[DataLayer]   - Committed records in memory: ${memoryCache.committed.size}`);
+  console.log(`[DataLayer]   - Batches in memory: ${memoryCache.batches.size}`);
+
   // Persist to localStorage
   persistAll();
+
+  // OB-16B: Verify persistence
+  const committedVerify = localStorage.getItem(STORAGE_KEYS.COMMITTED);
+  const batchesVerify = localStorage.getItem(STORAGE_KEYS.BATCHES);
+  console.log(`[DataLayer] Post-persist verification:`);
+  console.log(`[DataLayer]   - Committed in localStorage: ${committedVerify ? 'YES' : 'NO'} (${committedVerify ? Math.round(committedVerify.length / 1024) : 0} KB)`);
+  console.log(`[DataLayer]   - Batches in localStorage: ${batchesVerify ? 'YES' : 'NO'}`);
+
+  if (committedVerify) {
+    try {
+      const parsed = JSON.parse(committedVerify);
+      console.log(`[DataLayer]   - Committed records parsed: ${parsed.length}`);
+    } catch (e) {
+      console.error(`[DataLayer]   - Failed to parse committed data:`, e);
+    }
+  }
 
   console.log(`[DataLayer] Committed ${totalRecords} records from ${sheetData.length} sheets for tenant ${tenantId}`);
 
