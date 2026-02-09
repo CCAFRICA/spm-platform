@@ -353,6 +353,7 @@ const CLASSIFICATION_CONFIG: Record<SheetClassification, { icon: typeof Users; c
 
 // Helper: Translate column name
 function translateColumn(column: string): string | null {
+  if (!column) return null;
   const normalized = column.toLowerCase().replace(/[\s_-]+/g, '_').trim();
   return COLUMN_TRANSLATIONS[normalized] || null;
 }
@@ -512,6 +513,7 @@ function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields:
 
   // Try matching against targetFields directly
   for (const field of targetFields) {
+    if (!field?.id || !field?.label) continue;
     const fieldNorm = field.id.toLowerCase();
     const labelNorm = field.label.toLowerCase().replace(/[\s_-]+/g, '_');
     const labelEsNorm = field.labelEs?.toLowerCase().replace(/[\s_-]+/g, '_');
@@ -825,11 +827,13 @@ export default function DataPackageImportPage() {
         const mappings: SheetFieldMapping[] = analyzedSheets
           .filter((sheet: AnalyzedSheet) => sheet.classification !== 'unrelated')
           .map((sheet: AnalyzedSheet) => {
-            const sheetMappings = sheet.headers.map(header => {
+            // Filter out undefined/empty headers
+            const validHeaders = (sheet.headers || []).filter(h => h != null && h !== '');
+            const sheetMappings = validHeaders.map(header => {
               // Case-insensitive matching with whitespace normalization
-              const headerNorm = header.toLowerCase().trim();
+              const headerNorm = header?.toLowerCase()?.trim() || '';
               const suggestion = sheet.suggestedFieldMappings?.find(
-                m => m.sourceColumn.toLowerCase().trim() === headerNorm
+                m => m?.sourceColumn && headerNorm && m.sourceColumn.toLowerCase().trim() === headerNorm
               );
               const confidence = suggestion?.confidence || 0;
               // Auto-confirm if confidence >= 85% (high confidence, per OB-12)
@@ -1144,9 +1148,11 @@ export default function DataPackageImportPage() {
 
       if (rosterSheet) {
         const employeeCol = rosterSheet.headers.find(h =>
-          h.toLowerCase().includes('empleado') ||
-          h.toLowerCase().includes('employee') ||
-          h.toLowerCase().includes('id')
+          h && (
+            h.toLowerCase().includes('empleado') ||
+            h.toLowerCase().includes('employee') ||
+            h.toLowerCase().includes('id')
+          )
         );
         if (employeeCol) {
           rosterSheet.sampleRows.forEach(row => {
@@ -2181,12 +2187,14 @@ export default function DataPackageImportPage() {
                       </thead>
                       <tbody>
                         <tr className="border-t">
-                          {currentMappingSheet.headers.slice(0, 8).map(header => {
+                          {currentMappingSheet.headers.slice(0, 8).filter(h => h != null).map(header => {
                             const value = currentMappingSheet.sampleRows[previewRowIndex]?.[header];
                             // Format currency values
-                            const isAmountField = header.toLowerCase().includes('monto') ||
+                            const isAmountField = header && (
+                              header.toLowerCase().includes('monto') ||
                               header.toLowerCase().includes('venta') ||
-                              header.toLowerCase().includes('total');
+                              header.toLowerCase().includes('total')
+                            );
                             return (
                               <td key={header} className="px-3 py-2">
                                 {isAmountField ? formatCurrency(value) : String(value ?? '')}
