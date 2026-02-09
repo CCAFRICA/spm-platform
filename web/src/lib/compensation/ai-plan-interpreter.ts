@@ -1,9 +1,11 @@
 /**
  * AI-Powered Plan Interpreter
  *
- * Uses Anthropic Claude API to intelligently interpret commission plan documents.
+ * Uses AIService for provider-agnostic AI interpretation of commission plan documents.
  * Handles any format (PPTX, CSV, Excel, PDF text) and any language (Spanish, English, mixed).
  */
+
+import { getAIService } from '@/lib/ai';
 
 // ============================================
 // TYPES
@@ -128,278 +130,50 @@ export interface AIInterpreterConfig {
 }
 
 // ============================================
-// API PROMPT
-// ============================================
-
-const SYSTEM_PROMPT = `You are an expert at analyzing compensation and commission plan documents. Your task is to extract the COMPLETE structure of a compensation plan from the provided document content.
-
-CRITICAL REQUIREMENTS:
-1. Extract EVERY distinct compensation component - do NOT merge similar components
-2. Each table, each metric, each KPI with its own payout structure is a SEPARATE component
-3. Detect ALL employee types/classifications if the document has different payout levels for different roles
-
-IMPORTANT GUIDELINES:
-1. Documents may be in Spanish, English, or mixed languages. Preserve original language labels where found.
-2. Look for tables (matrices or single-column tiers), percentage mentions, and conditional rules.
-3. Identify whether metrics are per-employee, per-store, or per-company scope.
-4. Extract worked examples if present — these are critical for validation.
-5. Return confidence scores (0-100) for each component and overall.
-6. If something is ambiguous, flag it in the reasoning rather than guessing.
-
-COMPONENT DETECTION RULES:
-- Each slide or section with a distinct title/header is likely a separate component
-- Each table measuring a DIFFERENT metric is a SEPARATE component (even if similar structure)
-- Common component types in retail plans:
-  * Optical/Product Sales (often a 2D matrix with attainment % and sales volume)
-  * Store Sales Attainment (tiered lookup based on store goal %)
-  * New Customers (tiered lookup based on customer acquisition %)
-  * Collections/Cobranza (tiered lookup based on collection goal %)
-  * Insurance/Seguros Sales (percentage of individual sales, may be conditional)
-  * Warranty/Servicios Sales (flat percentage of individual sales)
-- DO NOT combine "New Customers" and "Collections" into one component - they are separate
-- DO NOT combine any tiered lookups just because they have similar tier structures
-
-EMPLOYEE TYPE DETECTION:
-- Look for phrases like "Certificado/Certified", "No Certificado/Non-Certified", "Senior", "Junior"
-- Look for different payout matrices or values for different employee classifications
-- If a component shows TWO different payout tables (e.g., one labeled for certified, one for non-certified), create TWO employee types
-- Components that are the same for all employee types should have appliesToEmployeeTypes: ["all"]
-- Components that differ should specify which employee type they apply to
-
-PAY ATTENTION TO:
-- Matrix lookups: Two-dimensional tables where payout depends on two metrics (row and column)
-- Tiered lookups: Single-dimension tables with thresholds and corresponding payouts
-- Percentage calculations: Rate applied to a base amount
-- Conditional percentages: Rate varies based on another metric's value
-
-COMMON SPANISH TERMS:
-- "% cumplimiento" = "% attainment"
-- "Venta de..." = "Sales of..."
-- "Meta" = "Goal/Target"
-- "Tienda" = "Store"
-- "Clientes Nuevos" = "New Customers"
-- "Cobranza" = "Collections"
-- "Seguros" = "Insurance"
-- "Servicios/Garantía Extendida" = "Warranty/Extended Services"
-
-Return your analysis as valid JSON matching the specified schema.`;
-
-const USER_PROMPT_TEMPLATE = `Analyze the following compensation plan document and extract its COMPLETE structure.
-
-IMPORTANT:
-- Extract ALL distinct components (typically 4-8 components in a retail plan)
-- Each metric/KPI with its own payout table is a SEPARATE component
-- Detect if there are multiple employee types with different payout levels
-
-DOCUMENT CONTENT:
----
-{CONTENT}
----
-
-Return a JSON object with this exact structure:
-{
-  "planName": "Name of the plan in English",
-  "planNameEs": "Name in Spanish if found",
-  "description": "Brief description of the plan",
-  "descriptionEs": "Description in Spanish if found",
-  "currency": "USD" or "MXN" or other currency code,
-  "employeeTypes": [
-    {
-      "id": "unique-slug-id",
-      "name": "Employee Type Name",
-      "nameEs": "Spanish name if found",
-      "eligibilityCriteria": { "key": "value" }
-    }
-  ],
-  "components": [
-    {
-      "id": "unique-component-id",
-      "name": "Component Name",
-      "nameEs": "Spanish name if found",
-      "type": "matrix_lookup | tiered_lookup | percentage | flat_percentage | conditional_percentage",
-      "appliesToEmployeeTypes": ["all"] or ["specific-type-id"],
-      "calculationMethod": {
-        // Structure depends on type - see below
-      },
-      "confidence": 0-100,
-      "reasoning": "Why this component was identified this way"
-    }
-  ],
-  "requiredInputs": [
-    {
-      "field": "metric_name",
-      "description": "What this input represents",
-      "descriptionEs": "Spanish description",
-      "scope": "employee | store | company",
-      "dataType": "number | percentage | currency"
-    }
-  ],
-  "workedExamples": [
-    {
-      "employeeType": "type-id",
-      "inputs": { "metric_name": value },
-      "expectedTotal": number,
-      "componentBreakdown": { "component-id": value }
-    }
-  ],
-  "confidence": 0-100,
-  "reasoning": "Overall reasoning about the plan interpretation"
-}
-
-CALCULATION METHOD STRUCTURES:
-
-For matrix_lookup:
-{
-  "type": "matrix_lookup",
-  "rowAxis": {
-    "metric": "metric_field_name",
-    "label": "Row Axis Label",
-    "labelEs": "Spanish label",
-    "ranges": [
-      { "min": 0, "max": 80, "label": "<80%" },
-      { "min": 80, "max": 90, "label": "80%-90%" }
-    ]
-  },
-  "columnAxis": {
-    "metric": "metric_field_name",
-    "label": "Column Axis Label",
-    "ranges": [
-      { "min": 0, "max": 60000, "label": "<$60k" }
-    ]
-  },
-  "values": [[0, 0, 0], [100, 200, 300]]  // 2D grid matching row x column
-}
-
-For tiered_lookup:
-{
-  "type": "tiered_lookup",
-  "metric": "metric_field_name",
-  "metricLabel": "Metric Label",
-  "tiers": [
-    { "min": 0, "max": 100, "payout": 0, "label": "<100%" },
-    { "min": 100, "max": 105, "payout": 150, "label": "100%-105%" }
-  ]
-}
-
-For percentage/flat_percentage:
-{
-  "type": "percentage",
-  "metric": "metric_to_apply_rate_to",
-  "metricLabel": "What this metric represents",
-  "rate": 0.04  // 4% as decimal
-}
-
-For conditional_percentage:
-{
-  "type": "conditional_percentage",
-  "metric": "metric_to_apply_rate_to",
-  "metricLabel": "Base amount description",
-  "conditionMetric": "metric_that_determines_rate",
-  "conditionMetricLabel": "Condition description",
-  "conditions": [
-    { "threshold": 100, "operator": "<", "rate": 0.03, "label": "<100%" },
-    { "threshold": 100, "operator": ">=", "rate": 0.05, "label": ">=100%" }
-  ]
-}
-
-Analyze the document thoroughly and return the complete JSON structure.`;
-
-// ============================================
-// AI INTERPRETER CLASS
+// AI INTERPRETER CLASS (uses AIService for provider abstraction)
 // ============================================
 
 export class AIPlainInterpreter {
-  private apiKey: string | null;
-  private model: string;
-  private maxTokens: number;
-
-  constructor(config: AIInterpreterConfig = {}) {
-    this.apiKey = config.apiKey || this.getApiKey();
-    this.model = config.model || 'claude-sonnet-4-20250514';
-    this.maxTokens = config.maxTokens || 8000;
-  }
-
-  private getApiKey(): string | null {
-    // Read from environment variable only
-    // In Next.js, server-side env vars are available via process.env
-    // For client-side, we need to use NEXT_PUBLIC_ prefix or call an API route
-    if (typeof process !== 'undefined' && process.env?.ANTHROPIC_API_KEY) {
-      return process.env.ANTHROPIC_API_KEY;
-    }
-
-    return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  constructor(_config: AIInterpreterConfig = {}) {
+    // Config is ignored - we use AIService for all AI calls
   }
 
   public isConfigured(): boolean {
-    return this.apiKey !== null && this.apiKey.length > 0;
+    // AIService handles configuration internally
+    try {
+      getAIService();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
-   * Interpret a plan document using Claude API
+   * Interpret a plan document using AIService (provider-agnostic)
    */
   public async interpretPlan(documentContent: string): Promise<PlanInterpretation> {
-    if (!this.isConfigured()) {
-      throw new Error(
-        'AI plan interpretation is not configured. Contact platform administrator.'
-      );
-    }
-
     console.log('\n========== AI INTERPRETER DEBUG ==========');
     console.log('Document content length:', documentContent.length, 'chars');
-    console.log('Model:', this.model);
-    console.log('Max tokens:', this.maxTokens);
-
-    const userPrompt = USER_PROMPT_TEMPLATE.replace('{CONTENT}', documentContent);
-    console.log('User prompt length:', userPrompt.length, 'chars');
 
     try {
-      console.log('Calling Anthropic API...');
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': this.apiKey!,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: this.maxTokens,
-          system: SYSTEM_PROMPT,
-          messages: [
-            {
-              role: 'user',
-              content: userPrompt,
-            },
-          ],
-        }),
-      });
+      // Use AIService for provider abstraction
+      const aiService = getAIService();
+      console.log('Calling AIService.interpretPlan...');
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('API error:', response.status, errorData);
-        throw new Error(
-          `API request failed: ${response.status} ${response.statusText}. ${
-            errorData.error?.message || ''
-          }`
-        );
-      }
+      const response = await aiService.interpretPlan(documentContent, 'text');
 
-      const data = await response.json();
-      const content = data.content?.[0]?.text;
+      console.log('\n========== AI RESPONSE ==========');
+      console.log('Request ID:', response.requestId);
+      console.log('Signal ID:', response.signalId);
+      console.log('Confidence:', (response.confidence * 100).toFixed(1) + '%');
+      console.log('Latency:', response.latencyMs + 'ms');
+      console.log('Provider:', response.provider);
+      console.log('Model:', response.model);
 
-      console.log('\n========== RAW AI RESPONSE ==========');
-      console.log('Response length:', content?.length || 0, 'chars');
-      console.log('Full response:');
-      console.log(content);
-      console.log('======================================\n');
-
-      if (!content) {
-        throw new Error('No content in API response');
-      }
-
-      // Parse the JSON response
-      const interpretation = this.parseApiResponse(content);
-      interpretation.rawApiResponse = content;
+      // Parse and normalize the result
+      const interpretation = this.validateAndNormalize(response.result);
+      interpretation.rawApiResponse = JSON.stringify(response.result);
 
       console.log('\n========== PARSED INTERPRETATION ==========');
       console.log('Plan name:', interpretation.planName);
@@ -424,49 +198,7 @@ export class AIPlainInterpreter {
   }
 
   /**
-   * Parse the API response JSON
-   */
-  private parseApiResponse(content: string): PlanInterpretation {
-    // Try to extract JSON from the response
-    let jsonStr = content;
-
-    // Handle markdown code blocks
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[1];
-    }
-
-    // Try to find JSON object
-    const objectMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (objectMatch) {
-      jsonStr = objectMatch[0];
-    }
-
-    try {
-      const parsed = JSON.parse(jsonStr);
-      return this.validateAndNormalize(parsed);
-    } catch (parseError) {
-      console.error('Failed to parse API response:', parseError);
-      console.error('Raw content:', content);
-
-      // Return a minimal interpretation with the error
-      return {
-        planName: 'Unrecognized Plan',
-        description: 'Failed to parse AI response. Manual configuration required.',
-        currency: 'USD',
-        employeeTypes: [],
-        components: [],
-        requiredInputs: [],
-        workedExamples: [],
-        confidence: 0,
-        reasoning: `Parse error: ${parseError instanceof Error ? parseError.message : 'Unknown error'}. Raw response available for debugging.`,
-        rawApiResponse: content,
-      };
-    }
-  }
-
-  /**
-   * Validate and normalize the parsed response
+   * Validate and normalize the AI response
    */
   private validateAndNormalize(parsed: Record<string, unknown>): PlanInterpretation {
     return {

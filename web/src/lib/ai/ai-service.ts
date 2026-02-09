@@ -183,6 +183,46 @@ export class AIService {
   }
 
   /**
+   * Analyze a multi-sheet workbook for structure and relationships
+   */
+  async analyzeWorkbook(
+    sheetsInfo: string,
+    planComponents?: string,
+    expectedFields?: string,
+    signalContext?: { tenantId?: string; userId?: string }
+  ): Promise<AIResponse> {
+    return this.execute(
+      {
+        task: 'workbook_analysis',
+        input: { sheetsInfo, planComponents, expectedFields },
+        options: { responseFormat: 'json', maxTokens: 8000 },
+      },
+      true,
+      signalContext
+    );
+  }
+
+  /**
+   * Suggest field mappings for import data
+   */
+  async suggestImportFieldMappings(
+    headers: string,
+    sampleData: string,
+    tenantContext?: string,
+    signalContext?: { tenantId?: string; userId?: string }
+  ): Promise<AIResponse> {
+    return this.execute(
+      {
+        task: 'import_field_mapping',
+        input: { headers, sampleData, tenantContext },
+        options: { responseFormat: 'json' },
+      },
+      true,
+      signalContext
+    );
+  }
+
+  /**
    * Detect anomalies in data
    */
   async detectAnomalies(

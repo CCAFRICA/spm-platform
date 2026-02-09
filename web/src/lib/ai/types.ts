@@ -51,6 +51,8 @@ export type AITaskType =
   | 'sheet_classification'          // What type of data is in this sheet?
   | 'field_mapping'                 // What platform field does this column map to?
   | 'plan_interpretation'           // Extract compensation rules from document
+  | 'workbook_analysis'             // Analyze multi-sheet workbook structure
+  | 'import_field_mapping'          // Suggest field mappings for import data
   | 'entity_extraction'             // Extract entities (people, places, orgs) from data
   | 'anomaly_detection'             // Flag outliers in financial/compensation data
   | 'recommendation'                // Generate actionable recommendation

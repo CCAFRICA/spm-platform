@@ -88,6 +88,65 @@ COMMON SPANISH TERMS:
 
 Return your analysis as valid JSON.`,
 
+  workbook_analysis: `You are an expert at analyzing compensation data workbooks for a Sales Performance Management (SPM) platform. Your task is to analyze ALL sheets in a workbook together to understand how they relate and feed into compensation calculations.
+
+SHEET CLASSIFICATION TYPES:
+1. "roster" - Employee roster with employee IDs, names, positions, store assignments
+2. "component_data" - Feeds a specific plan component (sales data, performance metrics, etc.)
+3. "reference" - Lookup/reference data (product lists, rate tables, etc.)
+4. "regional_partition" - Same structure as another sheet but for a different region/store/territory
+5. "period_summary" - Aggregated period-level data
+6. "unrelated" - Does not appear related to compensation calculations
+
+RELATIONSHIP DETECTION:
+- Look for shared column names across sheets (e.g., employee_id, store_id, period)
+- Spanish column names are common: num_empleado, No_Tienda, Fecha_Corte
+- Detect primary keys and foreign key relationships
+- Identify if one sheet references another
+
+Return your analysis as valid JSON.`,
+
+  import_field_mapping: `You are an expert at analyzing data import files for a Sales Performance Management (SPM) platform. Your task is to suggest field mappings from source file columns to platform fields.
+
+PLATFORM FIELDS (target fields for mapping):
+- orderId: Order ID / Transaction identifier
+- transactionId: Transaction ID
+- externalId: External system ID / Reference
+- repId: Sales rep identifier (REQUIRED)
+- repName: Sales rep name
+- date: Transaction date (REQUIRED)
+- amount: Sale amount / Revenue (REQUIRED)
+- quantity: Units sold
+- productId: Product identifier
+- productName: Product name
+- customerId: Customer identifier
+- customerName: Customer name
+- region: Geographic region
+- territory: Sales territory
+- channel: Sales channel
+- status: Transaction status
+- currency: Currency code
+- commissionRate: Commission rate/percentage
+- notes: Additional notes
+
+MAPPING GUIDELINES:
+1. Each source column should map to AT MOST one platform field
+2. Provide confidence scores (0-100) for each mapping
+3. Look for variations and synonyms (e.g., "fecha" = "date", "monto" = "amount")
+4. Identify the REQUIRED fields (repId, date, amount) - flag if not found
+
+COMMON SPANISH TERMS:
+- "Fecha" = Date
+- "Monto" / "Importe" / "Total" = Amount
+- "Vendedor" / "Rep" / "Empleado" = Rep
+- "Cliente" = Customer
+- "Producto" = Product
+- "Cantidad" = Quantity
+- "Pedido" / "Orden" = Order
+- "Estado" = Status
+
+Return your analysis as valid JSON.`,
+
   entity_extraction: `You are an expert at extracting structured entities from text and data. Identify and extract people, organizations, locations, dates, and other relevant entities.
 
 Return a JSON object with:
@@ -273,6 +332,55 @@ Return a JSON object with:
   "workedExamples": [...],
   "confidence": 0-100,
   "reasoning": "Overall reasoning"
+}`;
+
+      case 'workbook_analysis':
+        return `Analyze the following multi-sheet workbook and determine how the sheets relate to each other and to the compensation plan.
+
+SHEETS IN WORKBOOK:
+${input.sheetsInfo}
+
+TENANT'S PLAN COMPONENTS (if available):
+${input.planComponents || 'No plan components provided.'}
+
+EXPECTED DATA FIELDS PER COMPONENT (if available):
+${input.expectedFields || 'No expected fields provided.'}
+
+Return a JSON object with this structure:
+{
+  "sheets": [{ "name": "", "classification": "", "classificationConfidence": 0-100, "matchedComponent": null, "detectedPrimaryKey": null, "suggestedFieldMappings": [] }],
+  "relationships": [{ "fromSheet": "", "toSheet": "", "relationshipType": "", "sharedKeys": [], "confidence": 0-100 }],
+  "rosterDetected": { "found": false, "sheetName": null, "employeeIdColumn": null },
+  "periodDetected": { "found": false, "dateColumn": null },
+  "gaps": [],
+  "extras": [],
+  "overallConfidence": 0-100,
+  "summary": ""
+}`;
+
+      case 'import_field_mapping':
+        return `Analyze the following data import headers and sample data, then suggest field mappings.
+
+SOURCE HEADERS:
+${input.headers}
+
+SAMPLE DATA (first 3 rows):
+${input.sampleData}
+
+TENANT CONTEXT:
+${input.tenantContext || 'No specific tenant context provided.'}
+
+Return a JSON object with this structure:
+{
+  "mappings": [{ "sourceField": "", "targetField": "", "confidence": 0-100, "matchType": "exact|fuzzy|semantic|none", "reasoning": "" }],
+  "requiredFieldsStatus": {
+    "repId": { "found": false, "mappedFrom": null },
+    "date": { "found": false, "mappedFrom": null },
+    "amount": { "found": false, "mappedFrom": null }
+  },
+  "overallConfidence": 0-100,
+  "warnings": [],
+  "recommendations": []
 }`;
 
       case 'anomaly_detection':
