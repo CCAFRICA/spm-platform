@@ -37,6 +37,7 @@ export interface TenantFeatures {
   whatsappIntegration: boolean;
   mobileApp: boolean;
   apiAccess: boolean;
+  financial: boolean; // Financial Module - POS data analysis for restaurants
 }
 
 export const DEFAULT_FEATURES: TenantFeatures = {
@@ -51,6 +52,7 @@ export const DEFAULT_FEATURES: TenantFeatures = {
   whatsappIntegration: false,
   mobileApp: false,
   apiAccess: false,
+  financial: false, // Disabled by default, enabled per tenant
 };
 
 export interface TenantTerminology {

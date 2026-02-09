@@ -196,7 +196,7 @@ function commitImportData(tenantId: string): { batchId: string; recordCount: num
 // STEP 3: Extract Employees (Orchestrator Logic)
 // ============================================
 
-function extractEmployees(tenantId: string): ProofEmployee[] {
+function proofExtractEmployees(tenantId: string): ProofEmployee[] {
   const employees: ProofEmployee[] = [];
   const seenIds = new Set<string>();
 
@@ -260,7 +260,7 @@ function extractEmployees(tenantId: string): ProofEmployee[] {
 // STEP 4: Get Employee Metrics
 // ============================================
 
-function getEmployeeMetrics(employeeId: string): Record<string, number> {
+function proofGetEmployeeMetrics(employeeId: string): Record<string, number> {
   const committedStored = localStorage.getItem(PROOF_KEYS.COMMITTED);
   if (!committedStored) return {};
 
@@ -291,7 +291,7 @@ function getEmployeeMetrics(employeeId: string): Record<string, number> {
 // STEP 5: Calculate Payout
 // ============================================
 
-function calculatePayout(
+function proofCalculatePayout(
   attainment: number,
   component: ProofComponent
 ): number {
@@ -338,7 +338,7 @@ function runProofGate() {
 
   // Step 3: Extract Employees
   console.log('\n=== Step 3: Employees Found ===');
-  const employees = extractEmployees(tenantId);
+  const employees = proofExtractEmployees(tenantId);
   console.log(`Count: ${employees.length}`);
   console.log('Employee IDs:');
   employees.slice(0, 5).forEach(e => console.log(`  ${e.id} - ${e.firstName} ${e.lastName}`));
@@ -357,14 +357,14 @@ function runProofGate() {
   const results: { employeeId: string; component: string; metric: number; payout: number }[] = [];
 
   for (const employee of employees) {
-    const metrics = getEmployeeMetrics(employee.id);
+    const metrics = proofGetEmployeeMetrics(employee.id);
 
     if (metrics.pct_cumplimiento) {
       metricsFound++;
       const opticalComponent = plan.components.find(c => c.id === 'comp-optical-sales');
 
       if (opticalComponent) {
-        const payout = calculatePayout(metrics.pct_cumplimiento, opticalComponent);
+        const payout = proofCalculatePayout(metrics.pct_cumplimiento, opticalComponent);
         totalPayout += payout;
 
         results.push({

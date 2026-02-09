@@ -354,7 +354,7 @@ function cltExtractEmployeesFromCommittedData(tenantId: string): CLTEmployee[] {
   return employees;
 }
 
-function getEmployees(tenantId: string): CLTEmployee[] {
+function cltGetEmployees(tenantId: string): CLTEmployee[] {
   // PRIORITY 1: Committed import data (real imported employees take precedence)
   const committedEmployees = cltExtractEmployeesFromCommittedData(tenantId);
   if (committedEmployees.length > 0) {
@@ -386,7 +386,7 @@ function getEmployees(tenantId: string): CLTEmployee[] {
 // ============================================
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function getEmployeeMetrics(employeeId: string, _tenantId: string): Record<string, number> {
+function cltGetEmployeeMetrics(employeeId: string, _tenantId: string): Record<string, number> {
   const committedStored = localStorage.getItem(CLT_STORAGE_KEYS.DATA_LAYER_COMMITTED);
   if (!committedStored) return {};
 
@@ -414,7 +414,7 @@ function getEmployeeMetrics(employeeId: string, _tenantId: string): Record<strin
   return {};
 }
 
-function calculatePayout(attainment: number, baseAmount: number, tiers: { min: number; max: number; rate: number }[]): number {
+function cltCalculatePayout(attainment: number, baseAmount: number, tiers: { min: number; max: number; rate: number }[]): number {
   for (const tier of tiers) {
     if (attainment >= tier.min && attainment < tier.max) {
       return Math.round(baseAmount * tier.rate);
@@ -426,7 +426,7 @@ function calculatePayout(attainment: number, baseAmount: number, tiers: { min: n
 function runCalculation(tenantId: string, periodId: string): { run: CLTCalculationRun; results: CLTCalculationResult[] } {
   console.log('\n[CLT-01] === RUNNING CALCULATION ===');
 
-  const employees = getEmployees(tenantId);
+  const employees = cltGetEmployees(tenantId);
 
   const run: CLTCalculationRun = {
     id: `run-clt01-${Date.now()}`,
@@ -458,7 +458,7 @@ function runCalculation(tenantId: string, periodId: string): { run: CLTCalculati
   console.log(`[CLT-01] Processing ${employees.length} employees...`);
 
   for (const employee of employees) {
-    const metrics = getEmployeeMetrics(employee.id, tenantId);
+    const metrics = cltGetEmployeeMetrics(employee.id, tenantId);
 
     let totalPayout = 0;
     const componentResults: { componentId: string; componentName: string; amount: number }[] = [];
@@ -469,7 +469,7 @@ function runCalculation(tenantId: string, periodId: string): { run: CLTCalculati
         const baseAmount = component.config.baseAmount || 5000;
         const tiers = component.config.tiers || [];
 
-        const payout = calculatePayout(attainment, baseAmount, tiers);
+        const payout = cltCalculatePayout(attainment, baseAmount, tiers);
         totalPayout += payout;
 
         componentResults.push({
