@@ -9,7 +9,7 @@
 
 import type { Cheque, ChequeImportResult, ChequeImportError } from './types';
 import { parseChequeFile, type ChequeParseResult } from './cheque-parser';
-import { getStorageKey, FINANCIAL_STORAGE_KEYS } from './financial-constants';
+import { getStorageKey } from './financial-constants';
 
 // ============================================
 // STORAGE TYPES

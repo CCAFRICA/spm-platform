@@ -244,9 +244,9 @@ export class FinancialService {
 
     // Calculate summary for each period
     const summaries: PeriodSummary[] = [];
-    for (const [period, periodCheques] of periodMap) {
+    Array.from(periodMap.entries()).forEach(([period, periodCheques]) => {
       summaries.push(this.calculatePeriodSummary(periodCheques, period, periodType));
-    }
+    });
 
     // Sort by period
     summaries.sort((a, b) => a.period.localeCompare(b.period));
@@ -264,7 +264,8 @@ export class FinancialService {
   getStaffPerformance(
     staffId: number,
     period: string,
-    periodType: 'day' | 'week' | 'month' = 'month'
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _periodType: 'day' | 'week' | 'month' = 'month'
   ): StaffPerformance {
     const cheques = this.getChequesByStaff(staffId, period);
     const validCheques = cheques.filter(c => c.pagado && !c.cancelado);
@@ -318,9 +319,9 @@ export class FinancialService {
     }
 
     const performances: StaffPerformance[] = [];
-    for (const staffId of staffIds) {
+    Array.from(staffIds).forEach((staffId) => {
       performances.push(this.getStaffPerformance(staffId, period, periodType));
-    }
+    });
 
     // Sort by revenue (descending)
     performances.sort((a, b) => b.totalRevenue - a.totalRevenue);

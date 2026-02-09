@@ -280,6 +280,7 @@ function parseRow(
 /**
  * Parse a cheque file (tab-delimited text)
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function parseChequeFile(content: string, fileName: string): ChequeParseResult {
   const cheques: Cheque[] = [];
   const errors: ChequeImportError[] = [];
