@@ -141,6 +141,7 @@ export default function PersonnelPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<Personnel | null>(null);
@@ -151,6 +152,16 @@ export default function PersonnelPage() {
     role: '',
     channel: '',
     location: '',
+    territory: '',
+  });
+
+  const [editPerson, setEditPerson] = useState({
+    name: '',
+    email: '',
+    role: '',
+    channel: '',
+    location: '',
+    territory: '',
   });
 
   const [transferData, setTransferData] = useState({
@@ -193,7 +204,7 @@ export default function PersonnelPage() {
       role: newPerson.role,
       channel: newPerson.channel,
       location: newPerson.location,
-      territory: availableTerritories[0],
+      territory: newPerson.territory || availableTerritories[0],
       status: 'active',
       hireDate: new Date().toISOString().split('T')[0],
     };
@@ -201,15 +212,104 @@ export default function PersonnelPage() {
       ...prev,
       added: [...prev.added, person]
     }));
-    setNewPerson({ name: '', email: '', role: '', channel: '', location: '' });
+    setNewPerson({ name: '', email: '', role: '', channel: '', location: '', territory: '' });
     setCreateModalOpen(false);
   };
 
+  const handleEdit = () => {
+    if (!selectedPerson) return;
+
+    // Update local personnel changes
+    setLocalPersonnelChanges(prev => {
+      // Check if this person was added locally
+      const addedIndex = prev.added.findIndex(p => p.id === selectedPerson.id);
+      if (addedIndex >= 0) {
+        // Update the locally added person
+        const updated = [...prev.added];
+        updated[addedIndex] = {
+          ...updated[addedIndex],
+          name: editPerson.name,
+          email: editPerson.email,
+          role: editPerson.role,
+          channel: editPerson.channel,
+          location: editPerson.location,
+          territory: editPerson.territory,
+        };
+        return { ...prev, added: updated };
+      }
+      // For existing personnel, we'd update via API in production
+      // For now, add to "added" as an update
+      const existingPerson = accessFilteredPersonnel.find(p => p.id === selectedPerson.id);
+      if (existingPerson) {
+        return {
+          ...prev,
+          deleted: [...prev.deleted, selectedPerson.id],
+          added: [...prev.added, {
+            ...existingPerson,
+            name: editPerson.name,
+            email: editPerson.email,
+            role: editPerson.role,
+            channel: editPerson.channel,
+            location: editPerson.location,
+            territory: editPerson.territory,
+          }],
+        };
+      }
+      return prev;
+    });
+
+    setEditModalOpen(false);
+    setSelectedPerson(null);
+  };
+
   const handleTransfer = () => {
-    // In a real app, this would update the backend
-    // For demo, we just close the modal
+    if (!selectedPerson) return;
+
+    // Update local personnel changes with transfer data
+    setLocalPersonnelChanges(prev => {
+      const addedIndex = prev.added.findIndex(p => p.id === selectedPerson.id);
+      if (addedIndex >= 0) {
+        const updated = [...prev.added];
+        updated[addedIndex] = {
+          ...updated[addedIndex],
+          territory: transferData.territory,
+          location: transferData.location,
+          role: transferData.role,
+        };
+        return { ...prev, added: updated };
+      }
+      const existingPerson = accessFilteredPersonnel.find(p => p.id === selectedPerson.id);
+      if (existingPerson) {
+        return {
+          ...prev,
+          deleted: [...prev.deleted, selectedPerson.id],
+          added: [...prev.added, {
+            ...existingPerson,
+            territory: transferData.territory,
+            location: transferData.location,
+            role: transferData.role,
+          }],
+        };
+      }
+      return prev;
+    });
+
     setTransferModalOpen(false);
     setTransferData({ territory: '', location: '', role: '', hierarchy: '' });
+    setSelectedPerson(null);
+  };
+
+  const openEditModal = (person: Personnel) => {
+    setSelectedPerson(person);
+    setEditPerson({
+      name: person.name,
+      email: person.email,
+      role: person.role,
+      channel: person.channel,
+      location: person.location,
+      territory: person.territory,
+    });
+    setEditModalOpen(true);
   };
 
   const handleDelete = (id: string) => {
@@ -423,7 +523,7 @@ export default function PersonnelPage() {
                           <ArrowRightLeft className="h-4 w-4 mr-2" />
                           {isSpanish ? 'Transferir' : 'Transfer'}
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEditModal(person)}>
                           <Edit className="h-4 w-4 mr-2" />
                           {isSpanish ? 'Editar' : 'Edit'}
                         </DropdownMenuItem>
@@ -511,6 +611,19 @@ export default function PersonnelPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label>{isSpanish ? 'Territorio' : 'Territory'}</Label>
+              <Select value={newPerson.territory} onValueChange={(v) => setNewPerson({ ...newPerson, territory: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder={isSpanish ? 'Seleccionar territorio' : 'Select territory'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableTerritories.map(t => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateModalOpen(false)}>
@@ -519,6 +632,99 @@ export default function PersonnelPage() {
             <Button onClick={handleCreateUser}>
               <Save className="h-4 w-4 mr-2" />
               {isSpanish ? 'Crear Usuario' : 'Create User'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Modal */}
+      <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5" />
+              {isSpanish ? 'Editar Usuario' : 'Edit User'}
+            </DialogTitle>
+            <DialogDescription>
+              {isSpanish ? 'Modificar datos del usuario' : 'Modify user details'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>{isSpanish ? 'Nombre' : 'Name'}</Label>
+              <Input
+                value={editPerson.name}
+                onChange={(e) => setEditPerson({ ...editPerson, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={editPerson.email}
+                onChange={(e) => setEditPerson({ ...editPerson, email: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{isSpanish ? 'Rol' : 'Role'}</Label>
+              <Select value={editPerson.role} onValueChange={(v) => setEditPerson({ ...editPerson, role: v })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableRoles.map(role => (
+                    <SelectItem key={role} value={role}>{role}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{isSpanish ? 'Canal' : 'Channel'}</Label>
+              <Select value={editPerson.channel} onValueChange={(v) => setEditPerson({ ...editPerson, channel: v })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableChannels.map(ch => (
+                    <SelectItem key={ch} value={ch}>{ch}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{isSpanish ? 'Ubicación' : 'Location'}</Label>
+              <Select value={editPerson.location} onValueChange={(v) => setEditPerson({ ...editPerson, location: v })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableLocations.map(loc => (
+                    <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{isSpanish ? 'Territorio' : 'Territory'}</Label>
+              <Select value={editPerson.territory} onValueChange={(v) => setEditPerson({ ...editPerson, territory: v })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableTerritories.map(t => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditModalOpen(false)}>
+              {isSpanish ? 'Cancelar' : 'Cancel'}
+            </Button>
+            <Button onClick={handleEdit}>
+              <Save className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Guardar Cambios' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
