@@ -424,12 +424,16 @@ export function interpretationToPlanConfig(
   const planId = `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
   // Build variants from employee types
-  const variants = interpretation.employeeTypes.map((empType) => {
-    const components = interpretation.components
+  const employeeTypes = interpretation.employeeTypes || [];
+  const allComponents = interpretation.components || [];
+
+  const variants = employeeTypes.map((empType) => {
+    const components = allComponents
       .filter(
         (c) =>
-          c.appliesToEmployeeTypes.includes('all') ||
-          c.appliesToEmployeeTypes.includes(empType.id)
+          // Null-safe check for appliesToEmployeeTypes
+          (c.appliesToEmployeeTypes?.includes('all') ?? true) ||
+          (c.appliesToEmployeeTypes?.includes(empType.id) ?? false)
       )
       .map((comp, index) => convertComponent(comp, index));
 
@@ -449,7 +453,7 @@ export function interpretationToPlanConfig(
       variantName: 'Default',
       description: 'Default plan variant',
       eligibilityCriteria: {},
-      components: interpretation.components.map((comp, index) => convertComponent(comp, index)),
+      components: allComponents.map((comp, index) => convertComponent(comp, index)),
     });
   }
 
@@ -481,55 +485,62 @@ export function interpretationToPlanConfig(
 }
 
 function convertComponent(comp: InterpretedComponent, order: number): PlanComponent {
+  // Null-safe base properties
   const base: Omit<PlanComponent, 'componentType' | 'matrixConfig' | 'tierConfig' | 'percentageConfig' | 'conditionalConfig'> = {
-    id: comp.id,
-    name: comp.name,
-    description: comp.nameEs || comp.reasoning,
+    id: comp?.id || `component-${order}`,
+    name: comp?.name || `Component ${order + 1}`,
+    description: comp?.nameEs || comp?.reasoning || '',
     order: order + 1,
     enabled: true,
     measurementLevel: 'store',
   };
 
-  switch (comp.calculationMethod.type) {
+  // Null-safe calculation method access
+  const calcMethod = comp?.calculationMethod;
+  const calcType = calcMethod?.type || 'tiered_lookup';
+
+  switch (calcType) {
     case 'matrix_lookup': {
-      const m = comp.calculationMethod as MatrixCalculation;
+      const m = calcMethod as MatrixCalculation;
+      const rowAxis = m?.rowAxis || { metric: 'attainment', label: 'Attainment', ranges: [] };
+      const colAxis = m?.columnAxis || { metric: 'sales', label: 'Sales', ranges: [] };
       return {
         ...base,
         componentType: 'matrix_lookup',
         matrixConfig: {
-          rowMetric: m.rowAxis.metric,
-          rowMetricLabel: m.rowAxis.label,
-          rowBands: m.rowAxis.ranges.map((r) => ({
-            min: r.min,
-            max: r.max,
-            label: r.label,
+          rowMetric: rowAxis.metric || 'attainment',
+          rowMetricLabel: rowAxis.label || 'Attainment',
+          rowBands: (rowAxis.ranges || []).map((r) => ({
+            min: r?.min ?? 0,
+            max: r?.max ?? 100,
+            label: r?.label || '',
           })),
-          columnMetric: m.columnAxis.metric,
-          columnMetricLabel: m.columnAxis.label,
-          columnBands: m.columnAxis.ranges.map((r) => ({
-            min: r.min,
-            max: r.max,
-            label: r.label,
+          columnMetric: colAxis.metric || 'sales',
+          columnMetricLabel: colAxis.label || 'Sales',
+          columnBands: (colAxis.ranges || []).map((r) => ({
+            min: r?.min ?? 0,
+            max: r?.max ?? 100,
+            label: r?.label || '',
           })),
-          values: m.values,
+          values: m?.values || [[0]],
           currency: 'MXN',
         },
       };
     }
 
     case 'tiered_lookup': {
-      const t = comp.calculationMethod as TieredCalculation;
+      const t = calcMethod as TieredCalculation;
       return {
         ...base,
         componentType: 'tier_lookup',
         tierConfig: {
-          metric: t.metric,
-          metricLabel: t.metricLabel || t.metric,
-          tiers: t.tiers.map((tier) => ({
-            min: tier.min,
-            max: tier.max,
-            label: tier.label || '',
-            value: tier.payout,
+          metric: t?.metric || 'attainment',
+          metricLabel: t?.metricLabel || t?.metric || 'Attainment',
+          tiers: (t?.tiers || []).map((tier) => ({
+            min: tier?.min ?? 0,
+            max: tier?.max ?? 100,
+            label: tier?.label || '',
+            value: tier?.payout ?? 0,
           })),
           currency: 'MXN',
         },
@@ -538,39 +549,39 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
 
     case 'percentage':
     case 'flat_percentage': {
-      const p = comp.calculationMethod as PercentageCalculation;
+      const p = calcMethod as PercentageCalculation;
       return {
         ...base,
         componentType: 'percentage',
         measurementLevel: 'individual',
         percentageConfig: {
-          rate: p.rate,
-          appliedTo: p.metric,
-          appliedToLabel: p.metricLabel || p.metric,
+          rate: p?.rate ?? 0,
+          appliedTo: p?.metric || 'sales',
+          appliedToLabel: p?.metricLabel || p?.metric || 'Sales',
         },
       };
     }
 
     case 'conditional_percentage': {
-      const c = comp.calculationMethod as ConditionalPercentageCalculation;
+      const c = calcMethod as ConditionalPercentageCalculation;
       return {
         ...base,
         componentType: 'conditional_percentage',
         measurementLevel: 'individual',
         conditionalConfig: {
-          conditions: c.conditions.map((cond) => ({
-            metric: c.conditionMetric,
-            metricLabel: c.conditionMetricLabel || c.conditionMetric,
-            min: cond.operator === '<' || cond.operator === '<=' ? 0 : cond.threshold,
+          conditions: (c?.conditions || []).map((cond) => ({
+            metric: c?.conditionMetric || 'attainment',
+            metricLabel: c?.conditionMetricLabel || c?.conditionMetric || 'Attainment',
+            min: cond?.operator === '<' || cond?.operator === '<=' ? 0 : (cond?.threshold ?? 0),
             max:
-              cond.operator === '<' || cond.operator === '<='
-                ? cond.threshold
-                : cond.maxThreshold || Infinity,
-            rate: cond.rate,
-            label: cond.label || '',
+              cond?.operator === '<' || cond?.operator === '<='
+                ? (cond?.threshold ?? 100)
+                : (cond?.maxThreshold ?? Infinity),
+            rate: cond?.rate ?? 0,
+            label: cond?.label || '',
           })),
-          appliedTo: c.metric,
-          appliedToLabel: c.metricLabel || c.metric,
+          appliedTo: c?.metric || 'sales',
+          appliedToLabel: c?.metricLabel || c?.metric || 'Sales',
         },
       };
     }
