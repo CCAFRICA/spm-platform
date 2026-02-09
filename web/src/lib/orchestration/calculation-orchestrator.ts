@@ -583,23 +583,40 @@ export class CalculationOrchestrator {
 
     // Get tenant batch IDs
     const batchesStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_BATCHES);
-    if (!batchesStored) return [];
+    console.log(`[Orchestrator] Looking for batches, tenantId: ${this.tenantId}`);
+    console.log(`[Orchestrator] Batches in storage: ${batchesStored ? 'YES' : 'NO'}`);
+    if (!batchesStored) {
+      console.log('[Orchestrator] No batches found in localStorage');
+      return [];
+    }
 
     let tenantBatchIds: string[] = [];
     try {
       const batches: [string, { tenantId: string }][] = JSON.parse(batchesStored);
+      console.log(`[Orchestrator] Total batches: ${batches.length}`);
+      const allTenantIds = batches.map(([, b]) => b.tenantId);
+      console.log(`[Orchestrator] TenantIds in batches: ${Array.from(new Set(allTenantIds)).join(', ')}`);
       tenantBatchIds = batches
         .filter(([, batch]) => batch.tenantId === this.tenantId)
         .map(([id]) => id);
-    } catch {
+      console.log(`[Orchestrator] Batches matching tenantId '${this.tenantId}': ${tenantBatchIds.length}`);
+    } catch (e) {
+      console.error('[Orchestrator] Error parsing batches:', e);
       return [];
     }
 
-    if (tenantBatchIds.length === 0) return [];
+    if (tenantBatchIds.length === 0) {
+      console.log(`[Orchestrator] No batches found for tenant ${this.tenantId}`);
+      return [];
+    }
 
     // Get committed records
     const committedStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_COMMITTED);
-    if (!committedStored) return [];
+    console.log(`[Orchestrator] Committed in storage: ${committedStored ? 'YES' : 'NO'}`);
+    if (!committedStored) {
+      console.log('[Orchestrator] No committed records in localStorage');
+      return [];
+    }
 
     try {
       const committed: [
@@ -610,6 +627,11 @@ export class CalculationOrchestrator {
           content: Record<string, unknown>;
         }
       ][] = JSON.parse(committedStored);
+      console.log(`[Orchestrator] Total committed records: ${committed.length}`);
+
+      let matchingBatchCount = 0;
+      let hasNameCount = 0;
+      let hasIdCount = 0;
 
       for (const [, record] of committed) {
         if (
@@ -618,11 +640,16 @@ export class CalculationOrchestrator {
         ) {
           continue;
         }
+        matchingBatchCount++;
 
         const content = record.content;
         const employeeId = this.extractEmployeeIdFromContent(content);
 
-        if (!employeeId || seenIds.has(employeeId)) continue;
+        if (!employeeId || seenIds.has(employeeId)) {
+          if (employeeId) hasIdCount++;
+          continue;
+        }
+        hasIdCount++;
 
         // Check for employee-like fields (name, role, store, etc.)
         const hasNameField = content['nombre'] || content['name'] ||
@@ -630,6 +657,7 @@ export class CalculationOrchestrator {
           content['nombre_completo'] || content['Nombre'];
 
         if (!hasNameField) continue;
+        hasNameCount++;
 
         seenIds.add(employeeId);
 
@@ -664,7 +692,12 @@ export class CalculationOrchestrator {
           },
         });
       }
-    } catch {
+      console.log(`[Orchestrator] Records matching batch: ${matchingBatchCount}`);
+      console.log(`[Orchestrator] Records with employee ID: ${hasIdCount}`);
+      console.log(`[Orchestrator] Records with name field: ${hasNameCount}`);
+      console.log(`[Orchestrator] Final employee count: ${employees.length}`);
+    } catch (e) {
+      console.error('[Orchestrator] Error extracting employees:', e);
       return [];
     }
 

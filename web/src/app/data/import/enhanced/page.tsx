@@ -729,9 +729,9 @@ export default function DataPackageImportPage() {
                 m => m.sourceColumn.toLowerCase().trim() === headerNorm
               );
               const confidence = suggestion?.confidence || 0;
-              // Auto-confirm if confidence >= 90% (high confidence)
+              // Auto-confirm if confidence >= 85% (high confidence, per OB-12)
               // Pre-populate dropdown if confidence >= 70% (suggested)
-              const autoConfirmed = confidence >= 90;
+              const autoConfirmed = confidence >= 85;
               const showSuggestion = confidence >= 70;
 
               // Normalize AI suggestion to a valid dropdown option ID
@@ -1238,6 +1238,19 @@ export default function DataPackageImportPage() {
       storeFieldMappings(tenantId, result.batchId, mappingsToStore);
 
       console.log(`[Import] Committed ${result.recordCount} records, batch: ${result.batchId}`);
+      console.log(`[Import] TenantId used: ${tenantId}`);
+
+      // Verify persistence to localStorage
+      const batchesInStorage = localStorage.getItem('data_layer_batches');
+      const committedInStorage = localStorage.getItem('data_layer_committed');
+      console.log(`[Import] Verification - batches in storage: ${batchesInStorage ? 'YES' : 'NO'}`);
+      console.log(`[Import] Verification - committed in storage: ${committedInStorage ? 'YES' : 'NO'}`);
+      if (batchesInStorage) {
+        const batches = JSON.parse(batchesInStorage);
+        console.log(`[Import] Batches count: ${batches.length}`);
+        const thisBatch = batches.find(([id]: [string, unknown]) => id === result.batchId);
+        console.log(`[Import] This batch found: ${thisBatch ? 'YES' : 'NO'}`);
+      }
 
       setImportId(result.batchId);
       setIsImporting(false);
