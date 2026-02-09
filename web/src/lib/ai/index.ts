@@ -52,3 +52,13 @@ export type {
 
 // Constants (values, not types)
 export { AI_CONFIDENCE } from './types';
+
+// File classifier utility
+export {
+  classifyFile,
+  recordClassificationFeedback,
+} from './file-classifier';
+export type {
+  FileClassification,
+  ClassificationResult,
+} from './file-classifier';
