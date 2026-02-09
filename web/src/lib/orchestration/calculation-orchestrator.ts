@@ -134,7 +134,12 @@ export class CalculationOrchestrator {
   private calculationContext: CalculationContext | null = null;
 
   constructor(tenantId: string) {
-    this.tenantId = tenantId;
+    // OB-16: Normalize tenantId - strip trailing underscores to prevent data mismatch
+    const normalizedId = tenantId.replace(/_+$/g, '');
+    if (normalizedId !== tenantId) {
+      console.warn(`[Orchestrator] WARNING: tenantId "${tenantId}" had trailing underscore(s) - normalized to "${normalizedId}"`);
+    }
+    this.tenantId = normalizedId;
   }
 
   /**

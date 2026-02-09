@@ -340,13 +340,14 @@ export class TenantProvisioningEngine {
 
   /**
    * Generate a unique tenant ID from name
+   * OB-16: Fixed trailing underscore bug - strip AFTER truncation
    */
   private generateTenantId(name: string): string {
     const baseId = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_|_$/g, '')
-      .substring(0, 20);
+      .substring(0, 20)
+      .replace(/^_+|_+$/g, '');  // Strip leading/trailing underscores AFTER truncation
 
     // Ensure uniqueness
     let id = baseId;
