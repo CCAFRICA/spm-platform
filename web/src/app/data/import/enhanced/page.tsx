@@ -1470,7 +1470,19 @@ export default function DataPackageImportPage() {
             const value = firstRow[col];
             if (!value) continue;
 
-            // Try to parse as date
+            // OB-16A: Handle Excel serial dates (values > 25000 are likely Excel serial dates)
+            // Excel uses January 1, 1900 as day 1; 25569 is offset between Excel/Unix epochs
+            if (typeof value === 'number' && value > 25000) {
+              const excelDate = new Date((value - 25569) * 86400 * 1000);
+              if (!isNaN(excelDate.getTime())) {
+                detectedYear = excelDate.getFullYear();
+                detectedMonth = excelDate.getMonth() + 1; // 1-indexed
+                console.log(`[Import] Excel serial date ${value} -> ${excelDate.toISOString().split('T')[0]}`);
+                break;
+              }
+            }
+
+            // Try to parse as date string
             const dateVal = new Date(String(value));
             if (!isNaN(dateVal.getTime())) {
               detectedYear = dateVal.getFullYear();

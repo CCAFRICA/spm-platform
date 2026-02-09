@@ -29,6 +29,19 @@ const DYNAMIC_REGISTRY_KEY = 'clearcomp_tenant_registry';
 const tenantConfigCache: Record<string, TenantConfig> = {};
 
 /**
+ * OB-16A: Normalize tenant ID - strip leading/trailing underscores
+ * This is the SINGLE SOURCE of normalization for all tenant IDs.
+ * Fixes data mismatch where tenant was created with trailing underscore.
+ */
+function normalizeTenantId(id: string): string {
+  const normalized = id.replace(/^_+|_+$/g, '');
+  if (normalized !== id) {
+    console.warn(`[TenantContext] Normalized tenantId "${id}" -> "${normalized}"`);
+  }
+  return normalized;
+}
+
+/**
  * Load dynamic tenants from localStorage (created via provisioning wizard)
  */
 function loadDynamicTenants(): TenantConfig[] {
@@ -36,7 +49,9 @@ function loadDynamicTenants(): TenantConfig[] {
   try {
     const stored = localStorage.getItem(DYNAMIC_TENANTS_KEY);
     if (stored) {
-      return JSON.parse(stored) as TenantConfig[];
+      const tenants = JSON.parse(stored) as TenantConfig[];
+      // OB-16A: Normalize all tenant IDs on load
+      return tenants.map(t => ({ ...t, id: normalizeTenantId(t.id) }));
     }
   } catch (e) {
     console.warn('Failed to load dynamic tenants:', e);
@@ -53,7 +68,9 @@ function loadDynamicTenantSummaries(): TenantSummary[] {
     const stored = localStorage.getItem(DYNAMIC_REGISTRY_KEY);
     if (stored) {
       const registry = JSON.parse(stored);
-      return (registry.tenants || []) as TenantSummary[];
+      const summaries = (registry.tenants || []) as TenantSummary[];
+      // OB-16A: Normalize all tenant IDs on load
+      return summaries.map(t => ({ ...t, id: normalizeTenantId(t.id) }));
     }
   } catch (e) {
     console.warn('Failed to load dynamic tenant registry:', e);
@@ -62,26 +79,29 @@ function loadDynamicTenantSummaries(): TenantSummary[] {
 }
 
 async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
-  if (tenantConfigCache[tenantId]) {
-    return tenantConfigCache[tenantId];
+  // OB-16A: Normalize tenant ID before any lookup
+  const normalizedId = normalizeTenantId(tenantId);
+
+  if (tenantConfigCache[normalizedId]) {
+    return tenantConfigCache[normalizedId];
   }
 
   // First, check localStorage for dynamically provisioned tenants
   const dynamicTenants = loadDynamicTenants();
-  const dynamicTenant = dynamicTenants.find(t => t.id === tenantId);
+  const dynamicTenant = dynamicTenants.find(t => t.id === normalizedId);
   if (dynamicTenant) {
-    tenantConfigCache[tenantId] = dynamicTenant;
+    tenantConfigCache[normalizedId] = dynamicTenant;
     return dynamicTenant;
   }
 
   // Fall back to static tenant config files
   try {
-    const config = await import(`@/data/tenants/${tenantId}/config.json`);
-    const tenantConfig = config.default || config;
-    tenantConfigCache[tenantId] = tenantConfig;
+    const config = await import(`@/data/tenants/${normalizedId}/config.json`);
+    const tenantConfig = { ...(config.default || config), id: normalizedId };
+    tenantConfigCache[normalizedId] = tenantConfig;
     return tenantConfig;
   } catch {
-    throw new Error(`Failed to load tenant config: ${tenantId}`);
+    throw new Error(`Failed to load tenant config: ${normalizedId}`);
   }
 }
 
@@ -94,15 +114,18 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   const [isCCAdmin, setIsCCAdmin] = useState(false);
 
   const loadTenant = useCallback(async (tenantId: string): Promise<void> => {
+    // OB-16A: Normalize tenant ID at the entry point
+    const normalizedId = normalizeTenantId(tenantId);
     try {
-      const config = await loadTenantConfig(tenantId);
+      const config = await loadTenantConfig(normalizedId);
       setCurrentTenant(config);
       if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY_TENANT, tenantId);
+        // Store the normalized ID to prevent dirty values from persisting
+        localStorage.setItem(STORAGE_KEY_TENANT, normalizedId);
       }
       setIsLoading(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to load tenant: ${tenantId}`);
+      setError(err instanceof Error ? err.message : `Failed to load tenant: ${normalizedId}`);
       setIsLoading(false);
       throw err;
     }
