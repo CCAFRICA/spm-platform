@@ -387,81 +387,82 @@ export default function PlanImportPage() {
       }
 
       // Convert AI components to DetectedComponent format with full calculation details
-      const components: DetectedComponent[] = interpretation.components.map((comp) => {
-        const calcMethod = comp.calculationMethod as unknown as Record<string, unknown>;
+      const components: DetectedComponent[] = (interpretation.components || []).map((comp) => {
+        // Null-safe access to calculationMethod
+        const calcMethod = (comp?.calculationMethod as unknown as Record<string, unknown>) || {};
         const componentType =
-          comp.type === 'tiered_lookup'
+          comp?.type === 'tiered_lookup'
             ? 'tier_lookup'
-            : comp.type === 'flat_percentage'
+            : comp?.type === 'flat_percentage'
               ? 'percentage'
-              : (comp.type as PlanComponent['componentType']);
+              : ((comp?.type || 'tier_lookup') as PlanComponent['componentType']);
 
         const detected: DetectedComponent = {
-          id: comp.id,
-          name: comp.name,
-          nameEs: comp.nameEs,
+          id: comp?.id || `component-${Date.now()}`,
+          name: comp?.name || 'Unknown Component',
+          nameEs: comp?.nameEs,
           type: componentType,
           metricSource:
-            'metric' in calcMethod
+            calcMethod && 'metric' in calcMethod
               ? String(calcMethod.metric)
-              : 'rowAxis' in calcMethod
+              : calcMethod && 'rowAxis' in calcMethod
                 ? String((calcMethod.rowAxis as Record<string, unknown>)?.metric || 'metric')
                 : 'metric',
           measurementLevel: 'individual',
-          confidence: comp.confidence,
-          reasoning: comp.reasoning,
+          confidence: comp?.confidence ?? 50,
+          reasoning: comp?.reasoning || '',
           config: {
             componentType,
             measurementLevel: 'individual',
           },
         };
 
-        // Extract detailed calculation data based on type
-        if (comp.type === 'tiered_lookup' && 'tiers' in calcMethod) {
-          detected.tiers = (calcMethod.tiers as Array<Record<string, unknown>>).map((t) => ({
-            min: Number(t.min) || 0,
-            max: t.max === 'Infinity' || t.max === Infinity ? Infinity : Number(t.max) || 100,
-            label: String(t.label || ''),
-            payout: Number(t.payout) || 0,
+        // Extract detailed calculation data based on type (null-safe)
+        if (comp?.type === 'tiered_lookup' && calcMethod && 'tiers' in calcMethod) {
+          detected.tiers = ((calcMethod.tiers || []) as Array<Record<string, unknown>>).map((t) => ({
+            min: Number(t?.min) || 0,
+            max: t?.max === 'Infinity' || t?.max === Infinity ? Infinity : Number(t?.max) || 100,
+            label: String(t?.label || ''),
+            payout: Number(t?.payout) || 0,
           }));
         }
 
-        if (comp.type === 'matrix_lookup' && 'rowAxis' in calcMethod) {
-          const rowAxis = calcMethod.rowAxis as Record<string, unknown>;
-          const columnAxis = calcMethod.columnAxis as Record<string, unknown>;
+        if (comp?.type === 'matrix_lookup' && calcMethod && 'rowAxis' in calcMethod) {
+          const rowAxis = (calcMethod.rowAxis as Record<string, unknown>) || {};
+          const columnAxis = (calcMethod.columnAxis as Record<string, unknown>) || {};
           detected.matrix = {
-            rowMetric: String(rowAxis.metric || ''),
-            rowLabel: String(rowAxis.label || ''),
-            rowRanges: ((rowAxis.ranges || []) as Array<Record<string, unknown>>).map((r) => ({
-              min: Number(r.min) || 0,
-              max: r.max === 'Infinity' || r.max === Infinity ? Infinity : Number(r.max) || 100,
-              label: String(r.label || ''),
+            rowMetric: String(rowAxis?.metric || ''),
+            rowLabel: String(rowAxis?.label || ''),
+            rowRanges: ((rowAxis?.ranges || []) as Array<Record<string, unknown>>).map((r) => ({
+              min: Number(r?.min) || 0,
+              max: r?.max === 'Infinity' || r?.max === Infinity ? Infinity : Number(r?.max) || 100,
+              label: String(r?.label || ''),
             })),
             columnMetric: String(columnAxis?.metric || ''),
             columnLabel: String(columnAxis?.label || ''),
             columnRanges: ((columnAxis?.ranges || []) as Array<Record<string, unknown>>).map((r) => ({
-              min: Number(r.min) || 0,
-              max: r.max === 'Infinity' || r.max === Infinity ? Infinity : Number(r.max) || 100,
-              label: String(r.label || ''),
+              min: Number(r?.min) || 0,
+              max: r?.max === 'Infinity' || r?.max === Infinity ? Infinity : Number(r?.max) || 100,
+              label: String(r?.label || ''),
             })),
             values: (calcMethod.values as number[][]) || [],
           };
         }
 
-        if ((comp.type === 'percentage' || comp.type === 'flat_percentage') && 'rate' in calcMethod) {
+        if ((comp?.type === 'percentage' || comp?.type === 'flat_percentage') && calcMethod && 'rate' in calcMethod) {
           detected.percentage = {
             rate: Number(calcMethod.rate) || 0,
             appliedTo: String(calcMethod.metric || ''),
           };
         }
 
-        if (comp.type === 'conditional_percentage' && 'conditions' in calcMethod) {
+        if (comp?.type === 'conditional_percentage' && calcMethod && 'conditions' in calcMethod) {
           detected.conditional = {
             conditions: ((calcMethod.conditions || []) as Array<Record<string, unknown>>).map((c) => ({
-              threshold: Number(c.threshold) || 0,
-              operator: String(c.operator || '>='),
-              rate: Number(c.rate) || 0,
-              label: String(c.label || ''),
+              threshold: Number(c?.threshold) || 0,
+              operator: String(c?.operator || '>='),
+              rate: Number(c?.rate) || 0,
+              label: String(c?.label || ''),
             })),
             appliedTo: String(calcMethod.metric || ''),
             conditionMetric: String(calcMethod.conditionMetric || ''),
