@@ -19,6 +19,7 @@ import {
   Wallet,
   CheckSquare,
   RotateCcw,
+  Activity,
 } from "lucide-react";
 import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
@@ -58,6 +59,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const transactionTerm = useTerm("transaction", true);
   const locationTerm = useTerm("location", true);
   const salesFinanceEnabled = useFeature("salesFinance");
+  const financialEnabled = useFeature("financial");
 
   const [expandedItems, setExpandedItems] = useState<string[]>(["Insights", "Transactions"]);
 
@@ -152,6 +154,22 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         { name: isSpanish ? "Aprobaciones" : "Approvals", href: "/performance/approvals", module: "approvals" },
       ],
     },
+    // Financial Module - only shown when financial feature is enabled
+    ...(financialEnabled ? [{
+      name: isSpanish ? "Finanzas" : "Financial",
+      href: "/financial",
+      icon: Activity,
+      module: "insights" as AppModule,
+      moduleId: "insights" as ModuleId,
+      feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"],
+      children: [
+        { name: isSpanish ? "Pulso de Red" : "Network Pulse", href: "/financial", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
+        { name: isSpanish ? "Cronología de Ingresos" : "Revenue Timeline", href: "/financial/timeline", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
+        { name: isSpanish ? "Benchmarks de Ubicación" : "Location Benchmarks", href: "/financial/performance", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
+        { name: isSpanish ? "Rendimiento de Personal" : "Staff Performance", href: "/financial/staff", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
+        { name: isSpanish ? "Monitor de Fugas" : "Leakage Monitor", href: "/financial/leakage", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
+      ],
+    }] : []),
     {
       name: isSpanish ? "Configuración" : "Configuration",
       href: "/configuration",
@@ -235,9 +253,10 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     return children.filter((child) => {
       // Check CC Admin only items
       if (child.ccAdminOnly && !userIsCCAdmin) return false;
-      // Check feature flag
+      // Check feature flags
       if (child.feature) {
         if (child.feature === "salesFinance" && !salesFinanceEnabled) return false;
+        if (child.feature === "financial" && !financialEnabled) return false;
       }
       // Check module access (skip for CC Admin only items)
       if (!child.ccAdminOnly && child.module && !accessibleModules.includes(child.module)) return false;
