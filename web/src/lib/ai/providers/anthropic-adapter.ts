@@ -104,6 +104,13 @@ RELATIONSHIP DETECTION:
 - Detect primary keys and foreign key relationships
 - Identify if one sheet references another
 
+FIELD MAPPING (CRITICAL - for each sheet's columns, suggest target field mappings):
+Target fields: employeeId, storeId, date, period, amount, goal, attainment, quantity, role
+- Map EVERY column to the most appropriate target field
+- Spanish terms: num_empleado/id_empleado -> employeeId, no_tienda/tienda -> storeId, fecha -> date, monto/venta -> amount, meta/cuota -> goal, puesto/cargo -> role
+- For ambiguous columns, use context from the sheet classification and sample data
+- Confidence should be 85-100 for clear matches, 70-84 for likely matches, below 70 for uncertain
+
 Return your analysis as valid JSON.`,
 
   import_field_mapping: `You are an expert at analyzing data import files for a Sales Performance Management (SPM) platform. Your task is to suggest field mappings from source file columns to platform fields.
@@ -348,7 +355,7 @@ ${input.expectedFields || 'No expected fields provided.'}
 
 Return a JSON object with this structure:
 {
-  "sheets": [{ "name": "", "classification": "", "classificationConfidence": 0-100, "matchedComponent": null, "detectedPrimaryKey": null, "suggestedFieldMappings": [] }],
+  "sheets": [{ "name": "", "classification": "", "classificationConfidence": 0-100, "matchedComponent": null, "detectedPrimaryKey": null, "suggestedFieldMappings": [{ "sourceColumn": "exact_column_name_from_headers", "targetField": "employeeId|storeId|date|period|amount|goal|attainment|quantity|role", "confidence": 0-100 }] }],
   "relationships": [{ "fromSheet": "", "toSheet": "", "relationshipType": "", "sharedKeys": [], "confidence": 0-100 }],
   "rosterDetected": { "found": false, "sheetName": null, "employeeIdColumn": null },
   "periodDetected": { "found": false, "dateColumn": null },
