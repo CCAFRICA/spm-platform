@@ -134,7 +134,6 @@ export class CalculationOrchestrator {
   private tenantId: string;
   private calculationContext: CalculationContext | null = null;
   private aiImportContext: AIImportContext | null = null;
-  private firstDiagnosticEmployeeId: string | null = null; // DIAGNOSTIC
 
   constructor(tenantId: string) {
     // OB-16: Normalize tenantId - strip trailing underscores to prevent data mismatch
@@ -148,17 +147,6 @@ export class CalculationOrchestrator {
     this.aiImportContext = loadImportContext(normalizedId);
     if (this.aiImportContext) {
       console.log(`[Orchestrator] Loaded AI import context: ${this.aiImportContext.sheets.length} sheets, roster=${this.aiImportContext.rosterSheet}`);
-      // DIAGNOSTIC Phase 1
-      console.log('=== DIAGNOSTIC: AI IMPORT CONTEXT ===');
-      console.log('Sheets:', this.aiImportContext.sheets.map(s => ({
-        name: s.sheetName,
-        classification: s.classification,
-        matchedComponent: s.matchedComponent,
-        fieldMappings: s.fieldMappings?.slice(0, 5)
-      })));
-      console.log('=== END DIAGNOSTIC ===');
-    } else {
-      console.log('=== DIAGNOSTIC: NO AI IMPORT CONTEXT FOUND ===');
     }
   }
 
@@ -200,37 +188,13 @@ export class CalculationOrchestrator {
       const results: CalculationResult[] = [];
       const errors: Array<{ employeeId: string; error: string }> = [];
 
-      // DIAGNOSTIC Phase 1 — log first 3 employees
-      let employeeIndex = 0;
       for (const employee of employees) {
-        if (employeeIndex < 3) {
-          console.log(`=== DIAGNOSTIC: EMPLOYEE ${employeeIndex} ===`);
-          console.log('Employee record keys:', Object.keys(employee));
-          console.log('Employee identity:', {
-            id: employee.id,
-            name: `${employee.firstName} ${employee.lastName}`,
-            role: employee.role,
-            store: employee.storeId
-          });
-          console.log('Attributes:', JSON.stringify(employee.attributes).substring(0, 800));
-          console.log('=== END DIAGNOSTIC ===');
-        }
-        employeeIndex++;
-
         try {
           // FIXED: Pass the active plan ID to avoid role-based lookup failures
           const result = await this.calculateForEmployee(employee, config.periodId, activePlan.id);
           if (result) {
             results.push(result);
             run.successCount++;
-            // DIAGNOSTIC: Log first non-zero result
-            if (result.totalIncentive > 0 && results.filter(r => r.totalIncentive > 0).length <= 3) {
-              console.log('=== DIAGNOSTIC: NON-ZERO RESULT ===', {
-                employeeId: employee.id,
-                total: result.totalIncentive,
-                components: result.components?.map(c => ({ name: c.componentName, output: c.outputValue }))
-              });
-            }
           }
         } catch (error) {
           errors.push({
@@ -434,22 +398,6 @@ export class CalculationOrchestrator {
 
     const metrics: Record<string, number> = {};
 
-    // DIAGNOSTIC Phase 1 — log first employee's metric extraction
-    const isFirstEmployee = employee.id === this.firstDiagnosticEmployeeId;
-    if (!this.firstDiagnosticEmployeeId && employee.id) {
-      this.firstDiagnosticEmployeeId = employee.id;
-    }
-    if (isFirstEmployee) {
-      console.log('=== DIAGNOSTIC: METRIC EXTRACTION ===');
-      console.log('Employee ID:', employee.id);
-      console.log('Attributes keys:', Object.keys(attrs));
-      console.log('Has componentMetrics:', !!attrs.componentMetrics);
-      console.log('Has AI context:', !!this.aiImportContext);
-      if (attrs.componentMetrics) {
-        console.log('componentMetrics sheets:', Object.keys(attrs.componentMetrics as object));
-      }
-    }
-
     // AI-DRIVEN: Extract metrics from componentMetrics structure
     const componentMetrics = attrs.componentMetrics as Record<string, { attainment?: number; amount?: number; goal?: number }> | undefined;
 
@@ -483,11 +431,6 @@ export class CalculationOrchestrator {
           metrics[`${componentKey}_attainment`] = calculatedAttainment;
           metrics[`${sheetName}_attainment`] = calculatedAttainment;
         }
-      }
-
-      if (isFirstEmployee) {
-        console.log('Extracted metrics count:', Object.keys(metrics).length);
-        console.log('Sample metrics:', Object.entries(metrics).slice(0, 10).map(([k,v]) => `${k}=${v}`));
       }
     }
 

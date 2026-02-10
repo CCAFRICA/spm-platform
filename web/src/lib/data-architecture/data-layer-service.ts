@@ -267,23 +267,6 @@ function storeAggregatedData(
 ): { employeeCount: number; sizeKB: number } {
   if (typeof window === 'undefined') return { employeeCount: 0, sizeKB: 0 };
 
-  // DIAGNOSTIC Phase 1 — trace data structure
-  console.log('=== DIAGNOSTIC: AGGREGATION INPUT ===');
-  console.log(`Total records received: ${records.length}`);
-  const sheetGroups = new Map<string, number>();
-  for (const r of records) {
-    const sheet = String(r.content?._sheetName || 'UNKNOWN');
-    sheetGroups.set(sheet, (sheetGroups.get(sheet) || 0) + 1);
-  }
-  console.log('Records per sheet:', Object.fromEntries(sheetGroups));
-  for (const [sheet] of Array.from(sheetGroups.entries()).slice(0, 5)) {
-    const sample = records.find(r => String(r.content?._sheetName) === sheet);
-    if (sample) {
-      console.log(`Sample from "${sheet}":`, JSON.stringify(sample.content).substring(0, 500));
-    }
-  }
-  console.log('=== END DIAGNOSTIC ===');
-
   // AI-DRIVEN: Load AI import context for field mappings
   const aiContext = loadImportContext(tenantId);
   console.log(`[DataLayer] AI Import Context: ${aiContext ? 'LOADED' : 'NOT FOUND'}`);
@@ -357,11 +340,12 @@ function storeAggregatedData(
 
   for (const row of rosterRecords) {
     // AI-DRIVEN: Get employee ID using semantic mapping
+    // FALLBACK: Column name arrays are used when AI import context lacks semantic mappings
     const empId = getFieldValue(row, ['employeeId', 'employee_id'],
-      ['num_empleado', 'Num_Empleado', 'employeeId', 'employee_id', 'ID_Empleado']);
+      ['num_empleado', 'Num_Empleado', 'employeeId', 'employee_id', 'ID_Empleado']); // FALLBACK columns
     if (!empId || empId.length < 3 || empId === 'undefined' || empId === 'null') continue;
 
-    // Get period fields
+    // Get period fields - FALLBACK: hardcoded column names for period detection
     const month = getFieldValue(row, ['period', 'month'], ['Mes', 'mes', 'Month', 'period']);
     const year = getFieldValue(row, ['year'], ['Ano', 'ano', 'Year', 'year']);
     const key = month || year ? `${empId}_${month}_${year}` : empId;
@@ -370,13 +354,14 @@ function storeAggregatedData(
       employeeMap.set(key, {
         employeeId: empId,
         // AI-DRIVEN: Extract identity fields using semantic mappings
+        // FALLBACK: Column name arrays are secondary when AI semantic types not found
         name: getFieldValue(row, ['name', 'employeeName', 'fullName'], ['Nombre', 'nombre', 'name', 'Name']),
         role: getFieldValue(row, ['role', 'position', 'employeeType', 'jobTitle'],
-          ['Puesto', 'puesto', 'role', 'Position', 'Cargo']),
+          ['Puesto', 'puesto', 'role', 'Position', 'Cargo']), // FALLBACK columns
         storeId: getFieldValue(row, ['storeId', 'locationId', 'store'],
-          ['No_Tienda', 'no_tienda', 'num_tienda', 'storeId', 'Tienda']),
+          ['No_Tienda', 'no_tienda', 'num_tienda', 'storeId', 'Tienda']), // FALLBACK columns
         storeRange: getFieldValue(row, ['storeRange', 'category', 'storeCategory'],
-          ['Rango_de_Tienda', 'Rango de Tienda', 'storeRange', 'Rango']),
+          ['Rango_de_Tienda', 'Rango de Tienda', 'storeRange', 'Rango']), // FALLBACK columns
         month,
         year,
         tenantId,
@@ -387,11 +372,13 @@ function storeAggregatedData(
 
   console.log(`[DataLayer] Unique employee records from roster: ${employeeMap.size}`);
 
-  // If no roster records found, fall back to deduplicating by any employee ID field
+  // FALLBACK: If no roster records found, fall back to deduplicating by any employee ID field
+  // This entire block uses hardcoded column names - acceptable for emergency fallback
   if (employeeMap.size === 0) {
     console.warn(`[DataLayer] No roster sheet found, falling back to component-based employee extraction`);
     for (const record of records) {
       const content = record.content;
+      // FALLBACK: Hardcoded column names - only used when roster sheet missing
       const empId = String(
         content['num_empleado'] || content['Num_Empleado'] ||
         content['Vendedor'] || content['vendedor'] ||
@@ -448,19 +435,19 @@ function storeAggregatedData(
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
 
-    // AI-DRIVEN: Get ID fields using AI mappings, with fallback
+    // AI-DRIVEN: Get ID fields using AI mappings, with FALLBACK hardcoded defaults
     const empIdField = getSheetFieldBySemantic(sheetName, ['employeeId', 'employee_id']) ||
-      'num_empleado';
+      'num_empleado'; // FALLBACK
     const storeIdField = getSheetFieldBySemantic(sheetName, ['storeId', 'locationId', 'store']) ||
-      'No_Tienda';
+      'No_Tienda'; // FALLBACK
     const attainmentField = getSheetFieldBySemantic(sheetName, ['attainment', 'achievement', 'performance']) ||
-      'Cumplimiento';
+      'Cumplimiento'; // FALLBACK
     const amountField = getSheetFieldBySemantic(sheetName, ['amount', 'value', 'actual', 'sales']) ||
-      'Monto';
+      'Monto'; // FALLBACK
     const goalField = getSheetFieldBySemantic(sheetName, ['goal', 'target', 'quota']) ||
-      'Meta';
+      'Meta'; // FALLBACK
 
-    // Extract IDs
+    // Extract IDs - FALLBACK: secondary column names if AI mapping not found
     const empId = String(content[empIdField] || content['Vendedor'] || content['vendedor'] || '').trim();
     const storeId = String(content[storeIdField] || content['no_tienda'] || '').trim();
 

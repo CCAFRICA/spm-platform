@@ -37,9 +37,6 @@ export interface EmployeeMetrics {
 // MAIN CALCULATION FUNCTION
 // ============================================
 
-// DIAGNOSTIC counter
-let calcEngineDiagnosticCount = 0;
-
 export function calculateIncentive(
   employeeMetrics: EmployeeMetrics,
   tenantId: string,
@@ -55,27 +52,9 @@ export function calculateIncentive(
     return null;
   }
 
-  // DIAGNOSTIC Phase 1 — log first 3 calculation inputs
-  if (calcEngineDiagnosticCount < 3) {
-    console.log('=== DIAGNOSTIC: CALC ENGINE INPUT ===');
-    console.log('Employee:', employeeMetrics.employeeId, employeeMetrics.employeeName);
-    console.log('Plan:', plan.name, plan.id);
-    console.log('Plan type:', plan.configuration?.type);
-    console.log('Metrics passed:', JSON.stringify(employeeMetrics.metrics).substring(0, 600));
-    console.log('Plan components:', (plan.configuration as AdditiveLookupConfig)?.variants?.[0]?.components?.map((c) => c.name));
-    calcEngineDiagnosticCount++;
-  }
-
   // Calculate based on plan type
   if (plan.configuration.type === 'additive_lookup') {
-    const result = calculateAdditiveLookup(employeeMetrics, plan);
-    // DIAGNOSTIC — log first result
-    if (calcEngineDiagnosticCount <= 3) {
-      console.log('=== DIAGNOSTIC: CALC ENGINE OUTPUT ===');
-      console.log('Total incentive:', result.totalIncentive);
-      console.log('Components:', result.components?.slice(0, 5).map(c => ({ name: c.componentName, output: c.outputValue, attainment: c.inputs?.attainment })));
-    }
-    return result;
+    return calculateAdditiveLookup(employeeMetrics, plan);
   } else {
     return calculateWeightedKPI(employeeMetrics, plan);
   }
