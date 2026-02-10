@@ -443,74 +443,60 @@ export class CalculationOrchestrator {
       console.log('=== DIAGNOSTIC: METRIC EXTRACTION ===');
       console.log('Employee ID:', employee.id);
       console.log('Attributes keys:', Object.keys(attrs));
-      console.log('Has sheetMetrics:', !!attrs.sheetMetrics);
+      console.log('Has componentMetrics:', !!attrs.componentMetrics);
       console.log('Has AI context:', !!this.aiImportContext);
-      if (attrs.sheetMetrics) {
-        console.log('sheetMetrics keys:', Object.keys(attrs.sheetMetrics as object));
+      if (attrs.componentMetrics) {
+        console.log('componentMetrics sheets:', Object.keys(attrs.componentMetrics as object));
       }
     }
 
-    // Method 1: If sheetMetrics available, use AI context to map sheets to components
-    const sheetMetrics = attrs.sheetMetrics as Record<string, Record<string, number>> | undefined;
-    if (sheetMetrics && this.aiImportContext) {
-      for (const sheetInfo of this.aiImportContext.sheets) {
-        if (sheetInfo.classification !== 'component_data') continue;
+    // AI-DRIVEN: Extract metrics from componentMetrics structure
+    const componentMetrics = attrs.componentMetrics as Record<string, { attainment?: number; amount?: number; goal?: number }> | undefined;
 
-        const sheetData = sheetMetrics[sheetInfo.sheetName];
-        if (!sheetData) continue;
+    if (componentMetrics) {
+      // componentMetrics has: { sheetName: { attainment, amount, goal } }
+      for (const [sheetName, sheetMetrics] of Object.entries(componentMetrics)) {
+        // AI-DRIVEN: Find component name from AI import context
+        const sheetInfo = this.aiImportContext?.sheets.find(
+          s => s.sheetName === sheetName || s.sheetName.toLowerCase() === sheetName.toLowerCase()
+        );
+        const componentKey = sheetInfo?.matchedComponent || sheetName;
 
-        // Use AI's field mappings to identify semantic types
-        for (const fieldMapping of sheetInfo.fieldMappings) {
-          const value = sheetData[fieldMapping.sourceColumn];
-          if (typeof value === 'number') {
-            // Create metric key from component + semantic type
-            const componentKey = sheetInfo.matchedComponent || sheetInfo.sheetName;
-            const metricKey = `${componentKey}_${fieldMapping.semanticType}`;
-            metrics[metricKey] = (metrics[metricKey] || 0) + value;
-
-            // Also store by semantic type directly for common lookups
-            if (fieldMapping.semanticType === 'attainment') {
-              metrics[`${componentKey}_attainment`] = value;
-            } else if (fieldMapping.semanticType === 'amount') {
-              metrics[`${componentKey}_amount`] = value;
-            } else if (fieldMapping.semanticType === 'goal') {
-              metrics[`${componentKey}_goal`] = value;
-            }
-          }
+        // Add metrics with component prefix
+        if (sheetMetrics.attainment !== undefined) {
+          metrics[`${componentKey}_attainment`] = sheetMetrics.attainment;
+          // Also add by sheet name for fallback matching
+          metrics[`${sheetName}_attainment`] = sheetMetrics.attainment;
+        }
+        if (sheetMetrics.amount !== undefined) {
+          metrics[`${componentKey}_amount`] = sheetMetrics.amount;
+          metrics[`${sheetName}_amount`] = sheetMetrics.amount;
+        }
+        if (sheetMetrics.goal !== undefined) {
+          metrics[`${componentKey}_goal`] = sheetMetrics.goal;
+          metrics[`${sheetName}_goal`] = sheetMetrics.goal;
         }
 
-        // Also include all numeric fields from the sheet with component prefix
-        for (const [field, value] of Object.entries(sheetData)) {
-          if (typeof value === 'number') {
-            const componentKey = sheetInfo.matchedComponent || sheetInfo.sheetName;
-            const metricKey = `${componentKey}_${field}`;
-            if (!(metricKey in metrics)) {
-              metrics[metricKey] = value;
-            }
-          }
+        // Calculate attainment if we have amount and goal but no attainment
+        if (sheetMetrics.attainment === undefined && sheetMetrics.amount !== undefined && sheetMetrics.goal && sheetMetrics.goal > 0) {
+          const calculatedAttainment = (sheetMetrics.amount / sheetMetrics.goal) * 100;
+          metrics[`${componentKey}_attainment`] = calculatedAttainment;
+          metrics[`${sheetName}_attainment`] = calculatedAttainment;
         }
+      }
+
+      if (isFirstEmployee) {
+        console.log('Extracted metrics count:', Object.keys(metrics).length);
+        console.log('Sample metrics:', Object.entries(metrics).slice(0, 10).map(([k,v]) => `${k}=${v}`));
       }
     }
 
-    // Method 2: Extract from flat attributes (when sheetMetrics not available)
-    // Look for known semantic patterns in attribute keys
-    for (const [key, value] of Object.entries(attrs)) {
-      if (key.startsWith('_') || key === 'sheetMetrics') continue;
-      if (typeof value !== 'number') continue;
-
-      // Include numeric attributes as metrics
-      // This handles: amount, goal, attainment, quantity, recordCount, etc
-      metrics[key] = value;
-    }
-
-    // Method 3: Calculate attainment if we have amount and goal but no attainment
-    for (const key of Object.keys(metrics)) {
-      if (key.endsWith('_amount')) {
-        const prefix = key.replace('_amount', '');
-        const goalKey = `${prefix}_goal`;
-        const attainmentKey = `${prefix}_attainment`;
-        if (metrics[goalKey] && metrics[goalKey] > 0 && !metrics[attainmentKey]) {
-          metrics[attainmentKey] = (metrics[key] / metrics[goalKey]) * 100;
+    // Fallback: Extract from flat numeric attributes (backward compatibility)
+    if (Object.keys(metrics).length === 0) {
+      for (const [key, value] of Object.entries(attrs)) {
+        if (key.startsWith('_') || key === 'componentMetrics') continue;
+        if (typeof value === 'number') {
+          metrics[key] = value;
         }
       }
     }
@@ -763,28 +749,43 @@ export class CalculationOrchestrator {
       const aggregated: Array<Record<string, unknown>> = JSON.parse(stored);
       console.log(`[Orchestrator] Found ${aggregated.length} aggregated employee records`);
 
-      return aggregated.map((record): EmployeeData => ({
-        id: String(record.employeeId || ''),
-        tenantId: this.tenantId,
-        employeeNumber: String(record.employeeId || record.num_empleado || ''),
-        firstName: String(record.nombre || record.name || record.firstName || 'Imported'),
-        lastName: String(record.apellido || record.lastName || 'Employee'),
-        email: String(record.email || `${record.employeeId}@import.local`),
-        role: String(record.puesto || record.role || record.cargo || 'imported'),
-        department: String(record.departamento || record.department || ''),
-        storeId: String(record.storeId || record.tienda || record.no_tienda || ''),
-        managerId: String(record.managerId || ''),
-        hireDate: String(record.fecha_ingreso || record.hireDate || ''),
-        status: 'active' as const,
-        // Include aggregated metrics as attributes
-        attributes: {
-          amount: Number(record.amount || record.monto || record.venta || 0),
-          goal: Number(record.goal || record.meta || 0),
-          attainment: Number(record.attainment || record.cumplimiento || 0),
-          quantity: Number(record.quantity || record.cantidad || 0),
-          recordCount: Number(record.recordCount || 1),
-        },
-      }));
+      // Log sample for diagnostic
+      if (aggregated.length > 0) {
+        console.log(`[Orchestrator] Sample record keys:`, Object.keys(aggregated[0]));
+        if (aggregated[0].componentMetrics) {
+          console.log(`[Orchestrator] Sample componentMetrics sheets:`, Object.keys(aggregated[0].componentMetrics as object));
+        }
+      }
+
+      return aggregated.map((record): EmployeeData => {
+        // AI-DRIVEN: Use fields directly from aggregated record (set by AI-driven aggregation)
+        const name = String(record.name || '');
+        const nameParts = name.split(' ');
+
+        return {
+          id: String(record.employeeId || ''),
+          tenantId: this.tenantId,
+          employeeNumber: String(record.employeeId || ''),
+          firstName: nameParts[0] || 'Employee',
+          lastName: nameParts.slice(1).join(' ') || String(record.employeeId || ''),
+          email: `${record.employeeId}@import.local`,
+          role: String(record.role || ''),
+          department: '',
+          storeId: String(record.storeId || ''),
+          managerId: '',
+          hireDate: '',
+          status: 'active' as const,
+          storeName: String(record.storeRange || ''),
+          // AI-DRIVEN: Pass componentMetrics for metric extraction
+          attributes: {
+            componentMetrics: record.componentMetrics,
+            month: record.month,
+            year: record.year,
+            storeRange: record.storeRange,
+            _hasData: record._hasData,
+          },
+        };
+      });
     } catch (error) {
       console.error('[Orchestrator] Failed to parse aggregated data:', error);
       return [];

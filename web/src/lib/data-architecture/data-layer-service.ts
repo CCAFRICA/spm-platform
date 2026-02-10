@@ -258,7 +258,7 @@ function loadFromStorageChunked<T>(baseKey: string): Map<string, T> {
 
 /**
  * Store aggregated employee data for calculation (reduces 119K records to ~2K employees)
- * ROSTER-FIRST APPROACH: Only build employee list from roster sheet, then join component data
+ * AI-DRIVEN APPROACH: Uses AI import context for field resolution, builds componentMetrics
  */
 function storeAggregatedData(
   tenantId: string,
@@ -284,19 +284,35 @@ function storeAggregatedData(
   }
   console.log('=== END DIAGNOSTIC ===');
 
-  console.log(`[DataLayer] Roster-first aggregation from ${records.length} committed records...`);
+  // AI-DRIVEN: Load AI import context for field mappings
+  const aiContext = loadImportContext(tenantId);
+  console.log(`[DataLayer] AI Import Context: ${aiContext ? 'LOADED' : 'NOT FOUND'}`);
+  if (aiContext) {
+    console.log(`[DataLayer] AI Context: roster=${aiContext.rosterSheet}, ${aiContext.sheets.length} sheets`);
+  }
 
-  // STEP 1: Separate records by sheet type using _sheetName metadata
+  console.log(`[DataLayer] AI-driven aggregation from ${records.length} committed records...`);
+
+  // STEP 1: Separate records by sheet type using AI classification
   const rosterRecords: Record<string, unknown>[] = [];
   const componentRecords: Record<string, unknown>[] = [];
 
+  // AI-DRIVEN: Get roster sheet name from AI context
+  const rosterSheetName = aiContext?.rosterSheet?.toLowerCase() || null;
+  const rosterSheetInfo = aiContext?.sheets.find(s => s.classification === 'roster');
+
   for (const record of records) {
     const content = record.content;
-    const sheetName = String(content._sheetName || '').toLowerCase();
+    const sheetName = String(content._sheetName || '');
+    const sheetNameLower = sheetName.toLowerCase();
 
-    // Roster sheet is "Datos Colaborador" - has employee identity + Puesto (role)
-    if (sheetName.includes('colaborador') || sheetName.includes('roster') ||
-        sheetName.includes('empleado') || sheetName.includes('employee')) {
+    // AI-DRIVEN: Use AI classification to identify roster vs component sheets
+    const isRoster = rosterSheetName
+      ? sheetNameLower === rosterSheetName || sheetNameLower.includes(rosterSheetName)
+      : sheetNameLower.includes('colaborador') || sheetNameLower.includes('roster') ||
+        sheetNameLower.includes('empleado') || sheetNameLower.includes('employee');
+
+    if (isRoster) {
       rosterRecords.push(content);
     } else {
       componentRecords.push(content);
@@ -304,28 +320,63 @@ function storeAggregatedData(
   }
 
   console.log(`[DataLayer] Roster records: ${rosterRecords.length}, Component records: ${componentRecords.length}`);
+  console.log(`[DataLayer] Roster sheet identification: ${rosterSheetName || 'FALLBACK (no AI context)'}`);
 
-  // STEP 2: Build employee map from ROSTER ONLY
-  // Expected: ~2,157 roster records = 719 employees x 3 months
+  // STEP 2: Build employee map from ROSTER using AI field mappings
   const employeeMap = new Map<string, Record<string, unknown>>();
 
+  // AI-DRIVEN: Helper to find field value by semantic type
+  const findFieldBySemantic = (row: Record<string, unknown>, semanticTypes: string[]): unknown => {
+    if (!rosterSheetInfo?.fieldMappings) return undefined;
+    for (const semantic of semanticTypes) {
+      const mapping = rosterSheetInfo.fieldMappings.find(
+        fm => fm.semanticType.toLowerCase() === semantic.toLowerCase()
+      );
+      if (mapping && row[mapping.sourceColumn] !== undefined) {
+        return row[mapping.sourceColumn];
+      }
+    }
+    return undefined;
+  };
+
+  // AI-DRIVEN: Helper to find field value with fallback to common field names
+  const getFieldValue = (row: Record<string, unknown>, semanticTypes: string[], fallbackKeys: string[]): string => {
+    // First try AI semantic mapping
+    const aiValue = findFieldBySemantic(row, semanticTypes);
+    if (aiValue !== undefined && aiValue !== null && String(aiValue).trim()) {
+      return String(aiValue).trim();
+    }
+    // Fallback to checking known keys (logged as warning if used)
+    for (const key of fallbackKeys) {
+      if (row[key] !== undefined && row[key] !== null && String(row[key]).trim()) {
+        return String(row[key]).trim();
+      }
+    }
+    return '';
+  };
+
   for (const row of rosterRecords) {
-    const empId = String(row['num_empleado'] || row['Num_Empleado'] ||
-                         row['employeeId'] || row['employee_id'] || '').trim();
+    // AI-DRIVEN: Get employee ID using semantic mapping
+    const empId = getFieldValue(row, ['employeeId', 'employee_id'],
+      ['num_empleado', 'Num_Empleado', 'employeeId', 'employee_id', 'ID_Empleado']);
     if (!empId || empId.length < 3 || empId === 'undefined' || empId === 'null') continue;
 
-    // Use employeeId + period as composite key (one record per employee per month)
-    const month = String(row['Mes'] || row['mes'] || row['period'] || row['Month'] || '');
-    const year = String(row['Ano'] || row['Ano'] || row['ano'] || row['Year'] || row['year'] || '');
+    // Get period fields
+    const month = getFieldValue(row, ['period', 'month'], ['Mes', 'mes', 'Month', 'period']);
+    const year = getFieldValue(row, ['year'], ['Ano', 'ano', 'Year', 'year']);
     const key = month || year ? `${empId}_${month}_${year}` : empId;
 
     if (!employeeMap.has(key)) {
       employeeMap.set(key, {
         employeeId: empId,
-        name: row['Nombre'] || row['nombre'] || row['name'] || '',
-        role: row['Puesto'] || row['puesto'] || row['role'] || '',
-        storeId: String(row['No_Tienda'] || row['no_tienda'] || row['num_tienda'] || row['storeId'] || ''),
-        storeRange: row['Rango_de_Tienda'] || row['Rango de Tienda'] || row['storeRange'] || '',
+        // AI-DRIVEN: Extract identity fields using semantic mappings
+        name: getFieldValue(row, ['name', 'employeeName', 'fullName'], ['Nombre', 'nombre', 'name', 'Name']),
+        role: getFieldValue(row, ['role', 'position', 'employeeType', 'jobTitle'],
+          ['Puesto', 'puesto', 'role', 'Position', 'Cargo']),
+        storeId: getFieldValue(row, ['storeId', 'locationId', 'store'],
+          ['No_Tienda', 'no_tienda', 'num_tienda', 'storeId', 'Tienda']),
+        storeRange: getFieldValue(row, ['storeRange', 'category', 'storeCategory'],
+          ['Rango_de_Tienda', 'Rango de Tienda', 'storeRange', 'Rango']),
         month,
         year,
         tenantId,
@@ -361,143 +412,160 @@ function storeAggregatedData(
     console.log(`[DataLayer] Fallback: ${employeeMap.size} unique employee IDs from component data`);
   }
 
-  // STEP 3: Build component data lookup by employee ID and store ID
-  const empComponentData = new Map<string, Record<string, number>>();
-  const storeComponentData = new Map<string, Record<string, number>>();
+  // STEP 3: Build componentMetrics - AI-DRIVEN extraction of attainment/amount/goal per sheet
+  // Key: employeeId -> sheetName -> { attainment, amount, goal }
+  const empComponentMetrics = new Map<string, Map<string, { attainment?: number; amount?: number; goal?: number }>>();
+  // Key: storeId -> sheetName -> { attainment, amount, goal }
+  const storeComponentMetrics = new Map<string, Map<string, { attainment?: number; amount?: number; goal?: number }>>();
 
-  // Also track by sheet for sheetMetrics structure
-  // Key: employeeId -> sheetName -> numeric fields
-  const empSheetMetrics = new Map<string, Map<string, Record<string, number>>>();
-  // Key: storeId -> sheetName -> numeric fields
-  const storeSheetMetrics = new Map<string, Map<string, Record<string, number>>>();
+  // AI-DRIVEN: Helper to find semantic field in a sheet's AI mapping
+  const getSheetFieldBySemantic = (sheetName: string, semanticTypes: string[]): string | null => {
+    const sheetInfo = aiContext?.sheets.find(s => s.sheetName === sheetName || s.sheetName.toLowerCase() === sheetName.toLowerCase());
+    if (!sheetInfo?.fieldMappings) return null;
+    for (const semantic of semanticTypes) {
+      const mapping = sheetInfo.fieldMappings.find(
+        fm => fm.semanticType.toLowerCase() === semantic.toLowerCase()
+      );
+      if (mapping) return mapping.sourceColumn;
+    }
+    return null;
+  };
+
+  // AI-DRIVEN: Helper to check if sheet joins by storeId (vs employeeId)
+  const isStoreJoinSheet = (sheetName: string): boolean => {
+    const sheetInfo = aiContext?.sheets.find(s => s.sheetName === sheetName || s.sheetName.toLowerCase() === sheetName.toLowerCase());
+    if (!sheetInfo?.fieldMappings) return false;
+    // If sheet has storeId mapping but no employeeId mapping, it's store-level
+    const hasStoreId = sheetInfo.fieldMappings.some(fm =>
+      ['storeId', 'locationId', 'store'].includes(fm.semanticType.toLowerCase())
+    );
+    const hasEmployeeId = sheetInfo.fieldMappings.some(fm =>
+      ['employeeId', 'employee_id'].includes(fm.semanticType.toLowerCase())
+    );
+    return hasStoreId && !hasEmployeeId;
+  };
 
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
 
-    // Employee-level data (Venta_Individual, Club_Proteccion, Garantia_Extendida)
-    const empId = String(
-      content['num_empleado'] || content['Num_Empleado'] ||
-      content['Vendedor'] || content['vendedor'] ||
-      content['employeeId'] || ''
-    ).trim();
+    // AI-DRIVEN: Get ID fields using AI mappings, with fallback
+    const empIdField = getSheetFieldBySemantic(sheetName, ['employeeId', 'employee_id']) ||
+      'num_empleado';
+    const storeIdField = getSheetFieldBySemantic(sheetName, ['storeId', 'locationId', 'store']) ||
+      'No_Tienda';
+    const attainmentField = getSheetFieldBySemantic(sheetName, ['attainment', 'achievement', 'performance']) ||
+      'Cumplimiento';
+    const amountField = getSheetFieldBySemantic(sheetName, ['amount', 'value', 'actual', 'sales']) ||
+      'Monto';
+    const goalField = getSheetFieldBySemantic(sheetName, ['goal', 'target', 'quota']) ||
+      'Meta';
 
-    // Store-level data (Venta_Tienda, Clientes_Nuevos, Cobranza)
-    const storeId = String(content['No_Tienda'] || content['no_tienda'] || '').trim();
+    // Extract IDs
+    const empId = String(content[empIdField] || content['Vendedor'] || content['vendedor'] || '').trim();
+    const storeId = String(content[storeIdField] || content['no_tienda'] || '').trim();
 
-    // Extract numeric fields
-    const numericData: Record<string, number> = {};
+    // AI-DRIVEN: Extract only attainment/amount/goal (SMART COMPRESSION)
+    const attainment = content[attainmentField] !== undefined ? Number(content[attainmentField]) : undefined;
+    const amount = content[amountField] !== undefined ? Number(content[amountField]) : undefined;
+    const goal = content[goalField] !== undefined ? Number(content[goalField]) : undefined;
+
+    // Also look for any numeric field that might be the key metric
+    let primaryMetric: number | undefined;
     for (const [key, value] of Object.entries(content)) {
-      if (key.startsWith('_')) continue; // Skip internal fields
-      if (typeof value === 'number') {
-        numericData[key] = value;
-      } else if (typeof value === 'string' && value.length > 0 && !isNaN(Number(value))) {
-        numericData[key] = Number(value);
+      if (key.startsWith('_')) continue;
+      if (typeof value === 'number' && value > 0) {
+        primaryMetric = value;
+        break;
       }
     }
 
-    // Aggregate by employee ID (flat)
-    if (empId && empId.length >= 3 && empId !== 'undefined') {
-      const existing = empComponentData.get(empId) || {};
-      for (const [key, val] of Object.entries(numericData)) {
-        existing[key] = (existing[key] || 0) + val;
-      }
-      empComponentData.set(empId, existing);
+    const metrics = {
+      attainment: attainment ?? (amount && goal && goal > 0 ? (amount / goal) * 100 : undefined),
+      amount: amount ?? primaryMetric,
+      goal
+    };
 
-      // Also aggregate by sheet for sheetMetrics
-      if (!empSheetMetrics.has(empId)) {
-        empSheetMetrics.set(empId, new Map());
+    // Determine if this sheet joins by employee or store
+    const isStoreLevel = isStoreJoinSheet(sheetName) || (!empId && storeId);
+
+    // Aggregate by employee ID for employee-level sheets
+    if (!isStoreLevel && empId && empId.length >= 3 && empId !== 'undefined') {
+      if (!empComponentMetrics.has(empId)) {
+        empComponentMetrics.set(empId, new Map());
       }
-      const empSheets = empSheetMetrics.get(empId)!;
-      const sheetData = empSheets.get(sheetName) || {};
-      for (const [key, val] of Object.entries(numericData)) {
-        sheetData[key] = (sheetData[key] || 0) + val;
-      }
-      empSheets.set(sheetName, sheetData);
+      const empSheets = empComponentMetrics.get(empId)!;
+      const existing = empSheets.get(sheetName) || {};
+      empSheets.set(sheetName, {
+        attainment: metrics.attainment ?? existing.attainment,
+        amount: (existing.amount || 0) + (metrics.amount || 0),
+        goal: (existing.goal || 0) + (metrics.goal || 0)
+      });
     }
 
-    // Aggregate by store ID (flat)
+    // Aggregate by store ID for store-level sheets
     if (storeId && storeId.length >= 1) {
-      const existing = storeComponentData.get(storeId) || {};
-      for (const [key, val] of Object.entries(numericData)) {
-        existing[key] = (existing[key] || 0) + val;
+      if (!storeComponentMetrics.has(storeId)) {
+        storeComponentMetrics.set(storeId, new Map());
       }
-      storeComponentData.set(storeId, existing);
-
-      // Also aggregate by sheet for sheetMetrics
-      if (!storeSheetMetrics.has(storeId)) {
-        storeSheetMetrics.set(storeId, new Map());
-      }
-      const storeSheets = storeSheetMetrics.get(storeId)!;
-      const sheetData = storeSheets.get(sheetName) || {};
-      for (const [key, val] of Object.entries(numericData)) {
-        sheetData[key] = (sheetData[key] || 0) + val;
-      }
-      storeSheets.set(sheetName, sheetData);
+      const storeSheets = storeComponentMetrics.get(storeId)!;
+      const existing = storeSheets.get(sheetName) || {};
+      storeSheets.set(sheetName, {
+        attainment: metrics.attainment ?? existing.attainment,
+        amount: (existing.amount || 0) + (metrics.amount || 0),
+        goal: (existing.goal || 0) + (metrics.goal || 0)
+      });
     }
   }
 
-  console.log(`[DataLayer] Employee-level component data: ${empComponentData.size} IDs`);
-  console.log(`[DataLayer] Store-level component data: ${storeComponentData.size} stores`);
-  console.log(`[DataLayer] Employee sheet metrics: ${empSheetMetrics.size} employees with per-sheet data`);
-  console.log(`[DataLayer] Store sheet metrics: ${storeSheetMetrics.size} stores with per-sheet data`);
+  console.log(`[DataLayer] Employee componentMetrics: ${empComponentMetrics.size} employees`);
+  console.log(`[DataLayer] Store componentMetrics: ${storeComponentMetrics.size} stores`);
 
-  // STEP 4: Enrich each roster employee with component data + sheetMetrics
+  // STEP 4: Build aggregated records with componentMetrics (SMART COMPRESSION)
+  // Each employee gets: identity fields + componentMetrics (attainment/amount/goal per sheet)
   const aggregated: Record<string, unknown>[] = [];
 
   for (const [, emp] of Array.from(employeeMap.entries())) {
     const empId = String(emp.employeeId);
     const storeId = String(emp.storeId || '');
 
-    const enriched: Record<string, unknown> = { ...emp };
+    // Start with identity fields only
+    const enriched: Record<string, unknown> = {
+      employeeId: emp.employeeId,
+      name: emp.name,
+      role: emp.role,
+      storeId: emp.storeId,
+      storeRange: emp.storeRange,
+      month: emp.month,
+      year: emp.year,
+      tenantId,
+      batchId,
+    };
 
-    // Add employee-level component data (flat)
-    const empData = empComponentData.get(empId);
-    if (empData) {
-      enriched._hasEmpData = true;
-      for (const [field, value] of Object.entries(empData)) {
-        enriched[field] = value;
+    // AI-DRIVEN: Build componentMetrics structure - COMPACT (only attainment/amount/goal per sheet)
+    const componentMetrics: Record<string, { attainment?: number; amount?: number; goal?: number }> = {};
+
+    // Add employee-level component metrics
+    const empMetrics = empComponentMetrics.get(empId);
+    if (empMetrics) {
+      for (const [sheetName, metrics] of Array.from(empMetrics.entries())) {
+        componentMetrics[sheetName] = { ...metrics };
       }
     }
 
-    // Add store-level component data (prefixed to avoid conflicts)
-    const storeData = storeComponentData.get(storeId);
-    if (storeData) {
-      enriched._hasStoreData = true;
-      for (const [field, value] of Object.entries(storeData)) {
-        if (!(field in enriched)) {
-          enriched[`store_${field}`] = value;
+    // Add store-level component metrics (for sheets that join by store)
+    const storeMetrics = storeComponentMetrics.get(storeId);
+    if (storeMetrics) {
+      for (const [sheetName, metrics] of Array.from(storeMetrics.entries())) {
+        // Only add if not already present from employee-level
+        if (!componentMetrics[sheetName]) {
+          componentMetrics[sheetName] = { ...metrics };
         }
       }
     }
 
-    // AI-DRIVEN: Add sheetMetrics structure for orchestrator to use with AI mappings
-    // This preserves sheet-level grouping so orchestrator can map sheets to components
-    const sheetMetrics: Record<string, Record<string, number>> = {};
-
-    // Add employee's per-sheet metrics
-    const empSheets = empSheetMetrics.get(empId);
-    if (empSheets) {
-      for (const [sheetName, metrics] of Array.from(empSheets.entries())) {
-        sheetMetrics[sheetName] = { ...metrics };
-      }
-    }
-
-    // Add store's per-sheet metrics (for store-level components)
-    const storeSheets = storeSheetMetrics.get(storeId);
-    if (storeSheets) {
-      for (const [sheetName, metrics] of Array.from(storeSheets.entries())) {
-        if (!sheetMetrics[sheetName]) {
-          sheetMetrics[sheetName] = {};
-        }
-        // Prefix store metrics to avoid conflicts
-        for (const [key, val] of Object.entries(metrics)) {
-          sheetMetrics[sheetName][`store_${key}`] = val;
-        }
-      }
-    }
-
-    if (Object.keys(sheetMetrics).length > 0) {
-      enriched.sheetMetrics = sheetMetrics;
+    if (Object.keys(componentMetrics).length > 0) {
+      enriched.componentMetrics = componentMetrics;
+      enriched._hasData = true;
     }
 
     aggregated.push(enriched);
@@ -505,61 +573,68 @@ function storeAggregatedData(
 
   console.log(`[DataLayer] Final aggregated records: ${aggregated.length}`);
 
-  // STEP 5: Store to localStorage
+  // STEP 5: Store to localStorage (componentMetrics structure is already compact)
   const serialized = JSON.stringify(aggregated);
   const sizeKB = Math.round(serialized.length / 1024);
-  console.log(`[DataLayer] Aggregated payload: ${sizeKB} KB`);
+  console.log(`[DataLayer] Aggregated payload: ${sizeKB} KB (${aggregated.length} records)`);
 
-  // If too large, strip store-level data
-  if (sizeKB > 2000) {
-    console.warn(`[DataLayer] Payload too large (${sizeKB} KB), stripping store_ fields...`);
-    const slim = aggregated.map(emp => {
-      const result: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(emp)) {
-        if (!key.startsWith('store_')) {
-          result[key] = value;
+  // Log sample of first employee's componentMetrics for verification
+  if (aggregated.length > 0 && aggregated[0].componentMetrics) {
+    console.log(`[DataLayer] Sample componentMetrics:`, JSON.stringify(aggregated[0].componentMetrics).substring(0, 300));
+  }
+
+  // ComponentMetrics structure is compact (3 fields per sheet), should fit easily
+  // If still too large (>4MB), reduce precision
+  let dataToStore = serialized;
+  let finalSizeKB = sizeKB;
+
+  if (sizeKB > 4000) {
+    console.warn(`[DataLayer] Payload ${sizeKB} KB exceeds 4MB, reducing precision...`);
+    const reduced = aggregated.map(emp => {
+      const reduced = { ...emp };
+      if (reduced.componentMetrics) {
+        const cm = reduced.componentMetrics as Record<string, { attainment?: number; amount?: number; goal?: number }>;
+        for (const sheetName of Object.keys(cm)) {
+          if (cm[sheetName].attainment !== undefined) {
+            cm[sheetName].attainment = Math.round(cm[sheetName].attainment! * 100) / 100;
+          }
+          if (cm[sheetName].amount !== undefined) {
+            cm[sheetName].amount = Math.round(cm[sheetName].amount!);
+          }
+          if (cm[sheetName].goal !== undefined) {
+            cm[sheetName].goal = Math.round(cm[sheetName].goal!);
+          }
         }
       }
-      return result;
+      return reduced;
     });
-    const slimSerialized = JSON.stringify(slim);
-    const slimSizeKB = Math.round(slimSerialized.length / 1024);
-    console.log(`[DataLayer] Slim payload: ${slimSizeKB} KB`);
-
-    try {
-      const storageKey = `${STORAGE_KEYS.COMMITTED}_aggregated_${tenantId}`;
-      localStorage.setItem(storageKey, slimSerialized);
-      localStorage.setItem(`${storageKey}_meta`, JSON.stringify({
-        tenantId, batchId, sourceRecords: records.length,
-        employees: slim.length, sizeKB: slimSizeKB, timestamp: Date.now()
-      }));
-      return { employeeCount: slim.length, sizeKB: slimSizeKB };
-    } catch (err) {
-      console.error(`[DataLayer] Slim data storage failed:`, err);
-      return { employeeCount: 0, sizeKB: 0 };
-    }
+    dataToStore = JSON.stringify(reduced);
+    finalSizeKB = Math.round(dataToStore.length / 1024);
+    console.log(`[DataLayer] Reduced payload: ${finalSizeKB} KB`);
   }
 
   try {
     const storageKey = `${STORAGE_KEYS.COMMITTED}_aggregated_${tenantId}`;
-    localStorage.setItem(storageKey, serialized);
+    localStorage.setItem(storageKey, dataToStore);
     localStorage.setItem(`${storageKey}_meta`, JSON.stringify({
       tenantId, batchId, sourceRecords: records.length,
-      employees: aggregated.length, sizeKB, timestamp: Date.now()
+      employees: aggregated.length, sizeKB: finalSizeKB,
+      hasComponentMetrics: true,
+      timestamp: Date.now()
     }));
 
-    // Verify
+    // Verify storage succeeded
     const verify = localStorage.getItem(storageKey);
     if (verify && verify.length > 0) {
-      console.log(`[DataLayer] Stored aggregated data: ${aggregated.length} records, ${sizeKB} KB`);
-      console.log(`[DataLayer] Verified: key exists, ${Math.round(verify.length / 1024)} KB`);
+      console.log(`[DataLayer] SUCCESS: Stored ${aggregated.length} employees, ${finalSizeKB} KB`);
+      reportStorageUsage();
     } else {
-      console.error(`[DataLayer] Verification failed - key not found after write`);
+      console.error(`[DataLayer] FAILED: Verification failed - key not found after write`);
     }
 
-    return { employeeCount: aggregated.length, sizeKB };
+    return { employeeCount: aggregated.length, sizeKB: finalSizeKB };
   } catch (error) {
-    console.error('[DataLayer] Failed to store aggregated data:', error);
+    console.error('[DataLayer] FAILED to store aggregated data:', error);
     reportStorageUsage();
     return { employeeCount: 0, sizeKB: 0 };
   }
