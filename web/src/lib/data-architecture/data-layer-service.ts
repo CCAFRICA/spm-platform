@@ -379,29 +379,45 @@ function storeAggregatedData(
   // Key: storeId -> sheetName -> { attainment, amount, goal }
   const storeComponentMetrics = new Map<string, Map<string, { attainment?: number; amount?: number; goal?: number }>>();
 
-  // AI-DRIVEN: Helper to find semantic field in a sheet's AI mapping
-  const getSheetFieldBySemantic = (sheetName: string, semanticTypes: string[]): string | null => {
-    const sheetInfo = aiContext?.sheets.find(s => s.sheetName === sheetName || s.sheetName.toLowerCase() === sheetName.toLowerCase());
-    if (!sheetInfo?.fieldMappings) return null;
-    for (const semantic of semanticTypes) {
-      const mapping = sheetInfo.fieldMappings.find(
-        fm => fm.semanticType.toLowerCase() === semantic.toLowerCase()
-      );
-      if (mapping) return mapping.sourceColumn;
-    }
-    return null;
+  // AI-DRIVEN: Helper to find column by semantic type from AI Import Context
+  // OB-24 R4: Simplified to use ONLY the AI's semantic types (not column names)
+  // AI outputs exactly: employeeId|storeId|date|period|amount|goal|attainment|quantity|role
+  const getSheetFieldBySemantic = (sheetName: string, semanticType: string): string | null => {
+    if (!aiContext?.sheets) return null;
+
+    // Find sheet with flexible matching (exact, lowercase, or trimmed)
+    const sheetInfo = aiContext.sheets.find(s => {
+      const ctxName = s.sheetName?.trim() || '';
+      const recName = sheetName.trim();
+      return ctxName === recName || ctxName.toLowerCase() === recName.toLowerCase();
+    });
+
+    if (!sheetInfo?.fieldMappings || sheetInfo.fieldMappings.length === 0) return null;
+
+    // Find mapping by exact semantic type match (case-insensitive)
+    const mapping = sheetInfo.fieldMappings.find(
+      fm => fm.semanticType?.toLowerCase() === semanticType.toLowerCase()
+    );
+
+    return mapping?.sourceColumn || null;
   };
 
   // AI-DRIVEN: Helper to check if sheet joins by storeId (vs employeeId)
+  // OB-24 R4: Use ONLY the AI's actual semantic types
   const isStoreJoinSheet = (sheetName: string): boolean => {
-    const sheetInfo = aiContext?.sheets.find(s => s.sheetName === sheetName || s.sheetName.toLowerCase() === sheetName.toLowerCase());
+    if (!aiContext?.sheets) return false;
+    const sheetInfo = aiContext.sheets.find(s => {
+      const ctxName = s.sheetName?.trim() || '';
+      const recName = sheetName.trim();
+      return ctxName === recName || ctxName.toLowerCase() === recName.toLowerCase();
+    });
     if (!sheetInfo?.fieldMappings) return false;
     // If sheet has storeId mapping but no employeeId mapping, it's store-level
     const hasStoreId = sheetInfo.fieldMappings.some(fm =>
-      ['storeId', 'locationId', 'store'].includes(fm.semanticType.toLowerCase())
+      fm.semanticType?.toLowerCase() === 'storeid'
     );
     const hasEmployeeId = sheetInfo.fieldMappings.some(fm =>
-      ['employeeId', 'employee_id'].includes(fm.semanticType.toLowerCase())
+      fm.semanticType?.toLowerCase() === 'employeeid'
     );
     return hasStoreId && !hasEmployeeId;
   };
@@ -409,23 +425,13 @@ function storeAggregatedData(
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
 
-    // AI-DRIVEN: Get ID fields using AI mappings with expanded semantic types
-    // OB-24 FIX: Include Spanish terms and common variations
-    const empIdField = getSheetFieldBySemantic(sheetName, [
-      'employeeId', 'employee_id', 'empId', 'rep_id', 'id_empleado', 'num_empleado', 'llave', 'clave'
-    ]);
-    const storeIdField = getSheetFieldBySemantic(sheetName, [
-      'storeId', 'locationId', 'store', 'tienda', 'no_tienda', 'sucursal', 'location'
-    ]);
-    const attainmentField = getSheetFieldBySemantic(sheetName, [
-      'attainment', 'achievement', 'performance', 'cumplimiento', 'porcentaje', 'pct', 'percent'
-    ]);
-    const amountField = getSheetFieldBySemantic(sheetName, [
-      'amount', 'value', 'actual', 'sales', 'venta', 'monto', 'real', 'revenue', 'total'
-    ]);
-    const goalField = getSheetFieldBySemantic(sheetName, [
-      'goal', 'target', 'quota', 'meta', 'objetivo', 'cuota', 'presupuesto'
-    ]);
+    // OB-24 R4: Use ONLY the AI's actual semantic types
+    // AI outputs exactly: employeeId|storeId|date|period|amount|goal|attainment|quantity|role
+    const empIdField = getSheetFieldBySemantic(sheetName, 'employeeId');
+    const storeIdField = getSheetFieldBySemantic(sheetName, 'storeId');
+    const attainmentField = getSheetFieldBySemantic(sheetName, 'attainment');
+    const amountField = getSheetFieldBySemantic(sheetName, 'amount');
+    const goalField = getSheetFieldBySemantic(sheetName, 'goal');
 
     // OB-24 FIX: Fallback to direct column name matching if AI mapping not found
     const findColumnByPattern = (patterns: RegExp[]): string | null => {
