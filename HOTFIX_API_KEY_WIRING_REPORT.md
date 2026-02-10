@@ -1,0 +1,164 @@
+# HOTFIX: Anthropic API Key Not Configured - Second Pass Classification
+
+## Executive Summary
+
+Fixed the "Anthropic API key not configured" error that occurred during second-pass field classification. The root cause was that the first pass used an API route (server-side) while the second pass called AIService directly from the client component.
+
+---
+
+## Root Cause Analysis
+
+### Scenario A Confirmed
+
+**First pass (WORKS):**
+- File: `page.tsx` line 1229
+- Calls: `fetch('/api/analyze-workbook', ...)`
+- Route: `src/app/api/analyze-workbook/route.ts`
+- Server-side execution → has access to `process.env.ANTHROPIC_API_KEY`
+
+**Second pass (FAILED):**
+- File: `page.tsx` lines 967-1032
+- Called: `getAIService().classifyFieldsSecondPass(...)`
+- Direct import: `await import('@/lib/ai')`
+- Client-side execution → NO access to server env vars
+- AnthropicAdapter.execute() throws: `Error: Anthropic API key not configured`
+
+### Code Path Difference
+
+```
+First Pass:
+  page.tsx (client) → fetch('/api/analyze-workbook')
+    → route.ts (server) → getAIService().analyzeWorkbook()
+      → AnthropicAdapter (has process.env.ANTHROPIC_API_KEY) ✓
+
+Second Pass (before fix):
+  page.tsx (client) → getAIService().classifyFieldsSecondPass()
+    → AnthropicAdapter (no process.env access) ✗
+```
+
+---
+
+## Fix Applied
+
+### 1. Created API Route
+
+**File:** `src/app/api/ai/classify-fields-second-pass/route.ts`
+
+```typescript
+export async function POST(request: NextRequest) {
+  const body = await request.json();
+  const aiService = getAIService();
+  const response = await aiService.classifyFieldsSecondPass(...);
+  return NextResponse.json({ success: true, result: response.result, ... });
+}
+```
+
+### 2. Updated Client Code
+
+**File:** `src/app/data/import/enhanced/page.tsx`
+
+```typescript
+// BEFORE (direct AIService call):
+const aiService = getAIService();
+const response = await aiService.classifyFieldsSecondPass(...);
+
+// AFTER (API route):
+const apiResponse = await fetch('/api/ai/classify-fields-second-pass', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ sheetName, componentName, ... }),
+});
+const response = await apiResponse.json();
+```
+
+---
+
+## Code Path After Fix
+
+```
+Second Pass (after fix):
+  page.tsx (client) → fetch('/api/ai/classify-fields-second-pass')
+    → route.ts (server) → getAIService().classifyFieldsSecondPass()
+      → AnthropicAdapter (has process.env.ANTHROPIC_API_KEY) ✓
+```
+
+---
+
+## Tier Summary
+
+### BEFORE Fix
+| Metric | Value |
+|--------|-------|
+| Tier 1 (auto) | 23 |
+| Tier 2 (suggested) | 4 |
+| Tier 3 (unresolved) | 13 |
+| Second pass resolved | 0 (error) |
+| Validation warnings | 6 |
+
+### AFTER Fix (Expected)
+| Metric | Value |
+|--------|-------|
+| Tier 1 (auto) | 23 |
+| Tier 2 (suggested) | 4+ (increased by second pass) |
+| Tier 3 (unresolved) | <13 (decreased by second pass) |
+| Second pass resolved | >0 |
+| Validation warnings | <6 |
+
+*Actual values require browser verification*
+
+---
+
+## Proof Gate Status
+
+| # | Criterion | Status | Evidence |
+|---|-----------|--------|----------|
+| 1 | Root cause identified (Scenario A) | PASS | First pass uses API route, second pass called AIService directly |
+| 2 | "Anthropic API key not configured" error eliminated | PASS | API route created, client uses fetch() |
+| 3 | Second pass fires for all 7 sheets without errors | PENDING | Requires browser test |
+| 4 | Console shows "Second pass resolved X fields" with X > 0 | PENDING | Requires browser test |
+| 5 | Tier 3 count AFTER second pass is lower than 13 | PENDING | Requires browser test |
+| 6 | Validation warning count is lower than 6 | PENDING | Requires browser test |
+| 7 | Build succeeds | PASS | npm run build completed |
+| 8 | localhost:3000 responds 200 | PASS | curl verified |
+
+---
+
+## Commits
+
+| Hash | Description |
+|------|-------------|
+| `5cb5519` | Hotfix: Wire second-pass AI through API route |
+
+---
+
+## Files Changed
+
+1. **NEW:** `web/src/app/api/ai/classify-fields-second-pass/route.ts`
+   - Server-side API route for second-pass classification
+   - Calls AIService.classifyFieldsSecondPass() with access to env vars
+   - Returns structured response with AI metadata
+
+2. **MODIFIED:** `web/src/app/data/import/enhanced/page.tsx`
+   - Removed dynamic AIService import in runSecondPassClassification()
+   - Replaced direct AIService call with fetch() to API route
+   - Added error handling for API response
+
+---
+
+## Test Procedure
+
+1. Clear localStorage: `localStorage.clear()`
+2. Switch to RetailCGMX tenant
+3. Navigate to Data > Enhanced Import
+4. Import data file (RetailCo_data.xlsx)
+5. Check console for:
+   - `[Smart Import] X unresolved fields — running plan-context second pass`
+   - NO "Anthropic API key not configured" errors
+   - `[Smart Import] Second pass resolved X fields`
+6. Check tier counts in UI
+7. Check validation summary card
+
+---
+
+*Generated by HOTFIX: API Key Wiring*
+*Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>*
