@@ -322,6 +322,33 @@ export class CalculationOrchestrator {
   }
 
   /**
+   * OB-20 Phase 2: Derive isCertified from employee role
+   * Looks for "CERTIFICADO" in the role string (but not "NO CERTIFICADO")
+   * TODO: Make this AI-driven from plan interpretation in the future
+   */
+  private deriveIsCertified(employee: EmployeeData): boolean {
+    // Check explicit attribute first
+    if (employee.attributes?.isCertified !== undefined) {
+      return Boolean(employee.attributes.isCertified);
+    }
+
+    // Derive from role string
+    const role = (employee.role || '').toUpperCase();
+    const hasCertificado = role.includes('CERTIFICADO');
+    const hasNoCertificado = role.includes('NO CERTIFICADO') || role.includes('NO-CERTIFICADO') || role.includes('NON-CERTIFICADO');
+
+    // Certified if contains CERTIFICADO but NOT "NO CERTIFICADO"
+    const isCertified = hasCertificado && !hasNoCertificado;
+
+    // DIAG: Log for first employee
+    if (!this._diagLogged) {
+      console.log(`DIAG-VARIANT: Employee ${employee.id} role="${employee.role}" → isCertified=${isCertified}`);
+    }
+
+    return isCertified;
+  }
+
+  /**
    * Get employee metrics for a period
    * AI-DRIVEN: Uses AI import context to extract metrics from aggregated data
    */
@@ -351,7 +378,7 @@ export class CalculationOrchestrator {
         employeeRole: employee.role,
         storeId: employee.storeId,
         storeName: employee.storeName,
-        isCertified: employee.attributes?.isCertified as boolean | undefined,
+        isCertified: this.deriveIsCertified(employee),
         period: periodId,
         periodStart: this.getPeriodStart(periodId),
         periodEnd: this.getPeriodEnd(periodId),
@@ -368,7 +395,7 @@ export class CalculationOrchestrator {
         employeeRole: employee.role,
         storeId: employee.storeId,
         storeName: employee.storeName,
-        isCertified: employee.attributes?.isCertified as boolean | undefined,
+        isCertified: this.deriveIsCertified(employee),
         period: periodId,
         periodStart: this.getPeriodStart(periodId),
         periodEnd: this.getPeriodEnd(periodId),
@@ -398,7 +425,7 @@ export class CalculationOrchestrator {
         employeeRole: employee.role,
         storeId: employee.storeId,
         storeName: employee.storeName,
-        isCertified: employee.attributes?.isCertified as boolean | undefined,
+        isCertified: this.deriveIsCertified(employee),
         period: periodId,
         periodStart: this.getPeriodStart(periodId),
         periodEnd: this.getPeriodEnd(periodId),

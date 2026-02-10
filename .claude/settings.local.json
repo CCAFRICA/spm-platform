@@ -62,7 +62,8 @@
       "Bash(echo:*)",
       "Bash(__NEW_LINE_c894145c5ac0bcac__ echo \"\")",
       "Bash(__NEW_LINE_8f7d8c0e7081309d__ echo \"\")",
-      "Bash(__NEW_LINE_4e99dfcbc9b5c29b__ echo \"\")"
+      "Bash(__NEW_LINE_4e99dfcbc9b5c29b__ echo \"\")",
+      "Bash(ls:*)"
     ]
   }
 }
