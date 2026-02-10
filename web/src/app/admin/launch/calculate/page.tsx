@@ -185,6 +185,8 @@ export default function CalculatePage() {
     draftPlans: [],
   });
   const [isActivating, setIsActivating] = useState(false);
+  // OB-20 Phase 10: Search functionality for results
+  const [searchQuery, setSearchQuery] = useState('');
 
   // CC Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
@@ -610,10 +612,25 @@ export default function CalculatePage() {
           {/* Employee Breakdown */}
           <Card>
             <CardHeader>
-              <CardTitle>{t.employeeBreakdown}</CardTitle>
-              <CardDescription>
-                {result.results.length} {locale === 'es-MX' ? 'resultados' : 'results'}
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>{t.employeeBreakdown}</CardTitle>
+                  <CardDescription>
+                    {result.results.length} {locale === 'es-MX' ? 'resultados' : 'results'}
+                  </CardDescription>
+                </div>
+                {/* OB-20 Phase 10: Search input */}
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder={locale === 'es-MX' ? 'Buscar empleado...' : 'Search employee...'}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <Table>
@@ -628,7 +645,19 @@ export default function CalculatePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {result.results.map((employeeResult) => (
+                  {/* OB-20 Phase 10: Filter results based on search query */}
+                  {result.results
+                    .filter((r) => {
+                      if (!searchQuery.trim()) return true;
+                      const q = searchQuery.toLowerCase();
+                      return (
+                        r.employeeName?.toLowerCase().includes(q) ||
+                        r.employeeId?.toLowerCase().includes(q) ||
+                        r.employeeRole?.toLowerCase().includes(q) ||
+                        r.storeName?.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((employeeResult) => (
                     <Collapsible
                       key={employeeResult.employeeId}
                       open={expandedEmployee === employeeResult.employeeId}
