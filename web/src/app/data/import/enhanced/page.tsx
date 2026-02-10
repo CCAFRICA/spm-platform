@@ -636,6 +636,24 @@ const FIELD_ID_MAPPINGS: Record<string, string> = {
   'cargo': 'role',
   'titulo': 'role',
   'job_role': 'role',
+
+  // ========== Name fields (CLT-08 FIX) ==========
+  'name': 'name',
+  'nombre': 'name',
+  'full_name': 'name',
+  'fullname': 'name',
+  'employee_name': 'name',
+  'employeename': 'name',
+  'rep_name': 'name',
+  'sales_rep_name': 'name',
+  'nombre_empleado': 'name',
+  'nombre_completo': 'name',
+  'first_name': 'name',
+  'firstname': 'name',
+  'last_name': 'name',
+  'lastname': 'name',
+  'apellido': 'name',
+  'nombre_apellido': 'name',
 };
 
 function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields: TargetField[]): string | null {
@@ -671,10 +689,12 @@ function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields:
 
 // Helper: Extract target fields from plan components
 // OB-13A: Base fields include role for position/puesto mapping
+// CLT-08 FIX: Added name field for employee name display
 function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): TargetField[] {
   const baseFields: TargetField[] = [
     // Always-required identifier fields
     { id: 'employeeId', label: 'Employee ID', labelEs: 'ID Empleado', isRequired: true, category: 'identifier' },
+    { id: 'name', label: 'Employee Name', labelEs: 'Nombre', isRequired: false, category: 'identifier' },  // CLT-08
     { id: 'storeId', label: 'Store ID', labelEs: 'ID Tienda', isRequired: false, category: 'identifier' },
     { id: 'date', label: 'Date', labelEs: 'Fecha', isRequired: true, category: 'date' },
     { id: 'period', label: 'Period', labelEs: 'Período', isRequired: false, category: 'date' },
@@ -691,7 +711,6 @@ function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): Targe
       { id: 'quantity', label: 'Quantity', labelEs: 'Cantidad', isRequired: false, category: 'metric' },
       { id: 'attainment', label: 'Attainment %', labelEs: '% Cumplimiento', isRequired: false, category: 'metric' },
       { id: 'goal', label: 'Goal', labelEs: 'Meta', isRequired: false, category: 'metric' },
-      { id: 'role', label: 'Role/Position', labelEs: 'Puesto', isRequired: false, category: 'identifier' },
     ];
   }
 
