@@ -1416,7 +1416,8 @@ export default function DataPackageImportPage() {
       storeFieldMappings(tenantId, result.batchId, mappingsToStore);
 
       // AI-DRIVEN: Store import context for calculation engine
-      // This preserves the AI's decisions: sheet classifications, component mappings, semantic field types
+      // CLT-08 FIX: Use USER-CONFIRMED fieldMappings, not original AI suggestions
+      // The fieldMappings state contains user-verified mappings; AI suggestedFieldMappings may have nulls
       if (analysis) {
         const importContext: AIImportContext = {
           tenantId,
@@ -1424,20 +1425,40 @@ export default function DataPackageImportPage() {
           timestamp: new Date().toISOString(),
           rosterSheet: analysis.rosterDetected?.sheetName || null,
           rosterEmployeeIdColumn: analysis.rosterDetected?.employeeIdColumn || null,
-          sheets: analysis.sheets.map(sheet => ({
-            sheetName: sheet.name,
-            classification: sheet.classification,
-            matchedComponent: sheet.matchedComponent,
-            matchedComponentConfidence: sheet.matchedComponentConfidence,
-            fieldMappings: sheet.suggestedFieldMappings.map(fm => ({
-              sourceColumn: fm.sourceColumn,
-              semanticType: fm.targetField, // employeeId, amount, attainment, goal, etc
-              confidence: fm.confidence,
-            })),
-          })),
+          sheets: analysis.sheets.map(sheet => {
+            // CLT-08: Find user-confirmed mappings for this sheet
+            const confirmedMapping = fieldMappings.find(fm => fm.sheetName === sheet.name);
+
+            // CLT-08: Build fieldMappings from user-confirmed state, not AI suggestions
+            const sheetFieldMappings = confirmedMapping
+              ? confirmedMapping.mappings
+                  .filter(m => m.targetField) // Only include mapped fields
+                  .map(m => ({
+                    sourceColumn: m.sourceColumn,
+                    semanticType: m.targetField!, // User-confirmed semantic type
+                    confidence: m.confidence,
+                  }))
+              : sheet.suggestedFieldMappings
+                  .filter(fm => fm.targetField) // Fallback to AI if no confirmed mappings
+                  .map(fm => ({
+                    sourceColumn: fm.sourceColumn,
+                    semanticType: fm.targetField!,
+                    confidence: fm.confidence,
+                  }));
+
+            console.log(`[Import] Sheet "${sheet.name}": ${sheetFieldMappings.length} confirmed field mappings`);
+
+            return {
+              sheetName: sheet.name,
+              classification: sheet.classification,
+              matchedComponent: sheet.matchedComponent,
+              matchedComponentConfidence: sheet.matchedComponentConfidence,
+              fieldMappings: sheetFieldMappings,
+            };
+          }),
         };
         storeImportContext(importContext);
-        console.log(`[Import] Stored AI import context: ${importContext.sheets.length} sheets`);
+        console.log(`[Import] Stored AI import context: ${importContext.sheets.length} sheets with CONFIRMED mappings`);
       }
 
       console.log(`[Import] Committed ${result.recordCount} records, batch: ${result.batchId}`);
