@@ -1139,6 +1139,34 @@ export function directCommitImportData(
   }
   console.log(`[DataLayer]   - Batches in localStorage: ${batchesVerify ? 'YES' : 'NO'}`);
 
+  // OB-16C HOTFIX: Free localStorage space before aggregation
+  // Raw and Transformed data are intermediate pipeline stages - not needed after commit
+  try {
+    const freedRaw = memoryCache.raw.size;
+    const freedTransformed = memoryCache.transformed.size;
+    const freedCheckpoints = memoryCache.checkpoints.size;
+
+    // Clear from localStorage
+    localStorage.removeItem(STORAGE_KEYS.RAW);
+    localStorage.removeItem(STORAGE_KEYS.TRANSFORMED);
+    localStorage.removeItem(STORAGE_KEYS.CHECKPOINTS);
+
+    // Clear any chunks
+    clearChunks(STORAGE_KEYS.RAW);
+    clearChunks(STORAGE_KEYS.TRANSFORMED);
+    clearChunks(STORAGE_KEYS.CHECKPOINTS);
+
+    // Clear memory cache
+    memoryCache.raw.clear();
+    memoryCache.transformed.clear();
+    memoryCache.checkpoints.clear();
+
+    console.log(`[DataLayer] Freed localStorage: cleared ${freedRaw} raw + ${freedTransformed} transformed + ${freedCheckpoints} checkpoints`);
+    reportStorageUsage();
+  } catch (cleanupErr) {
+    console.warn('[DataLayer] Failed to clear raw/transformed:', cleanupErr);
+  }
+
   // OB-16C HOTFIX: Store aggregated data for calculation engine
   // This runs INDEPENDENTLY of committed data persistence
   // Even if committed data exceeds localStorage quota, aggregated data (~50KB) will persist
