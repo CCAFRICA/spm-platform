@@ -38,7 +38,27 @@
       "Bash(head -10 echo \"\" echo \"2.2 Orchestrator Employee Source Priority:\" grep -n \"extractEmployeesFromCommittedData\\\\|getDemoEmployees\\\\|Only fall back\" src/lib/orchestration/calculation-orchestrator.ts)",
       "Bash(head -5 echo \"\" echo \"2.3 Context Resolver Employee Source Priority:\" grep -n \"extractEmployeesFromCommittedData\\\\|getDefaultEmployees\\\\|Only fall back\" src/lib/calculation/context-resolver.ts)",
       "Bash(/dev/null -name *.ts)",
-      "Bash(./node_modules/.bin/tsc:*)"
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(git status:*)",
+      "Bash(head:*)",
+      "Bash(head -3 echo '   ✓ PASS' __NEW_LINE_3ff57a090906cd66__ echo echo '16. ChequeImportService processes FRMX demo cheques:' grep -c \"ChequeImportService\\\\|importFile\" src/lib/demo/frmx-demo-provisioner.ts)",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web __NEW_LINE_4513f44ed7997ebb__ echo \"=== OB-13B PROOF GATE VERIFICATION ===\")",
+      "Bash(echo '   LeakageMonitor removed ✓' __NEW_LINE_4513f44ed7997ebb__ echo echo '7. Recharts used for sparklines:' grep -l \"recharts\\\\|LineChart\\\\|AreaChart\" src/app/financial/*.tsx src/app/financial/**/*.tsx)",
+      "Bash(wc -l echo '   files using recharts' __NEW_LINE_4513f44ed7997ebb__ echo echo '8. Seed data present \\(no empty shells\\):' grep -c \"generateSeedData\\\\|seedData\\\\|SEED_\" src/app/financial/page.tsx)",
+      "Bash(if [ -d \".next\" ])",
+      "Bash(then)",
+      "Bash(else)",
+      "Bash(fi)",
+      "Bash(__NEW_LINE_bfa9974e500ba8fd__ echo \"\")",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web __NEW_LINE_64fdf362be170e73__ echo \"=== CHECKING ENHANCED IMPORT FILE TYPES ===\" grep -n \"accept=\" src/app/data/import/enhanced/page.tsx)",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web __NEW_LINE_ce15d93a796f775c__ echo \"=== FILE TYPE ACCEPT ===\" grep \"accept=\" src/app/data/import/enhanced/page.tsx __NEW_LINE_ce15d93a796f775c__ echo \"\" echo \"=== CHEQUE/POS IN IMPORT ===\" grep -i \"cheque\\\\|pos_cheque\" src/app/data/import/enhanced/page.tsx)",
+      "Bash(echo 'src/lib/calculation/ does not exist' __NEW_LINE_cab65c5cae61fcf4__ echo echo '=== DATA COMPONENT MAPPER ===' find src/lib -name *mapper* -o -name *component-map*)",
+      "Bash(__NEW_LINE_19187e0eae363113__ echo \"=== CALCULATION DIRECTORY ===\")",
+      "Bash(__NEW_LINE_19187e0eae363113__ echo \"\")",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web npm run build)",
+      "Bash(git -c http.version=HTTP/1.1 push)",
+      "Bash(GIT_CURL_VERBOSE=1 git -c http.version=HTTP/1.1 push)",
+      "Bash(git show:*)"
     ]
   }
 }

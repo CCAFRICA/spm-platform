@@ -73,6 +73,8 @@ import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 import {
   directCommitImportData,
   storeFieldMappings,
+  storeImportContext,
+  type AIImportContext,
 } from '@/lib/data-architecture/data-layer-service';
 import { getPeriodProcessor } from '@/lib/payroll/period-processor';
 import { classifyFile, recordClassificationFeedback } from '@/lib/ai/file-classifier';
@@ -1412,6 +1414,31 @@ export default function DataPackageImportPage() {
         ),
       }));
       storeFieldMappings(tenantId, result.batchId, mappingsToStore);
+
+      // AI-DRIVEN: Store import context for calculation engine
+      // This preserves the AI's decisions: sheet classifications, component mappings, semantic field types
+      if (analysis) {
+        const importContext: AIImportContext = {
+          tenantId,
+          batchId: result.batchId,
+          timestamp: new Date().toISOString(),
+          rosterSheet: analysis.rosterDetected?.sheetName || null,
+          rosterEmployeeIdColumn: analysis.rosterDetected?.employeeIdColumn || null,
+          sheets: analysis.sheets.map(sheet => ({
+            sheetName: sheet.name,
+            classification: sheet.classification,
+            matchedComponent: sheet.matchedComponent,
+            matchedComponentConfidence: sheet.matchedComponentConfidence,
+            fieldMappings: sheet.suggestedFieldMappings.map(fm => ({
+              sourceColumn: fm.sourceColumn,
+              semanticType: fm.targetField, // employeeId, amount, attainment, goal, etc
+              confidence: fm.confidence,
+            })),
+          })),
+        };
+        storeImportContext(importContext);
+        console.log(`[Import] Stored AI import context: ${importContext.sheets.length} sheets`);
+      }
 
       console.log(`[Import] Committed ${result.recordCount} records, batch: ${result.batchId}`);
       console.log(`[Import] TenantId used: ${tenantId}`);

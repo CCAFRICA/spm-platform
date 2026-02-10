@@ -348,7 +348,15 @@ function storeAggregatedData(
   const empComponentData = new Map<string, Record<string, number>>();
   const storeComponentData = new Map<string, Record<string, number>>();
 
+  // Also track by sheet for sheetMetrics structure
+  // Key: employeeId -> sheetName -> numeric fields
+  const empSheetMetrics = new Map<string, Map<string, Record<string, number>>>();
+  // Key: storeId -> sheetName -> numeric fields
+  const storeSheetMetrics = new Map<string, Map<string, Record<string, number>>>();
+
   for (const content of componentRecords) {
+    const sheetName = String(content['_sheetName'] || 'unknown');
+
     // Employee-level data (Venta_Individual, Club_Proteccion, Garantia_Extendida)
     const empId = String(
       content['num_empleado'] || content['Num_Empleado'] ||
@@ -370,29 +378,53 @@ function storeAggregatedData(
       }
     }
 
-    // Aggregate by employee ID
+    // Aggregate by employee ID (flat)
     if (empId && empId.length >= 3 && empId !== 'undefined') {
       const existing = empComponentData.get(empId) || {};
       for (const [key, val] of Object.entries(numericData)) {
         existing[key] = (existing[key] || 0) + val;
       }
       empComponentData.set(empId, existing);
+
+      // Also aggregate by sheet for sheetMetrics
+      if (!empSheetMetrics.has(empId)) {
+        empSheetMetrics.set(empId, new Map());
+      }
+      const empSheets = empSheetMetrics.get(empId)!;
+      const sheetData = empSheets.get(sheetName) || {};
+      for (const [key, val] of Object.entries(numericData)) {
+        sheetData[key] = (sheetData[key] || 0) + val;
+      }
+      empSheets.set(sheetName, sheetData);
     }
 
-    // Aggregate by store ID
+    // Aggregate by store ID (flat)
     if (storeId && storeId.length >= 1) {
       const existing = storeComponentData.get(storeId) || {};
       for (const [key, val] of Object.entries(numericData)) {
         existing[key] = (existing[key] || 0) + val;
       }
       storeComponentData.set(storeId, existing);
+
+      // Also aggregate by sheet for sheetMetrics
+      if (!storeSheetMetrics.has(storeId)) {
+        storeSheetMetrics.set(storeId, new Map());
+      }
+      const storeSheets = storeSheetMetrics.get(storeId)!;
+      const sheetData = storeSheets.get(sheetName) || {};
+      for (const [key, val] of Object.entries(numericData)) {
+        sheetData[key] = (sheetData[key] || 0) + val;
+      }
+      storeSheets.set(sheetName, sheetData);
     }
   }
 
   console.log(`[DataLayer] Employee-level component data: ${empComponentData.size} IDs`);
   console.log(`[DataLayer] Store-level component data: ${storeComponentData.size} stores`);
+  console.log(`[DataLayer] Employee sheet metrics: ${empSheetMetrics.size} employees with per-sheet data`);
+  console.log(`[DataLayer] Store sheet metrics: ${storeSheetMetrics.size} stores with per-sheet data`);
 
-  // STEP 4: Enrich each roster employee with component data
+  // STEP 4: Enrich each roster employee with component data + sheetMetrics
   const aggregated: Record<string, unknown>[] = [];
 
   for (const [, emp] of Array.from(employeeMap.entries())) {
@@ -401,7 +433,7 @@ function storeAggregatedData(
 
     const enriched: Record<string, unknown> = { ...emp };
 
-    // Add employee-level component data
+    // Add employee-level component data (flat)
     const empData = empComponentData.get(empId);
     if (empData) {
       enriched._hasEmpData = true;
@@ -419,6 +451,36 @@ function storeAggregatedData(
           enriched[`store_${field}`] = value;
         }
       }
+    }
+
+    // AI-DRIVEN: Add sheetMetrics structure for orchestrator to use with AI mappings
+    // This preserves sheet-level grouping so orchestrator can map sheets to components
+    const sheetMetrics: Record<string, Record<string, number>> = {};
+
+    // Add employee's per-sheet metrics
+    const empSheets = empSheetMetrics.get(empId);
+    if (empSheets) {
+      for (const [sheetName, metrics] of Array.from(empSheets.entries())) {
+        sheetMetrics[sheetName] = { ...metrics };
+      }
+    }
+
+    // Add store's per-sheet metrics (for store-level components)
+    const storeSheets = storeSheetMetrics.get(storeId);
+    if (storeSheets) {
+      for (const [sheetName, metrics] of Array.from(storeSheets.entries())) {
+        if (!sheetMetrics[sheetName]) {
+          sheetMetrics[sheetName] = {};
+        }
+        // Prefix store metrics to avoid conflicts
+        for (const [key, val] of Object.entries(metrics)) {
+          sheetMetrics[sheetName][`store_${key}`] = val;
+        }
+      }
+    }
+
+    if (Object.keys(sheetMetrics).length > 0) {
+      enriched.sheetMetrics = sheetMetrics;
     }
 
     aggregated.push(enriched);
@@ -1384,6 +1446,56 @@ export function storeFieldMappings(
 
   if (typeof window !== 'undefined') {
     localStorage.setItem(key, JSON.stringify(existing));
+  }
+}
+
+/**
+ * AI Import Context - stores the AI's analysis decisions for use by calculation engine
+ */
+export interface AIImportContext {
+  tenantId: string;
+  batchId: string;
+  timestamp: string;
+  rosterSheet: string | null;
+  rosterEmployeeIdColumn: string | null;
+  sheets: Array<{
+    sheetName: string;
+    classification: string; // roster | component_data | reference | etc
+    matchedComponent: string | null;
+    matchedComponentConfidence: number;
+    fieldMappings: Array<{
+      sourceColumn: string;
+      semanticType: string; // employeeId | storeId | amount | goal | attainment | period | etc
+      confidence: number;
+    }>;
+  }>;
+}
+
+/**
+ * Store AI import context for calculation engine
+ */
+export function storeImportContext(context: AIImportContext): void {
+  if (typeof window === 'undefined') return;
+
+  const key = `ai_import_context_${context.tenantId}`;
+  localStorage.setItem(key, JSON.stringify(context));
+  console.log(`[DataLayer] Stored AI import context: ${context.sheets.length} sheets, roster=${context.rosterSheet}`);
+}
+
+/**
+ * Load AI import context for a tenant
+ */
+export function loadImportContext(tenantId: string): AIImportContext | null {
+  if (typeof window === 'undefined') return null;
+
+  const key = `ai_import_context_${tenantId}`;
+  const stored = localStorage.getItem(key);
+  if (!stored) return null;
+
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return null;
   }
 }
 

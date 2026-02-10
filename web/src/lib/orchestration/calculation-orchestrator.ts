@@ -14,6 +14,7 @@ import {
   buildEmployeeMetrics,
   type CalculationContext,
 } from '@/lib/calculation/context-resolver';
+import { loadImportContext, type AIImportContext } from '@/lib/data-architecture/data-layer-service';
 
 // ============================================
 // STORAGE KEYS
@@ -132,6 +133,7 @@ export interface OrchestrationResult {
 export class CalculationOrchestrator {
   private tenantId: string;
   private calculationContext: CalculationContext | null = null;
+  private aiImportContext: AIImportContext | null = null;
 
   constructor(tenantId: string) {
     // OB-16: Normalize tenantId - strip trailing underscores to prevent data mismatch
@@ -140,6 +142,12 @@ export class CalculationOrchestrator {
       console.warn(`[Orchestrator] WARNING: tenantId "${tenantId}" had trailing underscore(s) - normalized to "${normalizedId}"`);
     }
     this.tenantId = normalizedId;
+
+    // AI-DRIVEN: Load AI import context for metric extraction
+    this.aiImportContext = loadImportContext(normalizedId);
+    if (this.aiImportContext) {
+      console.log(`[Orchestrator] Loaded AI import context: ${this.aiImportContext.sheets.length} sheets, roster=${this.aiImportContext.rosterSheet}`);
+    }
   }
 
   /**
@@ -303,11 +311,28 @@ export class CalculationOrchestrator {
 
   /**
    * Get employee metrics for a period
+   * AI-DRIVEN: Uses AI import context to extract metrics from aggregated data
    */
   private getEmployeeMetrics(employee: EmployeeData, periodId: string): EmployeeMetrics | null {
-    // Try to get aggregated metrics
-    const aggregate = this.getMetricAggregate(employee.id, periodId);
+    // AI-DRIVEN PRIORITY 0: Extract metrics from aggregated employee attributes using AI mappings
+    const aiMetrics = this.extractMetricsWithAIMappings(employee);
+    if (aiMetrics && Object.keys(aiMetrics).length > 0) {
+      return {
+        employeeId: employee.id,
+        employeeName: `${employee.firstName} ${employee.lastName}`,
+        employeeRole: employee.role,
+        storeId: employee.storeId,
+        storeName: employee.storeName,
+        isCertified: employee.attributes?.isCertified as boolean | undefined,
+        period: periodId,
+        periodStart: this.getPeriodStart(periodId),
+        periodEnd: this.getPeriodEnd(periodId),
+        metrics: aiMetrics,
+      };
+    }
 
+    // PRIORITY 1: Try to get pre-computed aggregated metrics
+    const aggregate = this.getMetricAggregate(employee.id, periodId);
     if (aggregate) {
       return {
         employeeId: employee.id,
@@ -323,7 +348,7 @@ export class CalculationOrchestrator {
       };
     }
 
-    // Try to use calculation context with data-component mapper
+    // PRIORITY 2: Try to use calculation context with data-component mapper
     if (this.calculationContext) {
       const contextEmployee = this.calculationContext.employees.find(
         (e) => e.id === employee.id
@@ -336,9 +361,8 @@ export class CalculationOrchestrator {
       }
     }
 
-    // Try to calculate metrics from transactions
+    // PRIORITY 3: Try to calculate metrics from transactions
     const calculatedMetrics = this.calculateMetricsFromTransactions(employee, periodId);
-
     if (calculatedMetrics) {
       return {
         employeeId: employee.id,
@@ -355,6 +379,84 @@ export class CalculationOrchestrator {
     }
 
     return null;
+  }
+
+  /**
+   * AI-DRIVEN: Extract metrics using AI import context
+   * Uses sheet-to-component mappings and field semantic types from AI analysis
+   */
+  private extractMetricsWithAIMappings(employee: EmployeeData): Record<string, number> | null {
+    const attrs = employee.attributes as Record<string, unknown> | undefined;
+    if (!attrs) return null;
+
+    const metrics: Record<string, number> = {};
+
+    // Method 1: If sheetMetrics available, use AI context to map sheets to components
+    const sheetMetrics = attrs.sheetMetrics as Record<string, Record<string, number>> | undefined;
+    if (sheetMetrics && this.aiImportContext) {
+      for (const sheetInfo of this.aiImportContext.sheets) {
+        if (sheetInfo.classification !== 'component_data') continue;
+
+        const sheetData = sheetMetrics[sheetInfo.sheetName];
+        if (!sheetData) continue;
+
+        // Use AI's field mappings to identify semantic types
+        for (const fieldMapping of sheetInfo.fieldMappings) {
+          const value = sheetData[fieldMapping.sourceColumn];
+          if (typeof value === 'number') {
+            // Create metric key from component + semantic type
+            const componentKey = sheetInfo.matchedComponent || sheetInfo.sheetName;
+            const metricKey = `${componentKey}_${fieldMapping.semanticType}`;
+            metrics[metricKey] = (metrics[metricKey] || 0) + value;
+
+            // Also store by semantic type directly for common lookups
+            if (fieldMapping.semanticType === 'attainment') {
+              metrics[`${componentKey}_attainment`] = value;
+            } else if (fieldMapping.semanticType === 'amount') {
+              metrics[`${componentKey}_amount`] = value;
+            } else if (fieldMapping.semanticType === 'goal') {
+              metrics[`${componentKey}_goal`] = value;
+            }
+          }
+        }
+
+        // Also include all numeric fields from the sheet with component prefix
+        for (const [field, value] of Object.entries(sheetData)) {
+          if (typeof value === 'number') {
+            const componentKey = sheetInfo.matchedComponent || sheetInfo.sheetName;
+            const metricKey = `${componentKey}_${field}`;
+            if (!(metricKey in metrics)) {
+              metrics[metricKey] = value;
+            }
+          }
+        }
+      }
+    }
+
+    // Method 2: Extract from flat attributes (when sheetMetrics not available)
+    // Look for known semantic patterns in attribute keys
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key.startsWith('_') || key === 'sheetMetrics') continue;
+      if (typeof value !== 'number') continue;
+
+      // Include numeric attributes as metrics
+      // This handles: amount, goal, attainment, quantity, recordCount, etc
+      metrics[key] = value;
+    }
+
+    // Method 3: Calculate attainment if we have amount and goal but no attainment
+    for (const key of Object.keys(metrics)) {
+      if (key.endsWith('_amount')) {
+        const prefix = key.replace('_amount', '');
+        const goalKey = `${prefix}_goal`;
+        const attainmentKey = `${prefix}_attainment`;
+        if (metrics[goalKey] && metrics[goalKey] > 0 && !metrics[attainmentKey]) {
+          metrics[attainmentKey] = (metrics[key] / metrics[goalKey]) * 100;
+        }
+      }
+    }
+
+    return Object.keys(metrics).length > 0 ? metrics : null;
   }
 
   /**
