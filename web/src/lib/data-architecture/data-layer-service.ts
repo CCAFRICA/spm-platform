@@ -296,21 +296,42 @@ function storeAggregatedData(
 ): { employeeCount: number; sizeKB: number } {
   if (typeof window === 'undefined') return { employeeCount: 0, sizeKB: 0 };
 
-  // Group by employee ID
+  // Group by employee ID - SMART extraction
   const byEmployee = new Map<string, Record<string, unknown>[]>();
+  let skippedNoId = 0;
+  let skippedInvalidId = 0;
 
   for (const record of records) {
     const content = record.content;
-    const empId = String(
-      content.employeeId || content.employee_id || content.num_empleado ||
-      content.Num_Empleado || content.id_empleado || ''
-    );
-    if (!empId) continue;
+
+    // Try multiple field names for employee ID (mapped and original Spanish names)
+    const rawEmpId =
+      content.employeeId || content.employee_id ||
+      content.num_empleado || content.Num_Empleado ||
+      content.id_empleado || content.ID_Empleado ||
+      content.No_Empleado || content.no_empleado ||
+      content.NumEmpleado || '';
+
+    // Skip empty, undefined, null, or clearly invalid IDs
+    if (!rawEmpId || rawEmpId === 'undefined' || rawEmpId === 'null') {
+      skippedNoId++;
+      continue;
+    }
+
+    const empId = String(rawEmpId).trim();
+
+    // Skip if empty after trim, or if it looks like a non-employee ID (e.g., store totals)
+    if (!empId || empId.length < 3 || empId.toLowerCase() === 'total') {
+      skippedInvalidId++;
+      continue;
+    }
 
     const existing = byEmployee.get(empId) || [];
     existing.push(content);
     byEmployee.set(empId, existing);
   }
+
+  console.log(`[DataLayer] Aggregation: ${records.length} records, ${skippedNoId} skipped (no ID), ${skippedInvalidId} skipped (invalid ID)`);
 
   // Aggregate per employee
   const aggregated = Array.from(byEmployee.entries()).map(([empId, rows]) => ({
@@ -1165,6 +1186,29 @@ export function directCommitImportData(
     reportStorageUsage();
   } catch (cleanupErr) {
     console.warn('[DataLayer] Failed to clear raw/transformed:', cleanupErr);
+  }
+
+  // NUCLEAR CLEANUP: Remove ALL data_layer keys except batches and current aggregated
+  // This removes any orphaned chunks from failed saveToStorageChunked attempts
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('data_layer_') &&
+          !key.startsWith('data_layer_batches') &&
+          !key.includes('_aggregated_')) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => {
+      localStorage.removeItem(key);
+    });
+    if (keysToRemove.length > 0) {
+      console.log(`[DataLayer] Nuclear cleanup removed ${keysToRemove.length} stale keys: ${keysToRemove.slice(0, 5).join(', ')}${keysToRemove.length > 5 ? '...' : ''}`);
+      reportStorageUsage();
+    }
+  } catch (nuclearErr) {
+    console.warn('[DataLayer] Nuclear cleanup failed:', nuclearErr);
   }
 
   // OB-16C HOTFIX: Store aggregated data for calculation engine
