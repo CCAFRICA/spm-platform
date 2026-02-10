@@ -956,7 +956,7 @@ function inferDataType(values: unknown[]): string {
   return 'string';
 }
 
-// Run second-pass classification using AIService
+// Run second-pass classification using API route (server-side has access to API keys)
 async function runSecondPassClassification(
   sheets: AnalyzedSheet[],
   fieldMappings: SheetFieldMapping[],
@@ -964,8 +964,6 @@ async function runSecondPassClassification(
   targetFields: TargetField[],
   tenantId: string
 ): Promise<SheetFieldMapping[]> {
-  // Dynamically import AIService to avoid circular dependencies
-  const { getAIService } = await import('@/lib/ai');
 
   // Get plan components
   const planConfig = activePlan.configuration as {
@@ -1020,17 +1018,27 @@ async function runSecondPassClassification(
     console.log(`  Unresolved: ${unresolvedFields.map(f => f.sourceColumn).join(', ')}`);
 
     try {
-      const aiService = getAIService();
-      const response = await aiService.classifyFieldsSecondPass(
-        sheetMapping.sheetName,
-        componentName,
-        calculationType,
-        neededMetrics,
-        alreadyMapped,
-        unresolvedFields,
-        { tenantId }
-      );
+      // Call API route (server-side has access to ANTHROPIC_API_KEY)
+      const apiResponse = await fetch('/api/ai/classify-fields-second-pass', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sheetName: sheetMapping.sheetName,
+          componentName,
+          calculationType,
+          neededMetrics,
+          alreadyMapped,
+          unresolvedFields,
+          tenantId,
+        }),
+      });
 
+      if (!apiResponse.ok) {
+        const errorData = await apiResponse.json();
+        throw new Error(errorData.error || `API error: ${apiResponse.status}`);
+      }
+
+      const response = await apiResponse.json();
       console.log(`[Smart Import] Second pass AI response:`, JSON.stringify(response.result, null, 2));
 
       // Apply classifications
