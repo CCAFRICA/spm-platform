@@ -163,6 +163,38 @@ export class AIService {
   }
 
   /**
+   * CLT-08: Second-pass field classification with plan context
+   * Called for unresolved fields after initial mapping
+   */
+  async classifyFieldsSecondPass(
+    sheetName: string,
+    componentName: string,
+    calculationType: string,
+    neededMetrics: string[],
+    alreadyMapped: Array<{ sourceColumn: string; semanticType: string }>,
+    unresolvedFields: Array<{ sourceColumn: string; sampleValues: unknown[]; dataType: string }>,
+    signalContext?: { tenantId?: string; userId?: string }
+  ): Promise<AIResponse & { result: { classifications: Array<{ sourceColumn: string; semanticType: string | null; confidence: number; reasoning: string }> } }> {
+    const response = await this.execute(
+      {
+        task: 'field_mapping_second_pass',
+        input: {
+          sheetName,
+          componentName,
+          calculationType,
+          neededMetrics,
+          alreadyMapped,
+          unresolvedFields,
+        },
+        options: { responseFormat: 'json' },
+      },
+      true,
+      signalContext
+    );
+    return response as AIResponse & { result: { classifications: Array<{ sourceColumn: string; semanticType: string | null; confidence: number; reasoning: string }> } };
+  }
+
+  /**
    * Interpret a compensation plan document
    */
   async interpretPlan(

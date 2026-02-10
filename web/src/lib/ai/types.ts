@@ -50,6 +50,7 @@ export type AITaskType =
   | 'file_classification'           // What type of file is this?
   | 'sheet_classification'          // What type of data is in this sheet?
   | 'field_mapping'                 // What platform field does this column map to?
+  | 'field_mapping_second_pass'     // CLT-08: Resolve unresolved fields with plan context
   | 'plan_interpretation'           // Extract compensation rules from document
   | 'workbook_analysis'             // Analyze multi-sheet workbook structure
   | 'import_field_mapping'          // Suggest field mappings for import data

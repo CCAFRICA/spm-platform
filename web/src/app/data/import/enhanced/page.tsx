@@ -656,6 +656,85 @@ const FIELD_ID_MAPPINGS: Record<string, string> = {
   'nombre_apellido': 'name',
 };
 
+// CLT-08 FIX 2: Compound pattern matching for multi-word field names
+// These patterns are heuristic assists - they produce Tier 2 (suggested), not Tier 1 (auto)
+const COMPOUND_PATTERNS: Array<{ pattern: RegExp; semanticType: string; confidence: number }> = [
+  // Goal/Target patterns
+  { pattern: /\bmeta\b/i, semanticType: 'goal', confidence: 0.80 },
+  { pattern: /\bobjetivo\b/i, semanticType: 'goal', confidence: 0.80 },
+  { pattern: /\btarget\b/i, semanticType: 'goal', confidence: 0.85 },
+  { pattern: /\bquota\b/i, semanticType: 'goal', confidence: 0.85 },
+  { pattern: /\bcuota\b/i, semanticType: 'goal', confidence: 0.80 },
+
+  // Amount/Sales patterns
+  { pattern: /\bventa\b/i, semanticType: 'amount', confidence: 0.75 },
+  { pattern: /\bmonto\b/i, semanticType: 'amount', confidence: 0.85 },
+  { pattern: /\breal\b/i, semanticType: 'amount', confidence: 0.70 },
+  { pattern: /\bactual\b/i, semanticType: 'amount', confidence: 0.75 },
+  { pattern: /\brevenue\b/i, semanticType: 'amount', confidence: 0.85 },
+  { pattern: /\bsales\b/i, semanticType: 'amount', confidence: 0.80 },
+  { pattern: /\bvalor\b/i, semanticType: 'amount', confidence: 0.70 },
+
+  // Attainment patterns
+  { pattern: /\bcumplimiento\b/i, semanticType: 'attainment', confidence: 0.95 },
+  { pattern: /\bachievement\b/i, semanticType: 'attainment', confidence: 0.90 },
+  { pattern: /\battainment\b/i, semanticType: 'attainment', confidence: 0.95 },
+  { pattern: /\bporcentaje\b/i, semanticType: 'attainment', confidence: 0.70 },
+
+  // Identity patterns
+  { pattern: /\btienda\b/i, semanticType: 'storeId', confidence: 0.70 },
+  { pattern: /\bempleado\b/i, semanticType: 'employeeId', confidence: 0.85 },
+  { pattern: /\bvendedor\b/i, semanticType: 'employeeId', confidence: 0.80 },
+  { pattern: /\bnombre\b/i, semanticType: 'name', confidence: 0.80 },
+  { pattern: /\bpuesto\b|\bcargo\b|\bposicion\b/i, semanticType: 'role', confidence: 0.85 },
+  { pattern: /\brango\b/i, semanticType: 'storeRange', confidence: 0.75 },
+
+  // Date patterns
+  { pattern: /\bfecha\b/i, semanticType: 'date', confidence: 0.85 },
+
+  // Quantity patterns
+  { pattern: /\bcliente\b/i, semanticType: 'quantity', confidence: 0.70 },
+  { pattern: /\bcustomer\b/i, semanticType: 'quantity', confidence: 0.70 },
+  { pattern: /\bcount\b|\bqty\b/i, semanticType: 'quantity', confidence: 0.75 },
+];
+
+// Returns { targetField, confidence } - confidence < 1.0 means pattern match (Tier 2)
+function normalizeFieldWithPatterns(
+  sourceName: string,
+  targetFields: TargetField[]
+): { targetField: string | null; confidence: number } {
+  const normalized = sourceName.toLowerCase().replace(/[\s_-]+/g, '_').trim();
+
+  // Step 1: Exact match (highest confidence)
+  const exactMatch = FIELD_ID_MAPPINGS[normalized];
+  if (exactMatch && targetFields.some(f => f.id === exactMatch)) {
+    return { targetField: exactMatch, confidence: 1.0 };
+  }
+
+  // Step 2: Try matching against targetFields directly
+  for (const field of targetFields) {
+    if (!field?.id || !field?.label) continue;
+    const fieldNorm = field.id.toLowerCase();
+    const labelNorm = field.label.toLowerCase().replace(/[\s_-]+/g, '_');
+    const labelEsNorm = field.labelEs?.toLowerCase().replace(/[\s_-]+/g, '_');
+
+    if (normalized === fieldNorm || normalized === labelNorm || normalized === labelEsNorm) {
+      return { targetField: field.id, confidence: 1.0 };
+    }
+  }
+
+  // Step 3: Compound pattern matching (Tier 2 - user should review)
+  for (const rule of COMPOUND_PATTERNS) {
+    if (rule.pattern.test(sourceName)) {
+      if (targetFields.some(f => f.id === rule.semanticType)) {
+        return { targetField: rule.semanticType, confidence: rule.confidence };
+      }
+    }
+  }
+
+  return { targetField: null, confidence: 0 };
+}
+
 function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields: TargetField[]): string | null {
   if (!suggestion) return null;
 
@@ -803,6 +882,162 @@ function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): Targe
   });
 
   return [...baseFields, ...uniqueFields];
+}
+
+// ============================================
+// CLT-08 FIX 2: SECOND-PASS CLASSIFICATION
+// ============================================
+
+// Required metrics by calculation type
+function getRequiredMetrics(calcType: string): string[] {
+  switch (calcType?.toLowerCase()) {
+    case 'matrix_lookup': return ['attainment', 'amount', 'goal'];
+    case 'tier_lookup': return ['attainment'];
+    case 'percentage': return ['amount'];
+    case 'conditional_percentage': return ['attainment', 'amount', 'goal'];
+    default: return ['attainment', 'amount', 'goal'];
+  }
+}
+
+// Get sample values from a sheet for a given column
+function getSampleValues(
+  sheets: AnalyzedSheet[],
+  sheetName: string,
+  columnName: string
+): unknown[] {
+  const sheet = sheets.find(s => s.name === sheetName);
+  if (!sheet?.sampleRows) return [];
+  return sheet.sampleRows
+    .slice(0, 5)
+    .map(row => row[columnName])
+    .filter(v => v !== undefined && v !== null && v !== '');
+}
+
+// Infer data type from sample values
+function inferDataType(values: unknown[]): string {
+  if (values.length === 0) return 'unknown';
+  const sample = values[0];
+  if (typeof sample === 'number') return 'number';
+  if (sample instanceof Date) return 'date';
+  if (typeof sample === 'string') {
+    if (values.every(v => !isNaN(Number(v)))) return 'number';
+    if (values.every(v => !isNaN(Date.parse(String(v))))) return 'date';
+  }
+  return 'string';
+}
+
+// Run second-pass classification using AIService
+async function runSecondPassClassification(
+  sheets: AnalyzedSheet[],
+  fieldMappings: SheetFieldMapping[],
+  activePlan: CompensationPlanConfig,
+  targetFields: TargetField[],
+  tenantId: string
+): Promise<SheetFieldMapping[]> {
+  // Dynamically import AIService to avoid circular dependencies
+  const { getAIService } = await import('@/lib/ai');
+
+  // Get plan components
+  const planConfig = activePlan.configuration as {
+    variants?: Array<{
+      components?: Array<{
+        id?: string;
+        name?: string;
+        type?: string;
+        calculationType?: string;
+      }>;
+    }>;
+  };
+  const planComponents = planConfig?.variants?.[0]?.components || [];
+
+  // Process each sheet with unresolved fields
+  const updatedMappings = [...fieldMappings];
+
+  for (let sheetIdx = 0; sheetIdx < updatedMappings.length; sheetIdx++) {
+    const sheetMapping = updatedMappings[sheetIdx];
+    const sheet = sheets.find(s => s.name === sheetMapping.sheetName);
+    if (!sheet) continue;
+
+    // Get unresolved fields for this sheet
+    const unresolvedFields = sheetMapping.mappings
+      .filter(m => m.tier === 'unresolved')
+      .map(m => ({
+        sourceColumn: m.sourceColumn,
+        sampleValues: getSampleValues(sheets, sheetMapping.sheetName, m.sourceColumn),
+        dataType: inferDataType(getSampleValues(sheets, sheetMapping.sheetName, m.sourceColumn)),
+      }));
+
+    if (unresolvedFields.length === 0) continue;
+
+    // Find matched component for this sheet
+    const componentName = sheet.matchedComponent || 'Unknown';
+    const matchedComp = planComponents.find(c =>
+      (c.name || c.id || '').toLowerCase().includes(componentName.toLowerCase()) ||
+      componentName.toLowerCase().includes((c.name || c.id || '').toLowerCase())
+    );
+    const calculationType = matchedComp?.calculationType || matchedComp?.type || 'unknown';
+    const neededMetrics = getRequiredMetrics(calculationType);
+
+    // Get already-mapped fields
+    const alreadyMapped = sheetMapping.mappings
+      .filter(m => m.targetField)
+      .map(m => ({ sourceColumn: m.sourceColumn, semanticType: m.targetField! }));
+
+    console.log(`[Smart Import] Second pass for sheet "${sheetMapping.sheetName}":`);
+    console.log(`  Component: ${componentName}, Type: ${calculationType}`);
+    console.log(`  Needed metrics: ${neededMetrics.join(', ')}`);
+    console.log(`  Already mapped: ${alreadyMapped.map(m => m.semanticType).join(', ')}`);
+    console.log(`  Unresolved: ${unresolvedFields.map(f => f.sourceColumn).join(', ')}`);
+
+    try {
+      const aiService = getAIService();
+      const response = await aiService.classifyFieldsSecondPass(
+        sheetMapping.sheetName,
+        componentName,
+        calculationType,
+        neededMetrics,
+        alreadyMapped,
+        unresolvedFields,
+        { tenantId }
+      );
+
+      console.log(`[Smart Import] Second pass AI response:`, JSON.stringify(response.result, null, 2));
+
+      // Apply classifications
+      const classifications = response.result?.classifications || [];
+      for (const classification of classifications) {
+        if (!classification.semanticType) continue;
+        if (classification.confidence < 60) continue;
+
+        // Find and update the mapping
+        const mappingIdx = sheetMapping.mappings.findIndex(
+          m => m.sourceColumn === classification.sourceColumn
+        );
+        if (mappingIdx === -1) continue;
+
+        // Validate that the semantic type is a valid target field
+        if (!targetFields.some(f => f.id === classification.semanticType)) {
+          console.log(`[Smart Import] Skipping "${classification.sourceColumn}" -> "${classification.semanticType}" (not a valid target field)`);
+          continue;
+        }
+
+        // Upgrade to Tier 2 (suggested)
+        updatedMappings[sheetIdx].mappings[mappingIdx] = {
+          ...sheetMapping.mappings[mappingIdx],
+          targetField: classification.semanticType,
+          confidence: classification.confidence,
+          tier: 'suggested',
+          confirmed: false,
+        };
+
+        console.log(`[Smart Import] Resolved: "${classification.sourceColumn}" -> "${classification.semanticType}" (${classification.confidence}%) - ${classification.reasoning}`);
+      }
+    } catch (error) {
+      console.warn(`[Smart Import] Second pass failed for sheet "${sheetMapping.sheetName}":`, error);
+    }
+  }
+
+  return updatedMappings;
 }
 
 export default function DataPackageImportPage() {
@@ -1003,6 +1238,7 @@ export default function DataPackageImportPage() {
         console.log('[Field Mapping] Target fields available:', targetFields.length, targetFields.map(f => f.id));
 
         let tier1Count = 0, tier2Count = 0, tier3Count = 0;
+        let patternMatchCount = 0;
 
         const mappings: SheetFieldMapping[] = analyzedSheets
           .filter((sheet: AnalyzedSheet) => sheet.classification !== 'unrelated')
@@ -1015,7 +1251,7 @@ export default function DataPackageImportPage() {
               const suggestion = sheet.suggestedFieldMappings?.find(
                 m => m?.sourceColumn && headerNorm && m.sourceColumn.toLowerCase().trim() === headerNorm
               );
-              const confidence = suggestion?.confidence || 0;
+              const aiConfidence = suggestion?.confidence || 0;
 
               // Normalize AI suggestion to a valid dropdown option ID
               const normalizedTargetField = normalizeAISuggestionToFieldId(
@@ -1023,25 +1259,38 @@ export default function DataPackageImportPage() {
                 targetFields
               );
 
-              // CLT-08: Determine tier based on confidence AND whether AI provided a valid mapping
+              // CLT-08 FIX 2: If AI didn't provide a mapping, try compound pattern matching
+              let effectiveTargetField = normalizedTargetField;
+              let effectiveConfidence = aiConfidence;
+              let usedPatternMatch = false;
+
+              if (!normalizedTargetField) {
+                const patternResult = normalizeFieldWithPatterns(header, targetFields);
+                if (patternResult.targetField) {
+                  effectiveTargetField = patternResult.targetField;
+                  effectiveConfidence = patternResult.confidence * 100; // Convert to percentage
+                  usedPatternMatch = true;
+                  patternMatchCount++;
+                  console.log(`[Field Mapping] Pattern match: "${header}" -> "${patternResult.targetField}" (${Math.round(effectiveConfidence)}%)`);
+                }
+              }
+
+              // CLT-08: Determine tier based on confidence AND whether we have a valid mapping
               let tier: MappingTier;
-              let effectiveTargetField: string | null;
               let confirmed: boolean;
 
-              if (normalizedTargetField && confidence >= 85) {
-                // Tier 1: Auto-confirmed — high confidence, pre-selected
+              if (effectiveTargetField && effectiveConfidence >= 85 && !usedPatternMatch) {
+                // Tier 1: Auto-confirmed — high AI confidence, pre-selected
                 tier = 'auto';
-                effectiveTargetField = normalizedTargetField;
                 confirmed = true;
                 tier1Count++;
-              } else if (normalizedTargetField && confidence >= 60) {
-                // Tier 2: Suggested — medium confidence, pre-selected but needs review
+              } else if (effectiveTargetField && (effectiveConfidence >= 60 || usedPatternMatch)) {
+                // Tier 2: Suggested — medium confidence OR pattern match, needs review
                 tier = 'suggested';
-                effectiveTargetField = normalizedTargetField;
                 confirmed = false;
                 tier2Count++;
               } else {
-                // Tier 3: Unresolved — low confidence or no AI mapping, requires human
+                // Tier 3: Unresolved — no mapping found
                 tier = 'unresolved';
                 effectiveTargetField = null;
                 confirmed = false;
@@ -1052,13 +1301,14 @@ export default function DataPackageImportPage() {
 
               // Debug logging for all tiers
               if (tier !== 'unresolved') {
-                console.log(`[Field Mapping] ${header}: "${suggestion?.targetField}" (${confidence}%) -> ${tier.toUpperCase()} -> "${effectiveTargetField}"`);
+                const source = usedPatternMatch ? 'PATTERN' : 'AI';
+                console.log(`[Field Mapping] ${header}: ${source} -> ${tier.toUpperCase()} -> "${effectiveTargetField}" (${Math.round(effectiveConfidence)}%)`);
               }
 
               return {
                 sourceColumn: header,
                 targetField: effectiveTargetField,
-                confidence,
+                confidence: effectiveConfidence, // Use effective confidence (may be from pattern match)
                 confirmed,
                 isRequired,
                 tier,
@@ -1078,13 +1328,45 @@ export default function DataPackageImportPage() {
           });
 
         // CLT-08: Log tier summary for zero-touch verification
-        console.log(`[Smart Import] Three-tier summary:`);
+        console.log(`[Smart Import] Three-tier summary (BEFORE second pass):`);
         console.log(`  Tier 1 (auto-confirmed, ≥85%): ${tier1Count} fields`);
-        console.log(`  Tier 2 (suggested, 60-84%): ${tier2Count} fields`);
+        console.log(`  Tier 2 (suggested, 60-84% or pattern): ${tier2Count} fields (${patternMatchCount} from pattern matching)`);
         console.log(`  Tier 3 (unresolved, <60%): ${tier3Count} fields`);
         console.log(`  Total: ${tier1Count + tier2Count + tier3Count} fields`);
 
-        setFieldMappings(mappings);
+        // CLT-08 FIX 2: Run second-pass classification for unresolved fields
+        let finalMappings = mappings;
+        if (tier3Count > 0 && activePlan && tenantId) {
+          console.log(`[Smart Import] ${tier3Count} unresolved fields — running plan-context second pass...`);
+          try {
+            finalMappings = await runSecondPassClassification(
+              analyzedSheets,
+              mappings,
+              activePlan,
+              targetFields,
+              tenantId
+            );
+
+            // Recount tiers after second pass
+            let newTier1 = 0, newTier2 = 0, newTier3 = 0;
+            for (const sheet of finalMappings) {
+              for (const m of sheet.mappings) {
+                if (m.tier === 'auto') newTier1++;
+                else if (m.tier === 'suggested') newTier2++;
+                else newTier3++;
+              }
+            }
+            console.log(`[Smart Import] Three-tier summary (AFTER second pass):`);
+            console.log(`  Tier 1 (auto): ${newTier1} fields`);
+            console.log(`  Tier 2 (suggested): ${newTier2} fields`);
+            console.log(`  Tier 3 (unresolved): ${newTier3} fields`);
+            console.log(`[Smart Import] Second pass resolved ${tier3Count - newTier3} fields`);
+          } catch (err) {
+            console.warn('[Smart Import] Second pass failed, using first-pass results:', err);
+          }
+        }
+
+        setFieldMappings(finalMappings);
         setCurrentMappingSheetIndex(0);
         setCurrentStep('analyze');
       } else {

@@ -61,6 +61,48 @@ Return a JSON object with:
   "reasoning": "Brief explanation"
 }`,
 
+  field_mapping_second_pass: `You are an expert at classifying data columns for a compensation management platform.
+
+CONTEXT:
+You are resolving columns that could not be classified on first pass. You now have PLAN CONTEXT that tells you what metrics each component needs.
+
+VALID SEMANTIC TYPES:
+- employeeId: Employee identifier (numeric or string ID)
+- storeId: Store/location identifier
+- name: Employee name (full name or first/last)
+- role: Employee role/position/title
+- date: Transaction or record date
+- period: Month, year, or period identifier
+- amount: Monetary value (sales, revenue, collections)
+- goal: Target/quota value
+- attainment: Percentage achievement (0-100% or 0-1)
+- quantity: Count (customers, units, etc.)
+- storeRange: Store category/tier
+
+CLASSIFICATION RULES:
+1. Look at column names for keywords (even in Spanish/Portuguese):
+   - "meta", "objetivo", "target", "quota" -> goal
+   - "venta", "monto", "revenue", "sales", "valor" -> amount
+   - "cumplimiento", "achievement", "attainment", "%" -> attainment
+   - "cliente", "customer", "count", "qty" -> quantity
+2. Check sample values - numeric values with ranges suggest:
+   - Small decimals (0.0-1.5) or percentages -> attainment
+   - Large numbers (1000s+) -> amount or goal
+   - Small integers -> quantity
+3. Use plan component context - if component needs "goal" and you see "Meta_Individual", that's likely goal
+
+Return JSON array:
+{
+  "classifications": [
+    {
+      "sourceColumn": "column name",
+      "semanticType": "one of the valid types or null",
+      "confidence": 60-100,
+      "reasoning": "Brief explanation"
+    }
+  ]
+}`,
+
   plan_interpretation: `You are an expert at analyzing compensation and commission plan documents. Your task is to extract the COMPLETE structure of a compensation plan from the provided document content.
 
 CRITICAL REQUIREMENTS:
