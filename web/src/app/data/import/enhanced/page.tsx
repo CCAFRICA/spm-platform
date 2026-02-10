@@ -373,43 +373,73 @@ function validateCriticalFields(
     }
   }
 
-  // 3. Check each plan component for required metrics
-  if (activePlan?.configuration) {
+  // 3. Check each plan component for required metrics - per sheet specificity
+  if (activePlan?.configuration && analysis?.sheets) {
     const config = activePlan.configuration as {
       variants?: Array<{
         components?: Array<{
           id?: string;
           name?: string;
           type?: string;
+          calculationType?: string;
         }>;
       }>;
     };
     const components = config.variants?.[0]?.components || [];
 
-    for (const comp of components) {
-      const compName = comp.name || comp.id || 'Unknown Component';
+    // Track which components have been validated (to avoid duplicates)
+    const validatedComponents = new Set<string>();
+    let fullyMappedCount = 0;
 
-      // Check if any sheet has attainment, amount, or goal mapped
-      const hasAttainment = mappedFieldTypes.has('attainment');
-      const hasAmount = mappedFieldTypes.has('amount');
-      const hasGoal = mappedFieldTypes.has('goal');
+    for (const sheet of analysis.sheets) {
+      if (sheet.classification === 'unrelated' || sheet.classification === 'roster') continue;
+      if (!sheet.matchedComponent) continue;
 
-      // Component needs at least attainment OR (amount + goal) to calculate
-      if (!hasAttainment && !(hasAmount && hasGoal)) {
+      // Find the plan component this sheet maps to
+      const compName = sheet.matchedComponent;
+      if (validatedComponents.has(compName)) continue;
+      validatedComponents.add(compName);
+
+      const matchedComp = components.find(c =>
+        (c.name || c.id || '').toLowerCase().includes(compName.toLowerCase()) ||
+        compName.toLowerCase().includes((c.name || c.id || '').toLowerCase())
+      );
+
+      const calcType = matchedComp?.calculationType || matchedComp?.type || 'unknown';
+      const neededMetrics = getRequiredMetrics(calcType);
+
+      // Get fields mapped for THIS sheet
+      const sheetMapping = fieldMappings.find(fm => fm.sheetName === sheet.name);
+      if (!sheetMapping) continue;
+
+      const mappedOnSheet = sheetMapping.mappings
+        .filter(m => m.targetField)
+        .map(m => m.targetField!);
+
+      // Check which needed metrics are missing
+      const missingMetrics = neededMetrics.filter(m => !mappedOnSheet.includes(m));
+
+      if (missingMetrics.length > 0) {
         issues.push({
           severity: 'warning',
-          component: compName,
-          field: 'attainment',
+          component: matchedComp?.name || compName,
+          sheet: sheet.name,
+          field: missingMetrics.join(', '),
           message: isSpanish
-            ? `Componente "${compName}" no tiene metricas mapeadas`
-            : `Component "${compName}" has no metrics mapped`,
+            ? `"${matchedComp?.name || compName}" en hoja "${sheet.name}": falta ${missingMetrics.join(', ')}`
+            : `"${matchedComp?.name || compName}" on sheet "${sheet.name}": missing ${missingMetrics.join(', ')}`,
           impact: isSpanish
             ? `Este componente calculara como $0 para todos los empleados`
             : `This component will calculate as $0 for all employees`,
         });
-        // Only add one warning per component, not per missing field
-        break;
+      } else {
+        fullyMappedCount++;
       }
+    }
+
+    // Log fully mapped component count (info, not warning)
+    if (fullyMappedCount > 0 && issues.filter(i => i.severity === 'warning').length > 0) {
+      // Don't add info for fully mapped - we'll show this in the summary
     }
   }
 
