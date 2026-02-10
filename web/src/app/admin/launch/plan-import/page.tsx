@@ -578,45 +578,53 @@ export default function PlanImportPage() {
                   enabled: true,
                   componentType: c.type,
                   measurementLevel: (c.measurementLevel === 'bu' ? 'team' : c.measurementLevel) as 'individual' | 'store' | 'team' | 'region',
+                  // OB-23: Use AI-extracted tier data from c.tiers (already mapped from calculationMethod)
                   ...(c.type === 'tier_lookup' && {
                     tierConfig: {
-                      metric: c.metricSource,
-                      metricLabel: c.metricSource,
-                      tiers: [
-                        { min: 0, max: 79.99, label: '< 80%', value: 0 },
-                        { min: 80, max: 99.99, label: '80-100%', value: 500 },
-                        { min: 100, max: Infinity, label: '100%+', value: 1000 },
-                      ],
+                      metric: c.metricSource || 'attainment',
+                      metricLabel: c.metricSource || 'Attainment',
+                      tiers: c.tiers && c.tiers.length > 0
+                        ? c.tiers.map(t => ({
+                            min: t.min,
+                            max: t.max === 999999 ? Infinity : t.max,
+                            label: t.label || `${t.min}-${t.max}%`,
+                            value: t.payout, // Map AI's 'payout' to engine's 'value'
+                          }))
+                        : [{ min: 0, max: Infinity, label: 'Default', value: 0 }],
                       currency: parsedPlan.currency || 'USD',
                     },
                   }),
                   ...(c.type === 'percentage' && {
                     percentageConfig: {
-                      rate: 0.05,
-                      appliedTo: c.metricSource,
-                      appliedToLabel: c.metricSource,
+                      rate: c.percentage?.rate || 0.05,
+                      appliedTo: c.metricSource || 'amount',
+                      appliedToLabel: c.metricSource || 'Amount',
                     },
                   }),
-                  ...(c.type === 'matrix_lookup' && {
+                  // OB-23: Use AI-extracted matrix data from c.matrix
+                  ...(c.type === 'matrix_lookup' && c.matrix && {
                     matrixConfig: {
-                      rowMetric: c.metricSource,
-                      rowMetricLabel: c.metricSource,
-                      rowBands: [
-                        { min: 0, max: 79.99, label: '< 80%' },
-                        { min: 80, max: 99.99, label: '80-100%' },
-                        { min: 100, max: Infinity, label: '100%+' },
-                      ],
-                      columnMetric: 'volume',
-                      columnMetricLabel: 'Volume',
-                      columnBands: [
-                        { min: 0, max: 99999, label: '< $100K' },
-                        { min: 100000, max: Infinity, label: '$100K+' },
-                      ],
-                      values: [
-                        [0, 0],
-                        [500, 750],
-                        [1000, 1500],
-                      ],
+                      rowMetric: c.matrix.rowMetric || 'attainment',
+                      rowMetricLabel: c.matrix.rowLabel || 'Attainment',
+                      rowBands: c.matrix.rowRanges && c.matrix.rowRanges.length > 0
+                        ? c.matrix.rowRanges.map(r => ({
+                            min: r.min,
+                            max: r.max === 999999 ? Infinity : r.max,
+                            label: r.label || `${r.min}-${r.max}`,
+                          }))
+                        : [{ min: 0, max: Infinity, label: 'Default' }],
+                      columnMetric: c.matrix.columnMetric || 'volume',
+                      columnMetricLabel: c.matrix.columnLabel || 'Volume',
+                      columnBands: c.matrix.columnRanges && c.matrix.columnRanges.length > 0
+                        ? c.matrix.columnRanges.map(r => ({
+                            min: r.min,
+                            max: r.max === 999999 ? Infinity : r.max,
+                            label: r.label || `${r.min}-${r.max}`,
+                          }))
+                        : [{ min: 0, max: Infinity, label: 'Default' }],
+                      values: c.matrix.values && c.matrix.values.length > 0
+                        ? c.matrix.values
+                        : [[0]],
                       currency: parsedPlan.currency || 'USD',
                     },
                   }),
