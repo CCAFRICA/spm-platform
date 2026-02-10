@@ -736,18 +736,74 @@ export class CalculationOrchestrator {
   }
 
   /**
-   * Extract employee records from committed import data (roster sheets)
+   * AI-DRIVEN: Find a source field name by its semantic type using AI import context.
+   * Returns the original column name from the data, or null if not found.
+   * This is the ONLY way to resolve field names - never hardcode column names.
+   */
+  private findFieldBySemantic(
+    sheetName: string,
+    ...semanticTypes: string[]
+  ): string | null {
+    if (!this.aiImportContext?.sheets) return null;
+
+    const sheetInfo = this.aiImportContext.sheets.find(
+      s => s.sheetName === sheetName || s.sheetName.toLowerCase() === sheetName.toLowerCase()
+    );
+    if (!sheetInfo?.fieldMappings) return null;
+
+    for (const semanticType of semanticTypes) {
+      const mapping = sheetInfo.fieldMappings.find(
+        fm => fm.semanticType.toLowerCase() === semanticType.toLowerCase()
+      );
+      if (mapping) return mapping.sourceColumn;
+    }
+
+    return null;
+  }
+
+  /**
+   * AI-DRIVEN: Extract value from content using AI semantic mapping (NO HARDCODED FALLBACKS)
+   */
+  private extractFieldValue(
+    content: Record<string, unknown>,
+    sheetName: string,
+    semanticTypes: string[]
+  ): string {
+    const fieldName = this.findFieldBySemantic(sheetName, ...semanticTypes);
+    if (fieldName && content[fieldName] !== undefined && content[fieldName] !== null) {
+      return String(content[fieldName]).trim();
+    }
+    return '';
+  }
+
+  /**
+   * AI-DRIVEN: Extract employee records from committed import data (roster sheets)
+   * Uses ONLY AI semantic mappings - NO HARDCODED FIELD NAMES
    */
   private extractEmployeesFromCommittedData(): EmployeeData[] {
     if (typeof window === 'undefined') return [];
 
+    // AI-DRIVEN: Check for AI import context
+    if (!this.aiImportContext) {
+      console.warn('[Orchestrator] NO AI IMPORT CONTEXT - cannot extract employees. Re-import data to generate mappings.');
+      return [];
+    }
+
     const employees: EmployeeData[] = [];
     const seenIds = new Set<string>();
+
+    // Get roster sheet info from AI context
+    const rosterSheet = this.aiImportContext.rosterSheet;
+    const rosterSheetInfo = this.aiImportContext.sheets.find(s => s.classification === 'roster');
+    if (!rosterSheet || !rosterSheetInfo) {
+      console.warn('[Orchestrator] NO ROSTER SHEET IDENTIFIED in AI context - cannot extract employees.');
+      return [];
+    }
+    console.log(`[Orchestrator] AI identified roster sheet: "${rosterSheet}"`);
 
     // Get tenant batch IDs
     const batchesStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_BATCHES);
     console.log(`[Orchestrator] Looking for batches, tenantId: ${this.tenantId}`);
-    console.log(`[Orchestrator] Batches in storage: ${batchesStored ? 'YES' : 'NO'}`);
     if (!batchesStored) {
       console.log('[Orchestrator] No batches found in localStorage');
       return [];
@@ -756,9 +812,6 @@ export class CalculationOrchestrator {
     let tenantBatchIds: string[] = [];
     try {
       const batches: [string, { tenantId: string }][] = JSON.parse(batchesStored);
-      console.log(`[Orchestrator] Total batches: ${batches.length}`);
-      const allTenantIds = batches.map(([, b]) => b.tenantId);
-      console.log(`[Orchestrator] TenantIds in batches: ${Array.from(new Set(allTenantIds)).join(', ')}`);
       tenantBatchIds = batches
         .filter(([, batch]) => batch.tenantId === this.tenantId)
         .map(([id]) => id);
@@ -775,14 +828,8 @@ export class CalculationOrchestrator {
 
     // Get committed records
     const committedStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_COMMITTED);
-    console.log(`[Orchestrator] Committed in storage: ${committedStored ? 'YES' : 'NO'}`);
-    if (committedStored) {
-      console.log(`[Orchestrator] Committed storage size: ${Math.round(committedStored.length / 1024)} KB`);
-    }
     if (!committedStored) {
       console.log('[Orchestrator] No committed records in localStorage');
-      // OB-16B: List all localStorage keys for diagnostics
-      console.log('[Orchestrator] Available localStorage keys:', Object.keys(localStorage).filter(k => k.includes('data_layer') || k.includes('committed') || k.includes('batch')));
       return [];
     }
 
@@ -798,8 +845,7 @@ export class CalculationOrchestrator {
       console.log(`[Orchestrator] Total committed records: ${committed.length}`);
 
       let matchingBatchCount = 0;
-      let hasNameCount = 0;
-      let hasIdCount = 0;
+      let rosterRecordCount = 0;
 
       for (const [, record] of committed) {
         if (
@@ -811,58 +857,46 @@ export class CalculationOrchestrator {
         matchingBatchCount++;
 
         const content = record.content;
-        const employeeId = this.extractEmployeeIdFromContent(content);
+        const sheetName = String(content._sheetName || '');
 
-        if (!employeeId || seenIds.has(employeeId)) {
-          if (employeeId) hasIdCount++;
+        // AI-DRIVEN: Only process roster sheet records
+        if (sheetName.toLowerCase() !== rosterSheet.toLowerCase()) {
           continue;
         }
-        hasIdCount++;
+        rosterRecordCount++;
 
-        // Check for employee-like fields (name, role, store, etc.)
-        const hasNameField = content['nombre'] || content['name'] ||
-          content['first_name'] || content['firstName'] ||
-          content['nombre_completo'] || content['Nombre'];
+        // AI-DRIVEN: Extract employee ID using semantic mapping
+        const employeeId = this.extractFieldValue(content, sheetName, ['employeeId', 'employee_id']);
 
-        if (!hasNameField) continue;
-        hasNameCount++;
-
+        if (!employeeId || employeeId.length < 3 || seenIds.has(employeeId)) {
+          continue;
+        }
         seenIds.add(employeeId);
 
-        // Extract employee data from record
-        const firstName = String(content['nombre'] || content['first_name'] ||
-          content['firstName'] || content['nombre_completo'] || content['Nombre'] || '').split(' ')[0];
-        const lastName = String(content['apellido'] || content['apellido_paterno'] ||
-          content['last_name'] || content['lastName'] || '').trim() ||
-          String(content['nombre'] || content['nombre_completo'] || content['Nombre'] || '').split(' ').slice(1).join(' ');
+        // AI-DRIVEN: Extract all fields using semantic mappings
+        const fullName = this.extractFieldValue(content, sheetName, ['name', 'employeeName', 'fullName']);
+        const firstName = fullName.split(' ')[0] || 'Unknown';
+        const lastName = fullName.split(' ').slice(1).join(' ') || 'Employee';
 
         employees.push({
-          id: employeeId,
+          id: employeeId.toLowerCase().replace(/\s+/g, '-'),
           tenantId: this.tenantId,
-          employeeNumber: String(content['num_empleado'] || content['Num_Empleado'] ||
-            content['employee_number'] || content['employeeNumber'] || employeeId),
-          firstName: firstName || 'Unknown',
-          lastName: lastName || 'Employee',
-          email: String(content['email'] || content['correo'] || ''),
-          role: String(content['puesto'] || content['Puesto'] || content['role'] ||
-            content['position'] || content['cargo'] || 'sales_rep'),
-          department: String(content['departamento'] || content['department'] || ''),
-          storeId: String(content['no_tienda'] || content['No_Tienda'] ||
-            content['store_id'] || content['storeId'] || content['tienda'] || ''),
-          storeName: String(content['nombre_tienda'] || content['store_name'] ||
-            content['storeName'] || ''),
-          managerId: String(content['manager_id'] || content['id_gerente'] || ''),
-          hireDate: String(content['fecha_ingreso'] || content['hire_date'] || ''),
+          employeeNumber: employeeId,
+          firstName,
+          lastName,
+          email: this.extractFieldValue(content, sheetName, ['email']),
+          role: this.extractFieldValue(content, sheetName, ['role', 'position', 'employeeType', 'jobTitle']) || 'sales_rep',
+          department: this.extractFieldValue(content, sheetName, ['department']),
+          storeId: this.extractFieldValue(content, sheetName, ['storeId', 'locationId', 'store']),
+          storeName: this.extractFieldValue(content, sheetName, ['storeName', 'locationName']),
+          managerId: this.extractFieldValue(content, sheetName, ['managerId']),
+          hireDate: this.extractFieldValue(content, sheetName, ['hireDate', 'startDate']),
           status: 'active' as const,
-          attributes: {
-            isCertified: Boolean(content['certificado'] || content['certified'] ||
-              content['es_certificado'] || false),
-          },
+          attributes: {},
         });
       }
       console.log(`[Orchestrator] Records matching batch: ${matchingBatchCount}`);
-      console.log(`[Orchestrator] Records with employee ID: ${hasIdCount}`);
-      console.log(`[Orchestrator] Records with name field: ${hasNameCount}`);
+      console.log(`[Orchestrator] Roster records found: ${rosterRecordCount}`);
       console.log(`[Orchestrator] Final employee count: ${employees.length}`);
     } catch (e) {
       console.error('[Orchestrator] Error extracting employees:', e);
@@ -870,34 +904,6 @@ export class CalculationOrchestrator {
     }
 
     return employees;
-  }
-
-  /**
-   * Extract employee ID from record content
-   */
-  private extractEmployeeIdFromContent(content: Record<string, unknown>): string | null {
-    const idFields = [
-      'num_empleado',
-      'Num_Empleado',
-      'employee_id',
-      'employeeId',
-      'emp_id',
-      'empId',
-      'employee_number',
-      'employeeNumber',
-      'numero_empleado',
-      'id_empleado',
-      'No_Empleado',
-    ];
-
-    for (const field of idFields) {
-      const value = content[field];
-      if (value !== undefined && value !== null) {
-        return String(value).toLowerCase().replace(/\s+/g, '-');
-      }
-    }
-
-    return null;
   }
 
   saveEmployees(employees: EmployeeData[]): void {

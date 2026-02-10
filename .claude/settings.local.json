@@ -58,7 +58,9 @@
       "Bash(cd /Users/AndrewAfrica/spm-platform/web npm run build)",
       "Bash(git -c http.version=HTTP/1.1 push)",
       "Bash(GIT_CURL_VERBOSE=1 git -c http.version=HTTP/1.1 push)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Bash(echo:*)",
+      "Bash(__NEW_LINE_c894145c5ac0bcac__ echo \"\")"
     ]
   }
 }

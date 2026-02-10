@@ -280,9 +280,13 @@ function storeAggregatedData(
   const rosterRecords: Record<string, unknown>[] = [];
   const componentRecords: Record<string, unknown>[] = [];
 
-  // AI-DRIVEN: Get roster sheet name from AI context
+  // AI-DRIVEN: Get roster sheet name from AI context (NO HARDCODED FALLBACKS)
   const rosterSheetName = aiContext?.rosterSheet?.toLowerCase() || null;
   const rosterSheetInfo = aiContext?.sheets.find(s => s.classification === 'roster');
+
+  if (!aiContext) {
+    console.warn('[DataLayer] NO AI IMPORT CONTEXT - cannot identify roster sheet. Re-import data to generate mappings.');
+  }
 
   for (const record of records) {
     const content = record.content;
@@ -290,10 +294,10 @@ function storeAggregatedData(
     const sheetNameLower = sheetName.toLowerCase();
 
     // AI-DRIVEN: Use AI classification to identify roster vs component sheets
-    const isRoster = rosterSheetName
-      ? sheetNameLower === rosterSheetName || sheetNameLower.includes(rosterSheetName)
-      : sheetNameLower.includes('colaborador') || sheetNameLower.includes('roster') ||
-        sheetNameLower.includes('empleado') || sheetNameLower.includes('employee');
+    // NO FALLBACK: If AI context is missing, we cannot reliably identify roster
+    const sheetInfo = aiContext?.sheets.find(s => s.sheetName.toLowerCase() === sheetNameLower);
+    const isRoster = sheetInfo?.classification === 'roster' ||
+      (rosterSheetName && (sheetNameLower === rosterSheetName || sheetNameLower.includes(rosterSheetName)));
 
     if (isRoster) {
       rosterRecords.push(content);
@@ -322,46 +326,35 @@ function storeAggregatedData(
     return undefined;
   };
 
-  // AI-DRIVEN: Helper to find field value with fallback to common field names
-  const getFieldValue = (row: Record<string, unknown>, semanticTypes: string[], fallbackKeys: string[]): string => {
-    // First try AI semantic mapping
+  // AI-DRIVEN: Helper to find field value using ONLY AI semantic mappings (NO HARDCODED FALLBACKS)
+  const getFieldValue = (row: Record<string, unknown>, semanticTypes: string[]): string => {
+    // Only use AI semantic mapping - no hardcoded column names
     const aiValue = findFieldBySemantic(row, semanticTypes);
     if (aiValue !== undefined && aiValue !== null && String(aiValue).trim()) {
       return String(aiValue).trim();
     }
-    // Fallback to checking known keys (logged as warning if used)
-    for (const key of fallbackKeys) {
-      if (row[key] !== undefined && row[key] !== null && String(row[key]).trim()) {
-        return String(row[key]).trim();
-      }
-    }
+    // No fallback - return empty string
     return '';
   };
 
   for (const row of rosterRecords) {
-    // AI-DRIVEN: Get employee ID using semantic mapping
-    // FALLBACK: Column name arrays are used when AI import context lacks semantic mappings
-    const empId = getFieldValue(row, ['employeeId', 'employee_id'],
-      ['num_empleado', 'Num_Empleado', 'employeeId', 'employee_id', 'ID_Empleado']); // FALLBACK columns
+    // AI-DRIVEN: Get employee ID using ONLY AI semantic mapping (NO HARDCODED FALLBACKS)
+    const empId = getFieldValue(row, ['employeeId', 'employee_id']);
     if (!empId || empId.length < 3 || empId === 'undefined' || empId === 'null') continue;
 
-    // Get period fields - FALLBACK: hardcoded column names for period detection
-    const month = getFieldValue(row, ['period', 'month'], ['Mes', 'mes', 'Month', 'period']);
-    const year = getFieldValue(row, ['year'], ['Ano', 'ano', 'Year', 'year']);
+    // Get period fields using AI semantic mapping
+    const month = getFieldValue(row, ['period', 'month']);
+    const year = getFieldValue(row, ['year']);
     const key = month || year ? `${empId}_${month}_${year}` : empId;
 
     if (!employeeMap.has(key)) {
       employeeMap.set(key, {
         employeeId: empId,
-        // AI-DRIVEN: Extract identity fields using semantic mappings
-        // FALLBACK: Column name arrays are secondary when AI semantic types not found
-        name: getFieldValue(row, ['name', 'employeeName', 'fullName'], ['Nombre', 'nombre', 'name', 'Name']),
-        role: getFieldValue(row, ['role', 'position', 'employeeType', 'jobTitle'],
-          ['Puesto', 'puesto', 'role', 'Position', 'Cargo']), // FALLBACK columns
-        storeId: getFieldValue(row, ['storeId', 'locationId', 'store'],
-          ['No_Tienda', 'no_tienda', 'num_tienda', 'storeId', 'Tienda']), // FALLBACK columns
-        storeRange: getFieldValue(row, ['storeRange', 'category', 'storeCategory'],
-          ['Rango_de_Tienda', 'Rango de Tienda', 'storeRange', 'Rango']), // FALLBACK columns
+        // AI-DRIVEN: Extract identity fields using ONLY AI semantic mappings
+        name: getFieldValue(row, ['name', 'employeeName', 'fullName']),
+        role: getFieldValue(row, ['role', 'position', 'employeeType', 'jobTitle']),
+        storeId: getFieldValue(row, ['storeId', 'locationId', 'store']),
+        storeRange: getFieldValue(row, ['storeRange', 'category', 'storeCategory']),
         month,
         year,
         tenantId,
@@ -372,31 +365,12 @@ function storeAggregatedData(
 
   console.log(`[DataLayer] Unique employee records from roster: ${employeeMap.size}`);
 
-  // FALLBACK: If no roster records found, fall back to deduplicating by any employee ID field
-  // This entire block uses hardcoded column names - acceptable for emergency fallback
+  // AI-DRIVEN: If no roster records found, warn user - NO HARDCODED FALLBACKS
   if (employeeMap.size === 0) {
-    console.warn(`[DataLayer] No roster sheet found, falling back to component-based employee extraction`);
-    for (const record of records) {
-      const content = record.content;
-      // FALLBACK: Hardcoded column names - only used when roster sheet missing
-      const empId = String(
-        content['num_empleado'] || content['Num_Empleado'] ||
-        content['Vendedor'] || content['vendedor'] ||
-        content['employeeId'] || content['employee_id'] || ''
-      ).trim();
-
-      if (empId && empId.length >= 3 && empId !== 'undefined' && empId !== 'null' &&
-          empId.toLowerCase() !== 'total' && !empId.match(/^\d{1,2}$/)) {
-        if (!employeeMap.has(empId)) {
-          employeeMap.set(empId, {
-            employeeId: empId,
-            tenantId,
-            batchId,
-          });
-        }
-      }
-    }
-    console.log(`[DataLayer] Fallback: ${employeeMap.size} unique employee IDs from component data`);
+    console.warn('[DataLayer] NO EMPLOYEES FOUND - AI import context may be missing or roster sheet not identified.');
+    console.warn('[DataLayer] Please re-import data with AI analysis to generate proper field mappings.');
+    // Return early with empty result rather than using hardcoded column names
+    return { employeeCount: 0, sizeKB: 0 };
   }
 
   // STEP 3: Build componentMetrics - AI-DRIVEN extraction of attainment/amount/goal per sheet
@@ -435,26 +409,27 @@ function storeAggregatedData(
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
 
-    // AI-DRIVEN: Get ID fields using AI mappings, with FALLBACK hardcoded defaults
-    const empIdField = getSheetFieldBySemantic(sheetName, ['employeeId', 'employee_id']) ||
-      'num_empleado'; // FALLBACK
-    const storeIdField = getSheetFieldBySemantic(sheetName, ['storeId', 'locationId', 'store']) ||
-      'No_Tienda'; // FALLBACK
-    const attainmentField = getSheetFieldBySemantic(sheetName, ['attainment', 'achievement', 'performance']) ||
-      'Cumplimiento'; // FALLBACK
-    const amountField = getSheetFieldBySemantic(sheetName, ['amount', 'value', 'actual', 'sales']) ||
-      'Monto'; // FALLBACK
-    const goalField = getSheetFieldBySemantic(sheetName, ['goal', 'target', 'quota']) ||
-      'Meta'; // FALLBACK
+    // AI-DRIVEN: Get ID fields using ONLY AI mappings (NO HARDCODED FALLBACKS)
+    const empIdField = getSheetFieldBySemantic(sheetName, ['employeeId', 'employee_id']);
+    const storeIdField = getSheetFieldBySemantic(sheetName, ['storeId', 'locationId', 'store']);
+    const attainmentField = getSheetFieldBySemantic(sheetName, ['attainment', 'achievement', 'performance']);
+    const amountField = getSheetFieldBySemantic(sheetName, ['amount', 'value', 'actual', 'sales']);
+    const goalField = getSheetFieldBySemantic(sheetName, ['goal', 'target', 'quota']);
 
-    // Extract IDs - FALLBACK: secondary column names if AI mapping not found
-    const empId = String(content[empIdField] || content['Vendedor'] || content['vendedor'] || '').trim();
-    const storeId = String(content[storeIdField] || content['no_tienda'] || '').trim();
+    // Skip sheet if no AI mappings found
+    if (!empIdField && !storeIdField) {
+      console.warn(`[DataLayer] Sheet "${sheetName}" has no AI field mappings - skipping`);
+      continue;
+    }
 
-    // AI-DRIVEN: Extract only attainment/amount/goal (SMART COMPRESSION)
-    const attainment = content[attainmentField] !== undefined ? Number(content[attainmentField]) : undefined;
-    const amount = content[amountField] !== undefined ? Number(content[amountField]) : undefined;
-    const goal = content[goalField] !== undefined ? Number(content[goalField]) : undefined;
+    // Extract IDs using ONLY AI-mapped field names
+    const empId = empIdField ? String(content[empIdField] || '').trim() : '';
+    const storeId = storeIdField ? String(content[storeIdField] || '').trim() : '';
+
+    // AI-DRIVEN: Extract only attainment/amount/goal using AI-mapped fields (SMART COMPRESSION)
+    const attainment = attainmentField && content[attainmentField] !== undefined ? Number(content[attainmentField]) : undefined;
+    const amount = amountField && content[amountField] !== undefined ? Number(content[amountField]) : undefined;
+    const goal = goalField && content[goalField] !== undefined ? Number(content[goalField]) : undefined;
 
     // Also look for any numeric field that might be the key metric
     let primaryMetric: number | undefined;
