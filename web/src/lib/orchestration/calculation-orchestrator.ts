@@ -421,8 +421,10 @@ export class CalculationOrchestrator {
         const periods = JSON.parse(tenantPeriodsData) as Array<{ id: string; startDate?: string; name?: string }>;
         const period = periods.find(p => p.id === periodId);
         if (period?.startDate) {
-          const date = new Date(period.startDate);
-          return { selectedYear: date.getFullYear(), selectedMonth: date.getMonth() + 1 };
+          // HOTFIX: Parse date string directly to avoid timezone shift
+          // "2024-01-01" or "2024-01-01T00:00:00Z" -> year=2024, month=1
+          const parsed = this.parseDateStringToYearMonth(period.startDate);
+          if (parsed) return parsed;
         }
         // Try parsing from name (e.g., "January 2024")
         if (period?.name) {
@@ -438,8 +440,9 @@ export class CalculationOrchestrator {
         const periods = JSON.parse(globalPeriodsData) as Array<{ id: string; startDate?: string; name?: string }>;
         const period = periods.find(p => p.id === periodId);
         if (period?.startDate) {
-          const date = new Date(period.startDate);
-          return { selectedYear: date.getFullYear(), selectedMonth: date.getMonth() + 1 };
+          // HOTFIX: Parse date string directly to avoid timezone shift
+          const parsed = this.parseDateStringToYearMonth(period.startDate);
+          if (parsed) return parsed;
         }
         if (period?.name) {
           const parsed = this.parseYearMonthFromLabel(period.name);
@@ -460,6 +463,33 @@ export class CalculationOrchestrator {
     // SAFE FALLBACK: Cannot determine period — skip period filtering
     console.warn(`[Orchestrator] HOTFIX: Cannot resolve period ${periodId} — skipping period filter`);
     return { selectedYear: NaN, selectedMonth: NaN };
+  }
+
+  /**
+   * HOTFIX: Parse date string directly without timezone conversion
+   * Handles: "2024-01-01", "2024-01-01T00:00:00Z", "2024-01-15T12:30:00.000Z"
+   * Returns year/month from the STRING, not from Date object (avoids timezone shift)
+   */
+  private parseDateStringToYearMonth(dateStr: string): { selectedYear: number; selectedMonth: number } | null {
+    // Try to extract YYYY-MM from the beginning of the string
+    const match = dateStr.match(/^(\d{4})-(\d{2})/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10);
+      if (!isNaN(year) && month >= 1 && month <= 12) {
+        return { selectedYear: year, selectedMonth: month };
+      }
+    }
+    // Fallback to UTC methods if string parsing fails
+    try {
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) {
+        return { selectedYear: date.getUTCFullYear(), selectedMonth: date.getUTCMonth() + 1 };
+      }
+    } catch {
+      // Ignore parse errors
+    }
+    return null;
   }
 
   /**
