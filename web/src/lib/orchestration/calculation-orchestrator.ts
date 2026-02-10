@@ -327,15 +327,16 @@ export class CalculationOrchestrator {
       // HOTFIX: Skip period filtering if we couldn't resolve period year/month
       if (!isNaN(selectedYear) && !isNaN(selectedMonth)) {
         const attrs = emp.attributes as Record<string, unknown> | undefined;
-        if (attrs?.month !== undefined && attrs?.year !== undefined) {
-          const empYear = Number(attrs.year);
-          const empMonth = this.parseMonthToNumber(String(attrs.month));
+        if (attrs?.month !== undefined || attrs?.year !== undefined) {
+          const empMonth = this.parseMonthToNumber(String(attrs?.month || ''));
+          const empYear = Number(attrs?.year);
 
-          // HOTFIX: If employee has no period data (empty strings), include them
-          // This unblocks calculation when aggregation doesn't populate month/year
-          if (!empMonth && !empYear) {
-            // No period data on employee — include in calculation
-          } else if (empYear !== selectedYear || empMonth !== selectedMonth) {
+          // HOTFIX: Only compare fields that are actually populated
+          // If field is empty/falsy, skip that check (treat as match)
+          const monthMatch = !empMonth || empMonth === selectedMonth;
+          const yearMatch = !empYear || empYear === selectedYear;
+
+          if (!monthMatch || !yearMatch) {
             return false;
           }
         }
@@ -361,7 +362,7 @@ export class CalculationOrchestrator {
       return true;
     });
 
-    console.log(`[Orchestrator] OB-22: Employees after period filter: ${filtered.length}`);
+    console.log(`[Orchestrator] Employees after period filter: ${filtered.length}`);
     return filtered;
   }
 
