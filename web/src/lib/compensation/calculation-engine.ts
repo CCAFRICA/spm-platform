@@ -212,13 +212,38 @@ function calculateMatrixLookup(
 ): CalculationStep {
   const config = component.matrixConfig!;
 
+  // PHASE 3 VALIDATION: Check for empty configuration
+  if (!config.rowBands || config.rowBands.length === 0) {
+    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY rowBands!`);
+    return createZeroStep(component, 'Matrix has no row bands configured');
+  }
+  if (!config.columnBands || config.columnBands.length === 0) {
+    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY columnBands!`);
+    return createZeroStep(component, 'Matrix has no column bands configured');
+  }
+  if (!config.values || config.values.length === 0) {
+    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY values matrix!`);
+    return createZeroStep(component, 'Matrix has no values configured');
+  }
+
   const rowValue = metrics.metrics[config.rowMetric] ?? 0;
   const colValue = metrics.metrics[config.columnMetric] ?? 0;
 
+  // PHASE 3 VALIDATION: Warn when metric is missing (not just 0)
+  const rowMetricMissing = !(config.rowMetric in metrics.metrics);
+  const colMetricMissing = !(config.columnMetric in metrics.metrics);
+  if (rowMetricMissing && shouldLog) {
+    console.warn(`DIAG-VALIDATE: Metric "${config.rowMetric}" NOT FOUND in employee metrics!`);
+    console.warn(`DIAG-VALIDATE: Available metrics: ${Object.keys(metrics.metrics).join(', ')}`);
+  }
+  if (colMetricMissing && shouldLog) {
+    console.warn(`DIAG-VALIDATE: Metric "${config.columnMetric}" NOT FOUND in employee metrics!`);
+  }
+
   if (shouldLog) {
     console.log(`DIAG-ENGINE: Matrix lookup config:`);
-    console.log(`DIAG-ENGINE:   rowMetric="${config.rowMetric}" -> value=${rowValue}`);
-    console.log(`DIAG-ENGINE:   columnMetric="${config.columnMetric}" -> value=${colValue}`);
+    console.log(`DIAG-ENGINE:   rowMetric="${config.rowMetric}" -> value=${rowValue}${rowMetricMissing ? ' (MISSING!)' : ''}`);
+    console.log(`DIAG-ENGINE:   columnMetric="${config.columnMetric}" -> value=${colValue}${colMetricMissing ? ' (MISSING!)' : ''}`);
     console.log(`DIAG-ENGINE:   rowBands: ${JSON.stringify(config.rowBands.map(b => `${b.min}-${b.max}`))}`);
     console.log(`DIAG-ENGINE:   columnBands: ${JSON.stringify(config.columnBands.map(b => `${b.min}-${b.max}`))}`);
   }
@@ -270,11 +295,24 @@ function calculateTierLookup(
 ): CalculationStep {
   const config = component.tierConfig!;
 
+  // PHASE 3 VALIDATION: Check for empty configuration
+  if (!config.tiers || config.tiers.length === 0) {
+    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY tiers!`);
+    return createZeroStep(component, 'Tier lookup has no tiers configured');
+  }
+
   const value = metrics.metrics[config.metric] ?? 0;
+
+  // PHASE 3 VALIDATION: Warn when metric is missing
+  const metricMissing = !(config.metric in metrics.metrics);
+  if (metricMissing && shouldLog) {
+    console.warn(`DIAG-VALIDATE: Metric "${config.metric}" NOT FOUND in employee metrics!`);
+    console.warn(`DIAG-VALIDATE: Available metrics: ${Object.keys(metrics.metrics).join(', ')}`);
+  }
 
   if (shouldLog) {
     console.log(`DIAG-ENGINE: Tier lookup config:`);
-    console.log(`DIAG-ENGINE:   metric="${config.metric}" -> value=${value}`);
+    console.log(`DIAG-ENGINE:   metric="${config.metric}" -> value=${value}${metricMissing ? ' (MISSING!)' : ''}`);
     console.log(`DIAG-ENGINE:   tiers: ${JSON.stringify(config.tiers.map(t => `${t.min}-${t.max}:$${t.value}`))}`);
   }
 
@@ -315,9 +353,16 @@ function calculatePercentage(
 
   const baseValue = metrics.metrics[config.appliedTo] ?? 0;
 
+  // PHASE 3 VALIDATION: Warn when metric is missing
+  const metricMissing = !(config.appliedTo in metrics.metrics);
+  if (metricMissing && shouldLog) {
+    console.warn(`DIAG-VALIDATE: Metric "${config.appliedTo}" NOT FOUND in employee metrics!`);
+    console.warn(`DIAG-VALIDATE: Available metrics: ${Object.keys(metrics.metrics).join(', ')}`);
+  }
+
   if (shouldLog) {
     console.log(`DIAG-ENGINE: Percentage config:`);
-    console.log(`DIAG-ENGINE:   appliedTo="${config.appliedTo}" -> value=${baseValue}`);
+    console.log(`DIAG-ENGINE:   appliedTo="${config.appliedTo}" -> value=${baseValue}${metricMissing ? ' (MISSING!)' : ''}`);
     console.log(`DIAG-ENGINE:   rate=${config.rate}`);
   }
 
@@ -361,16 +406,33 @@ function calculateConditionalPercentage(
 ): CalculationStep {
   const config = component.conditionalConfig!;
 
+  // PHASE 3 VALIDATION: Check for empty conditions
+  if (!config.conditions || config.conditions.length === 0) {
+    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY conditions!`);
+    return createZeroStep(component, 'Conditional percentage has no conditions configured');
+  }
+
   const baseValue = metrics.metrics[config.appliedTo] ?? 0;
 
   // Find matching condition
   const conditionMetric = config.conditions[0]?.metric;
   const conditionValue = metrics.metrics[conditionMetric] ?? 0;
 
+  // PHASE 3 VALIDATION: Warn when metrics are missing
+  const baseMissing = !(config.appliedTo in metrics.metrics);
+  const conditionMissing = conditionMetric ? !(conditionMetric in metrics.metrics) : false;
+  if (baseMissing && shouldLog) {
+    console.warn(`DIAG-VALIDATE: Metric "${config.appliedTo}" NOT FOUND in employee metrics!`);
+    console.warn(`DIAG-VALIDATE: Available metrics: ${Object.keys(metrics.metrics).join(', ')}`);
+  }
+  if (conditionMissing && shouldLog) {
+    console.warn(`DIAG-VALIDATE: Condition metric "${conditionMetric}" NOT FOUND in employee metrics!`);
+  }
+
   if (shouldLog) {
     console.log(`DIAG-ENGINE: Conditional percentage config:`);
-    console.log(`DIAG-ENGINE:   appliedTo="${config.appliedTo}" -> value=${baseValue}`);
-    console.log(`DIAG-ENGINE:   conditionMetric="${conditionMetric}" -> value=${conditionValue}`);
+    console.log(`DIAG-ENGINE:   appliedTo="${config.appliedTo}" -> value=${baseValue}${baseMissing ? ' (MISSING!)' : ''}`);
+    console.log(`DIAG-ENGINE:   conditionMetric="${conditionMetric}" -> value=${conditionValue}${conditionMissing ? ' (MISSING!)' : ''}`);
     console.log(`DIAG-ENGINE:   conditions: ${JSON.stringify(config.conditions.map(c => `${c.min}-${c.max}:${c.rate}`))}`);
   }
 

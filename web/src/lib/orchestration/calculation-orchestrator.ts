@@ -486,9 +486,16 @@ export class CalculationOrchestrator {
         // Add metrics with plan-expected names
         if (sheetMetrics.attainment !== undefined) {
           metrics[`${planMetricBase}_attainment`] = sheetMetrics.attainment;
-          // Special mappings for plan metric names that don't follow standard pattern
+
+          // PHASE 4 FIX: RetailCGMX plan-specific metric aliases
+          // Plan expects store_sales_attainment, collections_attainment, store_goal_attainment
+          if (planMetricBase === 'store') {
+            metrics['store_sales_attainment'] = sheetMetrics.attainment;
+            metrics['store_goal_attainment'] = sheetMetrics.attainment; // For insurance conditional
+          }
           if (planMetricBase === 'collection') {
             metrics['collection_rate'] = sheetMetrics.attainment;
+            metrics['collections_attainment'] = sheetMetrics.attainment;
           }
           if (planMetricBase === 'insurance') {
             metrics['insurance_collection_rate'] = sheetMetrics.attainment;
@@ -500,12 +507,19 @@ export class CalculationOrchestrator {
         if (sheetMetrics.amount !== undefined) {
           metrics[`${planMetricBase}_volume`] = sheetMetrics.amount;
           metrics[`${planMetricBase}_amount`] = sheetMetrics.amount;
-          // Special mappings for plan metric names
+
+          // PHASE 4 FIX: RetailCGMX plan-specific metric aliases
+          // Plan expects store_optical_sales, individual_insurance_sales, individual_warranty_sales
+          if (planMetricBase === 'optical') {
+            metrics['store_optical_sales'] = sheetMetrics.amount;
+          }
           if (planMetricBase === 'insurance') {
             metrics['insurance_premium_total'] = sheetMetrics.amount;
+            metrics['individual_insurance_sales'] = sheetMetrics.amount;
           }
           if (planMetricBase === 'services') {
             metrics['services_revenue'] = sheetMetrics.amount;
+            metrics['individual_warranty_sales'] = sheetMetrics.amount;
           }
           metrics[`${componentKey}_amount`] = sheetMetrics.amount;
           metrics[`${sheetName}_amount`] = sheetMetrics.amount;
@@ -520,8 +534,15 @@ export class CalculationOrchestrator {
         if (sheetMetrics.attainment === undefined && sheetMetrics.amount !== undefined && sheetMetrics.goal && sheetMetrics.goal > 0) {
           const calculatedAttainment = (sheetMetrics.amount / sheetMetrics.goal) * 100;
           metrics[`${planMetricBase}_attainment`] = calculatedAttainment;
+
+          // PHASE 4 FIX: RetailCGMX plan-specific aliases for calculated attainment
+          if (planMetricBase === 'store') {
+            metrics['store_sales_attainment'] = calculatedAttainment;
+            metrics['store_goal_attainment'] = calculatedAttainment;
+          }
           if (planMetricBase === 'collection') {
             metrics['collection_rate'] = calculatedAttainment;
+            metrics['collections_attainment'] = calculatedAttainment;
           }
           if (planMetricBase === 'insurance') {
             metrics['insurance_collection_rate'] = calculatedAttainment;
