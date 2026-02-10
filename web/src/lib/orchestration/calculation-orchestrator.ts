@@ -134,6 +134,7 @@ export class CalculationOrchestrator {
   private tenantId: string;
   private calculationContext: CalculationContext | null = null;
   private aiImportContext: AIImportContext | null = null;
+  private _diagLogged: boolean = false;
 
   constructor(tenantId: string) {
     // OB-16: Normalize tenantId - strip trailing underscores to prevent data mismatch
@@ -324,6 +325,22 @@ export class CalculationOrchestrator {
     // AI-DRIVEN PRIORITY 0: Extract metrics from aggregated employee attributes using AI mappings
     const aiMetrics = this.extractMetricsWithAIMappings(employee);
     if (aiMetrics && Object.keys(aiMetrics).length > 0) {
+      // DIAG: Log metrics being passed to engine for first employee
+      if (!this._diagLogged || employee.id === 'DIAG_LOG_ALWAYS') {
+        console.log('DIAG-ORCH: === METRICS PASSED TO ENGINE ===');
+        console.log('DIAG-ORCH: Employee:', employee.id);
+        console.log('DIAG-ORCH: Metric keys:', Object.keys(aiMetrics));
+        console.log('DIAG-ORCH: Full metrics:', JSON.stringify(aiMetrics, null, 2));
+        // Check for expected plan metrics
+        console.log('DIAG-ORCH: Plan expects: optical_attainment =', aiMetrics['optical_attainment']);
+        console.log('DIAG-ORCH: Plan expects: optical_volume =', aiMetrics['optical_volume']);
+        console.log('DIAG-ORCH: Plan expects: store_attainment =', aiMetrics['store_attainment']);
+        console.log('DIAG-ORCH: Plan expects: new_customers_attainment =', aiMetrics['new_customers_attainment']);
+        console.log('DIAG-ORCH: Plan expects: collection_rate =', aiMetrics['collection_rate']);
+        console.log('DIAG-ORCH: Plan expects: insurance_collection_rate =', aiMetrics['insurance_collection_rate']);
+        console.log('DIAG-ORCH: Plan expects: insurance_premium_total =', aiMetrics['insurance_premium_total']);
+        console.log('DIAG-ORCH: Plan expects: services_revenue =', aiMetrics['services_revenue']);
+      }
       return {
         employeeId: employee.id,
         employeeName: `${employee.firstName} ${employee.lastName}`,
@@ -401,6 +418,26 @@ export class CalculationOrchestrator {
     // AI-DRIVEN: Extract metrics from componentMetrics structure
     const componentMetrics = attrs.componentMetrics as Record<string, { attainment?: number; amount?: number; goal?: number }> | undefined;
 
+    // DIAG: Log for first employee
+    const isFirstEmployee = employee.id === Object.keys(attrs)[0] || !this._diagLogged;
+    if (isFirstEmployee && !this._diagLogged) {
+      this._diagLogged = true;
+      console.log('DIAG-ORCH: === ORCHESTRATOR METRIC EXTRACTION ===');
+      console.log('DIAG-ORCH: Employee ID:', employee.id);
+      console.log('DIAG-ORCH: Employee Name:', `${employee.firstName} ${employee.lastName}`);
+      console.log('DIAG-ORCH: componentMetrics present:', !!componentMetrics);
+      if (componentMetrics) {
+        console.log('DIAG-ORCH: componentMetrics sheets:', Object.keys(componentMetrics));
+        for (const [sheet, values] of Object.entries(componentMetrics)) {
+          console.log(`DIAG-ORCH: componentMetrics["${sheet}"] =`, JSON.stringify(values));
+        }
+      }
+      console.log('DIAG-ORCH: AI Import Context sheets:', this.aiImportContext?.sheets?.map(s => ({
+        name: s.sheetName,
+        component: s.matchedComponent
+      })));
+    }
+
     if (componentMetrics) {
       // componentMetrics has: { sheetName: { attainment, amount, goal } }
       for (const [sheetName, sheetMetrics] of Object.entries(componentMetrics)) {
@@ -410,17 +447,40 @@ export class CalculationOrchestrator {
         );
         const componentKey = sheetInfo?.matchedComponent || sheetName;
 
-        // Add metrics with component prefix
+        // CLT-08 FIX: Map to plan's expected metric names based on component type
+        // The plan expects: optical_attainment, store_attainment, etc.
+        // We need to translate componentKey to the plan's metric naming convention
+        const planMetricBase = this.translateToPlanMetricName(componentKey, sheetName);
+
+        // Add metrics with plan-expected names
         if (sheetMetrics.attainment !== undefined) {
+          metrics[`${planMetricBase}_attainment`] = sheetMetrics.attainment;
+          // Special mappings for plan metric names that don't follow standard pattern
+          if (planMetricBase === 'collection') {
+            metrics['collection_rate'] = sheetMetrics.attainment;
+          }
+          if (planMetricBase === 'insurance') {
+            metrics['insurance_collection_rate'] = sheetMetrics.attainment;
+          }
+          // Also keep the original keys for debugging
           metrics[`${componentKey}_attainment`] = sheetMetrics.attainment;
-          // Also add by sheet name for fallback matching
           metrics[`${sheetName}_attainment`] = sheetMetrics.attainment;
         }
         if (sheetMetrics.amount !== undefined) {
+          metrics[`${planMetricBase}_volume`] = sheetMetrics.amount;
+          metrics[`${planMetricBase}_amount`] = sheetMetrics.amount;
+          // Special mappings for plan metric names
+          if (planMetricBase === 'insurance') {
+            metrics['insurance_premium_total'] = sheetMetrics.amount;
+          }
+          if (planMetricBase === 'services') {
+            metrics['services_revenue'] = sheetMetrics.amount;
+          }
           metrics[`${componentKey}_amount`] = sheetMetrics.amount;
           metrics[`${sheetName}_amount`] = sheetMetrics.amount;
         }
         if (sheetMetrics.goal !== undefined) {
+          metrics[`${planMetricBase}_goal`] = sheetMetrics.goal;
           metrics[`${componentKey}_goal`] = sheetMetrics.goal;
           metrics[`${sheetName}_goal`] = sheetMetrics.goal;
         }
@@ -428,8 +488,21 @@ export class CalculationOrchestrator {
         // Calculate attainment if we have amount and goal but no attainment
         if (sheetMetrics.attainment === undefined && sheetMetrics.amount !== undefined && sheetMetrics.goal && sheetMetrics.goal > 0) {
           const calculatedAttainment = (sheetMetrics.amount / sheetMetrics.goal) * 100;
+          metrics[`${planMetricBase}_attainment`] = calculatedAttainment;
+          if (planMetricBase === 'collection') {
+            metrics['collection_rate'] = calculatedAttainment;
+          }
+          if (planMetricBase === 'insurance') {
+            metrics['insurance_collection_rate'] = calculatedAttainment;
+          }
           metrics[`${componentKey}_attainment`] = calculatedAttainment;
           metrics[`${sheetName}_attainment`] = calculatedAttainment;
+        }
+
+        // DIAG: Log what metrics we created for first employee
+        if (isFirstEmployee) {
+          console.log(`DIAG-ORCH: Sheet "${sheetName}" -> componentKey="${componentKey}" -> planMetricBase="${planMetricBase}"`);
+          console.log(`DIAG-ORCH:   Created metrics: ${planMetricBase}_attainment, ${planMetricBase}_volume, etc.`);
         }
       }
     }
@@ -733,6 +806,61 @@ export class CalculationOrchestrator {
       console.error('[Orchestrator] Failed to parse aggregated data:', error);
       return [];
     }
+  }
+
+  /**
+   * CLT-08 FIX: Translate component/sheet name to plan's expected metric prefix
+   *
+   * The plan expects metric names like: optical_attainment, store_attainment, etc.
+   * The import creates metrics by sheet name: Base_Venta_Individual, etc.
+   *
+   * This mapping bridges the gap.
+   */
+  private translateToPlanMetricName(componentKey: string, sheetName: string): string {
+    // Mapping from AI import component/sheet names to plan metric prefixes
+    // These are the metric prefixes expected by the plan configuration
+    const PLAN_METRIC_MAP: Record<string, string> = {
+      // Component-based mappings (from AI matchedComponent)
+      'venta_optica': 'optical',
+      'venta_optica_certificado': 'optical',
+      'optical_sales': 'optical',
+      'venta_tienda': 'store',
+      'store_sales': 'store',
+      'store_performance': 'store',
+      'clientes_nuevos': 'new_customers',
+      'new_customers': 'new_customers',
+      'cobranza': 'collection',
+      'collections': 'collection',
+      'seguros': 'insurance',
+      'insurance': 'insurance',
+      'club_proteccion': 'insurance',
+      'servicios': 'services',
+      'services': 'services',
+      'garantia_extendida': 'services',
+
+      // Sheet-based mappings (when component match fails)
+      'base_venta_individual': 'optical',
+      'base_venta_tienda': 'store',
+      'base_clientes_nuevos': 'new_customers',
+      'base_cobranza_tienda': 'collection',
+      'base_club_proteccion': 'insurance',
+      'base_garantia_extendida': 'services',
+    };
+
+    // Try component key first
+    const componentLower = componentKey.toLowerCase().replace(/[-\s]/g, '_');
+    if (PLAN_METRIC_MAP[componentLower]) {
+      return PLAN_METRIC_MAP[componentLower];
+    }
+
+    // Try sheet name
+    const sheetLower = sheetName.toLowerCase().replace(/[-\s]/g, '_');
+    if (PLAN_METRIC_MAP[sheetLower]) {
+      return PLAN_METRIC_MAP[sheetLower];
+    }
+
+    // Fallback: clean up the component key
+    return componentLower;
   }
 
   /**
