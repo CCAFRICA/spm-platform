@@ -301,6 +301,135 @@ interface ComponentPreview {
   calculation: string;
 }
 
+// ============================================
+// CLT-08 FIX: CRITICAL FIELD VALIDATION
+// ============================================
+
+// Validation issue for missing critical fields
+interface CriticalFieldValidation {
+  severity: 'error' | 'warning' | 'info';
+  component?: string;  // which plan component is affected
+  sheet?: string;      // which sheet has the gap
+  field: string;       // which semantic type is missing
+  message: string;     // human-readable explanation
+  impact: string;      // what happens if not resolved
+}
+
+// Validate that all critical fields are mapped for calculation
+function validateCriticalFields(
+  fieldMappings: SheetFieldMapping[],
+  analysis: { sheets: AnalyzedSheet[]; rosterDetected?: { sheetName: string | null } } | null,
+  activePlan: CompensationPlanConfig | null,
+  isSpanish: boolean
+): CriticalFieldValidation[] {
+  const issues: CriticalFieldValidation[] = [];
+
+  if (!fieldMappings.length || !analysis) return issues;
+
+  // Get all mapped semantic types across all sheets
+  const allMappedFields = fieldMappings.flatMap(sheet =>
+    sheet.mappings
+      .filter(m => m.targetField)
+      .map(m => ({ sheet: sheet.sheetName, field: m.targetField! }))
+  );
+  const mappedFieldTypes = new Set(allMappedFields.map(m => m.field));
+
+  // Get roster sheet name
+  const rosterSheet = analysis.rosterDetected?.sheetName ||
+    analysis.sheets.find(s => s.classification === 'roster')?.name;
+
+  // 1. CRITICAL: employeeId must be mapped somewhere
+  if (!mappedFieldTypes.has('employeeId')) {
+    issues.push({
+      severity: 'error',
+      field: 'employeeId',
+      message: isSpanish
+        ? 'No se ha mapeado identificador de empleado'
+        : 'No employee identifier mapped',
+      impact: isSpanish
+        ? 'Los calculos no podran asociar datos a empleados'
+        : 'Calculations cannot match data to employees',
+    });
+  }
+
+  // 2. WARNING: role/employeeType needed for plan routing (if roster exists)
+  if (rosterSheet && !mappedFieldTypes.has('role') && !mappedFieldTypes.has('employeeType')) {
+    const rosterMapping = fieldMappings.find(s => s.sheetName === rosterSheet);
+    const hasRoleField = rosterMapping?.mappings.some(m =>
+      m.targetField === 'role' || m.targetField === 'employeeType'
+    );
+    if (!hasRoleField) {
+      issues.push({
+        severity: 'warning',
+        sheet: rosterSheet,
+        field: 'role',
+        message: isSpanish
+          ? 'No se ha mapeado tipo/puesto de empleado en el roster'
+          : 'No employee type/role field mapped on roster sheet',
+        impact: isSpanish
+          ? 'El enrutamiento del plan (ej. Certificado vs No Certificado) no funcionara'
+          : 'Plan routing (e.g., Certified vs Non-Certified) will not work',
+      });
+    }
+  }
+
+  // 3. Check each plan component for required metrics
+  if (activePlan?.configuration) {
+    const config = activePlan.configuration as {
+      variants?: Array<{
+        components?: Array<{
+          id?: string;
+          name?: string;
+          type?: string;
+        }>;
+      }>;
+    };
+    const components = config.variants?.[0]?.components || [];
+
+    for (const comp of components) {
+      const compName = comp.name || comp.id || 'Unknown Component';
+
+      // Check if any sheet has attainment, amount, or goal mapped
+      const hasAttainment = mappedFieldTypes.has('attainment');
+      const hasAmount = mappedFieldTypes.has('amount');
+      const hasGoal = mappedFieldTypes.has('goal');
+
+      // Component needs at least attainment OR (amount + goal) to calculate
+      if (!hasAttainment && !(hasAmount && hasGoal)) {
+        issues.push({
+          severity: 'warning',
+          component: compName,
+          field: 'attainment',
+          message: isSpanish
+            ? `Componente "${compName}" no tiene metricas mapeadas`
+            : `Component "${compName}" has no metrics mapped`,
+          impact: isSpanish
+            ? `Este componente calculara como $0 para todos los empleados`
+            : `This component will calculate as $0 for all employees`,
+        });
+        // Only add one warning per component, not per missing field
+        break;
+      }
+    }
+  }
+
+  // 4. INFO: name field for readable results
+  if (!mappedFieldTypes.has('name') && !mappedFieldTypes.has('employeeName') && !mappedFieldTypes.has('fullName')) {
+    issues.push({
+      severity: 'info',
+      field: 'name',
+      message: isSpanish
+        ? 'No se ha mapeado campo de nombre'
+        : 'No name field mapped',
+      impact: isSpanish
+        ? 'Los nombres de empleados mostraran IDs'
+        : 'Employee names will show as IDs',
+    });
+  }
+
+  return issues;
+}
+
 // Spanish to English column name translations
 const COLUMN_TRANSLATIONS: Record<string, string> = {
   // Identifiers
@@ -693,6 +822,9 @@ export default function DataPackageImportPage() {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isValidating, setIsValidating] = useState(false);
 
+  // CLT-08: Critical field validation state
+  const [criticalFieldIssues, setCriticalFieldIssues] = useState<CriticalFieldValidation[]>([]);
+
   // Import state
   const [isImporting, setIsImporting] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -722,6 +854,20 @@ export default function DataPackageImportPage() {
     setActivePlan(active || null);
     setTargetFields(extractTargetFieldsFromPlan(active || null));
   }, [tenantId]);
+
+  // CLT-08: Validate critical fields whenever mappings change
+  useEffect(() => {
+    if (fieldMappings.length > 0 && analysis) {
+      const issues = validateCriticalFields(fieldMappings, analysis, activePlan, isSpanish);
+      setCriticalFieldIssues(issues);
+      console.log(`[Smart Import] Critical field validation: ${issues.length} issues`);
+      issues.forEach(issue => {
+        console.log(`  ${issue.severity.toUpperCase()}: ${issue.message} -> ${issue.impact}`);
+      });
+    } else {
+      setCriticalFieldIssues([]);
+    }
+  }, [fieldMappings, analysis, activePlan, isSpanish]);
 
   // Get mappable sheets (exclude unrelated)
   const mappableSheets = useMemo(() => {
@@ -2484,6 +2630,101 @@ export default function DataPackageImportPage() {
                     {isSpanish ? 'Agregar' : 'Add'}
                   </Button>
                 </div>
+
+                {/* CLT-08: Critical Field Validation Summary */}
+                {criticalFieldIssues.length > 0 && (
+                  <Card className={cn(
+                    'border-2',
+                    criticalFieldIssues.some(i => i.severity === 'error') ? 'border-red-300 bg-red-50' :
+                    criticalFieldIssues.some(i => i.severity === 'warning') ? 'border-amber-300 bg-amber-50' :
+                    'border-blue-300 bg-blue-50'
+                  )}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <AlertTriangle className={cn(
+                          'h-4 w-4',
+                          criticalFieldIssues.some(i => i.severity === 'error') ? 'text-red-600' :
+                          criticalFieldIssues.some(i => i.severity === 'warning') ? 'text-amber-600' :
+                          'text-blue-600'
+                        )} />
+                        {isSpanish ? 'Validacion de Mapeo' : 'Mapping Validation'}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      {/* Errors */}
+                      {criticalFieldIssues.filter(i => i.severity === 'error').length > 0 && (
+                        <div className="space-y-1">
+                          <p className="font-medium text-red-700 flex items-center gap-1">
+                            <XCircle className="h-3 w-3" />
+                            {criticalFieldIssues.filter(i => i.severity === 'error').length} {isSpanish ? 'error(es) - impedira calculo correcto' : 'error(s) - will prevent correct calculation'}
+                          </p>
+                          {criticalFieldIssues.filter(i => i.severity === 'error').map((issue, idx) => (
+                            <p key={idx} className="text-red-600 ml-4">
+                              → {issue.message}
+                              <span className="block text-xs text-red-500 ml-2">{issue.impact}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Warnings */}
+                      {criticalFieldIssues.filter(i => i.severity === 'warning').length > 0 && (
+                        <div className="space-y-1">
+                          <p className="font-medium text-amber-700 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            {criticalFieldIssues.filter(i => i.severity === 'warning').length} {isSpanish ? 'advertencia(s) - algunos componentes seran $0' : 'warning(s) - some components will be $0'}
+                          </p>
+                          {criticalFieldIssues.filter(i => i.severity === 'warning').map((issue, idx) => (
+                            <p key={idx} className="text-amber-600 ml-4">
+                              → {issue.component ? `"${issue.component}": ` : ''}{issue.message}
+                              <span className="block text-xs text-amber-500 ml-2">{issue.impact}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Info */}
+                      {criticalFieldIssues.filter(i => i.severity === 'info').length > 0 && (
+                        <div className="space-y-1">
+                          <p className="font-medium text-blue-700 flex items-center gap-1">
+                            <Info className="h-3 w-3" />
+                            {criticalFieldIssues.filter(i => i.severity === 'info').length} {isSpanish ? 'sugerencia(s)' : 'suggestion(s)'}
+                          </p>
+                          {criticalFieldIssues.filter(i => i.severity === 'info').map((issue, idx) => (
+                            <p key={idx} className="text-blue-600 ml-4">
+                              → {issue.message}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Components status summary */}
+                      {activePlan && (
+                        <div className="pt-2 border-t mt-2">
+                          <p className="text-xs text-muted-foreground">
+                            {isSpanish
+                              ? `Plan activo: ${activePlan.name || 'Sin nombre'}`
+                              : `Active plan: ${activePlan.name || 'Unnamed'}`}
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* All clear message if no issues */}
+                {criticalFieldIssues.length === 0 && fieldMappings.length > 0 && (
+                  <Card className="border-2 border-green-300 bg-green-50">
+                    <CardContent className="py-3 flex items-center gap-2 text-green-700">
+                      <CheckCircle className="h-4 w-4" />
+                      <span className="text-sm font-medium">
+                        {isSpanish
+                          ? 'Todos los campos criticos estan mapeados'
+                          : 'All critical fields are mapped'}
+                      </span>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             </div>
           )}
