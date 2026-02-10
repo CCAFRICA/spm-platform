@@ -15,6 +15,13 @@ import {
   type CalculationContext,
 } from '@/lib/calculation/context-resolver';
 import { loadImportContext, type AIImportContext } from '@/lib/data-architecture/data-layer-service';
+import {
+  buildComponentMetrics,
+  extractMetricConfig,
+  findSheetForComponent,
+  type SheetMetrics,
+} from './metric-resolver';
+import type { PlanComponent } from '@/types/compensation-plan';
 
 // ============================================
 // STORAGE KEYS
@@ -135,6 +142,8 @@ export class CalculationOrchestrator {
   private calculationContext: CalculationContext | null = null;
   private aiImportContext: AIImportContext | null = null;
   private _diagLogged: boolean = false;
+  // OB-21: Plan-driven metric resolution - stores active plan's components
+  private planComponents: PlanComponent[] = [];
 
   constructor(tenantId: string) {
     // OB-16: Normalize tenantId - strip trailing underscores to prevent data mismatch
@@ -188,6 +197,12 @@ export class CalculationOrchestrator {
       // Use the first active plan (or could be selected via config in future)
       const activePlan = activePlans[0];
       console.log(`[Orchestrator] Using active plan: ${activePlan.name} (${activePlan.id})`);
+
+      // OB-21: Extract all plan components for plan-driven metric resolution
+      if (activePlan.configuration.type === 'additive_lookup') {
+        this.planComponents = activePlan.configuration.variants.flatMap(v => v.components);
+        console.log(`[Orchestrator] OB-21: Loaded ${this.planComponents.length} plan components for metric resolution`);
+      }
 
       // Process each employee
       const results: CalculationResult[] = [];
@@ -437,8 +452,13 @@ export class CalculationOrchestrator {
   }
 
   /**
-   * AI-DRIVEN: Extract metrics using AI import context
-   * Uses sheet-to-component mappings and field semantic types from AI analysis
+   * OB-21: PLAN-DRIVEN metric extraction (no hardcoded metric names)
+   *
+   * Uses the plan's own metric names (rowMetric, columnMetric, etc.) and
+   * infers the semantic type (attainment, amount, goal) from pattern analysis.
+   * Works for ANY plan without customer-specific code.
+   *
+   * PRINCIPLE 1: AI-First, Never Hardcoded.
    */
   private extractMetricsWithAIMappings(employee: EmployeeData): Record<string, number> | null {
     const attrs = employee.attributes as Record<string, unknown> | undefined;
@@ -446,120 +466,100 @@ export class CalculationOrchestrator {
 
     const metrics: Record<string, number> = {};
 
-    // AI-DRIVEN: Extract metrics from componentMetrics structure
-    const componentMetrics = attrs.componentMetrics as Record<string, { attainment?: number; amount?: number; goal?: number }> | undefined;
+    // Get componentMetrics from employee (aggregated by sheet name)
+    const componentMetrics = attrs.componentMetrics as Record<string, SheetMetrics> | undefined;
 
-    // DIAG: Log for first employee
-    const isFirstEmployee = employee.id === Object.keys(attrs)[0] || !this._diagLogged;
-    if (isFirstEmployee && !this._diagLogged) {
+    // DIAG: Log for first employee only
+    const isFirstEmployee = !this._diagLogged;
+    if (isFirstEmployee) {
       this._diagLogged = true;
-      console.log('DIAG-ORCH: === ORCHESTRATOR METRIC EXTRACTION ===');
-      console.log('DIAG-ORCH: Employee ID:', employee.id);
-      console.log('DIAG-ORCH: Employee Name:', `${employee.firstName} ${employee.lastName}`);
-      console.log('DIAG-ORCH: componentMetrics present:', !!componentMetrics);
-      if (componentMetrics) {
-        console.log('DIAG-ORCH: componentMetrics sheets:', Object.keys(componentMetrics));
-        for (const [sheet, values] of Object.entries(componentMetrics)) {
-          console.log(`DIAG-ORCH: componentMetrics["${sheet}"] =`, JSON.stringify(values));
-        }
-      }
-      console.log('DIAG-ORCH: AI Import Context sheets:', this.aiImportContext?.sheets?.map(s => ({
-        name: s.sheetName,
-        component: s.matchedComponent
-      })));
+      console.log('DIAG-ORCH: === OB-21 PLAN-DRIVEN METRIC EXTRACTION ===');
+      console.log('DIAG-ORCH: Employee:', employee.id, `${employee.firstName} ${employee.lastName}`);
+      console.log('DIAG-ORCH: Plan components loaded:', this.planComponents.length);
+      console.log('DIAG-ORCH: componentMetrics sheets:', componentMetrics ? Object.keys(componentMetrics) : 'none');
+      console.log('DIAG-ORCH: AI Context sheets:', this.aiImportContext?.sheets?.map(s => `${s.sheetName}→${s.matchedComponent}`));
     }
 
-    if (componentMetrics) {
-      // componentMetrics has: { sheetName: { attainment, amount, goal } }
-      for (const [sheetName, sheetMetrics] of Object.entries(componentMetrics)) {
-        // AI-DRIVEN: Find component name from AI import context
-        const sheetInfo = this.aiImportContext?.sheets.find(
-          s => s.sheetName === sheetName || s.sheetName.toLowerCase() === sheetName.toLowerCase()
+    if (componentMetrics && this.planComponents.length > 0) {
+      // OB-21: Iterate over PLAN COMPONENTS (not sheets)
+      // The plan defines what metric names to use
+      for (const component of this.planComponents) {
+        // 1. Extract the metric config from this plan component
+        const metricConfig = extractMetricConfig(component);
+
+        // 2. Find which sheet feeds this component via AI Import Context
+        const matchedSheet = findSheetForComponent(
+          component.name,
+          component.id,
+          this.aiImportContext?.sheets || []
         );
-        const componentKey = sheetInfo?.matchedComponent || sheetName;
 
-        // CLT-08 FIX: Map to plan's expected metric names based on component type
-        // The plan expects: optical_attainment, store_attainment, etc.
-        // We need to translate componentKey to the plan's metric naming convention
-        const planMetricBase = this.translateToPlanMetricName(componentKey, sheetName);
-
-        // Add metrics with plan-expected names
-        if (sheetMetrics.attainment !== undefined) {
-          metrics[`${planMetricBase}_attainment`] = sheetMetrics.attainment;
-
-          // PHASE 4 FIX: RetailCGMX plan-specific metric aliases
-          // Plan expects store_sales_attainment, collections_attainment, store_goal_attainment
-          if (planMetricBase === 'store') {
-            metrics['store_sales_attainment'] = sheetMetrics.attainment;
-            metrics['store_goal_attainment'] = sheetMetrics.attainment; // For insurance conditional
+        // If no direct match, try to find sheet by matching in componentMetrics keys
+        let sheetMetrics: SheetMetrics | undefined;
+        if (matchedSheet && componentMetrics[matchedSheet]) {
+          sheetMetrics = componentMetrics[matchedSheet];
+        } else {
+          // Fallback: Try to find a sheet that matches component name loosely
+          const compNameNorm = component.name.toLowerCase().replace(/[-\s]/g, '_');
+          for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
+            const sheetNorm = sheetName.toLowerCase().replace(/[-\s]/g, '_');
+            if (sheetNorm.includes(compNameNorm) || compNameNorm.includes(sheetNorm)) {
+              sheetMetrics = sheetData;
+              if (isFirstEmployee) {
+                console.log(`DIAG-ORCH: Component "${component.name}" matched to sheet "${sheetName}" (fallback)`);
+              }
+              break;
+            }
           }
-          if (planMetricBase === 'collection') {
-            metrics['collection_rate'] = sheetMetrics.attainment;
-            metrics['collections_attainment'] = sheetMetrics.attainment;
-          }
-          if (planMetricBase === 'insurance') {
-            metrics['insurance_collection_rate'] = sheetMetrics.attainment;
-          }
-          // Also keep the original keys for debugging
-          metrics[`${componentKey}_attainment`] = sheetMetrics.attainment;
-          metrics[`${sheetName}_attainment`] = sheetMetrics.attainment;
-        }
-        if (sheetMetrics.amount !== undefined) {
-          metrics[`${planMetricBase}_volume`] = sheetMetrics.amount;
-          metrics[`${planMetricBase}_amount`] = sheetMetrics.amount;
-
-          // PHASE 4 FIX: RetailCGMX plan-specific metric aliases
-          // Plan expects store_optical_sales, individual_insurance_sales, individual_warranty_sales
-          if (planMetricBase === 'optical') {
-            metrics['store_optical_sales'] = sheetMetrics.amount;
-          }
-          if (planMetricBase === 'insurance') {
-            metrics['insurance_premium_total'] = sheetMetrics.amount;
-            metrics['individual_insurance_sales'] = sheetMetrics.amount;
-          }
-          if (planMetricBase === 'services') {
-            metrics['services_revenue'] = sheetMetrics.amount;
-            metrics['individual_warranty_sales'] = sheetMetrics.amount;
-          }
-          metrics[`${componentKey}_amount`] = sheetMetrics.amount;
-          metrics[`${sheetName}_amount`] = sheetMetrics.amount;
-        }
-        if (sheetMetrics.goal !== undefined) {
-          metrics[`${planMetricBase}_goal`] = sheetMetrics.goal;
-          metrics[`${componentKey}_goal`] = sheetMetrics.goal;
-          metrics[`${sheetName}_goal`] = sheetMetrics.goal;
         }
 
-        // Calculate attainment if we have amount and goal but no attainment
-        if (sheetMetrics.attainment === undefined && sheetMetrics.amount !== undefined && sheetMetrics.goal && sheetMetrics.goal > 0) {
-          const calculatedAttainment = (sheetMetrics.amount / sheetMetrics.goal) * 100;
-          metrics[`${planMetricBase}_attainment`] = calculatedAttainment;
-
-          // PHASE 4 FIX: RetailCGMX plan-specific aliases for calculated attainment
-          if (planMetricBase === 'store') {
-            metrics['store_sales_attainment'] = calculatedAttainment;
-            metrics['store_goal_attainment'] = calculatedAttainment;
+        if (!sheetMetrics) {
+          if (isFirstEmployee) {
+            console.log(`DIAG-ORCH: No sheet data for component "${component.name}"`);
           }
-          if (planMetricBase === 'collection') {
-            metrics['collection_rate'] = calculatedAttainment;
-            metrics['collections_attainment'] = calculatedAttainment;
-          }
-          if (planMetricBase === 'insurance') {
-            metrics['insurance_collection_rate'] = calculatedAttainment;
-          }
-          metrics[`${componentKey}_attainment`] = calculatedAttainment;
-          metrics[`${sheetName}_attainment`] = calculatedAttainment;
+          continue;
         }
 
-        // DIAG: Log what metrics we created for first employee
+        // Calculate attainment if missing but amount and goal exist
+        const enrichedMetrics: SheetMetrics = { ...sheetMetrics };
+        if (enrichedMetrics.attainment === undefined &&
+            enrichedMetrics.amount !== undefined &&
+            enrichedMetrics.goal && enrichedMetrics.goal > 0) {
+          enrichedMetrics.attainment = (enrichedMetrics.amount / enrichedMetrics.goal) * 100;
+        }
+
+        // 3. Build metrics using plan's own metric names
+        const componentMetricsResolved = buildComponentMetrics(metricConfig, enrichedMetrics);
+
         if (isFirstEmployee) {
-          console.log(`DIAG-ORCH: Sheet "${sheetName}" -> componentKey="${componentKey}" -> planMetricBase="${planMetricBase}"`);
-          console.log(`DIAG-ORCH:   Created metrics: ${planMetricBase}_attainment, ${planMetricBase}_volume, etc.`);
+          console.log(`DIAG-ORCH: Component "${component.name}" -> config:`, JSON.stringify(metricConfig));
+          console.log(`DIAG-ORCH:   Sheet data:`, JSON.stringify(enrichedMetrics));
+          console.log(`DIAG-ORCH:   Resolved:`, JSON.stringify(componentMetricsResolved));
+        }
+
+        // 4. Merge into employee's metrics
+        Object.assign(metrics, componentMetricsResolved);
+      }
+    }
+
+    // FALLBACK: If plan-driven resolution found nothing, try sheet-based approach
+    if (Object.keys(metrics).length === 0 && componentMetrics) {
+      // Just use sheet names as metric prefixes (generic fallback)
+      for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
+        const prefix = sheetName.toLowerCase().replace(/[-\s]/g, '_');
+        if (sheetData.attainment !== undefined) {
+          metrics[`${prefix}_attainment`] = sheetData.attainment;
+        }
+        if (sheetData.amount !== undefined) {
+          metrics[`${prefix}_amount`] = sheetData.amount;
+        }
+        if (sheetData.goal !== undefined) {
+          metrics[`${prefix}_goal`] = sheetData.goal;
         }
       }
     }
 
-    // Fallback: Extract from flat numeric attributes (backward compatibility)
+    // FALLBACK: Extract from flat numeric attributes (backward compatibility)
     if (Object.keys(metrics).length === 0) {
       for (const [key, value] of Object.entries(attrs)) {
         if (key.startsWith('_') || key === 'componentMetrics') continue;
@@ -858,87 +858,6 @@ export class CalculationOrchestrator {
       console.error('[Orchestrator] Failed to parse aggregated data:', error);
       return [];
     }
-  }
-
-  /**
-   * CLT-08 FIX: Translate component/sheet name to plan's expected metric prefix
-   *
-   * The plan expects metric names like: optical_attainment, store_attainment, etc.
-   * The import creates metrics by sheet name: Base_Venta_Individual, etc.
-   *
-   * This mapping bridges the gap.
-   */
-  private translateToPlanMetricName(componentKey: string, sheetName: string): string {
-    const key = componentKey.toLowerCase().replace(/[-\s]/g, '_');
-    const sheet = sheetName.toLowerCase().replace(/[-\s]/g, '_');
-
-    // Mapping from AI import component/sheet names to plan metric prefixes
-    const PLAN_METRIC_MAP: Record<string, string> = {
-      // Component-based mappings (from AI matchedComponent)
-      'venta_optica': 'optical',
-      'venta_optica_certificado': 'optical',
-      'venta_optica_no_certificado': 'optical',
-      'optical_sales': 'optical',
-      'venta_individual': 'optical',
-      'venta_tienda': 'store',
-      'store_sales': 'store',
-      'store_performance': 'store',
-      'clientes_nuevos': 'new_customers',
-      'new_customers': 'new_customers',
-      'cobranza': 'collection',
-      'cobranza_tienda': 'collection',  // CLT-08 FIX: Added missing entry
-      'collections': 'collection',
-      'seguros': 'insurance',
-      'venta_seguros': 'insurance',
-      'insurance': 'insurance',
-      'club_proteccion': 'insurance',
-      'servicios': 'services',
-      'venta_servicios': 'services',
-      'services': 'services',
-      'garantia_extendida': 'services',
-
-      // Sheet-based mappings (when component match fails)
-      'base_venta_individual': 'optical',
-      'base_venta_tienda': 'store',
-      'base_clientes_nuevos': 'new_customers',
-      'base_cobranza': 'collection',
-      'base_cobranza_tienda': 'collection',
-      'base_club_proteccion': 'insurance',
-      'base_garantia_extendida': 'services',
-    };
-
-    // Try exact match on componentKey
-    if (PLAN_METRIC_MAP[key]) {
-      return PLAN_METRIC_MAP[key];
-    }
-
-    // Try exact match on sheetName
-    if (PLAN_METRIC_MAP[sheet]) {
-      return PLAN_METRIC_MAP[sheet];
-    }
-
-    // CLT-08 FIX: Fuzzy substring matching as fallback
-    const SUBSTRING_MAP: [string, string][] = [
-      ['optica', 'optical'],
-      ['venta_individual', 'optical'],
-      ['tienda', 'store'],
-      ['cliente', 'new_customers'],
-      ['cobranza', 'collection'],
-      ['seguro', 'insurance'],
-      ['proteccion', 'insurance'],
-      ['servicio', 'services'],
-      ['garantia', 'services'],
-    ];
-
-    for (const [substr, metric] of SUBSTRING_MAP) {
-      if (key.includes(substr) || sheet.includes(substr)) {
-        return metric;
-      }
-    }
-
-    // Last resort: return the componentKey as-is
-    console.warn(`DIAG-ORCH: No translation found for componentKey="${key}", sheet="${sheet}"`);
-    return key;
   }
 
   /**
