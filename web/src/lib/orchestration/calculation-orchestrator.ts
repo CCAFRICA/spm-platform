@@ -188,52 +188,13 @@ export class CalculationOrchestrator {
       const results: CalculationResult[] = [];
       const errors: Array<{ employeeId: string; error: string }> = [];
 
-      // CLT-08 DIAGNOSTIC: Log plan components
-      const planConfig = activePlan.configuration as { variants?: Array<{ components?: Array<{ id?: string; name?: string }> }> } | undefined;
-      const planComponents = planConfig?.variants?.[0]?.components || [];
-      console.log('CLT-DIAG: === PLAN COMPONENTS ===');
-      console.log('CLT-DIAG: Active plan:', activePlan.name, 'ID:', activePlan.id);
-      console.log('CLT-DIAG: Component count:', planComponents.length);
-      for (const comp of planComponents) {
-        console.log(`CLT-DIAG: Component: name="${comp.name}", id="${comp.id}"`);
-      }
-
-      let diagEmployeeCount = 0;
       for (const employee of employees) {
-        // CLT-08 DIAGNOSTIC: Trace first 3 employees
-        if (diagEmployeeCount < 3) {
-          console.log(`CLT-DIAG: === EMPLOYEE ${diagEmployeeCount} ===`);
-          console.log('CLT-DIAG: ID:', employee.id);
-          console.log('CLT-DIAG: Name:', employee.firstName, employee.lastName);
-          console.log('CLT-DIAG: Role:', employee.role);
-          console.log('CLT-DIAG: StoreId:', employee.storeId);
-          console.log('CLT-DIAG: Attributes keys:', Object.keys(employee.attributes || {}));
-          const empCM = (employee.attributes as Record<string, unknown>)?.componentMetrics;
-          if (empCM) {
-            console.log('CLT-DIAG: componentMetrics found, sheets:', Object.keys(empCM as object));
-            for (const [sheetName, metrics] of Object.entries(empCM as object)) {
-              console.log(`CLT-DIAG: componentMetrics["${sheetName}"] =`, JSON.stringify(metrics));
-            }
-          } else {
-            console.log('CLT-DIAG: NO componentMetrics in employee.attributes');
-            console.log('CLT-DIAG: Full attributes:', JSON.stringify(employee.attributes).substring(0, 1000));
-          }
-        }
-        diagEmployeeCount++;
-
         try {
           // FIXED: Pass the active plan ID to avoid role-based lookup failures
           const result = await this.calculateForEmployee(employee, config.periodId, activePlan.id);
           if (result) {
             results.push(result);
             run.successCount++;
-            // CLT-08 DIAGNOSTIC: Log first 3 results
-            if (results.length <= 3) {
-              console.log(`CLT-DIAG: Result for ${employee.id}: totalIncentive=${result.totalIncentive}`);
-              for (const comp of result.components || []) {
-                console.log(`CLT-DIAG:   Component "${comp.componentName}": output=${comp.outputValue}, attainment=${comp.inputs?.attainment}`);
-              }
-            }
           }
         } catch (error) {
           errors.push({

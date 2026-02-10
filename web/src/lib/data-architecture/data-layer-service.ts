@@ -406,31 +406,8 @@ function storeAggregatedData(
     return hasStoreId && !hasEmployeeId;
   };
 
-  // CLT-08 DIAGNOSTIC: Track first sheet for detailed logging
-  let diagSheetCount = 0;
-  const diagSeenSheets = new Set<string>();
-
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
-
-    // CLT-08 DIAGNOSTIC: Log AI field lookups for first occurrence of each sheet
-    if (!diagSeenSheets.has(sheetName)) {
-      diagSeenSheets.add(sheetName);
-      diagSheetCount++;
-      if (diagSheetCount <= 6) {
-        console.log(`CLT-DIAG: === SHEET "${sheetName}" FIELD RESOLUTION ===`);
-        const sheetInfo = aiContext?.sheets.find(s => s.sheetName === sheetName || s.sheetName.toLowerCase() === sheetName.toLowerCase());
-        if (sheetInfo) {
-          console.log(`CLT-DIAG: AI has fieldMappings:`, sheetInfo.fieldMappings?.length || 0);
-          for (const fm of sheetInfo.fieldMappings || []) {
-            console.log(`CLT-DIAG:   "${fm.sourceColumn}" -> semanticType="${fm.semanticType}"`);
-          }
-        } else {
-          console.log(`CLT-DIAG: NO AI sheet info found for "${sheetName}"`);
-          console.log(`CLT-DIAG: Available sheets in AI context:`, aiContext?.sheets.map(s => s.sheetName));
-        }
-      }
-    }
 
     // AI-DRIVEN: Get ID fields using ONLY AI mappings (NO HARDCODED FALLBACKS)
     const empIdField = getSheetFieldBySemantic(sheetName, ['employeeId', 'employee_id']);
@@ -438,13 +415,6 @@ function storeAggregatedData(
     const attainmentField = getSheetFieldBySemantic(sheetName, ['attainment', 'achievement', 'performance']);
     const amountField = getSheetFieldBySemantic(sheetName, ['amount', 'value', 'actual', 'sales']);
     const goalField = getSheetFieldBySemantic(sheetName, ['goal', 'target', 'quota']);
-
-    // CLT-08 DIAGNOSTIC: Log resolved field names for first sheets
-    if (diagSheetCount <= 6 && diagSeenSheets.size <= diagSheetCount) {
-      console.log(`CLT-DIAG: Sheet "${sheetName}" resolved fields:`);
-      console.log(`CLT-DIAG:   empIdField="${empIdField}", storeIdField="${storeIdField}"`);
-      console.log(`CLT-DIAG:   attainmentField="${attainmentField}", amountField="${amountField}", goalField="${goalField}"`);
-    }
 
     // Skip sheet if no AI mappings found
     if (!empIdField && !storeIdField) {
