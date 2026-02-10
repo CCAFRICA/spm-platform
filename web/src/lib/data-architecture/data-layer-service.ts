@@ -267,6 +267,23 @@ function storeAggregatedData(
 ): { employeeCount: number; sizeKB: number } {
   if (typeof window === 'undefined') return { employeeCount: 0, sizeKB: 0 };
 
+  // DIAGNOSTIC Phase 1 — trace data structure
+  console.log('=== DIAGNOSTIC: AGGREGATION INPUT ===');
+  console.log(`Total records received: ${records.length}`);
+  const sheetGroups = new Map<string, number>();
+  for (const r of records) {
+    const sheet = String(r.content?._sheetName || 'UNKNOWN');
+    sheetGroups.set(sheet, (sheetGroups.get(sheet) || 0) + 1);
+  }
+  console.log('Records per sheet:', Object.fromEntries(sheetGroups));
+  for (const [sheet] of Array.from(sheetGroups.entries()).slice(0, 5)) {
+    const sample = records.find(r => String(r.content?._sheetName) === sheet);
+    if (sample) {
+      console.log(`Sample from "${sheet}":`, JSON.stringify(sample.content).substring(0, 500));
+    }
+  }
+  console.log('=== END DIAGNOSTIC ===');
+
   console.log(`[DataLayer] Roster-first aggregation from ${records.length} committed records...`);
 
   // STEP 1: Separate records by sheet type using _sheetName metadata
