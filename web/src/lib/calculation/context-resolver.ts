@@ -6,6 +6,8 @@
  * - Metric data from committed records
  * - Period configuration
  * - Data-to-component mappings
+ *
+ * AI-DRIVEN: Uses AI import context for field resolution - NO HARDCODED FIELD NAMES
  */
 
 import type { EmployeeMetrics } from '@/lib/compensation/calculation-engine';
@@ -17,6 +19,7 @@ import {
   getAvailableSourceFields,
 } from './data-component-mapper';
 import { getPlans } from '@/lib/compensation/plan-storage';
+import { loadImportContext, type AIImportContext } from '@/lib/data-architecture/data-layer-service';
 
 // ============================================
 // TYPES
@@ -231,11 +234,69 @@ function getEmployees(tenantId: string): EmployeeContext[] {
 }
 
 /**
- * Extract employee records from committed import data
- * Looks for roster sheets (Datos Colaborador) in the committed data
+ * AI-DRIVEN: Find a source field name by its semantic type using AI import context.
+ * Returns the original column name from the data, or null if not found.
+ * This is the ONLY way to resolve field names - never hardcode column names.
+ */
+function findFieldBySemantic(
+  aiContext: AIImportContext | null,
+  sheetName: string,
+  ...semanticTypes: string[]
+): string | null {
+  if (!aiContext?.sheets) return null;
+
+  const sheetInfo = aiContext.sheets.find(
+    s => s.sheetName === sheetName || s.sheetName.toLowerCase() === sheetName.toLowerCase()
+  );
+  if (!sheetInfo?.fieldMappings) return null;
+
+  for (const semanticType of semanticTypes) {
+    const mapping = sheetInfo.fieldMappings.find(
+      fm => fm.semanticType.toLowerCase() === semanticType.toLowerCase()
+    );
+    if (mapping) return mapping.sourceColumn;
+  }
+
+  return null;
+}
+
+/**
+ * AI-DRIVEN: Extract value from content using AI semantic mapping (NO HARDCODED FALLBACKS)
+ */
+function extractFieldValue(
+  aiContext: AIImportContext | null,
+  content: Record<string, unknown>,
+  sheetName: string,
+  semanticTypes: string[]
+): string {
+  const fieldName = findFieldBySemantic(aiContext, sheetName, ...semanticTypes);
+  if (fieldName && content[fieldName] !== undefined && content[fieldName] !== null) {
+    return String(content[fieldName]).trim();
+  }
+  return '';
+}
+
+/**
+ * AI-DRIVEN: Extract employee records from committed import data
+ * Uses ONLY AI semantic mappings - NO HARDCODED FIELD NAMES
  */
 function extractEmployeesFromCommittedData(tenantId: string): EmployeeContext[] {
   if (typeof window === 'undefined') return [];
+
+  // AI-DRIVEN: Load AI import context
+  const aiContext = loadImportContext(tenantId);
+  if (!aiContext) {
+    console.warn('[ContextResolver] NO AI IMPORT CONTEXT - cannot extract employees. Re-import data to generate mappings.');
+    return [];
+  }
+
+  // AI-DRIVEN: Get roster sheet from AI context
+  const rosterSheet = aiContext.rosterSheet;
+  if (!rosterSheet) {
+    console.warn('[ContextResolver] NO ROSTER SHEET IDENTIFIED in AI context - cannot extract employees.');
+    return [];
+  }
+  console.log(`[ContextResolver] AI identified roster sheet: "${rosterSheet}"`);
 
   const employees: EmployeeContext[] = [];
   const seenIds = new Set<string>();
@@ -278,48 +339,39 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeContext[] 
         continue;
       }
 
-      // Check if this record looks like an employee roster entry
       const content = record.content;
-      const employeeId = extractEmployeeId(content);
+      const sheetName = String(content._sheetName || '');
 
-      if (!employeeId || seenIds.has(employeeId)) continue;
+      // AI-DRIVEN: Only process roster sheet records
+      if (sheetName.toLowerCase() !== rosterSheet.toLowerCase()) {
+        continue;
+      }
 
-      // Check for employee-like fields (name, role, store, etc.)
-      const hasNameField = content['nombre'] || content['name'] ||
-        content['first_name'] || content['firstName'] ||
-        content['nombre_completo'] || content['Nombre'];
+      // AI-DRIVEN: Extract employee ID using semantic mapping
+      const employeeId = extractFieldValue(aiContext, content, sheetName, ['employeeId', 'employee_id']);
 
-      if (!hasNameField) continue;
-
+      if (!employeeId || employeeId.length < 3 || seenIds.has(employeeId)) continue;
       seenIds.add(employeeId);
 
-      // Extract employee context from record
-      const firstName = String(content['nombre'] || content['first_name'] ||
-        content['firstName'] || content['nombre_completo'] || content['Nombre'] || '').split(' ')[0];
-      const lastName = String(content['apellido'] || content['apellido_paterno'] ||
-        content['last_name'] || content['lastName'] || '').trim() ||
-        String(content['nombre'] || content['nombre_completo'] || content['Nombre'] || '').split(' ').slice(1).join(' ');
+      // AI-DRIVEN: Extract all fields using semantic mappings
+      const fullName = extractFieldValue(aiContext, content, sheetName, ['name', 'employeeName', 'fullName']);
+      const firstName = fullName.split(' ')[0] || 'Unknown';
+      const lastName = fullName.split(' ').slice(1).join(' ') || 'Employee';
 
       employees.push({
-        id: employeeId,
+        id: employeeId.toLowerCase().replace(/\s+/g, '-'),
         tenantId,
-        employeeNumber: String(content['num_empleado'] || content['Num_Empleado'] ||
-          content['employee_number'] || content['employeeNumber'] || employeeId),
-        firstName: firstName || 'Unknown',
-        lastName: lastName || 'Employee',
-        email: String(content['email'] || content['correo'] || ''),
-        role: String(content['puesto'] || content['Puesto'] || content['role'] ||
-          content['position'] || content['cargo'] || 'sales_rep'),
-        department: String(content['departamento'] || content['department'] || ''),
-        storeId: String(content['no_tienda'] || content['No_Tienda'] ||
-          content['store_id'] || content['storeId'] || content['tienda'] || ''),
-        storeName: String(content['nombre_tienda'] || content['store_name'] ||
-          content['storeName'] || ''),
-        managerId: String(content['manager_id'] || content['id_gerente'] || ''),
-        hireDate: String(content['fecha_ingreso'] || content['hire_date'] || ''),
+        employeeNumber: employeeId,
+        firstName,
+        lastName,
+        email: extractFieldValue(aiContext, content, sheetName, ['email']),
+        role: extractFieldValue(aiContext, content, sheetName, ['role', 'position', 'employeeType', 'jobTitle']) || 'sales_rep',
+        department: extractFieldValue(aiContext, content, sheetName, ['department']),
+        storeId: extractFieldValue(aiContext, content, sheetName, ['storeId', 'locationId', 'store']),
+        storeName: extractFieldValue(aiContext, content, sheetName, ['storeName', 'locationName']),
+        managerId: extractFieldValue(aiContext, content, sheetName, ['managerId']),
+        hireDate: extractFieldValue(aiContext, content, sheetName, ['hireDate', 'startDate']),
         status: 'active' as const,
-        isCertified: Boolean(content['certificado'] || content['certified'] ||
-          content['es_certificado'] || false),
       });
     }
   } catch {
@@ -330,7 +382,8 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeContext[] 
 }
 
 /**
- * Get committed data organized by employee
+ * AI-DRIVEN: Get committed data organized by employee
+ * Uses AI semantic mappings for field resolution
  */
 function getCommittedDataByEmployee(
   tenantId: string,
@@ -339,6 +392,13 @@ function getCommittedDataByEmployee(
   const result = new Map<string, Record<string, unknown>[]>();
 
   if (typeof window === 'undefined') return result;
+
+  // AI-DRIVEN: Load AI import context
+  const aiContext = loadImportContext(tenantId);
+  if (!aiContext) {
+    console.warn('[ContextResolver] NO AI IMPORT CONTEXT for getCommittedDataByEmployee');
+    return result;
+  }
 
   // Get tenant batch IDs
   const batchesStored = localStorage.getItem(STORAGE_KEYS.BATCHES);
@@ -376,20 +436,24 @@ function getCommittedDataByEmployee(
         continue;
       }
 
-      // Extract employee identifier from content
-      const employeeId = extractEmployeeId(record.content);
+      const content = record.content;
+      const sheetName = String(content._sheetName || '');
+
+      // AI-DRIVEN: Extract employee ID using semantic mapping
+      const employeeId = extractFieldValue(aiContext, content, sheetName, ['employeeId', 'employee_id']);
       if (!employeeId) continue;
 
-      // Check if record matches period (if period info is in content)
-      const recordPeriod = extractPeriod(record.content);
+      // AI-DRIVEN: Check if record matches period using semantic mapping
+      const recordPeriod = extractFieldValue(aiContext, content, sheetName, ['period', 'month']);
       if (recordPeriod && !periodMatches(recordPeriod, periodId)) {
         continue;
       }
 
-      if (!result.has(employeeId)) {
-        result.set(employeeId, []);
+      const normalizedId = employeeId.toLowerCase().replace(/\s+/g, '-');
+      if (!result.has(normalizedId)) {
+        result.set(normalizedId, []);
       }
-      result.get(employeeId)!.push(record.content);
+      result.get(normalizedId)!.push(content);
     }
   } catch {
     return result;
@@ -467,77 +531,8 @@ function resolveMappingsForEmployees(
 // HELPER FUNCTIONS
 // ============================================
 
-/**
- * Extract employee ID from record content
- */
-function extractEmployeeId(content: Record<string, unknown>): string | null {
-  // Try common employee ID fields (including Spanish variants)
-  const idFields = [
-    'num_empleado',        // RetailCGMX primary key
-    'Num_Empleado',        // Case variant
-    'employee_id',
-    'employeeId',
-    'emp_id',
-    'empId',
-    'id',
-    'employee_number',
-    'employeeNumber',
-    'emp_num',
-    'numero_empleado',
-    'id_empleado',
-    'No_Empleado',
-  ];
-
-  for (const field of idFields) {
-    const value = content[field];
-    if (value !== undefined && value !== null) {
-      return String(value).toLowerCase().replace(/\s+/g, '-');
-    }
-  }
-
-  // Try to construct from name
-  const firstName =
-    content['first_name'] ||
-    content['firstName'] ||
-    content['nombre'] ||
-    content['primer_nombre'];
-  const lastName =
-    content['last_name'] ||
-    content['lastName'] ||
-    content['apellido'] ||
-    content['apellido_paterno'];
-
-  if (firstName && lastName) {
-    return `${String(firstName).toLowerCase()}-${String(lastName).toLowerCase()}`;
-  }
-
-  return null;
-}
-
-/**
- * Extract period from record content
- */
-function extractPeriod(content: Record<string, unknown>): string | null {
-  const periodFields = [
-    'period',
-    'periodo',
-    'period_id',
-    'periodId',
-    'pay_period',
-    'payPeriod',
-    'month',
-    'mes',
-  ];
-
-  for (const field of periodFields) {
-    const value = content[field];
-    if (value !== undefined && value !== null) {
-      return String(value);
-    }
-  }
-
-  return null;
-}
+// NOTE: extractEmployeeId and extractPeriod with hardcoded field names have been REMOVED
+// Use extractFieldValue() with AI semantic mappings instead
 
 /**
  * Check if record period matches target period
