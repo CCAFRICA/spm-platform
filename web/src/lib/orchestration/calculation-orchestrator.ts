@@ -180,13 +180,18 @@ export class CalculationOrchestrator {
         throw new Error('No active compensation plans found');
       }
 
+      // Use the first active plan (or could be selected via config in future)
+      const activePlan = activePlans[0];
+      console.log(`[Orchestrator] Using active plan: ${activePlan.name} (${activePlan.id})`);
+
       // Process each employee
       const results: CalculationResult[] = [];
       const errors: Array<{ employeeId: string; error: string }> = [];
 
       for (const employee of employees) {
         try {
-          const result = await this.calculateForEmployee(employee, config.periodId);
+          // FIXED: Pass the active plan ID to avoid role-based lookup failures
+          const result = await this.calculateForEmployee(employee, config.periodId, activePlan.id);
           if (result) {
             results.push(result);
             run.successCount++;
@@ -258,10 +263,12 @@ export class CalculationOrchestrator {
 
   /**
    * Calculate incentive for a single employee
+   * FIXED: Accept planId to use loaded plan instead of role-based lookup
    */
   private async calculateForEmployee(
     employee: EmployeeData,
-    periodId: string
+    periodId: string,
+    planId: string
   ): Promise<CalculationResult | null> {
     // Get metrics for this employee/period
     const metrics = this.getEmployeeMetrics(employee, periodId);
@@ -270,8 +277,8 @@ export class CalculationOrchestrator {
       throw new Error(`No metrics found for employee ${employee.id} in period ${periodId}`);
     }
 
-    // Execute calculation
-    const result = calculateIncentive(metrics, this.tenantId);
+    // Execute calculation with explicit plan ID (bypasses role-based lookup)
+    const result = calculateIncentive(metrics, this.tenantId, planId);
 
     return result;
   }
