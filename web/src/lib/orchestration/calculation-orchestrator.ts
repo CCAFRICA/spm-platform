@@ -306,14 +306,15 @@ export class CalculationOrchestrator {
   /**
    * Get employees for a calculation run
    * OB-22: Added period filtering to only process employees for selected period
+   * HOTFIX: periodId is a hash, not a date — look up period metadata to get year/month
    */
   private getEmployeesForRun(config: CalculationRunConfig): EmployeeData[] {
     const allEmployees = this.getEmployees();
 
-    // OB-22: Parse the selected period (format: "2024-01")
-    const [selectedYear, selectedMonth] = config.periodId.split('-').map(Number);
+    // HOTFIX: Look up period from storage to get actual year/month
+    const { selectedYear, selectedMonth } = this.resolvePeriodYearMonth(config.periodId, config.tenantId);
 
-    console.log(`[Orchestrator] OB-22: Filtering employees for period ${config.periodId} (year=${selectedYear}, month=${selectedMonth})`);
+    console.log(`[Orchestrator] Period filter: ${config.periodId} -> year=${selectedYear}, month=${selectedMonth}`);
     console.log(`[Orchestrator] Total employees before period filter: ${allEmployees.length}`);
 
     const filtered = allEmployees.filter((emp) => {
@@ -323,13 +324,16 @@ export class CalculationOrchestrator {
       }
 
       // OB-22: Filter by period - match against employee's month/year attributes
-      const attrs = emp.attributes as Record<string, unknown> | undefined;
-      if (attrs?.month !== undefined && attrs?.year !== undefined) {
-        const empYear = Number(attrs.year);
-        const empMonth = this.parseMonthToNumber(String(attrs.month));
+      // HOTFIX: Skip period filtering if we couldn't resolve period year/month
+      if (!isNaN(selectedYear) && !isNaN(selectedMonth)) {
+        const attrs = emp.attributes as Record<string, unknown> | undefined;
+        if (attrs?.month !== undefined && attrs?.year !== undefined) {
+          const empYear = Number(attrs.year);
+          const empMonth = this.parseMonthToNumber(String(attrs.month));
 
-        if (empYear !== selectedYear || empMonth !== selectedMonth) {
-          return false;
+          if (empYear !== selectedYear || empMonth !== selectedMonth) {
+            return false;
+          }
         }
       }
 
@@ -401,6 +405,85 @@ export class CalculationOrchestrator {
 
     console.warn(`[Orchestrator] Could not parse month: "${month}"`);
     return 0;
+  }
+
+  /**
+   * HOTFIX: Resolve period year/month from period ID
+   * periodId is a hash like "period-177068616..." — need to look up actual period metadata
+   */
+  private resolvePeriodYearMonth(periodId: string, tenantId: string): { selectedYear: number; selectedMonth: number } {
+    // Try to look up period from storage
+    try {
+      // Try tenant-specific periods first
+      const tenantPeriodsKey = `clearcomp_periods_${tenantId}`;
+      const tenantPeriodsData = localStorage.getItem(tenantPeriodsKey);
+      if (tenantPeriodsData) {
+        const periods = JSON.parse(tenantPeriodsData) as Array<{ id: string; startDate?: string; name?: string }>;
+        const period = periods.find(p => p.id === periodId);
+        if (period?.startDate) {
+          const date = new Date(period.startDate);
+          return { selectedYear: date.getFullYear(), selectedMonth: date.getMonth() + 1 };
+        }
+        // Try parsing from name (e.g., "January 2024")
+        if (period?.name) {
+          const parsed = this.parseYearMonthFromLabel(period.name);
+          if (parsed) return parsed;
+        }
+      }
+
+      // Try global periods storage
+      const globalPeriodsKey = 'clearcomp_payroll_periods';
+      const globalPeriodsData = localStorage.getItem(globalPeriodsKey);
+      if (globalPeriodsData) {
+        const periods = JSON.parse(globalPeriodsData) as Array<{ id: string; startDate?: string; name?: string }>;
+        const period = periods.find(p => p.id === periodId);
+        if (period?.startDate) {
+          const date = new Date(period.startDate);
+          return { selectedYear: date.getFullYear(), selectedMonth: date.getMonth() + 1 };
+        }
+        if (period?.name) {
+          const parsed = this.parseYearMonthFromLabel(period.name);
+          if (parsed) return parsed;
+        }
+      }
+
+      // Try parsing periodId itself (legacy format "2024-01")
+      if (periodId.match(/^\d{4}-\d{2}$/)) {
+        const [year, month] = periodId.split('-').map(Number);
+        return { selectedYear: year, selectedMonth: month };
+      }
+
+    } catch (e) {
+      console.warn(`[Orchestrator] Failed to resolve period metadata:`, e);
+    }
+
+    // SAFE FALLBACK: Cannot determine period — skip period filtering
+    console.warn(`[Orchestrator] HOTFIX: Cannot resolve period ${periodId} — skipping period filter`);
+    return { selectedYear: NaN, selectedMonth: NaN };
+  }
+
+  /**
+   * Parse year/month from a period label like "January 2024" or "Enero 2024 (draft)"
+   */
+  private parseYearMonthFromLabel(label: string): { selectedYear: number; selectedMonth: number } | null {
+    const monthNames: Record<string, number> = {
+      'january': 1, 'february': 2, 'march': 3, 'april': 4,
+      'may': 5, 'june': 6, 'july': 7, 'august': 8,
+      'september': 9, 'october': 10, 'november': 11, 'december': 12,
+      'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
+      'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
+      'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
+    };
+
+    const match = label.toLowerCase().match(/(\w+)\s+(\d{4})/);
+    if (match) {
+      const monthNum = monthNames[match[1]];
+      const year = parseInt(match[2], 10);
+      if (monthNum && !isNaN(year)) {
+        return { selectedYear: year, selectedMonth: monthNum };
+      }
+    }
+    return null;
   }
 
   /**
