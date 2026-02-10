@@ -186,6 +186,12 @@ interface WorkbookAnalysis {
 }
 
 // Field mapping for each sheet
+// CLT-08 FIX: Three-tier auto-confirmation system
+// - Tier 1 (auto): ≥85% confidence, pre-selected and confirmed
+// - Tier 2 (suggested): 60-84% confidence, pre-selected but needs review
+// - Tier 3 (unresolved): <60% confidence, requires human selection
+type MappingTier = 'auto' | 'suggested' | 'unresolved';
+
 interface SheetFieldMapping {
   sheetName: string;
   mappings: Array<{
@@ -194,6 +200,7 @@ interface SheetFieldMapping {
     confidence: number;
     confirmed: boolean;
     isRequired: boolean;
+    tier: MappingTier;  // CLT-08: Track which tier this mapping is in
   }>;
   isComplete: boolean;
 }
@@ -824,8 +831,14 @@ export default function DataPackageImportPage() {
         });
         setAnalysisConfidence(data.confidence || 0);
 
-        // Initialize field mappings from AI suggestions with auto-selection for high confidence
+        // CLT-08 FIX: Three-tier auto-confirmation of AI mappings
+        // Tier 1 (auto): ≥85% — pre-selected and confirmed, no user action needed
+        // Tier 2 (suggested): 60-84% — pre-selected but flagged for review
+        // Tier 3 (unresolved): <60% — requires human selection
         console.log('[Field Mapping] Target fields available:', targetFields.length, targetFields.map(f => f.id));
+
+        let tier1Count = 0, tier2Count = 0, tier3Count = 0;
+
         const mappings: SheetFieldMapping[] = analyzedSheets
           .filter((sheet: AnalyzedSheet) => sheet.classification !== 'unrelated')
           .map((sheet: AnalyzedSheet) => {
@@ -838,10 +851,6 @@ export default function DataPackageImportPage() {
                 m => m?.sourceColumn && headerNorm && m.sourceColumn.toLowerCase().trim() === headerNorm
               );
               const confidence = suggestion?.confidence || 0;
-              // Auto-confirm if confidence >= 85% (high confidence, per OB-12)
-              // Pre-populate dropdown if confidence >= 70% (suggested)
-              const autoConfirmed = confidence >= 85;
-              const showSuggestion = confidence >= 70;
 
               // Normalize AI suggestion to a valid dropdown option ID
               const normalizedTargetField = normalizeAISuggestionToFieldId(
@@ -849,21 +858,45 @@ export default function DataPackageImportPage() {
                 targetFields
               );
 
-              // Use normalized field if confidence is high enough to show suggestion
-              const effectiveTargetField = showSuggestion ? normalizedTargetField : null;
+              // CLT-08: Determine tier based on confidence AND whether AI provided a valid mapping
+              let tier: MappingTier;
+              let effectiveTargetField: string | null;
+              let confirmed: boolean;
+
+              if (normalizedTargetField && confidence >= 85) {
+                // Tier 1: Auto-confirmed — high confidence, pre-selected
+                tier = 'auto';
+                effectiveTargetField = normalizedTargetField;
+                confirmed = true;
+                tier1Count++;
+              } else if (normalizedTargetField && confidence >= 60) {
+                // Tier 2: Suggested — medium confidence, pre-selected but needs review
+                tier = 'suggested';
+                effectiveTargetField = normalizedTargetField;
+                confirmed = false;
+                tier2Count++;
+              } else {
+                // Tier 3: Unresolved — low confidence or no AI mapping, requires human
+                tier = 'unresolved';
+                effectiveTargetField = null;
+                confirmed = false;
+                tier3Count++;
+              }
+
               const isRequired = targetFields.find(f => f.id === effectiveTargetField)?.isRequired || false;
 
-              // Debug logging
-              if (confidence >= 70) {
-                console.log(`[Field Mapping] ${header}: AI suggested "${suggestion?.targetField}" (${confidence}%) -> normalized to "${normalizedTargetField}" -> effective: "${effectiveTargetField}"`);
+              // Debug logging for all tiers
+              if (tier !== 'unresolved') {
+                console.log(`[Field Mapping] ${header}: "${suggestion?.targetField}" (${confidence}%) -> ${tier.toUpperCase()} -> "${effectiveTargetField}"`);
               }
 
               return {
                 sourceColumn: header,
                 targetField: effectiveTargetField,
                 confidence,
-                confirmed: autoConfirmed && !!effectiveTargetField,
+                confirmed,
                 isRequired,
+                tier,
               };
             });
 
@@ -878,6 +911,13 @@ export default function DataPackageImportPage() {
               isComplete: hasRequiredMappings,
             };
           });
+
+        // CLT-08: Log tier summary for zero-touch verification
+        console.log(`[Smart Import] Three-tier summary:`);
+        console.log(`  Tier 1 (auto-confirmed, ≥85%): ${tier1Count} fields`);
+        console.log(`  Tier 2 (suggested, 60-84%): ${tier2Count} fields`);
+        console.log(`  Tier 3 (unresolved, <60%): ${tier3Count} fields`);
+        console.log(`  Total: ${tier1Count + tier2Count + tier3Count} fields`);
 
         setFieldMappings(mappings);
         setCurrentMappingSheetIndex(0);
@@ -997,7 +1037,16 @@ export default function DataPackageImportPage() {
       const updatedMappings = sheet.mappings.map(m => {
         if (m.sourceColumn !== sourceColumn) return m;
         const isRequired = targetFields.find(f => f.id === targetField)?.isRequired || false;
-        return { ...m, targetField, confirmed: true, isRequired };
+        // CLT-08: When user manually sets a field, mark as confirmed (tier: 'auto' equivalent)
+        // When user clears a field, mark as unresolved
+        const newTier: MappingTier = targetField ? 'auto' : 'unresolved';
+        return {
+          ...m,
+          targetField,
+          confirmed: !!targetField,
+          isRequired,
+          tier: newTier,
+        };
       });
 
       // Check if sheet has at least one mapping
@@ -2317,21 +2366,29 @@ export default function DataPackageImportPage() {
                         key={mapping.sourceColumn}
                         className={cn(
                           'flex items-center gap-4 p-3 border rounded-lg',
-                          mapping.confidence >= 90 && 'border-green-200 bg-green-50/50',
-                          mapping.confidence >= 70 && mapping.confidence < 90 && 'border-amber-200 bg-amber-50/30'
+                          // CLT-08: Tier-based styling
+                          mapping.tier === 'auto' && 'border-green-200 bg-green-50/50',
+                          mapping.tier === 'suggested' && 'border-amber-200 bg-amber-50/30',
+                          mapping.tier === 'unresolved' && 'border-red-200 bg-red-50/30'
                         )}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="font-medium truncate">{mapping.sourceColumn}</p>
-                            {mapping.confidence >= 90 && (
+                            {/* CLT-08: Three-tier badges */}
+                            {mapping.tier === 'auto' && (
                               <Badge variant="outline" className="text-xs bg-green-100 text-green-700 border-green-300">
-                                AI {mapping.confidence}%
+                                AI ✓ {mapping.confidence}%
                               </Badge>
                             )}
-                            {mapping.confidence >= 70 && mapping.confidence < 90 && (
+                            {mapping.tier === 'suggested' && (
                               <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300">
-                                {isSpanish ? 'Sugerido' : 'Suggested'} {mapping.confidence}%
+                                {isSpanish ? 'Revisar' : 'Review'} {mapping.confidence}%
+                              </Badge>
+                            )}
+                            {mapping.tier === 'unresolved' && (
+                              <Badge variant="outline" className="text-xs bg-red-100 text-red-700 border-red-300">
+                                {isSpanish ? 'Sin Resolver' : 'Unresolved'}
                               </Badge>
                             )}
                           </div>
@@ -2349,7 +2406,8 @@ export default function DataPackageImportPage() {
                           <select
                             className={cn(
                               'w-full p-2 border rounded-md text-sm',
-                              mapping.targetField && 'border-primary'
+                              mapping.targetField && 'border-primary',
+                              mapping.tier === 'unresolved' && !mapping.targetField && 'border-red-300'
                             )}
                             value={mapping.targetField || ''}
                             onChange={(e) => updateFieldMapping(
@@ -2358,7 +2416,12 @@ export default function DataPackageImportPage() {
                               e.target.value || null
                             )}
                           >
-                            <option value="">{isSpanish ? '— Ignorar —' : '— Ignore —'}</option>
+                            {/* CLT-08: "Select Field" for unresolved, "Ignore" only if intentionally set */}
+                            <option value="">
+                              {mapping.tier === 'unresolved'
+                                ? (isSpanish ? '— Seleccionar Campo —' : '— Select Field —')
+                                : (isSpanish ? '— Ignorar —' : '— Ignore —')}
+                            </option>
 
                             {/* Required Fields Group */}
                             <optgroup label={isSpanish ? 'Campos Requeridos' : 'Required Fields'}>
