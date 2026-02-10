@@ -1139,11 +1139,30 @@ export function directCommitImportData(
   }
   console.log(`[DataLayer]   - Batches in localStorage: ${batchesVerify ? 'YES' : 'NO'}`);
 
-  // OB-16C: Also store aggregated data for calculation engine (bypasses 5MB limit issue)
-  const allCommittedRecords = Array.from(memoryCache.committed.values())
-    .filter(r => r.importBatchId === batchId);
-  const aggregateResult = storeAggregatedData(tenantId, batchId, allCommittedRecords);
-  console.log(`[DataLayer]   - Aggregated: ${aggregateResult.employeeCount} employees, ${aggregateResult.sizeKB} KB`);
+  // OB-16C HOTFIX: Store aggregated data for calculation engine
+  // This runs INDEPENDENTLY of committed data persistence
+  // Even if committed data exceeds localStorage quota, aggregated data (~50KB) will persist
+  try {
+    console.log(`[DataLayer] Preparing aggregation from memoryCache.committed (${memoryCache.committed.size} total records)...`);
+    const allCommittedRecords = Array.from(memoryCache.committed.values())
+      .filter(r => r.importBatchId === batchId);
+    console.log(`[DataLayer]   - Records matching batchId '${batchId}': ${allCommittedRecords.length}`);
+
+    if (allCommittedRecords.length > 0) {
+      const aggregateResult = storeAggregatedData(tenantId, batchId, allCommittedRecords);
+      console.log(`[DataLayer] ✅ Aggregated: ${aggregateResult.employeeCount} employees, ${aggregateResult.sizeKB} KB`);
+
+      // Verify the aggregated data was written
+      const verifyKey = `${STORAGE_KEYS.COMMITTED}_aggregated_${tenantId}`;
+      const verifyData = localStorage.getItem(verifyKey);
+      console.log(`[DataLayer]   - Verification: ${verifyKey} = ${verifyData ? `${Math.round(verifyData.length / 1024)} KB` : 'NOT FOUND'}`);
+    } else {
+      console.warn(`[DataLayer] ⚠ No committed records in memory for batch ${batchId} - cannot aggregate`);
+      console.log(`[DataLayer]   - All batch IDs in memory: ${Array.from(new Set(Array.from(memoryCache.committed.values()).map(r => r.importBatchId))).join(', ')}`);
+    }
+  } catch (aggError) {
+    console.error('[DataLayer] ❌ Aggregation failed:', aggError);
+  }
 
   console.log(`[DataLayer] Committed ${totalRecords} records from ${sheetData.length} sheets for tenant ${tenantId}`);
 
