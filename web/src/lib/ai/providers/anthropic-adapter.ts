@@ -130,7 +130,7 @@ MATRIX LOOKUP (2D tables with row and column axes):
           { "min": 80, "max": 90, "label": "80% a menos de 90%" },
           { "min": 90, "max": 100, "label": "90% a menos de 100%" },
           { "min": 100, "max": 150, "label": "100% a menos de 150%" },
-          { "min": 150, "max": Infinity, "label": "150% o mas" }
+          { "min": 150, "max": 999999, "label": "150% o mas" }
         ]
       },
       "columnAxis": {
@@ -159,7 +159,7 @@ TIERED LOOKUP (1D tables with ranges and payouts):
         { "min": 0, "max": 100, "payout": 0, "label": "<100%" },
         { "min": 100, "max": 105, "payout": 150, "label": "100%-104.99%" },
         { "min": 105, "max": 110, "payout": 300, "label": "105%-109.99%" },
-        { "min": 110, "max": Infinity, "payout": 500, "label": ">=110%" }
+        { "min": 110, "max": 999999, "payout": 500, "label": ">=110%" }
       ]
     }
   }
@@ -200,7 +200,7 @@ CONDITIONAL PERCENTAGE (different rates based on conditions):
 NUMERIC PARSING RULES:
 - Currency: Remove $ and commas. "$1,500" or "$1.500" -> 1500 (handle both comma and period as thousand separator)
 - Percentages in ranges: "80% a menos de 90%" -> { min: 80, max: 90 }
-- Open ranges: ">=110%" -> { min: 110, max: Infinity }, "<80%" -> { min: 0, max: 80 }
+- Open ranges: ">=110%" -> { min: 110, max: 999999 }, "<80%" -> { min: 0, max: 80 }
 - Large numbers: "$60k" -> 60000, "$180K" -> 180000
 
 IMPORTANT GUIDELINES:
@@ -373,7 +373,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
       },
       body: JSON.stringify({
         model: this.config.model || 'claude-sonnet-4-20250514',
-        max_tokens: request.options?.maxTokens || 4000,
+        max_tokens: request.options?.maxTokens || 8192,
         temperature: request.options?.temperature ?? 0.1,
         system: systemPrompt,
         messages: [
