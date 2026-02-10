@@ -206,7 +206,7 @@ export class AIService {
       {
         task: 'plan_interpretation',
         input: { content, format },
-        options: { responseFormat: 'json', maxTokens: 16384 },
+        options: { responseFormat: 'json', maxTokens: 8192 },
       },
       true,
       signalContext
