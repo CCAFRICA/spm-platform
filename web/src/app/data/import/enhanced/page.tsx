@@ -799,6 +799,7 @@ function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields:
 // Helper: Extract target fields from plan components
 // OB-13A: Base fields include role for position/puesto mapping
 // CLT-08 FIX: Added name field for employee name display
+// HOTFIX: Core metric types (amount, goal, attainment, quantity) ALWAYS included
 function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): TargetField[] {
   const baseFields: TargetField[] = [
     // Always-required identifier fields
@@ -808,19 +809,18 @@ function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): Targe
     { id: 'date', label: 'Date', labelEs: 'Fecha', isRequired: true, category: 'date' },
     { id: 'period', label: 'Period', labelEs: 'Período', isRequired: false, category: 'date' },
     { id: 'role', label: 'Role/Position', labelEs: 'Puesto', isRequired: false, category: 'identifier' },
+    // HOTFIX: Core metric types - ALWAYS valid for AI classification
+    { id: 'amount', label: 'Amount', labelEs: 'Monto', isRequired: false, category: 'amount' },
+    { id: 'goal', label: 'Goal', labelEs: 'Meta', isRequired: false, category: 'metric' },
+    { id: 'attainment', label: 'Attainment %', labelEs: '% Cumplimiento', isRequired: false, category: 'metric' },
+    { id: 'quantity', label: 'Quantity', labelEs: 'Cantidad', isRequired: false, category: 'metric' },
+    { id: 'storeRange', label: 'Store Range', labelEs: 'Rango Tienda', isRequired: false, category: 'identifier' },
   ];
 
   // Check if plan has additive lookup config with variants
   if (!plan?.configuration || !isAdditiveLookupConfig(plan.configuration)) {
-    // Return generic fields if no plan or not additive lookup
-    // OB-13A: Added 'role' as 9th target field for position/puesto mapping
-    return [
-      ...baseFields,
-      { id: 'amount', label: 'Amount', labelEs: 'Monto', isRequired: true, category: 'amount' },
-      { id: 'quantity', label: 'Quantity', labelEs: 'Cantidad', isRequired: false, category: 'metric' },
-      { id: 'attainment', label: 'Attainment %', labelEs: '% Cumplimiento', isRequired: false, category: 'metric' },
-      { id: 'goal', label: 'Goal', labelEs: 'Meta', isRequired: false, category: 'metric' },
-    ];
+    // Return base fields (includes all core metric types now)
+    return baseFields;
   }
 
   // Extract component-specific fields from the plan
