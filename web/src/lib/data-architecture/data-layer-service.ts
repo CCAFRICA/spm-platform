@@ -257,37 +257,8 @@ function loadFromStorageChunked<T>(baseKey: string): Map<string, T> {
 }
 
 /**
- * Aggregate fields from multiple records into a summary
- */
-function aggregateFields(rows: Record<string, unknown>[]): Record<string, unknown> {
-  if (rows.length === 0) return {};
-
-  const result: Record<string, unknown> = {};
-  const first = rows[0];
-
-  for (const key of Object.keys(first)) {
-    // Skip internal fields
-    if (key.startsWith('_')) continue;
-
-    const values = rows.map(r => r[key]).filter(v => v != null);
-    if (values.length === 0) continue;
-
-    // If all values are numbers, sum them
-    if (values.every(v => typeof v === 'number' || (typeof v === 'string' && !isNaN(Number(v))))) {
-      const nums = values.map(Number);
-      result[key] = nums.reduce((a, b) => a + b, 0);
-      result[`${key}_count`] = nums.length;
-    } else {
-      // Take the first non-null value (for identifiers like storeId, role)
-      result[key] = values[0];
-    }
-  }
-
-  return result;
-}
-
-/**
  * Store aggregated employee data for calculation (reduces 119K records to ~2K employees)
+ * ROSTER-FIRST APPROACH: Only build employee list from roster sheet, then join component data
  */
 function storeAggregatedData(
   tenantId: string,
@@ -296,68 +267,217 @@ function storeAggregatedData(
 ): { employeeCount: number; sizeKB: number } {
   if (typeof window === 'undefined') return { employeeCount: 0, sizeKB: 0 };
 
-  // Group by employee ID - SMART extraction
-  const byEmployee = new Map<string, Record<string, unknown>[]>();
-  let skippedNoId = 0;
-  let skippedInvalidId = 0;
+  console.log(`[DataLayer] Roster-first aggregation from ${records.length} committed records...`);
+
+  // STEP 1: Separate records by sheet type using _sheetName metadata
+  const rosterRecords: Record<string, unknown>[] = [];
+  const componentRecords: Record<string, unknown>[] = [];
 
   for (const record of records) {
     const content = record.content;
+    const sheetName = String(content._sheetName || '').toLowerCase();
 
-    // Try multiple field names for employee ID (mapped and original Spanish names)
-    const rawEmpId =
-      content.employeeId || content.employee_id ||
-      content.num_empleado || content.Num_Empleado ||
-      content.id_empleado || content.ID_Empleado ||
-      content.No_Empleado || content.no_empleado ||
-      content.NumEmpleado || '';
-
-    // Skip empty, undefined, null, or clearly invalid IDs
-    if (!rawEmpId || rawEmpId === 'undefined' || rawEmpId === 'null') {
-      skippedNoId++;
-      continue;
+    // Roster sheet is "Datos Colaborador" - has employee identity + Puesto (role)
+    if (sheetName.includes('colaborador') || sheetName.includes('roster') ||
+        sheetName.includes('empleado') || sheetName.includes('employee')) {
+      rosterRecords.push(content);
+    } else {
+      componentRecords.push(content);
     }
-
-    const empId = String(rawEmpId).trim();
-
-    // Skip if empty after trim, or if it looks like a non-employee ID (e.g., store totals)
-    if (!empId || empId.length < 3 || empId.toLowerCase() === 'total') {
-      skippedInvalidId++;
-      continue;
-    }
-
-    const existing = byEmployee.get(empId) || [];
-    existing.push(content);
-    byEmployee.set(empId, existing);
   }
 
-  console.log(`[DataLayer] Aggregation: ${records.length} records, ${skippedNoId} skipped (no ID), ${skippedInvalidId} skipped (invalid ID)`);
+  console.log(`[DataLayer] Roster records: ${rosterRecords.length}, Component records: ${componentRecords.length}`);
 
-  // Aggregate per employee
-  const aggregated = Array.from(byEmployee.entries()).map(([empId, rows]) => ({
-    employeeId: empId,
-    tenantId,
-    batchId,
-    recordCount: rows.length,
-    ...aggregateFields(rows)
-  }));
+  // STEP 2: Build employee map from ROSTER ONLY
+  // Expected: ~2,157 roster records = 719 employees x 3 months
+  const employeeMap = new Map<string, Record<string, unknown>>();
 
+  for (const row of rosterRecords) {
+    const empId = String(row['num_empleado'] || row['Num_Empleado'] ||
+                         row['employeeId'] || row['employee_id'] || '').trim();
+    if (!empId || empId.length < 3 || empId === 'undefined' || empId === 'null') continue;
+
+    // Use employeeId + period as composite key (one record per employee per month)
+    const month = String(row['Mes'] || row['mes'] || row['period'] || row['Month'] || '');
+    const year = String(row['Ano'] || row['Ano'] || row['ano'] || row['Year'] || row['year'] || '');
+    const key = month || year ? `${empId}_${month}_${year}` : empId;
+
+    if (!employeeMap.has(key)) {
+      employeeMap.set(key, {
+        employeeId: empId,
+        name: row['Nombre'] || row['nombre'] || row['name'] || '',
+        role: row['Puesto'] || row['puesto'] || row['role'] || '',
+        storeId: String(row['No_Tienda'] || row['no_tienda'] || row['num_tienda'] || row['storeId'] || ''),
+        storeRange: row['Rango_de_Tienda'] || row['Rango de Tienda'] || row['storeRange'] || '',
+        month,
+        year,
+        tenantId,
+        batchId,
+      });
+    }
+  }
+
+  console.log(`[DataLayer] Unique employee records from roster: ${employeeMap.size}`);
+
+  // If no roster records found, fall back to deduplicating by any employee ID field
+  if (employeeMap.size === 0) {
+    console.warn(`[DataLayer] No roster sheet found, falling back to component-based employee extraction`);
+    for (const record of records) {
+      const content = record.content;
+      const empId = String(
+        content['num_empleado'] || content['Num_Empleado'] ||
+        content['Vendedor'] || content['vendedor'] ||
+        content['employeeId'] || content['employee_id'] || ''
+      ).trim();
+
+      if (empId && empId.length >= 3 && empId !== 'undefined' && empId !== 'null' &&
+          empId.toLowerCase() !== 'total' && !empId.match(/^\d{1,2}$/)) {
+        if (!employeeMap.has(empId)) {
+          employeeMap.set(empId, {
+            employeeId: empId,
+            tenantId,
+            batchId,
+          });
+        }
+      }
+    }
+    console.log(`[DataLayer] Fallback: ${employeeMap.size} unique employee IDs from component data`);
+  }
+
+  // STEP 3: Build component data lookup by employee ID and store ID
+  const empComponentData = new Map<string, Record<string, number>>();
+  const storeComponentData = new Map<string, Record<string, number>>();
+
+  for (const content of componentRecords) {
+    // Employee-level data (Venta_Individual, Club_Proteccion, Garantia_Extendida)
+    const empId = String(
+      content['num_empleado'] || content['Num_Empleado'] ||
+      content['Vendedor'] || content['vendedor'] ||
+      content['employeeId'] || ''
+    ).trim();
+
+    // Store-level data (Venta_Tienda, Clientes_Nuevos, Cobranza)
+    const storeId = String(content['No_Tienda'] || content['no_tienda'] || '').trim();
+
+    // Extract numeric fields
+    const numericData: Record<string, number> = {};
+    for (const [key, value] of Object.entries(content)) {
+      if (key.startsWith('_')) continue; // Skip internal fields
+      if (typeof value === 'number') {
+        numericData[key] = value;
+      } else if (typeof value === 'string' && value.length > 0 && !isNaN(Number(value))) {
+        numericData[key] = Number(value);
+      }
+    }
+
+    // Aggregate by employee ID
+    if (empId && empId.length >= 3 && empId !== 'undefined') {
+      const existing = empComponentData.get(empId) || {};
+      for (const [key, val] of Object.entries(numericData)) {
+        existing[key] = (existing[key] || 0) + val;
+      }
+      empComponentData.set(empId, existing);
+    }
+
+    // Aggregate by store ID
+    if (storeId && storeId.length >= 1) {
+      const existing = storeComponentData.get(storeId) || {};
+      for (const [key, val] of Object.entries(numericData)) {
+        existing[key] = (existing[key] || 0) + val;
+      }
+      storeComponentData.set(storeId, existing);
+    }
+  }
+
+  console.log(`[DataLayer] Employee-level component data: ${empComponentData.size} IDs`);
+  console.log(`[DataLayer] Store-level component data: ${storeComponentData.size} stores`);
+
+  // STEP 4: Enrich each roster employee with component data
+  const aggregated: Record<string, unknown>[] = [];
+
+  for (const [, emp] of Array.from(employeeMap.entries())) {
+    const empId = String(emp.employeeId);
+    const storeId = String(emp.storeId || '');
+
+    const enriched: Record<string, unknown> = { ...emp };
+
+    // Add employee-level component data
+    const empData = empComponentData.get(empId);
+    if (empData) {
+      enriched._hasEmpData = true;
+      for (const [field, value] of Object.entries(empData)) {
+        enriched[field] = value;
+      }
+    }
+
+    // Add store-level component data (prefixed to avoid conflicts)
+    const storeData = storeComponentData.get(storeId);
+    if (storeData) {
+      enriched._hasStoreData = true;
+      for (const [field, value] of Object.entries(storeData)) {
+        if (!(field in enriched)) {
+          enriched[`store_${field}`] = value;
+        }
+      }
+    }
+
+    aggregated.push(enriched);
+  }
+
+  console.log(`[DataLayer] Final aggregated records: ${aggregated.length}`);
+
+  // STEP 5: Store to localStorage
   const serialized = JSON.stringify(aggregated);
   const sizeKB = Math.round(serialized.length / 1024);
+  console.log(`[DataLayer] Aggregated payload: ${sizeKB} KB`);
 
-  console.log(`[DataLayer] Aggregated ${records.length} records -> ${aggregated.length} employees (${sizeKB} KB)`);
+  // If too large, strip store-level data
+  if (sizeKB > 2000) {
+    console.warn(`[DataLayer] Payload too large (${sizeKB} KB), stripping store_ fields...`);
+    const slim = aggregated.map(emp => {
+      const result: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(emp)) {
+        if (!key.startsWith('store_')) {
+          result[key] = value;
+        }
+      }
+      return result;
+    });
+    const slimSerialized = JSON.stringify(slim);
+    const slimSizeKB = Math.round(slimSerialized.length / 1024);
+    console.log(`[DataLayer] Slim payload: ${slimSizeKB} KB`);
+
+    try {
+      const storageKey = `${STORAGE_KEYS.COMMITTED}_aggregated_${tenantId}`;
+      localStorage.setItem(storageKey, slimSerialized);
+      localStorage.setItem(`${storageKey}_meta`, JSON.stringify({
+        tenantId, batchId, sourceRecords: records.length,
+        employees: slim.length, sizeKB: slimSizeKB, timestamp: Date.now()
+      }));
+      return { employeeCount: slim.length, sizeKB: slimSizeKB };
+    } catch (err) {
+      console.error(`[DataLayer] Slim data storage failed:`, err);
+      return { employeeCount: 0, sizeKB: 0 };
+    }
+  }
 
   try {
     const storageKey = `${STORAGE_KEYS.COMMITTED}_aggregated_${tenantId}`;
     localStorage.setItem(storageKey, serialized);
     localStorage.setItem(`${storageKey}_meta`, JSON.stringify({
-      tenantId,
-      batchId,
-      sourceRecords: records.length,
-      employees: aggregated.length,
-      sizeKB,
-      timestamp: Date.now()
+      tenantId, batchId, sourceRecords: records.length,
+      employees: aggregated.length, sizeKB, timestamp: Date.now()
     }));
+
+    // Verify
+    const verify = localStorage.getItem(storageKey);
+    if (verify && verify.length > 0) {
+      console.log(`[DataLayer] Stored aggregated data: ${aggregated.length} records, ${sizeKB} KB`);
+      console.log(`[DataLayer] Verified: key exists, ${Math.round(verify.length / 1024)} KB`);
+    } else {
+      console.error(`[DataLayer] Verification failed - key not found after write`);
+    }
+
     return { employeeCount: aggregated.length, sizeKB };
   } catch (error) {
     console.error('[DataLayer] Failed to store aggregated data:', error);
