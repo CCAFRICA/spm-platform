@@ -7,7 +7,7 @@
  */
 
 import type { CalculationResult } from '@/types/compensation-plan';
-import { calculateIncentive, type EmployeeMetrics } from '@/lib/compensation/calculation-engine';
+import { calculateIncentive, type EmployeeMetrics, resetEngineDiag } from '@/lib/compensation/calculation-engine';
 import { getPlans } from '@/lib/compensation/plan-storage';
 import {
   buildCalculationContext,
@@ -155,6 +155,10 @@ export class CalculationOrchestrator {
    * Execute a calculation run
    */
   async executeRun(config: CalculationRunConfig, userId: string): Promise<OrchestrationResult> {
+    // CLT-08 DIAG: Reset diagnostic flags for new run
+    this._diagLogged = false;
+    resetEngineDiag();
+
     // Create run record
     const run = this.createRun(config, userId);
     this.saveRun(run);
@@ -817,24 +821,31 @@ export class CalculationOrchestrator {
    * This mapping bridges the gap.
    */
   private translateToPlanMetricName(componentKey: string, sheetName: string): string {
+    const key = componentKey.toLowerCase().replace(/[-\s]/g, '_');
+    const sheet = sheetName.toLowerCase().replace(/[-\s]/g, '_');
+
     // Mapping from AI import component/sheet names to plan metric prefixes
-    // These are the metric prefixes expected by the plan configuration
     const PLAN_METRIC_MAP: Record<string, string> = {
       // Component-based mappings (from AI matchedComponent)
       'venta_optica': 'optical',
       'venta_optica_certificado': 'optical',
+      'venta_optica_no_certificado': 'optical',
       'optical_sales': 'optical',
+      'venta_individual': 'optical',
       'venta_tienda': 'store',
       'store_sales': 'store',
       'store_performance': 'store',
       'clientes_nuevos': 'new_customers',
       'new_customers': 'new_customers',
       'cobranza': 'collection',
+      'cobranza_tienda': 'collection',  // CLT-08 FIX: Added missing entry
       'collections': 'collection',
       'seguros': 'insurance',
+      'venta_seguros': 'insurance',
       'insurance': 'insurance',
       'club_proteccion': 'insurance',
       'servicios': 'services',
+      'venta_servicios': 'services',
       'services': 'services',
       'garantia_extendida': 'services',
 
@@ -842,25 +853,44 @@ export class CalculationOrchestrator {
       'base_venta_individual': 'optical',
       'base_venta_tienda': 'store',
       'base_clientes_nuevos': 'new_customers',
+      'base_cobranza': 'collection',
       'base_cobranza_tienda': 'collection',
       'base_club_proteccion': 'insurance',
       'base_garantia_extendida': 'services',
     };
 
-    // Try component key first
-    const componentLower = componentKey.toLowerCase().replace(/[-\s]/g, '_');
-    if (PLAN_METRIC_MAP[componentLower]) {
-      return PLAN_METRIC_MAP[componentLower];
+    // Try exact match on componentKey
+    if (PLAN_METRIC_MAP[key]) {
+      return PLAN_METRIC_MAP[key];
     }
 
-    // Try sheet name
-    const sheetLower = sheetName.toLowerCase().replace(/[-\s]/g, '_');
-    if (PLAN_METRIC_MAP[sheetLower]) {
-      return PLAN_METRIC_MAP[sheetLower];
+    // Try exact match on sheetName
+    if (PLAN_METRIC_MAP[sheet]) {
+      return PLAN_METRIC_MAP[sheet];
     }
 
-    // Fallback: clean up the component key
-    return componentLower;
+    // CLT-08 FIX: Fuzzy substring matching as fallback
+    const SUBSTRING_MAP: [string, string][] = [
+      ['optica', 'optical'],
+      ['venta_individual', 'optical'],
+      ['tienda', 'store'],
+      ['cliente', 'new_customers'],
+      ['cobranza', 'collection'],
+      ['seguro', 'insurance'],
+      ['proteccion', 'insurance'],
+      ['servicio', 'services'],
+      ['garantia', 'services'],
+    ];
+
+    for (const [substr, metric] of SUBSTRING_MAP) {
+      if (key.includes(substr) || sheet.includes(substr)) {
+        return metric;
+      }
+    }
+
+    // Last resort: return the componentKey as-is
+    console.warn(`DIAG-ORCH: No translation found for componentKey="${key}", sheet="${sheet}"`);
+    return key;
   }
 
   /**

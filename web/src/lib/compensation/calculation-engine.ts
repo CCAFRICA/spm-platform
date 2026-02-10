@@ -16,6 +16,10 @@ import type {
 } from '@/types/compensation-plan';
 import { getActivePlan, getPlan } from './plan-storage';
 
+// CLT-08 DIAG: Track first employee for diagnostic logging
+let _diagEngineLogged = false;
+export function resetEngineDiag() { _diagEngineLogged = false; }
+
 // ============================================
 // METRICS INTERFACE
 // ============================================
@@ -71,12 +75,27 @@ function calculateAdditiveLookup(
   const config = plan.configuration as AdditiveLookupConfig;
   const warnings: string[] = [];
 
+  // CLT-08 DIAG: Log for first employee only
+  const shouldLog = !_diagEngineLogged;
+  if (shouldLog) {
+    _diagEngineLogged = true;
+    console.log('DIAG-ENGINE: === CALCULATION ENGINE ENTRY ===');
+    console.log('DIAG-ENGINE: Employee:', employeeMetrics.employeeId, employeeMetrics.employeeName);
+    console.log('DIAG-ENGINE: isCertified:', employeeMetrics.isCertified);
+    console.log('DIAG-ENGINE: Available metrics:', JSON.stringify(employeeMetrics.metrics, null, 2));
+  }
+
   // Find matching variant based on eligibility criteria
   const variant = findMatchingVariant(config, employeeMetrics);
   if (!variant) {
     warnings.push('No matching plan variant found, using first variant');
   }
   const selectedVariant = variant || config.variants[0];
+
+  if (shouldLog) {
+    console.log('DIAG-ENGINE: Selected variant:', selectedVariant.variantName);
+    console.log('DIAG-ENGINE: Enabled components:', selectedVariant.components.filter(c => c.enabled).map(c => c.name));
+  }
 
   const components: CalculationStep[] = [];
   let totalIncentive = 0;
@@ -96,10 +115,18 @@ function calculateAdditiveLookup(
     .filter((c) => c.enabled)
     .sort((a, b) => a.order - b.order)
     .forEach((component) => {
-      const step = calculateComponent(component, employeeMetrics);
+      const step = calculateComponent(component, employeeMetrics, shouldLog);
       components.push(step);
       totalIncentive += step.outputValue;
     });
+
+  if (shouldLog) {
+    console.log('DIAG-ENGINE: === CALCULATION COMPLETE ===');
+    console.log('DIAG-ENGINE: Total Incentive:', totalIncentive);
+    components.forEach(c => {
+      console.log(`DIAG-ENGINE: Component "${c.componentName}": $${c.outputValue}`);
+    });
+  }
 
   return {
     employeeId: employeeMetrics.employeeId,
@@ -146,30 +173,55 @@ function findMatchingVariant(config: AdditiveLookupConfig, metrics: EmployeeMetr
 
 function calculateComponent(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EmployeeMetrics,
+  shouldLog: boolean = false
 ): CalculationStep {
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE: --- Component: "${component.name}" (${component.componentType}) ---`);
+  }
+
+  let result: CalculationStep;
   switch (component.componentType) {
     case 'matrix_lookup':
-      return calculateMatrixLookup(component, metrics);
+      result = calculateMatrixLookup(component, metrics, shouldLog);
+      break;
     case 'tier_lookup':
-      return calculateTierLookup(component, metrics);
+      result = calculateTierLookup(component, metrics, shouldLog);
+      break;
     case 'percentage':
-      return calculatePercentage(component, metrics);
+      result = calculatePercentage(component, metrics, shouldLog);
+      break;
     case 'conditional_percentage':
-      return calculateConditionalPercentage(component, metrics);
+      result = calculateConditionalPercentage(component, metrics, shouldLog);
+      break;
     default:
-      return createZeroStep(component, 'Unknown component type');
+      result = createZeroStep(component, 'Unknown component type');
   }
+
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE: Result: $${result.outputValue}`);
+  }
+
+  return result;
 }
 
 function calculateMatrixLookup(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EmployeeMetrics,
+  shouldLog: boolean = false
 ): CalculationStep {
   const config = component.matrixConfig!;
 
   const rowValue = metrics.metrics[config.rowMetric] ?? 0;
   const colValue = metrics.metrics[config.columnMetric] ?? 0;
+
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE: Matrix lookup config:`);
+    console.log(`DIAG-ENGINE:   rowMetric="${config.rowMetric}" -> value=${rowValue}`);
+    console.log(`DIAG-ENGINE:   columnMetric="${config.columnMetric}" -> value=${colValue}`);
+    console.log(`DIAG-ENGINE:   rowBands: ${JSON.stringify(config.rowBands.map(b => `${b.min}-${b.max}`))}`);
+    console.log(`DIAG-ENGINE:   columnBands: ${JSON.stringify(config.columnBands.map(b => `${b.min}-${b.max}`))}`);
+  }
 
   const rowBand = findBand(config.rowBands, rowValue);
   const colBand = findBand(config.columnBands, colValue);
@@ -178,6 +230,12 @@ function calculateMatrixLookup(
   const colIndex = config.columnBands.indexOf(colBand);
 
   const lookupValue = config.values[rowIndex]?.[colIndex] ?? 0;
+
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE:   Matched rowBand[${rowIndex}]: ${rowBand.label} (${rowBand.min}-${rowBand.max})`);
+    console.log(`DIAG-ENGINE:   Matched colBand[${colIndex}]: ${colBand.label} (${colBand.min}-${colBand.max})`);
+    console.log(`DIAG-ENGINE:   Lookup value at [${rowIndex}][${colIndex}]: ${lookupValue}`);
+  }
 
   return {
     order: component.order,
@@ -207,12 +265,24 @@ function calculateMatrixLookup(
 
 function calculateTierLookup(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EmployeeMetrics,
+  shouldLog: boolean = false
 ): CalculationStep {
   const config = component.tierConfig!;
 
   const value = metrics.metrics[config.metric] ?? 0;
+
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE: Tier lookup config:`);
+    console.log(`DIAG-ENGINE:   metric="${config.metric}" -> value=${value}`);
+    console.log(`DIAG-ENGINE:   tiers: ${JSON.stringify(config.tiers.map(t => `${t.min}-${t.max}:$${t.value}`))}`);
+  }
+
   const tier = findTier(config.tiers, value);
+
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE:   Matched tier: ${tier.label} ($${tier.value})`);
+  }
 
   return {
     order: component.order,
@@ -238,11 +308,18 @@ function calculateTierLookup(
 
 function calculatePercentage(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EmployeeMetrics,
+  shouldLog: boolean = false
 ): CalculationStep {
   const config = component.percentageConfig!;
 
   const baseValue = metrics.metrics[config.appliedTo] ?? 0;
+
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE: Percentage config:`);
+    console.log(`DIAG-ENGINE:   appliedTo="${config.appliedTo}" -> value=${baseValue}`);
+    console.log(`DIAG-ENGINE:   rate=${config.rate}`);
+  }
 
   // Check minimum threshold
   if (config.minThreshold && baseValue < config.minThreshold) {
@@ -254,6 +331,10 @@ function calculatePercentage(
   // Apply max payout cap
   if (config.maxPayout && result > config.maxPayout) {
     result = config.maxPayout;
+  }
+
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE:   Result: ${baseValue} * ${config.rate} = ${result}`);
   }
 
   return {
@@ -275,7 +356,8 @@ function calculatePercentage(
 
 function calculateConditionalPercentage(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EmployeeMetrics,
+  shouldLog: boolean = false
 ): CalculationStep {
   const config = component.conditionalConfig!;
 
@@ -285,12 +367,24 @@ function calculateConditionalPercentage(
   const conditionMetric = config.conditions[0]?.metric;
   const conditionValue = metrics.metrics[conditionMetric] ?? 0;
 
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE: Conditional percentage config:`);
+    console.log(`DIAG-ENGINE:   appliedTo="${config.appliedTo}" -> value=${baseValue}`);
+    console.log(`DIAG-ENGINE:   conditionMetric="${conditionMetric}" -> value=${conditionValue}`);
+    console.log(`DIAG-ENGINE:   conditions: ${JSON.stringify(config.conditions.map(c => `${c.min}-${c.max}:${c.rate}`))}`);
+  }
+
   const matchingCondition = config.conditions.find(
     (c) => conditionValue >= c.min && conditionValue < c.max
   ) || config.conditions[config.conditions.length - 1];
 
   const rate = matchingCondition?.rate ?? 0;
   const result = baseValue * rate;
+
+  if (shouldLog) {
+    console.log(`DIAG-ENGINE:   Matched condition: ${matchingCondition?.label} (rate=${rate})`);
+    console.log(`DIAG-ENGINE:   Result: ${baseValue} * ${rate} = ${result}`);
+  }
 
   return {
     order: component.order,
