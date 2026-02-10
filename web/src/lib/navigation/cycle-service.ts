@@ -220,15 +220,36 @@ function checkHasImportData(tenantId: string, periodId: string): boolean {
 
 /**
  * Check for calculation results
+ * OB-20 Phase 9: Integrates with calculation orchestrator storage keys
  */
 function checkHasCalculations(tenantId: string, periodId: string): boolean {
   try {
-    // Check for calculation results stored by calculate page
+    // PRIMARY: Check orchestrator calculation runs (clearcomp_calculation_runs)
+    const runsData = localStorage.getItem('clearcomp_calculation_runs');
+    if (runsData) {
+      const runs: Array<{ tenantId: string; periodId: string; status: string }> = JSON.parse(runsData);
+      const hasCompletedRun = runs.some(
+        (r) => r.tenantId === tenantId && r.periodId === periodId && r.status === 'completed'
+      );
+      if (hasCompletedRun) return true;
+    }
+
+    // SECONDARY: Check orchestrator calculation results (clearcomp_calculations)
+    const calcsData = localStorage.getItem('clearcomp_calculations');
+    if (calcsData) {
+      const calcs: Array<{ tenantId: string; periodId?: string; period?: string }> = JSON.parse(calcsData);
+      const hasResults = calcs.some(
+        (c) => c.tenantId === tenantId && (c.periodId === periodId || c.period === periodId)
+      );
+      if (hasResults) return true;
+    }
+
+    // LEGACY: Check for calculation results stored by older calculate page
     const calcKey = `${tenantId}_calculations_${periodId}`;
     const calculations = localStorage.getItem(calcKey);
     if (calculations) return true;
 
-    // Check for commissions data (alternative calculation storage)
+    // LEGACY: Check for commissions data (alternative calculation storage)
     const commissionsKey = `${tenantId}_commissions`;
     const commissions = localStorage.getItem(commissionsKey);
     if (commissions) {
