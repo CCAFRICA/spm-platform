@@ -305,14 +305,32 @@ export class CalculationOrchestrator {
 
   /**
    * Get employees for a calculation run
+   * OB-22: Added period filtering to only process employees for selected period
    */
   private getEmployeesForRun(config: CalculationRunConfig): EmployeeData[] {
     const allEmployees = this.getEmployees();
 
-    return allEmployees.filter((emp) => {
+    // OB-22: Parse the selected period (format: "2024-01")
+    const [selectedYear, selectedMonth] = config.periodId.split('-').map(Number);
+
+    console.log(`[Orchestrator] OB-22: Filtering employees for period ${config.periodId} (year=${selectedYear}, month=${selectedMonth})`);
+    console.log(`[Orchestrator] Total employees before period filter: ${allEmployees.length}`);
+
+    const filtered = allEmployees.filter((emp) => {
       // Filter by status
       if (!config.options?.includeInactive && emp.status !== 'active') {
         return false;
+      }
+
+      // OB-22: Filter by period - match against employee's month/year attributes
+      const attrs = emp.attributes as Record<string, unknown> | undefined;
+      if (attrs?.month !== undefined && attrs?.year !== undefined) {
+        const empYear = Number(attrs.year);
+        const empMonth = this.parseMonthToNumber(String(attrs.month));
+
+        if (empYear !== selectedYear || empMonth !== selectedMonth) {
+          return false;
+        }
       }
 
       // Filter by scope
@@ -334,6 +352,55 @@ export class CalculationOrchestrator {
 
       return true;
     });
+
+    console.log(`[Orchestrator] OB-22: Employees after period filter: ${filtered.length}`);
+    return filtered;
+  }
+
+  /**
+   * OB-22: Parse month name (Spanish or English or number) to month number (1-12)
+   */
+  private parseMonthToNumber(month: string): number {
+    const monthStr = month.toLowerCase().trim();
+
+    // Spanish month names
+    const spanishMonths: Record<string, number> = {
+      'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
+      'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
+      'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
+    };
+
+    // English month names
+    const englishMonths: Record<string, number> = {
+      'january': 1, 'february': 2, 'march': 3, 'april': 4,
+      'may': 5, 'june': 6, 'july': 7, 'august': 8,
+      'september': 9, 'october': 10, 'november': 11, 'december': 12
+    };
+
+    // Short forms (English + Spanish unique ones)
+    const shortMonths: Record<string, number> = {
+      'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+      'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+      'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+      'ene': 1, 'abr': 4, 'ago': 8, 'dic': 12
+    };
+
+    // Try numeric first
+    const numMonth = parseInt(monthStr, 10);
+    if (!isNaN(numMonth) && numMonth >= 1 && numMonth <= 12) {
+      return numMonth;
+    }
+
+    // Try full names
+    if (spanishMonths[monthStr]) return spanishMonths[monthStr];
+    if (englishMonths[monthStr]) return englishMonths[monthStr];
+
+    // Try short forms
+    const shortForm = monthStr.substring(0, 3);
+    if (shortMonths[shortForm]) return shortMonths[shortForm];
+
+    console.warn(`[Orchestrator] Could not parse month: "${month}"`);
+    return 0;
   }
 
   /**
@@ -711,6 +778,14 @@ export class CalculationOrchestrator {
     return runs.find((r) => r.id === runId) || null;
   }
 
+  /**
+   * OB-22: Chunked storage for calculation results
+   * Prevents localStorage quota exceeded errors for large result sets
+   */
+  private static readonly CHUNK_SIZE = 100; // Results per chunk (~50KB each, well under limits)
+  private static readonly CALC_CHUNK_PREFIX = 'clearcomp_calculations_chunk_';
+  private static readonly CALC_INDEX_KEY = 'clearcomp_calculations_index';
+
   private saveResults(results: CalculationResult[], runId: string): void {
     if (typeof window === 'undefined') return;
 
@@ -730,12 +805,102 @@ export class CalculationOrchestrator {
       return !matchingNew;
     });
 
-    localStorage.setItem(STORAGE_KEYS.CALCULATIONS, JSON.stringify([...filtered, ...newResults]));
+    const allResults = [...filtered, ...newResults];
+
+    // OB-22: Use chunked storage
+    this.saveResultsChunked(allResults);
   }
 
+  /**
+   * OB-22: Save results in chunks to avoid localStorage limits
+   */
+  private saveResultsChunked(results: (CalculationResult & { runId?: string })[]): void {
+    // Clear old chunks first
+    this.clearOldChunks();
+
+    // Split into chunks
+    const chunks: (CalculationResult & { runId?: string })[][] = [];
+    for (let i = 0; i < results.length; i += CalculationOrchestrator.CHUNK_SIZE) {
+      chunks.push(results.slice(i, i + CalculationOrchestrator.CHUNK_SIZE));
+    }
+
+    console.log(`[Orchestrator] OB-22: Saving ${results.length} results in ${chunks.length} chunks`);
+
+    // Save each chunk
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkKey = `${CalculationOrchestrator.CALC_CHUNK_PREFIX}${i}`;
+      try {
+        localStorage.setItem(chunkKey, JSON.stringify(chunks[i]));
+      } catch (error) {
+        console.error(`[Orchestrator] Failed to save chunk ${i}:`, error);
+        // Try smaller chunk size on failure
+        break;
+      }
+    }
+
+    // Save index
+    const index = {
+      chunkCount: chunks.length,
+      totalResults: results.length,
+      savedAt: new Date().toISOString(),
+      tenantId: this.tenantId,
+    };
+    localStorage.setItem(CalculationOrchestrator.CALC_INDEX_KEY, JSON.stringify(index));
+  }
+
+  /**
+   * OB-22: Clear old calculation chunks
+   */
+  private clearOldChunks(): void {
+    // Read current index to find how many chunks exist
+    const indexStr = localStorage.getItem(CalculationOrchestrator.CALC_INDEX_KEY);
+    if (indexStr) {
+      try {
+        const index = JSON.parse(indexStr);
+        for (let i = 0; i < (index.chunkCount || 0); i++) {
+          localStorage.removeItem(`${CalculationOrchestrator.CALC_CHUNK_PREFIX}${i}`);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    // Also clear legacy single-key storage
+    localStorage.removeItem(STORAGE_KEYS.CALCULATIONS);
+  }
+
+  /**
+   * OB-22: Load results from chunked storage
+   */
   private getAllResults(): (CalculationResult & { runId?: string })[] {
     if (typeof window === 'undefined') return [];
 
+    // Try chunked storage first
+    const indexStr = localStorage.getItem(CalculationOrchestrator.CALC_INDEX_KEY);
+    if (indexStr) {
+      try {
+        const index = JSON.parse(indexStr);
+        const results: (CalculationResult & { runId?: string })[] = [];
+
+        for (let i = 0; i < (index.chunkCount || 0); i++) {
+          const chunkKey = `${CalculationOrchestrator.CALC_CHUNK_PREFIX}${i}`;
+          const chunkStr = localStorage.getItem(chunkKey);
+          if (chunkStr) {
+            const chunk = JSON.parse(chunkStr);
+            results.push(...chunk);
+          }
+        }
+
+        if (results.length > 0) {
+          console.log(`[Orchestrator] OB-22: Loaded ${results.length} results from ${index.chunkCount} chunks`);
+          return results;
+        }
+      } catch (error) {
+        console.error('[Orchestrator] Error loading chunked results:', error);
+      }
+    }
+
+    // Fallback to legacy single-key storage
     const stored = localStorage.getItem(STORAGE_KEYS.CALCULATIONS);
     if (!stored) return [];
 

@@ -103,20 +103,111 @@ Return JSON array:
   ]
 }`,
 
-  plan_interpretation: `You are an expert at analyzing compensation and commission plan documents. Your task is to extract the COMPLETE structure of a compensation plan from the provided document content.
+  plan_interpretation: `You are an expert at analyzing compensation and commission plan documents. Your task is to extract the COMPLETE structure of a compensation plan from the provided document content, INCLUDING ALL PAYOUT VALUES.
 
 CRITICAL REQUIREMENTS:
 1. Extract EVERY distinct compensation component - do NOT merge similar components
 2. Each table, each metric, each KPI with its own payout structure is a SEPARATE component
 3. Detect ALL employee types/classifications if the document has different payout levels for different roles
+4. CRITICAL: Extract ALL numeric payout values from every table - do NOT just identify structure
+
+FOR EACH COMPONENT TYPE, EXTRACT COMPLETE DATA:
+
+MATRIX LOOKUP (2D tables with row and column axes):
+- Extract row axis: metric name, label, and ALL range boundaries
+- Extract column axis: metric name, label, and ALL range boundaries
+- Extract the COMPLETE values matrix - every cell value as a number
+- Example structure:
+  {
+    "type": "matrix_lookup",
+    "calculationMethod": {
+      "type": "matrix_lookup",
+      "rowAxis": {
+        "metric": "optical_attainment",
+        "label": "% Cumplimiento de meta Optica",
+        "ranges": [
+          { "min": 0, "max": 80, "label": "Menos de 80%" },
+          { "min": 80, "max": 90, "label": "80% a menos de 90%" },
+          { "min": 90, "max": 100, "label": "90% a menos de 100%" },
+          { "min": 100, "max": 150, "label": "100% a menos de 150%" },
+          { "min": 150, "max": Infinity, "label": "150% o mas" }
+        ]
+      },
+      "columnAxis": {
+        "metric": "store_optical_sales",
+        "label": "Venta de Optica de la tienda",
+        "ranges": [
+          { "min": 0, "max": 60000, "label": "Menos de $60k" },
+          { "min": 60000, "max": 100000, "label": "$60k-$100K" }
+        ]
+      },
+      "values": [[0, 0], [200, 300], [300, 500]]
+    }
+  }
+
+TIERED LOOKUP (1D tables with ranges and payouts):
+- Extract metric name and label
+- Extract EVERY tier with min, max, and payout value
+- Example:
+  {
+    "type": "tiered_lookup",
+    "calculationMethod": {
+      "type": "tiered_lookup",
+      "metric": "store_sales_attainment",
+      "metricLabel": "% Cumplimiento de meta de venta de tienda",
+      "tiers": [
+        { "min": 0, "max": 100, "payout": 0, "label": "<100%" },
+        { "min": 100, "max": 105, "payout": 150, "label": "100%-104.99%" },
+        { "min": 105, "max": 110, "payout": 300, "label": "105%-109.99%" },
+        { "min": 110, "max": Infinity, "payout": 500, "label": ">=110%" }
+      ]
+    }
+  }
+
+FLAT PERCENTAGE (simple rate applied to a base):
+- Extract the rate as a decimal (4% = 0.04)
+- Extract what it applies to
+- Example:
+  {
+    "type": "flat_percentage",
+    "calculationMethod": {
+      "type": "flat_percentage",
+      "metric": "warranty_sales",
+      "metricLabel": "Garantia Extendida",
+      "rate": 0.04
+    }
+  }
+
+CONDITIONAL PERCENTAGE (different rates based on conditions):
+- Extract each condition with threshold, operator, and rate
+- Extract what the percentage applies to
+- Example:
+  {
+    "type": "conditional_percentage",
+    "calculationMethod": {
+      "type": "conditional_percentage",
+      "metric": "insurance_sales",
+      "metricLabel": "Venta de Seguros",
+      "conditionMetric": "store_goal_attainment",
+      "conditionMetricLabel": "Cumplimiento Meta",
+      "conditions": [
+        { "threshold": 100, "operator": "<", "rate": 0.03, "label": "<100% cumplimiento" },
+        { "threshold": 100, "operator": ">=", "rate": 0.05, "label": ">=100% cumplimiento" }
+      ]
+    }
+  }
+
+NUMERIC PARSING RULES:
+- Currency: Remove $ and commas. "$1,500" or "$1.500" -> 1500 (handle both comma and period as thousand separator)
+- Percentages in ranges: "80% a menos de 90%" -> { min: 80, max: 90 }
+- Open ranges: ">=110%" -> { min: 110, max: Infinity }, "<80%" -> { min: 0, max: 80 }
+- Large numbers: "$60k" -> 60000, "$180K" -> 180000
 
 IMPORTANT GUIDELINES:
-1. Documents may be in Spanish, English, or mixed languages. Preserve original language labels where found.
-2. Look for tables (matrices or single-column tiers), percentage mentions, and conditional rules.
-3. Identify whether metrics are per-employee, per-store, or per-company scope.
-4. Extract worked examples if present - these are critical for validation.
-5. Return confidence scores (0-100) for each component and overall.
-6. If something is ambiguous, flag it in the reasoning rather than guessing.
+1. Documents may be in Spanish, English, or mixed languages. Preserve original language labels.
+2. Extract worked examples if present - these are critical for validation.
+3. Return confidence scores (0-100) for each component and overall.
+4. If a table has different values for different employee types (e.g., Certified vs Non-Certified), create SEPARATE components for each.
 
 COMMON SPANISH TERMS:
 - "% cumplimiento" = "% attainment"
@@ -127,6 +218,8 @@ COMMON SPANISH TERMS:
 - "Cobranza" = "Collections"
 - "Seguros" = "Insurance"
 - "Servicios/Garantia Extendida" = "Warranty/Extended Services"
+- "Menos de" = "Less than"
+- "o mas" = "or more"
 
 Return your analysis as valid JSON.`,
 
@@ -362,7 +455,7 @@ ${input.planComponents ? `\nPlan Components: ${JSON.stringify(input.planComponen
 Return the mapping JSON.`;
 
       case 'plan_interpretation':
-        return `Analyze the following compensation plan document and extract its COMPLETE structure.
+        return `Analyze the following compensation plan document and extract its COMPLETE structure INCLUDING ALL PAYOUT VALUES FROM EVERY TABLE.
 
 DOCUMENT CONTENT:
 ---
@@ -370,17 +463,43 @@ ${input.content}
 ---
 Format: ${input.format}
 
+CRITICAL: For each component, you MUST extract the complete calculationMethod with ALL numeric values from the tables. Empty tiers/matrices will cause $0 payouts.
+
 Return a JSON object with:
 {
   "planName": "Name of the plan",
+  "planNameEs": "Spanish name if present",
   "description": "Brief description",
-  "currency": "USD or MXN",
-  "employeeTypes": [...],
-  "components": [...],
-  "requiredInputs": [...],
-  "workedExamples": [...],
+  "currency": "MXN or USD",
+  "employeeTypes": [
+    { "id": "certified", "name": "Optometrista Certificado", "nameEs": "..." },
+    { "id": "non_certified", "name": "Optometrista No Certificado", "nameEs": "..." }
+  ],
+  "components": [
+    {
+      "id": "unique-id",
+      "name": "Component Name",
+      "nameEs": "Spanish name",
+      "type": "matrix_lookup | tiered_lookup | percentage | flat_percentage | conditional_percentage",
+      "appliesToEmployeeTypes": ["certified"] or ["all"],
+      "calculationMethod": {
+        // For matrix_lookup: include rowAxis.ranges[], columnAxis.ranges[], values[][]
+        // For tiered_lookup: include tiers[] with min, max, payout for EACH tier
+        // For percentage/flat_percentage: include rate (as decimal) and metric
+        // For conditional_percentage: include conditions[] and metric
+      },
+      "confidence": 0-100,
+      "reasoning": "How you extracted this component"
+    }
+  ],
+  "requiredInputs": [
+    { "field": "field_name", "description": "what it measures", "scope": "employee|store", "dataType": "number|percentage|currency" }
+  ],
+  "workedExamples": [
+    { "employeeType": "certified", "inputs": {...}, "expectedTotal": 2335, "componentBreakdown": {...} }
+  ],
   "confidence": 0-100,
-  "reasoning": "Overall reasoning"
+  "reasoning": "Overall analysis reasoning"
 }`;
 
       case 'workbook_analysis':
