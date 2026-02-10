@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAIService } from '@/lib/ai';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export async function POST(request: NextRequest) {
   console.log('\n========== API ROUTE: /api/interpret-plan ==========');
@@ -45,6 +47,25 @@ export async function POST(request: NextRequest) {
     console.log('Tokens:', response.tokenUsage);
 
     const interpretation = response.result;
+
+    // OB-23 DIAG: Write full AI response to file
+    try {
+      const logPath = path.join(process.cwd(), 'API_PLAN_RESPONSE.json');
+      fs.writeFileSync(logPath, JSON.stringify({
+        timestamp: new Date().toISOString(),
+        requestId: response.requestId,
+        confidence: response.confidence,
+        fullResult: interpretation,
+        componentsDetail: (interpretation.components as Array<Record<string, unknown>>)?.map(c => ({
+          name: c.name,
+          type: c.type,
+          calculationMethod: c.calculationMethod,
+        })),
+      }, null, 2), 'utf-8');
+      console.log('OB-23: Full AI response written to API_PLAN_RESPONSE.json');
+    } catch (e) {
+      console.error('OB-23: Failed to write response file:', e);
+    }
 
     console.log('\n========== PARSED INTERPRETATION ==========');
     console.log('Plan name:', interpretation.planName);

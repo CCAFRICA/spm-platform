@@ -1930,32 +1930,16 @@ export default function DataPackageImportPage() {
       // Get user ID
       const userId = user?.id || 'system';
 
-      // Commit data to data layer
-      const result = directCommitImportData(
-        tenantId,
-        userId,
-        uploadedFile.name,
-        sheetData
-      );
+      // OB-24 FIX: Generate batchId BEFORE calling directCommitImportData
+      // This allows us to store import context BEFORE aggregation runs
+      const batchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-      // Store field mappings separately
-      const mappingsToStore = fieldMappings.map(m => ({
-        sheetName: m.sheetName,
-        mappings: Object.fromEntries(
-          m.mappings
-            .filter(mapping => mapping.targetField)
-            .map(mapping => [mapping.sourceColumn, mapping.targetField as string])
-        ),
-      }));
-      storeFieldMappings(tenantId, result.batchId, mappingsToStore);
-
-      // AI-DRIVEN: Store import context for calculation engine
+      // OB-24 FIX: Store import context BEFORE commit so storeAggregatedData can use it
       // CLT-08 FIX: Use USER-CONFIRMED fieldMappings, not original AI suggestions
-      // The fieldMappings state contains user-verified mappings; AI suggestedFieldMappings may have nulls
       if (analysis) {
         const importContext: AIImportContext = {
           tenantId,
-          batchId: result.batchId,
+          batchId,
           timestamp: new Date().toISOString(),
           rosterSheet: analysis.rosterDetected?.sheetName || null,
           rosterEmployeeIdColumn: analysis.rosterDetected?.employeeIdColumn || null,
@@ -1992,8 +1976,28 @@ export default function DataPackageImportPage() {
           }),
         };
         storeImportContext(importContext);
-        console.log(`[Import] Stored AI import context: ${importContext.sheets.length} sheets with CONFIRMED mappings`);
+        console.log(`[Import] Stored AI import context BEFORE commit: ${importContext.sheets.length} sheets`);
       }
+
+      // Commit data to data layer (pass pre-generated batchId)
+      const result = directCommitImportData(
+        tenantId,
+        userId,
+        uploadedFile.name,
+        sheetData,
+        batchId
+      );
+
+      // Store field mappings separately
+      const mappingsToStore = fieldMappings.map(m => ({
+        sheetName: m.sheetName,
+        mappings: Object.fromEntries(
+          m.mappings
+            .filter(mapping => mapping.targetField)
+            .map(mapping => [mapping.sourceColumn, mapping.targetField as string])
+        ),
+      }));
+      storeFieldMappings(tenantId, result.batchId, mappingsToStore);
 
       console.log(`[Import] Committed ${result.recordCount} records, batch: ${result.batchId}`);
       console.log(`[Import] TenantId used: ${tenantId}`);

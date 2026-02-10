@@ -16,10 +16,6 @@ import type {
 } from '@/types/compensation-plan';
 import { getActivePlan, getPlan } from './plan-storage';
 
-// CLT-08 DIAG: Track first employee for diagnostic logging
-let _diagEngineLogged = false;
-export function resetEngineDiag() { _diagEngineLogged = false; }
-
 // ============================================
 // METRICS INTERFACE
 // ============================================
@@ -75,27 +71,12 @@ function calculateAdditiveLookup(
   const config = plan.configuration as AdditiveLookupConfig;
   const warnings: string[] = [];
 
-  // CLT-08 DIAG: Log for first employee only
-  const shouldLog = !_diagEngineLogged;
-  if (shouldLog) {
-    _diagEngineLogged = true;
-    console.log('DIAG-ENGINE: === CALCULATION ENGINE ENTRY ===');
-    console.log('DIAG-ENGINE: Employee:', employeeMetrics.employeeId, employeeMetrics.employeeName);
-    console.log('DIAG-ENGINE: isCertified:', employeeMetrics.isCertified);
-    console.log('DIAG-ENGINE: Available metrics:', JSON.stringify(employeeMetrics.metrics, null, 2));
-  }
-
   // Find matching variant based on eligibility criteria
   const variant = findMatchingVariant(config, employeeMetrics);
   if (!variant) {
     warnings.push('No matching plan variant found, using first variant');
   }
   const selectedVariant = variant || config.variants[0];
-
-  if (shouldLog) {
-    console.log('DIAG-ENGINE: Selected variant:', selectedVariant.variantName);
-    console.log('DIAG-ENGINE: Enabled components:', selectedVariant.components.filter(c => c.enabled).map(c => c.name));
-  }
 
   const components: CalculationStep[] = [];
   let totalIncentive = 0;
@@ -115,18 +96,10 @@ function calculateAdditiveLookup(
     .filter((c) => c.enabled)
     .sort((a, b) => a.order - b.order)
     .forEach((component) => {
-      const step = calculateComponent(component, employeeMetrics, shouldLog);
+      const step = calculateComponent(component, employeeMetrics);
       components.push(step);
       totalIncentive += step.outputValue;
     });
-
-  if (shouldLog) {
-    console.log('DIAG-ENGINE: === CALCULATION COMPLETE ===');
-    console.log('DIAG-ENGINE: Total Incentive:', totalIncentive);
-    components.forEach(c => {
-      console.log(`DIAG-ENGINE: Component "${c.componentName}": $${c.outputValue}`);
-    });
-  }
 
   return {
     employeeId: employeeMetrics.employeeId,
@@ -173,80 +146,41 @@ function findMatchingVariant(config: AdditiveLookupConfig, metrics: EmployeeMetr
 
 function calculateComponent(
   component: PlanComponent,
-  metrics: EmployeeMetrics,
-  shouldLog: boolean = false
+  metrics: EmployeeMetrics
 ): CalculationStep {
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE: --- Component: "${component.name}" (${component.componentType}) ---`);
-  }
-
-  let result: CalculationStep;
   switch (component.componentType) {
     case 'matrix_lookup':
-      result = calculateMatrixLookup(component, metrics, shouldLog);
-      break;
+      return calculateMatrixLookup(component, metrics);
     case 'tier_lookup':
-      result = calculateTierLookup(component, metrics, shouldLog);
-      break;
+      return calculateTierLookup(component, metrics);
     case 'percentage':
-      result = calculatePercentage(component, metrics, shouldLog);
-      break;
+      return calculatePercentage(component, metrics);
     case 'conditional_percentage':
-      result = calculateConditionalPercentage(component, metrics, shouldLog);
-      break;
+      return calculateConditionalPercentage(component, metrics);
     default:
-      result = createZeroStep(component, 'Unknown component type');
+      return createZeroStep(component, 'Unknown component type');
   }
-
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE: Result: $${result.outputValue}`);
-  }
-
-  return result;
 }
 
 function calculateMatrixLookup(
   component: PlanComponent,
-  metrics: EmployeeMetrics,
-  shouldLog: boolean = false
+  metrics: EmployeeMetrics
 ): CalculationStep {
   const config = component.matrixConfig!;
 
-  // PHASE 3 VALIDATION: Check for empty configuration
+  // Validation: Check for empty configuration
   if (!config.rowBands || config.rowBands.length === 0) {
-    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY rowBands!`);
     return createZeroStep(component, 'Matrix has no row bands configured');
   }
   if (!config.columnBands || config.columnBands.length === 0) {
-    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY columnBands!`);
     return createZeroStep(component, 'Matrix has no column bands configured');
   }
   if (!config.values || config.values.length === 0) {
-    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY values matrix!`);
     return createZeroStep(component, 'Matrix has no values configured');
   }
 
   const rowValue = metrics.metrics[config.rowMetric] ?? 0;
   const colValue = metrics.metrics[config.columnMetric] ?? 0;
-
-  // PHASE 3 VALIDATION: Warn when metric is missing (not just 0)
-  const rowMetricMissing = !(config.rowMetric in metrics.metrics);
-  const colMetricMissing = !(config.columnMetric in metrics.metrics);
-  if (rowMetricMissing && shouldLog) {
-    console.warn(`DIAG-VALIDATE: Metric "${config.rowMetric}" NOT FOUND in employee metrics!`);
-    console.warn(`DIAG-VALIDATE: Available metrics: ${Object.keys(metrics.metrics).join(', ')}`);
-  }
-  if (colMetricMissing && shouldLog) {
-    console.warn(`DIAG-VALIDATE: Metric "${config.columnMetric}" NOT FOUND in employee metrics!`);
-  }
-
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE: Matrix lookup config:`);
-    console.log(`DIAG-ENGINE:   rowMetric="${config.rowMetric}" -> value=${rowValue}${rowMetricMissing ? ' (MISSING!)' : ''}`);
-    console.log(`DIAG-ENGINE:   columnMetric="${config.columnMetric}" -> value=${colValue}${colMetricMissing ? ' (MISSING!)' : ''}`);
-    console.log(`DIAG-ENGINE:   rowBands: ${JSON.stringify(config.rowBands.map(b => `${b.min}-${b.max}`))}`);
-    console.log(`DIAG-ENGINE:   columnBands: ${JSON.stringify(config.columnBands.map(b => `${b.min}-${b.max}`))}`);
-  }
 
   const rowBand = findBand(config.rowBands, rowValue);
   const colBand = findBand(config.columnBands, colValue);
@@ -255,12 +189,6 @@ function calculateMatrixLookup(
   const colIndex = config.columnBands.indexOf(colBand);
 
   const lookupValue = config.values[rowIndex]?.[colIndex] ?? 0;
-
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE:   Matched rowBand[${rowIndex}]: ${rowBand.label} (${rowBand.min}-${rowBand.max})`);
-    console.log(`DIAG-ENGINE:   Matched colBand[${colIndex}]: ${colBand.label} (${colBand.min}-${colBand.max})`);
-    console.log(`DIAG-ENGINE:   Lookup value at [${rowIndex}][${colIndex}]: ${lookupValue}`);
-  }
 
   return {
     order: component.order,
@@ -290,37 +218,17 @@ function calculateMatrixLookup(
 
 function calculateTierLookup(
   component: PlanComponent,
-  metrics: EmployeeMetrics,
-  shouldLog: boolean = false
+  metrics: EmployeeMetrics
 ): CalculationStep {
   const config = component.tierConfig!;
 
-  // PHASE 3 VALIDATION: Check for empty configuration
+  // Validation: Check for empty configuration
   if (!config.tiers || config.tiers.length === 0) {
-    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY tiers!`);
     return createZeroStep(component, 'Tier lookup has no tiers configured');
   }
 
   const value = metrics.metrics[config.metric] ?? 0;
-
-  // PHASE 3 VALIDATION: Warn when metric is missing
-  const metricMissing = !(config.metric in metrics.metrics);
-  if (metricMissing && shouldLog) {
-    console.warn(`DIAG-VALIDATE: Metric "${config.metric}" NOT FOUND in employee metrics!`);
-    console.warn(`DIAG-VALIDATE: Available metrics: ${Object.keys(metrics.metrics).join(', ')}`);
-  }
-
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE: Tier lookup config:`);
-    console.log(`DIAG-ENGINE:   metric="${config.metric}" -> value=${value}${metricMissing ? ' (MISSING!)' : ''}`);
-    console.log(`DIAG-ENGINE:   tiers: ${JSON.stringify(config.tiers.map(t => `${t.min}-${t.max}:$${t.value}`))}`);
-  }
-
   const tier = findTier(config.tiers, value);
-
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE:   Matched tier: ${tier.label} ($${tier.value})`);
-  }
 
   return {
     order: component.order,
@@ -346,25 +254,10 @@ function calculateTierLookup(
 
 function calculatePercentage(
   component: PlanComponent,
-  metrics: EmployeeMetrics,
-  shouldLog: boolean = false
+  metrics: EmployeeMetrics
 ): CalculationStep {
   const config = component.percentageConfig!;
-
   const baseValue = metrics.metrics[config.appliedTo] ?? 0;
-
-  // PHASE 3 VALIDATION: Warn when metric is missing
-  const metricMissing = !(config.appliedTo in metrics.metrics);
-  if (metricMissing && shouldLog) {
-    console.warn(`DIAG-VALIDATE: Metric "${config.appliedTo}" NOT FOUND in employee metrics!`);
-    console.warn(`DIAG-VALIDATE: Available metrics: ${Object.keys(metrics.metrics).join(', ')}`);
-  }
-
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE: Percentage config:`);
-    console.log(`DIAG-ENGINE:   appliedTo="${config.appliedTo}" -> value=${baseValue}${metricMissing ? ' (MISSING!)' : ''}`);
-    console.log(`DIAG-ENGINE:   rate=${config.rate}`);
-  }
 
   // Check minimum threshold
   if (config.minThreshold && baseValue < config.minThreshold) {
@@ -376,10 +269,6 @@ function calculatePercentage(
   // Apply max payout cap
   if (config.maxPayout && result > config.maxPayout) {
     result = config.maxPayout;
-  }
-
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE:   Result: ${baseValue} * ${config.rate} = ${result}`);
   }
 
   return {
@@ -401,14 +290,12 @@ function calculatePercentage(
 
 function calculateConditionalPercentage(
   component: PlanComponent,
-  metrics: EmployeeMetrics,
-  shouldLog: boolean = false
+  metrics: EmployeeMetrics
 ): CalculationStep {
   const config = component.conditionalConfig!;
 
-  // PHASE 3 VALIDATION: Check for empty conditions
+  // Validation: Check for empty conditions
   if (!config.conditions || config.conditions.length === 0) {
-    console.warn(`DIAG-VALIDATE: Component "${component.name}" has EMPTY conditions!`);
     return createZeroStep(component, 'Conditional percentage has no conditions configured');
   }
 
@@ -418,35 +305,12 @@ function calculateConditionalPercentage(
   const conditionMetric = config.conditions[0]?.metric;
   const conditionValue = metrics.metrics[conditionMetric] ?? 0;
 
-  // PHASE 3 VALIDATION: Warn when metrics are missing
-  const baseMissing = !(config.appliedTo in metrics.metrics);
-  const conditionMissing = conditionMetric ? !(conditionMetric in metrics.metrics) : false;
-  if (baseMissing && shouldLog) {
-    console.warn(`DIAG-VALIDATE: Metric "${config.appliedTo}" NOT FOUND in employee metrics!`);
-    console.warn(`DIAG-VALIDATE: Available metrics: ${Object.keys(metrics.metrics).join(', ')}`);
-  }
-  if (conditionMissing && shouldLog) {
-    console.warn(`DIAG-VALIDATE: Condition metric "${conditionMetric}" NOT FOUND in employee metrics!`);
-  }
-
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE: Conditional percentage config:`);
-    console.log(`DIAG-ENGINE:   appliedTo="${config.appliedTo}" -> value=${baseValue}${baseMissing ? ' (MISSING!)' : ''}`);
-    console.log(`DIAG-ENGINE:   conditionMetric="${conditionMetric}" -> value=${conditionValue}${conditionMissing ? ' (MISSING!)' : ''}`);
-    console.log(`DIAG-ENGINE:   conditions: ${JSON.stringify(config.conditions.map(c => `${c.min}-${c.max}:${c.rate}`))}`);
-  }
-
   const matchingCondition = config.conditions.find(
     (c) => conditionValue >= c.min && conditionValue < c.max
   ) || config.conditions[config.conditions.length - 1];
 
   const rate = matchingCondition?.rate ?? 0;
   const result = baseValue * rate;
-
-  if (shouldLog) {
-    console.log(`DIAG-ENGINE:   Matched condition: ${matchingCondition?.label} (rate=${rate})`);
-    console.log(`DIAG-ENGINE:   Result: ${baseValue} * ${rate} = ${result}`);
-  }
 
   return {
     order: component.order,

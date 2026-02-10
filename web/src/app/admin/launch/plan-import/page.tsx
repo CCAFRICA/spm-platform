@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { isCCAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
-import { savePlan } from '@/lib/compensation/plan-storage';
+import { savePlan, activatePlan } from '@/lib/compensation/plan-storage';
 import { parseFile } from '@/lib/import-pipeline/file-parser';
 import {
   interpretPlanDocument,
@@ -472,6 +472,19 @@ export default function PlanImportPage() {
         return detected;
       });
 
+      // OB-23 FIX: Deep copy planConfig to prevent any reference mutation issues
+      // This ensures tier data cannot be lost due to shared references
+      const deepCopiedPlanConfig = result.planConfig
+        ? JSON.parse(JSON.stringify(result.planConfig, (key, value) => {
+            // Preserve Infinity values that JSON.stringify would convert to null
+            if (value === Infinity) return 'INFINITY_PLACEHOLDER';
+            return value;
+          }), (key, value) => {
+            if (value === 'INFINITY_PLACEHOLDER') return Infinity;
+            return value;
+          }) as CompensationPlanConfig
+        : undefined;
+
       const parsed: ParsedPlan = {
         name: interpretation.planName,
         nameEs: interpretation.planNameEs,
@@ -487,7 +500,7 @@ export default function PlanImportPage() {
         employeeTypes: interpretation.employeeTypes,
         workedExamples: interpretation.workedExamples,
         requiredInputs: interpretation.requiredInputs,
-        planConfig: result.planConfig,
+        planConfig: deepCopiedPlanConfig,
         rawApiResponse: interpretation.rawApiResponse,
       };
 
@@ -532,8 +545,20 @@ export default function PlanImportPage() {
 
       // Use the pre-built plan config from AI interpretation if available
       if (parsedPlan.planConfig) {
+
+        // OB-23 FIX: Deep copy the configuration to ensure tier data is preserved
+        // The spread operator only does shallow copy, which could lose nested tier arrays
+        const preservedConfig = JSON.parse(JSON.stringify(parsedPlan.planConfig.configuration, (key, value) => {
+          if (value === Infinity) return 'INFINITY_PLACEHOLDER';
+          return value;
+        }), (key, value) => {
+          if (value === 'INFINITY_PLACEHOLDER') return Infinity;
+          return value;
+        });
+
         planConfig = {
           ...parsedPlan.planConfig,
+          configuration: preservedConfig, // Use deep-copied configuration
           name: planName,
           description: planDescription,
           effectiveDate: new Date(effectiveDate).toISOString(),
@@ -635,8 +660,15 @@ export default function PlanImportPage() {
         };
       }
 
-      // Save the plan
+      // Save the plan (as draft first)
       savePlan(planConfig);
+
+      // OB-23: Activate the plan immediately so calculation engine can use it
+      // This also archives any existing active plans for the same roles
+      const activatedPlan = activatePlan(planConfig.id, user?.name || 'system');
+      if (!activatedPlan) {
+        console.warn('Failed to activate plan, but plan was saved as draft');
+      }
 
       setImportResult({ success: true, planId: planConfig.id });
     } catch (error) {

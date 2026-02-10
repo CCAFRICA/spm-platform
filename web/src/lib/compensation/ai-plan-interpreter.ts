@@ -435,7 +435,18 @@ export function interpretationToPlanConfig(
           (c.appliesToEmployeeTypes?.includes('all') ?? true) ||
           (c.appliesToEmployeeTypes?.includes(empType.id) ?? false)
       )
-      .map((comp, index) => convertComponent(comp, index));
+      .map((comp, index) => {
+        // DEFENSIVE: Deep copy the component to prevent mutation issues across variants
+        const compCopy = JSON.parse(JSON.stringify(comp)) as InterpretedComponent;
+        return convertComponent(compCopy, index);
+      });
+
+    // Log variant components with tier counts
+    console.log(`[variant ${empType.id}] ${components.length} components:`);
+    components.forEach((c, i) => {
+      const tc = 'tierConfig' in c ? (c.tierConfig as { tiers?: unknown[] }) : undefined;
+      console.log(`  [${i}] ${c.name}: ${tc?.tiers?.length ?? 'no tiers'}`);
+    });
 
     return {
       variantId: empType.id,
@@ -453,7 +464,11 @@ export function interpretationToPlanConfig(
       variantName: 'Default',
       description: 'Default plan variant',
       eligibilityCriteria: {},
-      components: allComponents.map((comp, index) => convertComponent(comp, index)),
+      components: allComponents.map((comp, index) => {
+        // DEFENSIVE: Deep copy the component to prevent mutation issues
+        const compCopy = JSON.parse(JSON.stringify(comp)) as InterpretedComponent;
+        return convertComponent(compCopy, index);
+      }),
     });
   }
 
@@ -461,6 +476,16 @@ export function interpretationToPlanConfig(
     type: 'additive_lookup',
     variants,
   };
+
+  // Final summary log
+  console.log(`[interpretationToPlanConfig] ${variants.length} variants created`);
+  variants.forEach((v, vi) => {
+    const tierSummary = v.components
+      .filter(c => c.componentType === 'tier_lookup')
+      .map(c => `${c.name}:${(c.tierConfig as { tiers?: unknown[] })?.tiers?.length ?? 0}`)
+      .join(', ');
+    console.log(`  [${vi}] ${v.variantId}: ${tierSummary}`);
+  });
 
   return {
     id: planId,
@@ -499,6 +524,9 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
   const calcMethod = comp?.calculationMethod;
   const calcType = calcMethod?.type || 'tiered_lookup';
 
+  // DEBUG: Log exactly what type is being processed
+  console.log(`[convertComponent] "${base.name}" calcType="${calcType}" (from calcMethod.type="${calcMethod?.type}")`);
+
   switch (calcType) {
     case 'matrix_lookup': {
       const m = calcMethod as MatrixCalculation;
@@ -530,18 +558,25 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
 
     case 'tiered_lookup': {
       const t = calcMethod as TieredCalculation;
+      const rawTiers = t?.tiers || [];
+
+      // Simple direct mapping - no transformation issues
+      const tiers = rawTiers.map((tier) => ({
+        min: tier?.min ?? 0,
+        max: tier?.max ?? 100,
+        label: tier?.label || '',
+        value: tier?.payout ?? 0,
+      }));
+
+      console.log(`[convertComponent] ${base.name}: ${rawTiers.length} input tiers -> ${tiers.length} output tiers`);
+
       return {
         ...base,
         componentType: 'tier_lookup',
         tierConfig: {
           metric: t?.metric || 'attainment',
           metricLabel: t?.metricLabel || t?.metric || 'Attainment',
-          tiers: (t?.tiers || []).map((tier) => ({
-            min: tier?.min ?? 0,
-            max: tier?.max ?? 100,
-            label: tier?.label || '',
-            value: tier?.payout ?? 0,
-          })),
+          tiers,
           currency: 'MXN',
         },
       };

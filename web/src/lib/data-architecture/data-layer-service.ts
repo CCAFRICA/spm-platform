@@ -409,27 +409,84 @@ function storeAggregatedData(
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
 
-    // AI-DRIVEN: Get ID fields using ONLY AI mappings (NO HARDCODED FALLBACKS)
-    const empIdField = getSheetFieldBySemantic(sheetName, ['employeeId', 'employee_id']);
-    const storeIdField = getSheetFieldBySemantic(sheetName, ['storeId', 'locationId', 'store']);
-    const attainmentField = getSheetFieldBySemantic(sheetName, ['attainment', 'achievement', 'performance']);
-    const amountField = getSheetFieldBySemantic(sheetName, ['amount', 'value', 'actual', 'sales']);
-    const goalField = getSheetFieldBySemantic(sheetName, ['goal', 'target', 'quota']);
+    // AI-DRIVEN: Get ID fields using AI mappings with expanded semantic types
+    // OB-24 FIX: Include Spanish terms and common variations
+    const empIdField = getSheetFieldBySemantic(sheetName, [
+      'employeeId', 'employee_id', 'empId', 'rep_id', 'id_empleado', 'num_empleado', 'llave', 'clave'
+    ]);
+    const storeIdField = getSheetFieldBySemantic(sheetName, [
+      'storeId', 'locationId', 'store', 'tienda', 'no_tienda', 'sucursal', 'location'
+    ]);
+    const attainmentField = getSheetFieldBySemantic(sheetName, [
+      'attainment', 'achievement', 'performance', 'cumplimiento', 'porcentaje', 'pct', 'percent'
+    ]);
+    const amountField = getSheetFieldBySemantic(sheetName, [
+      'amount', 'value', 'actual', 'sales', 'venta', 'monto', 'real', 'revenue', 'total'
+    ]);
+    const goalField = getSheetFieldBySemantic(sheetName, [
+      'goal', 'target', 'quota', 'meta', 'objetivo', 'cuota', 'presupuesto'
+    ]);
 
-    // Skip sheet if no AI mappings found
-    if (!empIdField && !storeIdField) {
-      console.warn(`[DataLayer] Sheet "${sheetName}" has no AI field mappings - skipping`);
+    // OB-24 FIX: Fallback to direct column name matching if AI mapping not found
+    const findColumnByPattern = (patterns: RegExp[]): string | null => {
+      for (const key of Object.keys(content)) {
+        if (key.startsWith('_')) continue;
+        for (const pattern of patterns) {
+          if (pattern.test(key)) return key;
+        }
+      }
+      return null;
+    };
+
+    // Try AI mapping first, then fallback to pattern matching on column names
+    // OB-24 FIX: Removed ^ anchors - column names may have prefixes like "#" or "No."
+    const effectiveEmpIdField = empIdField || findColumnByPattern([
+      /llave/i, /clave/i, /id.*emp/i, /num.*emp/i, /empleado/i
+    ]);
+    const effectiveStoreIdField = storeIdField || findColumnByPattern([
+      /tienda/i, /store/i, /sucursal/i
+    ]);
+    // OB-24 FIX: Be specific about Cumplimiento - it's the primary attainment column in Spanish
+    const effectiveAttainmentField = attainmentField || findColumnByPattern([
+      /cumplimiento/i,  // Primary Spanish term for attainment
+      /attainment/i,
+      /achievement/i,
+      /logro/i
+    ]);
+    const effectiveAmountField = amountField || findColumnByPattern([
+      /venta.*real/i, /monto/i, /\breal\b/i, /actual/i, /amount/i, /\bsales\b/i
+    ]);
+    const effectiveGoalField = goalField || findColumnByPattern([
+      /meta/i, /cuota/i, /goal/i, /target/i, /objetivo/i, /presupuesto/i
+    ]);
+
+    // Skip sheet if no ID field found (even with fallback)
+    if (!effectiveEmpIdField && !effectiveStoreIdField) {
+      console.warn(`[DataLayer] Sheet "${sheetName}" has no ID field - skipping`);
       continue;
     }
 
-    // Extract IDs using ONLY AI-mapped field names
-    const empId = empIdField ? String(content[empIdField] || '').trim() : '';
-    const storeId = storeIdField ? String(content[storeIdField] || '').trim() : '';
+    // Extract IDs using effective field names (AI-mapped or pattern-matched)
+    const empId = effectiveEmpIdField ? String(content[effectiveEmpIdField] || '').trim() : '';
+    const storeId = effectiveStoreIdField ? String(content[effectiveStoreIdField] || '').trim() : '';
 
-    // AI-DRIVEN: Extract only attainment/amount/goal using AI-mapped fields (SMART COMPRESSION)
-    const attainment = attainmentField && content[attainmentField] !== undefined ? Number(content[attainmentField]) : undefined;
-    const amount = amountField && content[amountField] !== undefined ? Number(content[amountField]) : undefined;
-    const goal = goalField && content[goalField] !== undefined ? Number(content[goalField]) : undefined;
+    // Extract metrics using effective field names
+    // OB-24 FIX: Handle string percentages like "41.86%" by parsing more robustly
+    const parseNumericValue = (val: unknown): number | undefined => {
+      if (val === undefined || val === null || val === '') return undefined;
+      if (typeof val === 'number') return isNaN(val) ? undefined : val;
+      if (typeof val === 'string') {
+        // Remove % sign and parse
+        const cleaned = val.replace(/%/g, '').trim();
+        const num = parseFloat(cleaned);
+        return isNaN(num) ? undefined : num;
+      }
+      return undefined;
+    };
+
+    const attainment = effectiveAttainmentField ? parseNumericValue(content[effectiveAttainmentField]) : undefined;
+    const amount = effectiveAmountField ? parseNumericValue(content[effectiveAmountField]) : undefined;
+    const goal = effectiveGoalField ? parseNumericValue(content[effectiveGoalField]) : undefined;
 
     // Also look for any numeric field that might be the key metric
     let primaryMetric: number | undefined;
@@ -441,8 +498,18 @@ function storeAggregatedData(
       }
     }
 
+    // OB-24 FIX: Only use SOURCE attainment, NEVER compute from amount/goal
+    // Computing attainment from summed amounts/goals produces wrong results
+    // The source Excel should have a "Cumplimiento" or "%" column with the real attainment
+    let normalizedAttainment = attainment;
+
+    // Normalize: if < 5, assume decimal ratio and multiply by 100
+    if (normalizedAttainment !== undefined && normalizedAttainment > 0 && normalizedAttainment < 5) {
+      normalizedAttainment = normalizedAttainment * 100;
+    }
+
     const metrics = {
-      attainment: attainment ?? (amount && goal && goal > 0 ? (amount / goal) * 100 : undefined),
+      attainment: normalizedAttainment,  // Use source value only, don't compute
       amount: amount ?? primaryMetric,
       goal
     };
@@ -1301,9 +1368,10 @@ export function directCommitImportData(
     sheetName: string;
     rows: Record<string, unknown>[];
     mappings?: Record<string, string>; // sourceColumn -> targetField
-  }>
+  }>,
+  providedBatchId?: string  // OB-24 FIX: Allow caller to provide batchId for import context ordering
 ): { batchId: string; recordCount: number } {
-  const batchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  const batchId = providedBatchId || `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
   // Create the import batch
   const batch: ImportBatch = {

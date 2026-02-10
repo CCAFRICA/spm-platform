@@ -223,6 +223,46 @@ export function extractMetricConfig(component: {
 }
 
 /**
+ * OB-24: Sheet-to-component matching patterns
+ * Maps Spanish sheet name patterns to English component types
+ */
+const SHEET_COMPONENT_PATTERNS: Array<{
+  sheetPatterns: RegExp[];
+  componentPatterns: RegExp[];
+}> = [
+  {
+    // Individual optical sales
+    sheetPatterns: [/venta.*individual/i, /individual.*venta/i, /optical.*sales/i],
+    componentPatterns: [/optical.*sales/i, /individual.*sales/i, /venta.*optica/i],
+  },
+  {
+    // Store sales
+    sheetPatterns: [/venta.*tienda/i, /tienda.*venta/i, /store.*sales/i],
+    componentPatterns: [/store.*sales/i, /tienda/i],
+  },
+  {
+    // New customers
+    sheetPatterns: [/clientes.*nuevos/i, /new.*customer/i, /nuevos.*clientes/i],
+    componentPatterns: [/new.*customer/i, /clientes.*nuevos/i],
+  },
+  {
+    // Collections
+    sheetPatterns: [/cobranza/i, /collection/i, /cobro/i],
+    componentPatterns: [/collection/i, /cobranza/i],
+  },
+  {
+    // Insurance (Club de Protección)
+    sheetPatterns: [/club.*proteccion/i, /proteccion/i, /insurance/i, /seguro/i],
+    componentPatterns: [/insurance/i, /proteccion/i, /seguro/i],
+  },
+  {
+    // Extended warranty (Garantía Extendida)
+    sheetPatterns: [/garantia.*extendida/i, /warranty/i, /garantia/i],
+    componentPatterns: [/service/i, /warranty/i, /garantia/i],
+  },
+];
+
+/**
  * Find the sheet that matches a plan component by matching component names/IDs.
  * The AI Import Context stores which sheet feeds which plan component.
  */
@@ -242,6 +282,7 @@ export function findSheetForComponent(
   const normName = componentName.toLowerCase().replace(/[-\s]/g, '_');
   const normId = componentId.toLowerCase().replace(/[-\s]/g, '_');
 
+  // STRATEGY 1: Use AI matchedComponent if available
   for (const sheet of aiContextSheets) {
     if (!sheet.matchedComponent) continue;
 
@@ -257,6 +298,26 @@ export function findSheetForComponent(
       normId.includes(matchedNorm)
     ) {
       return sheet.sheetName;
+    }
+  }
+
+  // STRATEGY 2: OB-24 Pattern-based matching (Spanish sheet names → English components)
+  for (const mapping of SHEET_COMPONENT_PATTERNS) {
+    // Check if component matches any pattern
+    const componentMatches = mapping.componentPatterns.some(
+      (pattern) => pattern.test(componentName) || pattern.test(componentId)
+    );
+
+    if (componentMatches) {
+      // Find a sheet that matches the corresponding sheet patterns
+      for (const sheet of aiContextSheets) {
+        const sheetMatches = mapping.sheetPatterns.some((pattern) =>
+          pattern.test(sheet.sheetName)
+        );
+        if (sheetMatches) {
+          return sheet.sheetName;
+        }
+      }
     }
   }
 

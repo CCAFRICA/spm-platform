@@ -1159,8 +1159,6 @@ export async function interpretPlanDocument(
         // Convert to plan config
         const planConfig = interpretationToPlanConfig(data.interpretation, tenantId, userId);
 
-        console.log('==========================================\n');
-
         return {
           success: true,
           method: 'ai',

@@ -7,7 +7,7 @@
  */
 
 import type { CalculationResult } from '@/types/compensation-plan';
-import { calculateIncentive, type EmployeeMetrics, resetEngineDiag } from '@/lib/compensation/calculation-engine';
+import { calculateIncentive, type EmployeeMetrics } from '@/lib/compensation/calculation-engine';
 import { getPlans } from '@/lib/compensation/plan-storage';
 import {
   buildCalculationContext,
@@ -141,7 +141,6 @@ export class CalculationOrchestrator {
   private tenantId: string;
   private calculationContext: CalculationContext | null = null;
   private aiImportContext: AIImportContext | null = null;
-  private _diagLogged: boolean = false;
   // OB-21: Plan-driven metric resolution - stores active plan's components
   private planComponents: PlanComponent[] = [];
 
@@ -164,10 +163,6 @@ export class CalculationOrchestrator {
    * Execute a calculation run
    */
   async executeRun(config: CalculationRunConfig, userId: string): Promise<OrchestrationResult> {
-    // CLT-08 DIAG: Reset diagnostic flags for new run
-    this._diagLogged = false;
-    resetEngineDiag();
-
     // Create run record
     const run = this.createRun(config, userId);
     this.saveRun(run);
@@ -538,14 +533,7 @@ export class CalculationOrchestrator {
     const hasNoCertificado = role.includes('NO CERTIFICADO') || role.includes('NO-CERTIFICADO') || role.includes('NON-CERTIFICADO');
 
     // Certified if contains CERTIFICADO but NOT "NO CERTIFICADO"
-    const isCertified = hasCertificado && !hasNoCertificado;
-
-    // DIAG: Log for first employee
-    if (!this._diagLogged) {
-      console.log(`DIAG-VARIANT: Employee ${employee.id} role="${employee.role}" → isCertified=${isCertified}`);
-    }
-
-    return isCertified;
+    return hasCertificado && !hasNoCertificado;
   }
 
   /**
@@ -556,22 +544,6 @@ export class CalculationOrchestrator {
     // AI-DRIVEN PRIORITY 0: Extract metrics from aggregated employee attributes using AI mappings
     const aiMetrics = this.extractMetricsWithAIMappings(employee);
     if (aiMetrics && Object.keys(aiMetrics).length > 0) {
-      // DIAG: Log metrics being passed to engine for first employee
-      if (!this._diagLogged || employee.id === 'DIAG_LOG_ALWAYS') {
-        console.log('DIAG-ORCH: === METRICS PASSED TO ENGINE ===');
-        console.log('DIAG-ORCH: Employee:', employee.id);
-        console.log('DIAG-ORCH: Metric keys:', Object.keys(aiMetrics));
-        console.log('DIAG-ORCH: Full metrics:', JSON.stringify(aiMetrics, null, 2));
-        // Check for expected plan metrics
-        console.log('DIAG-ORCH: Plan expects: optical_attainment =', aiMetrics['optical_attainment']);
-        console.log('DIAG-ORCH: Plan expects: optical_volume =', aiMetrics['optical_volume']);
-        console.log('DIAG-ORCH: Plan expects: store_attainment =', aiMetrics['store_attainment']);
-        console.log('DIAG-ORCH: Plan expects: new_customers_attainment =', aiMetrics['new_customers_attainment']);
-        console.log('DIAG-ORCH: Plan expects: collection_rate =', aiMetrics['collection_rate']);
-        console.log('DIAG-ORCH: Plan expects: insurance_collection_rate =', aiMetrics['insurance_collection_rate']);
-        console.log('DIAG-ORCH: Plan expects: insurance_premium_total =', aiMetrics['insurance_premium_total']);
-        console.log('DIAG-ORCH: Plan expects: services_revenue =', aiMetrics['services_revenue']);
-      }
       return {
         employeeId: employee.id,
         employeeName: `${employee.firstName} ${employee.lastName}`,
@@ -654,17 +626,6 @@ export class CalculationOrchestrator {
     // Get componentMetrics from employee (aggregated by sheet name)
     const componentMetrics = attrs.componentMetrics as Record<string, SheetMetrics> | undefined;
 
-    // DIAG: Log for first employee only
-    const isFirstEmployee = !this._diagLogged;
-    if (isFirstEmployee) {
-      this._diagLogged = true;
-      console.log('DIAG-ORCH: === OB-21 PLAN-DRIVEN METRIC EXTRACTION ===');
-      console.log('DIAG-ORCH: Employee:', employee.id, `${employee.firstName} ${employee.lastName}`);
-      console.log('DIAG-ORCH: Plan components loaded:', this.planComponents.length);
-      console.log('DIAG-ORCH: componentMetrics sheets:', componentMetrics ? Object.keys(componentMetrics) : 'none');
-      console.log('DIAG-ORCH: AI Context sheets:', this.aiImportContext?.sheets?.map(s => `${s.sheetName}→${s.matchedComponent}`));
-    }
-
     if (componentMetrics && this.planComponents.length > 0) {
       // OB-21: Iterate over PLAN COMPONENTS (not sheets)
       // The plan defines what metric names to use
@@ -690,37 +651,27 @@ export class CalculationOrchestrator {
             const sheetNorm = sheetName.toLowerCase().replace(/[-\s]/g, '_');
             if (sheetNorm.includes(compNameNorm) || compNameNorm.includes(sheetNorm)) {
               sheetMetrics = sheetData;
-              if (isFirstEmployee) {
-                console.log(`DIAG-ORCH: Component "${component.name}" matched to sheet "${sheetName}" (fallback)`);
-              }
               break;
             }
           }
         }
 
         if (!sheetMetrics) {
-          if (isFirstEmployee) {
-            console.log(`DIAG-ORCH: No sheet data for component "${component.name}"`);
-          }
           continue;
         }
 
-        // Calculate attainment if missing but amount and goal exist
+        // OB-24 FIX: Do NOT compute attainment from amount/goal - it produces wrong results
+        // when amounts and goals are summed across stores. Use source attainment only.
         const enrichedMetrics: SheetMetrics = { ...sheetMetrics };
-        if (enrichedMetrics.attainment === undefined &&
-            enrichedMetrics.amount !== undefined &&
-            enrichedMetrics.goal && enrichedMetrics.goal > 0) {
-          enrichedMetrics.attainment = (enrichedMetrics.amount / enrichedMetrics.goal) * 100;
+
+        // Normalize: if < 5, assume decimal ratio and multiply by 100
+        if (enrichedMetrics.attainment !== undefined &&
+            enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
+          enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
         }
 
         // 3. Build metrics using plan's own metric names
         const componentMetricsResolved = buildComponentMetrics(metricConfig, enrichedMetrics);
-
-        if (isFirstEmployee) {
-          console.log(`DIAG-ORCH: Component "${component.name}" -> config:`, JSON.stringify(metricConfig));
-          console.log(`DIAG-ORCH:   Sheet data:`, JSON.stringify(enrichedMetrics));
-          console.log(`DIAG-ORCH:   Resolved:`, JSON.stringify(componentMetricsResolved));
-        }
 
         // 4. Merge into employee's metrics
         Object.assign(metrics, componentMetricsResolved);
@@ -728,15 +679,53 @@ export class CalculationOrchestrator {
     }
 
     // FALLBACK: If plan-driven resolution found nothing, try sheet-based approach
+    // OB-24: Use semantic mapping to produce standard metric names
     if (Object.keys(metrics).length === 0 && componentMetrics) {
-      // Just use sheet names as metric prefixes (generic fallback)
+      const sheetToMetricPrefix: Record<string, string> = {
+        // Spanish sheet names → English metric prefixes
+        'base_venta_individual': 'optical',
+        'venta_individual': 'optical',
+        'optical_sales': 'optical',
+        'base_venta_tienda': 'store',
+        'venta_tienda': 'store',
+        'store_sales': 'store',
+        'base_clientes_nuevos': 'new_customers',
+        'clientes_nuevos': 'new_customers',
+        'new_customers': 'new_customers',
+        'base_cobranza': 'collection',
+        'cobranza': 'collection',
+        'collections': 'collection',
+        'base_club_proteccion': 'insurance',
+        'club_proteccion': 'insurance',
+        'insurance': 'insurance',
+        'base_garantia_extendida': 'services',
+        'garantia_extendida': 'services',
+        'warranty': 'services',
+      };
+
       for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
-        const prefix = sheetName.toLowerCase().replace(/[-\s]/g, '_');
+        const sheetNorm = sheetName.toLowerCase().replace(/[-\s]/g, '_');
+        // Find matching prefix from map, or use original sheet name
+        const prefix = sheetToMetricPrefix[sheetNorm] || sheetNorm;
+
         if (sheetData.attainment !== undefined) {
           metrics[`${prefix}_attainment`] = sheetData.attainment;
         }
         if (sheetData.amount !== undefined) {
-          metrics[`${prefix}_amount`] = sheetData.amount;
+          // Use appropriate suffix based on metric type
+          if (prefix === 'optical' || prefix === 'store') {
+            metrics[`${prefix}_volume`] = sheetData.amount;
+            metrics[`store_${prefix}_sales`] = sheetData.amount; // Also store with column metric name
+          } else if (prefix === 'insurance') {
+            metrics[`${prefix}_premium_total`] = sheetData.amount;
+            metrics[`${prefix}_collection_rate`] = sheetData.attainment || 100;
+          } else if (prefix === 'services') {
+            metrics[`${prefix}_revenue`] = sheetData.amount;
+          } else if (prefix === 'collection') {
+            metrics[`${prefix}_rate`] = sheetData.attainment || (sheetData.amount && sheetData.goal ? (sheetData.amount / sheetData.goal) * 100 : 100);
+          } else {
+            metrics[`${prefix}_amount`] = sheetData.amount;
+          }
         }
         if (sheetData.goal !== undefined) {
           metrics[`${prefix}_goal`] = sheetData.goal;
