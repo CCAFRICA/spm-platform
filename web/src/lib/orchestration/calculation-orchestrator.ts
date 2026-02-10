@@ -331,7 +331,11 @@ export class CalculationOrchestrator {
           const empYear = Number(attrs.year);
           const empMonth = this.parseMonthToNumber(String(attrs.month));
 
-          if (empYear !== selectedYear || empMonth !== selectedMonth) {
+          // HOTFIX: If employee has no period data (empty strings), include them
+          // This unblocks calculation when aggregation doesn't populate month/year
+          if (!empMonth && !empYear) {
+            // No period data on employee — include in calculation
+          } else if (empYear !== selectedYear || empMonth !== selectedMonth) {
             return false;
           }
         }
