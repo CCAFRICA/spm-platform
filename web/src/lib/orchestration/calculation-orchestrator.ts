@@ -544,13 +544,29 @@ export class CalculationOrchestrator {
       return Boolean(employee.attributes.isCertified);
     }
 
-    // Derive from role string
-    const role = (employee.role || '').toUpperCase();
-    const hasCertificado = role.includes('CERTIFICADO');
-    const hasNoCertificado = role.includes('NO CERTIFICADO') || role.includes('NO-CERTIFICADO') || role.includes('NON-CERTIFICADO');
+    // OB-27B: Normalize whitespace and derive from role string
+    // Handles "OPTOMETRISTA  NO CERTIFICADO" (double spaces) correctly
+    const role = (employee.role || '').toUpperCase().replace(/\s+/g, ' ').trim();
+
+    // Check for "NO CERTIFICADO" first (more specific match)
+    const hasNoCertificado = role.includes('NO CERTIFICADO') ||
+                             role.includes('NO-CERTIFICADO') ||
+                             role.includes('NON-CERTIFICADO') ||
+                             role.includes('NO CERT') ||
+                             role.includes('NON-CERT');
+
+    // Then check for "CERTIFICADO" (must come AFTER the NO check)
+    const hasCertificado = role.includes('CERTIFICADO') || role.includes('CERTIFIED');
 
     // Certified if contains CERTIFICADO but NOT "NO CERTIFICADO"
-    return hasCertificado && !hasNoCertificado;
+    const isCertified = hasCertificado && !hasNoCertificado;
+
+    // OB-27B: Log variant resolution for diagnostic
+    if (hasCertificado || hasNoCertificado) {
+      console.log(`[Orchestrator] Variant resolution: "${employee.role}" -> normalized: "${role}" -> isCertified: ${isCertified}`);
+    }
+
+    return isCertified;
   }
 
   /**
@@ -695,59 +711,102 @@ export class CalculationOrchestrator {
       }
     }
 
-    // FALLBACK: If plan-driven resolution found nothing, try sheet-based approach
-    // OB-24: Use semantic mapping to produce standard metric names
+    // OB-27B FALLBACK: If plan-driven resolution found nothing, use EXACT metric name mapping
+    // Maps Spanish sheet names to EXACT metric names expected by the plan
     if (Object.keys(metrics).length === 0 && componentMetrics) {
-      const sheetToMetricPrefix: Record<string, string> = {
-        // Spanish sheet names → English metric prefixes
-        'base_venta_individual': 'optical',
-        'venta_individual': 'optical',
-        'optical_sales': 'optical',
-        'base_venta_tienda': 'store',
-        'venta_tienda': 'store',
-        'store_sales': 'store',
-        'base_clientes_nuevos': 'new_customers',
-        'clientes_nuevos': 'new_customers',
-        'new_customers': 'new_customers',
-        'base_cobranza': 'collection',
-        'cobranza': 'collection',
-        'collections': 'collection',
-        'base_club_proteccion': 'insurance',
-        'club_proteccion': 'insurance',
-        'insurance': 'insurance',
-        'base_garantia_extendida': 'services',
-        'garantia_extendida': 'services',
-        'warranty': 'services',
+      // OB-27B: Sheet → EXACT metric names the plan expects (NOT prefixes!)
+      const sheetToExactMetrics: Record<string, {
+        attainmentKey?: string;
+        amountKey?: string;
+        goalKey?: string;
+      }> = {
+        // Optical sales (matrix: rowMetric=optical_attainment, columnMetric=store_optical_sales)
+        'base_venta_individual': {
+          attainmentKey: 'optical_attainment',
+          amountKey: 'store_optical_sales', // This is the column metric for matrix lookup
+        },
+        'venta_individual': {
+          attainmentKey: 'optical_attainment',
+          amountKey: 'store_optical_sales',
+        },
+        // Store sales (tier: metric=store_sales_attainment)
+        'base_venta_tienda': {
+          attainmentKey: 'store_sales_attainment',
+          amountKey: 'store_sales_amount',
+        },
+        'venta_tienda': {
+          attainmentKey: 'store_sales_attainment',
+          amountKey: 'store_sales_amount',
+        },
+        // New customers (tier: metric=new_customers_attainment)
+        'base_clientes_nuevos': {
+          attainmentKey: 'new_customers_attainment',
+          amountKey: 'new_customers_amount',
+        },
+        'clientes_nuevos': {
+          attainmentKey: 'new_customers_attainment',
+          amountKey: 'new_customers_amount',
+        },
+        // Collections (tier: metric=collections_attainment)
+        'base_cobranza': {
+          attainmentKey: 'collections_attainment',
+          amountKey: 'collections_amount',
+        },
+        'cobranza': {
+          attainmentKey: 'collections_attainment',
+          amountKey: 'collections_amount',
+        },
+        // Insurance (percentage: appliedTo=individual_insurance_sales)
+        'base_club_proteccion': {
+          attainmentKey: 'insurance_attainment',
+          amountKey: 'individual_insurance_sales', // EXACT name plan expects
+        },
+        'club_proteccion': {
+          attainmentKey: 'insurance_attainment',
+          amountKey: 'individual_insurance_sales',
+        },
+        // Warranty/Services (percentage: appliedTo=individual_warranty_sales)
+        'base_garantia_extendida': {
+          attainmentKey: 'warranty_attainment',
+          amountKey: 'individual_warranty_sales', // EXACT name plan expects
+        },
+        'garantia_extendida': {
+          attainmentKey: 'warranty_attainment',
+          amountKey: 'individual_warranty_sales',
+        },
       };
+
+      console.log(`[Orchestrator] OB-27B: Using fallback sheet→metric mapping for ${Object.keys(componentMetrics).length} sheets`);
 
       for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
         const sheetNorm = sheetName.toLowerCase().replace(/[-\s]/g, '_');
-        // Find matching prefix from map, or use original sheet name
-        const prefix = sheetToMetricPrefix[sheetNorm] || sheetNorm;
+        const mapping = sheetToExactMetrics[sheetNorm];
 
-        if (sheetData.attainment !== undefined) {
-          metrics[`${prefix}_attainment`] = sheetData.attainment;
-        }
-        if (sheetData.amount !== undefined) {
-          // Use appropriate suffix based on metric type
-          if (prefix === 'optical' || prefix === 'store') {
-            metrics[`${prefix}_volume`] = sheetData.amount;
-            metrics[`store_${prefix}_sales`] = sheetData.amount; // Also store with column metric name
-          } else if (prefix === 'insurance') {
-            metrics[`${prefix}_premium_total`] = sheetData.amount;
-            metrics[`${prefix}_collection_rate`] = sheetData.attainment || 100;
-          } else if (prefix === 'services') {
-            metrics[`${prefix}_revenue`] = sheetData.amount;
-          } else if (prefix === 'collection') {
-            metrics[`${prefix}_rate`] = sheetData.attainment || (sheetData.amount && sheetData.goal ? (sheetData.amount / sheetData.goal) * 100 : 100);
-          } else {
-            metrics[`${prefix}_amount`] = sheetData.amount;
+        if (mapping) {
+          if (sheetData.attainment !== undefined && mapping.attainmentKey) {
+            metrics[mapping.attainmentKey] = sheetData.attainment;
+            console.log(`[Orchestrator] OB-27B: ${sheetName} → ${mapping.attainmentKey} = ${sheetData.attainment}`);
+          }
+          if (sheetData.amount !== undefined && mapping.amountKey) {
+            metrics[mapping.amountKey] = sheetData.amount;
+            console.log(`[Orchestrator] OB-27B: ${sheetName} → ${mapping.amountKey} = ${sheetData.amount}`);
+          }
+          if (sheetData.goal !== undefined && mapping.goalKey) {
+            metrics[mapping.goalKey] = sheetData.goal;
+          }
+        } else {
+          // Unknown sheet - use generic naming as last resort
+          console.warn(`[Orchestrator] OB-27B: Unknown sheet "${sheetName}" - using generic metric names`);
+          if (sheetData.attainment !== undefined) {
+            metrics[`${sheetNorm}_attainment`] = sheetData.attainment;
+          }
+          if (sheetData.amount !== undefined) {
+            metrics[`${sheetNorm}_amount`] = sheetData.amount;
           }
         }
-        if (sheetData.goal !== undefined) {
-          metrics[`${prefix}_goal`] = sheetData.goal;
-        }
       }
+
+      console.log(`[Orchestrator] OB-27B: Fallback produced ${Object.keys(metrics).length} metrics: [${Object.keys(metrics).join(', ')}]`);
     }
 
     // FALLBACK: Extract from flat numeric attributes (backward compatibility)
