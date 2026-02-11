@@ -144,6 +144,8 @@ export class CalculationOrchestrator {
   private aiImportContext: AIImportContext | null = null;
   // OB-21: Plan-driven metric resolution - stores active plan's components
   private planComponents: PlanComponent[] = [];
+  // OB-27B: Log flag to avoid console spam
+  private _ob27bLogged = false;
 
   constructor(tenantId: string) {
     // OB-16: Normalize tenantId - strip trailing underscores to prevent data mismatch
@@ -711,9 +713,10 @@ export class CalculationOrchestrator {
       }
     }
 
-    // OB-27B FALLBACK: If plan-driven resolution found nothing, use EXACT metric name mapping
-    // Maps Spanish sheet names to EXACT metric names expected by the plan
-    if (Object.keys(metrics).length === 0 && componentMetrics) {
+    // OB-27B: ALWAYS run sheet→metric mapping for ALL sheets in componentMetrics
+    // This is NOT a fallback — it runs unconditionally to ensure all 7 sheets produce metrics
+    // The plan-driven path above may miss sheets due to name mismatch (English component vs Spanish sheet)
+    if (componentMetrics) {
       // OB-27B: Sheet → EXACT metric names the plan expects (NOT prefixes!)
       const sheetToExactMetrics: Record<string, {
         attainmentKey?: string;
@@ -776,37 +779,48 @@ export class CalculationOrchestrator {
         },
       };
 
-      console.log(`[Orchestrator] OB-27B: Using fallback sheet→metric mapping for ${Object.keys(componentMetrics).length} sheets`);
+      // OB-27B: Log only for first employee to avoid console spam
+      const isFirstEmployee = !this._ob27bLogged;
+      if (isFirstEmployee) {
+        this._ob27bLogged = true;
+        console.log(`[Orchestrator] OB-27B: Sheet→metric mapping for ${Object.keys(componentMetrics).length} sheets`);
+      }
 
       for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
         const sheetNorm = sheetName.toLowerCase().replace(/[-\s]/g, '_');
         const mapping = sheetToExactMetrics[sheetNorm];
 
         if (mapping) {
-          if (sheetData.attainment !== undefined && mapping.attainmentKey) {
+          // Only set metrics that aren't already set (don't overwrite plan-driven results)
+          if (sheetData.attainment !== undefined && mapping.attainmentKey && metrics[mapping.attainmentKey] === undefined) {
             metrics[mapping.attainmentKey] = sheetData.attainment;
-            console.log(`[Orchestrator] OB-27B: ${sheetName} → ${mapping.attainmentKey} = ${sheetData.attainment}`);
+            if (isFirstEmployee) console.log(`[Orchestrator] OB-27B: ${sheetName} → ${mapping.attainmentKey} = ${sheetData.attainment}`);
           }
-          if (sheetData.amount !== undefined && mapping.amountKey) {
+          if (sheetData.amount !== undefined && mapping.amountKey && metrics[mapping.amountKey] === undefined) {
             metrics[mapping.amountKey] = sheetData.amount;
-            console.log(`[Orchestrator] OB-27B: ${sheetName} → ${mapping.amountKey} = ${sheetData.amount}`);
+            if (isFirstEmployee) console.log(`[Orchestrator] OB-27B: ${sheetName} → ${mapping.amountKey} = ${sheetData.amount}`);
           }
-          if (sheetData.goal !== undefined && mapping.goalKey) {
+          if (sheetData.goal !== undefined && mapping.goalKey && metrics[mapping.goalKey] === undefined) {
             metrics[mapping.goalKey] = sheetData.goal;
           }
         } else {
-          // Unknown sheet - use generic naming as last resort
-          console.warn(`[Orchestrator] OB-27B: Unknown sheet "${sheetName}" - using generic metric names`);
-          if (sheetData.attainment !== undefined) {
+          // Unknown sheet - use generic naming as last resort (skip if roster sheet)
+          if (sheetNorm.includes('colaborador') || sheetNorm.includes('roster') || sheetNorm.includes('datos')) {
+            continue; // Skip roster sheet - no metrics to extract
+          }
+          if (isFirstEmployee) console.warn(`[Orchestrator] OB-27B: Unknown sheet "${sheetName}" - using generic metric names`);
+          if (sheetData.attainment !== undefined && metrics[`${sheetNorm}_attainment`] === undefined) {
             metrics[`${sheetNorm}_attainment`] = sheetData.attainment;
           }
-          if (sheetData.amount !== undefined) {
+          if (sheetData.amount !== undefined && metrics[`${sheetNorm}_amount`] === undefined) {
             metrics[`${sheetNorm}_amount`] = sheetData.amount;
           }
         }
       }
 
-      console.log(`[Orchestrator] OB-27B: Fallback produced ${Object.keys(metrics).length} metrics: [${Object.keys(metrics).join(', ')}]`);
+      if (isFirstEmployee) {
+        console.log(`[Orchestrator] OB-27B: Total metrics produced: ${Object.keys(metrics).length} keys: [${Object.keys(metrics).join(', ')}]`);
+      }
     }
 
     // FALLBACK: Extract from flat numeric attributes (backward compatibility)
