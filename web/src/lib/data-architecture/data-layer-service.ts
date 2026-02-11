@@ -485,7 +485,8 @@ function storeAggregatedData(
     const empIdField = getSheetFieldBySemantic(sheetName, 'employeeId');
     const storeIdField = getSheetFieldBySemantic(sheetName, 'storeId');
     const attainmentField = getSheetFieldBySemantic(sheetName, 'attainment');
-    const amountField = getSheetFieldBySemantic(sheetName, 'amount');
+    // OB-24 R7: Use quantity as fallback for amount (both represent actual values)
+    const amountField = getSheetFieldBySemantic(sheetName, 'amount') || getSheetFieldBySemantic(sheetName, 'quantity');
     const goalField = getSheetFieldBySemantic(sheetName, 'goal');
 
     // OB-24 FIX: Fallback to direct column name matching if AI mapping not found
