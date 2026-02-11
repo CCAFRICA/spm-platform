@@ -345,6 +345,7 @@ function parseMonthValue(value: string): number | null {
 
 /**
  * Parse year from string value
+ * IMPORTANT: Only accepts 4-digit years or 2-digit years > 12 to avoid overlap with months
  */
 function parseYearValue(value: string): number | null {
   const cleaned = value.trim();
@@ -357,8 +358,9 @@ function parseYearValue(value: string): number | null {
   const cjkMatch = cleaned.match(/^(\d{4})年$/);
   if (cjkMatch) return parseInt(cjkMatch[1], 10);
 
-  // Try 2-digit year (24 -> 2024)
-  if (!isNaN(num) && num >= 0 && num <= 99) {
+  // Try 2-digit year (24 -> 2024) but ONLY for values > 12 to avoid month overlap
+  // Values 1-12 should be treated as months, not years like 2001-2012
+  if (!isNaN(num) && num >= 13 && num <= 99) {
     return num < 50 ? 2000 + num : 1900 + num;
   }
 
