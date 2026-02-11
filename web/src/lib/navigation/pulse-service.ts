@@ -28,7 +28,7 @@ export function getPulseMetrics(
       return getManagerMetrics(userId, tenantId, currency);
     case 'admin':
       return getAdminMetrics(tenantId, currency);
-    case 'cc_admin':
+    case 'vl_admin':
       return getCCAdminMetrics();
     default:
       return [];
@@ -199,7 +199,7 @@ function getCCAdminMetrics(): PulseMetric[] {
       labelEs: 'Tenants Activos',
       value: 4,
       format: 'number',
-      roles: ['cc_admin'],
+      roles: ['vl_admin'],
     },
     {
       id: 'cc-total-users',
@@ -210,7 +210,7 @@ function getCCAdminMetrics(): PulseMetric[] {
       trend: 'up',
       trendValue: '+12 this month',
       trendValueEs: '+12 este mes',
-      roles: ['cc_admin'],
+      roles: ['vl_admin'],
     },
     {
       id: 'cc-calculations-today',
@@ -218,7 +218,7 @@ function getCCAdminMetrics(): PulseMetric[] {
       labelEs: 'Cálculos Hoy',
       value: 8,
       format: 'number',
-      roles: ['cc_admin'],
+      roles: ['vl_admin'],
     },
     {
       id: 'cc-issues',
@@ -229,7 +229,7 @@ function getCCAdminMetrics(): PulseMetric[] {
       trend: 'down',
       trendValue: '-5 from last week',
       trendValueEs: '-5 desde la semana pasada',
-      roles: ['cc_admin'],
+      roles: ['vl_admin'],
     },
   ];
 }

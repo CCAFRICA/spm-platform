@@ -21,8 +21,8 @@ import type { CompensationPlanConfig } from '@/types/compensation-plan';
 // ============================================
 
 const STORAGE_KEYS = {
-  LAUNCHES: 'clearcomp_customer_launches',
-  LAUNCH_STEPS: 'clearcomp_launch_steps',
+  LAUNCHES: 'vialuce_customer_launches',
+  LAUNCH_STEPS: 'vialuce_launch_steps',
 } as const;
 
 // ============================================

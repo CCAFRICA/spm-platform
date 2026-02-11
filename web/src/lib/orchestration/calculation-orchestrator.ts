@@ -28,11 +28,11 @@ import type { PlanComponent } from '@/types/compensation-plan';
 // ============================================
 
 const STORAGE_KEYS = {
-  CALCULATIONS: 'clearcomp_calculations',
-  CALCULATION_RUNS: 'clearcomp_calculation_runs',
-  EMPLOYEE_DATA: 'clearcomp_employee_data',
-  TRANSACTION_DATA: 'clearcomp_transaction_data',
-  METRIC_AGGREGATES: 'clearcomp_metric_aggregates',
+  CALCULATIONS: 'vialuce_calculations',
+  CALCULATION_RUNS: 'vialuce_calculation_runs',
+  EMPLOYEE_DATA: 'vialuce_employee_data',
+  TRANSACTION_DATA: 'vialuce_transaction_data',
+  METRIC_AGGREGATES: 'vialuce_metric_aggregates',
   // Data layer keys for committed import data
   DATA_LAYER_COMMITTED: 'data_layer_committed',
   DATA_LAYER_BATCHES: 'data_layer_batches',
@@ -415,7 +415,7 @@ export class CalculationOrchestrator {
     // Try to look up period from storage
     try {
       // Try tenant-specific periods first
-      const tenantPeriodsKey = `clearcomp_periods_${tenantId}`;
+      const tenantPeriodsKey = `vialuce_periods_${tenantId}`;
       const tenantPeriodsData = localStorage.getItem(tenantPeriodsKey);
       if (tenantPeriodsData) {
         const periods = JSON.parse(tenantPeriodsData) as Array<{ id: string; startDate?: string; name?: string }>;
@@ -434,7 +434,7 @@ export class CalculationOrchestrator {
       }
 
       // Try global periods storage
-      const globalPeriodsKey = 'clearcomp_payroll_periods';
+      const globalPeriodsKey = 'vialuce_payroll_periods';
       const globalPeriodsData = localStorage.getItem(globalPeriodsKey);
       if (globalPeriodsData) {
         const periods = JSON.parse(globalPeriodsData) as Array<{ id: string; startDate?: string; name?: string }>;
@@ -890,8 +890,8 @@ export class CalculationOrchestrator {
    * Prevents localStorage quota exceeded errors for large result sets
    */
   private static readonly CHUNK_SIZE = 100; // Results per chunk (~50KB each, well under limits)
-  private static readonly CALC_CHUNK_PREFIX = 'clearcomp_calculations_chunk_';
-  private static readonly CALC_INDEX_KEY = 'clearcomp_calculations_index';
+  private static readonly CALC_CHUNK_PREFIX = 'vialuce_calculations_chunk_';
+  private static readonly CALC_INDEX_KEY = 'vialuce_calculations_index';
 
   private saveResults(results: CalculationResult[], runId: string): void {
     if (typeof window === 'undefined') return;

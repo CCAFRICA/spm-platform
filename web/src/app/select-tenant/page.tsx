@@ -51,25 +51,25 @@ export default function SelectTenantPage() {
     try {
       const tenantId = deletingTenant.id;
 
-      // Remove from clearcomp_tenants array
-      const tenantsJson = localStorage.getItem('clearcomp_tenants');
+      // Remove from vialuce_tenants array
+      const tenantsJson = localStorage.getItem('vialuce_tenants');
       if (tenantsJson) {
         const tenants = JSON.parse(tenantsJson);
         const filtered = tenants.filter((t: { id: string }) => t.id !== tenantId);
-        localStorage.setItem('clearcomp_tenants', JSON.stringify(filtered));
+        localStorage.setItem('vialuce_tenants', JSON.stringify(filtered));
       }
 
-      // Remove from clearcomp_tenant_registry
-      const registryJson = localStorage.getItem('clearcomp_tenant_registry');
+      // Remove from vialuce_tenant_registry
+      const registryJson = localStorage.getItem('vialuce_tenant_registry');
       if (registryJson) {
         const registry = JSON.parse(registryJson);
         registry.tenants = (registry.tenants || []).filter((t: { id: string }) => t.id !== tenantId);
         registry.lastUpdated = new Date().toISOString();
-        localStorage.setItem('clearcomp_tenant_registry', JSON.stringify(registry));
+        localStorage.setItem('vialuce_tenant_registry', JSON.stringify(registry));
       }
 
-      // Remove all tenant-specific data (clearcomp_tenant_data_${tenantId}_*)
-      const prefix = `clearcomp_tenant_data_${tenantId}_`;
+      // Remove all tenant-specific data (vialuce_tenant_data_${tenantId}_*)
+      const prefix = `vialuce_tenant_data_${tenantId}_`;
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
@@ -101,7 +101,7 @@ export default function SelectTenantPage() {
           const staticTenants = (registry.tenants || []) as TenantSummary[];
 
           let dynamicTenants: TenantSummary[] = [];
-          const dynamicRegistry = localStorage.getItem('clearcomp_tenant_registry');
+          const dynamicRegistry = localStorage.getItem('vialuce_tenant_registry');
           if (dynamicRegistry) {
             const parsed = JSON.parse(dynamicRegistry);
             dynamicTenants = (parsed.tenants || []) as TenantSummary[];
@@ -142,7 +142,7 @@ export default function SelectTenantPage() {
           // Load dynamic tenants from localStorage
           let dynamicTenants: TenantSummary[] = [];
           try {
-            const dynamicRegistry = localStorage.getItem('clearcomp_tenant_registry');
+            const dynamicRegistry = localStorage.getItem('vialuce_tenant_registry');
             if (dynamicRegistry) {
               const parsed = JSON.parse(dynamicRegistry);
               dynamicTenants = (parsed.tenants || []) as TenantSummary[];
@@ -163,7 +163,7 @@ export default function SelectTenantPage() {
           console.error('Failed to load tenant registry:', e);
           // Still try to load dynamic tenants if static fails
           try {
-            const dynamicRegistry = localStorage.getItem('clearcomp_tenant_registry');
+            const dynamicRegistry = localStorage.getItem('vialuce_tenant_registry');
             if (dynamicRegistry) {
               const parsed = JSON.parse(dynamicRegistry);
               setLocalTenants((parsed.tenants || []) as TenantSummary[]);
@@ -184,7 +184,7 @@ export default function SelectTenantPage() {
   const availableTenants = forceLocalTenants || contextTenants.length === 0 ? localTenants : contextTenants;
 
   useEffect(() => {
-    // Redirect non-CC Admin users to home
+    // Redirect non-VL Admin users to home
     if (!authLoading && !isCCAdmin && user) {
       router.push('/');
     }
@@ -232,7 +232,7 @@ export default function SelectTenantPage() {
     );
   }
 
-  // Don't render for non-CC Admin
+  // Don't render for non-VL Admin
   if (!isCCAdmin) {
     return null;
   }
@@ -276,7 +276,7 @@ export default function SelectTenantPage() {
             <p className="text-muted-foreground">Choose a tenant to manage or start a new customer launch</p>
           </motion.div>
 
-          {/* CC Admin Quick Actions */}
+          {/* VL Admin Quick Actions */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}

@@ -1,7 +1,7 @@
 /**
  * Design System
  *
- * ClearComp Unified Visual Language exports.
+ * ViaLuce Unified Visual Language exports.
  */
 
 // Tokens

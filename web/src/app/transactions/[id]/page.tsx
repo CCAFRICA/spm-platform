@@ -270,7 +270,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
   // RetailCo view
   if (isRetail) {
     const transaction = retailCoTransactions[id];
-    const isAdmin = user?.role === 'admin' || user?.role === 'cc_admin';
+    const isAdmin = user?.role === 'admin' || user?.role === 'vl_admin';
     const currentUserId = user?.id || 'maria-rodriguez';
 
     // Get attribution details for disputed transaction

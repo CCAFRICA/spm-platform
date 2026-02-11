@@ -94,7 +94,7 @@ const labels = {
     eligibleRoles: 'Eligible Roles',
     noComponents: 'No components detected',
     accessDenied: 'Access Denied',
-    accessDeniedDesc: 'You must be a CC Admin to access this page.',
+    accessDeniedDesc: 'You must be a VL Admin to access this page.',
     viewDetails: 'View Details',
     adjust: 'Adjust',
     highConfidence: 'High confidence',
@@ -142,7 +142,7 @@ const labels = {
     eligibleRoles: 'Roles Elegibles',
     noComponents: 'No se detectaron componentes',
     accessDenied: 'Acceso Denegado',
-    accessDeniedDesc: 'Debe ser un CC Admin para acceder a esta página.',
+    accessDeniedDesc: 'Debe ser un VL Admin para acceder a esta página.',
     viewDetails: 'Ver Detalles',
     adjust: 'Ajustar',
     highConfidence: 'Alta confianza',
@@ -252,11 +252,11 @@ export default function PlanImportPage() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const aiAvailable = isAIInterpreterAvailable();
 
-  // CC Admin always sees English, tenant users see tenant locale
+  // VL Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
   const t = labels[locale];
 
-  // Check CC Admin access
+  // Check VL Admin access
   const hasAccess = user && isCCAdmin(user);
 
   // File drop handlers

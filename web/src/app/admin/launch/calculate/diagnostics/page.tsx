@@ -136,7 +136,7 @@ export default function CalculationDiagnosticsPage() {
 
     // Check 2: Committed Data
     await new Promise((r) => setTimeout(r, 300));
-    const dataLayerKey = `clearcomp_data_layer_${tenantId}`;
+    const dataLayerKey = `vialuce_data_layer_${tenantId}`;
     let committedData = null;
     if (typeof window !== "undefined") {
       try {
@@ -168,7 +168,7 @@ export default function CalculationDiagnosticsPage() {
 
     // Check 3: Payroll Period
     await new Promise((r) => setTimeout(r, 300));
-    const periodKey = `clearcomp_periods_${tenantId}`;
+    const periodKey = `vialuce_periods_${tenantId}`;
     let periods = null;
     if (typeof window !== "undefined") {
       try {
@@ -200,7 +200,7 @@ export default function CalculationDiagnosticsPage() {
 
     // Check 4: Field Mappings
     await new Promise((r) => setTimeout(r, 300));
-    const mappingKey = `clearcomp_field_mappings_${tenantId}`;
+    const mappingKey = `vialuce_field_mappings_${tenantId}`;
     let mappings = null;
     if (typeof window !== "undefined") {
       try {
@@ -232,7 +232,7 @@ export default function CalculationDiagnosticsPage() {
 
     // Check 5: Employee Roster
     await new Promise((r) => setTimeout(r, 300));
-    const employeeKey = `clearcomp_employee_data`;
+    const employeeKey = `vialuce_employee_data`;
     let employees = null;
     if (typeof window !== "undefined") {
       try {

@@ -1,7 +1,7 @@
 /**
  * Design System Tokens
  *
- * Core tokens for the ClearComp Unified Visual Language.
+ * Core tokens for the ViaLuce Unified Visual Language.
  * Three-layer design system: Wayfinding, State Communication, Interaction Patterns.
  */
 

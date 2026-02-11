@@ -22,16 +22,16 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Ejecutar el ciclo de compensación actual',
     defaultRoute: '/operate',
     accentColor: 'hsl(262, 83%, 58%)', // Purple
-    roles: ['cc_admin', 'admin'],
+    roles: ['vl_admin', 'admin'],
     sections: [
       {
         id: 'import',
         label: 'Import',
         labelEs: 'Importar',
         routes: [
-          { path: '/operate/import', label: 'Data Import', labelEs: 'Importar Datos', icon: 'Upload', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/import/enhanced', label: 'Enhanced Import', labelEs: 'Importación Avanzada', icon: 'Sparkles', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial de Importación', icon: 'History', roles: ['cc_admin', 'admin'] },
+          { path: '/operate/import', label: 'Data Import', labelEs: 'Importar Datos', icon: 'Upload', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/import/enhanced', label: 'Enhanced Import', labelEs: 'Importación Avanzada', icon: 'Sparkles', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial de Importación', icon: 'History', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -39,9 +39,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Calculate',
         labelEs: 'Calcular',
         routes: [
-          { path: '/operate/calculate', label: 'Run Calculations', labelEs: 'Ejecutar Cálculos', icon: 'Calculator', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/calculate/rate-tables', label: 'Rate Tables', labelEs: 'Tablas de Tarifas', icon: 'Table', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/calculate/ranges', label: 'Performance Ranges', labelEs: 'Rangos de Rendimiento', icon: 'Sliders', roles: ['cc_admin', 'admin'] },
+          { path: '/operate/calculate', label: 'Run Calculations', labelEs: 'Ejecutar Cálculos', icon: 'Calculator', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/calculate/rate-tables', label: 'Rate Tables', labelEs: 'Tablas de Tarifas', icon: 'Table', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/calculate/ranges', label: 'Performance Ranges', labelEs: 'Rangos de Rendimiento', icon: 'Sliders', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -49,8 +49,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Reconcile',
         labelEs: 'Conciliar',
         routes: [
-          { path: '/operate/reconcile', label: 'Reconciliation', labelEs: 'Conciliación', icon: 'GitCompare', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/reconcile/mismatches', label: 'Mismatch Review', labelEs: 'Revisión de Diferencias', icon: 'AlertTriangle', roles: ['cc_admin', 'admin'] },
+          { path: '/operate/reconcile', label: 'Reconciliation', labelEs: 'Conciliación', icon: 'GitCompare', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/reconcile/mismatches', label: 'Mismatch Review', labelEs: 'Revisión de Diferencias', icon: 'AlertTriangle', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -58,9 +58,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Approve',
         labelEs: 'Aprobar',
         routes: [
-          { path: '/operate/approve', label: 'Approval Queue', labelEs: 'Cola de Aprobaciones', icon: 'CheckSquare', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/approve/compensation', label: 'Compensation Approvals', labelEs: 'Aprobaciones de Compensación', icon: 'DollarSign', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/approve/batch', label: 'Batch Approvals', labelEs: 'Aprobaciones en Lote', icon: 'Layers', roles: ['cc_admin', 'admin'] },
+          { path: '/operate/approve', label: 'Approval Queue', labelEs: 'Cola de Aprobaciones', icon: 'CheckSquare', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/approve/compensation', label: 'Compensation Approvals', labelEs: 'Aprobaciones de Compensación', icon: 'DollarSign', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/approve/batch', label: 'Batch Approvals', labelEs: 'Aprobaciones en Lote', icon: 'Layers', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -68,9 +68,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Pay',
         labelEs: 'Pagar',
         routes: [
-          { path: '/operate/pay', label: 'Payroll Overview', labelEs: 'Resumen de Nómina', icon: 'Wallet', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/pay/calendar', label: 'Payroll Calendar', labelEs: 'Calendario de Nómina', icon: 'Calendar', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/pay/cycle', label: 'Payroll Cycle', labelEs: 'Ciclo de Nómina', icon: 'RefreshCw', roles: ['cc_admin', 'admin'] },
+          { path: '/operate/pay', label: 'Payroll Overview', labelEs: 'Resumen de Nómina', icon: 'Wallet', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/pay/calendar', label: 'Payroll Calendar', labelEs: 'Calendario de Nómina', icon: 'Calendar', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/pay/cycle', label: 'Payroll Cycle', labelEs: 'Ciclo de Nómina', icon: 'RefreshCw', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -78,9 +78,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Monitor',
         labelEs: 'Monitorear',
         routes: [
-          { path: '/operate/monitor/operations', label: 'Daily Operations', labelEs: 'Operaciones Diarias', icon: 'Activity', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/monitor/readiness', label: 'Data Readiness', labelEs: 'Preparación de Datos', icon: 'Database', roles: ['cc_admin', 'admin'] },
-          { path: '/operate/monitor/quality', label: 'Data Quality', labelEs: 'Calidad de Datos', icon: 'ShieldCheck', roles: ['cc_admin', 'admin'] },
+          { path: '/operate/monitor/operations', label: 'Daily Operations', labelEs: 'Operaciones Diarias', icon: 'Activity', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/monitor/readiness', label: 'Data Readiness', labelEs: 'Preparación de Datos', icon: 'Database', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/monitor/quality', label: 'Data Quality', labelEs: 'Calidad de Datos', icon: 'ShieldCheck', roles: ['vl_admin', 'admin'] },
         ],
       },
     ],
@@ -95,15 +95,15 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Ver rendimiento y compensación',
     defaultRoute: '/perform',
     accentColor: 'hsl(142, 76%, 36%)', // Green
-    roles: ['cc_admin', 'admin', 'manager', 'sales_rep'],
+    roles: ['vl_admin', 'admin', 'manager', 'sales_rep'],
     sections: [
       {
         id: 'dashboard',
         label: 'Dashboard',
         labelEs: 'Panel',
         routes: [
-          { path: '/perform', label: 'Overview', labelEs: 'Resumen', icon: 'LayoutDashboard', roles: ['cc_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/perform/dashboard', label: 'Performance Dashboard', labelEs: 'Panel de Rendimiento', icon: 'BarChart3', roles: ['cc_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform', label: 'Overview', labelEs: 'Resumen', icon: 'LayoutDashboard', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/dashboard', label: 'Performance Dashboard', labelEs: 'Panel de Rendimiento', icon: 'BarChart3', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
@@ -111,8 +111,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'My Compensation',
         labelEs: 'Mi Compensación',
         routes: [
-          { path: '/perform/compensation', label: 'My Compensation', labelEs: 'Mi Compensación', icon: 'Wallet', roles: ['cc_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/perform/statement', label: 'Statement', labelEs: 'Estado de Cuenta', icon: 'FileText', roles: ['cc_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/compensation', label: 'My Compensation', labelEs: 'Mi Compensación', icon: 'Wallet', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/statement', label: 'Statement', labelEs: 'Estado de Cuenta', icon: 'FileText', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
@@ -120,8 +120,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Transactions',
         labelEs: 'Transacciones',
         routes: [
-          { path: '/perform/transactions', label: 'My Transactions', labelEs: 'Mis Transacciones', icon: 'Receipt', roles: ['cc_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/perform/transactions/find', label: 'Find Transaction', labelEs: 'Buscar Transacción', icon: 'Search', roles: ['cc_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/transactions', label: 'My Transactions', labelEs: 'Mis Transacciones', icon: 'Receipt', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/transactions/find', label: 'Find Transaction', labelEs: 'Buscar Transacción', icon: 'Search', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
@@ -129,8 +129,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Team',
         labelEs: 'Equipo',
         routes: [
-          { path: '/perform/team', label: 'Team Performance', labelEs: 'Rendimiento del Equipo', icon: 'Users', roles: ['cc_admin', 'admin', 'manager'] },
-          { path: '/perform/team/rankings', label: 'Rankings', labelEs: 'Clasificaciones', icon: 'Trophy', roles: ['cc_admin', 'admin', 'manager'] },
+          { path: '/perform/team', label: 'Team Performance', labelEs: 'Rendimiento del Equipo', icon: 'Users', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/perform/team/rankings', label: 'Rankings', labelEs: 'Clasificaciones', icon: 'Trophy', roles: ['vl_admin', 'admin', 'manager'] },
         ],
       },
       {
@@ -138,8 +138,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Trends',
         labelEs: 'Tendencias',
         routes: [
-          { path: '/perform/trends', label: 'Performance Trends', labelEs: 'Tendencias de Rendimiento', icon: 'LineChart', roles: ['cc_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/perform/trends/analytics', label: 'Analytics', labelEs: 'Análisis', icon: 'PieChart', roles: ['cc_admin', 'admin', 'manager'] },
+          { path: '/perform/trends', label: 'Performance Trends', labelEs: 'Tendencias de Rendimiento', icon: 'LineChart', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/trends/analytics', label: 'Analytics', labelEs: 'Análisis', icon: 'PieChart', roles: ['vl_admin', 'admin', 'manager'] },
         ],
       },
       {
@@ -147,8 +147,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Inquiries',
         labelEs: 'Consultas',
         routes: [
-          { path: '/perform/inquiries', label: 'My Inquiries', labelEs: 'Mis Consultas', icon: 'HelpCircle', roles: ['cc_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/perform/inquiries/new', label: 'Submit Inquiry', labelEs: 'Enviar Consulta', icon: 'PlusCircle', roles: ['cc_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/inquiries', label: 'My Inquiries', labelEs: 'Mis Consultas', icon: 'HelpCircle', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/inquiries/new', label: 'Submit Inquiry', labelEs: 'Enviar Consulta', icon: 'PlusCircle', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
         ],
       },
     ],
@@ -163,14 +163,14 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Profundizar en datos y rastrear problemas',
     defaultRoute: '/investigate',
     accentColor: 'hsl(199, 89%, 48%)', // Blue
-    roles: ['cc_admin', 'admin', 'manager'],
+    roles: ['vl_admin', 'admin', 'manager'],
     sections: [
       {
         id: 'search',
         label: 'Search',
         labelEs: 'Buscar',
         routes: [
-          { path: '/investigate', label: 'Search Center', labelEs: 'Centro de Búsqueda', icon: 'Search', roles: ['cc_admin', 'admin', 'manager'] },
+          { path: '/investigate', label: 'Search Center', labelEs: 'Centro de Búsqueda', icon: 'Search', roles: ['vl_admin', 'admin', 'manager'] },
         ],
       },
       {
@@ -178,7 +178,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Transactions',
         labelEs: 'Transacciones',
         routes: [
-          { path: '/investigate/transactions', label: 'Transaction Search', labelEs: 'Buscar Transacciones', icon: 'Receipt', roles: ['cc_admin', 'admin', 'manager'] },
+          { path: '/investigate/transactions', label: 'Transaction Search', labelEs: 'Buscar Transacciones', icon: 'Receipt', roles: ['vl_admin', 'admin', 'manager'] },
         ],
       },
       {
@@ -186,8 +186,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Employees',
         labelEs: 'Empleados',
         routes: [
-          { path: '/investigate/employees', label: 'Employee Lookup', labelEs: 'Buscar Empleado', icon: 'User', roles: ['cc_admin', 'admin', 'manager'] },
-          { path: '/investigate/employees/history', label: 'Assignment History', labelEs: 'Historial de Asignaciones', icon: 'History', roles: ['cc_admin', 'admin'] },
+          { path: '/investigate/employees', label: 'Employee Lookup', labelEs: 'Buscar Empleado', icon: 'User', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/investigate/employees/history', label: 'Assignment History', labelEs: 'Historial de Asignaciones', icon: 'History', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -195,8 +195,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Calculations',
         labelEs: 'Cálculos',
         routes: [
-          { path: '/investigate/calculations', label: 'Calculation Detail', labelEs: 'Detalle de Cálculo', icon: 'Calculator', roles: ['cc_admin', 'admin'] },
-          { path: '/investigate/calculations/breakdown', label: 'Step Breakdown', labelEs: 'Desglose de Pasos', icon: 'GitBranch', roles: ['cc_admin', 'admin'] },
+          { path: '/investigate/calculations', label: 'Calculation Detail', labelEs: 'Detalle de Cálculo', icon: 'Calculator', roles: ['vl_admin', 'admin'] },
+          { path: '/investigate/calculations/breakdown', label: 'Step Breakdown', labelEs: 'Desglose de Pasos', icon: 'GitBranch', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -204,8 +204,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Audit Trail',
         labelEs: 'Rastro de Auditoría',
         routes: [
-          { path: '/investigate/audit', label: 'Change Log', labelEs: 'Registro de Cambios', icon: 'FileSearch', roles: ['cc_admin', 'admin'] },
-          { path: '/investigate/audit/approvals', label: 'Approval History', labelEs: 'Historial de Aprobaciones', icon: 'ClipboardCheck', roles: ['cc_admin', 'admin'] },
+          { path: '/investigate/audit', label: 'Change Log', labelEs: 'Registro de Cambios', icon: 'FileSearch', roles: ['vl_admin', 'admin'] },
+          { path: '/investigate/audit/approvals', label: 'Approval History', labelEs: 'Historial de Aprobaciones', icon: 'ClipboardCheck', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -213,8 +213,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Disputes',
         labelEs: 'Disputas',
         routes: [
-          { path: '/investigate/disputes', label: 'Dispute Queue', labelEs: 'Cola de Disputas', icon: 'MessageCircle', roles: ['cc_admin', 'admin', 'manager'] },
-          { path: '/investigate/disputes/history', label: 'Resolution History', labelEs: 'Historial de Resoluciones', icon: 'CheckCircle', roles: ['cc_admin', 'admin'] },
+          { path: '/investigate/disputes', label: 'Dispute Queue', labelEs: 'Cola de Disputas', icon: 'MessageCircle', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/investigate/disputes/history', label: 'Resolution History', labelEs: 'Historial de Resoluciones', icon: 'CheckCircle', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -222,8 +222,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Adjustments',
         labelEs: 'Ajustes',
         routes: [
-          { path: '/investigate/adjustments', label: 'Adjustments', labelEs: 'Ajustes', icon: 'Edit', roles: ['cc_admin', 'admin'] },
-          { path: '/investigate/adjustments/history', label: 'Adjustment History', labelEs: 'Historial de Ajustes', icon: 'History', roles: ['cc_admin', 'admin'] },
+          { path: '/investigate/adjustments', label: 'Adjustments', labelEs: 'Ajustes', icon: 'Edit', roles: ['vl_admin', 'admin'] },
+          { path: '/investigate/adjustments/history', label: 'Adjustment History', labelEs: 'Historial de Ajustes', icon: 'History', roles: ['vl_admin', 'admin'] },
         ],
       },
     ],
@@ -238,15 +238,15 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Crear y modificar reglas de compensación',
     defaultRoute: '/design',
     accentColor: 'hsl(328, 85%, 46%)', // Pink
-    roles: ['cc_admin', 'admin'],
+    roles: ['vl_admin', 'admin'],
     sections: [
       {
         id: 'plans',
         label: 'Plans',
         labelEs: 'Planes',
         routes: [
-          { path: '/design/plans', label: 'Plan Management', labelEs: 'Gestión de Planes', icon: 'FileText', roles: ['cc_admin', 'admin'] },
-          { path: '/design/plans/new', label: 'Create Plan', labelEs: 'Crear Plan', icon: 'PlusCircle', roles: ['cc_admin', 'admin'] },
+          { path: '/design/plans', label: 'Plan Management', labelEs: 'Gestión de Planes', icon: 'FileText', roles: ['vl_admin', 'admin'] },
+          { path: '/design/plans/new', label: 'Create Plan', labelEs: 'Crear Plan', icon: 'PlusCircle', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -254,8 +254,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Incentives',
         labelEs: 'Incentivos',
         routes: [
-          { path: '/design/incentives', label: 'Incentive Builder', labelEs: 'Constructor de Incentivos', icon: 'Sparkles', roles: ['cc_admin', 'admin'] },
-          { path: '/design/incentives/campaigns', label: 'Campaigns', labelEs: 'Campañas', icon: 'Target', roles: ['cc_admin', 'admin'] },
+          { path: '/design/incentives', label: 'Incentive Builder', labelEs: 'Constructor de Incentivos', icon: 'Sparkles', roles: ['vl_admin', 'admin'] },
+          { path: '/design/incentives/campaigns', label: 'Campaigns', labelEs: 'Campañas', icon: 'Target', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -263,8 +263,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Goals',
         labelEs: 'Metas',
         routes: [
-          { path: '/design/goals', label: 'Goal Setting', labelEs: 'Establecer Metas', icon: 'Target', roles: ['cc_admin', 'admin'] },
-          { path: '/design/goals/templates', label: 'Goal Templates', labelEs: 'Plantillas de Metas', icon: 'Copy', roles: ['cc_admin', 'admin'] },
+          { path: '/design/goals', label: 'Goal Setting', labelEs: 'Establecer Metas', icon: 'Target', roles: ['vl_admin', 'admin'] },
+          { path: '/design/goals/templates', label: 'Goal Templates', labelEs: 'Plantillas de Metas', icon: 'Copy', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -272,8 +272,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Modeling',
         labelEs: 'Modelado',
         routes: [
-          { path: '/design/modeling', label: 'Sandbox', labelEs: 'Sandbox', icon: 'FlaskConical', roles: ['cc_admin', 'admin'] },
-          { path: '/design/modeling/scenarios', label: 'Scenario Comparison', labelEs: 'Comparación de Escenarios', icon: 'GitCompare', roles: ['cc_admin', 'admin'] },
+          { path: '/design/modeling', label: 'Sandbox', labelEs: 'Sandbox', icon: 'FlaskConical', roles: ['vl_admin', 'admin'] },
+          { path: '/design/modeling/scenarios', label: 'Scenario Comparison', labelEs: 'Comparación de Escenarios', icon: 'GitCompare', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -281,8 +281,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Budget',
         labelEs: 'Presupuesto',
         routes: [
-          { path: '/design/budget', label: 'Budget Planning', labelEs: 'Planificación de Presupuesto', icon: 'Wallet', roles: ['cc_admin', 'admin'] },
-          { path: '/design/budget/projections', label: 'Projections', labelEs: 'Proyecciones', icon: 'TrendingUp', roles: ['cc_admin', 'admin'] },
+          { path: '/design/budget', label: 'Budget Planning', labelEs: 'Planificación de Presupuesto', icon: 'Wallet', roles: ['vl_admin', 'admin'] },
+          { path: '/design/budget/projections', label: 'Projections', labelEs: 'Proyecciones', icon: 'TrendingUp', roles: ['vl_admin', 'admin'] },
         ],
       },
     ],
@@ -297,15 +297,15 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Configurar y mantener el sistema',
     defaultRoute: '/configure',
     accentColor: 'hsl(24, 95%, 53%)', // Orange
-    roles: ['cc_admin', 'admin'],
+    roles: ['vl_admin', 'admin'],
     sections: [
       {
         id: 'people',
         label: 'People',
         labelEs: 'Personas',
         routes: [
-          { path: '/configure/people', label: 'Personnel', labelEs: 'Personal', icon: 'Users', roles: ['cc_admin', 'admin'] },
-          { path: '/configure/people/roles', label: 'Roles & Permissions', labelEs: 'Roles y Permisos', icon: 'Shield', roles: ['cc_admin', 'admin'] },
+          { path: '/configure/people', label: 'Personnel', labelEs: 'Personal', icon: 'Users', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/people/roles', label: 'Roles & Permissions', labelEs: 'Roles y Permisos', icon: 'Shield', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -313,9 +313,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Organization',
         labelEs: 'Organización',
         routes: [
-          { path: '/configure/organization/teams', label: 'Teams', labelEs: 'Equipos', icon: 'Users', roles: ['cc_admin', 'admin'] },
-          { path: '/configure/organization/locations', label: 'Locations', labelEs: 'Ubicaciones', icon: 'MapPin', roles: ['cc_admin', 'admin'] },
-          { path: '/configure/organization/hierarchy', label: 'Hierarchy', labelEs: 'Jerarquía', icon: 'Network', roles: ['cc_admin', 'admin'] },
+          { path: '/configure/organization/teams', label: 'Teams', labelEs: 'Equipos', icon: 'Users', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/organization/locations', label: 'Locations', labelEs: 'Ubicaciones', icon: 'MapPin', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/organization/hierarchy', label: 'Hierarchy', labelEs: 'Jerarquía', icon: 'Network', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -323,8 +323,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Periods',
         labelEs: 'Períodos',
         routes: [
-          { path: '/configure/periods', label: 'Payroll Periods', labelEs: 'Períodos de Nómina', icon: 'Calendar', roles: ['cc_admin', 'admin'] },
-          { path: '/configure/periods/lifecycle', label: 'Period Lifecycle', labelEs: 'Ciclo de Vida del Período', icon: 'RefreshCw', roles: ['cc_admin', 'admin'] },
+          { path: '/configure/periods', label: 'Payroll Periods', labelEs: 'Períodos de Nómina', icon: 'Calendar', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/periods/lifecycle', label: 'Period Lifecycle', labelEs: 'Ciclo de Vida del Período', icon: 'RefreshCw', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -332,8 +332,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Data Specs',
         labelEs: 'Especificaciones de Datos',
         routes: [
-          { path: '/configure/data-specs', label: 'Field Requirements', labelEs: 'Requisitos de Campos', icon: 'FileSpreadsheet', roles: ['cc_admin', 'admin'] },
-          { path: '/configure/data-specs/templates', label: 'Import Templates', labelEs: 'Plantillas de Importación', icon: 'FileDown', roles: ['cc_admin', 'admin'] },
+          { path: '/configure/data-specs', label: 'Field Requirements', labelEs: 'Requisitos de Campos', icon: 'FileSpreadsheet', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/data-specs/templates', label: 'Import Templates', labelEs: 'Plantillas de Importación', icon: 'FileDown', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -341,9 +341,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'System',
         labelEs: 'Sistema',
         routes: [
-          { path: '/configure/system', label: 'Tenant Settings', labelEs: 'Configuración del Tenant', icon: 'Settings', roles: ['cc_admin', 'admin'] },
-          { path: '/configure/system/terminology', label: 'Terminology', labelEs: 'Terminología', icon: 'Languages', roles: ['cc_admin', 'admin'] },
-          { path: '/configure/system/integrations', label: 'Integrations', labelEs: 'Integraciones', icon: 'Plug', roles: ['cc_admin', 'admin'] },
+          { path: '/configure/system', label: 'Tenant Settings', labelEs: 'Configuración del Tenant', icon: 'Settings', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/system/terminology', label: 'Terminology', labelEs: 'Terminología', icon: 'Languages', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/system/integrations', label: 'Integrations', labelEs: 'Integraciones', icon: 'Plug', roles: ['vl_admin', 'admin'] },
         ],
       },
     ],
@@ -358,15 +358,15 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Cumplimiento y supervisión',
     defaultRoute: '/govern',
     accentColor: 'hsl(220, 70%, 50%)', // Navy
-    roles: ['cc_admin', 'admin', 'manager'],
+    roles: ['vl_admin', 'admin', 'manager'],
     sections: [
       {
         id: 'audit-reports',
         label: 'Audit Reports',
         labelEs: 'Informes de Auditoría',
         routes: [
-          { path: '/govern/audit-reports', label: 'Audit Reports', labelEs: 'Informes de Auditoría', icon: 'FileSearch', roles: ['cc_admin', 'admin'] },
-          { path: '/govern/audit-reports/download', label: 'Download Reports', labelEs: 'Descargar Informes', icon: 'Download', roles: ['cc_admin', 'admin'] },
+          { path: '/govern/audit-reports', label: 'Audit Reports', labelEs: 'Informes de Auditoría', icon: 'FileSearch', roles: ['vl_admin', 'admin'] },
+          { path: '/govern/audit-reports/download', label: 'Download Reports', labelEs: 'Descargar Informes', icon: 'Download', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -374,7 +374,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Data Lineage',
         labelEs: 'Linaje de Datos',
         routes: [
-          { path: '/govern/data-lineage', label: 'Data Traceability', labelEs: 'Trazabilidad de Datos', icon: 'GitBranch', roles: ['cc_admin', 'admin'] },
+          { path: '/govern/data-lineage', label: 'Data Traceability', labelEs: 'Trazabilidad de Datos', icon: 'GitBranch', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -382,8 +382,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Approvals',
         labelEs: 'Aprobaciones',
         routes: [
-          { path: '/govern/approvals', label: 'Approval History', labelEs: 'Historial de Aprobaciones', icon: 'CheckCircle', roles: ['cc_admin', 'admin', 'manager'] },
-          { path: '/govern/approvals/routing', label: 'Routing Audit', labelEs: 'Auditoría de Enrutamiento', icon: 'Route', roles: ['cc_admin', 'admin'] },
+          { path: '/govern/approvals', label: 'Approval History', labelEs: 'Historial de Aprobaciones', icon: 'CheckCircle', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/govern/approvals/routing', label: 'Routing Audit', labelEs: 'Auditoría de Enrutamiento', icon: 'Route', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -391,8 +391,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Reconciliation',
         labelEs: 'Conciliación',
         routes: [
-          { path: '/govern/reconciliation', label: 'Reconciliation History', labelEs: 'Historial de Conciliación', icon: 'GitCompare', roles: ['cc_admin', 'admin'] },
-          { path: '/govern/reconciliation/variances', label: 'Variance Reports', labelEs: 'Informes de Varianza', icon: 'BarChart', roles: ['cc_admin', 'admin'] },
+          { path: '/govern/reconciliation', label: 'Reconciliation History', labelEs: 'Historial de Conciliación', icon: 'GitCompare', roles: ['vl_admin', 'admin'] },
+          { path: '/govern/reconciliation/variances', label: 'Variance Reports', labelEs: 'Informes de Varianza', icon: 'BarChart', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
@@ -400,8 +400,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Access',
         labelEs: 'Acceso',
         routes: [
-          { path: '/govern/access', label: 'Access Logs', labelEs: 'Registros de Acceso', icon: 'Key', roles: ['cc_admin', 'admin'] },
-          { path: '/govern/access/permissions', label: 'Permission Audit', labelEs: 'Auditoría de Permisos', icon: 'Shield', roles: ['cc_admin', 'admin'] },
+          { path: '/govern/access', label: 'Access Logs', labelEs: 'Registros de Acceso', icon: 'Key', roles: ['vl_admin', 'admin'] },
+          { path: '/govern/access/permissions', label: 'Permission Audit', labelEs: 'Auditoría de Permisos', icon: 'Shield', roles: ['vl_admin', 'admin'] },
         ],
       },
     ],
@@ -424,7 +424,7 @@ export function getWorkspacesForRole(role: UserRole): Workspace[] {
  */
 export function getDefaultWorkspaceForRole(role: UserRole): WorkspaceId {
   switch (role) {
-    case 'cc_admin':
+    case 'vl_admin':
     case 'admin':
       return 'operate';
     case 'manager':

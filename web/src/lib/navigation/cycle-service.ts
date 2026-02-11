@@ -224,8 +224,8 @@ function checkHasImportData(tenantId: string, periodId: string): boolean {
  */
 function checkHasCalculations(tenantId: string, periodId: string): boolean {
   try {
-    // PRIMARY: Check orchestrator calculation runs (clearcomp_calculation_runs)
-    const runsData = localStorage.getItem('clearcomp_calculation_runs');
+    // PRIMARY: Check orchestrator calculation runs (vialuce_calculation_runs)
+    const runsData = localStorage.getItem('vialuce_calculation_runs');
     if (runsData) {
       const runs: Array<{ tenantId: string; periodId: string; status: string }> = JSON.parse(runsData);
       const hasCompletedRun = runs.some(
@@ -234,8 +234,8 @@ function checkHasCalculations(tenantId: string, periodId: string): boolean {
       if (hasCompletedRun) return true;
     }
 
-    // SECONDARY: Check orchestrator calculation results (clearcomp_calculations)
-    const calcsData = localStorage.getItem('clearcomp_calculations');
+    // SECONDARY: Check orchestrator calculation results (vialuce_calculations)
+    const calcsData = localStorage.getItem('vialuce_calculations');
     if (calcsData) {
       const calcs: Array<{ tenantId: string; periodId?: string; period?: string }> = JSON.parse(calcsData);
       const hasResults = calcs.some(

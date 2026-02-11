@@ -39,21 +39,21 @@ import {
 
 // Mock personnel data
 const personnel = [
-  { id: "U001", name: "Sarah Chen", email: "sarah.chen@clearcomp.com", role: "Sales Rep", region: "West", team: "West-Enterprise", manager: "Catherine Morris", status: "active", tier: "top" },
-  { id: "U002", name: "Marcus Johnson", email: "marcus.johnson@clearcomp.com", role: "Sales Rep", region: "East", team: "East-Enterprise", manager: "William Rogers", status: "active", tier: "top" },
-  { id: "U003", name: "Emily Rodriguez", email: "emily.rodriguez@clearcomp.com", role: "Sales Rep", region: "North", team: "North-SMB", manager: "Rebecca Reed", status: "active", tier: "top" },
-  { id: "U004", name: "David Kim", email: "david.kim@clearcomp.com", role: "Sales Rep", region: "South", team: "South-Enterprise", manager: "Thomas Cook", status: "active", tier: "top" },
-  { id: "U005", name: "Lisa Thompson", email: "lisa.thompson@clearcomp.com", role: "Sales Rep", region: "West", team: "West-Mid-Market", manager: "Maria Morgan", status: "active", tier: "top" },
-  { id: "U006", name: "James Wilson", email: "james.wilson@clearcomp.com", role: "Sales Rep", region: "East", team: "East-SMB", manager: "Charles Bell", status: "active", tier: "top" },
-  { id: "U007", name: "Amanda Foster", email: "amanda.foster@clearcomp.com", role: "Sales Rep", region: "North", team: "North-Enterprise", manager: "Patricia Murphy", status: "active", tier: "top" },
-  { id: "U008", name: "Michael Brown", email: "michael.brown@clearcomp.com", role: "Sales Rep", region: "South", team: "South-Mid-Market", manager: "Steven Bailey", status: "active", tier: "top" },
-  { id: "U011", name: "Jennifer Davis", email: "jennifer.davis@clearcomp.com", role: "Sales Rep", region: "North", team: "North-Mid-Market", manager: "Rebecca Reed", status: "active", tier: "high" },
-  { id: "U012", name: "Robert Taylor", email: "robert.taylor@clearcomp.com", role: "Sales Rep", region: "South", team: "South-SMB", manager: "Thomas Cook", status: "active", tier: "high" },
-  { id: "U041", name: "Catherine Morris", email: "catherine.morris@clearcomp.com", role: "Manager", region: "West", team: "West-Enterprise", manager: "Sandra Richardson", status: "active", tier: "high" },
-  { id: "U042", name: "William Rogers", email: "william.rogers@clearcomp.com", role: "Manager", region: "East", team: "East-Enterprise", manager: "Paul Cox", status: "active", tier: "high" },
-  { id: "U051", name: "Sandra Richardson", email: "sandra.richardson@clearcomp.com", role: "VP", region: "West", team: "West-Region", manager: "Margaret Torres", status: "active", tier: "top" },
-  { id: "U052", name: "Paul Cox", email: "paul.cox@clearcomp.com", role: "VP", region: "East", team: "East-Region", manager: "Margaret Torres", status: "active", tier: "top" },
-  { id: "U055", name: "Margaret Torres", email: "margaret.torres@clearcomp.com", role: "Director", region: "West", team: "Executive", manager: "-", status: "active", tier: "top" },
+  { id: "U001", name: "Sarah Chen", email: "sarah.chen@vialuce.com", role: "Sales Rep", region: "West", team: "West-Enterprise", manager: "Catherine Morris", status: "active", tier: "top" },
+  { id: "U002", name: "Marcus Johnson", email: "marcus.johnson@vialuce.com", role: "Sales Rep", region: "East", team: "East-Enterprise", manager: "William Rogers", status: "active", tier: "top" },
+  { id: "U003", name: "Emily Rodriguez", email: "emily.rodriguez@vialuce.com", role: "Sales Rep", region: "North", team: "North-SMB", manager: "Rebecca Reed", status: "active", tier: "top" },
+  { id: "U004", name: "David Kim", email: "david.kim@vialuce.com", role: "Sales Rep", region: "South", team: "South-Enterprise", manager: "Thomas Cook", status: "active", tier: "top" },
+  { id: "U005", name: "Lisa Thompson", email: "lisa.thompson@vialuce.com", role: "Sales Rep", region: "West", team: "West-Mid-Market", manager: "Maria Morgan", status: "active", tier: "top" },
+  { id: "U006", name: "James Wilson", email: "james.wilson@vialuce.com", role: "Sales Rep", region: "East", team: "East-SMB", manager: "Charles Bell", status: "active", tier: "top" },
+  { id: "U007", name: "Amanda Foster", email: "amanda.foster@vialuce.com", role: "Sales Rep", region: "North", team: "North-Enterprise", manager: "Patricia Murphy", status: "active", tier: "top" },
+  { id: "U008", name: "Michael Brown", email: "michael.brown@vialuce.com", role: "Sales Rep", region: "South", team: "South-Mid-Market", manager: "Steven Bailey", status: "active", tier: "top" },
+  { id: "U011", name: "Jennifer Davis", email: "jennifer.davis@vialuce.com", role: "Sales Rep", region: "North", team: "North-Mid-Market", manager: "Rebecca Reed", status: "active", tier: "high" },
+  { id: "U012", name: "Robert Taylor", email: "robert.taylor@vialuce.com", role: "Sales Rep", region: "South", team: "South-SMB", manager: "Thomas Cook", status: "active", tier: "high" },
+  { id: "U041", name: "Catherine Morris", email: "catherine.morris@vialuce.com", role: "Manager", region: "West", team: "West-Enterprise", manager: "Sandra Richardson", status: "active", tier: "high" },
+  { id: "U042", name: "William Rogers", email: "william.rogers@vialuce.com", role: "Manager", region: "East", team: "East-Enterprise", manager: "Paul Cox", status: "active", tier: "high" },
+  { id: "U051", name: "Sandra Richardson", email: "sandra.richardson@vialuce.com", role: "VP", region: "West", team: "West-Region", manager: "Margaret Torres", status: "active", tier: "top" },
+  { id: "U052", name: "Paul Cox", email: "paul.cox@vialuce.com", role: "VP", region: "East", team: "East-Region", manager: "Margaret Torres", status: "active", tier: "top" },
+  { id: "U055", name: "Margaret Torres", email: "margaret.torres@vialuce.com", role: "Director", region: "West", team: "Executive", manager: "-", status: "active", tier: "top" },
 ];
 
 function getTierColor(tier: string): string {

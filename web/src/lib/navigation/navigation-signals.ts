@@ -7,7 +7,7 @@
 
 import type { NavigationSignal, NavigationSignalType, WorkspaceId } from '@/types/navigation';
 
-const SIGNALS_STORAGE_KEY = 'clearcomp_nav_signals';
+const SIGNALS_STORAGE_KEY = 'vialuce_nav_signals';
 const MAX_SIGNALS = 1000; // Keep last 1000 signals
 
 // =============================================================================

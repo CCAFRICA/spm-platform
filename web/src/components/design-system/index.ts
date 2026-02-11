@@ -1,7 +1,7 @@
 /**
  * Design System Components
  *
- * Reusable UI components implementing the ClearComp Unified Visual Language.
+ * Reusable UI components implementing the ViaLuce Unified Visual Language.
  */
 
 // Module wayfinding

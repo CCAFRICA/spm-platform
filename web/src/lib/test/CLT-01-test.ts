@@ -31,11 +31,11 @@ const cltMockStorage: Record<string, string> = {};
 const CLT_STORAGE_KEYS = {
   DATA_LAYER_COMMITTED: 'data_layer_committed',
   DATA_LAYER_BATCHES: 'data_layer_batches',
-  EMPLOYEE_DATA: 'clearcomp_employee_data',
-  PLANS: 'clearcomp_plans',
-  PLAN_MAPPINGS: 'clearcomp_plan_mappings',
-  CALCULATION_RUNS: 'clearcomp_calculation_runs',
-  CALCULATION_RESULTS: 'clearcomp_calculation_results',
+  EMPLOYEE_DATA: 'vialuce_employee_data',
+  PLANS: 'vialuce_plans',
+  PLAN_MAPPINGS: 'vialuce_plan_mappings',
+  CALCULATION_RUNS: 'vialuce_calculation_runs',
+  CALCULATION_RESULTS: 'vialuce_calculation_results',
 };
 
 // ============================================

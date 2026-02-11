@@ -3,17 +3,18 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { audit } from '@/lib/audit-service';
-import type { User, TenantUser, CCAdminUser } from '@/types/auth';
+import type { User, TenantUser, VLAdminUser } from '@/types/auth';
 import { isCCAdmin } from '@/types/auth';
 import { STORAGE_KEY_USER_ROLE, STORAGE_KEY_TENANT } from '@/contexts/tenant-context';
+import { migrateStorageKeys } from '@/lib/storage/storage-migration';
 
-// CC Admin Users
-const CC_ADMIN_USERS: CCAdminUser[] = [
+// VL Admin Users
+const VL_ADMIN_USERS: VLAdminUser[] = [
   {
     id: 'cc-admin-001',
     email: 'admin@entityb.com',
     name: 'Platform Admin',
-    role: 'cc_admin',
+    role: 'vl_admin',
     tenantId: null,
     accessLevel: 'full',
     department: 'Engineering',
@@ -24,7 +25,7 @@ const CC_ADMIN_USERS: CCAdminUser[] = [
     id: 'cc-admin-002',
     email: 'support@entityb.com',
     name: 'Support Admin',
-    role: 'cc_admin',
+    role: 'vl_admin',
     tenantId: null,
     accessLevel: 'readonly',
     department: 'Support',
@@ -227,7 +228,7 @@ const RETAILCO_USERS: TenantUser[] = [
 
 // All static users combined
 export const ALL_USERS: User[] = [
-  ...CC_ADMIN_USERS,
+  ...VL_ADMIN_USERS,
   ...TECHCORP_USERS,
   ...RESTAURANTMX_USERS,
   ...RETAILCO_USERS,
@@ -240,8 +241,8 @@ ALL_USERS.forEach((user) => {
 });
 
 // Storage keys for dynamic tenants/users (matches provisioning-engine.ts)
-const DYNAMIC_TENANTS_KEY = 'clearcomp_tenants';
-const TENANT_DATA_PREFIX = 'clearcomp_tenant_data_';
+const DYNAMIC_TENANTS_KEY = 'vialuce_tenants';
+const TENANT_DATA_PREFIX = 'vialuce_tenant_data_';
 
 /**
  * Load dynamic users from all provisioned tenants in localStorage
@@ -354,6 +355,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Migrate old clearcomp_ storage keys to vialuce_ prefix
+    if (typeof window !== 'undefined') {
+      migrateStorageKeys();
+    }
+
     // Check for existing session
     const stored = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_USER) : null;
     if (stored) {
@@ -385,11 +391,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(foundUser));
     localStorage.setItem(STORAGE_KEY_USER_ROLE, foundUser.role);
 
-    // Set tenant for non-CC Admin users
+    // Set tenant for non-VL Admin users
     if (!isCCAdmin(foundUser)) {
       localStorage.setItem(STORAGE_KEY_TENANT, foundUser.tenantId);
     } else {
-      // Clear tenant selection for CC Admin
+      // Clear tenant selection for VL Admin
       localStorage.removeItem(STORAGE_KEY_TENANT);
     }
 
@@ -432,7 +438,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasPermission = (permission: string): boolean => {
     if (!user) return false;
-    // CC Admins have all permissions
+    // VL Admins have all permissions
     if (isCCAdmin(user)) return true;
     return user.permissions.includes(permission);
   };
@@ -465,4 +471,4 @@ export function useAuth() {
 }
 
 // Export user lists for use elsewhere
-export { CC_ADMIN_USERS, TECHCORP_USERS, RESTAURANTMX_USERS, RETAILCO_USERS };
+export { VL_ADMIN_USERS, TECHCORP_USERS, RESTAURANTMX_USERS, RETAILCO_USERS };

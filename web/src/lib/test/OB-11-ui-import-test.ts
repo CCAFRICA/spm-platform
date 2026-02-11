@@ -27,7 +27,7 @@ const ob11MockStorage: Record<string, string> = {};
 const OB11_STORAGE_KEYS = {
   COMMITTED: 'data_layer_committed',
   BATCHES: 'data_layer_batches',
-  EMPLOYEE_DATA: 'clearcomp_employee_data',
+  EMPLOYEE_DATA: 'vialuce_employee_data',
 };
 
 // Types
@@ -247,7 +247,7 @@ function runOB11Test() {
 
   const tenantId = 'restaurantmx';
 
-  // Step 1: Seed demo employees (simulating what would be in clearcomp_employee_data)
+  // Step 1: Seed demo employees (simulating what would be in vialuce_employee_data)
   console.log('[Step 1] Seeding demo employees in stored data...');
   const demoEmployees = [
     { id: 'maria-rodriguez', tenantId, employeeNumber: 'EMP-001', firstName: 'Maria', lastName: 'Rodriguez', email: '', role: 'sales_rep', status: 'active' },

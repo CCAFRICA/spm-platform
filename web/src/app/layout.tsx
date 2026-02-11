@@ -21,7 +21,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Entity B - Sales Performance Management",
+  title: "ViaLuce - Sales Performance Management",
   description: "Enterprise Sales Performance Management Platform",
 };
 

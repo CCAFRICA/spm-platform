@@ -12,7 +12,7 @@ import { getPlans } from '@/lib/compensation/plan-storage';
 // STORAGE
 // ============================================
 
-const STORAGE_KEY = 'clearcomp_data_component_mappings';
+const STORAGE_KEY = 'vialuce_data_component_mappings';
 
 // ============================================
 // TYPES

@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useTenant } from '@/contexts/tenant-context';
 
-type UserRole = 'sales_rep' | 'supervisor' | 'manager' | 'admin' | 'cc_admin';
+type UserRole = 'sales_rep' | 'supervisor' | 'manager' | 'admin' | 'vl_admin';
 
 interface AccessControlProps {
   children: ReactNode;
@@ -33,7 +33,7 @@ export function AccessControl({
   const isSpanish = currentTenant?.locale === 'es-MX';
 
   const currentRole = getCurrentUserRole();
-  const hasAccess = allowedRoles.includes(currentRole) || currentRole === 'cc_admin';
+  const hasAccess = allowedRoles.includes(currentRole) || currentRole === 'vl_admin';
 
   if (!hasAccess) {
     return (
@@ -75,15 +75,15 @@ export function useAccessControl() {
 
   return {
     currentRole,
-    hasRole: (roles: UserRole[]) => roles.includes(currentRole) || currentRole === 'cc_admin',
-    isAdmin: currentRole === 'admin' || currentRole === 'cc_admin',
-    isManager: ['manager', 'admin', 'cc_admin'].includes(currentRole),
-    isSupervisor: ['supervisor', 'manager', 'admin', 'cc_admin'].includes(currentRole),
+    hasRole: (roles: UserRole[]) => roles.includes(currentRole) || currentRole === 'vl_admin',
+    isAdmin: currentRole === 'admin' || currentRole === 'vl_admin',
+    isManager: ['manager', 'admin', 'vl_admin'].includes(currentRole),
+    isSupervisor: ['supervisor', 'manager', 'admin', 'vl_admin'].includes(currentRole),
   };
 }
 
 // Export role constants for convenience
-export const ADMIN_ROLES: UserRole[] = ['admin', 'cc_admin'];
-export const MANAGER_ROLES: UserRole[] = ['manager', 'admin', 'cc_admin'];
-export const SUPERVISOR_ROLES: UserRole[] = ['supervisor', 'manager', 'admin', 'cc_admin'];
-export const ALL_ROLES: UserRole[] = ['sales_rep', 'supervisor', 'manager', 'admin', 'cc_admin'];
+export const ADMIN_ROLES: UserRole[] = ['admin', 'vl_admin'];
+export const MANAGER_ROLES: UserRole[] = ['manager', 'admin', 'vl_admin'];
+export const SUPERVISOR_ROLES: UserRole[] = ['supervisor', 'manager', 'admin', 'vl_admin'];
+export const ALL_ROLES: UserRole[] = ['sales_rep', 'supervisor', 'manager', 'admin', 'vl_admin'];

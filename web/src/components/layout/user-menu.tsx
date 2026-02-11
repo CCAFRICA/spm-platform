@@ -43,7 +43,7 @@ export function UserMenu() {
 
   const getRoleColor = (role: string) => {
     const colors: Record<string, string> = {
-      'cc_admin': 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
+      'vl_admin': 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
       'admin': 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
       'manager': 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
       'sales_rep': 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
@@ -53,7 +53,7 @@ export function UserMenu() {
 
   const getRoleLabel = (role: string) => {
     const labels: Record<string, string> = {
-      'cc_admin': 'Platform Admin',
+      'vl_admin': 'Platform Admin',
       'admin': 'Admin',
       'manager': 'Manager',
       'sales_rep': 'Sales Rep',

@@ -37,7 +37,7 @@ export default function PerformPage() {
   const displaySpanish = userIsCCAdmin ? false : isSpanish;
   const currency = currentTenant?.currency || 'USD';
 
-  const isManager = userRole === 'manager' || userRole === 'admin' || userRole === 'cc_admin';
+  const isManager = userRole === 'manager' || userRole === 'admin' || userRole === 'vl_admin';
 
   return (
     <div className="p-6 space-y-6">

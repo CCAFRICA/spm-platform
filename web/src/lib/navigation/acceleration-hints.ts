@@ -43,7 +43,7 @@ export function getSmartSuggestions(
   const suggestions: SmartSuggestion[] = [];
 
   // Cycle-based suggestions
-  if (currentPhase === 'import' && (role === 'admin' || role === 'cc_admin')) {
+  if (currentPhase === 'import' && (role === 'admin' || role === 'vl_admin')) {
     suggestions.push({
       id: 'suggest-import',
       type: 'action',
@@ -57,7 +57,7 @@ export function getSmartSuggestions(
     });
   }
 
-  if (currentPhase === 'calculate' && (role === 'admin' || role === 'cc_admin')) {
+  if (currentPhase === 'calculate' && (role === 'admin' || role === 'vl_admin')) {
     suggestions.push({
       id: 'suggest-calculate',
       type: 'action',
@@ -71,7 +71,7 @@ export function getSmartSuggestions(
     });
   }
 
-  if (pendingActions > 0 && (role === 'admin' || role === 'cc_admin' || role === 'manager')) {
+  if (pendingActions > 0 && (role === 'admin' || role === 'vl_admin' || role === 'manager')) {
     suggestions.push({
       id: 'suggest-approvals',
       type: 'alert',
@@ -240,7 +240,7 @@ export function getProactiveAlerts(
 
   // Critical queue items
   const criticalItems = queueItems.filter(i => i.urgency === 'critical');
-  if (criticalItems.length > 0 && (role === 'admin' || role === 'cc_admin')) {
+  if (criticalItems.length > 0 && (role === 'admin' || role === 'vl_admin')) {
     alerts.push({
       id: 'alert-critical-queue',
       severity: 'critical',
@@ -260,7 +260,7 @@ export function getProactiveAlerts(
   // Cycle deadline approaching
   const now = new Date();
   const dayOfMonth = now.getDate();
-  if (dayOfMonth >= 25 && cyclePhase !== 'closed' && (role === 'admin' || role === 'cc_admin')) {
+  if (dayOfMonth >= 25 && cyclePhase !== 'closed' && (role === 'admin' || role === 'vl_admin')) {
     alerts.push({
       id: 'alert-cycle-deadline',
       severity: 'warning',
@@ -279,7 +279,7 @@ export function getProactiveAlerts(
 
   // Data quality issues
   const dataQualityItems = queueItems.filter(i => i.type === 'data_quality');
-  if (dataQualityItems.length > 0 && (role === 'admin' || role === 'cc_admin')) {
+  if (dataQualityItems.length > 0 && (role === 'admin' || role === 'vl_admin')) {
     alerts.push({
       id: 'alert-data-quality',
       severity: 'warning',

@@ -42,7 +42,7 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
   const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
 
   // Check if user is admin/cc_admin to show cycle
-  const showCycle = userRole === 'cc_admin' || userRole === 'admin';
+  const showCycle = userRole === 'vl_admin' || userRole === 'admin';
 
   return (
     <>
@@ -73,7 +73,7 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
           {!isRailCollapsed && (
             <div className="flex flex-col min-w-0">
               <span className="text-lg font-bold text-slate-900 dark:text-slate-50 truncate">
-                ClearComp
+                ViaLuce
               </span>
               <span className="text-[10px] text-slate-500 truncate -mt-0.5">
                 {currentTenant?.displayName || 'Sales Performance'}

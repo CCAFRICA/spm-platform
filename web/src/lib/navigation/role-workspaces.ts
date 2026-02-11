@@ -12,7 +12,7 @@ import type { WorkspaceId } from '@/types/navigation';
 // =============================================================================
 
 export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
-  cc_admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern'],
+  vl_admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern'],
   admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern'],
   manager: ['perform', 'investigate', 'govern'],
   sales_rep: ['perform'],
@@ -23,7 +23,7 @@ export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
 // =============================================================================
 
 export const DEFAULT_WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceId> = {
-  cc_admin: 'operate',
+  vl_admin: 'operate',
   admin: 'operate',
   manager: 'perform',
   sales_rep: 'perform',
@@ -65,7 +65,7 @@ export interface WorkspaceFeatureAccess {
 }
 
 export const WORKSPACE_FEATURE_ACCESS: Record<UserRole, Partial<Record<WorkspaceId, WorkspaceFeatureAccess>>> = {
-  cc_admin: {
+  vl_admin: {
     operate: { canViewAll: true, canEdit: true },
     perform: { canViewAll: true, canEdit: true },
     investigate: { canViewAll: true, canEdit: true },

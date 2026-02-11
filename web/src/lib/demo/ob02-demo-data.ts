@@ -255,7 +255,7 @@ export const DEMO_RECONCILIATION_SESSIONS: ReconciliationSession[] = [
     status: 'completed',
     periodId: 'period-2026-01',
     sourceSystem: 'LegacySPM',
-    targetSystem: 'ClearComp',
+    targetSystem: 'ViaLuce',
     startDate: '2026-01-01',
     endDate: '2026-01-31',
     summary: {
@@ -290,7 +290,7 @@ export const DEMO_RECONCILIATION_SESSIONS: ReconciliationSession[] = [
     mode: 'operational',
     status: 'awaiting_review',
     periodId: 'period-2026-02',
-    sourceSystem: 'ClearComp',
+    sourceSystem: 'ViaLuce',
     targetSystem: 'PayrollSystem',
     startDate: '2026-02-01',
     endDate: '2026-02-28',
@@ -400,7 +400,7 @@ export const DEMO_SHADOW_PAYROLL_RUNS: ShadowPayrollRun[] = [
       recordCount: 156,
     },
     newSystem: {
-      name: 'ClearComp',
+      name: 'ViaLuce',
       runDate: '2026-02-01T08:15:00Z',
       totalAmount: 2456234.75,
       recordCount: 156,
@@ -452,7 +452,7 @@ export const DEMO_SHADOW_PAYROLL_RUNS: ShadowPayrollRun[] = [
       recordCount: 162,
     },
     newSystem: {
-      name: 'ClearComp',
+      name: 'ViaLuce',
       runDate: '2026-02-05T08:10:00Z',
       totalAmount: 2678189.50,
       recordCount: 162,

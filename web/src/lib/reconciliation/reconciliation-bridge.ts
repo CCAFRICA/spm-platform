@@ -20,10 +20,10 @@ import { formatForReconciliation } from '@/lib/calculation/results-formatter';
 // ============================================
 
 const STORAGE_KEYS = {
-  SESSIONS: 'clearcomp_reconciliation_sessions',
-  ITEMS: 'clearcomp_reconciliation_items',
-  DISPUTES: 'clearcomp_reconciliation_disputes',
-  RESOLUTIONS: 'clearcomp_reconciliation_resolutions',
+  SESSIONS: 'vialuce_reconciliation_sessions',
+  ITEMS: 'vialuce_reconciliation_items',
+  DISPUTES: 'vialuce_reconciliation_disputes',
+  RESOLUTIONS: 'vialuce_reconciliation_resolutions',
 } as const;
 
 // ============================================
@@ -940,7 +940,7 @@ export interface LegacyRecord {
 }
 
 /**
- * Reconcile ClearComp calculation results against legacy system output
+ * Reconcile ViaLuce calculation results against legacy system output
  */
 export async function reconcileCalculationsWithLegacy(
   tenantId: string,
@@ -955,16 +955,16 @@ export async function reconcileCalculationsWithLegacy(
     tenantId,
     periodId,
     mode: 'migration',
-    sourceSystem: 'ClearComp',
+    sourceSystem: 'ViaLuce',
     targetSystem: 'Legacy',
     createdBy: userId,
   });
 
-  // Get ClearComp results for this period
-  const clearCompResults = getPeriodResults(tenantId, periodId);
+  // Get ViaLuce results for this period
+  const viaLuceResults = getPeriodResults(tenantId, periodId);
 
   // Convert to reconciliation format
-  const sourceData = clearCompResults.map((result) => {
+  const sourceData = viaLuceResults.map((result) => {
     const formatted = formatForReconciliation(result);
     return {
       id: `cc-${result.employeeId}-${result.period}`,
@@ -972,7 +972,7 @@ export async function reconcileCalculationsWithLegacy(
       amount: result.totalIncentive,
       date: result.period,
       type: 'incentive',
-      description: `ClearComp: ${result.planName}`,
+      description: `ViaLuce: ${result.planName}`,
       components: formatted.componentBreakdown,
     };
   });

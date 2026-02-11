@@ -16,8 +16,8 @@ import {
 // ============================================
 
 const STORAGE_KEYS = {
-  PERIODS: 'clearcomp_payroll_periods',
-  PERIOD_HISTORY: 'clearcomp_period_history',
+  PERIODS: 'vialuce_payroll_periods',
+  PERIOD_HISTORY: 'vialuce_period_history',
 } as const;
 
 // ============================================

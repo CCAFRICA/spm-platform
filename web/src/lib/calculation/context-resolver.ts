@@ -65,8 +65,8 @@ export interface CalculationContext {
 // ============================================
 
 const STORAGE_KEYS = {
-  EMPLOYEES: 'clearcomp_employee_data',
-  PERIODS: 'clearcomp_payroll_periods',
+  EMPLOYEES: 'vialuce_employee_data',
+  PERIODS: 'vialuce_payroll_periods',
   COMMITTED: 'data_layer_committed',
   BATCHES: 'data_layer_batches',
 };

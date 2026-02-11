@@ -23,8 +23,8 @@ const STORAGE_KEY_TENANT = 'entityb_current_tenant';
 const STORAGE_KEY_USER_ROLE = 'entityb_user_role';
 
 // Storage keys for dynamic tenants (matches provisioning-engine.ts)
-const DYNAMIC_TENANTS_KEY = 'clearcomp_tenants';
-const DYNAMIC_REGISTRY_KEY = 'clearcomp_tenant_registry';
+const DYNAMIC_TENANTS_KEY = 'vialuce_tenants';
+const DYNAMIC_REGISTRY_KEY = 'vialuce_tenant_registry';
 
 // Tenant config cache to avoid repeated imports
 const tenantConfigCache: Record<string, TenantConfig> = {};
@@ -145,12 +145,12 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       try {
-        // Check if user is CC Admin
+        // Check if user is VL Admin
         const userRole = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_USER_ROLE) : null;
-        const isAdmin = userRole === 'cc_admin';
+        const isAdmin = userRole === 'vl_admin';
         setIsCCAdmin(isAdmin);
 
-        // Load available tenants for CC Admin (both static and dynamic)
+        // Load available tenants for VL Admin (both static and dynamic)
         if (isAdmin) {
           try {
             // Load static tenants from registry file
@@ -184,7 +184,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         if (storedTenantId) {
           await loadTenant(storedTenantId);
         } else if (isAdmin) {
-          // CC Admin without selected tenant - will redirect in component
+          // VL Admin without selected tenant - will redirect in component
           setIsLoading(false);
         } else {
           // Default tenant for regular users

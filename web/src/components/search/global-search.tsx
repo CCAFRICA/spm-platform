@@ -30,7 +30,7 @@ export function GlobalSearch() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // CC Admin locale override: CC Admins always see English regardless of tenant locale
-  const userIsCCAdmin = user?.role === 'cc_admin';
+  const userIsCCAdmin = user?.role === 'vl_admin';
   const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   const performSearch = useCallback(async (q: string) => {

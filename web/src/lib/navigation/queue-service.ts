@@ -12,13 +12,13 @@ import type { UserRole } from '@/types/auth';
 
 // Storage keys for checking real system state
 const STORAGE_KEYS = {
-  PLANS: 'clearcomp_plans',
+  PLANS: 'vialuce_plans',
   BATCHES: 'data_layer_batches',
   COMMITTED: 'data_layer_committed',
-  CALCULATIONS: 'clearcomp_calculations',
-  CALCULATION_RUNS: 'clearcomp_calculation_runs',
-  PERIODS: 'clearcomp_payroll_periods',
-  RECONCILIATION: 'clearcomp_reconciliation_sessions',
+  CALCULATIONS: 'vialuce_calculations',
+  CALCULATION_RUNS: 'vialuce_calculation_runs',
+  PERIODS: 'vialuce_payroll_periods',
+  RECONCILIATION: 'vialuce_reconciliation_sessions',
 };
 
 // =============================================================================
@@ -70,7 +70,7 @@ function sortQueueItems(items: QueueItem[]): QueueItem[] {
  * Generate onboarding items for new tenants with no data
  */
 function getOnboardingItems(tenantId: string, role: UserRole): QueueItem[] {
-  if (role !== 'cc_admin' && role !== 'admin') return [];
+  if (role !== 'vl_admin' && role !== 'admin') return [];
 
   const items: QueueItem[] = [];
   const hasPlans = hasTenantPlans(tenantId);
@@ -135,7 +135,7 @@ function getOnboardingItems(tenantId: string, role: UserRole): QueueItem[] {
  * Generate pipeline status items based on actual workflow state
  */
 function getPipelineItems(tenantId: string, role: UserRole): QueueItem[] {
-  if (role !== 'cc_admin' && role !== 'admin') return [];
+  if (role !== 'vl_admin' && role !== 'admin') return [];
 
   const items: QueueItem[] = [];
 
@@ -226,7 +226,7 @@ function getApprovalItems(userId: string, tenantId: string, role: UserRole): Que
  * Get data quality items from stored issues
  */
 function getDataQualityItems(tenantId: string, role: UserRole): QueueItem[] {
-  if (role !== 'cc_admin' && role !== 'admin') return [];
+  if (role !== 'vl_admin' && role !== 'admin') return [];
 
   try {
     const qualityKey = `${tenantId}_data_quality_issues`;
@@ -301,7 +301,7 @@ function getDisputeItems(userId: string, tenantId: string, role: UserRole): Queu
  * Get calculation error items from stored runs
  */
 function getCalculationItems(tenantId: string, role: UserRole): QueueItem[] {
-  if (role !== 'cc_admin' && role !== 'admin') return [];
+  if (role !== 'vl_admin' && role !== 'admin') return [];
 
   const items: QueueItem[] = [];
 

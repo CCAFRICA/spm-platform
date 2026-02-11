@@ -27,8 +27,8 @@ const proofMockStorage: Record<string, string> = {};
 const PROOF_KEYS = {
   COMMITTED: 'data_layer_committed',
   BATCHES: 'data_layer_batches',
-  EMPLOYEE_DATA: 'clearcomp_employee_data',
-  PLANS: 'clearcomp_plans',
+  EMPLOYEE_DATA: 'vialuce_employee_data',
+  PLANS: 'vialuce_plans',
 };
 
 // ============================================

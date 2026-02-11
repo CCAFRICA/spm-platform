@@ -99,7 +99,7 @@ const labels = {
     duration: 'Duration',
     back: 'Back',
     accessDenied: 'Access Denied',
-    accessDeniedDesc: 'You must be a CC Admin to access this page.',
+    accessDeniedDesc: 'You must be a VL Admin to access this page.',
     preview: 'Preview',
     official: 'Official',
     adjustment: 'Adjustment',
@@ -140,7 +140,7 @@ const labels = {
     duration: 'Duración',
     back: 'Volver',
     accessDenied: 'Acceso Denegado',
-    accessDeniedDesc: 'Debe ser un CC Admin para acceder a esta página.',
+    accessDeniedDesc: 'Debe ser un VL Admin para acceder a esta página.',
     preview: 'Vista Previa',
     official: 'Oficial',
     adjustment: 'Ajuste',
@@ -188,7 +188,7 @@ export default function CalculatePage() {
   // OB-20 Phase 10: Search functionality for results
   const [searchQuery, setSearchQuery] = useState('');
 
-  // CC Admin always sees English, tenant users see tenant locale
+  // VL Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
   const t = labels[locale];
 
@@ -204,7 +204,7 @@ export default function CalculatePage() {
     }).format(amount);
   };
 
-  // Check CC Admin access
+  // Check VL Admin access
   const hasAccess = user && isCCAdmin(user);
 
   // Load periods and check plans

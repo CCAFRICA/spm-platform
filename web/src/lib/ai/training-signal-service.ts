@@ -10,7 +10,7 @@
 
 import { AIResponse, AITaskType, TrainingSignal } from './types';
 
-const STORAGE_KEY_PREFIX = 'clearcomp_training_signals_';
+const STORAGE_KEY_PREFIX = 'vialuce_training_signals_';
 const MAX_SIGNALS_PER_TENANT = 10000; // Prevent localStorage overflow
 
 export class TrainingSignalService {

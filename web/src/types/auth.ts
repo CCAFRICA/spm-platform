@@ -1,8 +1,8 @@
 /**
- * Authentication Types - Entity B SPM Platform
+ * Authentication Types - ViaLuce SPM Platform
  */
 
-export type UserRole = 'cc_admin' | 'admin' | 'manager' | 'sales_rep';
+export type UserRole = 'vl_admin' | 'admin' | 'manager' | 'sales_rep';
 
 export interface BaseUser {
   id: string;
@@ -15,7 +15,7 @@ export interface BaseUser {
 }
 
 export interface TenantUser extends BaseUser {
-  role: Exclude<UserRole, 'cc_admin'>;
+  role: Exclude<UserRole, 'vl_admin'>;
   tenantId: string;
   teamId?: string;
   regionId?: string;
@@ -26,26 +26,32 @@ export interface TenantUser extends BaseUser {
   meseroId?: number; // Links to mesero record for hospitality tenants
 }
 
-export interface CCAdminUser extends BaseUser {
-  role: 'cc_admin';
+export interface VLAdminUser extends BaseUser {
+  role: 'vl_admin';
   tenantId: null;
   accessLevel: 'full' | 'readonly';
   department?: string;
 }
 
-export type User = TenantUser | CCAdminUser;
+export type User = TenantUser | VLAdminUser;
 
-export function isCCAdmin(user: User): user is CCAdminUser {
-  return user.role === 'cc_admin';
+// Backward compatibility alias
+export type CCAdminUser = VLAdminUser;
+
+export function isVLAdmin(user: User): user is VLAdminUser {
+  return user.role === 'vl_admin';
 }
 
+// Backward compatibility alias
+export const isCCAdmin = isVLAdmin;
+
 export function isTenantUser(user: User): user is TenantUser {
-  return user.role !== 'cc_admin';
+  return user.role !== 'vl_admin';
 }
 
 export function getUserDisplayRole(user: User): string {
   switch (user.role) {
-    case 'cc_admin':
+    case 'vl_admin':
       return 'Platform Administrator';
     case 'admin':
       return 'Administrator';

@@ -21,9 +21,9 @@ import { DEFAULT_FEATURES, DEFAULT_TERMINOLOGY } from '@/types/tenant';
 // ============================================
 
 const STORAGE_KEYS = {
-  TENANTS: 'clearcomp_tenants',
-  TENANT_DATA_PREFIX: 'clearcomp_tenant_data_',
-  TENANT_REGISTRY: 'clearcomp_tenant_registry',
+  TENANTS: 'vialuce_tenants',
+  TENANT_DATA_PREFIX: 'vialuce_tenant_data_',
+  TENANT_REGISTRY: 'vialuce_tenant_registry',
 } as const;
 
 // ============================================
@@ -595,7 +595,7 @@ export class TenantProvisioningEngine {
 
     // Log deletion to global audit log BEFORE removing data
     if (typeof window !== 'undefined') {
-      const globalAuditKey = 'clearcomp_deletion_audit_log';
+      const globalAuditKey = 'vialuce_deletion_audit_log';
       const auditLog = JSON.parse(localStorage.getItem(globalAuditKey) || '[]');
       auditLog.push({
         action: 'tenant_deleted',

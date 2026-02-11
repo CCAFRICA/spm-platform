@@ -43,8 +43,8 @@ import { logWorkspaceSwitch } from '@/lib/navigation/navigation-signals';
 // STORAGE KEYS
 // =============================================================================
 
-const RAIL_COLLAPSED_KEY = 'clearcomp_rail_collapsed';
-const RECENT_PAGES_KEY = 'clearcomp_recent_pages';
+const RAIL_COLLAPSED_KEY = 'vialuce_rail_collapsed';
+const RECENT_PAGES_KEY = 'vialuce_recent_pages';
 const MAX_RECENT_PAGES = 10;
 
 // =============================================================================
@@ -82,7 +82,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const { user } = useAuth();
   const { currentTenant } = useTenant();
 
-  // Determine if user is CC Admin (always English) or follows tenant locale
+  // Determine if user is VL Admin (always English) or follows tenant locale
   const userIsCCAdmin = user && isCCAdmin(user);
   const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
   const userRole = user?.role || null;
@@ -123,7 +123,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   useEffect(() => {
     if (!userRole) return;
 
-    const defaultWs = getDefaultWorkspace(userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep');
+    const defaultWs = getDefaultWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
     setActiveWorkspaceState(defaultWs);
   }, [userRole]);
 
@@ -133,7 +133,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
     const wsForRoute = getWorkspaceForRoute(pathname);
     if (wsForRoute && wsForRoute !== activeWorkspace) {
-      if (userRole && canAccessWorkspace(userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
+      if (userRole && canAccessWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
         setActiveWorkspaceState(wsForRoute);
       }
     }
@@ -158,11 +158,11 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     setCycleState(cycle);
 
     // Get queue items
-    const queue = getQueueItems(user.id, tenantId, userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep');
+    const queue = getQueueItems(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
     setQueueItems(queue);
 
     // Get pulse metrics
-    const pulse = getPulseMetrics(user.id, tenantId, userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep', currency);
+    const pulse = getPulseMetrics(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', currency);
     setPulseMetrics(pulse);
   }, [user, userRole, tenantId, currency]);
 
@@ -179,7 +179,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Set active workspace with validation
   const setActiveWorkspace = useCallback((workspace: WorkspaceId) => {
-    if (userRole && !canAccessWorkspace(userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
+    if (userRole && !canAccessWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
       console.warn(`User role ${userRole} cannot access workspace ${workspace}`);
       return;
     }
@@ -203,7 +203,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Navigate to workspace
   const navigateToWorkspace = useCallback((workspace: WorkspaceId) => {
-    if (userRole && !canAccessWorkspace(userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
+    if (userRole && !canAccessWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
       console.warn(`User role ${userRole} cannot access workspace ${workspace}`);
       return;
     }
@@ -304,7 +304,7 @@ export function useAcceleration() {
     const { getSmartSuggestions: getSuggestions } = await import('@/lib/navigation/acceleration-hints');
     if (!cycleState || !userRole) return [];
     return getSuggestions(
-      userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep',
+      userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep',
       cycleState.currentPhase,
       cycleState.pendingActions,
       activeWorkspace
@@ -315,7 +315,7 @@ export function useAcceleration() {
     const { getProactiveAlerts: getAlerts } = await import('@/lib/navigation/acceleration-hints');
     if (!cycleState || !userRole) return [];
     return getAlerts(
-      userRole as 'cc_admin' | 'admin' | 'manager' | 'sales_rep',
+      userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep',
       cycleState.currentPhase,
       queueItems
     );

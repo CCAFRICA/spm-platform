@@ -28,7 +28,7 @@ const calcTriggerMockStorage: Record<string, string> = {};
 const CALC_TEST_KEYS = {
   DATA_LAYER_COMMITTED: 'data_layer_committed',
   DATA_LAYER_BATCHES: 'data_layer_batches',
-  EMPLOYEE_DATA: 'clearcomp_employee_data',
+  EMPLOYEE_DATA: 'vialuce_employee_data',
 };
 
 interface CalcTestEmployeeData {

@@ -429,15 +429,15 @@ export function getAvailableTours(): GuidedTour[] {
       id: 'tour-onboarding',
       name: 'Platform Overview',
       nameEs: 'Vista General de la Plataforma',
-      description: 'Learn the basics of the ClearComp platform',
-      descriptionEs: 'Aprenda los conceptos básicos de la plataforma ClearComp',
+      description: 'Learn the basics of the ViaLuce platform',
+      descriptionEs: 'Aprenda los conceptos básicos de la plataforma ViaLuce',
       category: 'onboarding',
       estimatedDuration: 5,
       steps: [
         {
           id: 'step-welcome',
-          title: 'Welcome to ClearComp',
-          titleEs: 'Bienvenido a ClearComp',
+          title: 'Welcome to ViaLuce',
+          titleEs: 'Bienvenido a ViaLuce',
           description: 'This tour will guide you through the main features of the platform.',
           descriptionEs: 'Este tour le guiará por las principales funciones de la plataforma.',
           target: 'body',
@@ -639,8 +639,8 @@ export function getDemoScripts(): DemoScript[] {
           route: '/',
           talkingPoints: [
             {
-              text: 'Welcome to the ClearComp Sales Performance Management platform.',
-              textEs: 'Bienvenidos a la plataforma de Gestión de Rendimiento de Ventas ClearComp.',
+              text: 'Welcome to the ViaLuce Sales Performance Management platform.',
+              textEs: 'Bienvenidos a la plataforma de Gestión de Rendimiento de Ventas ViaLuce.',
               emphasis: true,
             },
             {

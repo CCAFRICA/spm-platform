@@ -71,7 +71,7 @@ function getActionCommands(role: UserRole, isSpanish: boolean): CommandItem[] {
   const actions: CommandItem[] = [];
 
   // Admin/CC Admin actions
-  if (role === 'cc_admin' || role === 'admin') {
+  if (role === 'vl_admin' || role === 'admin') {
     actions.push({
       id: 'action-run-calculations',
       label: isSpanish ? 'Ejecutar Cálculos' : 'Run Calculations',
@@ -139,7 +139,7 @@ function getActionCommands(role: UserRole, isSpanish: boolean): CommandItem[] {
   }
 
   // Manager actions
-  if (role === 'manager' || role === 'admin' || role === 'cc_admin') {
+  if (role === 'manager' || role === 'admin' || role === 'vl_admin') {
     actions.push({
       id: 'action-view-team',
       label: isSpanish ? 'Ver Rendimiento del Equipo' : 'View Team Performance',
@@ -282,7 +282,7 @@ export function searchCommands(
 // RECENT COMMANDS
 // =============================================================================
 
-const RECENT_COMMANDS_KEY = 'clearcomp_recent_commands';
+const RECENT_COMMANDS_KEY = 'vialuce_recent_commands';
 const MAX_RECENT_COMMANDS = 5;
 
 /**

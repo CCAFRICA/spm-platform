@@ -110,7 +110,7 @@ export const DEFAULT_TERMINOLOGY: TenantTerminology = {
 };
 
 // User Types
-export type UserRole = 'cc_admin' | 'admin' | 'manager' | 'sales_rep';
+export type UserRole = 'vl_admin' | 'admin' | 'manager' | 'sales_rep';
 
 export interface TenantSummary {
   id: string;

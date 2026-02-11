@@ -93,7 +93,7 @@ const labels = {
     reasoning: 'Variance Analysis',
     back: 'Back',
     accessDenied: 'Access Denied',
-    accessDeniedDesc: 'You must be a CC Admin to access this page.',
+    accessDeniedDesc: 'You must be a VL Admin to access this page.',
     fieldMapping: 'Field Mapping',
     employeeIdField: 'Employee ID Field',
     amountField: 'Amount Field',
@@ -134,7 +134,7 @@ const labels = {
     reasoning: 'Análisis de Varianza',
     back: 'Volver',
     accessDenied: 'Acceso Denegado',
-    accessDeniedDesc: 'Debe ser un CC Admin para acceder a esta página.',
+    accessDeniedDesc: 'Debe ser un VL Admin para acceder a esta página.',
     fieldMapping: 'Mapeo de Campos',
     employeeIdField: 'Campo de ID de Empleado',
     amountField: 'Campo de Monto',
@@ -187,11 +187,11 @@ export default function ReconciliationPage() {
   const [filter, setFilter] = useState<'all' | 'matched' | 'discrepancy' | 'missing'>('all');
   const [sortDesc, setSortDesc] = useState(true);
 
-  // CC Admin always sees English, tenant users see tenant locale
+  // VL Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
   const t = labels[locale];
 
-  // Check CC Admin access
+  // Check VL Admin access
   const hasAccess = user && isCCAdmin(user);
 
   // Load calculation batches
