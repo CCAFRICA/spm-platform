@@ -113,6 +113,76 @@ const DEMO_USERS: Record<
       descriptionEs: 'Acceso administrativo completo',
     },
   ],
+  // OB-29: RetailCGMX demo users - real identities from 719-employee roster
+  retail_conglomerate: [
+    {
+      email: '96568046@retailcgmx.com',
+      name: 'Carlos García Rodríguez',
+      role: 'Certified Optometrist',
+      roleEs: 'Optometrista Certificado',
+      description: 'Top performer, Store 1, all 6 components',
+      descriptionEs: 'Alto rendimiento, Tienda 1, 6 componentes',
+    },
+    {
+      email: '90125625@retailcgmx.com',
+      name: 'Ana Martínez López',
+      role: 'Optometrist',
+      roleEs: 'Optometrista',
+      description: 'Average performer, typical compensation',
+      descriptionEs: 'Rendimiento promedio, compensación típica',
+    },
+    {
+      email: 'manager@retailcgmx.com',
+      name: 'Roberto Hernández',
+      role: 'Store Manager',
+      roleEs: 'Gerente de Tienda',
+      description: 'Review team performance & exceptions',
+      descriptionEs: 'Revisar rendimiento del equipo y excepciones',
+    },
+    {
+      email: 'admin@retailcgmx.com',
+      name: 'Sofía Chen',
+      role: 'Platform Admin',
+      roleEs: 'Administrador de Plataforma',
+      description: 'Full access: calculate, approve, reconcile',
+      descriptionEs: 'Acceso completo: calcular, aprobar, conciliar',
+    },
+  ],
+  // Alias for alternate tenant ID
+  retailcgmx: [
+    {
+      email: '96568046@retailcgmx.com',
+      name: 'Carlos García Rodríguez',
+      role: 'Certified Optometrist',
+      roleEs: 'Optometrista Certificado',
+      description: 'Top performer, Store 1, all 6 components',
+      descriptionEs: 'Alto rendimiento, Tienda 1, 6 componentes',
+    },
+    {
+      email: '90125625@retailcgmx.com',
+      name: 'Ana Martínez López',
+      role: 'Optometrist',
+      roleEs: 'Optometrista',
+      description: 'Average performer, typical compensation',
+      descriptionEs: 'Rendimiento promedio, compensación típica',
+    },
+    {
+      email: 'manager@retailcgmx.com',
+      name: 'Roberto Hernández',
+      role: 'Store Manager',
+      roleEs: 'Gerente de Tienda',
+      description: 'Review team performance & exceptions',
+      descriptionEs: 'Revisar rendimiento del equipo y excepciones',
+    },
+    {
+      email: 'admin@retailcgmx.com',
+      name: 'Sofía Chen',
+      role: 'Platform Admin',
+      roleEs: 'Administrador de Plataforma',
+      description: 'Full access: calculate, approve, reconcile',
+      descriptionEs: 'Acceso completo: calcular, aprobar, conciliar',
+    },
+  ],
 };
 
 export function DemoUserSwitcher() {

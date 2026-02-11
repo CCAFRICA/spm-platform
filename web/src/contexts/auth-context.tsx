@@ -226,12 +226,82 @@ const RETAILCO_USERS: TenantUser[] = [
   },
 ];
 
+// OB-29: RetailCGMX demo users - real identities from 719-employee roster
+const RETAILCGMX_USERS: TenantUser[] = [
+  {
+    id: 'rcgmx-admin-001',
+    email: 'admin@retailcgmx.com',
+    name: 'Sofia Chen',
+    role: 'admin',
+    tenantId: 'retail_conglomerate',
+    status: 'active',
+    createdAt: '2024-01-01T00:00:00Z',
+    permissions: [
+      'view_all_compensation',
+      'view_reports',
+      'view_configuration',
+      'edit_terminology',
+      'manage_users',
+      'view_audit_log',
+      'import_transactions',
+      'export_data',
+      'run_calculations',
+      'approve_calculations',
+    ],
+    dataAccessLevel: 'all',
+  },
+  {
+    id: 'rcgmx-manager-001',
+    email: 'manager@retailcgmx.com',
+    name: 'Roberto Hernandez',
+    role: 'manager',
+    tenantId: 'retail_conglomerate',
+    storeId: '1',
+    status: 'active',
+    createdAt: '2024-01-01T00:00:00Z',
+    permissions: [
+      'view_own_compensation',
+      'view_team_compensation',
+      'view_reports',
+      'submit_inquiry',
+    ],
+    dataAccessLevel: 'team',
+  },
+  {
+    id: 'rcgmx-rep-001',
+    email: '96568046@retailcgmx.com',
+    name: 'Carlos Garcia Rodriguez',
+    role: 'sales_rep',
+    tenantId: 'retail_conglomerate',
+    storeId: '1',
+    managerId: 'rcgmx-manager-001',
+    status: 'active',
+    createdAt: '2024-01-01T00:00:00Z',
+    permissions: ['view_own_compensation', 'view_reports', 'submit_inquiry'],
+    dataAccessLevel: 'own',
+  },
+  {
+    id: 'rcgmx-rep-002',
+    email: '90125625@retailcgmx.com',
+    name: 'Ana Martinez Lopez',
+    role: 'sales_rep',
+    tenantId: 'retail_conglomerate',
+    storeId: '2',
+    managerId: 'rcgmx-manager-001',
+    status: 'active',
+    createdAt: '2024-01-01T00:00:00Z',
+    permissions: ['view_own_compensation', 'view_reports', 'submit_inquiry'],
+    dataAccessLevel: 'own',
+  },
+];
+
 // All static users combined
 export const ALL_USERS: User[] = [
   ...VL_ADMIN_USERS,
   ...TECHCORP_USERS,
   ...RESTAURANTMX_USERS,
   ...RETAILCO_USERS,
+  ...RETAILCGMX_USERS,
 ];
 
 // Email to user lookup (static users)
