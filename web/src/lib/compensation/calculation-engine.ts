@@ -148,18 +148,37 @@ function calculateComponent(
   component: PlanComponent,
   metrics: EmployeeMetrics
 ): CalculationStep {
+  // OB-27: Log component calculation for audit trail
+  console.log(`[CalcEngine] Calculating "${component.name}" (${component.componentType}) for ${metrics.employeeName}`);
+
+  let result: CalculationStep;
+
   switch (component.componentType) {
     case 'matrix_lookup':
-      return calculateMatrixLookup(component, metrics);
+      result = calculateMatrixLookup(component, metrics);
+      break;
     case 'tier_lookup':
-      return calculateTierLookup(component, metrics);
+      result = calculateTierLookup(component, metrics);
+      break;
     case 'percentage':
-      return calculatePercentage(component, metrics);
+      result = calculatePercentage(component, metrics);
+      break;
     case 'conditional_percentage':
-      return calculateConditionalPercentage(component, metrics);
+      result = calculateConditionalPercentage(component, metrics);
+      break;
     default:
-      return createZeroStep(component, 'Unknown component type');
+      console.error(`[CalcEngine] ${component.name}: Unknown component type "${component.componentType}"`);
+      result = createZeroStep(component, `Unknown component type: ${component.componentType}`);
   }
+
+  // OB-27: Log result for audit trail
+  if (result.outputValue === 0 && result.description) {
+    console.warn(`[CalcEngine] ${component.name}: $0 output - ${result.description}`);
+  } else {
+    console.log(`[CalcEngine] ${component.name}: $${result.outputValue.toLocaleString()}`);
+  }
+
+  return result;
 }
 
 function calculateMatrixLookup(
@@ -179,8 +198,18 @@ function calculateMatrixLookup(
     return createZeroStep(component, 'Matrix has no values configured');
   }
 
-  const rowValue = metrics.metrics[config.rowMetric] ?? 0;
-  const colValue = metrics.metrics[config.columnMetric] ?? 0;
+  // OB-27: NO SILENT FALLBACKS - log when metrics are missing
+  const rowValue = metrics.metrics[config.rowMetric];
+  const colValue = metrics.metrics[config.columnMetric];
+
+  if (rowValue === undefined) {
+    console.warn(`[CalcEngine] ${component.name}: Missing rowMetric "${config.rowMetric}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    return createZeroStep(component, `Missing metric: ${config.rowMetric}`);
+  }
+  if (colValue === undefined) {
+    console.warn(`[CalcEngine] ${component.name}: Missing columnMetric "${config.columnMetric}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    return createZeroStep(component, `Missing metric: ${config.columnMetric}`);
+  }
 
   const rowBand = findBand(config.rowBands, rowValue);
   const colBand = findBand(config.columnBands, colValue);
@@ -210,6 +239,16 @@ function calculateMatrixLookup(
       colBand: colBand.label,
       foundValue: lookupValue,
     },
+    // OB-27: Component trace for successful calculation
+    componentTrace: {
+      step1_aiContext: component.id,
+      step2_sheetClassification: component.name,
+      step3_metricsExtracted: [config.rowMetric, config.columnMetric],
+      step4_calcTypeResolved: true,
+      step5_lookupSuccess: lookupValue > 0,
+      step6_resultValue: lookupValue,
+      failureReason: lookupValue === 0 ? 'Lookup returned 0' : undefined,
+    },
     calculation: `${config.rowMetricLabel}: ${rowValue.toFixed(1)}% (${rowBand.label}) × ${config.columnMetricLabel}: $${colValue.toLocaleString()} (${colBand.label}) = $${lookupValue.toLocaleString()}`,
     outputValue: lookupValue,
     currency: config.currency,
@@ -227,7 +266,13 @@ function calculateTierLookup(
     return createZeroStep(component, 'Tier lookup has no tiers configured');
   }
 
-  const value = metrics.metrics[config.metric] ?? 0;
+  // OB-27: NO SILENT FALLBACKS - log when metrics are missing
+  const value = metrics.metrics[config.metric];
+  if (value === undefined) {
+    console.warn(`[CalcEngine] ${component.name}: Missing metric "${config.metric}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    return createZeroStep(component, `Missing metric: ${config.metric}`);
+  }
+
   const tier = findTier(config.tiers, value);
 
   return {
@@ -246,6 +291,16 @@ function calculateTierLookup(
       tierLabel: tier.label,
       foundValue: tier.value,
     },
+    // OB-27: Component trace for successful calculation
+    componentTrace: {
+      step1_aiContext: component.id,
+      step2_sheetClassification: component.name,
+      step3_metricsExtracted: [config.metric],
+      step4_calcTypeResolved: true,
+      step5_lookupSuccess: tier.value > 0,
+      step6_resultValue: tier.value,
+      failureReason: tier.value === 0 ? 'Tier value is 0' : undefined,
+    },
     calculation: `${config.metricLabel}: ${value.toFixed(1)}% → ${tier.label} = $${tier.value.toLocaleString()}`,
     outputValue: tier.value,
     currency: config.currency,
@@ -257,7 +312,13 @@ function calculatePercentage(
   metrics: EmployeeMetrics
 ): CalculationStep {
   const config = component.percentageConfig!;
-  const baseValue = metrics.metrics[config.appliedTo] ?? 0;
+
+  // OB-27: NO SILENT FALLBACKS - log when metrics are missing
+  const baseValue = metrics.metrics[config.appliedTo];
+  if (baseValue === undefined) {
+    console.warn(`[CalcEngine] ${component.name}: Missing metric "${config.appliedTo}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    return createZeroStep(component, `Missing metric: ${config.appliedTo}`);
+  }
 
   // Check minimum threshold
   if (config.minThreshold && baseValue < config.minThreshold) {
@@ -282,6 +343,16 @@ function calculatePercentage(
       target: 0,
       attainment: 1,
     },
+    // OB-27: Component trace for successful calculation
+    componentTrace: {
+      step1_aiContext: component.id,
+      step2_sheetClassification: component.name,
+      step3_metricsExtracted: [config.appliedTo],
+      step4_calcTypeResolved: true,
+      step5_lookupSuccess: true,
+      step6_resultValue: result,
+      failureReason: result === 0 ? 'Base value or rate is 0' : undefined,
+    },
     calculation: `$${baseValue.toLocaleString()} × ${(config.rate * 100).toFixed(1)}% = $${result.toLocaleString()}`,
     outputValue: result,
     currency: 'USD',
@@ -299,11 +370,24 @@ function calculateConditionalPercentage(
     return createZeroStep(component, 'Conditional percentage has no conditions configured');
   }
 
-  const baseValue = metrics.metrics[config.appliedTo] ?? 0;
+  // OB-27: NO SILENT FALLBACKS - log when metrics are missing
+  const baseValue = metrics.metrics[config.appliedTo];
+  if (baseValue === undefined) {
+    console.warn(`[CalcEngine] ${component.name}: Missing appliedTo metric "${config.appliedTo}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    return createZeroStep(component, `Missing metric: ${config.appliedTo}`);
+  }
 
   // Find matching condition
   const conditionMetric = config.conditions[0]?.metric;
-  const conditionValue = metrics.metrics[conditionMetric] ?? 0;
+  if (!conditionMetric) {
+    return createZeroStep(component, 'Conditional percentage has no condition metric configured');
+  }
+
+  const conditionValue = metrics.metrics[conditionMetric];
+  if (conditionValue === undefined) {
+    console.warn(`[CalcEngine] ${component.name}: Missing condition metric "${conditionMetric}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    return createZeroStep(component, `Missing condition metric: ${conditionMetric}`);
+  }
 
   const matchingCondition = config.conditions.find(
     (c) => conditionValue >= c.min && conditionValue < c.max
@@ -325,6 +409,16 @@ function calculateConditionalPercentage(
       additionalFactors: {
         [config.appliedTo]: baseValue,
       },
+    },
+    // OB-27: Component trace for successful calculation
+    componentTrace: {
+      step1_aiContext: component.id,
+      step2_sheetClassification: component.name,
+      step3_metricsExtracted: [conditionMetric, config.appliedTo],
+      step4_calcTypeResolved: true,
+      step5_lookupSuccess: true,
+      step6_resultValue: result,
+      failureReason: result === 0 ? 'Rate or base value is 0' : undefined,
     },
     calculation: `${matchingCondition?.metricLabel}: ${conditionValue.toFixed(1)}% → Rate: ${(rate * 100).toFixed(1)}% × $${baseValue.toLocaleString()} = $${result.toLocaleString()}`,
     outputValue: result,
@@ -477,6 +571,16 @@ function createZeroStep(component: PlanComponent, reason: string): CalculationSt
     componentType: component.componentType,
     description: component.description,
     inputs: { actual: 0, target: 0, attainment: 0 },
+    // OB-27: Track why component produced $0
+    componentTrace: {
+      step1_aiContext: null,
+      step2_sheetClassification: null,
+      step3_metricsExtracted: [],
+      step4_calcTypeResolved: true,
+      step5_lookupSuccess: false,
+      step6_resultValue: 0,
+      failureReason: reason,
+    },
     calculation: reason,
     outputValue: 0,
     currency: 'USD',

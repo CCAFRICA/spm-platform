@@ -200,6 +200,16 @@ export interface CalculationStep {
     columns: Record<string, string>; // metric name -> column name used
     rowIdentifier?: string;      // How the employee row was matched
   };
+  // OB-27: Component trace for diagnosing calculation chain failures
+  componentTrace?: {
+    step1_aiContext: string | null;       // AI import mapping used
+    step2_sheetClassification: string | null; // Sheet matched for this component
+    step3_metricsExtracted: string[];     // Metrics found for this component
+    step4_calcTypeResolved: boolean;      // Was component type recognized?
+    step5_lookupSuccess: boolean;         // Did tier/matrix lookup succeed?
+    step6_resultValue: number;            // Final output
+    failureReason?: string;               // If $0, why?
+  };
   calculation: string; // Human-readable calculation string
   outputValue: number;
   currency: string;
