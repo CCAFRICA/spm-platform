@@ -20,6 +20,7 @@ import {
   ensureTenantPlans,
 } from '@/lib/compensation/plan-storage';
 import type { CalculationStep } from '@/types/compensation-plan';
+import { ReconciliationTracePanel } from '@/components/reconciliation/ReconciliationTracePanel';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -728,6 +729,15 @@ export default function CalculatePage() {
                                     </div>
                                   ))}
                                 </div>
+
+                                {/* Reconciliation Trace */}
+                                <ReconciliationTracePanel
+                                  tenantId={currentTenant?.id || ''}
+                                  employeeId={employeeResult.employeeId}
+                                  employeeName={employeeResult.employeeName}
+                                  engineTotal={employeeResult.totalIncentive}
+                                  formatCurrency={formatCurrency}
+                                />
                               </div>
                             </TableCell>
                           </TableRow>
