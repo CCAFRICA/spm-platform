@@ -385,17 +385,6 @@ function storeAggregatedData(
   const getSheetFieldBySemantic = (sheetName: string, semanticType: string): string | null => {
     if (!aiContext?.sheets) return null;
 
-    // OB-24 R6 DIAGNOSTIC: Log sheet name comparison (once per sheet)
-    const w = window as unknown as { _sheetMatchLogged?: Set<string> };
-    if (!w._sheetMatchLogged) w._sheetMatchLogged = new Set();
-    if (!w._sheetMatchLogged.has(sheetName)) {
-      const ctxNames = Array.isArray(aiContext.sheets)
-        ? aiContext.sheets.map(s => (s as { sheetName?: string; name?: string }).sheetName || (s as { sheetName?: string; name?: string }).name)
-        : Object.keys(aiContext.sheets);
-      console.log('[SHEET-MATCH]', JSON.stringify(sheetName), 'vs context:', JSON.stringify(ctxNames));
-      w._sheetMatchLogged.add(sheetName);
-    }
-
     // OB-24 R5: Handle BOTH array and object formats for sheets
     let sheetInfo: { sheetName?: string; fieldMappings?: Array<{ sourceColumn: string; semanticType: string }> } | undefined;
 
@@ -475,8 +464,6 @@ function storeAggregatedData(
     return trimmed;
   };
 
-  const loggedSheets = new Set<string>();
-
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
 
@@ -521,11 +508,6 @@ function storeAggregatedData(
     const effectiveGoalField = goalField || findColumnByPattern([
       /meta/i, /cuota/i, /goal/i, /target/i, /objetivo/i, /presupuesto/i
     ]);
-
-    if (!loggedSheets.has(sheetName)) {
-      console.log('[AGG-FIELDS]', sheetName, 'empId=', effectiveEmpIdField, 'storeId=', effectiveStoreIdField, 'attainment=', effectiveAttainmentField, 'amount=', effectiveAmountField);
-      loggedSheets.add(sheetName);
-    }
 
     // Skip sheet if no ID field found (even with fallback)
     if (!effectiveEmpIdField && !effectiveStoreIdField) {
