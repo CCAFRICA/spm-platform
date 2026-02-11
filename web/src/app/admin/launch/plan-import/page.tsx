@@ -535,7 +535,18 @@ export default function PlanImportPage() {
 
   // Import plan
   const handleImport = async () => {
-    if (!parsedPlan || !currentTenant) return;
+    console.log('[handleImport] Button clicked - handler fired');
+    console.log('[handleImport] parsedPlan:', parsedPlan ? 'EXISTS' : 'NULL');
+    console.log('[handleImport] currentTenant:', currentTenant ? currentTenant.id : 'NULL');
+
+    if (!parsedPlan) {
+      console.error('[handleImport] ABORT: parsedPlan is null/undefined');
+      return;
+    }
+    if (!currentTenant) {
+      console.error('[handleImport] ABORT: currentTenant is null/undefined');
+      return;
+    }
 
     setIsImporting(true);
 
@@ -661,17 +672,28 @@ export default function PlanImportPage() {
       }
 
       // Save the plan (as draft first)
+      console.log('[handleImport] Saving plan:', planConfig.id, planConfig.name);
+      console.log('[handleImport] Plan config:', JSON.stringify(planConfig, null, 2).substring(0, 1000));
       savePlan(planConfig);
+      console.log('[handleImport] Plan saved to localStorage');
 
       // OB-23: Activate the plan immediately so calculation engine can use it
       // This also archives any existing active plans for the same roles
       const activatedPlan = activatePlan(planConfig.id, user?.name || 'system');
       if (!activatedPlan) {
-        console.warn('Failed to activate plan, but plan was saved as draft');
+        console.warn('[handleImport] Failed to activate plan, but plan was saved as draft');
+      } else {
+        console.log('[handleImport] Plan activated successfully:', activatedPlan.id);
       }
 
+      // Verify save
+      const verifyPlans = localStorage.getItem('compensation_plans');
+      console.log('[handleImport] Verification - Plans in storage:', verifyPlans ? JSON.parse(verifyPlans).length : 0);
+
       setImportResult({ success: true, planId: planConfig.id });
+      console.log('[handleImport] SUCCESS - Import complete');
     } catch (error) {
+      console.error('[handleImport] ERROR:', error);
       setImportResult({
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
