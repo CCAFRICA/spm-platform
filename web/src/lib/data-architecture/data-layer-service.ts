@@ -652,9 +652,22 @@ function classifySheets(
     });
   }
 
-  console.log(`[DataLayer] Sheet topology classification:`);
+  // HF-017: Enhanced topology logging with summary counts
+  const topologyCounts = { roster: 0, employee_component: 0, store_component: 0 };
+  const storeComponentSheets: string[] = [];
   for (const [name, info] of Array.from(result.entries())) {
-    console.log(`  - ${name}: ${info.topology} (join by ${info.joinField})`);
+    topologyCounts[info.topology]++;
+    if (info.topology === 'store_component') {
+      storeComponentSheets.push(name);
+    }
+  }
+
+  console.log(`[Topology] Classified ${result.size} sheets: ${topologyCounts.roster} roster, ${topologyCounts.employee_component} employee_component, ${topologyCounts.store_component} store_component`);
+  if (storeComponentSheets.length > 0) {
+    console.log(`[Topology] Store sheets: ${storeComponentSheets.join(', ')}`);
+  }
+  for (const [name, info] of Array.from(result.entries())) {
+    console.log(`[Topology]   - ${name}: ${info.topology} (join by ${info.joinField})`);
   }
 
   return result;
@@ -1247,44 +1260,69 @@ function storeAggregatedData(
       empSheets.set(sheetName, mergeMetrics(existing, resolvedMetrics));
     }
 
-    // Aggregate by store ID + period for store-level sheets
-    if (storeId && storeId.length >= 1) {
+    // HF-017: Aggregate by store ID + period ONLY for store_component sheets
+    // Bug fix: Previously added ANY record with storeId, now uses topology classification
+    if (isStoreLevel && storeId && storeId.length >= 1) {
       if (!storeComponentMetrics.has(storePeriodKey)) {
         storeComponentMetrics.set(storePeriodKey, new Map());
       }
       const storeSheets = storeComponentMetrics.get(storePeriodKey)!;
       const existing = storeSheets.get(sheetName) as MergedMetrics | undefined;
       storeSheets.set(sheetName, mergeMetrics(existing, resolvedMetrics));
+
+      // HF-017: Also index by storeId-only key for period-agnostic lookup
+      // This ensures employees with periods can find store data without periods
+      if (storePeriodKey !== storeId) {
+        if (!storeComponentMetrics.has(storeId)) {
+          storeComponentMetrics.set(storeId, new Map());
+        }
+        const storeOnlySheets = storeComponentMetrics.get(storeId)!;
+        const existingOnly = storeOnlySheets.get(sheetName) as MergedMetrics | undefined;
+        storeOnlySheets.set(sheetName, mergeMetrics(existingOnly, resolvedMetrics));
+      }
     }
   }
 
   console.log(`[DataLayer] Employee componentMetrics: ${empComponentMetrics.size} employees`);
-  console.log(`[DataLayer] Store componentMetrics: ${storeComponentMetrics.size} stores`);
+  console.log(`[DataLayer] Store componentMetrics: ${storeComponentMetrics.size} store keys`);
 
-  // OB-28: Diagnostic logging for store attribution debugging
+  // HF-017: Enhanced store index diagnostic logging
   if (storeComponentMetrics.size > 0) {
-    const sampleStoreKeys = Array.from(storeComponentMetrics.keys()).slice(0, 5);
-    console.log(`[DataLayer] OB-28 Store keys (sample): ${sampleStoreKeys.join(', ')}`);
-    // Log which sheets are in store metrics and their topology
-    const firstStoreEntry = storeComponentMetrics.values().next().value as Map<string, unknown> | undefined;
-    if (firstStoreEntry) {
-      const storeSheetNames = Array.from(firstStoreEntry.keys());
-      console.log(`[DataLayer] OB-28 Store sheets: ${storeSheetNames.join(', ')}`);
-      for (const sn of storeSheetNames) {
-        const topo = sheetTopology.get(sn);
-        console.log(`[DataLayer] OB-28 Sheet "${sn}" topology: ${topo?.topology || 'NOT FOUND'}`);
+    // Collect all unique sheets across all store entries
+    const allStoreSheets = new Set<string>();
+    let totalStoreRecords = 0;
+    for (const [, sheetMap] of Array.from(storeComponentMetrics.entries())) {
+      for (const sheetName of Array.from(sheetMap.keys())) {
+        allStoreSheets.add(sheetName);
+        totalStoreRecords++;
       }
     }
+
+    const sampleStoreKeys = Array.from(storeComponentMetrics.keys()).slice(0, 5);
+    console.log(`[Store Index] Built store index: ${storeComponentMetrics.size} keys, ${totalStoreRecords} records across ${allStoreSheets.size} sheets`);
+    console.log(`[Store Index] Key sample: ${sampleStoreKeys.join(', ')}`);
+    console.log(`[Store Index] Sheets in index: ${Array.from(allStoreSheets).join(', ')}`);
+
+    // Verify all sheets in index are store_component
+    for (const sheetName of Array.from(allStoreSheets)) {
+      const topo = sheetTopology.get(sheetName);
+      if (topo?.topology !== 'store_component') {
+        console.warn(`[Store Index] WARNING: Sheet "${sheetName}" in store index but topology is ${topo?.topology || 'NOT FOUND'}`);
+      }
+    }
+  } else {
+    console.warn(`[Store Index] WARNING: No store component data indexed. Store attribution will fail.`);
   }
 
   // STEP 4: Build aggregated records with componentMetrics (SMART COMPRESSION)
   // Each employee gets: identity fields + componentMetrics (attainment/amount/goal per sheet)
   const aggregated: Record<string, unknown>[] = [];
 
-  // OB-28: Track store attribution for diagnostics
+  // HF-017: Track store attribution for diagnostics
   let storeAttributionAttempts = 0;
   let storeAttributionSuccess = 0;
   let storeAttributionFiltered = 0;
+  let firstStoreLookupLogged = false;
 
   for (const [, emp] of Array.from(employeeMap.entries())) {
     // OB-24 R6: Use normalized empId for consistent Map key lookup
@@ -1338,8 +1376,21 @@ function storeAggregatedData(
     let storeMetrics = storeComponentMetrics.get(storePeriodKey);
 
     // OB-28: Fallback to non-period key if period-aware key not found
+    let usedFallbackKey = false;
     if (!storeMetrics && storePeriodKey !== storeId && storeId) {
       storeMetrics = storeComponentMetrics.get(storeId);
+      usedFallbackKey = !!storeMetrics;
+    }
+
+    // HF-017: Log first store lookup for debugging
+    if (!firstStoreLookupLogged && storeId) {
+      const keyUsed = usedFallbackKey ? storeId : storePeriodKey;
+      const found = !!storeMetrics;
+      console.log(`[Store Join] Sample lookup: employee ${empId} (storeId=${storeId}), key="${keyUsed}", found=${found}`);
+      if (storeMetrics) {
+        console.log(`[Store Join]   Sheets in match: ${Array.from(storeMetrics.keys()).join(', ')}`);
+      }
+      firstStoreLookupLogged = true;
     }
 
     if (storeMetrics) {
@@ -1370,12 +1421,16 @@ function storeAggregatedData(
 
   console.log(`[DataLayer] Final aggregated records: ${aggregated.length}`);
 
-  // OB-28: Log store attribution stats
-  if (storeAttributionAttempts > 0 || storeComponentMetrics.size > 0) {
-    console.log(`[DataLayer] OB-28 Store attribution: ${storeAttributionSuccess} joined, ${storeAttributionFiltered} filtered (topology), ${storeAttributionAttempts} employees with store data`);
-    if (storeAttributionFiltered > 0 && storeAttributionSuccess === 0) {
-      console.warn(`[DataLayer] OB-28 WARNING: All store metrics filtered by topology. Check if sheets are correctly classified as store_component.`);
-    }
+  // HF-017: Enhanced store join logging
+  const employeesWithStoreId = Array.from(employeeMap.values()).filter(e => e.storeId && String(e.storeId).trim()).length;
+  const employeesWithNoStoreMatch = employeesWithStoreId - storeAttributionAttempts;
+  console.log(`[Store Join] Attribution result: ${storeAttributionSuccess} sheets joined to employees`);
+  console.log(`[Store Join] ${storeAttributionAttempts}/${employeesWithStoreId} employees found matching store data`);
+  if (employeesWithNoStoreMatch > 0) {
+    console.warn(`[Store Join] ${employeesWithNoStoreMatch} employees had storeId but no matching store data in index`);
+  }
+  if (storeAttributionFiltered > 0) {
+    console.log(`[Store Join] ${storeAttributionFiltered} sheet entries filtered (non-store_component topology)`);
   }
 
   // STEP 5: Store to localStorage (componentMetrics structure is already compact)
