@@ -40,7 +40,10 @@ import {
   DollarSign,
   Receipt,
   Percent,
+  ChevronRight,
 } from 'lucide-react';
+import Link from 'next/link';
+import { useCurrency } from '@/contexts/tenant-context';
 
 // Types
 type Granularity = 'day' | 'week' | 'month';
@@ -159,6 +162,7 @@ export default function RevenueTimelinePage() {
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [metric, setMetric] = useState<Metric>('revenue');
   const [scope, setScope] = useState<Scope>('all');
+  const { format } = useCurrency();
 
   // Generate data based on selections
   const chartData = useMemo(() => {
@@ -207,6 +211,15 @@ export default function RevenueTimelinePage() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Breadcrumbs */}
+      <nav className="flex items-center text-sm text-muted-foreground">
+        <Link href="/" className="hover:text-foreground">Home</Link>
+        <ChevronRight className="h-4 w-4 mx-1" />
+        <Link href="/financial" className="hover:text-foreground">Financial</Link>
+        <ChevronRight className="h-4 w-4 mx-1" />
+        <span className="text-foreground font-medium">Timeline</span>
+      </nav>
+
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Revenue Timeline</h1>
@@ -403,10 +416,10 @@ export default function RevenueTimelinePage() {
                 {(scope === 'all' ? chartData : generateDailyData()).map((row, i) => (
                   <tr key={i} className="border-b last:border-0">
                     <td className="py-2 font-medium">{(row as DataPoint).label}</td>
-                    <td className="py-2 text-right">${((row as DataPoint).revenue).toLocaleString()}</td>
+                    <td className="py-2 text-right">{format((row as DataPoint).revenue)}</td>
                     <td className="py-2 text-right">{(row as DataPoint).checks}</td>
-                    <td className="py-2 text-right">${(row as DataPoint).avgCheck.toFixed(2)}</td>
-                    <td className="py-2 text-right">${(row as DataPoint).tips.toLocaleString()}</td>
+                    <td className="py-2 text-right">{format((row as DataPoint).avgCheck)}</td>
+                    <td className="py-2 text-right">{format((row as DataPoint).tips)}</td>
                   </tr>
                 ))}
               </tbody>

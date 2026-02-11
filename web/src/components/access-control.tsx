@@ -6,6 +6,7 @@ import { Shield, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
 
 type UserRole = 'sales_rep' | 'supervisor' | 'manager' | 'admin' | 'vl_admin';
 
@@ -15,14 +16,6 @@ interface AccessControlProps {
   fallbackMessage?: string;
 }
 
-// Mock function to get current user role
-// In production, this would come from auth context
-function getCurrentUserRole(): UserRole {
-  if (typeof window === 'undefined') return 'sales_rep';
-  const storedRole = localStorage.getItem('vialuce_user_role');
-  return (storedRole as UserRole) || 'manager'; // Default to manager for demo
-}
-
 export function AccessControl({
   children,
   allowedRoles,
@@ -30,9 +23,11 @@ export function AccessControl({
 }: AccessControlProps) {
   const router = useRouter();
   const { currentTenant } = useTenant();
+  const { user } = useAuth();
   const isSpanish = currentTenant?.locale === 'es-MX';
 
-  const currentRole = getCurrentUserRole();
+  // Get role from auth context (no direct localStorage access)
+  const currentRole = (user?.role as UserRole) || 'sales_rep';
   const hasAccess = allowedRoles.includes(currentRole) || currentRole === 'vl_admin';
 
   if (!hasAccess) {
@@ -71,7 +66,8 @@ export function AccessControl({
 
 // Hook to check access programmatically
 export function useAccessControl() {
-  const currentRole = getCurrentUserRole();
+  const { user } = useAuth();
+  const currentRole = (user?.role as UserRole) || 'sales_rep';
 
   return {
     currentRole,

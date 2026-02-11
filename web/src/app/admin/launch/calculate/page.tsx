@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { isCCAdmin } from '@/types/auth';
@@ -406,6 +407,15 @@ export default function CalculatePage() {
 
   return (
     <div className="space-y-6 p-6">
+      {/* Breadcrumb */}
+      <nav className="flex items-center text-sm text-muted-foreground">
+        <Link href="/" className="hover:text-foreground">Home</Link>
+        <ChevronRight className="h-4 w-4 mx-1" />
+        <Link href="/admin/launch" className="hover:text-foreground">Launch</Link>
+        <ChevronRight className="h-4 w-4 mx-1" />
+        <span className="text-foreground font-medium">{t.title}</span>
+      </nav>
+
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.push('/admin/launch')}>
@@ -643,6 +653,7 @@ export default function CalculatePage() {
                     <TableHead>{t.store}</TableHead>
                     <TableHead className="text-right">{t.payout}</TableHead>
                     <TableHead>{t.components}</TableHead>
+                    <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -691,10 +702,20 @@ export default function CalculatePage() {
                           <TableCell>
                             {employeeResult.components.length} {t.components.toLowerCase()}
                           </TableCell>
+                          <TableCell>
+                            <Link
+                              href={`/transactions/disputes?employeeId=${employeeResult.employeeId}&employeeName=${encodeURIComponent(employeeResult.employeeName)}`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Button variant="outline" size="sm" className="text-xs">
+                                Dispute
+                              </Button>
+                            </Link>
+                          </TableCell>
                         </TableRow>
                         <CollapsibleContent asChild>
                           <TableRow className="bg-slate-50 dark:bg-slate-800/30">
-                            <TableCell colSpan={6} className="p-0">
+                            <TableCell colSpan={7} className="p-0">
                               <div className="p-4 border-l-4 border-blue-500">
                                 <h4 className="font-medium mb-3 flex items-center gap-2">
                                   <Info className="h-4 w-4" />

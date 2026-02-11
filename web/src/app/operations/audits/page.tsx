@@ -43,6 +43,8 @@ import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isCCAdmin } from '@/types/auth';
 import { AccessControl, MANAGER_ROLES } from '@/components/access-control';
+import { audit } from '@/lib/audit-service';
+import { AuditLogEntry, AuditChange } from '@/types/audit';
 
 interface FieldChange {
   field: string;
@@ -218,6 +220,32 @@ export default function AuditsPage() {
   );
 }
 
+// Transform AuditLogEntry to ChangeAudit display format
+function transformAuditEntry(entry: AuditLogEntry): ChangeAudit {
+  const formatValue = (val: unknown): string => {
+    if (val === null || val === undefined) return '-';
+    if (typeof val === 'object') return JSON.stringify(val);
+    return String(val);
+  };
+
+  return {
+    id: entry.id,
+    date: entry.timestamp.replace('T', ' ').slice(0, 19),
+    user: entry.userName || entry.userId || 'System',
+    action: (['create', 'update', 'delete'].includes(entry.action) ? entry.action : 'update') as 'create' | 'update' | 'delete',
+    entity: entry.entityType.charAt(0).toUpperCase() + entry.entityType.slice(1),
+    entityId: entry.entityId || '-',
+    entityName: entry.entityName || entry.entityId || '-',
+    changes: entry.changes?.map((c: AuditChange) => ({
+      field: c.field,
+      oldValue: formatValue(c.oldValue),
+      newValue: formatValue(c.newValue),
+    })) || [],
+    region: (entry.metadata?.region as string) || 'System',
+    salesChannel: (entry.metadata?.channel as string) || 'All',
+  };
+}
+
 function AuditsPageContent() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
@@ -225,7 +253,18 @@ function AuditsPageContent() {
   const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
-  const audits = isHospitality ? mockChangeAudits : techCorpChangeAudits;
+  // Get real audit logs first, fallback to mock data if empty
+  const realAuditLogs = useMemo(() => {
+    try {
+      const logs = audit.getAuditLogs({ limit: 100 });
+      return logs.map(transformAuditEntry);
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const mockAudits = isHospitality ? mockChangeAudits : techCorpChangeAudits;
+  const audits = realAuditLogs.length > 0 ? realAuditLogs : mockAudits;
 
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');

@@ -45,7 +45,10 @@ import {
   MapPin,
   ShieldAlert,
   CheckCircle,
+  ChevronRight,
 } from 'lucide-react';
+import Link from 'next/link';
+import { useCurrency } from '@/contexts/tenant-context';
 
 // Types
 interface LeakageCategory {
@@ -181,8 +184,19 @@ export default function LeakageMonitorPage() {
     value: c.amount,
   }));
 
+  const { format } = useCurrency();
+
   return (
     <div className="p-6 space-y-6">
+      {/* Breadcrumbs */}
+      <nav className="flex items-center text-sm text-muted-foreground">
+        <Link href="/" className="hover:text-foreground">Home</Link>
+        <ChevronRight className="h-4 w-4 mx-1" />
+        <Link href="/financial" className="hover:text-foreground">Financial</Link>
+        <ChevronRight className="h-4 w-4 mx-1" />
+        <span className="text-foreground font-medium">Leakage</span>
+      </nav>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -213,7 +227,7 @@ export default function LeakageMonitorPage() {
               <div>
                 <p className="text-sm text-gray-600">Total Leakage</p>
                 <p className="text-2xl font-bold text-red-600">
-                  ${stats.totalLeakage.toLocaleString()}
+                  {format(stats.totalLeakage)}
                 </p>
               </div>
             </div>
@@ -300,7 +314,7 @@ export default function LeakageMonitorPage() {
                         <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number) => [`$${value.toLocaleString()}`, 'Amount']} />
+                    <Tooltip formatter={(value: number) => [format(value), 'Amount']} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -315,7 +329,7 @@ export default function LeakageMonitorPage() {
                       <span className="text-sm">{cat.category}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">${cat.amount.toLocaleString()}</span>
+                      <span className="text-sm font-medium">{format(cat.amount)}</span>
                       <span className={`text-xs ${cat.trend <= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         {cat.trend <= 0 ? '' : '+'}{cat.trend.toFixed(1)}%
                       </span>
@@ -338,9 +352,9 @@ export default function LeakageMonitorPage() {
                 <BarChart data={trendData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="period" stroke="#6b7280" />
-                  <YAxis stroke="#6b7280" tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`} />
+                  <YAxis stroke="#6b7280" tickFormatter={(v) => format(v)} />
                   <Tooltip
-                    formatter={(value: number) => [`$${value.toLocaleString()}`, 'Leakage']}
+                    formatter={(value: number) => [format(value), 'Leakage']}
                     contentStyle={{
                       backgroundColor: 'white',
                       border: '1px solid #e5e7eb',
@@ -388,7 +402,7 @@ export default function LeakageMonitorPage() {
                       {/* Leakage Amount */}
                       <div className="text-right">
                         <div className="text-sm text-gray-500">Amount</div>
-                        <div className="font-medium">${loc.leakageAmount.toLocaleString()}</div>
+                        <div className="font-medium">{format(loc.leakageAmount)}</div>
                       </div>
 
                       {/* Rate vs Threshold */}

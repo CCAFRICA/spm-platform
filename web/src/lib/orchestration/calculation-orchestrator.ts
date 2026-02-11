@@ -9,6 +9,7 @@
 import type { CalculationResult } from '@/types/compensation-plan';
 import { calculateIncentive, type EmployeeMetrics } from '@/lib/compensation/calculation-engine';
 import { getPlans } from '@/lib/compensation/plan-storage';
+import { audit } from '@/lib/audit-service';
 import {
   buildCalculationContext,
   buildEmployeeMetrics,
@@ -240,6 +241,22 @@ export class CalculationOrchestrator {
       if (!config.options?.dryRun) {
         this.saveResults(results, run.id);
       }
+
+      // Log audit event for calculation completion
+      audit.log({
+        action: 'create',
+        entityType: 'payment',
+        entityId: run.id,
+        entityName: `Calculation Run ${run.runType}`,
+        metadata: {
+          tenantId: config.tenantId,
+          periodId: config.periodId,
+          runType: run.runType,
+          employeeCount: run.processedEmployees,
+          totalCompensation: run.totalPayout,
+          errorCount: run.errorCount,
+        },
+      });
 
       // Build summary
       const summary = this.buildSummary(results);
