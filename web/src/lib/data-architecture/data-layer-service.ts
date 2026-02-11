@@ -383,12 +383,18 @@ function storeAggregatedData(
   // OB-24 R4: Simplified to use ONLY the AI's semantic types (not column names)
   // AI outputs exactly: employeeId|storeId|date|period|amount|goal|attainment|quantity|role
   const getSheetFieldBySemantic = (sheetName: string, semanticType: string): string | null => {
-    // OB-24 R5 DIAGNOSTIC: Prove the function is being called and what structure sheets has
-    console.log('[SEMANTIC] Looking up', sheetName, semanticType, 'in',
-      Array.isArray(aiContext?.sheets) ? 'ARRAY' : typeof aiContext?.sheets,
-      'with', aiContext?.sheets?.length || Object.keys(aiContext?.sheets || {}).length, 'entries');
-
     if (!aiContext?.sheets) return null;
+
+    // OB-24 R6 DIAGNOSTIC: Log sheet name comparison (once per sheet)
+    const w = window as unknown as { _sheetMatchLogged?: Set<string> };
+    if (!w._sheetMatchLogged) w._sheetMatchLogged = new Set();
+    if (!w._sheetMatchLogged.has(sheetName)) {
+      const ctxNames = Array.isArray(aiContext.sheets)
+        ? aiContext.sheets.map(s => (s as { sheetName?: string; name?: string }).sheetName || (s as { sheetName?: string; name?: string }).name)
+        : Object.keys(aiContext.sheets);
+      console.log('[SHEET-MATCH]', JSON.stringify(sheetName), 'vs context:', JSON.stringify(ctxNames));
+      w._sheetMatchLogged.add(sheetName);
+    }
 
     // OB-24 R5: Handle BOTH array and object formats for sheets
     let sheetInfo: { sheetName?: string; fieldMappings?: Array<{ sourceColumn: string; semanticType: string }> } | undefined;
@@ -413,8 +419,6 @@ function storeAggregatedData(
       }
     }
 
-    console.log('[SEMANTIC] Found sheet?', !!sheetInfo, 'fieldMappings count:', sheetInfo?.fieldMappings?.length || 0);
-
     if (!sheetInfo?.fieldMappings || sheetInfo.fieldMappings.length === 0) return null;
 
     // Find mapping by exact semantic type match (case-insensitive)
@@ -422,9 +426,7 @@ function storeAggregatedData(
       fm => fm.semanticType?.toLowerCase() === semanticType.toLowerCase()
     );
 
-    const result = mapping?.sourceColumn || null;
-    console.log('[SEMANTIC] Result for', semanticType, ':', result);
-    return result;
+    return mapping?.sourceColumn || null;
   };
 
   // AI-DRIVEN: Helper to check if sheet joins by storeId (vs employeeId)
@@ -460,6 +462,20 @@ function storeAggregatedData(
     );
     return hasStoreId && !hasEmployeeId;
   };
+
+  // OB-24 R6: Normalize employee ID for consistent Map keys
+  // Handles: leading zeros, decimal notation (96568046.0), whitespace
+  const normalizeEmpId = (id: string): string => {
+    const trimmed = id.trim();
+    // If it looks like a number (possibly with decimal), parse and re-stringify
+    const num = parseFloat(trimmed);
+    if (!isNaN(num) && isFinite(num)) {
+      return String(Math.floor(num)); // Remove decimal part
+    }
+    return trimmed;
+  };
+
+  const loggedSheets = new Set<string>();
 
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
@@ -505,6 +521,11 @@ function storeAggregatedData(
       /meta/i, /cuota/i, /goal/i, /target/i, /objetivo/i, /presupuesto/i
     ]);
 
+    if (!loggedSheets.has(sheetName)) {
+      console.log('[AGG-FIELDS]', sheetName, 'empId=', effectiveEmpIdField, 'storeId=', effectiveStoreIdField, 'attainment=', effectiveAttainmentField, 'amount=', effectiveAmountField);
+      loggedSheets.add(sheetName);
+    }
+
     // Skip sheet if no ID field found (even with fallback)
     if (!effectiveEmpIdField && !effectiveStoreIdField) {
       console.warn(`[DataLayer] Sheet "${sheetName}" has no ID field - skipping`);
@@ -512,7 +533,8 @@ function storeAggregatedData(
     }
 
     // Extract IDs using effective field names (AI-mapped or pattern-matched)
-    const empId = effectiveEmpIdField ? String(content[effectiveEmpIdField] || '').trim() : '';
+    // OB-24 R6: Normalize empId for consistent Map key matching
+    const empId = effectiveEmpIdField ? normalizeEmpId(String(content[effectiveEmpIdField] || '')) : '';
     const storeId = effectiveStoreIdField ? String(content[effectiveStoreIdField] || '').trim() : '';
 
     // Extract metrics using effective field names
@@ -599,7 +621,8 @@ function storeAggregatedData(
   const aggregated: Record<string, unknown>[] = [];
 
   for (const [, emp] of Array.from(employeeMap.entries())) {
-    const empId = String(emp.employeeId);
+    // OB-24 R6: Use normalized empId for consistent Map key lookup
+    const empId = normalizeEmpId(String(emp.employeeId));
     const storeId = String(emp.storeId || '');
 
     // Start with identity fields only

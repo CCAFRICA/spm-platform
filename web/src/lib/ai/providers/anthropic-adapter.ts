@@ -241,8 +241,22 @@ RELATIONSHIP DETECTION:
 
 FIELD MAPPING (CRITICAL - for each sheet's columns, suggest target field mappings):
 Target fields: employeeId, storeId, date, period, amount, goal, attainment, quantity, role
+
+SEMANTIC TYPE DEFINITIONS:
+- employeeId: Unique identifier for an employee (num_empleado, id_empleado, employee_id, Mitarbeiter-Nr, etc.)
+- storeId: Store/location identifier (no_tienda, tienda, store_id, Filiale, etc.)
+- date: Date column (fecha, date, Datum, etc.)
+- period: Time period identifier (mes, periodo, month, quarter, etc.)
+- amount: Actual measured value - sales revenue, counts, quantities achieved (monto, venta, real, actual, revenue, sales, Umsatz, etc.)
+- goal: Target/quota value - what was expected to be achieved (meta, cuota, objetivo, target, quota, Ziel, etc.)
+- attainment: Percentage or ratio indicating achievement/completion against a goal. This is typically calculated as actual/goal and shown as a percentage (0-200%) or decimal (0-2.0). Common column names: cumplimiento, porcentaje, logro, %, achievement, attainment, completion, Zielerreichung, taux de realisation. Look for columns with percentage values or decimal values between 0-2.
+- quantity: Count-based actual value, similar to amount but for discrete counts (cantidad, count, qty, clientes, customers, units, etc.)
+- role: Job title or position (puesto, cargo, posicion, role, position, Stelle, etc.)
+
+IMPORTANT PATTERNS:
+- If a sheet has amount and goal columns, look for a corresponding attainment column (the percentage/ratio)
+- Columns with "%" in the name or values between 0-200 (as percentage) or 0-2.0 (as decimal) are likely attainment
 - Map EVERY column to the most appropriate target field
-- Spanish terms: num_empleado/id_empleado -> employeeId, no_tienda/tienda -> storeId, fecha -> date, monto/venta -> amount, meta/cuota -> goal, puesto/cargo -> role
 - For ambiguous columns, use context from the sheet classification and sample data
 - Confidence should be 85-100 for clear matches, 70-84 for likely matches, below 70 for uncertain
 
