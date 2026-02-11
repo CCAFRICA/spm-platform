@@ -745,6 +745,28 @@ function storeAggregatedData(
     return '';
   };
 
+  // OB-28: Helper to find field value with multilingual pattern fallback for roster fields
+  const getFieldValueWithFallback = (row: Record<string, unknown>, semanticTypes: string[], fallbackPatterns: RegExp[]): string => {
+    // AI semantic mapping first
+    const aiValue = findFieldBySemantic(row, semanticTypes);
+    if (aiValue !== undefined && aiValue !== null && String(aiValue).trim()) {
+      return String(aiValue).trim();
+    }
+    // Multilingual pattern fallback (consistent with component sheet ID extraction)
+    for (const key of Object.keys(row)) {
+      if (key.startsWith('_')) continue;
+      for (const pattern of fallbackPatterns) {
+        if (pattern.test(key)) {
+          const value = row[key];
+          if (value !== undefined && value !== null && String(value).trim()) {
+            return String(value).trim();
+          }
+        }
+      }
+    }
+    return '';
+  };
+
   // OB-24 R9: Get all period and date fields from roster for period resolution
   const rosterPeriodFields = getAllFieldsForSemantic(rosterSheetInfo, 'period');
   const rosterDateFields = getAllFieldsForSemantic(rosterSheetInfo, 'date');
@@ -766,7 +788,10 @@ function storeAggregatedData(
         // AI-DRIVEN: Extract identity fields using ONLY AI semantic mappings
         name: getFieldValue(row, ['name', 'employeeName', 'fullName']),
         role: getFieldValue(row, ['role', 'position', 'employeeType', 'jobTitle']),
-        storeId: getFieldValue(row, ['storeId', 'locationId', 'store']),
+        // OB-28: Use fallback patterns for storeId (consistent with component sheet extraction)
+        storeId: getFieldValueWithFallback(row, ['storeId', 'locationId', 'store'], [
+          /tienda/i, /store/i, /sucursal/i, /location/i, /ubicacion/i
+        ]),
         storeRange: getFieldValue(row, ['storeRange', 'category', 'storeCategory']),
         // OB-24 R9: Store resolved period as numbers for consistent type handling
         month: resolvedPeriod.month,
@@ -778,6 +803,17 @@ function storeAggregatedData(
   }
 
   console.log(`[DataLayer] Unique employee records from roster: ${employeeMap.size}`);
+
+  // OB-28: Diagnostic logging for roster storeId extraction
+  if (employeeMap.size > 0) {
+    const sampleEmps = Array.from(employeeMap.values()).slice(0, 3);
+    const storeIdCount = Array.from(employeeMap.values()).filter(e => e.storeId && String(e.storeId).trim()).length;
+    console.log(`[DataLayer] OB-28 Roster storeId: ${storeIdCount}/${employeeMap.size} employees have storeId`);
+    if (storeIdCount < employeeMap.size / 2) {
+      console.warn(`[DataLayer] OB-28 WARNING: Less than half of employees have storeId. Store attribution may fail.`);
+      console.log(`[DataLayer] OB-28 Sample employees: ${sampleEmps.map(e => `${e.employeeId}:storeId="${e.storeId || 'EMPTY'}"`).join(', ')}`);
+    }
+  }
 
   // AI-DRIVEN: If no roster records found, warn user - NO HARDCODED FALLBACKS
   if (employeeMap.size === 0) {
@@ -892,6 +928,18 @@ function storeAggregatedData(
   // OB-24 R6: Normalize employee ID for consistent Map keys
   // Handles: leading zeros, decimal notation (96568046.0), whitespace
   const normalizeEmpId = (id: string): string => {
+    const trimmed = id.trim();
+    // If it looks like a number (possibly with decimal), parse and re-stringify
+    const num = parseFloat(trimmed);
+    if (!isNaN(num) && isFinite(num)) {
+      return String(Math.floor(num)); // Remove decimal part
+    }
+    return trimmed;
+  };
+
+  // OB-28: Normalize store ID for consistent Map keys
+  // Handles: decimal notation (123.0), whitespace, common prefixes
+  const normalizeStoreId = (id: string): string => {
     const trimmed = id.trim();
     // If it looks like a number (possibly with decimal), parse and re-stringify
     const num = parseFloat(trimmed);
@@ -1143,8 +1191,9 @@ function storeAggregatedData(
     };
 
     // ID fields: AI mapping first, then structural pattern fallback
+    // OB-28: Added vendedor pattern for alternate employee ID fields (common in Spanish retail)
     const effectiveEmpIdField = empIdField || findIdFieldByPattern([
-      /llave/i, /clave/i, /id.*emp/i, /num.*emp/i, /empleado/i
+      /llave/i, /clave/i, /id.*emp/i, /num.*emp/i, /empleado/i, /vendedor/i
     ]);
     const effectiveStoreIdField = storeIdField || findIdFieldByPattern([
       /tienda/i, /store/i, /sucursal/i
@@ -1157,8 +1206,9 @@ function storeAggregatedData(
     }
 
     // Extract IDs using safeFieldLookup for Unicode safety
+    // OB-28: Use normalizeStoreId for consistent storeId matching
     const empId = effectiveEmpIdField ? normalizeEmpId(String(safeFieldLookup(content, effectiveEmpIdField) || '')) : '';
-    const storeId = effectiveStoreIdField ? String(safeFieldLookup(content, effectiveStoreIdField) || '').trim() : '';
+    const storeId = effectiveStoreIdField ? normalizeStoreId(String(safeFieldLookup(content, effectiveStoreIdField) || '')) : '';
 
     // OB-24 R9: Use resolvePeriodFromRecord for multi-field period extraction
     const componentPeriod = resolvePeriodFromRecord(content, componentPeriodFields, componentDateFields);
@@ -1211,14 +1261,36 @@ function storeAggregatedData(
   console.log(`[DataLayer] Employee componentMetrics: ${empComponentMetrics.size} employees`);
   console.log(`[DataLayer] Store componentMetrics: ${storeComponentMetrics.size} stores`);
 
+  // OB-28: Diagnostic logging for store attribution debugging
+  if (storeComponentMetrics.size > 0) {
+    const sampleStoreKeys = Array.from(storeComponentMetrics.keys()).slice(0, 5);
+    console.log(`[DataLayer] OB-28 Store keys (sample): ${sampleStoreKeys.join(', ')}`);
+    // Log which sheets are in store metrics and their topology
+    const firstStoreEntry = storeComponentMetrics.values().next().value as Map<string, unknown> | undefined;
+    if (firstStoreEntry) {
+      const storeSheetNames = Array.from(firstStoreEntry.keys());
+      console.log(`[DataLayer] OB-28 Store sheets: ${storeSheetNames.join(', ')}`);
+      for (const sn of storeSheetNames) {
+        const topo = sheetTopology.get(sn);
+        console.log(`[DataLayer] OB-28 Sheet "${sn}" topology: ${topo?.topology || 'NOT FOUND'}`);
+      }
+    }
+  }
+
   // STEP 4: Build aggregated records with componentMetrics (SMART COMPRESSION)
   // Each employee gets: identity fields + componentMetrics (attainment/amount/goal per sheet)
   const aggregated: Record<string, unknown>[] = [];
 
+  // OB-28: Track store attribution for diagnostics
+  let storeAttributionAttempts = 0;
+  let storeAttributionSuccess = 0;
+  let storeAttributionFiltered = 0;
+
   for (const [, emp] of Array.from(employeeMap.entries())) {
     // OB-24 R6: Use normalized empId for consistent Map key lookup
+    // OB-28: Use normalized storeId for consistent store attribution
     const empId = normalizeEmpId(String(emp.employeeId));
-    const storeId = String(emp.storeId || '');
+    const storeId = normalizeStoreId(String(emp.storeId || ''));
     const month = String(emp.month || '');
     const year = String(emp.year || '');
 
@@ -1262,14 +1334,28 @@ function storeAggregatedData(
     // OB-24 R9: Add store-level component metrics ONLY for sheets classified as store_component
     // This is topology-aware: only join store data to employee if the sheet is store-level
     // Use period-aware key for proper period isolation
-    const storeMetrics = storeComponentMetrics.get(storePeriodKey);
+    // OB-28: Added fallback to non-period key for period-less store attribution
+    let storeMetrics = storeComponentMetrics.get(storePeriodKey);
+
+    // OB-28: Fallback to non-period key if period-aware key not found
+    if (!storeMetrics && storePeriodKey !== storeId && storeId) {
+      storeMetrics = storeComponentMetrics.get(storeId);
+    }
+
     if (storeMetrics) {
+      storeAttributionAttempts++;
       for (const [sheetName, metrics] of Array.from(storeMetrics.entries())) {
         const topology = sheetTopology.get(sheetName);
         // Only add store metrics if sheet is classified as store_component
         // AND not already present from employee-level
         if (topology?.topology === 'store_component' && !componentMetrics[sheetName]) {
           componentMetrics[sheetName] = { ...metrics };
+          storeAttributionSuccess++;
+        } else if (componentMetrics[sheetName]) {
+          // Already present from employee-level - expected
+        } else {
+          // Filtered due to topology
+          storeAttributionFiltered++;
         }
       }
     }
@@ -1283,6 +1369,14 @@ function storeAggregatedData(
   }
 
   console.log(`[DataLayer] Final aggregated records: ${aggregated.length}`);
+
+  // OB-28: Log store attribution stats
+  if (storeAttributionAttempts > 0 || storeComponentMetrics.size > 0) {
+    console.log(`[DataLayer] OB-28 Store attribution: ${storeAttributionSuccess} joined, ${storeAttributionFiltered} filtered (topology), ${storeAttributionAttempts} employees with store data`);
+    if (storeAttributionFiltered > 0 && storeAttributionSuccess === 0) {
+      console.warn(`[DataLayer] OB-28 WARNING: All store metrics filtered by topology. Check if sheets are correctly classified as store_component.`);
+    }
+  }
 
   // STEP 5: Store to localStorage (componentMetrics structure is already compact)
   const serialized = JSON.stringify(aggregated);
