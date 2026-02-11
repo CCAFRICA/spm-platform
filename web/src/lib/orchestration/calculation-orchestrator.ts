@@ -710,10 +710,17 @@ export class CalculationOrchestrator {
         // when amounts and goals are summed across stores. Use source attainment only.
         const enrichedMetrics: SheetMetrics = { ...sheetMetrics };
 
-        // Normalize: if < 5, assume decimal ratio and multiply by 100
-        if (enrichedMetrics.attainment !== undefined &&
-            enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
-          enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
+        // OB-29: ZERO-GOAL GUARD (Universal Rule) — also applies to OB-24 path
+        // If goal is zero/null/undefined, the metric is "not measured" — clear any attainment
+        const goalVal = enrichedMetrics.goal;
+        if (goalVal === undefined || goalVal === null || goalVal === 0) {
+          enrichedMetrics.attainment = undefined;
+        } else {
+          // Normalize: if < 5, assume decimal ratio and multiply by 100
+          if (enrichedMetrics.attainment !== undefined &&
+              enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
+            enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
+          }
         }
 
         // 3. Build metrics using plan's own metric names
@@ -772,6 +779,7 @@ export class CalculationOrchestrator {
         // 1. Use AI-mapped attainment if available
         // 2. Fall back to _candidateAttainment (detected by field name pattern)
         // 3. Fall back to computed from amount/goal
+        // OB-29: ZERO-GOAL GUARD — If goal is 0/null/undefined, this metric is "not measured"
         const sheetDataAny = sheetData as Record<string, unknown>;
         const enrichedMetrics: SheetMetrics = {
           attainment: sheetData.attainment,
@@ -779,29 +787,44 @@ export class CalculationOrchestrator {
           goal: sheetData.goal,
         };
 
-        // OB-27B: Use candidate attainment if primary is missing
-        if (enrichedMetrics.attainment === undefined && sheetDataAny._candidateAttainment !== undefined) {
-          enrichedMetrics.attainment = sheetDataAny._candidateAttainment as number;
-          if (isFirstEmployee) {
-            console.log(`[Orchestrator] OB-27B: ${sheetName} using _candidateAttainment = ${enrichedMetrics.attainment}`);
-          }
-        }
+        // OB-29: ZERO-GOAL GUARD (Universal Rule)
+        // If goal is zero, null, or undefined, the metric is "not measured" for this employee.
+        // Set attainment to undefined regardless of source value — this causes $0 payout.
+        // This is a UNIVERSAL rule: any comp engine must treat zero-goal as "not measured."
+        const goalValue = enrichedMetrics.goal;
+        const isZeroGoal = goalValue === undefined || goalValue === null || goalValue === 0;
 
-        // OB-27B: Compute attainment from amount/goal if still missing
-        if (enrichedMetrics.attainment === undefined &&
-            enrichedMetrics.amount !== undefined &&
-            enrichedMetrics.goal !== undefined &&
-            enrichedMetrics.goal > 0) {
-          enrichedMetrics.attainment = (enrichedMetrics.amount / enrichedMetrics.goal) * 100;
+        if (isZeroGoal) {
+          // Zero goal = not measured. Clear any source attainment that might be infinity or garbage.
+          enrichedMetrics.attainment = undefined;
           if (isFirstEmployee) {
-            console.log(`[Orchestrator] OB-27B: ${sheetName} computed attainment = ${enrichedMetrics.attainment.toFixed(1)}%`);
+            console.log(`[Orchestrator] OB-29: ${sheetName} zero-goal detected (goal=${goalValue}) — metric not measured`);
           }
-        }
+        } else {
+          // OB-27B: Use candidate attainment if primary is missing
+          if (enrichedMetrics.attainment === undefined && sheetDataAny._candidateAttainment !== undefined) {
+            enrichedMetrics.attainment = sheetDataAny._candidateAttainment as number;
+            if (isFirstEmployee) {
+              console.log(`[Orchestrator] OB-27B: ${sheetName} using _candidateAttainment = ${enrichedMetrics.attainment}`);
+            }
+          }
 
-        // Normalize: if < 5, assume decimal ratio and multiply by 100
-        if (enrichedMetrics.attainment !== undefined &&
-            enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
-          enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
+          // OB-27B: Compute attainment from amount/goal if still missing
+          if (enrichedMetrics.attainment === undefined &&
+              enrichedMetrics.amount !== undefined &&
+              enrichedMetrics.goal !== undefined &&
+              enrichedMetrics.goal > 0) {
+            enrichedMetrics.attainment = (enrichedMetrics.amount / enrichedMetrics.goal) * 100;
+            if (isFirstEmployee) {
+              console.log(`[Orchestrator] OB-27B: ${sheetName} computed attainment = ${enrichedMetrics.attainment.toFixed(1)}%`);
+            }
+          }
+
+          // Normalize: if < 5, assume decimal ratio and multiply by 100
+          if (enrichedMetrics.attainment !== undefined &&
+              enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
+            enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
+          }
         }
 
         // Build metrics using plan's own metric names via semantic type inference
