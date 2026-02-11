@@ -13,7 +13,7 @@
  * NO HARDCODED VALUES - Uses AI semantic mappings throughout
  */
 
-import type { CompensationPlanConfig, CalculationResult } from '@/types/compensation-plan';
+import type { CompensationPlanConfig, CalculationResult, PlanComponent, Band, Tier } from '@/types/compensation-plan';
 import { loadAggregatedData, loadImportContext } from '@/lib/data-architecture/data-layer-service';
 import { getPlans } from '@/lib/compensation/plan-storage';
 import { findSheetForComponent, inferSemanticType } from '@/lib/orchestration/metric-resolver';
@@ -378,15 +378,7 @@ function traceVariantSelection(
 }
 
 function traceComponentCalculation(
-  component: {
-    id: string;
-    name: string;
-    componentType: string;
-    matrixConfig?: { rowMetric: string; columnMetric: string };
-    tierConfig?: { metric: string };
-    percentageConfig?: { appliedTo: string; rate: number };
-    conditionalConfig?: { appliedTo: string; conditions?: Array<{ metric: string }> };
-  },
+  component: PlanComponent,
   componentMetrics: Record<string, Record<string, unknown>>,
   aiContextSheets: Array<{ sheetName: string; matchedComponent: string | null }>,
   globalWarnings: string[]
@@ -463,7 +455,7 @@ function traceComponentCalculation(
     }
   }
 
-  // Build calculation formula
+  // Build calculation formula and compute output value
   let calculationFormula = '';
   let outputValue = 0;
   let lookupDetails: Record<string, unknown> | null = null;
@@ -471,33 +463,98 @@ function traceComponentCalculation(
   switch (component.componentType) {
     case 'matrix_lookup':
       if (component.matrixConfig) {
-        const row = extractedMetrics[component.matrixConfig.rowMetric] || 0;
-        const col = extractedMetrics[component.matrixConfig.columnMetric] || 0;
-        calculationFormula = `Matrix[${row.toFixed(1)}%, $${col.toLocaleString()}] → lookup`;
-        lookupDetails = { rowMetric: component.matrixConfig.rowMetric, rowValue: row, columnMetric: component.matrixConfig.columnMetric, columnValue: col };
+        const config = component.matrixConfig;
+        const rowValue = extractedMetrics[config.rowMetric] || 0;
+        const colValue = extractedMetrics[config.columnMetric] || 0;
+
+        // Perform actual matrix lookup
+        const rowBand = findBandForValue(config.rowBands, rowValue);
+        const colBand = findBandForValue(config.columnBands, colValue);
+        const rowIndex = config.rowBands.indexOf(rowBand);
+        const colIndex = config.columnBands.indexOf(colBand);
+        outputValue = config.values?.[rowIndex]?.[colIndex] ?? 0;
+
+        calculationFormula = `${config.rowMetricLabel || config.rowMetric}: ${rowValue.toFixed(1)}% (${rowBand.label}) × ${config.columnMetricLabel || config.columnMetric}: $${colValue.toLocaleString()} (${colBand.label}) = $${outputValue.toLocaleString()}`;
+        lookupDetails = {
+          rowMetric: config.rowMetric,
+          rowValue,
+          rowBand: rowBand.label,
+          rowIndex,
+          columnMetric: config.columnMetric,
+          columnValue: colValue,
+          colBand: colBand.label,
+          colIndex,
+          lookupValue: outputValue,
+        };
       }
       break;
+
     case 'tier_lookup':
       if (component.tierConfig) {
-        const val = extractedMetrics[component.tierConfig.metric] || 0;
-        calculationFormula = `Tier[${val.toFixed(1)}%] → lookup`;
-        lookupDetails = { metric: component.tierConfig.metric, value: val };
+        const config = component.tierConfig;
+        const value = extractedMetrics[config.metric] || 0;
+
+        // Perform actual tier lookup
+        const tier = findTierForValue(config.tiers, value);
+        outputValue = tier.value;
+
+        calculationFormula = `${config.metricLabel || config.metric}: ${value.toFixed(1)}% → ${tier.label} = $${outputValue.toLocaleString()}`;
+        lookupDetails = {
+          metric: config.metric,
+          value,
+          tierLabel: tier.label,
+          tierMin: tier.min,
+          tierMax: tier.max,
+          lookupValue: outputValue,
+        };
       }
       break;
+
     case 'percentage':
       if (component.percentageConfig) {
-        const base = extractedMetrics[component.percentageConfig.appliedTo] || 0;
-        outputValue = base * component.percentageConfig.rate;
-        calculationFormula = `$${base.toLocaleString()} × ${(component.percentageConfig.rate * 100).toFixed(1)}% = $${outputValue.toLocaleString()}`;
+        const config = component.percentageConfig;
+        const base = extractedMetrics[config.appliedTo] || 0;
+        outputValue = base * config.rate;
+        calculationFormula = `$${base.toLocaleString()} × ${(config.rate * 100).toFixed(1)}% = $${outputValue.toLocaleString()}`;
+        lookupDetails = {
+          appliedTo: config.appliedTo,
+          baseValue: base,
+          rate: config.rate,
+        };
       }
       break;
+
     case 'conditional_percentage':
       if (component.conditionalConfig) {
-        const base = extractedMetrics[component.conditionalConfig.appliedTo] || 0;
-        const condMetric = component.conditionalConfig.conditions?.[0]?.metric;
-        const condValue = condMetric ? (extractedMetrics[condMetric] || 0) : 0;
-        calculationFormula = `Conditional: ${condMetric}=${condValue.toFixed(1)}% → rate × $${base.toLocaleString()}`;
-        lookupDetails = { conditionMetric: condMetric, conditionValue: condValue, baseValue: base };
+        const config = component.conditionalConfig;
+        const base = extractedMetrics[config.appliedTo] || 0;
+
+        // Find matching condition rate based on metric value
+        let rate = 0;
+        let matchedCondition: { metric: string; value: number; label: string } | null = null;
+
+        for (const cond of config.conditions || []) {
+          const condValue = extractedMetrics[cond.metric] || 0;
+          if (condValue >= cond.min && condValue < cond.max) {
+            rate = cond.rate;
+            matchedCondition = { metric: cond.metric, value: condValue, label: cond.label };
+            break;
+          }
+        }
+
+        outputValue = base * rate;
+
+        const condMetric = matchedCondition?.metric || config.conditions?.[0]?.metric || 'unknown';
+        const condValue = matchedCondition?.value || 0;
+
+        calculationFormula = `Condition: ${condMetric}=${condValue.toFixed(1)}% (${matchedCondition?.label || 'no match'}) → rate=${(rate * 100).toFixed(1)}% × $${base.toLocaleString()} = $${outputValue.toLocaleString()}`;
+        lookupDetails = {
+          conditionMetric: condMetric,
+          conditionValue: condValue,
+          matchedLabel: matchedCondition?.label,
+          baseValue: base,
+          rate,
+        };
       }
       break;
   }
@@ -594,6 +651,20 @@ function sanitizeForTrace(obj: unknown): Record<string, unknown> {
     }
   }
   return result;
+}
+
+// ============================================
+// LOOKUP HELPERS (same logic as calculation-engine)
+// ============================================
+
+function findBandForValue(bands: Band[], value: number): Band {
+  const found = bands.find((b) => value >= b.min && value < b.max);
+  return found || bands[bands.length - 1] || { min: 0, max: 0, label: 'Unknown' };
+}
+
+function findTierForValue(tiers: Tier[], value: number): Tier {
+  const found = tiers.find((t) => value >= t.min && value < t.max);
+  return found || tiers[tiers.length - 1] || { min: 0, max: 0, label: 'Unknown', value: 0 };
 }
 
 // ============================================
