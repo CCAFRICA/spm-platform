@@ -383,14 +383,37 @@ function storeAggregatedData(
   // OB-24 R4: Simplified to use ONLY the AI's semantic types (not column names)
   // AI outputs exactly: employeeId|storeId|date|period|amount|goal|attainment|quantity|role
   const getSheetFieldBySemantic = (sheetName: string, semanticType: string): string | null => {
+    // OB-24 R5 DIAGNOSTIC: Prove the function is being called and what structure sheets has
+    console.log('[SEMANTIC] Looking up', sheetName, semanticType, 'in',
+      Array.isArray(aiContext?.sheets) ? 'ARRAY' : typeof aiContext?.sheets,
+      'with', aiContext?.sheets?.length || Object.keys(aiContext?.sheets || {}).length, 'entries');
+
     if (!aiContext?.sheets) return null;
 
-    // Find sheet with flexible matching (exact, lowercase, or trimmed)
-    const sheetInfo = aiContext.sheets.find(s => {
-      const ctxName = s.sheetName?.trim() || '';
-      const recName = sheetName.trim();
-      return ctxName === recName || ctxName.toLowerCase() === recName.toLowerCase();
-    });
+    // OB-24 R5: Handle BOTH array and object formats for sheets
+    let sheetInfo: { sheetName?: string; fieldMappings?: Array<{ sourceColumn: string; semanticType: string }> } | undefined;
+
+    if (Array.isArray(aiContext.sheets)) {
+      // Array format: [{ sheetName: "...", fieldMappings: [...] }, ...]
+      sheetInfo = aiContext.sheets.find(s => {
+        // Handle both sheetName and name properties (AI analysis uses 'name', stored context uses 'sheetName')
+        const sheet = s as { sheetName?: string; name?: string; fieldMappings?: Array<{ sourceColumn: string; semanticType: string }> };
+        const ctxName = (sheet.sheetName || sheet.name || '').trim();
+        const recName = sheetName.trim();
+        return ctxName === recName || ctxName.toLowerCase() === recName.toLowerCase();
+      });
+    } else if (typeof aiContext.sheets === 'object') {
+      // Object format: { "SheetName": { fieldMappings: [...] }, ... }
+      const keys = Object.keys(aiContext.sheets);
+      const matchingKey = keys.find(k =>
+        k.trim() === sheetName.trim() || k.trim().toLowerCase() === sheetName.trim().toLowerCase()
+      );
+      if (matchingKey) {
+        sheetInfo = (aiContext.sheets as Record<string, typeof sheetInfo>)[matchingKey];
+      }
+    }
+
+    console.log('[SEMANTIC] Found sheet?', !!sheetInfo, 'fieldMappings count:', sheetInfo?.fieldMappings?.length || 0);
 
     if (!sheetInfo?.fieldMappings || sheetInfo.fieldMappings.length === 0) return null;
 
@@ -399,18 +422,34 @@ function storeAggregatedData(
       fm => fm.semanticType?.toLowerCase() === semanticType.toLowerCase()
     );
 
-    return mapping?.sourceColumn || null;
+    const result = mapping?.sourceColumn || null;
+    console.log('[SEMANTIC] Result for', semanticType, ':', result);
+    return result;
   };
 
   // AI-DRIVEN: Helper to check if sheet joins by storeId (vs employeeId)
-  // OB-24 R4: Use ONLY the AI's actual semantic types
+  // OB-24 R5: Handle both array and object formats for sheets
   const isStoreJoinSheet = (sheetName: string): boolean => {
     if (!aiContext?.sheets) return false;
-    const sheetInfo = aiContext.sheets.find(s => {
-      const ctxName = s.sheetName?.trim() || '';
-      const recName = sheetName.trim();
-      return ctxName === recName || ctxName.toLowerCase() === recName.toLowerCase();
-    });
+
+    let sheetInfo: { fieldMappings?: Array<{ semanticType: string }> } | undefined;
+
+    if (Array.isArray(aiContext.sheets)) {
+      sheetInfo = aiContext.sheets.find(s => {
+        const ctxName = ((s as { sheetName?: string; name?: string }).sheetName ||
+                         (s as { sheetName?: string; name?: string }).name || '').trim();
+        return ctxName === sheetName.trim() || ctxName.toLowerCase() === sheetName.trim().toLowerCase();
+      });
+    } else if (typeof aiContext.sheets === 'object') {
+      const keys = Object.keys(aiContext.sheets);
+      const matchingKey = keys.find(k =>
+        k.trim() === sheetName.trim() || k.trim().toLowerCase() === sheetName.trim().toLowerCase()
+      );
+      if (matchingKey) {
+        sheetInfo = (aiContext.sheets as Record<string, typeof sheetInfo>)[matchingKey];
+      }
+    }
+
     if (!sheetInfo?.fieldMappings) return false;
     // If sheet has storeId mapping but no employeeId mapping, it's store-level
     const hasStoreId = sheetInfo.fieldMappings.some(fm =>
