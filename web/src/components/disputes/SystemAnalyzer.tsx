@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 interface SystemAnalyzerProps {
   dispute: Dispute;
   onAnalysisComplete?: (analysis: AnalysisResult) => void;
+  formatCurrency?: (value: number) => string;
 }
 
 export interface AnalysisResult {
@@ -115,7 +116,7 @@ function generateAnalysis(dispute: Dispute): AnalysisResult {
   };
 }
 
-export function SystemAnalyzer({ dispute, onAnalysisComplete }: SystemAnalyzerProps) {
+export function SystemAnalyzer({ dispute, onAnalysisComplete, formatCurrency: formatCurrencyProp }: SystemAnalyzerProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [progress, setProgress] = useState(0);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -172,13 +173,15 @@ export function SystemAnalyzer({ dispute, onAnalysisComplete }: SystemAnalyzerPr
     }
   };
 
-  const formatCurrency = (value: number) => {
+  // Use provided formatter or default to USD
+  const formatCurrency = formatCurrencyProp || ((value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-      minimumFractionDigits: 2,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(value);
-  };
+  });
 
   if (isAnalyzing) {
     return (

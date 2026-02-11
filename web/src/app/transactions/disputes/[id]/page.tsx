@@ -18,6 +18,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
+import { useTenant } from '@/contexts/tenant-context';
 import {
   getDispute,
   startReview,
@@ -33,6 +34,7 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
   const disputeId = resolvedParams.id;
   const router = useRouter();
   const { user } = useAuth();
+  const { currentTenant } = useTenant();
 
   const [dispute, setDispute] = useState<Dispute | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -78,11 +80,15 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
     }
   };
 
+  // Use tenant currency settings
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
+    const currencyCode = currentTenant?.currency || 'USD';
+    const locale = currencyCode === 'MXN' ? 'es-MX' : 'en-US';
+    return new Intl.NumberFormat(locale, {
       style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
+      currency: currencyCode,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(value);
   };
 
@@ -371,6 +377,7 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
           <SystemAnalyzer
             dispute={dispute}
             onAnalysisComplete={handleAnalysisComplete}
+            formatCurrency={formatCurrency}
           />
 
           {analysis && !showResolutionForm && (
@@ -387,6 +394,7 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
               analysis={analysis}
               onResolve={handleResolve}
               onCancel={() => setShowResolutionForm(false)}
+              formatCurrency={formatCurrency}
             />
           )}
         </>

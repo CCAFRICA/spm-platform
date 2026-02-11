@@ -27,6 +27,7 @@ interface DisputeResolutionFormProps {
   analysis: AnalysisResult | null;
   onResolve: (outcome: DisputeOutcome, amount: number, explanation: string) => Promise<void>;
   onCancel: () => void;
+  formatCurrency?: (value: number) => string;
 }
 
 export function DisputeResolutionForm({
@@ -34,6 +35,7 @@ export function DisputeResolutionForm({
   analysis,
   onResolve,
   onCancel,
+  formatCurrency: formatCurrencyProp,
 }: DisputeResolutionFormProps) {
   const [outcome, setOutcome] = useState<DisputeOutcome>(
     analysis?.recommendation === 'approve'
@@ -51,13 +53,15 @@ export function DisputeResolutionForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
-  const formatCurrency = (value: number) => {
+  // Use provided formatter or default to USD
+  const formatCurrency = formatCurrencyProp || ((value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-      minimumFractionDigits: 2,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(value);
-  };
+  });
 
   const handleSubmit = () => {
     setShowConfirmDialog(true);

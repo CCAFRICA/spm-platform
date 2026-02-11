@@ -11,6 +11,7 @@ import type {
   PlanChangeRecord,
 } from '@/types/compensation-plan';
 import { createRetailCGMXUnifiedPlan } from './retailcgmx-plan';
+import { audit } from '@/lib/audit-service';
 
 const STORAGE_KEY_PLANS = 'compensation_plans';
 const STORAGE_KEY_PLAN_HISTORY = 'compensation_plan_history';
@@ -291,16 +292,36 @@ export function activatePlan(planId: string, userId: string): CompensationPlanCo
       p.eligibleRoles.some((r) => plan.eligibleRoles.includes(r))
     ) {
       savePlan({ ...p, status: 'archived', updatedBy: userId });
+      audit.log({
+        action: 'update',
+        entityType: 'plan',
+        entityId: p.id,
+        entityName: p.name,
+        changes: [{ field: 'status', oldValue: 'active', newValue: 'archived' }],
+        reason: `Superseded by activation of ${plan.name}`,
+      });
     }
   });
 
-  return savePlan({
+  const activated = savePlan({
     ...plan,
     status: 'active',
     approvedBy: userId,
     approvedAt: now,
     updatedBy: userId,
   });
+
+  // Log plan activation
+  audit.log({
+    action: 'update',
+    entityType: 'plan',
+    entityId: planId,
+    entityName: plan.name,
+    changes: [{ field: 'status', oldValue: plan.status, newValue: 'active' }],
+    reason: 'Plan activated',
+  });
+
+  return activated;
 }
 
 // ============================================
@@ -331,6 +352,93 @@ export function getPlanChangeHistory(): PlanChangeRecord[] {
 
 export function getPlanChanges(planId: string): PlanChangeRecord[] {
   return getPlanChangeHistory().filter((c) => c.planId === planId);
+}
+
+// ============================================
+// STALE PLAN DETECTION (OB-26)
+// ============================================
+
+export interface StalePlanInfo {
+  plan: CompensationPlanConfig;
+  reason: 'expired' | 'old_draft' | 'old_archived';
+  staleSince: string;
+}
+
+/**
+ * Get stale plans that may need cleanup or attention
+ * - Expired: Plans with endDate in the past
+ * - Old Draft: Draft plans not updated in 30+ days
+ * - Old Archived: Archived plans older than 90 days
+ */
+export function getStalePlans(tenantId: string): StalePlanInfo[] {
+  const plans = getPlans(tenantId);
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const stale: StalePlanInfo[] = [];
+
+  for (const plan of plans) {
+    // Check for expired plans
+    if (plan.endDate && new Date(plan.endDate) < now && plan.status === 'active') {
+      stale.push({
+        plan,
+        reason: 'expired',
+        staleSince: plan.endDate,
+      });
+    }
+
+    // Check for old drafts
+    if (plan.status === 'draft') {
+      const updatedAt = new Date(plan.updatedAt);
+      if (updatedAt < thirtyDaysAgo) {
+        stale.push({
+          plan,
+          reason: 'old_draft',
+          staleSince: plan.updatedAt,
+        });
+      }
+    }
+
+    // Check for old archived plans
+    if (plan.status === 'archived') {
+      const updatedAt = new Date(plan.updatedAt);
+      if (updatedAt < ninetyDaysAgo) {
+        stale.push({
+          plan,
+          reason: 'old_archived',
+          staleSince: plan.updatedAt,
+        });
+      }
+    }
+  }
+
+  return stale;
+}
+
+/**
+ * Clean up stale plans by deleting old archived plans
+ * Returns count of cleaned up plans
+ */
+export function cleanupStalePlans(tenantId: string): number {
+  const stalePlans = getStalePlans(tenantId);
+  let cleanedCount = 0;
+
+  for (const staleInfo of stalePlans) {
+    // Only auto-cleanup old archived plans
+    if (staleInfo.reason === 'old_archived') {
+      audit.log({
+        action: 'delete',
+        entityType: 'plan',
+        entityId: staleInfo.plan.id,
+        entityName: staleInfo.plan.name,
+        reason: `Automatic cleanup of archived plan (stale since ${staleInfo.staleSince})`,
+      });
+      deletePlan(staleInfo.plan.id);
+      cleanedCount++;
+    }
+  }
+
+  return cleanedCount;
 }
 
 // ============================================

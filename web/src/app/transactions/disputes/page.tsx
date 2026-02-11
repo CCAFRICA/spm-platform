@@ -60,11 +60,15 @@ export default function DisputeQueuePage() {
     return d.status !== 'draft';
   });
 
+  // Use tenant currency settings
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
+    const currencyCode = currentTenant?.currency || 'USD';
+    const locale = currencyCode === 'MXN' ? 'es-MX' : 'en-US';
+    return new Intl.NumberFormat(locale, {
       style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
+      currency: currencyCode,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(value);
   };
 
