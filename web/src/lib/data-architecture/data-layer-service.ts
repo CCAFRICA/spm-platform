@@ -501,6 +501,59 @@ function storeAggregatedData(
 
   // OB-24 R9: isStoreJoinSheet removed - replaced by classifySheets() and sheetTopology lookup
 
+  // OB-24 R9: Get roster's join field names for join-field-preference
+  // When a component sheet has multiple fields mapped as employeeId/storeId,
+  // prefer the field whose name matches the roster's field
+  const rosterEmpIdField = rosterSheetInfo?.fieldMappings?.find(
+    fm => fm.semanticType?.toLowerCase() === 'employeeid'
+  )?.sourceColumn || null;
+  const rosterStoreIdField = rosterSheetInfo?.fieldMappings?.find(
+    fm => fm.semanticType?.toLowerCase() === 'storeid'
+  )?.sourceColumn || null;
+
+  // OB-24 R9: Get join field with preference for roster's field name
+  // When multiple fields map to same semantic type, prefer the one matching roster
+  const getJoinFieldWithPreference = (sheetName: string, semanticType: string, rosterFieldName: string | null): string | null => {
+    if (!aiContext?.sheets) return null;
+
+    let sheetInfo: { sheetName?: string; fieldMappings?: Array<{ sourceColumn: string; semanticType: string }> } | undefined;
+
+    if (Array.isArray(aiContext.sheets)) {
+      sheetInfo = aiContext.sheets.find(s => {
+        const sheet = s as { sheetName?: string; name?: string };
+        const ctxName = (sheet.sheetName || sheet.name || '').trim();
+        return ctxName === sheetName.trim() || ctxName.toLowerCase() === sheetName.trim().toLowerCase();
+      });
+    } else if (typeof aiContext.sheets === 'object') {
+      const keys = Object.keys(aiContext.sheets);
+      const matchingKey = keys.find(k =>
+        k.trim() === sheetName.trim() || k.trim().toLowerCase() === sheetName.trim().toLowerCase()
+      );
+      if (matchingKey) {
+        sheetInfo = (aiContext.sheets as Record<string, typeof sheetInfo>)[matchingKey];
+      }
+    }
+
+    if (!sheetInfo?.fieldMappings || sheetInfo.fieldMappings.length === 0) return null;
+
+    // Find ALL mappings for this semantic type
+    const candidates = sheetInfo.fieldMappings.filter(
+      fm => fm.semanticType?.toLowerCase() === semanticType.toLowerCase()
+    );
+
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0].sourceColumn;
+
+    // Multiple candidates: prefer the one matching roster's field name
+    if (rosterFieldName) {
+      const preferred = candidates.find(c => c.sourceColumn === rosterFieldName);
+      if (preferred) return preferred.sourceColumn;
+    }
+
+    // Fallback to first candidate
+    return candidates[0].sourceColumn;
+  };
+
   // OB-24 R6: Normalize employee ID for consistent Map keys
   // Handles: leading zeros, decimal notation (96568046.0), whitespace
   const normalizeEmpId = (id: string): string => {
@@ -616,8 +669,9 @@ function storeAggregatedData(
 
     // OB-24 R4: Use ONLY the AI's actual semantic types
     // AI outputs exactly: employeeId|storeId|date|period|amount|goal|attainment|quantity|role
-    const empIdField = getSheetFieldBySemantic(sheetName, 'employeeId');
-    const storeIdField = getSheetFieldBySemantic(sheetName, 'storeId');
+    // OB-24 R9: Use join-field-preference for employeeId/storeId to match roster's field names
+    const empIdField = getJoinFieldWithPreference(sheetName, 'employeeId', rosterEmpIdField);
+    const storeIdField = getJoinFieldWithPreference(sheetName, 'storeId', rosterStoreIdField);
     const attainmentField = getSheetFieldBySemantic(sheetName, 'attainment');
     // OB-24 R7: Use quantity as fallback for amount (both represent actual values)
     const amountField = getSheetFieldBySemantic(sheetName, 'amount') || getSheetFieldBySemantic(sheetName, 'quantity');
