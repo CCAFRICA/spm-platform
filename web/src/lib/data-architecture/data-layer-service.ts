@@ -789,10 +789,11 @@ function storeAggregatedData(
 
   // STEP 3: Build componentMetrics - AI-DRIVEN extraction of attainment/amount/goal per sheet
   // OB-24 R8: Added attainmentSource to track 'source' vs 'computed' attainment
-  // Key: employeeId -> sheetName -> { attainment, attainmentSource, amount, goal }
-  const empComponentMetrics = new Map<string, Map<string, { attainment?: number; attainmentSource?: 'source' | 'computed'; amount?: number; goal?: number }>>();
-  // Key: storeId -> sheetName -> { attainment, attainmentSource, amount, goal }
-  const storeComponentMetrics = new Map<string, Map<string, { attainment?: number; attainmentSource?: 'source' | 'computed'; amount?: number; goal?: number }>>();
+  // OB-27B: Extended with Carry Everything - preserves ALL numeric fields
+  // Key: employeeId -> sheetName -> { attainment, attainmentSource, amount, goal, _rawFields }
+  const empComponentMetrics = new Map<string, Map<string, MergedMetrics>>();
+  // Key: storeId -> sheetName -> { attainment, attainmentSource, amount, goal, _rawFields }
+  const storeComponentMetrics = new Map<string, Map<string, MergedMetrics>>();
 
   // AI-DRIVEN: Helper to find column by semantic type from AI Import Context
   // OB-24 R4: Simplified to use ONLY the AI's semantic types (not column names)
@@ -902,11 +903,17 @@ function storeAggregatedData(
 
   // OB-24 R8: Semantic Resolution Hierarchy for attainment/amount/goal
   // Resolves metrics from any combination of present/absent columns
+  // OB-27B: Extended to preserve ALL numeric fields (Carry Everything principle)
   interface ResolvedMetrics {
     attainment: number | undefined;
-    attainmentSource: 'source' | 'computed' | undefined;
+    attainmentSource: 'source' | 'computed' | 'candidate' | undefined;
     amount: number | undefined;
     goal: number | undefined;
+    // OB-27B: Candidate attainment when AI didn't classify but field looks like attainment
+    _candidateAttainment?: number;
+    _candidateAttainmentField?: string;
+    // OB-27B: Preserve ALL numeric fields for calculation-time resolution
+    _rawFields?: Record<string, number>;
   }
 
   // Parse numeric value from various formats (number, string, percentage string)
@@ -932,7 +939,27 @@ function storeAggregatedData(
     return value;
   };
 
+  // OB-27B: Patterns that indicate an attainment/percentage field (multilingual)
+  const ATTAINMENT_FIELD_PATTERNS = [
+    /cumplimiento/i, /attainment/i, /achievement/i, /completion/i,
+    /rate/i, /ratio/i, /percent/i, /porcentaje/i, /pct/i, /%/,
+    /logro/i, /alcance/i, /rendimiento/i
+  ];
+
+  // OB-27B: Patterns for amount fields (multilingual)
+  const AMOUNT_FIELD_PATTERNS = [
+    /monto/i, /amount/i, /total/i, /sum/i, /sales/i, /venta/i,
+    /revenue/i, /ingreso/i, /valor/i, /value/i, /importe/i
+  ];
+
+  // OB-27B: Patterns for goal fields (multilingual)
+  const GOAL_FIELD_PATTERNS = [
+    /meta/i, /goal/i, /target/i, /objetivo/i, /quota/i, /cuota/i,
+    /budget/i, /presupuesto/i
+  ];
+
   // Resolve metrics using semantic resolution hierarchy (uses safeFieldLookup for Unicode safety)
+  // OB-27B: Extended with Carry Everything principle - preserve ALL numeric fields
   const resolveMetrics = (
     record: Record<string, unknown>,
     attainmentField: string | null,
@@ -940,37 +967,103 @@ function storeAggregatedData(
     goalField: string | null
   ): ResolvedMetrics => {
     // 1. Resolve amount (AI-mapped amount or quantity) - using safeFieldLookup
-    const amount = amountField ? parseNumeric(safeFieldLookup(record, amountField)) : undefined;
+    let amount = amountField ? parseNumeric(safeFieldLookup(record, amountField)) : undefined;
 
     // 2. Resolve goal - using safeFieldLookup
-    const goal = goalField ? parseNumeric(safeFieldLookup(record, goalField)) : undefined;
+    let goal = goalField ? parseNumeric(safeFieldLookup(record, goalField)) : undefined;
 
     // 3. Resolve attainment using hierarchy
     let attainment: number | undefined;
-    let attainmentSource: 'source' | 'computed' | undefined;
+    let attainmentSource: 'source' | 'computed' | 'candidate' | undefined;
+    let candidateAttainment: number | undefined;
+    let candidateAttainmentField: string | undefined;
 
     const rawAttainment = attainmentField ? safeFieldLookup(record, attainmentField) : undefined;
     if (attainmentField && rawAttainment !== undefined && rawAttainment !== null && rawAttainment !== '') {
       // Case 1: AI-mapped attainment column exists - use source value
       attainment = normalizeAttainment(parseNumeric(rawAttainment));
       attainmentSource = attainment !== undefined ? 'source' : undefined;
-    } else if (amount !== undefined && goal !== undefined && goal > 0) {
-      // Case 2: No attainment column, but amount and goal available - compute
+    }
+
+    // OB-27B: CARRY EVERYTHING - Scan ALL numeric fields and preserve them
+    // Also detect candidate attainment/amount/goal when AI didn't classify
+    const rawFields: Record<string, number> = {};
+
+    for (const [fieldName, value] of Object.entries(record)) {
+      // Skip internal fields
+      if (fieldName.startsWith('_')) continue;
+
+      const numValue = parseNumeric(value);
+      if (numValue === undefined) continue;
+
+      // Preserve ALL numeric fields with their original names
+      rawFields[fieldName] = numValue;
+
+      // OB-27B: Detect candidate attainment if AI didn't classify one
+      if (attainment === undefined && !candidateAttainment) {
+        const isAttainmentField = ATTAINMENT_FIELD_PATTERNS.some(p => p.test(fieldName));
+        // Also consider: values in 0-200 range are likely percentages
+        const looksLikePercentage = numValue >= 0 && numValue <= 200;
+
+        if (isAttainmentField && looksLikePercentage) {
+          candidateAttainment = normalizeAttainment(numValue);
+          candidateAttainmentField = fieldName;
+        }
+      }
+
+      // OB-27B: Detect candidate amount if AI didn't classify one
+      if (amount === undefined) {
+        const isAmountField = AMOUNT_FIELD_PATTERNS.some(p => p.test(fieldName));
+        // Amount fields typically have larger values
+        if (isAmountField && numValue > 100) {
+          amount = numValue;
+        }
+      }
+
+      // OB-27B: Detect candidate goal if AI didn't classify one
+      if (goal === undefined) {
+        const isGoalField = GOAL_FIELD_PATTERNS.some(p => p.test(fieldName));
+        if (isGoalField && numValue > 0) {
+          goal = numValue;
+        }
+      }
+    }
+
+    // OB-27B: Use candidate attainment if AI didn't map one
+    if (attainment === undefined && candidateAttainment !== undefined) {
+      attainment = candidateAttainment;
+      attainmentSource = 'candidate';
+    }
+
+    // Case 2: No attainment found, but amount and goal available - compute
+    if (attainment === undefined && amount !== undefined && goal !== undefined && goal > 0) {
       attainment = (amount / goal) * 100;
       attainmentSource = 'computed';
     }
-    // Case 3: Neither available - attainment stays undefined
 
-    return { attainment, attainmentSource, amount, goal };
+    return {
+      attainment,
+      attainmentSource,
+      amount,
+      goal,
+      _candidateAttainment: candidateAttainment,
+      _candidateAttainmentField: candidateAttainmentField,
+      _rawFields: Object.keys(rawFields).length > 0 ? rawFields : undefined,
+    };
   };
 
   // Merge metrics for multiple records per employee per sheet
   // Sums amounts and goals, then recomputes attainment (weighted average)
+  // OB-27B: Extended to preserve ALL raw fields
   interface MergedMetrics {
     attainment: number | undefined;
-    attainmentSource: 'source' | 'computed' | undefined;
+    attainmentSource: 'source' | 'computed' | 'candidate' | undefined;
     amount: number | undefined;
     goal: number | undefined;
+    // OB-27B: Carry Everything - preserve raw fields and candidate detection
+    _candidateAttainment?: number;
+    _candidateAttainmentField?: string;
+    _rawFields?: Record<string, number>;
   }
 
   const mergeMetrics = (existing: MergedMetrics | undefined, newMetrics: ResolvedMetrics): MergedMetrics => {
@@ -978,17 +1071,36 @@ function storeAggregatedData(
       attainment: undefined,
       attainmentSource: existing?.attainmentSource || newMetrics.attainmentSource,
       amount: (existing?.amount || 0) + (newMetrics.amount || 0),
-      goal: (existing?.goal || 0) + (newMetrics.goal || 0)
+      goal: (existing?.goal || 0) + (newMetrics.goal || 0),
+      // OB-27B: Preserve candidate attainment info
+      _candidateAttainment: existing?._candidateAttainment ?? newMetrics._candidateAttainment,
+      _candidateAttainmentField: existing?._candidateAttainmentField ?? newMetrics._candidateAttainmentField,
     };
 
+    // OB-27B: Merge raw fields (sum numeric values)
+    if (newMetrics._rawFields || existing?._rawFields) {
+      merged._rawFields = { ...existing?._rawFields };
+      if (newMetrics._rawFields) {
+        for (const [field, value] of Object.entries(newMetrics._rawFields)) {
+          merged._rawFields[field] = (merged._rawFields[field] || 0) + value;
+        }
+      }
+    }
+
+    // Priority for attainment: source > candidate > computed
     // If we have source attainment, use first non-undefined source value
-    // (source attainment should be consistent across records for same sheet)
     if (newMetrics.attainmentSource === 'source' && newMetrics.attainment !== undefined) {
       merged.attainment = newMetrics.attainment;
       merged.attainmentSource = 'source';
     } else if (existing?.attainmentSource === 'source' && existing?.attainment !== undefined) {
       merged.attainment = existing.attainment;
       merged.attainmentSource = 'source';
+    } else if (newMetrics.attainmentSource === 'candidate' && newMetrics.attainment !== undefined) {
+      merged.attainment = newMetrics.attainment;
+      merged.attainmentSource = 'candidate';
+    } else if (existing?.attainmentSource === 'candidate' && existing?.attainment !== undefined) {
+      merged.attainment = existing.attainment;
+      merged.attainmentSource = 'candidate';
     } else if (merged.goal && merged.goal > 0) {
       // Recompute attainment from summed amounts/goals (weighted average)
       merged.attainment = ((merged.amount || 0) / merged.goal) * 100;
@@ -1128,7 +1240,16 @@ function storeAggregatedData(
     };
 
     // AI-DRIVEN: Build componentMetrics structure - includes attainmentSource for audit trail
-    const componentMetrics: Record<string, { attainment?: number; attainmentSource?: 'source' | 'computed'; amount?: number; goal?: number }> = {};
+    // OB-27B: Extended to preserve ALL numeric fields (Carry Everything principle)
+    const componentMetrics: Record<string, {
+      attainment?: number;
+      attainmentSource?: 'source' | 'computed' | 'candidate';
+      amount?: number;
+      goal?: number;
+      _candidateAttainment?: number;
+      _candidateAttainmentField?: string;
+      _rawFields?: Record<string, number>;
+    }> = {};
 
     // OB-24 R9: Add employee-level component metrics using period-aware key
     const empMetrics = empComponentMetrics.get(empPeriodKey);
@@ -1183,7 +1304,7 @@ function storeAggregatedData(
     const reduced = aggregated.map(emp => {
       const reduced = { ...emp };
       if (reduced.componentMetrics) {
-        const cm = reduced.componentMetrics as Record<string, { attainment?: number; attainmentSource?: 'source' | 'computed'; amount?: number; goal?: number }>;
+        const cm = reduced.componentMetrics as Record<string, MergedMetrics>;
         for (const sheetName of Object.keys(cm)) {
           if (cm[sheetName].attainment !== undefined) {
             cm[sheetName].attainment = Math.round(cm[sheetName].attainment! * 100) / 100;
@@ -1193,6 +1314,12 @@ function storeAggregatedData(
           }
           if (cm[sheetName].goal !== undefined) {
             cm[sheetName].goal = Math.round(cm[sheetName].goal!);
+          }
+          // OB-27B: Also reduce precision on raw fields
+          if (cm[sheetName]._rawFields) {
+            for (const field of Object.keys(cm[sheetName]._rawFields!)) {
+              cm[sheetName]._rawFields![field] = Math.round(cm[sheetName]._rawFields![field] * 100) / 100;
+            }
           }
         }
       }

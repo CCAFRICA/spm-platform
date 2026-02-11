@@ -7,7 +7,12 @@
  */
 
 import type { CalculationResult } from '@/types/compensation-plan';
-import { calculateIncentive, type EmployeeMetrics } from '@/lib/compensation/calculation-engine';
+import {
+  calculateIncentive,
+  startCalculationRun,
+  endCalculationRun,
+  type EmployeeMetrics,
+} from '@/lib/compensation/calculation-engine';
 import { getPlans } from '@/lib/compensation/plan-storage';
 import { audit } from '@/lib/audit-service';
 import {
@@ -206,6 +211,9 @@ export class CalculationOrchestrator {
       const results: CalculationResult[] = [];
       const errors: Array<{ employeeId: string; error: string }> = [];
 
+      // OB-27B: Start calculation run for warning summary
+      startCalculationRun();
+
       for (const employee of employees) {
         try {
           // FIXED: Pass the active plan ID to avoid role-based lookup failures
@@ -225,6 +233,9 @@ export class CalculationOrchestrator {
         run.processedEmployees++;
         this.saveRun(run);
       }
+
+      // OB-27B: End calculation run and log warning summary
+      endCalculationRun(employees.length);
 
       // Finalize run
       run.status = 'completed';
@@ -757,8 +768,37 @@ export class CalculationOrchestrator {
         // Extract metric config from matched component (plan-defined metric names)
         const metricConfig = extractMetricConfig(matchedComponent);
 
-        // Normalize attainment if decimal (< 5 assumed to be ratio, multiply by 100)
-        const enrichedMetrics: SheetMetrics = { ...sheetData };
+        // OB-27B: Build enrichedMetrics with Carry Everything fallback chain
+        // 1. Use AI-mapped attainment if available
+        // 2. Fall back to _candidateAttainment (detected by field name pattern)
+        // 3. Fall back to computed from amount/goal
+        const sheetDataAny = sheetData as Record<string, unknown>;
+        const enrichedMetrics: SheetMetrics = {
+          attainment: sheetData.attainment,
+          amount: sheetData.amount,
+          goal: sheetData.goal,
+        };
+
+        // OB-27B: Use candidate attainment if primary is missing
+        if (enrichedMetrics.attainment === undefined && sheetDataAny._candidateAttainment !== undefined) {
+          enrichedMetrics.attainment = sheetDataAny._candidateAttainment as number;
+          if (isFirstEmployee) {
+            console.log(`[Orchestrator] OB-27B: ${sheetName} using _candidateAttainment = ${enrichedMetrics.attainment}`);
+          }
+        }
+
+        // OB-27B: Compute attainment from amount/goal if still missing
+        if (enrichedMetrics.attainment === undefined &&
+            enrichedMetrics.amount !== undefined &&
+            enrichedMetrics.goal !== undefined &&
+            enrichedMetrics.goal > 0) {
+          enrichedMetrics.attainment = (enrichedMetrics.amount / enrichedMetrics.goal) * 100;
+          if (isFirstEmployee) {
+            console.log(`[Orchestrator] OB-27B: ${sheetName} computed attainment = ${enrichedMetrics.attainment.toFixed(1)}%`);
+          }
+        }
+
+        // Normalize: if < 5, assume decimal ratio and multiply by 100
         if (enrichedMetrics.attainment !== undefined &&
             enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
           enrichedMetrics.attainment = enrichedMetrics.attainment * 100;

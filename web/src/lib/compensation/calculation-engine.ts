@@ -34,6 +34,75 @@ export interface EmployeeMetrics {
 }
 
 // ============================================
+// OB-27B: WARNING SUMMARY SYSTEM
+// Prevents console flood by collecting warnings and logging summaries
+// ============================================
+
+interface WarningCounts {
+  counts: Map<string, number>;
+  totalEmployees: number;
+  runId: string;
+}
+
+let currentWarnings: WarningCounts | null = null;
+
+/**
+ * Start a new calculation run - resets warning counters
+ */
+export function startCalculationRun(): void {
+  currentWarnings = {
+    counts: new Map(),
+    totalEmployees: 0,
+    runId: `run-${Date.now()}`,
+  };
+}
+
+/**
+ * Record a warning (increments counter instead of logging)
+ */
+function recordWarning(key: string): void {
+  if (!currentWarnings) {
+    // Fallback: log directly if no run started
+    console.warn(`[CalcEngine] ${key}`);
+    return;
+  }
+  currentWarnings.counts.set(key, (currentWarnings.counts.get(key) || 0) + 1);
+}
+
+/**
+ * End calculation run and log warning summary (max 10 lines)
+ */
+export function endCalculationRun(totalEmployees: number): void {
+  if (!currentWarnings) return;
+
+  currentWarnings.totalEmployees = totalEmployees;
+
+  if (currentWarnings.counts.size === 0) {
+    console.log(`[CalcEngine] Calculation complete: ${totalEmployees} employees, no warnings`);
+    currentWarnings = null;
+    return;
+  }
+
+  console.log(`[CalcEngine] Calculation complete: ${totalEmployees} employees, ${currentWarnings.counts.size} warning types`);
+
+  // Sort by count descending, limit to 10
+  const sorted = Array.from(currentWarnings.counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  for (const [key, count] of sorted) {
+    const pct = Math.round((count / totalEmployees) * 100);
+    console.warn(`[CalcEngine] ${key}: ${count}/${totalEmployees} employees (${pct}%)`);
+  }
+
+  if (currentWarnings.counts.size > 10) {
+    console.warn(`[CalcEngine] ... and ${currentWarnings.counts.size - 10} more warning types`);
+  }
+
+  currentWarnings = null;
+}
+
+// ============================================
 // MAIN CALCULATION FUNCTION
 // ============================================
 
@@ -199,15 +268,16 @@ function calculateMatrixLookup(
   }
 
   // OB-27: NO SILENT FALLBACKS - log when metrics are missing
+  // OB-27B: Use recordWarning for summary pattern (prevents console flood)
   const rowValue = metrics.metrics[config.rowMetric];
   const colValue = metrics.metrics[config.columnMetric];
 
   if (rowValue === undefined) {
-    console.warn(`[CalcEngine] ${component.name}: Missing rowMetric "${config.rowMetric}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    recordWarning(`${component.name}: Missing rowMetric "${config.rowMetric}"`);
     return createZeroStep(component, `Missing metric: ${config.rowMetric}`);
   }
   if (colValue === undefined) {
-    console.warn(`[CalcEngine] ${component.name}: Missing columnMetric "${config.columnMetric}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    recordWarning(`${component.name}: Missing columnMetric "${config.columnMetric}"`);
     return createZeroStep(component, `Missing metric: ${config.columnMetric}`);
   }
 
@@ -267,9 +337,10 @@ function calculateTierLookup(
   }
 
   // OB-27: NO SILENT FALLBACKS - log when metrics are missing
+  // OB-27B: Use recordWarning for summary pattern (prevents console flood)
   const value = metrics.metrics[config.metric];
   if (value === undefined) {
-    console.warn(`[CalcEngine] ${component.name}: Missing metric "${config.metric}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    recordWarning(`${component.name}: Missing metric "${config.metric}"`);
     return createZeroStep(component, `Missing metric: ${config.metric}`);
   }
 
@@ -316,7 +387,7 @@ function calculatePercentage(
   // OB-27: NO SILENT FALLBACKS - log when metrics are missing
   const baseValue = metrics.metrics[config.appliedTo];
   if (baseValue === undefined) {
-    console.warn(`[CalcEngine] ${component.name}: Missing metric "${config.appliedTo}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    recordWarning(`${component.name}: Missing metric "${config.appliedTo}"`);
     return createZeroStep(component, `Missing metric: ${config.appliedTo}`);
   }
 
@@ -373,7 +444,7 @@ function calculateConditionalPercentage(
   // OB-27: NO SILENT FALLBACKS - log when metrics are missing
   const baseValue = metrics.metrics[config.appliedTo];
   if (baseValue === undefined) {
-    console.warn(`[CalcEngine] ${component.name}: Missing appliedTo metric "${config.appliedTo}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    recordWarning(`${component.name}: Missing appliedTo metric "${config.appliedTo}"`);
     return createZeroStep(component, `Missing metric: ${config.appliedTo}`);
   }
 
@@ -385,7 +456,7 @@ function calculateConditionalPercentage(
 
   const conditionValue = metrics.metrics[conditionMetric];
   if (conditionValue === undefined) {
-    console.warn(`[CalcEngine] ${component.name}: Missing condition metric "${conditionMetric}" in metrics. Available: [${Object.keys(metrics.metrics).join(', ')}]`);
+    recordWarning(`${component.name}: Missing condition metric "${conditionMetric}"`);
     return createZeroStep(component, `Missing condition metric: ${conditionMetric}`);
   }
 
