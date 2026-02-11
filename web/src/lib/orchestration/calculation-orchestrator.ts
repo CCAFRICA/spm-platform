@@ -713,113 +713,73 @@ export class CalculationOrchestrator {
       }
     }
 
-    // OB-27B: ALWAYS run sheet→metric mapping for ALL sheets in componentMetrics
-    // This is NOT a fallback — it runs unconditionally to ensure all 7 sheets produce metrics
-    // The plan-driven path above may miss sheets due to name mismatch (English component vs Spanish sheet)
-    if (componentMetrics) {
-      // OB-27B: Sheet → EXACT metric names the plan expects (NOT prefixes!)
-      const sheetToExactMetrics: Record<string, {
-        attainmentKey?: string;
-        amountKey?: string;
-        goalKey?: string;
-      }> = {
-        // Optical sales (matrix: rowMetric=optical_attainment, columnMetric=store_optical_sales)
-        'base_venta_individual': {
-          attainmentKey: 'optical_attainment',
-          amountKey: 'store_optical_sales', // This is the column metric for matrix lookup
-        },
-        'venta_individual': {
-          attainmentKey: 'optical_attainment',
-          amountKey: 'store_optical_sales',
-        },
-        // Store sales (tier: metric=store_sales_attainment)
-        'base_venta_tienda': {
-          attainmentKey: 'store_sales_attainment',
-          amountKey: 'store_sales_amount',
-        },
-        'venta_tienda': {
-          attainmentKey: 'store_sales_attainment',
-          amountKey: 'store_sales_amount',
-        },
-        // New customers (tier: metric=new_customers_attainment)
-        'base_clientes_nuevos': {
-          attainmentKey: 'new_customers_attainment',
-          amountKey: 'new_customers_amount',
-        },
-        'clientes_nuevos': {
-          attainmentKey: 'new_customers_attainment',
-          amountKey: 'new_customers_amount',
-        },
-        // Collections (tier: metric=collections_attainment)
-        'base_cobranza': {
-          attainmentKey: 'collections_attainment',
-          amountKey: 'collections_amount',
-        },
-        'cobranza': {
-          attainmentKey: 'collections_attainment',
-          amountKey: 'collections_amount',
-        },
-        // Insurance (percentage: appliedTo=individual_insurance_sales)
-        'base_club_proteccion': {
-          attainmentKey: 'insurance_attainment',
-          amountKey: 'individual_insurance_sales', // EXACT name plan expects
-        },
-        'club_proteccion': {
-          attainmentKey: 'insurance_attainment',
-          amountKey: 'individual_insurance_sales',
-        },
-        // Warranty/Services (percentage: appliedTo=individual_warranty_sales)
-        'base_garantia_extendida': {
-          attainmentKey: 'warranty_attainment',
-          amountKey: 'individual_warranty_sales', // EXACT name plan expects
-        },
-        'garantia_extendida': {
-          attainmentKey: 'warranty_attainment',
-          amountKey: 'individual_warranty_sales',
-        },
-      };
-
-      // OB-27B: Log only for first employee to avoid console spam
+    // OB-27B FIX: Use metric-resolver to map ALL sheets to plan metrics
+    // This replaces the hardcoded sheetToExactMetrics map - NO HARDCODING!
+    // Uses findSheetForComponent pattern matching + buildComponentMetrics semantic resolution
+    if (componentMetrics && this.planComponents.length > 0) {
+      // Log once per calculation run to avoid console flood
       const isFirstEmployee = !this._ob27bLogged;
       if (isFirstEmployee) {
         this._ob27bLogged = true;
-        console.log(`[Orchestrator] OB-27B: Sheet→metric mapping for ${Object.keys(componentMetrics).length} sheets`);
+        console.log(`[Orchestrator] OB-27B: Processing ${Object.keys(componentMetrics).length} sheets with metric-resolver`);
       }
 
       for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
         const sheetNorm = sheetName.toLowerCase().replace(/[-\s]/g, '_');
-        const mapping = sheetToExactMetrics[sheetNorm];
 
-        if (mapping) {
-          // Only set metrics that aren't already set (don't overwrite plan-driven results)
-          if (sheetData.attainment !== undefined && mapping.attainmentKey && metrics[mapping.attainmentKey] === undefined) {
-            metrics[mapping.attainmentKey] = sheetData.attainment;
-            if (isFirstEmployee) console.log(`[Orchestrator] OB-27B: ${sheetName} → ${mapping.attainmentKey} = ${sheetData.attainment}`);
+        // Skip roster sheets (no metrics to extract)
+        if (sheetNorm.includes('colaborador') || sheetNorm.includes('roster') || sheetNorm.includes('datos')) {
+          continue;
+        }
+
+        // Find which plan component this sheet feeds using metric-resolver pattern matching
+        let matchedComponent: typeof this.planComponents[0] | undefined;
+        for (const component of this.planComponents) {
+          // Use findSheetForComponent with a fake aiContextSheet to leverage pattern matching
+          const matched = findSheetForComponent(
+            component.name,
+            component.id,
+            [{ sheetName, matchedComponent: null }]
+          );
+          if (matched === sheetName) {
+            matchedComponent = component;
+            break;
           }
-          if (sheetData.amount !== undefined && mapping.amountKey && metrics[mapping.amountKey] === undefined) {
-            metrics[mapping.amountKey] = sheetData.amount;
-            if (isFirstEmployee) console.log(`[Orchestrator] OB-27B: ${sheetName} → ${mapping.amountKey} = ${sheetData.amount}`);
+        }
+
+        if (!matchedComponent) {
+          if (isFirstEmployee) {
+            console.warn(`[Orchestrator] OB-27B: No plan component matched for sheet "${sheetName}"`);
           }
-          if (sheetData.goal !== undefined && mapping.goalKey && metrics[mapping.goalKey] === undefined) {
-            metrics[mapping.goalKey] = sheetData.goal;
-          }
-        } else {
-          // Unknown sheet - use generic naming as last resort (skip if roster sheet)
-          if (sheetNorm.includes('colaborador') || sheetNorm.includes('roster') || sheetNorm.includes('datos')) {
-            continue; // Skip roster sheet - no metrics to extract
-          }
-          if (isFirstEmployee) console.warn(`[Orchestrator] OB-27B: Unknown sheet "${sheetName}" - using generic metric names`);
-          if (sheetData.attainment !== undefined && metrics[`${sheetNorm}_attainment`] === undefined) {
-            metrics[`${sheetNorm}_attainment`] = sheetData.attainment;
-          }
-          if (sheetData.amount !== undefined && metrics[`${sheetNorm}_amount`] === undefined) {
-            metrics[`${sheetNorm}_amount`] = sheetData.amount;
+          continue;
+        }
+
+        // Extract metric config from matched component (plan-defined metric names)
+        const metricConfig = extractMetricConfig(matchedComponent);
+
+        // Normalize attainment if decimal (< 5 assumed to be ratio, multiply by 100)
+        const enrichedMetrics: SheetMetrics = { ...sheetData };
+        if (enrichedMetrics.attainment !== undefined &&
+            enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
+          enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
+        }
+
+        // Build metrics using plan's own metric names via semantic type inference
+        const resolved = buildComponentMetrics(metricConfig, enrichedMetrics);
+
+        // Merge without overwriting existing values (plan-driven path has priority)
+        for (const [key, value] of Object.entries(resolved)) {
+          if (metrics[key] === undefined) {
+            metrics[key] = value;
+            if (isFirstEmployee) {
+              console.log(`[Orchestrator] OB-27B: ${sheetName} → ${key} = ${value}`);
+            }
           }
         }
       }
 
       if (isFirstEmployee) {
-        console.log(`[Orchestrator] OB-27B: Total metrics produced: ${Object.keys(metrics).length} keys: [${Object.keys(metrics).join(', ')}]`);
+        console.log(`[Orchestrator] OB-27B: Final metrics: ${Object.keys(metrics).length} keys: [${Object.keys(metrics).join(', ')}]`);
       }
     }
 
