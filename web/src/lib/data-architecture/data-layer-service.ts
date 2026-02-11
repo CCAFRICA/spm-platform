@@ -374,10 +374,11 @@ function storeAggregatedData(
   }
 
   // STEP 3: Build componentMetrics - AI-DRIVEN extraction of attainment/amount/goal per sheet
-  // Key: employeeId -> sheetName -> { attainment, amount, goal }
-  const empComponentMetrics = new Map<string, Map<string, { attainment?: number; amount?: number; goal?: number }>>();
-  // Key: storeId -> sheetName -> { attainment, amount, goal }
-  const storeComponentMetrics = new Map<string, Map<string, { attainment?: number; amount?: number; goal?: number }>>();
+  // OB-24 R8: Added attainmentSource to track 'source' vs 'computed' attainment
+  // Key: employeeId -> sheetName -> { attainment, attainmentSource, amount, goal }
+  const empComponentMetrics = new Map<string, Map<string, { attainment?: number; attainmentSource?: 'source' | 'computed'; amount?: number; goal?: number }>>();
+  // Key: storeId -> sheetName -> { attainment, attainmentSource, amount, goal }
+  const storeComponentMetrics = new Map<string, Map<string, { attainment?: number; attainmentSource?: 'source' | 'computed'; amount?: number; goal?: number }>>();
 
   // AI-DRIVEN: Helper to find column by semantic type from AI Import Context
   // OB-24 R4: Simplified to use ONLY the AI's semantic types (not column names)
@@ -464,6 +465,104 @@ function storeAggregatedData(
     return trimmed;
   };
 
+  // OB-24 R8: Semantic Resolution Hierarchy for attainment/amount/goal
+  // Resolves metrics from any combination of present/absent columns
+  interface ResolvedMetrics {
+    attainment: number | undefined;
+    attainmentSource: 'source' | 'computed' | undefined;
+    amount: number | undefined;
+    goal: number | undefined;
+  }
+
+  // Parse numeric value from various formats (number, string, percentage string)
+  const parseNumeric = (value: unknown): number | undefined => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value === 'number') return isNaN(value) ? undefined : value;
+    if (typeof value === 'string') {
+      const cleaned = value.replace(/[,%]/g, '').trim();
+      const num = parseFloat(cleaned);
+      return isNaN(num) ? undefined : num;
+    }
+    return undefined;
+  };
+
+  // Normalize attainment to percentage format
+  // Ratio detection: values between 0 and 5 are likely ratios (0.82 = 82%)
+  const normalizeAttainment = (value: number | undefined): number | undefined => {
+    if (value === undefined || value === null || isNaN(value)) return undefined;
+    if (value < 0) return undefined;
+    // Ratio detection: if value > 0 AND value <= 5.0, it's likely a ratio
+    if (value > 0 && value <= 5.0) return value * 100;
+    // Already a percentage (or zero)
+    return value;
+  };
+
+  // Resolve metrics using semantic resolution hierarchy
+  const resolveMetrics = (
+    record: Record<string, unknown>,
+    attainmentField: string | null,
+    amountField: string | null,
+    goalField: string | null
+  ): ResolvedMetrics => {
+    // 1. Resolve amount (AI-mapped amount or quantity)
+    const amount = amountField ? parseNumeric(record[amountField]) : undefined;
+
+    // 2. Resolve goal
+    const goal = goalField ? parseNumeric(record[goalField]) : undefined;
+
+    // 3. Resolve attainment using hierarchy
+    let attainment: number | undefined;
+    let attainmentSource: 'source' | 'computed' | undefined;
+
+    const rawAttainment = attainmentField ? record[attainmentField] : undefined;
+    if (attainmentField && rawAttainment !== undefined && rawAttainment !== null && rawAttainment !== '') {
+      // Case 1: AI-mapped attainment column exists - use source value
+      attainment = normalizeAttainment(parseNumeric(rawAttainment));
+      attainmentSource = attainment !== undefined ? 'source' : undefined;
+    } else if (amount !== undefined && goal !== undefined && goal > 0) {
+      // Case 2: No attainment column, but amount and goal available - compute
+      attainment = (amount / goal) * 100;
+      attainmentSource = 'computed';
+    }
+    // Case 3: Neither available - attainment stays undefined
+
+    return { attainment, attainmentSource, amount, goal };
+  };
+
+  // Merge metrics for multiple records per employee per sheet
+  // Sums amounts and goals, then recomputes attainment (weighted average)
+  interface MergedMetrics {
+    attainment: number | undefined;
+    attainmentSource: 'source' | 'computed' | undefined;
+    amount: number | undefined;
+    goal: number | undefined;
+  }
+
+  const mergeMetrics = (existing: MergedMetrics | undefined, newMetrics: ResolvedMetrics): MergedMetrics => {
+    const merged: MergedMetrics = {
+      attainment: undefined,
+      attainmentSource: existing?.attainmentSource || newMetrics.attainmentSource,
+      amount: (existing?.amount || 0) + (newMetrics.amount || 0),
+      goal: (existing?.goal || 0) + (newMetrics.goal || 0)
+    };
+
+    // If we have source attainment, use first non-undefined source value
+    // (source attainment should be consistent across records for same sheet)
+    if (newMetrics.attainmentSource === 'source' && newMetrics.attainment !== undefined) {
+      merged.attainment = newMetrics.attainment;
+      merged.attainmentSource = 'source';
+    } else if (existing?.attainmentSource === 'source' && existing?.attainment !== undefined) {
+      merged.attainment = existing.attainment;
+      merged.attainmentSource = 'source';
+    } else if (merged.goal && merged.goal > 0) {
+      // Recompute attainment from summed amounts/goals (weighted average)
+      merged.attainment = ((merged.amount || 0) / merged.goal) * 100;
+      merged.attainmentSource = 'computed';
+    }
+
+    return merged;
+  };
+
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
 
@@ -476,8 +575,9 @@ function storeAggregatedData(
     const amountField = getSheetFieldBySemantic(sheetName, 'amount') || getSheetFieldBySemantic(sheetName, 'quantity');
     const goalField = getSheetFieldBySemantic(sheetName, 'goal');
 
-    // OB-24 FIX: Fallback to direct column name matching if AI mapping not found
-    const findColumnByPattern = (patterns: RegExp[]): string | null => {
+    // OB-24 R8: Fallback for ID fields only (structural, not semantic)
+    // Metrics use AI-first approach via resolveMetrics()
+    const findIdFieldByPattern = (patterns: RegExp[]): string | null => {
       for (const key of Object.keys(content)) {
         if (key.startsWith('_')) continue;
         for (const pattern of patterns) {
@@ -487,82 +587,32 @@ function storeAggregatedData(
       return null;
     };
 
-    // Try AI mapping first, then fallback to pattern matching on column names
-    // OB-24 FIX: Removed ^ anchors - column names may have prefixes like "#" or "No."
-    const effectiveEmpIdField = empIdField || findColumnByPattern([
+    // ID fields: AI mapping first, then structural pattern fallback
+    const effectiveEmpIdField = empIdField || findIdFieldByPattern([
       /llave/i, /clave/i, /id.*emp/i, /num.*emp/i, /empleado/i
     ]);
-    const effectiveStoreIdField = storeIdField || findColumnByPattern([
+    const effectiveStoreIdField = storeIdField || findIdFieldByPattern([
       /tienda/i, /store/i, /sucursal/i
     ]);
-    // OB-24 FIX: Be specific about Cumplimiento - it's the primary attainment column in Spanish
-    const effectiveAttainmentField = attainmentField || findColumnByPattern([
-      /cumplimiento/i,  // Primary Spanish term for attainment
-      /attainment/i,
-      /achievement/i,
-      /logro/i
-    ]);
-    const effectiveAmountField = amountField || findColumnByPattern([
-      /venta.*real/i, /monto/i, /\breal\b/i, /actual/i, /amount/i, /\bsales\b/i
-    ]);
-    const effectiveGoalField = goalField || findColumnByPattern([
-      /meta/i, /cuota/i, /goal/i, /target/i, /objetivo/i, /presupuesto/i
-    ]);
 
-    // Skip sheet if no ID field found (even with fallback)
+    // Skip sheet if no ID field found
     if (!effectiveEmpIdField && !effectiveStoreIdField) {
       console.warn(`[DataLayer] Sheet "${sheetName}" has no ID field - skipping`);
       continue;
     }
 
-    // Extract IDs using effective field names (AI-mapped or pattern-matched)
-    // OB-24 R6: Normalize empId for consistent Map key matching
+    // Extract IDs
     const empId = effectiveEmpIdField ? normalizeEmpId(String(content[effectiveEmpIdField] || '')) : '';
     const storeId = effectiveStoreIdField ? String(content[effectiveStoreIdField] || '').trim() : '';
 
-    // Extract metrics using effective field names
-    // OB-24 FIX: Handle string percentages like "41.86%" by parsing more robustly
-    const parseNumericValue = (val: unknown): number | undefined => {
-      if (val === undefined || val === null || val === '') return undefined;
-      if (typeof val === 'number') return isNaN(val) ? undefined : val;
-      if (typeof val === 'string') {
-        // Remove % sign and parse
-        const cleaned = val.replace(/%/g, '').trim();
-        const num = parseFloat(cleaned);
-        return isNaN(num) ? undefined : num;
-      }
-      return undefined;
-    };
-
-    const attainment = effectiveAttainmentField ? parseNumericValue(content[effectiveAttainmentField]) : undefined;
-    const amount = effectiveAmountField ? parseNumericValue(content[effectiveAmountField]) : undefined;
-    const goal = effectiveGoalField ? parseNumericValue(content[effectiveGoalField]) : undefined;
-
-    // Also look for any numeric field that might be the key metric
-    let primaryMetric: number | undefined;
-    for (const [key, value] of Object.entries(content)) {
-      if (key.startsWith('_')) continue;
-      if (typeof value === 'number' && value > 0) {
-        primaryMetric = value;
-        break;
-      }
-    }
-
-    // OB-24 FIX: Only use SOURCE attainment, NEVER compute from amount/goal
-    // Computing attainment from summed amounts/goals produces wrong results
-    // The source Excel should have a "Cumplimiento" or "%" column with the real attainment
-    let normalizedAttainment = attainment;
-
-    // Normalize: if < 5, assume decimal ratio and multiply by 100
-    if (normalizedAttainment !== undefined && normalizedAttainment > 0 && normalizedAttainment < 5) {
-      normalizedAttainment = normalizedAttainment * 100;
-    }
-
-    const metrics = {
-      attainment: normalizedAttainment,  // Use source value only, don't compute
-      amount: amount ?? primaryMetric,
-      goal
-    };
+    // OB-24 R8: Use semantic resolution hierarchy for metrics
+    // AI-first: no pattern fallbacks for attainment/amount/goal
+    const resolvedMetrics = resolveMetrics(
+      content as Record<string, unknown>,
+      attainmentField,  // AI-mapped attainment field (or null)
+      amountField,      // AI-mapped amount/quantity field (or null)
+      goalField         // AI-mapped goal field (or null)
+    );
 
     // Determine if this sheet joins by employee or store
     const isStoreLevel = isStoreJoinSheet(sheetName) || (!empId && storeId);
@@ -573,12 +623,8 @@ function storeAggregatedData(
         empComponentMetrics.set(empId, new Map());
       }
       const empSheets = empComponentMetrics.get(empId)!;
-      const existing = empSheets.get(sheetName) || {};
-      empSheets.set(sheetName, {
-        attainment: metrics.attainment ?? existing.attainment,
-        amount: (existing.amount || 0) + (metrics.amount || 0),
-        goal: (existing.goal || 0) + (metrics.goal || 0)
-      });
+      const existing = empSheets.get(sheetName) as MergedMetrics | undefined;
+      empSheets.set(sheetName, mergeMetrics(existing, resolvedMetrics));
     }
 
     // Aggregate by store ID for store-level sheets
@@ -587,12 +633,8 @@ function storeAggregatedData(
         storeComponentMetrics.set(storeId, new Map());
       }
       const storeSheets = storeComponentMetrics.get(storeId)!;
-      const existing = storeSheets.get(sheetName) || {};
-      storeSheets.set(sheetName, {
-        attainment: metrics.attainment ?? existing.attainment,
-        amount: (existing.amount || 0) + (metrics.amount || 0),
-        goal: (existing.goal || 0) + (metrics.goal || 0)
-      });
+      const existing = storeSheets.get(sheetName) as MergedMetrics | undefined;
+      storeSheets.set(sheetName, mergeMetrics(existing, resolvedMetrics));
     }
   }
 
@@ -621,8 +663,8 @@ function storeAggregatedData(
       batchId,
     };
 
-    // AI-DRIVEN: Build componentMetrics structure - COMPACT (only attainment/amount/goal per sheet)
-    const componentMetrics: Record<string, { attainment?: number; amount?: number; goal?: number }> = {};
+    // AI-DRIVEN: Build componentMetrics structure - includes attainmentSource for audit trail
+    const componentMetrics: Record<string, { attainment?: number; attainmentSource?: 'source' | 'computed'; amount?: number; goal?: number }> = {};
 
     // Add employee-level component metrics
     const empMetrics = empComponentMetrics.get(empId);
@@ -673,7 +715,7 @@ function storeAggregatedData(
     const reduced = aggregated.map(emp => {
       const reduced = { ...emp };
       if (reduced.componentMetrics) {
-        const cm = reduced.componentMetrics as Record<string, { attainment?: number; amount?: number; goal?: number }>;
+        const cm = reduced.componentMetrics as Record<string, { attainment?: number; attainmentSource?: 'source' | 'computed'; amount?: number; goal?: number }>;
         for (const sheetName of Object.keys(cm)) {
           if (cm[sheetName].attainment !== undefined) {
             cm[sheetName].attainment = Math.round(cm[sheetName].attainment! * 100) / 100;
