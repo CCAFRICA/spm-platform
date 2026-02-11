@@ -19,7 +19,7 @@ interface AccessControlProps {
 // In production, this would come from auth context
 function getCurrentUserRole(): UserRole {
   if (typeof window === 'undefined') return 'sales_rep';
-  const storedRole = localStorage.getItem('entityb_user_role');
+  const storedRole = localStorage.getItem('vialuce_user_role');
   return (storedRole as UserRole) || 'manager'; // Default to manager for demo
 }
 

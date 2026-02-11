@@ -4,7 +4,7 @@
 
 import type { TenantConfig } from '@/types/tenant';
 
-const TENANT_DATA_PREFIX = 'entityb_tenant_';
+const TENANT_DATA_PREFIX = 'vialuce_tenant_data_';
 
 /**
  * Static tenant IDs that have pre-seeded demo/mock data

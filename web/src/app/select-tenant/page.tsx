@@ -21,6 +21,12 @@ import {
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { containerVariants, itemVariants } from '@/lib/animations';
+import {
+  isDynamicTenant,
+  removeTenant,
+  getMergedTenants,
+  getDynamicTenants,
+} from '@/lib/storage/tenant-registry-service';
 import type { TenantSummary } from '@/types/tenant';
 
 export default function SelectTenantPage() {
@@ -34,11 +40,6 @@ export default function SelectTenantPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [forceLocalTenants, setForceLocalTenants] = useState(false);
 
-  // Static tenant IDs that cannot be deleted
-  const STATIC_TENANT_IDS = ['retailco', 'restaurantmx', 'techcorp'];
-
-  const isDynamicTenant = (tenantId: string) => !STATIC_TENANT_IDS.includes(tenantId);
-
   const handleDeleteTenant = async (tenant: TenantSummary, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
     setDeletingTenant(tenant);
@@ -51,68 +52,15 @@ export default function SelectTenantPage() {
     try {
       const tenantId = deletingTenant.id;
 
-      // Remove from vialuce_tenants array
-      const tenantsJson = localStorage.getItem('vialuce_tenants');
-      if (tenantsJson) {
-        const tenants = JSON.parse(tenantsJson);
-        const filtered = tenants.filter((t: { id: string }) => t.id !== tenantId);
-        localStorage.setItem('vialuce_tenants', JSON.stringify(filtered));
-      }
+      // Remove tenant using service (handles registry and data cleanup)
+      await removeTenant(tenantId);
 
-      // Remove from vialuce_tenant_registry
-      const registryJson = localStorage.getItem('vialuce_tenant_registry');
-      if (registryJson) {
-        const registry = JSON.parse(registryJson);
-        registry.tenants = (registry.tenants || []).filter((t: { id: string }) => t.id !== tenantId);
-        registry.lastUpdated = new Date().toISOString();
-        localStorage.setItem('vialuce_tenant_registry', JSON.stringify(registry));
-      }
-
-      // Remove all tenant-specific data (vialuce_tenant_data_${tenantId}_*)
-      const prefix = `vialuce_tenant_data_${tenantId}_`;
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(prefix)) {
-          keysToRemove.push(key);
-        }
-      }
-      for (const key of keysToRemove) {
-        localStorage.removeItem(key);
-      }
-
-      // Also remove any spm_ prefixed keys for this tenant
-      const spmPrefix = `spm_${tenantId}_`;
-      const spmKeysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(spmPrefix)) {
-          spmKeysToRemove.push(key);
-        }
-      }
-      for (const key of spmKeysToRemove) {
-        localStorage.removeItem(key);
-      }
-
-      // Reload tenant list from localStorage to get fresh data
+      // Reload tenant list to get fresh data
       const reloadTenants = async () => {
         try {
           const registry = await import('@/data/tenants/index.json');
           const staticTenants = (registry.tenants || []) as TenantSummary[];
-
-          let dynamicTenants: TenantSummary[] = [];
-          const dynamicRegistry = localStorage.getItem('vialuce_tenant_registry');
-          if (dynamicRegistry) {
-            const parsed = JSON.parse(dynamicRegistry);
-            dynamicTenants = (parsed.tenants || []) as TenantSummary[];
-          }
-
-          const staticIds = new Set(staticTenants.map(t => t.id));
-          const mergedTenants = [
-            ...staticTenants,
-            ...dynamicTenants.filter(t => !staticIds.has(t.id)),
-          ];
-
+          const mergedTenants = await getMergedTenants(staticTenants);
           setLocalTenants(mergedTenants);
           setForceLocalTenants(true); // Force use of local tenants after deletion
         } catch (err) {
@@ -139,35 +87,15 @@ export default function SelectTenantPage() {
           const registry = await import('@/data/tenants/index.json');
           const staticTenants = (registry.tenants || []) as TenantSummary[];
 
-          // Load dynamic tenants from localStorage
-          let dynamicTenants: TenantSummary[] = [];
-          try {
-            const dynamicRegistry = localStorage.getItem('vialuce_tenant_registry');
-            if (dynamicRegistry) {
-              const parsed = JSON.parse(dynamicRegistry);
-              dynamicTenants = (parsed.tenants || []) as TenantSummary[];
-            }
-          } catch {
-            // Ignore localStorage errors
-          }
-
-          // Merge, with dynamic tenants for IDs not in static
-          const staticIds = new Set(staticTenants.map(t => t.id));
-          const mergedTenants = [
-            ...staticTenants,
-            ...dynamicTenants.filter(t => !staticIds.has(t.id)),
-          ];
-
+          // Merge static and dynamic tenants using service
+          const mergedTenants = await getMergedTenants(staticTenants);
           setLocalTenants(mergedTenants);
         } catch (e) {
           console.error('Failed to load tenant registry:', e);
           // Still try to load dynamic tenants if static fails
           try {
-            const dynamicRegistry = localStorage.getItem('vialuce_tenant_registry');
-            if (dynamicRegistry) {
-              const parsed = JSON.parse(dynamicRegistry);
-              setLocalTenants((parsed.tenants || []) as TenantSummary[]);
-            }
+            const dynamicTenants = await getDynamicTenants();
+            setLocalTenants(dynamicTenants);
           } catch {
             // Ignore
           }
