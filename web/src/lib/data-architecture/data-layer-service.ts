@@ -256,6 +256,83 @@ function loadFromStorageChunked<T>(baseKey: string): Map<string, T> {
   }
 }
 
+// ============================================
+// OB-24 R9: SHEET TOPOLOGY CLASSIFICATION
+// ============================================
+
+/**
+ * Sheet topology types derived from AI semantic mappings
+ * - roster: Has employeeId, represents employee master data
+ * - employee_component: Has employeeId, performance data joined by employee
+ * - store_component: Has storeId but NO employeeId, needs join through roster's storeId
+ */
+type SheetTopology = 'roster' | 'employee_component' | 'store_component';
+
+interface ClassifiedSheet {
+  sheetName: string;
+  topology: SheetTopology;
+  joinField: 'employeeId' | 'storeId';
+  hasEmployeeId: boolean;
+  hasStoreId: boolean;
+  hasPeriod: boolean;
+}
+
+/**
+ * OB-24 R9: Classify sheets by topology using AI semantic mappings
+ * Derives join type from semantic types: employeeId presence → employee join, storeId only → store join
+ */
+function classifySheets(
+  aiContext: { sheets: Array<{ sheetName?: string; name?: string; classification?: string; fieldMappings?: Array<{ semanticType: string }> }> } | null
+): Map<string, ClassifiedSheet> {
+  const result = new Map<string, ClassifiedSheet>();
+
+  if (!aiContext?.sheets) return result;
+
+  for (const sheet of aiContext.sheets) {
+    const sheetName = sheet.sheetName || sheet.name || '';
+    if (!sheetName) continue;
+
+    const mappings = sheet.fieldMappings || [];
+    const hasEmployeeId = mappings.some(fm => fm.semanticType?.toLowerCase() === 'employeeid');
+    const hasStoreId = mappings.some(fm => fm.semanticType?.toLowerCase() === 'storeid');
+    const hasPeriod = mappings.some(fm => ['period', 'date', 'month'].includes(fm.semanticType?.toLowerCase() || ''));
+
+    // Determine topology from AI classification + semantic types
+    let topology: SheetTopology;
+    let joinField: 'employeeId' | 'storeId';
+
+    if (sheet.classification === 'roster') {
+      topology = 'roster';
+      joinField = 'employeeId';
+    } else if (hasEmployeeId) {
+      topology = 'employee_component';
+      joinField = 'employeeId';
+    } else if (hasStoreId) {
+      topology = 'store_component';
+      joinField = 'storeId';
+    } else {
+      // No join field - skip this sheet
+      continue;
+    }
+
+    result.set(sheetName, {
+      sheetName,
+      topology,
+      joinField,
+      hasEmployeeId,
+      hasStoreId,
+      hasPeriod,
+    });
+  }
+
+  console.log(`[DataLayer] Sheet topology classification:`);
+  for (const [name, info] of Array.from(result.entries())) {
+    console.log(`  - ${name}: ${info.topology} (join by ${info.joinField})`);
+  }
+
+  return result;
+}
+
 /**
  * Store aggregated employee data for calculation (reduces 119K records to ~2K employees)
  * AI-DRIVEN APPROACH: Uses AI import context for field resolution, builds componentMetrics
@@ -273,6 +350,9 @@ function storeAggregatedData(
   if (aiContext) {
     console.log(`[DataLayer] AI Context: roster=${aiContext.rosterSheet}, ${aiContext.sheets.length} sheets`);
   }
+
+  // OB-24 R9: Classify sheets by topology for proper join strategy
+  const sheetTopology = classifySheets(aiContext);
 
   console.log(`[DataLayer] AI-driven aggregation from ${records.length} committed records...`);
 
@@ -419,39 +499,7 @@ function storeAggregatedData(
     return mapping?.sourceColumn || null;
   };
 
-  // AI-DRIVEN: Helper to check if sheet joins by storeId (vs employeeId)
-  // OB-24 R5: Handle both array and object formats for sheets
-  const isStoreJoinSheet = (sheetName: string): boolean => {
-    if (!aiContext?.sheets) return false;
-
-    let sheetInfo: { fieldMappings?: Array<{ semanticType: string }> } | undefined;
-
-    if (Array.isArray(aiContext.sheets)) {
-      sheetInfo = aiContext.sheets.find(s => {
-        const ctxName = ((s as { sheetName?: string; name?: string }).sheetName ||
-                         (s as { sheetName?: string; name?: string }).name || '').trim();
-        return ctxName === sheetName.trim() || ctxName.toLowerCase() === sheetName.trim().toLowerCase();
-      });
-    } else if (typeof aiContext.sheets === 'object') {
-      const keys = Object.keys(aiContext.sheets);
-      const matchingKey = keys.find(k =>
-        k.trim() === sheetName.trim() || k.trim().toLowerCase() === sheetName.trim().toLowerCase()
-      );
-      if (matchingKey) {
-        sheetInfo = (aiContext.sheets as Record<string, typeof sheetInfo>)[matchingKey];
-      }
-    }
-
-    if (!sheetInfo?.fieldMappings) return false;
-    // If sheet has storeId mapping but no employeeId mapping, it's store-level
-    const hasStoreId = sheetInfo.fieldMappings.some(fm =>
-      fm.semanticType?.toLowerCase() === 'storeid'
-    );
-    const hasEmployeeId = sheetInfo.fieldMappings.some(fm =>
-      fm.semanticType?.toLowerCase() === 'employeeid'
-    );
-    return hasStoreId && !hasEmployeeId;
-  };
+  // OB-24 R9: isStoreJoinSheet removed - replaced by classifySheets() and sheetTopology lookup
 
   // OB-24 R6: Normalize employee ID for consistent Map keys
   // Handles: leading zeros, decimal notation (96568046.0), whitespace
@@ -574,6 +622,8 @@ function storeAggregatedData(
     // OB-24 R7: Use quantity as fallback for amount (both represent actual values)
     const amountField = getSheetFieldBySemantic(sheetName, 'amount') || getSheetFieldBySemantic(sheetName, 'quantity');
     const goalField = getSheetFieldBySemantic(sheetName, 'goal');
+    // OB-24 R9: Extract period fields for period-aware aggregation
+    const periodField = getSheetFieldBySemantic(sheetName, 'period') || getSheetFieldBySemantic(sheetName, 'date');
 
     // OB-24 R8: Fallback for ID fields only (structural, not semantic)
     // Metrics use AI-first approach via resolveMetrics()
@@ -605,6 +655,33 @@ function storeAggregatedData(
     const empId = effectiveEmpIdField ? normalizeEmpId(String(content[effectiveEmpIdField] || '')) : '';
     const storeId = effectiveStoreIdField ? String(content[effectiveStoreIdField] || '').trim() : '';
 
+    // OB-24 R9: Extract period from component record for period-aware aggregation
+    let recordMonth = '';
+    let recordYear = '';
+    if (periodField) {
+      const periodValue = String(content[periodField] || '');
+      // Try to parse date-like values (2024-01-15, 01/15/2024, etc.)
+      const dateMatch = periodValue.match(/(\d{4})[/-](\d{1,2})/);
+      if (dateMatch) {
+        recordYear = dateMatch[1];
+        recordMonth = dateMatch[2];
+      } else {
+        // Try MM/DD/YYYY format
+        const altMatch = periodValue.match(/(\d{1,2})[/-]\d{1,2}[/-](\d{4})/);
+        if (altMatch) {
+          recordMonth = altMatch[1];
+          recordYear = altMatch[2];
+        }
+      }
+    }
+    // Build period-aware key for aggregation (matches roster's emp_month_year key structure)
+    const empPeriodKey = recordMonth || recordYear
+      ? `${empId}_${recordMonth}_${recordYear}`
+      : empId;
+    const storePeriodKey = recordMonth || recordYear
+      ? `${storeId}_${recordMonth}_${recordYear}`
+      : storeId;
+
     // OB-24 R8: Use semantic resolution hierarchy for metrics
     // AI-first: no pattern fallbacks for attainment/amount/goal
     const resolvedMetrics = resolveMetrics(
@@ -614,25 +691,27 @@ function storeAggregatedData(
       goalField         // AI-mapped goal field (or null)
     );
 
-    // Determine if this sheet joins by employee or store
-    const isStoreLevel = isStoreJoinSheet(sheetName) || (!empId && storeId);
+    // OB-24 R9: Determine topology using classifySheets result
+    const topology = sheetTopology.get(sheetName);
+    const isStoreLevel = topology?.topology === 'store_component' || (!empId && storeId);
 
-    // Aggregate by employee ID for employee-level sheets
+    // OB-24 R9: Aggregate by period-aware keys to match roster structure
+    // Aggregate by employee ID + period for employee-level sheets
     if (!isStoreLevel && empId && empId.length >= 3 && empId !== 'undefined') {
-      if (!empComponentMetrics.has(empId)) {
-        empComponentMetrics.set(empId, new Map());
+      if (!empComponentMetrics.has(empPeriodKey)) {
+        empComponentMetrics.set(empPeriodKey, new Map());
       }
-      const empSheets = empComponentMetrics.get(empId)!;
+      const empSheets = empComponentMetrics.get(empPeriodKey)!;
       const existing = empSheets.get(sheetName) as MergedMetrics | undefined;
       empSheets.set(sheetName, mergeMetrics(existing, resolvedMetrics));
     }
 
-    // Aggregate by store ID for store-level sheets
+    // Aggregate by store ID + period for store-level sheets
     if (storeId && storeId.length >= 1) {
-      if (!storeComponentMetrics.has(storeId)) {
-        storeComponentMetrics.set(storeId, new Map());
+      if (!storeComponentMetrics.has(storePeriodKey)) {
+        storeComponentMetrics.set(storePeriodKey, new Map());
       }
-      const storeSheets = storeComponentMetrics.get(storeId)!;
+      const storeSheets = storeComponentMetrics.get(storePeriodKey)!;
       const existing = storeSheets.get(sheetName) as MergedMetrics | undefined;
       storeSheets.set(sheetName, mergeMetrics(existing, resolvedMetrics));
     }
@@ -649,6 +728,12 @@ function storeAggregatedData(
     // OB-24 R6: Use normalized empId for consistent Map key lookup
     const empId = normalizeEmpId(String(emp.employeeId));
     const storeId = String(emp.storeId || '');
+    const month = String(emp.month || '');
+    const year = String(emp.year || '');
+
+    // OB-24 R9: Build period-aware keys matching the component aggregation key format
+    const empPeriodKey = month || year ? `${empId}_${month}_${year}` : empId;
+    const storePeriodKey = month || year ? `${storeId}_${month}_${year}` : storeId;
 
     // Start with identity fields only
     const enriched: Record<string, unknown> = {
@@ -666,20 +751,24 @@ function storeAggregatedData(
     // AI-DRIVEN: Build componentMetrics structure - includes attainmentSource for audit trail
     const componentMetrics: Record<string, { attainment?: number; attainmentSource?: 'source' | 'computed'; amount?: number; goal?: number }> = {};
 
-    // Add employee-level component metrics
-    const empMetrics = empComponentMetrics.get(empId);
+    // OB-24 R9: Add employee-level component metrics using period-aware key
+    const empMetrics = empComponentMetrics.get(empPeriodKey);
     if (empMetrics) {
       for (const [sheetName, metrics] of Array.from(empMetrics.entries())) {
         componentMetrics[sheetName] = { ...metrics };
       }
     }
 
-    // Add store-level component metrics (for sheets that join by store)
-    const storeMetrics = storeComponentMetrics.get(storeId);
+    // OB-24 R9: Add store-level component metrics ONLY for sheets classified as store_component
+    // This is topology-aware: only join store data to employee if the sheet is store-level
+    // Use period-aware key for proper period isolation
+    const storeMetrics = storeComponentMetrics.get(storePeriodKey);
     if (storeMetrics) {
       for (const [sheetName, metrics] of Array.from(storeMetrics.entries())) {
-        // Only add if not already present from employee-level
-        if (!componentMetrics[sheetName]) {
+        const topology = sheetTopology.get(sheetName);
+        // Only add store metrics if sheet is classified as store_component
+        // AND not already present from employee-level
+        if (topology?.topology === 'store_component' && !componentMetrics[sheetName]) {
           componentMetrics[sheetName] = { ...metrics };
         }
       }
