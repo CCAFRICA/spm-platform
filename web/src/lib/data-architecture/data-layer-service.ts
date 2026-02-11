@@ -257,6 +257,331 @@ function loadFromStorageChunked<T>(baseKey: string): Map<string, T> {
 }
 
 // ============================================
+// OB-24 R9: UNICODE-SAFE FIELD LOOKUP
+// ============================================
+
+/**
+ * Unicode-safe field lookup for record access
+ * Handles NFC normalization and case-insensitive fallback
+ * Required for fields like "Año" which may have different Unicode encodings
+ */
+function safeFieldLookup(record: Record<string, unknown>, fieldName: string): unknown {
+  // Direct lookup first (fastest path)
+  if (fieldName in record) return record[fieldName];
+
+  // Normalized lookup (NFC normalization for Unicode consistency)
+  const normalizedTarget = fieldName.normalize('NFC');
+  for (const key of Object.keys(record)) {
+    if (key.normalize('NFC') === normalizedTarget) return record[key];
+  }
+
+  // Case-insensitive fallback
+  const lowerTarget = normalizedTarget.toLowerCase();
+  for (const key of Object.keys(record)) {
+    if (key.normalize('NFC').toLowerCase() === lowerTarget) return record[key];
+  }
+
+  return undefined;
+}
+
+// ============================================
+// OB-24 R9: PERIOD VALUE RESOLVER
+// ============================================
+
+interface ResolvedPeriod {
+  month: number | null;
+  year: number | null;
+}
+
+/**
+ * Multilingual month name map for period resolution
+ * Covers English, Spanish, Portuguese, French, German, Italian
+ */
+const MONTH_NAMES: Record<string, number> = {
+  // English
+  'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+  'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
+  'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'jun': 6, 'jul': 7, 'aug': 8, 'sep': 9, 'sept': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+  // Spanish
+  'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4, 'mayo': 5, 'junio': 6,
+  'julio': 7, 'agosto': 8, 'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12,
+  'ene': 1, 'abr': 4, 'ago': 8, 'dic': 12,
+  // Portuguese
+  'janeiro': 1, 'fevereiro': 2, 'marco': 3, 'março': 3, 'maio': 5, 'junho': 6,
+  'julho': 7, 'setembro': 9, 'outubro': 10, 'novembro': 11, 'dezembro': 12,
+  // French
+  'janvier': 1, 'fevrier': 2, 'février': 2, 'mars': 3, 'avril': 4, 'mai': 5, 'juin': 6,
+  'juillet': 7, 'aout': 8, 'août': 8, 'septembre': 9, 'octobre': 10, 'novembre': 11, 'decembre': 12, 'décembre': 12,
+  // German (august same as English, juli same as July)
+  'januar': 1, 'februar': 2, 'marz': 3, 'märz': 3, 'juni': 6,
+  'oktober': 10, 'dezember': 12,
+  // Italian
+  'gennaio': 1, 'febbraio': 2, 'aprile': 4, 'maggio': 5, 'giugno': 6,
+  'luglio': 7, 'settembre': 9, 'ottobre': 10, 'dicembre': 12,
+};
+
+/**
+ * Parse month from string value (month name or numeric)
+ */
+function parseMonthValue(value: string): number | null {
+  const cleaned = value.trim().toLowerCase();
+
+  // Try month name lookup
+  if (MONTH_NAMES[cleaned]) return MONTH_NAMES[cleaned];
+
+  // Try numeric
+  const num = parseInt(cleaned, 10);
+  if (!isNaN(num) && num >= 1 && num <= 12) return num;
+
+  // Try CJK month pattern (1月, 2月, etc.)
+  const cjkMatch = cleaned.match(/^(\d{1,2})月$/);
+  if (cjkMatch) {
+    const m = parseInt(cjkMatch[1], 10);
+    if (m >= 1 && m <= 12) return m;
+  }
+
+  return null;
+}
+
+/**
+ * Parse year from string value
+ */
+function parseYearValue(value: string): number | null {
+  const cleaned = value.trim();
+
+  // Try numeric (4-digit year)
+  const num = parseInt(cleaned, 10);
+  if (!isNaN(num) && num >= 1900 && num <= 2100) return num;
+
+  // Try CJK year pattern (2024年)
+  const cjkMatch = cleaned.match(/^(\d{4})年$/);
+  if (cjkMatch) return parseInt(cjkMatch[1], 10);
+
+  // Try 2-digit year (24 -> 2024)
+  if (!isNaN(num) && num >= 0 && num <= 99) {
+    return num < 50 ? 2000 + num : 1900 + num;
+  }
+
+  return null;
+}
+
+/**
+ * Classify a value as month, year, or unknown based on its numeric range
+ * Uses parseMonthValue and parseYearValue for comprehensive pattern handling
+ */
+function classifyPeriodValue(value: unknown): { type: 'month' | 'year' | 'unknown'; value: number | null } {
+  if (value === null || value === undefined) return { type: 'unknown', value: null };
+
+  const str = String(value).trim();
+  if (!str) return { type: 'unknown', value: null };
+
+  // Check for year patterns first (including CJK like 2024年)
+  const yearFromPattern = parseYearValue(str);
+  if (yearFromPattern !== null && yearFromPattern >= 1900) {
+    return { type: 'year', value: yearFromPattern };
+  }
+
+  // Check for month name (including CJK like 1月)
+  const monthFromName = parseMonthValue(str);
+  if (monthFromName !== null) {
+    return { type: 'month', value: monthFromName };
+  }
+
+  // Try as plain number
+  const num = parseFloat(str);
+  if (isNaN(num)) return { type: 'unknown', value: null };
+
+  // Classify by range
+  if (num >= 1900 && num <= 2100) return { type: 'year', value: Math.floor(num) };
+  if (num >= 1 && num <= 12) return { type: 'month', value: Math.floor(num) };
+
+  return { type: 'unknown', value: null };
+}
+
+/**
+ * Resolve period from a record using multiple strategies
+ * Handles: Date objects, ISO strings, separate month/year fields, combined strings, month names
+ */
+function resolvePeriodFromRecord(
+  record: Record<string, unknown>,
+  periodFields: string[],
+  dateFields: string[]
+): ResolvedPeriod {
+  let month: number | null = null;
+  let year: number | null = null;
+
+  const allFields = [...periodFields, ...dateFields];
+
+  // Strategy 1: Date objects or ISO date strings
+  for (const fieldName of allFields) {
+    const value = safeFieldLookup(record, fieldName);
+    if (value === null || value === undefined) continue;
+
+    // Check for Date object
+    if (value instanceof Date && !isNaN(value.getTime())) {
+      return { month: value.getMonth() + 1, year: value.getFullYear() };
+    }
+
+    // Check for ISO date string (2024-01-31, 2024-01-31T00:00:00Z)
+    const str = String(value).trim();
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      return { month: parseInt(isoMatch[2], 10), year: parseInt(isoMatch[1], 10) };
+    }
+  }
+
+  // Strategy 2: Multiple period fields - classify by value range
+  if (periodFields.length >= 2) {
+    const classifications: Array<{ field: string; type: 'month' | 'year' | 'unknown'; value: number | null }> = [];
+
+    for (const fieldName of periodFields) {
+      const rawValue = safeFieldLookup(record, fieldName);
+      const classification = classifyPeriodValue(rawValue);
+      classifications.push({ field: fieldName, ...classification });
+    }
+
+    // Extract month and year from classifications
+    const monthClass = classifications.find(c => c.type === 'month');
+    const yearClass = classifications.find(c => c.type === 'year');
+
+    if (monthClass && monthClass.value !== null) month = monthClass.value;
+    if (yearClass && yearClass.value !== null) year = yearClass.value;
+
+    // If we found both, return
+    if (month !== null && year !== null) {
+      return { month, year };
+    }
+
+    // If we have two values that both look like months (1-12), use field name heuristic
+    const monthCandidates = classifications.filter(c => c.type === 'month');
+    if (monthCandidates.length >= 2 && year === null) {
+      // Look for year-like field names
+      const yearKeywords = ['year', 'año', 'ano', 'jahr', 'annee', 'année', '年', '년'];
+      for (const candidate of monthCandidates) {
+        const fieldLower = candidate.field.toLowerCase().normalize('NFC');
+        if (yearKeywords.some(kw => fieldLower.includes(kw))) {
+          // This field is actually a year despite its numeric value
+          year = candidate.value;
+          // Use the other month candidate
+          const otherMonth = monthCandidates.find(c => c.field !== candidate.field);
+          if (otherMonth && otherMonth.value !== null) month = otherMonth.value;
+          break;
+        }
+      }
+    }
+
+    if (month !== null || year !== null) {
+      return { month, year };
+    }
+  }
+
+  // Strategy 3: Single period field with combined value
+  for (const fieldName of periodFields) {
+    const value = safeFieldLookup(record, fieldName);
+    if (value === null || value === undefined) continue;
+
+    const str = String(value).trim();
+
+    // Try "Month Year" format (January 2024, Enero 2024)
+    const monthYearMatch = str.match(/^([a-zA-ZáéíóúñüÀ-ÿ]+)\s+(\d{4})$/i);
+    if (monthYearMatch) {
+      const parsedMonth = parseMonthValue(monthYearMatch[1]);
+      const parsedYear = parseInt(monthYearMatch[2], 10);
+      if (parsedMonth !== null && parsedYear >= 1900 && parsedYear <= 2100) {
+        return { month: parsedMonth, year: parsedYear };
+      }
+    }
+
+    // Try "Year-Month" format (2024-01)
+    const yearMonthMatch = str.match(/^(\d{4})-(\d{1,2})$/);
+    if (yearMonthMatch) {
+      const parsedYear = parseInt(yearMonthMatch[1], 10);
+      const parsedMonth = parseInt(yearMonthMatch[2], 10);
+      if (parsedMonth >= 1 && parsedMonth <= 12 && parsedYear >= 1900) {
+        return { month: parsedMonth, year: parsedYear };
+      }
+    }
+
+    // Try MM/DD/YYYY or DD/MM/YYYY format
+    const slashMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (slashMatch) {
+      const parsedYear = parseInt(slashMatch[3], 10);
+      // Assume first number is month (US format) if <= 12
+      const first = parseInt(slashMatch[1], 10);
+      if (first >= 1 && first <= 12) {
+        return { month: first, year: parsedYear };
+      }
+    }
+
+    // Try quarter format (Q1 2024)
+    const quarterMatch = str.match(/^Q([1-4])\s+(\d{4})$/i);
+    if (quarterMatch) {
+      const quarter = parseInt(quarterMatch[1], 10);
+      const parsedYear = parseInt(quarterMatch[2], 10);
+      // Map quarter to first month of quarter
+      return { month: (quarter - 1) * 3 + 1, year: parsedYear };
+    }
+  }
+
+  // Strategy 4: Single value classification (if only one period field)
+  if (periodFields.length === 1) {
+    const value = safeFieldLookup(record, periodFields[0]);
+    const classification = classifyPeriodValue(value);
+    if (classification.type === 'month') month = classification.value;
+    if (classification.type === 'year') year = classification.value;
+  }
+
+  // Strategy 5: Try date fields as fallback
+  for (const fieldName of dateFields) {
+    const value = safeFieldLookup(record, fieldName);
+    if (value === null || value === undefined) continue;
+
+    const str = String(value).trim();
+
+    // Try various date formats
+    const datePatterns = [
+      /^(\d{4})-(\d{1,2})-(\d{1,2})/, // ISO
+      /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/, // US/EU
+    ];
+
+    for (const pattern of datePatterns) {
+      const match = str.match(pattern);
+      if (match) {
+        if (pattern.source.startsWith('^(\\d{4})')) {
+          // ISO format: year first
+          year = parseInt(match[1], 10);
+          month = parseInt(match[2], 10);
+        } else {
+          // US/EU format: year last
+          year = parseInt(match[3], 10);
+          month = parseInt(match[1], 10);
+          if (month > 12) month = parseInt(match[2], 10); // Try second position
+        }
+        if (month >= 1 && month <= 12 && year >= 1900) {
+          return { month, year };
+        }
+      }
+    }
+  }
+
+  // Strategy 6: No period determinable
+  return { month, year };
+}
+
+/**
+ * Get all field names for a semantic type from sheet info
+ */
+function getAllFieldsForSemantic(
+  sheetInfo: { fieldMappings?: Array<{ sourceColumn: string; semanticType: string }> } | undefined,
+  semanticType: string
+): string[] {
+  if (!sheetInfo?.fieldMappings) return [];
+  return sheetInfo.fieldMappings
+    .filter(fm => fm.semanticType?.toLowerCase() === semanticType.toLowerCase())
+    .map(fm => fm.sourceColumn);
+}
+
+// ============================================
 // OB-24 R9: SHEET TOPOLOGY CLASSIFICATION
 // ============================================
 
@@ -392,15 +717,16 @@ function storeAggregatedData(
   // STEP 2: Build employee map from ROSTER using AI field mappings
   const employeeMap = new Map<string, Record<string, unknown>>();
 
-  // AI-DRIVEN: Helper to find field value by semantic type
+  // AI-DRIVEN: Helper to find field value by semantic type (uses safeFieldLookup for Unicode safety)
   const findFieldBySemantic = (row: Record<string, unknown>, semanticTypes: string[]): unknown => {
     if (!rosterSheetInfo?.fieldMappings) return undefined;
     for (const semantic of semanticTypes) {
       const mapping = rosterSheetInfo.fieldMappings.find(
         fm => fm.semanticType.toLowerCase() === semantic.toLowerCase()
       );
-      if (mapping && row[mapping.sourceColumn] !== undefined) {
-        return row[mapping.sourceColumn];
+      if (mapping) {
+        const value = safeFieldLookup(row, mapping.sourceColumn);
+        if (value !== undefined) return value;
       }
     }
     return undefined;
@@ -417,15 +743,20 @@ function storeAggregatedData(
     return '';
   };
 
+  // OB-24 R9: Get all period and date fields from roster for period resolution
+  const rosterPeriodFields = getAllFieldsForSemantic(rosterSheetInfo, 'period');
+  const rosterDateFields = getAllFieldsForSemantic(rosterSheetInfo, 'date');
+
   for (const row of rosterRecords) {
     // AI-DRIVEN: Get employee ID using ONLY AI semantic mapping (NO HARDCODED FALLBACKS)
     const empId = getFieldValue(row, ['employeeId', 'employee_id']);
     if (!empId || empId.length < 3 || empId === 'undefined' || empId === 'null') continue;
 
-    // Get period fields using AI semantic mapping
-    const month = getFieldValue(row, ['period', 'month']);
-    const year = getFieldValue(row, ['year']);
-    const key = month || year ? `${empId}_${month}_${year}` : empId;
+    // OB-24 R9: Use resolvePeriodFromRecord for multi-field period extraction
+    const resolvedPeriod = resolvePeriodFromRecord(row, rosterPeriodFields, rosterDateFields);
+    const monthKey = resolvedPeriod.month !== null ? String(resolvedPeriod.month) : '';
+    const yearKey = resolvedPeriod.year !== null ? String(resolvedPeriod.year) : '';
+    const key = monthKey || yearKey ? `${empId}_${monthKey}_${yearKey}` : empId;
 
     if (!employeeMap.has(key)) {
       employeeMap.set(key, {
@@ -435,8 +766,9 @@ function storeAggregatedData(
         role: getFieldValue(row, ['role', 'position', 'employeeType', 'jobTitle']),
         storeId: getFieldValue(row, ['storeId', 'locationId', 'store']),
         storeRange: getFieldValue(row, ['storeRange', 'category', 'storeCategory']),
-        month,
-        year,
+        // OB-24 R9: Store resolved period as numbers for consistent type handling
+        month: resolvedPeriod.month,
+        year: resolvedPeriod.year,
         tenantId,
         batchId,
       });
@@ -598,24 +930,24 @@ function storeAggregatedData(
     return value;
   };
 
-  // Resolve metrics using semantic resolution hierarchy
+  // Resolve metrics using semantic resolution hierarchy (uses safeFieldLookup for Unicode safety)
   const resolveMetrics = (
     record: Record<string, unknown>,
     attainmentField: string | null,
     amountField: string | null,
     goalField: string | null
   ): ResolvedMetrics => {
-    // 1. Resolve amount (AI-mapped amount or quantity)
-    const amount = amountField ? parseNumeric(record[amountField]) : undefined;
+    // 1. Resolve amount (AI-mapped amount or quantity) - using safeFieldLookup
+    const amount = amountField ? parseNumeric(safeFieldLookup(record, amountField)) : undefined;
 
-    // 2. Resolve goal
-    const goal = goalField ? parseNumeric(record[goalField]) : undefined;
+    // 2. Resolve goal - using safeFieldLookup
+    const goal = goalField ? parseNumeric(safeFieldLookup(record, goalField)) : undefined;
 
     // 3. Resolve attainment using hierarchy
     let attainment: number | undefined;
     let attainmentSource: 'source' | 'computed' | undefined;
 
-    const rawAttainment = attainmentField ? record[attainmentField] : undefined;
+    const rawAttainment = attainmentField ? safeFieldLookup(record, attainmentField) : undefined;
     if (attainmentField && rawAttainment !== undefined && rawAttainment !== null && rawAttainment !== '') {
       // Case 1: AI-mapped attainment column exists - use source value
       attainment = normalizeAttainment(parseNumeric(rawAttainment));
@@ -676,8 +1008,13 @@ function storeAggregatedData(
     // OB-24 R7: Use quantity as fallback for amount (both represent actual values)
     const amountField = getSheetFieldBySemantic(sheetName, 'amount') || getSheetFieldBySemantic(sheetName, 'quantity');
     const goalField = getSheetFieldBySemantic(sheetName, 'goal');
-    // OB-24 R9: Extract period fields for period-aware aggregation
-    const periodField = getSheetFieldBySemantic(sheetName, 'period') || getSheetFieldBySemantic(sheetName, 'date');
+    // OB-24 R9: Get ALL period and date fields for multi-field period resolution
+    const sheetInfo = aiContext?.sheets.find(s => {
+      const sheet = s as { sheetName?: string; name?: string };
+      return ((sheet.sheetName || sheet.name || '').toLowerCase() === sheetName.toLowerCase());
+    });
+    const componentPeriodFields = getAllFieldsForSemantic(sheetInfo, 'period');
+    const componentDateFields = getAllFieldsForSemantic(sheetInfo, 'date');
 
     // OB-24 R8: Fallback for ID fields only (structural, not semantic)
     // Metrics use AI-first approach via resolveMetrics()
@@ -705,29 +1042,15 @@ function storeAggregatedData(
       continue;
     }
 
-    // Extract IDs
-    const empId = effectiveEmpIdField ? normalizeEmpId(String(content[effectiveEmpIdField] || '')) : '';
-    const storeId = effectiveStoreIdField ? String(content[effectiveStoreIdField] || '').trim() : '';
+    // Extract IDs using safeFieldLookup for Unicode safety
+    const empId = effectiveEmpIdField ? normalizeEmpId(String(safeFieldLookup(content, effectiveEmpIdField) || '')) : '';
+    const storeId = effectiveStoreIdField ? String(safeFieldLookup(content, effectiveStoreIdField) || '').trim() : '';
 
-    // OB-24 R9: Extract period from component record for period-aware aggregation
-    let recordMonth = '';
-    let recordYear = '';
-    if (periodField) {
-      const periodValue = String(content[periodField] || '');
-      // Try to parse date-like values (2024-01-15, 01/15/2024, etc.)
-      const dateMatch = periodValue.match(/(\d{4})[/-](\d{1,2})/);
-      if (dateMatch) {
-        recordYear = dateMatch[1];
-        recordMonth = dateMatch[2];
-      } else {
-        // Try MM/DD/YYYY format
-        const altMatch = periodValue.match(/(\d{1,2})[/-]\d{1,2}[/-](\d{4})/);
-        if (altMatch) {
-          recordMonth = altMatch[1];
-          recordYear = altMatch[2];
-        }
-      }
-    }
+    // OB-24 R9: Use resolvePeriodFromRecord for multi-field period extraction
+    const componentPeriod = resolvePeriodFromRecord(content, componentPeriodFields, componentDateFields);
+    const recordMonth = componentPeriod.month !== null ? String(componentPeriod.month) : '';
+    const recordYear = componentPeriod.year !== null ? String(componentPeriod.year) : '';
+
     // Build period-aware key for aggregation (matches roster's emp_month_year key structure)
     const empPeriodKey = recordMonth || recordYear
       ? `${empId}_${recordMonth}_${recordYear}`
