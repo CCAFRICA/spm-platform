@@ -586,30 +586,6 @@ export class CalculationOrchestrator {
     // AI-DRIVEN PRIORITY 0: Extract metrics from aggregated employee attributes using AI mappings
     const aiMetrics = this.extractMetricsWithAIMappings(employee);
 
-    // OB-30 DIAGNOSTIC: Dump metrics for specific employee
-    if (employee.id?.includes('90198149') || employee.employeeNumber?.includes('90198149')) {
-      const attrs = employee.attributes as Record<string, unknown> | undefined;
-      const componentMetrics = attrs?.componentMetrics as Record<string, unknown> | undefined;
-      console.log('[METRICS-DUMP] Employee 90198149');
-      console.log('[METRICS-DUMP] componentMetrics sheets:', componentMetrics ? Object.keys(componentMetrics) : 'null');
-      // Show raw values per sheet to trace attainment source
-      if (componentMetrics) {
-        for (const [sheet, values] of Object.entries(componentMetrics)) {
-          const v = values as Record<string, unknown>;
-          console.log(`[METRICS-DUMP] Sheet "${sheet}":`, {
-            attainment: v.attainment,
-            amount: v.amount,
-            goal: v.goal
-          });
-        }
-      }
-      // Show final metrics that feed into calculation
-      console.log('[METRICS-DUMP] FINAL aiMetrics:', JSON.stringify(aiMetrics, null, 2));
-      console.log('[METRICS-DUMP] --- GT Expected Values ---');
-      console.log('[METRICS-DUMP] store_sales_attainment: GT=101.8 VL=' + aiMetrics?.store_sales_attainment);
-      console.log('[METRICS-DUMP] store_optical_sales: GT=$60k-$100k VL=' + aiMetrics?.store_optical_sales);
-    }
-
     if (aiMetrics && Object.keys(aiMetrics).length > 0) {
       return {
         employeeId: employee.id,
@@ -791,32 +767,6 @@ export class CalculationOrchestrator {
       }
     }
 
-    // OB-30-7v2: METRIC-TRACE diagnostic for store vs individual resolution
-    const empId = employee.id || employee.employeeNumber || '';
-    if (empId.includes('90198149')) {
-      console.log('[METRIC-TRACE] === Building aiMetrics for 90198149 ===');
-      console.log('[METRIC-TRACE] Sheets in componentMetrics:', Object.keys(componentMetrics));
-      for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
-        const sd = sheetData as Record<string, unknown>;
-        console.log(`[METRIC-TRACE] Sheet "${sheetName}":`, {
-          attainment: sd.attainment,
-          amount: sd.amount,
-          goal: sd.goal,
-          _storeAmount: sd._storeAmount,
-        });
-      }
-      console.log('[METRIC-TRACE] Component-to-Sheet mapping:');
-      for (const [compId, sheet] of Array.from(componentSheetMap.entries())) {
-        const comp = this.planComponents.find(c => c.id === compId);
-        const measLevel = (comp as unknown as Record<string, unknown>)?.measurementLevel;
-        console.log(`[METRIC-TRACE]   ${compId} ("${comp?.name}") -> "${sheet}" (measurementLevel: ${measLevel})`);
-      }
-      console.log('[METRIC-TRACE] AI Import Context sheets:', this.aiImportContext?.sheets?.map(s => ({
-        name: s.sheetName || (s as unknown as Record<string, unknown>).name,
-        matchedComponent: s.matchedComponent,
-      })));
-    }
-
     // HF-018: Now build metrics - each component uses ONLY its matched sheet
     for (const component of this.planComponents) {
       const matchedSheet = componentSheetMap.get(component.id);
@@ -900,9 +850,6 @@ export class CalculationOrchestrator {
             const storeTotal = storeTotals.get(matchedSheet);
             if (storeTotal !== undefined) {
               resolved[colMetric] = storeTotal;
-              if (empId.includes('90198149')) {
-                console.log(`[FIX-VERIFY] ${colMetric}: individual=${enrichedMetrics.amount}, storeTotal=${storeTotal} (from storeAmountTotals)`);
-              }
             }
           }
         }
@@ -914,17 +861,6 @@ export class CalculationOrchestrator {
           metrics[key] = value;
         }
       }
-    }
-
-    // OB-30-7v2: FIX-VERIFY diagnostic for employee 90198149
-    if (empId.includes('90198149')) {
-      console.log('[METRIC-TRACE] FINAL aiMetrics:', JSON.stringify(metrics, null, 2));
-      console.log('[FIX-VERIFY] store_sales_attainment:', metrics.store_sales_attainment,
-        '(should be ~101.8, was 97.1)');
-      console.log('[FIX-VERIFY] store_optical_sales:', metrics.store_optical_sales,
-        '(should be store total $60K-$180K range, was 217265)');
-      console.log('[FIX-VERIFY] new_customers_attainment:', metrics.new_customers_attainment,
-        '(should come from Base_Clientes_Nuevos store record)');
     }
 
     return Object.keys(metrics).length > 0 ? metrics : null;
