@@ -205,6 +205,38 @@ export class CalculationOrchestrator {
       const activePlan = activePlans[0];
       console.log(`[Orchestrator] Using active plan: ${activePlan.name} (${activePlan.id})`);
 
+      // [ORCH-PLAN-DIAG] Brute force: what plan is the orchestrator actually holding?
+      if (activePlan.configuration.type === 'additive_lookup') {
+        const variants = activePlan.configuration.variants;
+        console.log('[ORCH-PLAN-DIAG] Plan name:', activePlan.name);
+        console.log('[ORCH-PLAN-DIAG] Plan ID:', activePlan.id);
+        console.log('[ORCH-PLAN-DIAG] Variants:', variants.length);
+        for (const v of variants) {
+          console.log('[ORCH-PLAN-DIAG] Variant:', v.variantId, '| Components:', v.components.length);
+          for (const c of v.components) {
+            if (c.tierConfig) {
+              console.log('[ORCH-PLAN-DIAG]   ' + c.name + ' (' + c.id + '): ' + c.tierConfig.tiers.length + ' tiers, metric=' + c.tierConfig.metric);
+              c.tierConfig.tiers.forEach((t, i) => console.log('[ORCH-PLAN-DIAG]     [' + i + '] ' + t.min + '-' + t.max + ' -> $' + t.value));
+            }
+            if (c.matrixConfig) {
+              console.log('[ORCH-PLAN-DIAG]   ' + c.name + ' (' + c.id + '): matrix ' + c.matrixConfig.rowBands.length + 'x' + c.matrixConfig.columnBands.length);
+              console.log('[ORCH-PLAN-DIAG]     colBands:', JSON.stringify(c.matrixConfig.columnBands.map(b => b.min + '-' + b.max)));
+              console.log('[ORCH-PLAN-DIAG]     row[0]:', JSON.stringify(c.matrixConfig.values[0]));
+            }
+          }
+        }
+      }
+      // Also log what's in localStorage directly
+      if (typeof window !== 'undefined') {
+        const rawPlans = localStorage.getItem('compensation_plans');
+        if (rawPlans) {
+          const parsed = JSON.parse(rawPlans);
+          const active = parsed.filter((p: { status: string }) => p.status === 'active');
+          console.log('[ORCH-PLAN-DIAG] localStorage active plans:', active.length);
+          active.forEach((p: { id: string; name: string }) => console.log('[ORCH-PLAN-DIAG]   LS plan:', p.id, p.name));
+        }
+      }
+
       // OB-21: Extract all plan components for plan-driven metric resolution
       if (activePlan.configuration.type === 'additive_lookup') {
         this.planComponents = activePlan.configuration.variants.flatMap(v => v.components);
