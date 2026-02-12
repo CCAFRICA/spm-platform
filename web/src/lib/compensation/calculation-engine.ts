@@ -217,9 +217,6 @@ function calculateComponent(
   component: PlanComponent,
   metrics: EmployeeMetrics
 ): CalculationStep {
-  // OB-27: Log component calculation for audit trail
-  console.log(`[CalcEngine] Calculating "${component.name}" (${component.componentType}) for ${metrics.employeeName}`);
-
   let result: CalculationStep;
 
   switch (component.componentType) {
@@ -238,13 +235,6 @@ function calculateComponent(
     default:
       console.error(`[CalcEngine] ${component.name}: Unknown component type "${component.componentType}"`);
       result = createZeroStep(component, `Unknown component type: ${component.componentType}`);
-  }
-
-  // OB-27: Log result for audit trail
-  if (result.outputValue === 0 && result.description) {
-    console.warn(`[CalcEngine] ${component.name}: $0 output - ${result.description}`);
-  } else {
-    console.log(`[CalcEngine] ${component.name}: $${result.outputValue.toLocaleString()}`);
   }
 
   return result;

@@ -574,11 +574,6 @@ export class CalculationOrchestrator {
     // Certified if contains CERTIFICADO but NOT "NO CERTIFICADO"
     const isCertified = hasCertificado && !hasNoCertificado;
 
-    // OB-27B: Log variant resolution for diagnostic
-    if (hasCertificado || hasNoCertificado) {
-      console.log(`[Orchestrator] Variant resolution: "${employee.role}" -> normalized: "${role}" -> isCertified: ${isCertified}`);
-    }
-
     return isCertified;
   }
 
