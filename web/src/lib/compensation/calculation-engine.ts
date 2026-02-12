@@ -197,19 +197,32 @@ function findMatchingVariant(config: AdditiveLookupConfig, metrics: EmployeeMetr
   // HF-019: Treat undefined isCertified as false (non-certified default)
   const employeeIsCertified = metrics.isCertified ?? false;
 
-  return config.variants.find((variant) => {
-    if (!variant.eligibilityCriteria) return true;
+  // OB-30 FIX: Prefer EXACT matches over "no criteria" matches.
+  // This prevents empty eligibilityCriteria ({}) from matching everyone.
 
-    // Check certification match
-    if (
-      'isCertified' in variant.eligibilityCriteria &&
-      variant.eligibilityCriteria.isCertified !== employeeIsCertified
-    ) {
+  // First pass: Find variant with explicit isCertified match
+  const exactMatch = config.variants.find((variant) => {
+    const criteria = variant.eligibilityCriteria;
+    // Skip variants with no criteria or empty object
+    if (!criteria || typeof criteria !== 'object' || Object.keys(criteria).length === 0) {
       return false;
     }
-
-    return true;
+    // Check for explicit isCertified match
+    if ('isCertified' in criteria) {
+      return criteria.isCertified === employeeIsCertified;
+    }
+    return false;
   });
+
+  if (exactMatch) return exactMatch;
+
+  // Second pass: Find variant with no criteria (universal fallback)
+  const universalMatch = config.variants.find((variant) => {
+    const criteria = variant.eligibilityCriteria;
+    return !criteria || typeof criteria !== 'object' || Object.keys(criteria).length === 0;
+  });
+
+  return universalMatch;
 }
 
 // ============================================

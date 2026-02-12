@@ -28,6 +28,7 @@ import {
   type SheetMetrics,
 } from './metric-resolver';
 import type { PlanComponent } from '@/types/compensation-plan';
+import { saveResultsToIndexedDB } from '@/lib/calculation/indexed-db-storage';
 
 // ============================================
 // STORAGE KEYS
@@ -250,9 +251,10 @@ export class CalculationOrchestrator {
 
       this.saveRun(run);
 
-      // Store results if not dry run
-      if (!config.options?.dryRun) {
-        this.saveResults(results, run.id);
+      // OB-30: Expose results on window for diagnostic scripts
+      if (typeof window !== 'undefined') {
+        (window as unknown as { __VL_RESULTS: CalculationResult[] }).__VL_RESULTS = results;
+        console.log('[Orchestrator] Results exposed on window.__VL_RESULTS:', results.length, 'employees');
       }
 
       // Log audit event for calculation completion
@@ -940,33 +942,40 @@ export class CalculationOrchestrator {
   private static readonly CALC_CHUNK_PREFIX = 'vialuce_calculations_chunk_';
   private static readonly CALC_INDEX_KEY = 'vialuce_calculations_index';
 
+  /**
+   * OB-30-1: Save results to IndexedDB (50MB+ limit vs localStorage's ~5MB)
+   * This replaces the broken localStorage chunked approach.
+   */
+  private async saveResultsAsync(results: CalculationResult[], runId: string, totalPayout: number): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+
+    console.log(`[Orchestrator] OB-30-1: Saving ${results.length} results to IndexedDB...`);
+
+    const success = await saveResultsToIndexedDB(runId, this.tenantId, results, totalPayout);
+
+    if (success) {
+      console.log(`[Orchestrator] OB-30-1: Successfully saved ${results.length} results to IndexedDB`);
+    } else {
+      console.error(`[Orchestrator] OB-30-1: FAILED to save results to IndexedDB`);
+    }
+
+    return success;
+  }
+
+  // Legacy sync wrapper for backward compatibility
   private saveResults(results: CalculationResult[], runId: string): void {
-    if (typeof window === 'undefined') return;
+    // Get total payout for the index
+    const totalPayout = results.reduce((sum, r) => sum + r.totalIncentive, 0);
 
-    const existing = this.getAllResults();
-
-    // Add run ID to each result
-    const newResults = results.map((r) => ({
-      ...r,
-      runId,
-    }));
-
-    // Remove old results for same period/employees
-    const filtered = existing.filter((e) => {
-      const matchingNew = newResults.find(
-        (n) => n.employeeId === e.employeeId && n.period === e.period
-      );
-      return !matchingNew;
+    // Fire async save - don't await in sync context
+    this.saveResultsAsync(results, runId, totalPayout).catch((error) => {
+      console.error('[Orchestrator] Async save failed:', error);
     });
-
-    const allResults = [...filtered, ...newResults];
-
-    // OB-22: Use chunked storage
-    this.saveResultsChunked(allResults);
   }
 
   /**
    * OB-22: Save results in chunks to avoid localStorage limits
+   * OB-30-1: Added eviction strategy for QuotaExceededError
    */
   private saveResultsChunked(results: (CalculationResult & { runId?: string })[]): void {
     // Clear old chunks first
@@ -980,26 +989,162 @@ export class CalculationOrchestrator {
 
     console.log(`[Orchestrator] OB-22: Saving ${results.length} results in ${chunks.length} chunks`);
 
-    // Save each chunk
+    // OB-30-1: Track which chunks saved successfully
+    let savedChunks = 0;
+    let evictionAttempts = 0;
+    const maxEvictionAttempts = 3;
+
+    // Save each chunk with eviction retry
     for (let i = 0; i < chunks.length; i++) {
       const chunkKey = `${CalculationOrchestrator.CALC_CHUNK_PREFIX}${i}`;
-      try {
-        localStorage.setItem(chunkKey, JSON.stringify(chunks[i]));
-      } catch (error) {
-        console.error(`[Orchestrator] Failed to save chunk ${i}:`, error);
-        // Try smaller chunk size on failure
+      let saved = false;
+
+      while (!saved && evictionAttempts < maxEvictionAttempts) {
+        try {
+          localStorage.setItem(chunkKey, JSON.stringify(chunks[i]));
+          saved = true;
+          savedChunks++;
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+            evictionAttempts++;
+            console.warn(`[Orchestrator] QuotaExceededError on chunk ${i}, eviction attempt ${evictionAttempts}`);
+            const evicted = this.evictStorageForSpace();
+            if (!evicted) {
+              console.error(`[Orchestrator] CRITICAL: No more data to evict. Cannot save results.`);
+              break;
+            }
+          } else {
+            console.error(`[Orchestrator] Failed to save chunk ${i}:`, error);
+            break;
+          }
+        }
+      }
+
+      if (!saved) {
+        console.error(`[Orchestrator] CRITICAL: Failed to save chunk ${i} after ${evictionAttempts} eviction attempts`);
         break;
       }
     }
 
-    // Save index
+    // Save index with actual saved count
     const index = {
-      chunkCount: chunks.length,
-      totalResults: results.length,
+      chunkCount: savedChunks,
+      totalResults: savedChunks * CalculationOrchestrator.CHUNK_SIZE,
       savedAt: new Date().toISOString(),
       tenantId: this.tenantId,
     };
     localStorage.setItem(CalculationOrchestrator.CALC_INDEX_KEY, JSON.stringify(index));
+
+    if (savedChunks < chunks.length) {
+      console.error(`[Orchestrator] WARNING: Only saved ${savedChunks}/${chunks.length} chunks (${savedChunks * CalculationOrchestrator.CHUNK_SIZE}/${results.length} results)`);
+    } else {
+      console.log(`[Orchestrator] Successfully saved all ${chunks.length} chunks`);
+    }
+  }
+
+  /**
+   * OB-30-1: Evict storage to free space for results
+   * Returns true if something was evicted, false if nothing left to evict
+   */
+  private evictStorageForSpace(): boolean {
+    if (typeof window === 'undefined') return false;
+
+    // STRATEGY 1: Evict old import staging data (not committed)
+    const stagingKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('data_layer_') && !key.includes('_committed_') && !key.includes('_aggregated_')) {
+        stagingKeys.push(key);
+      }
+    }
+    if (stagingKeys.length > 0) {
+      console.log(`[Orchestrator] Evicting ${stagingKeys.length} staging data keys`);
+      for (const key of stagingKeys) {
+        localStorage.removeItem(key);
+      }
+      return true;
+    }
+
+    // STRATEGY 2: Evict old import mappings
+    const importKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('import_') || key.startsWith('sheet_mapping_'))) {
+        importKeys.push(key);
+      }
+    }
+    if (importKeys.length > 0) {
+      console.log(`[Orchestrator] Evicting ${importKeys.length} import mapping keys`);
+      for (const key of importKeys) {
+        localStorage.removeItem(key);
+      }
+      return true;
+    }
+
+    // STRATEGY 3: Evict audit logs (keep last 100)
+    const auditKey = 'audit_log';
+    const auditStr = localStorage.getItem(auditKey);
+    if (auditStr) {
+      try {
+        const auditLogs = JSON.parse(auditStr);
+        if (Array.isArray(auditLogs) && auditLogs.length > 100) {
+          console.log(`[Orchestrator] Trimming audit logs from ${auditLogs.length} to 100`);
+          localStorage.setItem(auditKey, JSON.stringify(auditLogs.slice(-100)));
+          return true;
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
+    // STRATEGY 4: Evict old transaction/dispute data
+    const transactionKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.includes('_transactions') || key.includes('_disputes'))) {
+        transactionKeys.push(key);
+      }
+    }
+    if (transactionKeys.length > 0) {
+      console.log(`[Orchestrator] Evicting ${transactionKeys.length} transaction/dispute keys`);
+      for (const key of transactionKeys) {
+        localStorage.removeItem(key);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * OB-30-1: Evict aggregated data to make room for calculation results
+   * This is safe to call AFTER calculation completes because:
+   * - Results are already computed and in memory
+   * - Aggregated data (~6.5MB) is only needed during calculation
+   * - Freeing this space allows results to be saved
+   */
+  private evictAggregatedDataForResultStorage(): void {
+    if (typeof window === 'undefined') return;
+
+    const keysToEvict: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.includes('_committed_aggregated_')) {
+        keysToEvict.push(key);
+      }
+    }
+
+    if (keysToEvict.length > 0) {
+      let freedBytes = 0;
+      for (const key of keysToEvict) {
+        const value = localStorage.getItem(key);
+        if (value) {
+          freedBytes += value.length * 2; // UTF-16 encoding
+        }
+        localStorage.removeItem(key);
+      }
+      console.log(`[Orchestrator] OB-30-1: Evicted ${keysToEvict.length} aggregated data keys (~${(freedBytes / 1024 / 1024).toFixed(2)}MB freed)`);
+    }
   }
 
   /**
