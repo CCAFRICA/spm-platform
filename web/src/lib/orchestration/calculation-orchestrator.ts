@@ -158,6 +158,8 @@ export class CalculationOrchestrator {
   private storeAmountTotals = new Map<string, Map<string, number>>();
   // OB-30-7v2: Sheet topology cache for the orchestrator
   private sheetTopologyMap = new Map<string, 'employee_component' | 'store_component' | 'roster'>();
+  // OB-30-9: Temporary ref for diagnostic (remove after OPTICAL-DIAG)
+  private lastEmployeeList: EmployeeData[] = [];
 
   constructor(tenantId: string) {
     // OB-16: Normalize tenantId - strip trailing underscores to prevent data mismatch
@@ -216,6 +218,7 @@ export class CalculationOrchestrator {
       // Topology is needed to distinguish employee vs store sheets when summing
       this.buildSheetTopology();
       this.buildStoreAmountTotals(employees);
+      this.lastEmployeeList = employees; // OB-30-9: diagnostic ref
 
       // Process each employee
       const results: CalculationResult[] = [];
@@ -769,6 +772,9 @@ export class CalculationOrchestrator {
       }
     }
 
+    // OB-30-9: Get cumulative store metrics (all-periods aggregated) for collections
+    const cumulativeComponentMetrics = attrs.cumulativeComponentMetrics as Record<string, SheetMetrics> | undefined;
+
     // HF-018: Now build metrics - each component uses ONLY its matched sheet
     for (const component of this.planComponents) {
       const matchedSheet = componentSheetMap.get(component.id);
@@ -778,7 +784,16 @@ export class CalculationOrchestrator {
         continue;
       }
 
-      const sheetMetrics = componentMetrics[matchedSheet];
+      // OB-30-9: For collections/cobranza components, use cumulative (all-periods) store metrics
+      // GT expects cumulative collections attainment, not single-month
+      const isCollections = component.id === 'cobranza' ||
+        component.id.toLowerCase().includes('cobran') ||
+        matchedSheet.toLowerCase().includes('cobran');
+
+      let sheetMetrics = componentMetrics[matchedSheet];
+      if (isCollections && cumulativeComponentMetrics?.[matchedSheet]) {
+        sheetMetrics = cumulativeComponentMetrics[matchedSheet];
+      }
       if (!sheetMetrics) {
         continue;
       }
@@ -844,6 +859,27 @@ export class CalculationOrchestrator {
         const colMetric = component.matrixConfig.columnMetric;
         const colSemantic = inferSemanticType(colMetric);
         const sheetTopo = this.sheetTopologyMap.get(matchedSheet);
+
+        // [OPTICAL-DIAG] OB-30 Step 9: Trace store column override for employee 90198149
+        if (employee.id === '90198149' || String((employee.attributes as Record<string, unknown>)?.employeeId) === '90198149') {
+          const storeTotals = this.storeAmountTotals.get(employee.storeId || '');
+          const allSheetTotals = storeTotals ? Object.fromEntries(Array.from(storeTotals.entries())) : null;
+          // Count contributors for this store
+          let contributorCount = 0;
+          for (const emp of this.lastEmployeeList || []) {
+            if (emp.storeId === employee.storeId) {
+              const a = emp.attributes as Record<string, unknown> | undefined;
+              const cm = a?.componentMetrics as Record<string, { amount?: number }> | undefined;
+              if (cm?.[matchedSheet]?.amount !== undefined) contributorCount++;
+            }
+          }
+          console.log(`[OPTICAL-DIAG] Employee 90198149, component: ${component.id}, matchedSheet: ${matchedSheet}`);
+          console.log(`[OPTICAL-DIAG] colMetric: ${colMetric}, colSemantic: ${colSemantic}, sheetTopo: ${sheetTopo}`);
+          console.log(`[OPTICAL-DIAG] storeId: ${employee.storeId}, storeTotals for store:`, JSON.stringify(allSheetTotals));
+          console.log(`[OPTICAL-DIAG] Contributors at store ${employee.storeId} for ${matchedSheet}: ${contributorCount}`);
+          console.log(`[OPTICAL-DIAG] Override conditions: starts_with_store=${colMetric.startsWith('store_')}, semantic=${colSemantic}, topo=${sheetTopo}, hasStoreId=${!!employee.storeId}`);
+          console.log(`[OPTICAL-DIAG] Individual amount in resolved: ${resolved[colMetric]}, will override with: ${storeTotals?.get(matchedSheet)}`);
+        }
 
         if (colMetric.startsWith('store_') && colSemantic === 'amount' &&
             sheetTopo === 'employee_component' && employee.storeId) {
@@ -1433,6 +1469,7 @@ export class CalculationOrchestrator {
           // AI-DRIVEN: Pass componentMetrics for metric extraction
           attributes: {
             componentMetrics: record.componentMetrics,
+            cumulativeComponentMetrics: record.cumulativeComponentMetrics, // OB-30-9
             month: record.month,
             year: record.year,
             storeRange: record.storeRange,

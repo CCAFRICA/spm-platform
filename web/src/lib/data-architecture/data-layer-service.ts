@@ -1277,6 +1277,7 @@ function storeAggregatedData(
     // HF-017: Aggregate by store ID + period ONLY for store_component sheets
     // Bug fix: Previously added ANY record with storeId, now uses topology classification
     if (isStoreLevel && storeId && storeId.length >= 1) {
+      // OB-30-9: Period-specific key (e.g. "1008_1_2024") for per-period components
       if (!storeComponentMetrics.has(storePeriodKey)) {
         storeComponentMetrics.set(storePeriodKey, new Map());
       }
@@ -1284,10 +1285,18 @@ function storeAggregatedData(
       const existing = storeSheets.get(sheetName) as MergedMetrics | undefined;
       storeSheets.set(sheetName, mergeMetrics(existing, resolvedMetrics));
 
-      // OB-30 FIX: Removed HF-017 period-agnostic fallback.
-      // It was merging ALL periods into a single storeId key, producing
-      // sum-of-all-months instead of per-month values (e.g. 64M vs 22M).
-      // STEP 4's fallback now handles period-less lookup via prefix scan.
+      // OB-30-9: ALSO maintain cumulative bare storeId key for components that need
+      // all-periods aggregation (e.g. Collections). Both keys coexist:
+      //   "1008_1_2024" → January only (store sales, new customers)
+      //   "1008"        → all periods cumulative (collections)
+      if (storePeriodKey !== storeId) {
+        if (!storeComponentMetrics.has(storeId)) {
+          storeComponentMetrics.set(storeId, new Map());
+        }
+        const cumulativeSheets = storeComponentMetrics.get(storeId)!;
+        const cumulativeExisting = cumulativeSheets.get(sheetName) as MergedMetrics | undefined;
+        cumulativeSheets.set(sheetName, mergeMetrics(cumulativeExisting, resolvedMetrics));
+      }
     }
   }
 
@@ -1433,6 +1442,30 @@ function storeAggregatedData(
           componentMetrics[sheetName] = { ...metrics };
         }
         // Otherwise: employee already has individual metrics, keep them
+      }
+    }
+
+    // OB-30-9: Also attach cumulative (all-periods) store metrics for components
+    // that need cross-period aggregation (e.g. Collections/Cobranza).
+    // Only add if we have period-specific AND cumulative keys (they differ).
+    if (storePeriodKey !== storeId && storeId) {
+      const cumulativeStoreMetrics = storeComponentMetrics.get(storeId);
+      if (cumulativeStoreMetrics) {
+        const cumulativeComponentMetrics: Record<string, {
+          attainment?: number;
+          attainmentSource?: 'source' | 'computed' | 'candidate';
+          amount?: number;
+          goal?: number;
+        }> = {};
+        for (const [sheetName, metrics] of Array.from(cumulativeStoreMetrics.entries())) {
+          const topo = sheetTopology.get(sheetName);
+          if (topo?.topology === 'store_component') {
+            cumulativeComponentMetrics[sheetName] = { ...metrics };
+          }
+        }
+        if (Object.keys(cumulativeComponentMetrics).length > 0) {
+          enriched.cumulativeComponentMetrics = cumulativeComponentMetrics;
+        }
       }
     }
 
