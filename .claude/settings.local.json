@@ -65,7 +65,9 @@
       "Bash(__NEW_LINE_4e99dfcbc9b5c29b__ echo \"\")",
       "Bash(ls:*)",
       "Bash(pgrep:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(do echo '  $page:' grep -n \"Breadcrumb\\\\|breadcrumb\\\\|ModuleShell\" $page)",
+      "Bash(__NEW_LINE_f21e87f2a70948c9__ echo \"\")"
     ]
   }
 }

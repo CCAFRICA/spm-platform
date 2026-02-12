@@ -673,6 +673,20 @@ export class CalculationOrchestrator {
     // Get componentMetrics from employee (aggregated by sheet name)
     const componentMetrics = attrs.componentMetrics as Record<string, SheetMetrics> | undefined;
 
+    // HF-018 R2: TARGETED DIAGNOSTIC for store 7967 only
+    const isStore7967 = String(employee.storeId) === '7967';
+    if (isStore7967) {
+      console.log(`[HF-018 TRACE] Employee ${employee.id} (store ${employee.storeId})`);
+      console.log(`[HF-018 TRACE] componentMetrics keys: ${componentMetrics ? Object.keys(componentMetrics).join(', ') : 'NONE'}`);
+      if (componentMetrics) {
+        // Log Clientes Nuevos sheet specifically
+        const clientesSheet = Object.entries(componentMetrics).find(([k]) => k.toLowerCase().includes('clientes'));
+        if (clientesSheet) {
+          console.log(`[HF-018 TRACE] ${clientesSheet[0]}: attainment=${clientesSheet[1].attainment}, goal=${clientesSheet[1].goal}, amount=${clientesSheet[1].amount}`);
+        }
+      }
+    }
+
     if (!componentMetrics || this.planComponents.length === 0) {
       // FALLBACK: Extract from flat numeric attributes (backward compatibility)
       for (const [key, value] of Object.entries(attrs)) {
@@ -759,6 +773,13 @@ export class CalculationOrchestrator {
       const goalValue = enrichedMetrics.goal;
       const isZeroGoal = goalValue === undefined || goalValue === null || goalValue === 0;
 
+      // HF-018 R2: Trace Clientes Nuevos for store 7967
+      if (isStore7967 && component.id === 'clientes-nuevos') {
+        console.log(`[HF-018 TRACE] Clientes Nuevos: matchedSheet="${matchedSheet}"`);
+        console.log(`[HF-018 TRACE] Clientes Nuevos: sheetMetrics.goal=${sheetMetrics.goal}, isZeroGoal=${isZeroGoal}`);
+        console.log(`[HF-018 TRACE] Clientes Nuevos: sheetMetrics.attainment=${sheetMetrics.attainment} (BEFORE guard)`);
+      }
+
       if (isZeroGoal) {
         // Zero goal = not measured. Clear any attainment.
         enrichedMetrics.attainment = undefined;
@@ -787,12 +808,23 @@ export class CalculationOrchestrator {
       // OB-29 Phase 3B: Pass componentType for tier_lookup contextual validation
       const resolved = buildComponentMetrics(metricConfig, enrichedMetrics, component.componentType);
 
+      // HF-018 R2: Trace Clientes Nuevos resolved metrics for store 7967
+      if (isStore7967 && component.id === 'clientes-nuevos') {
+        console.log(`[HF-018 TRACE] Clientes Nuevos: enrichedMetrics.attainment=${enrichedMetrics.attainment} (AFTER guard)`);
+        console.log(`[HF-018 TRACE] Clientes Nuevos: resolved=${JSON.stringify(resolved)}`);
+      }
+
       // Merge into employee's metrics
       for (const [key, value] of Object.entries(resolved)) {
         if (metrics[key] === undefined) {
           metrics[key] = value;
         }
       }
+    }
+
+    // HF-018 R2: Log final metrics for store 7967
+    if (isStore7967) {
+      console.log(`[HF-018 TRACE] Final metrics: new_customers_attainment=${metrics['new_customers_attainment']}`);
     }
 
     return Object.keys(metrics).length > 0 ? metrics : null;
