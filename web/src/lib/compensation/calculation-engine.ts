@@ -197,32 +197,48 @@ function findMatchingVariant(config: AdditiveLookupConfig, metrics: EmployeeMetr
   // HF-019: Treat undefined isCertified as false (non-certified default)
   const employeeIsCertified = metrics.isCertified ?? false;
 
-  // OB-30 FIX: Prefer EXACT matches over "no criteria" matches.
-  // This prevents empty eligibilityCriteria ({}) from matching everyone.
+  // OB-30 FIX: Handle plans with empty/missing eligibilityCriteria by deriving from variantId.
+  // This fixes stale localStorage plans that were saved before criteria were added.
 
-  // First pass: Find variant with explicit isCertified match
-  const exactMatch = config.variants.find((variant) => {
+  for (const variant of config.variants) {
     const criteria = variant.eligibilityCriteria;
-    // Skip variants with no criteria or empty object
-    if (!criteria || typeof criteria !== 'object' || Object.keys(criteria).length === 0) {
-      return false;
+    const hasCriteria = criteria && typeof criteria === 'object' && Object.keys(criteria).length > 0;
+
+    if (hasCriteria && 'isCertified' in criteria) {
+      // Explicit criteria exists - use it
+      if (criteria.isCertified === employeeIsCertified) {
+        return variant;
+      }
+    } else {
+      // No criteria or empty criteria - derive from variantId/variantName
+      const vid = (variant.variantId || '').toLowerCase();
+      const vname = (variant.variantName || '').toLowerCase();
+
+      // Check if this is the certified variant
+      const isCertifiedVariant =
+        (vid === 'certified' || vname.includes('certificado') || vname.includes('certified')) &&
+        !vid.includes('non') && !vid.includes('no-') && !vname.includes('no ');
+
+      // Check if this is the non-certified variant
+      const isNonCertifiedVariant =
+        vid === 'non-certified' || vid.includes('noncert') ||
+        vname.includes('no certificado') || vname.includes('non-cert');
+
+      // Match based on derived criteria
+      if (employeeIsCertified && isCertifiedVariant) {
+        return variant;
+      }
+      if (!employeeIsCertified && isNonCertifiedVariant) {
+        return variant;
+      }
     }
-    // Check for explicit isCertified match
-    if ('isCertified' in criteria) {
-      return criteria.isCertified === employeeIsCertified;
-    }
-    return false;
-  });
+  }
 
-  if (exactMatch) return exactMatch;
-
-  // Second pass: Find variant with no criteria (universal fallback)
-  const universalMatch = config.variants.find((variant) => {
-    const criteria = variant.eligibilityCriteria;
-    return !criteria || typeof criteria !== 'object' || Object.keys(criteria).length === 0;
-  });
-
-  return universalMatch;
+  // Fallback: return first variant with no criteria (universal) or just first variant
+  return config.variants.find(v => {
+    const c = v.eligibilityCriteria;
+    return !c || typeof c !== 'object' || Object.keys(c).length === 0;
+  }) || config.variants[0];
 }
 
 // ============================================
