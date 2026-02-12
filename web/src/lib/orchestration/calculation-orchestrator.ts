@@ -755,15 +755,12 @@ export class CalculationOrchestrator {
       const isZeroGoal = goalValue === undefined || goalValue === null || goalValue === 0;
 
       if (isZeroGoal) {
-        // Zero goal = not measured. Clear any attainment.
+        // Zero goal = not measured. Clear ALL metrics.
+        // HF-019: When goal=0, the employee wasn't measured on this metric.
+        // Clear both attainment AND amount to prevent residual values from
+        // generating payouts (applies to percentage, conditional_percentage, etc.)
         enrichedMetrics.attainment = undefined;
-
-        // HF-019: For percentage components (e.g., warranty), zero-goal means
-        // the employee wasn't measured on this metric. Clear amount too.
-        // This prevents employees with residual/attributed amounts from getting payouts.
-        if (component.componentType === 'percentage') {
-          enrichedMetrics.amount = undefined;
-        }
+        enrichedMetrics.amount = undefined;
       } else {
         // Use candidate attainment if primary is missing
         if (enrichedMetrics.attainment === undefined && sheetDataAny._candidateAttainment !== undefined) {
