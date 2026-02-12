@@ -194,13 +194,16 @@ function calculateAdditiveLookup(
 }
 
 function findMatchingVariant(config: AdditiveLookupConfig, metrics: EmployeeMetrics) {
+  // HF-019: Treat undefined isCertified as false (non-certified default)
+  const employeeIsCertified = metrics.isCertified ?? false;
+
   return config.variants.find((variant) => {
     if (!variant.eligibilityCriteria) return true;
 
     // Check certification match
     if (
       'isCertified' in variant.eligibilityCriteria &&
-      variant.eligibilityCriteria.isCertified !== metrics.isCertified
+      variant.eligibilityCriteria.isCertified !== employeeIsCertified
     ) {
       return false;
     }

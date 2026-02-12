@@ -357,6 +357,15 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeContext[] 
       const fullName = extractFieldValue(aiContext, content, sheetName, ['name', 'employeeName', 'fullName']);
       const firstName = fullName.split(' ')[0] || 'Unknown';
       const lastName = fullName.split(' ').slice(1).join(' ') || 'Employee';
+      const role = extractFieldValue(aiContext, content, sheetName, ['role', 'position', 'employeeType', 'jobTitle']) || 'sales_rep';
+
+      // HF-019: Derive isCertified from role string (normalize whitespace first)
+      const normalizedRole = role.toUpperCase().replace(/\s+/g, ' ').trim();
+      const hasNoCertificado = normalizedRole.includes('NO CERTIFICADO') ||
+                               normalizedRole.includes('NO-CERTIFICADO') ||
+                               normalizedRole.includes('NON-CERTIFICADO');
+      const hasCertificado = normalizedRole.includes('CERTIFICADO') || normalizedRole.includes('CERTIFIED');
+      const isCertified = hasCertificado && !hasNoCertificado;
 
       employees.push({
         id: employeeId.toLowerCase().replace(/\s+/g, '-'),
@@ -365,13 +374,14 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeContext[] 
         firstName,
         lastName,
         email: extractFieldValue(aiContext, content, sheetName, ['email']),
-        role: extractFieldValue(aiContext, content, sheetName, ['role', 'position', 'employeeType', 'jobTitle']) || 'sales_rep',
+        role,
         department: extractFieldValue(aiContext, content, sheetName, ['department']),
         storeId: extractFieldValue(aiContext, content, sheetName, ['storeId', 'locationId', 'store']),
         storeName: extractFieldValue(aiContext, content, sheetName, ['storeName', 'locationName']),
         managerId: extractFieldValue(aiContext, content, sheetName, ['managerId']),
         hireDate: extractFieldValue(aiContext, content, sheetName, ['hireDate', 'startDate']),
         status: 'active' as const,
+        isCertified,
       });
     }
   } catch {
