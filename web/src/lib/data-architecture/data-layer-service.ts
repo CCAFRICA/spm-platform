@@ -1236,6 +1236,21 @@ function storeAggregatedData(
       ? `${storeId}_${recordMonth}_${recordYear}`
       : storeId;
 
+    // [PERIOD-DIAG] OB-30 Step 9: Log period detection for store sheets (first record only)
+    if (sheetName.toLowerCase().includes('tienda') && storeId === '1008') {
+      console.log(`[PERIOD-DIAG] Sheet: ${sheetName}, storeId: ${storeId}`);
+      console.log(`[PERIOD-DIAG] Record fields: ${Object.keys(content).filter(k => !k.startsWith('_')).join(', ')}`);
+      console.log(`[PERIOD-DIAG] _meta fields: ${Object.keys(content).filter(k => k.startsWith('_')).join(', ')}`);
+      console.log(`[PERIOD-DIAG] componentPeriodFields: ${JSON.stringify(componentPeriodFields)}`);
+      console.log(`[PERIOD-DIAG] componentDateFields: ${JSON.stringify(componentDateFields)}`);
+      console.log(`[PERIOD-DIAG] resolvePeriodFromRecord result: month=${componentPeriod.month}, year=${componentPeriod.year}`);
+      console.log(`[PERIOD-DIAG] storePeriodKey: "${storePeriodKey}"`);
+      // Log raw values of any field that might contain period info
+      const periodCandidates = Object.entries(content as Record<string, unknown>)
+        .filter(([k]) => /period|fecha|mes|month|year|año|date|periodo/i.test(k));
+      console.log(`[PERIOD-DIAG] Period-candidate field values:`, JSON.stringify(periodCandidates));
+    }
+
     // OB-24 R8: Use semantic resolution hierarchy for metrics
     // AI-first: no pattern fallbacks for attainment/amount/goal
     const resolvedMetrics = resolveMetrics(
