@@ -549,16 +549,12 @@ export class CalculationOrchestrator {
   /**
    * OB-20 Phase 2: Derive isCertified from employee role
    * Looks for "CERTIFICADO" in the role string (but not "NO CERTIFICADO")
-   * TODO: Make this AI-driven from plan interpretation in the future
+   * HF-020: Removed attributes override - always use role-based derivation
+   * to ensure whitespace normalization is applied consistently.
    */
   private deriveIsCertified(employee: EmployeeData): boolean {
-    // Check explicit attribute first
-    if (employee.attributes?.isCertified !== undefined) {
-      return Boolean(employee.attributes.isCertified);
-    }
-
-    // OB-27B: Normalize whitespace and derive from role string
-    // Handles "OPTOMETRISTA  NO CERTIFICADO" (double spaces) correctly
+    // HF-020: Always derive from role string (removed attributes?.isCertified override)
+    // Normalize whitespace to handle "OPTOMETRISTA  NO CERTIFICADO" (double spaces)
     const role = (employee.role || '').toUpperCase().replace(/\s+/g, ' ').trim();
 
     // Check for "NO CERTIFICADO" first (more specific match)
