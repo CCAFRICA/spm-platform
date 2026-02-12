@@ -1398,6 +1398,23 @@ function storeAggregatedData(
       storeAttributionAttempts++;
       for (const [sheetName, metrics] of Array.from(storeMetrics.entries())) {
         const topology = sheetTopology.get(sheetName);
+
+        // [AGG-DIAG-90198149] Diagnostic: show store metrics being attached
+        if (empId === '90198149' && sheetName.toLowerCase().includes('tienda')) {
+          const computedAtt = (metrics.amount && metrics.goal && metrics.goal > 0)
+            ? ((metrics.amount / metrics.goal) * 100).toFixed(2)
+            : 'N/A';
+          console.log('[AGG-DIAG-90198149] Attaching ' + sheetName + ':', {
+            storeId,
+            attainment: metrics.attainment,
+            attainmentSource: metrics.attainmentSource,
+            amount: metrics.amount,
+            goal: metrics.goal,
+            computedFromTotals: computedAtt,
+            topology: topology?.topology,
+          });
+        }
+
         // OB-30 FIX: For store_component sheets, store-level metrics OVERRIDE employee-level
         // This ensures all employees in a store share the same store attainment
         if (topology?.topology === 'store_component') {
