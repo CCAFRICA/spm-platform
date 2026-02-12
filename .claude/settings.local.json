@@ -68,8 +68,8 @@
       "Bash(cat:*)",
       "Bash(do echo '  $page:' grep -n \"Breadcrumb\\\\|breadcrumb\\\\|ModuleShell\" $page)",
       "Bash(__NEW_LINE_f21e87f2a70948c9__ echo \"\")",
-      "Bash(git rebase:*)",
-      "Bash(GIT_EDITOR=true git rebase:*)"
+      "Bash(CERTIFICADO\"\\)\n2. calculation-engine.ts: Treat undefined isCertified as false \\(non-certified\n   default\\) as additional safety\n\nThe derivation logic:\n- Normalize: role.toUpperCase\\(\\).replace\\(/\\\\s+/g, '' ''\\).trim\\(\\)\n- Check hasNoCertificado: includes ''NO CERTIFICADO'', ''NO-CERTIFICADO'', etc.\n- Check hasCertificado: includes ''CERTIFICADO'' or ''CERTIFIED''\n- isCertified = hasCertificado && !hasNoCertificado\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git stash:*)"
     ]
   }
 }
