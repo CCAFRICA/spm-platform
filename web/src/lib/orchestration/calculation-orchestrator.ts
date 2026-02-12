@@ -714,7 +714,12 @@ export class CalculationOrchestrator {
         // If goal is zero/null/undefined, the metric is "not measured" — clear any attainment
         const goalVal = enrichedMetrics.goal;
         if (goalVal === undefined || goalVal === null || goalVal === 0) {
+          const prevAtt = enrichedMetrics.attainment;
           enrichedMetrics.attainment = undefined;
+          // Log only for first employee to avoid flood
+          if (Object.keys(metrics).length === 0) {
+            console.log(`[Orchestrator] OB-29 ZERO-GOAL (OB-24): goal=${goalVal}, was=${prevAtt}, now=undefined`);
+          }
         } else {
           // Normalize: if < 5, assume decimal ratio and multiply by 100
           if (enrichedMetrics.attainment !== undefined &&
@@ -796,9 +801,10 @@ export class CalculationOrchestrator {
 
         if (isZeroGoal) {
           // Zero goal = not measured. Clear any source attainment that might be infinity or garbage.
+          const prevAttainment = enrichedMetrics.attainment;
           enrichedMetrics.attainment = undefined;
           if (isFirstEmployee) {
-            console.log(`[Orchestrator] OB-29: ${sheetName} zero-goal detected (goal=${goalValue}) — metric not measured`);
+            console.log(`[Orchestrator] OB-29 ZERO-GOAL: ${sheetName} goal=${goalValue}, was attainment=${prevAttainment}, now=undefined → engine should return $0`);
           }
         } else {
           // OB-27B: Use candidate attainment if primary is missing

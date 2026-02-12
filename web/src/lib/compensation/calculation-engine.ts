@@ -341,9 +341,19 @@ function calculateTierLookup(
   // OB-27B: Use recordWarning for summary pattern (prevents console flood)
   // OB-29 Phase 3B: Check for undefined/null/NaN/Infinity (zero-goal guard)
   const value = metrics.metrics[config.metric];
-  if (value === undefined || value === null || !Number.isFinite(value)) {
-    recordWarning(`${component.name}: Metric not measured ("${config.metric}")`);
-    return createZeroStep(component, `Metric not measured: ${config.metric}`);
+
+  // OB-29: Detailed logging for zero-goal diagnosis
+  if (value === undefined) {
+    recordWarning(`${component.name}: Metric "${config.metric}" is undefined (zero-goal or missing data)`);
+    return createZeroStep(component, `Metric not available: ${config.metric} (zero-goal or no data)`);
+  }
+  if (value === null) {
+    recordWarning(`${component.name}: Metric "${config.metric}" is null`);
+    return createZeroStep(component, `Metric is null: ${config.metric}`);
+  }
+  if (!Number.isFinite(value)) {
+    recordWarning(`${component.name}: Metric "${config.metric}" is ${value} (Infinity/NaN from zero-goal)`);
+    return createZeroStep(component, `Invalid metric value (${value}): ${config.metric}`);
   }
 
   const tier = findTier(config.tiers, value);

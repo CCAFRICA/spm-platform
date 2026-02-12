@@ -192,31 +192,67 @@ function getAdminMetrics(tenantId: string, currency: string): PulseMetric[] {
 }
 
 function getCCAdminMetrics(): PulseMetric[] {
+  // OB-29: Read real data from localStorage, not hardcoded values
+  const getRealCounts = () => {
+    if (typeof window === 'undefined') {
+      return { tenants: 0, users: 0, calcsToday: 0, issues: 0 };
+    }
+
+    // Count tenants with data
+    const tenantKeys = Object.keys(localStorage).filter(k =>
+      k.includes('data_layer_committed') || k.includes('compensation_plans')
+    );
+    const uniqueTenants = new Set<string>();
+    tenantKeys.forEach(k => {
+      const match = k.match(/_(retailco|retailcgmx|retail_conglomerate|techcorp|restaurantmx)/i);
+      if (match) uniqueTenants.add(match[1]);
+    });
+
+    // Count calculation runs today
+    let calcsToday = 0;
+    const runsStr = localStorage.getItem('vialuce_calculation_runs');
+    if (runsStr) {
+      try {
+        const runs = JSON.parse(runsStr);
+        const today = new Date().toISOString().split('T')[0];
+        calcsToday = runs.filter((r: { startedAt?: string }) =>
+          r.startedAt?.startsWith(today)
+        ).length;
+      } catch { /* ignore */ }
+    }
+
+    return {
+      tenants: uniqueTenants.size || 0,
+      users: 0, // Would need auth system integration
+      calcsToday,
+      issues: 0, // Would need dispute system integration
+    };
+  };
+
+  const counts = getRealCounts();
+
   return [
     {
       id: 'cc-active-tenants',
       label: 'Active Tenants',
       labelEs: 'Tenants Activos',
-      value: 4,
-      format: 'number',
+      value: counts.tenants > 0 ? counts.tenants : '—',
+      format: counts.tenants > 0 ? 'number' : 'text',
       roles: ['vl_admin'],
     },
     {
       id: 'cc-total-users',
       label: 'Total Users',
       labelEs: 'Usuarios Totales',
-      value: 156,
-      format: 'number',
-      trend: 'up',
-      trendValue: '+12 this month',
-      trendValueEs: '+12 este mes',
+      value: '—', // Requires auth system integration
+      format: 'text',
       roles: ['vl_admin'],
     },
     {
       id: 'cc-calculations-today',
       label: 'Calculations Today',
       labelEs: 'Cálculos Hoy',
-      value: 8,
+      value: counts.calcsToday,
       format: 'number',
       roles: ['vl_admin'],
     },
@@ -224,11 +260,8 @@ function getCCAdminMetrics(): PulseMetric[] {
       id: 'cc-issues',
       label: 'Outstanding Issues',
       labelEs: 'Problemas Pendientes',
-      value: 2,
-      format: 'number',
-      trend: 'down',
-      trendValue: '-5 from last week',
-      trendValueEs: '-5 desde la semana pasada',
+      value: '—', // Requires dispute system integration
+      format: 'text',
       roles: ['vl_admin'],
     },
   ];

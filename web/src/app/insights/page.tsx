@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import {
   Card,
   CardContent,
@@ -7,8 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   ChartConfig,
   ChartContainer,
@@ -25,116 +26,127 @@ import {
 } from "recharts";
 import {
   TrendingUp,
-  TrendingDown,
   DollarSign,
   Target,
-  Users,
   Award,
+  BarChart3,
 } from "lucide-react";
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
+import type { CalculationResult } from '@/types/compensation-plan';
 
-// Mock Data
-const compensationData = {
-  currentPeriod: "$127,450",
-  previousPeriod: "$118,200",
-  percentChange: 7.8,
-  breakdown: {
-    baseSalary: "$85,000",
-    commissions: "$32,450",
-    bonuses: "$10,000",
-  },
-};
-
-const performanceMetrics = [
-  {
-    label: "Quota Attainment",
-    value: "112%",
-    trend: 8.2,
-    icon: Target,
-  },
-  {
-    label: "Deals Closed",
-    value: "24",
-    trend: 12.5,
-    icon: Award,
-  },
-  {
-    label: "Pipeline Value",
-    value: "$2.4M",
-    trend: -3.1,
-    icon: DollarSign,
-  },
-  {
-    label: "Team Rank",
-    value: "#3",
-    trend: 2,
-    icon: Users,
-  },
-];
-
-const commissionTrends = [
-  { month: "Jul", commissions: 18500, quota: 20000 },
-  { month: "Aug", commissions: 22300, quota: 20000 },
-  { month: "Sep", commissions: 19800, quota: 22000 },
-  { month: "Oct", commissions: 28400, quota: 22000 },
-  { month: "Nov", commissions: 31200, quota: 25000 },
-  { month: "Dec", commissions: 32450, quota: 25000 },
-];
-
-const topPerformers = [
-  {
-    rank: 1,
-    name: "Sarah Chen",
-    role: "Senior AE",
-    attainment: 142,
-    commissions: "$45,200",
-    avatar: "/avatars/sarah.jpg",
-  },
-  {
-    rank: 2,
-    name: "Marcus Johnson",
-    role: "Enterprise AE",
-    attainment: 128,
-    commissions: "$38,750",
-    avatar: "/avatars/marcus.jpg",
-  },
-  {
-    rank: 3,
-    name: "Emily Rodriguez",
-    role: "Senior AE",
-    attainment: 118,
-    commissions: "$32,450",
-    avatar: "/avatars/emily.jpg",
-  },
-  {
-    rank: 4,
-    name: "David Kim",
-    role: "AE",
-    attainment: 108,
-    commissions: "$28,900",
-    avatar: "/avatars/david.jpg",
-  },
-  {
-    rank: 5,
-    name: "Lisa Thompson",
-    role: "AE",
-    attainment: 102,
-    commissions: "$26,100",
-    avatar: "/avatars/lisa.jpg",
-  },
-];
+/**
+ * OB-29: Get current period as YYYY-MM
+ */
+function getCurrentPeriod(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
 
 const chartConfig = {
   commissions: {
-    label: "Commissions",
+    label: "Earnings",
     color: "hsl(var(--chart-1))",
-  },
-  quota: {
-    label: "Quota",
-    color: "hsl(var(--chart-2))",
   },
 } satisfies ChartConfig;
 
 export default function InsightsPage() {
+  const { currentTenant } = useTenant();
+  const { format } = useCurrency();
+  const [results, setResults] = useState<CalculationResult[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!currentTenant) return;
+
+    // OB-29 Phase 9: Get real calculation results
+    const period = getCurrentPeriod();
+    const allResults = getPeriodResults(currentTenant.id, period);
+    setResults(allResults);
+    setIsLoading(false);
+
+    console.log(`[Insights] Found ${allResults.length} results for ${currentTenant.id}/${period}`);
+  }, [currentTenant]);
+
+  // Derive insights from real data
+  const insights = useMemo(() => {
+    if (results.length === 0) return null;
+
+    // Calculate summary stats
+    const totalPayout = results.reduce((sum, r) => sum + (r.totalIncentive || 0), 0);
+    const avgPayout = totalPayout / results.length;
+
+    // Top performers (by total incentive)
+    const topPerformers = [...results]
+      .sort((a, b) => (b.totalIncentive || 0) - (a.totalIncentive || 0))
+      .slice(0, 5);
+
+    // Build trend data from component breakdown
+    const trendData = topPerformers[0]?.components?.map((comp, i) => ({
+      component: comp.componentName || `Component ${i + 1}`,
+      earnings: comp.outputValue || 0,
+    })) || [];
+
+    return {
+      totalPayout,
+      avgPayout,
+      employeeCount: results.length,
+      topPerformers,
+      trendData,
+    };
+  }, [results]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading insights...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // OB-29: No results state
+  if (!insights) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
+        <div className="container mx-auto px-6 py-8">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+              Insights Dashboard
+            </h1>
+            <p className="mt-2 text-slate-600 dark:text-slate-400">
+              Compensation and performance analytics
+            </p>
+          </div>
+
+          <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
+            <CardContent className="py-12">
+              <div className="text-center">
+                <BarChart3 className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                  No Calculation Data Available
+                </h3>
+                <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto mb-6">
+                  Insights will appear here once compensation calculations have been run.
+                  Run a calculation to see performance metrics, top performers, and trends.
+                </p>
+                <Link
+                  href="/admin/launch/calculate"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Target className="h-4 w-4" />
+                  Run Calculation
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
       <div className="container mx-auto px-6 py-8">
@@ -144,158 +156,127 @@ export default function InsightsPage() {
             Insights Dashboard
           </h1>
           <p className="mt-2 text-slate-600 dark:text-slate-400">
-            Your compensation and performance at a glance
+            Compensation and performance analytics • {insights.employeeCount} employees
           </p>
         </div>
 
         {/* Main Grid */}
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Compensation Summary Card */}
+          {/* Total Payout Card */}
           <Card className="lg:col-span-1 border-0 shadow-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
             <CardHeader className="pb-2">
               <CardDescription className="text-indigo-100">
-                Current Period Total
+                Total Period Payout
               </CardDescription>
               <CardTitle className="text-4xl font-bold">
-                {compensationData.currentPeriod}
+                {format(insights.totalPayout)}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-2 mb-6">
-                {compensationData.percentChange > 0 ? (
-                  <TrendingUp className="h-4 w-4 text-emerald-300" />
-                ) : (
-                  <TrendingDown className="h-4 w-4 text-red-300" />
-                )}
+                <TrendingUp className="h-4 w-4 text-emerald-300" />
                 <span className="text-sm text-indigo-100">
-                  <span
-                    className={
-                      compensationData.percentChange > 0
-                        ? "text-emerald-300"
-                        : "text-red-300"
-                    }
-                  >
-                    {compensationData.percentChange > 0 ? "+" : ""}
-                    {compensationData.percentChange}%
-                  </span>{" "}
-                  vs last period
+                  Based on {insights.employeeCount} employees
                 </span>
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-indigo-200">Base Salary</span>
+                  <span className="text-indigo-200">Average Payout</span>
                   <span className="font-medium">
-                    {compensationData.breakdown.baseSalary}
+                    {format(insights.avgPayout)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-indigo-200">Commissions</span>
+                  <span className="text-indigo-200">Top Performer</span>
                   <span className="font-medium">
-                    {compensationData.breakdown.commissions}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-indigo-200">Bonuses</span>
-                  <span className="font-medium">
-                    {compensationData.breakdown.bonuses}
+                    {format(insights.topPerformers[0]?.totalIncentive || 0)}
                   </span>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Performance Metrics Grid */}
+          {/* Summary Metrics */}
           <div className="lg:col-span-2 grid gap-4 sm:grid-cols-2">
-            {performanceMetrics.map((metric) => (
-              <Card
-                key={metric.label}
-                className="border-0 shadow-md hover:shadow-lg transition-shadow"
-              >
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                        {metric.label}
-                      </p>
-                      <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                        {metric.value}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full">
-                        <metric.icon className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-                      </div>
-                      <Badge
-                        variant={metric.trend > 0 ? "default" : "destructive"}
-                        className={`text-xs ${
-                          metric.trend > 0
-                            ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
-                            : "bg-red-100 text-red-700 hover:bg-red-100"
-                        }`}
-                      >
-                        {metric.trend > 0 ? (
-                          <TrendingUp className="h-3 w-3 mr-1" />
-                        ) : (
-                          <TrendingDown className="h-3 w-3 mr-1" />
-                        )}
-                        {Math.abs(metric.trend)}%
-                      </Badge>
-                    </div>
+            <Card className="border-0 shadow-md">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                      Employees Paid
+                    </p>
+                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                      {insights.employeeCount}
+                    </p>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
+                  <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full">
+                    <Target className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-0 shadow-md">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                      Average Earnings
+                    </p>
+                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                      {format(insights.avgPayout)}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full">
+                    <DollarSign className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Commission Trends Chart */}
-          <Card className="lg:col-span-2 border-0 shadow-lg">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">
-                Commission Trends
-              </CardTitle>
-              <CardDescription>
-                6-month commission performance vs quota
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={commissionTrends}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
-                    <XAxis
-                      dataKey="month"
-                      tickLine={false}
-                      axisLine={false}
-                      className="text-xs"
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      className="text-xs"
-                      tickFormatter={(value) => `$${value / 1000}k`}
-                    />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Line
-                      type="monotone"
-                      dataKey="commissions"
-                      stroke="hsl(var(--chart-1))"
-                      strokeWidth={3}
-                      dot={{ fill: "hsl(var(--chart-1))", strokeWidth: 2, r: 4 }}
-                      activeDot={{ r: 6, strokeWidth: 2 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="quota"
-                      stroke="hsl(var(--chart-2))"
-                      strokeWidth={2}
-                      strokeDasharray="5 5"
-                      dot={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </CardContent>
-          </Card>
+          {/* Component Breakdown Chart */}
+          {insights.trendData.length > 0 && (
+            <Card className="lg:col-span-2 border-0 shadow-lg">
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold">
+                  Earnings by Component
+                </CardTitle>
+                <CardDescription>
+                  Top performer breakdown
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={chartConfig} className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={insights.trendData}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                      <XAxis
+                        dataKey="component"
+                        tickLine={false}
+                        axisLine={false}
+                        className="text-xs"
+                      />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        className="text-xs"
+                        tickFormatter={(value) => format(value)}
+                      />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Line
+                        type="monotone"
+                        dataKey="earnings"
+                        stroke="hsl(var(--chart-1))"
+                        strokeWidth={3}
+                        dot={{ fill: "hsl(var(--chart-1))", strokeWidth: 2, r: 4 }}
+                        activeDot={{ r: 6, strokeWidth: 2 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Top Performers Leaderboard */}
           <Card className="lg:col-span-1 border-0 shadow-lg">
@@ -304,59 +285,61 @@ export default function InsightsPage() {
                 <Award className="h-5 w-5 text-amber-500" />
                 Top Performers
               </CardTitle>
-              <CardDescription>This quarter&apos;s leaderboard</CardDescription>
+              <CardDescription>By total incentive earnings</CardDescription>
             </CardHeader>
             <CardContent className="px-2">
               <div className="space-y-1">
-                {topPerformers.map((performer) => (
-                  <div
-                    key={performer.rank}
-                    className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                      performer.rank <= 3
-                        ? "bg-gradient-to-r from-amber-50 to-transparent dark:from-amber-950/20"
-                        : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                    }`}
-                  >
+                {insights.topPerformers.map((performer, idx) => {
+                  const initials = (performer.employeeName || 'EMP')
+                    .split(' ')
+                    .map(n => n[0])
+                    .join('')
+                    .slice(0, 2)
+                    .toUpperCase();
+
+                  return (
                     <div
-                      className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold ${
-                        performer.rank === 1
-                          ? "bg-amber-400 text-amber-950"
-                          : performer.rank === 2
-                          ? "bg-slate-300 text-slate-700"
-                          : performer.rank === 3
-                          ? "bg-amber-600 text-amber-50"
-                          : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                      key={performer.employeeId}
+                      className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                        idx < 3
+                          ? "bg-gradient-to-r from-amber-50 to-transparent dark:from-amber-950/20"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
                       }`}
                     >
-                      {performer.rank}
+                      <div
+                        className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold ${
+                          idx === 0
+                            ? "bg-amber-400 text-amber-950"
+                            : idx === 1
+                            ? "bg-slate-300 text-slate-700"
+                            : idx === 2
+                            ? "bg-amber-600 text-amber-50"
+                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                        }`}
+                      >
+                        {idx + 1}
+                      </div>
+                      <Avatar className="h-9 w-9">
+                        <AvatarFallback className="text-xs bg-slate-200 dark:bg-slate-700">
+                          {initials}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 dark:text-slate-50 truncate">
+                          {performer.employeeName || performer.employeeId}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {performer.storeName || performer.employeeRole || 'Employee'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                          {format(performer.totalIncentive || 0)}
+                        </p>
+                      </div>
                     </div>
-                    <Avatar className="h-9 w-9">
-                      <AvatarImage src={performer.avatar} />
-                      <AvatarFallback className="text-xs bg-slate-200 dark:bg-slate-700">
-                        {performer.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-50 truncate">
-                        {performer.name}
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {performer.role}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                        {performer.attainment}%
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {performer.commissions}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

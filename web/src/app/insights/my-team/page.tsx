@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Users, TrendingUp, Target, Trophy, AlertTriangle, Building2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useTenant, useCurrency, useTerm } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { getCheques, getMeseros, getFranquicias, getSalesByMesero, getSalesByFranquicia } from '@/lib/restaurant-service';
 import { GoalProgressBar } from '@/components/charts/goal-progress-bar';
 import { SalesHistoryChart } from '@/components/charts/sales-history-chart';
@@ -37,25 +37,11 @@ interface TeamData {
   historyData: Array<{ period: string; label: string; alimentos: number; bebidas: number; total: number }>;
 }
 
-// Mock data for TechCorp
-const techCorpTeamData = {
-  teamSize: 12,
-  totalSales: 2450000,
-  quotaAttainment: 112,
-  avgDealSize: 45000,
-  reps: [
-    { name: 'Sarah Chen', sales: 450000, quota: 400000, deals: 12 },
-    { name: 'Marcus Johnson', sales: 380000, quota: 350000, deals: 10 },
-    { name: 'Emily Rodriguez', sales: 320000, quota: 300000, deals: 8 },
-    { name: 'David Kim', sales: 290000, quota: 300000, deals: 7 },
-    { name: 'Lisa Thompson', sales: 275000, quota: 280000, deals: 6 },
-  ],
-};
+// OB-29: Removed mock data - now uses real calculation results or empty state
 
 export default function MyTeamPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const repTerm = useTerm('salesRep');
   const [data, setData] = useState<TeamData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -162,7 +148,7 @@ export default function MyTeamPage() {
     }
   };
 
-  // TechCorp view
+  // OB-29 Phase 9: Non-hospitality view - show empty state (no mock data)
   if (!isHospitality) {
     return (
       <div className="p-6 space-y-6">
@@ -174,86 +160,18 @@ export default function MyTeamPage() {
           <p className="text-muted-foreground">Team performance overview</p>
         </div>
 
-        {/* Team Stats */}
-        <div className="grid md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Team Size</p>
-                  <p className="text-2xl font-bold">{techCorpTeamData.teamSize}</p>
-                </div>
-                <Users className="h-8 w-8 text-primary/50" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Sales</p>
-                  <p className="text-2xl font-bold">{format(techCorpTeamData.totalSales)}</p>
-                </div>
-                <TrendingUp className="h-8 w-8 text-green-500/50" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Quota Attainment</p>
-                  <p className="text-2xl font-bold text-green-600">{techCorpTeamData.quotaAttainment}%</p>
-                </div>
-                <Target className="h-8 w-8 text-green-500/50" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Avg Deal Size</p>
-                  <p className="text-2xl font-bold">{format(techCorpTeamData.avgDealSize)}</p>
-                </div>
-                <Trophy className="h-8 w-8 text-yellow-500/50" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Team Leaderboard */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Team Leaderboard</CardTitle>
-            <CardDescription>Sales performance by {repTerm.toLowerCase()}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {techCorpTeamData.reps.map((rep, i) => (
-                <div key={rep.name} className="flex items-center gap-4">
-                  <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                    i === 0 ? 'bg-yellow-100 text-yellow-700' :
-                    i === 1 ? 'bg-slate-100 text-slate-700' :
-                    i === 2 ? 'bg-amber-100 text-amber-700' : 'bg-muted'
-                  }`}>
-                    {i + 1}
-                  </span>
-                  <div className="flex-1">
-                    <div className="flex justify-between mb-1">
-                      <span className="font-medium">{rep.name}</span>
-                      <span className="font-bold">{format(rep.sales)}</span>
-                    </div>
-                    <GoalProgressBar
-                      current={rep.sales}
-                      target={rep.quota}
-                      label=""
-                      showAmount={false}
-                      size="sm"
-                    />
-                  </div>
-                </div>
-              ))}
+        {/* Empty State */}
+        <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
+          <CardContent className="py-12">
+            <div className="text-center">
+              <Users className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                No Team Data Available
+              </h3>
+              <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">
+                Team performance data will appear here once compensation calculations have been run
+                and you have team members assigned.
+              </p>
             </div>
           </CardContent>
         </Card>

@@ -156,6 +156,7 @@ export function buildComponentMetrics(
         if (sheetMetrics.attainment !== undefined) {
           result[metricName] = sheetMetrics.attainment;
         }
+        // OB-29: If attainment is undefined (zero-goal), metric is NOT added → engine returns $0
         break;
       case 'amount':
         if (sheetMetrics.amount !== undefined) {
