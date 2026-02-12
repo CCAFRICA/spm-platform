@@ -588,14 +588,15 @@ export class CalculationOrchestrator {
           console.log(`[METRICS-DUMP] Sheet "${sheet}":`, {
             attainment: v.attainment,
             amount: v.amount,
-            goal: v.goal,
-            _candidateAttainment: v._candidateAttainment,
-            _rawFields: v._rawFields ? Object.keys(v._rawFields as object) : undefined
+            goal: v.goal
           });
         }
       }
-      console.log('[METRICS-DUMP] Final store_sales_attainment:', aiMetrics?.store_sales_attainment);
-      console.log('[METRICS-DUMP] GT C2_Att for this employee: 101.8 (expected $150)');
+      // Show final metrics that feed into calculation
+      console.log('[METRICS-DUMP] FINAL aiMetrics:', JSON.stringify(aiMetrics, null, 2));
+      console.log('[METRICS-DUMP] --- GT Expected Values ---');
+      console.log('[METRICS-DUMP] store_sales_attainment: GT=101.8 VL=' + aiMetrics?.store_sales_attainment);
+      console.log('[METRICS-DUMP] store_optical_sales: GT=$60k-$100k VL=' + aiMetrics?.store_optical_sales);
     }
 
     if (aiMetrics && Object.keys(aiMetrics).length > 0) {
