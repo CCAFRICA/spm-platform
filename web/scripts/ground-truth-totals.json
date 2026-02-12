@@ -1,0 +1,15 @@
+{
+  "employeeCount": 719,
+  "certifiedCount": 547,
+  "nonCertifiedCount": 172,
+  "componentTotals": {
+    "optical": 748600,
+    "store": 116250,
+    "newCustomers": 39100,
+    "collections": 283000,
+    "insurance": 10,
+    "warranty": 66872,
+    "total": 1253832
+  },
+  "warrantyEmployeeCount": 8
+}

@@ -1,0 +1,7192 @@
+{
+  "90002548": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3700,
+    "certified": true
+  },
+  "90002663": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "90003277": {
+    "optical": 3000,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3550,
+    "certified": true
+  },
+  "90005229": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90005323": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90009625": {
+    "optical": 400,
+    "store": 500,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "90010962": {
+    "optical": 800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": true
+  },
+  "90012377": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "90013251": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90013411": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90016177": {
+    "optical": 500,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90017833": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90017964": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90018544": {
+    "optical": 550,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": false
+  },
+  "90019099": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90021081": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90022237": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "90023227": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90023733": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90025908": {
+    "optical": 2200,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3100,
+    "certified": true
+  },
+  "90026174": {
+    "optical": 550,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": false
+  },
+  "90027356": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": false
+  },
+  "90027749": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2750,
+    "certified": true
+  },
+  "90028272": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90029355": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90029654": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90030813": {
+    "optical": 600,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1300,
+    "certified": false
+  },
+  "90031146": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90031314": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "90032627": {
+    "optical": 800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90035448": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90035469": {
+    "optical": 800,
+    "store": 300,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90035634": {
+    "optical": 500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90038803": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "90038968": {
+    "optical": 2200,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2750,
+    "certified": false
+  },
+  "90039126": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "90039208": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "90042508": {
+    "optical": 1000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "90042718": {
+    "optical": 2500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3050,
+    "certified": true
+  },
+  "90042882": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "90043494": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90044067": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3700,
+    "certified": true
+  },
+  "90044702": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90044802": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "90045562": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90048010": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": false
+  },
+  "90049274": {
+    "optical": 400,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 800,
+    "certified": false
+  },
+  "90049908": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90051171": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90052291": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90052585": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90054978": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90055442": {
+    "optical": 800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90055567": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90058648": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90058780": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90059817": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90059996": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": false
+  },
+  "90060739": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90063447": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90064133": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90065229": {
+    "optical": 300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90065736": {
+    "optical": 2500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3400,
+    "certified": true
+  },
+  "90065872": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "90065980": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90067324": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2750,
+    "certified": true
+  },
+  "90068501": {
+    "optical": 2200,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3100,
+    "certified": true
+  },
+  "90077064": {
+    "optical": 1500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90079834": {
+    "optical": 1300,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90080134": {
+    "optical": 1300,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1850,
+    "certified": true
+  },
+  "90080675": {
+    "optical": 1300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90080811": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90080943": {
+    "optical": 150,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": false
+  },
+  "90081258": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90081562": {
+    "optical": 900,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": false
+  },
+  "90083297": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90083689": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90084038": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90085561": {
+    "optical": 2500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3050,
+    "certified": true
+  },
+  "90086556": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90088827": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90092311": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90093913": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90094080": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90098610": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "90099317": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3000,
+    "certified": true
+  },
+  "90099999": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "90100681": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90102123": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90102442": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "90102974": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 350,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 350,
+    "certified": false
+  },
+  "90104263": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "90106333": {
+    "optical": 800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 0,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": true
+  },
+  "90108118": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90108636": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 800,
+    "certified": true
+  },
+  "90111247": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90111997": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2800,
+    "certified": true
+  },
+  "90113633": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1300,
+    "certified": true
+  },
+  "90114563": {
+    "optical": 200,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": true
+  },
+  "90114820": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90114916": {
+    "optical": 100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 500,
+    "certified": false
+  },
+  "90115960": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90116959": {
+    "optical": 2200,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "90117198": {
+    "optical": 250,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 800,
+    "certified": false
+  },
+  "90117669": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90117714": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "90118352": {
+    "optical": 300,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 850,
+    "certified": true
+  },
+  "90118514": {
+    "optical": 500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90118865": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "90119066": {
+    "optical": 1300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90120802": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90121714": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90122913": {
+    "optical": 2200,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "90123008": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90123381": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": true
+  },
+  "90124078": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2950,
+    "certified": true
+  },
+  "90125861": {
+    "optical": 800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90127295": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90129225": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90129411": {
+    "optical": 2200,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3100,
+    "certified": true
+  },
+  "90130638": {
+    "optical": 250,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 650,
+    "certified": false
+  },
+  "90131522": {
+    "optical": 400,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": false
+  },
+  "90133790": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90134400": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90134862": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "90135457": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "90136759": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "90136889": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90137090": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": false
+  },
+  "90138010": {
+    "optical": 600,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1300,
+    "certified": false
+  },
+  "90139269": {
+    "optical": 600,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": false
+  },
+  "90140314": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "90140551": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "90143179": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90143212": {
+    "optical": 600,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": false
+  },
+  "90145824": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90148094": {
+    "optical": 3000,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3550,
+    "certified": true
+  },
+  "90148437": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "90148555": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90149878": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90150176": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90150411": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "90152181": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90153158": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": false
+  },
+  "90153527": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90153878": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "90154455": {
+    "optical": 2500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3200,
+    "certified": true
+  },
+  "90154619": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90155209": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90157231": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90157887": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "90158516": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90159528": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90161119": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90162065": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90163721": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90164646": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90164838": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "90165699": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90166284": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90166363": {
+    "optical": 200,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 750,
+    "certified": true
+  },
+  "90167216": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90167980": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1150,
+    "certified": false
+  },
+  "90168081": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90169495": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1150,
+    "certified": false
+  },
+  "90169729": {
+    "optical": 1250,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": false
+  },
+  "90170858": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2450,
+    "certified": true
+  },
+  "90172417": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "90172676": {
+    "optical": 800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": true
+  },
+  "90172771": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90173262": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "90173628": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "90174078": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1300,
+    "certified": false
+  },
+  "90174386": {
+    "optical": 200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 600,
+    "certified": true
+  },
+  "90174414": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 148,
+    "total": 1948,
+    "certified": true
+  },
+  "90177087": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90178609": {
+    "optical": 550,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "90178780": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90179372": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "90180413": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "90181541": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "90183694": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90183695": {
+    "optical": 1300,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90183961": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": true
+  },
+  "90183982": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "90184719": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2150,
+    "certified": true
+  },
+  "90185016": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "90186673": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90189668": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90190078": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90192972": {
+    "optical": 550,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": false
+  },
+  "90193805": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "90194429": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3400,
+    "certified": true
+  },
+  "90194463": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "90194990": {
+    "optical": 1000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "90195508": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 25265,
+    "total": 27615,
+    "certified": true
+  },
+  "90195759": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90196050": {
+    "optical": 1250,
+    "store": 500,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2450,
+    "certified": false
+  },
+  "90197320": {
+    "optical": 2500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3200,
+    "certified": true
+  },
+  "90197814": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90198149": {
+    "optical": 1250,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": false
+  },
+  "90201926": {
+    "optical": 1250,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": false
+  },
+  "90202873": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "90203306": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 4784,
+    "total": 6984,
+    "certified": true
+  },
+  "90203330": {
+    "optical": 800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": true
+  },
+  "90203514": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90203797": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90204169": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90204270": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "90204562": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90204607": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90204658": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "90206206": {
+    "optical": 550,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "90207489": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "90208165": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3400,
+    "certified": true
+  },
+  "90209185": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90211318": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90211954": {
+    "optical": 550,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "90212912": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90213150": {
+    "optical": 400,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1300,
+    "certified": false
+  },
+  "90213369": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "90213554": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90213659": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90213691": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90214083": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "90214212": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3750,
+    "certified": true
+  },
+  "90214282": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90215398": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90215847": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90216284": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90216739": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": true
+  },
+  "90216832": {
+    "optical": 150,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": false
+  },
+  "90217069": {
+    "optical": 1000,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 0,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90217213": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90218750": {
+    "optical": 650,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": false
+  },
+  "90219653": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "90220107": {
+    "optical": 1000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "90220808": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90223512": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90224066": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90224972": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90225318": {
+    "optical": 650,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": false
+  },
+  "90226856": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90227340": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90227887": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "90227935": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90228493": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90228992": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": false
+  },
+  "90230224": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": false
+  },
+  "90230482": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "90230872": {
+    "optical": 800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90231240": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1750,
+    "certified": true
+  },
+  "90231918": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": false
+  },
+  "90232288": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90232684": {
+    "optical": 500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": true
+  },
+  "90233180": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90233878": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90234331": {
+    "optical": 500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": false
+  },
+  "90234566": {
+    "optical": 550,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "90234841": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90234895": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90235057": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 28,
+    "total": 2428,
+    "certified": true
+  },
+  "90235244": {
+    "optical": 1300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90235456": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90235947": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90236013": {
+    "optical": 400,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 0,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90236187": {
+    "optical": 100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 250,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 350,
+    "certified": false
+  },
+  "90236492": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": false
+  },
+  "90236525": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90238349": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "90240402": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90240739": {
+    "optical": 3000,
+    "store": 500,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 4050,
+    "certified": true
+  },
+  "90241830": {
+    "optical": 750,
+    "store": 300,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": false
+  },
+  "90243274": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90244286": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90245890": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90245920": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90246130": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": false
+  },
+  "90246249": {
+    "optical": 1300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90246364": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90246377": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90247321": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1150,
+    "certified": false
+  },
+  "90247384": {
+    "optical": 550,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "90248168": {
+    "optical": 400,
+    "store": 150,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": false
+  },
+  "90248363": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3000,
+    "certified": true
+  },
+  "90248377": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "90249872": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3250,
+    "certified": true
+  },
+  "90251305": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "90252800": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90252986": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90253423": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90254352": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "90254566": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90255924": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90256185": {
+    "optical": 800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90256590": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "90256597": {
+    "optical": 100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 800,
+    "certified": false
+  },
+  "90257322": {
+    "optical": 650,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": false
+  },
+  "90257372": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90257565": {
+    "optical": 550,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": false
+  },
+  "90258718": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "90260454": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90260955": {
+    "optical": 750,
+    "store": 300,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": false
+  },
+  "90261971": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90262282": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "90262856": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 11051,
+    "total": 13401,
+    "certified": true
+  },
+  "90263920": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2800,
+    "certified": true
+  },
+  "90264188": {
+    "optical": 600,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 350,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "90265263": {
+    "optical": 250,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90267060": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1150,
+    "certified": false
+  },
+  "90267825": {
+    "optical": 650,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": false
+  },
+  "90268283": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3050,
+    "certified": true
+  },
+  "90268959": {
+    "optical": 1000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "90270093": {
+    "optical": 2500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3200,
+    "certified": true
+  },
+  "90270535": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90271443": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90272044": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90272223": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90272734": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90273047": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90274981": {
+    "optical": 800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90275205": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90275699": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90276122": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90276144": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2300,
+    "certified": true
+  },
+  "90276257": {
+    "optical": 1250,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": false
+  },
+  "90276372": {
+    "optical": 500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": false
+  },
+  "90277840": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90277882": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "90278504": {
+    "optical": 900,
+    "store": 500,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2150,
+    "certified": false
+  },
+  "90278890": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90279002": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90279513": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "90279540": {
+    "optical": 650,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "90279605": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 850,
+    "certified": false
+  },
+  "90282662": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": false
+  },
+  "90283612": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "90283760": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3000,
+    "certified": true
+  },
+  "90284678": {
+    "optical": 150,
+    "store": 500,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": false
+  },
+  "90285056": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "90286862": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "90287300": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90288423": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90290973": {
+    "optical": 1000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "90291028": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "90291787": {
+    "optical": 550,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "90294013": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "90294372": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "90296039": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "90296158": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90296445": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90298065": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "90302661": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90303447": {
+    "optical": 900,
+    "store": 500,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": false
+  },
+  "90303468": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "90304006": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "90304458": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90304593": {
+    "optical": 800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": true
+  },
+  "90304725": {
+    "optical": 400,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 800,
+    "certified": false
+  },
+  "90304776": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90304910": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90305081": {
+    "optical": 200,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": true
+  },
+  "90305082": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "90305597": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90305944": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "90306380": {
+    "optical": 300,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": true
+  },
+  "90306577": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90306632": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "90306723": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "90307675": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": false
+  },
+  "90308508": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90308728": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90309078": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "90309983": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "90310107": {
+    "optical": 500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": false
+  },
+  "90310116": {
+    "optical": 200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 600,
+    "certified": true
+  },
+  "90310132": {
+    "optical": 750,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": false
+  },
+  "90310183": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90311024": {
+    "optical": 2500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3050,
+    "certified": true
+  },
+  "90311479": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90312381": {
+    "optical": 800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": true
+  },
+  "90312474": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1150,
+    "certified": false
+  },
+  "90312837": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "90313458": {
+    "optical": 2200,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3100,
+    "certified": false
+  },
+  "90314279": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90314691": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": false
+  },
+  "90315409": {
+    "optical": 650,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": false
+  },
+  "90315681": {
+    "optical": 300,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": true
+  },
+  "90316965": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90317404": {
+    "optical": 550,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": false
+  },
+  "90317593": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1850,
+    "certified": true
+  },
+  "90318479": {
+    "optical": 500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90318581": {
+    "optical": 1250,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": false
+  },
+  "90318732": {
+    "optical": 2200,
+    "store": 150,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3100,
+    "certified": true
+  },
+  "90319253": {
+    "optical": 400,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 5317,
+    "total": 6617,
+    "certified": false
+  },
+  "90319449": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90319535": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "90319807": {
+    "optical": 2500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3050,
+    "certified": true
+  },
+  "90320229": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90321024": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "90322234": {
+    "optical": 400,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 350,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "90322302": {
+    "optical": 550,
+    "store": 500,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1750,
+    "certified": false
+  },
+  "90323136": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "90324039": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "90325262": {
+    "optical": 1300,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1850,
+    "certified": true
+  },
+  "90325770": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "90326285": {
+    "optical": 650,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": false
+  },
+  "90326608": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": false
+  },
+  "90326827": {
+    "optical": 900,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": false
+  },
+  "90328126": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": false
+  },
+  "90328202": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90328386": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "90328624": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 0,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 0,
+    "certified": false
+  },
+  "90332631": {
+    "optical": 550,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "90332853": {
+    "optical": 1000,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1550,
+    "certified": true
+  },
+  "90333052": {
+    "optical": 550,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": false
+  },
+  "90334250": {
+    "optical": 550,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "90334762": {
+    "optical": 600,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": false
+  },
+  "90335774": {
+    "optical": 600,
+    "store": 150,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "90337750": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 0,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 500,
+    "certified": false
+  },
+  "90339803": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90339933": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90339947": {
+    "optical": 150,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": false
+  },
+  "90340450": {
+    "optical": 150,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": false
+  },
+  "90341184": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 800,
+    "certified": false
+  },
+  "90341550": {
+    "optical": 550,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "90346544": {
+    "optical": 2200,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3100,
+    "certified": false
+  },
+  "90348409": {
+    "optical": 600,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": false
+  },
+  "90349395": {
+    "optical": 100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": false
+  },
+  "90357641": {
+    "optical": 550,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "90358474": {
+    "optical": 400,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 800,
+    "certified": false
+  },
+  "90360582": {
+    "optical": 650,
+    "store": 150,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1600,
+    "certified": false
+  },
+  "90361307": {
+    "optical": 1000,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1550,
+    "certified": true
+  },
+  "90366821": {
+    "optical": 100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 500,
+    "certified": false
+  },
+  "90369097": {
+    "optical": 500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 0,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 650,
+    "certified": false
+  },
+  "90369727": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "90369854": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "90370213": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "90451538": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 600,
+    "certified": true
+  },
+  "90458117": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1600,
+    "certified": true
+  },
+  "90461568": {
+    "optical": 200,
+    "store": 500,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "90521587": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "90993411": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "91120411": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "91184142": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "91221171": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "91522731": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "91555345": {
+    "optical": 2200,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3100,
+    "certified": false
+  },
+  "91603617": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "91688485": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "91888212": {
+    "optical": 3000,
+    "store": 500,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 4050,
+    "certified": true
+  },
+  "91933871": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "91987891": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "92010911": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "92013856": {
+    "optical": 800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": true
+  },
+  "92042686": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "92257518": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "92360009": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "92405754": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "92412114": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "92466559": {
+    "optical": 3000,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3900,
+    "certified": true
+  },
+  "92474829": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "92520626": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "92590241": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "92625738": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "92656552": {
+    "optical": 400,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "92663532": {
+    "optical": 300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 250,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": true
+  },
+  "92686541": {
+    "optical": 1000,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "93141793": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "93188951": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "93202131": {
+    "optical": 500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "93214561": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "93400896": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "93404565": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": true
+  },
+  "93489481": {
+    "optical": 500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "93515855": {
+    "optical": 550,
+    "store": 150,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": false
+  },
+  "93583052": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "93660308": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "93684525": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "93854412": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "93890362": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "93920202": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 650,
+    "certified": true
+  },
+  "94054932": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "94062897": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "94249652": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "94341958": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "94380554": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "94399931": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "94457719": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "94487103": {
+    "optical": 1300,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "94489742": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "94503541": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "94512701": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": false
+  },
+  "94585245": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "94587124": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "94611581": {
+    "optical": 300,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": true
+  },
+  "94735387": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "94738181": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1300,
+    "certified": true
+  },
+  "94886504": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2100,
+    "certified": true
+  },
+  "94921393": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "94990913": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "95086099": {
+    "optical": 1300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "95192999": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "95265503": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "95271171": {
+    "optical": 300,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": true
+  },
+  "95384383": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "95391738": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3000,
+    "certified": true
+  },
+  "95458034": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "95463194": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": false
+  },
+  "95482891": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "95510478": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "95657551": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "95696415": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2450,
+    "certified": true
+  },
+  "95718095": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "95781455": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "95796274": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2250,
+    "certified": true
+  },
+  "95803149": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "95806008": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "95818057": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3400,
+    "certified": true
+  },
+  "95824863": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": false
+  },
+  "95844121": {
+    "optical": 1500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "95881221": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "95954521": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2650,
+    "certified": true
+  },
+  "96022116": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "96040882": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "96055642": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "96073624": {
+    "optical": 300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "96077034": {
+    "optical": 550,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "96085436": {
+    "optical": 2500,
+    "store": 150,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3300,
+    "certified": true
+  },
+  "96118709": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3300,
+    "certified": true
+  },
+  "96138106": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "96179805": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "96202981": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1850,
+    "certified": true
+  },
+  "96205199": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "96219327": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3800,
+    "certified": true
+  },
+  "96247614": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "96286521": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "96319811": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "96353201": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "96353651": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "96360542": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2550,
+    "certified": true
+  },
+  "96384417": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "96391791": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "96398231": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "96412641": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "96463015": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "96487224": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "96492911": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "96509449": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1600,
+    "certified": true
+  },
+  "96517034": {
+    "optical": 750,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "96519908": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "96555963": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3400,
+    "certified": true
+  },
+  "96568046": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 350,
+    "insurance": 3,
+    "warranty": 24,
+    "total": 1877,
+    "certified": true
+  },
+  "96586257": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "96614188": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "96619228": {
+    "optical": 200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 600,
+    "certified": true
+  },
+  "96623901": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "96628073": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2850,
+    "certified": true
+  },
+  "96639113": {
+    "optical": 150,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": false
+  },
+  "96656311": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "96672791": {
+    "optical": 1500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "96673631": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "96699779": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2650,
+    "certified": true
+  },
+  "96730561": {
+    "optical": 800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": true
+  },
+  "96756659": {
+    "optical": 400,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1100,
+    "certified": false
+  },
+  "96765933": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 0,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": false
+  },
+  "96767511": {
+    "optical": 3000,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3550,
+    "certified": true
+  },
+  "96807873": {
+    "optical": 1000,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "96855411": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "96867353": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "96871199": {
+    "optical": 2200,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2750,
+    "certified": true
+  },
+  "96937131": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3400,
+    "certified": true
+  },
+  "96961759": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "96964324": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "96984139": {
+    "optical": 900,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": false
+  },
+  "96990325": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "96996927": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "96999454": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "97000761": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "97001082": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "97005631": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "97024023": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "97062669": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "97068365": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "97093718": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "97107859": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "97115436": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "97130745": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "97154261": {
+    "optical": 100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 500,
+    "certified": false
+  },
+  "97213471": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "97217484": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "97223387": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "97240524": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "97242403": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1150,
+    "certified": true
+  },
+  "97269379": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 250,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": true
+  },
+  "97280054": {
+    "optical": 1500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2400,
+    "certified": true
+  },
+  "97296163": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "97339547": {
+    "optical": 300,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": true
+  },
+  "97339865": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "97356077": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "97361704": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "97371181": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "97378186": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "97383503": {
+    "optical": 1500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "97384331": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "97393517": {
+    "optical": 3000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3400,
+    "certified": true
+  },
+  "97395587": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "97403717": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "97410331": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "97415979": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2450,
+    "certified": true
+  },
+  "97418749": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "97429171": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "97503241": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "97513768": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "97515965": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": true
+  },
+  "97516473": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": false
+  },
+  "97525405": {
+    "optical": 0,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "97573851": {
+    "optical": 2200,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "97584673": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "97584797": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": false
+  },
+  "97591327": {
+    "optical": 1300,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1850,
+    "certified": true
+  },
+  "97594288": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2750,
+    "certified": true
+  },
+  "97598429": {
+    "optical": 3000,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3900,
+    "certified": true
+  },
+  "97629529": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "97644201": {
+    "optical": 500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": true
+  },
+  "97648469": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "97655759": {
+    "optical": 2500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3400,
+    "certified": true
+  },
+  "97673374": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "97677345": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "97678074": {
+    "optical": 500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": true
+  },
+  "97700789": {
+    "optical": 1500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "97704521": {
+    "optical": 300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "97715451": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3300,
+    "certified": true
+  },
+  "97737747": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "97745561": {
+    "optical": 650,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1550,
+    "certified": false
+  },
+  "97782246": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "97847691": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 0,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": false
+  },
+  "97859214": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "97864765": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "97891258": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "97894494": {
+    "optical": 750,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": false
+  },
+  "97897264": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "97898181": {
+    "optical": 0,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "97934852": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "97942294": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2550,
+    "certified": true
+  },
+  "97971383": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "97976636": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "97995071": {
+    "optical": 1300,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1850,
+    "certified": true
+  },
+  "97996149": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 350,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2550,
+    "certified": true
+  },
+  "97998478": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 7,
+    "warranty": 20255,
+    "total": 21962,
+    "certified": true
+  },
+  "98134264": {
+    "optical": 200,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 900,
+    "certified": true
+  },
+  "98138316": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "98154061": {
+    "optical": 1800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": true
+  },
+  "98156012": {
+    "optical": 1300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "98170368": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2700,
+    "certified": true
+  },
+  "98180011": {
+    "optical": 800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "98210548": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "98213441": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "98213784": {
+    "optical": 1000,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "98217224": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "98218841": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "98218891": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 350,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2450,
+    "certified": true
+  },
+  "98229915": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "98231022": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3200,
+    "certified": true
+  },
+  "98231251": {
+    "optical": 150,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": false
+  },
+  "98242539": {
+    "optical": 0,
+    "store": 0,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 600,
+    "certified": true
+  },
+  "98271113": {
+    "optical": 1250,
+    "store": 300,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2350,
+    "certified": false
+  },
+  "98281283": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  },
+  "98288725": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1600,
+    "certified": true
+  },
+  "98299212": {
+    "optical": 1300,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "98299522": {
+    "optical": 1800,
+    "store": 500,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2950,
+    "certified": true
+  },
+  "98315625": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "98319231": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "98345796": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "98363141": {
+    "optical": 800,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "98369571": {
+    "optical": 550,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "98387286": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "98392671": {
+    "optical": 1300,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 200,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1650,
+    "certified": true
+  },
+  "98409387": {
+    "optical": 2200,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2600,
+    "certified": true
+  },
+  "98413023": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "98413651": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "98449486": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 300,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "98487841": {
+    "optical": 1800,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2500,
+    "certified": true
+  },
+  "98492021": {
+    "optical": 750,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1150,
+    "certified": false
+  },
+  "98518429": {
+    "optical": 2500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2900,
+    "certified": true
+  },
+  "98529544": {
+    "optical": 400,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 0,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 400,
+    "certified": false
+  },
+  "98543598": {
+    "optical": 550,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1450,
+    "certified": false
+  },
+  "98577999": {
+    "optical": 800,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1350,
+    "certified": true
+  },
+  "98597728": {
+    "optical": 400,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1300,
+    "certified": false
+  },
+  "98641514": {
+    "optical": 500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "98644017": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1800,
+    "certified": true
+  },
+  "98644483": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 200,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 750,
+    "certified": false
+  },
+  "98646338": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 250,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2150,
+    "certified": true
+  },
+  "98654535": {
+    "optical": 400,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 950,
+    "certified": false
+  },
+  "98657305": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "98663631": {
+    "optical": 1800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "98664311": {
+    "optical": 500,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1400,
+    "certified": true
+  },
+  "98669303": {
+    "optical": 1100,
+    "store": 150,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "98670883": {
+    "optical": 1500,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2050,
+    "certified": true
+  },
+  "98704711": {
+    "optical": 1500,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2200,
+    "certified": true
+  },
+  "98716492": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1500,
+    "certified": true
+  },
+  "98721038": {
+    "optical": 550,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1250,
+    "certified": false
+  },
+  "98735446": {
+    "optical": 400,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 800,
+    "certified": false
+  },
+  "98765442": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "98788418": {
+    "optical": 1500,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": false
+  },
+  "98821989": {
+    "optical": 650,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": false
+  },
+  "98824805": {
+    "optical": 800,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "98831488": {
+    "optical": 1100,
+    "store": 300,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1950,
+    "certified": true
+  },
+  "98850385": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "98868721": {
+    "optical": 600,
+    "store": 0,
+    "newCustomers": 300,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1300,
+    "certified": false
+  },
+  "98872222": {
+    "optical": 3000,
+    "store": 300,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 3700,
+    "certified": true
+  },
+  "98879791": {
+    "optical": 300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 700,
+    "certified": true
+  },
+  "98885881": {
+    "optical": 1100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 2000,
+    "certified": true
+  },
+  "98909851": {
+    "optical": 100,
+    "store": 500,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1000,
+    "certified": false
+  },
+  "98917129": {
+    "optical": 500,
+    "store": 0,
+    "newCustomers": 150,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1050,
+    "certified": true
+  },
+  "98920839": {
+    "optical": 800,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1200,
+    "certified": true
+  },
+  "98933485": {
+    "optical": 0,
+    "store": 150,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 550,
+    "certified": true
+  },
+  "98954326": {
+    "optical": 1300,
+    "store": 0,
+    "newCustomers": 0,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1700,
+    "certified": true
+  },
+  "98967495": {
+    "optical": 1100,
+    "store": 0,
+    "newCustomers": 400,
+    "collections": 400,
+    "insurance": 0,
+    "warranty": 0,
+    "total": 1900,
+    "certified": true
+  }
+}
