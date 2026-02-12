@@ -93,7 +93,7 @@ function determinePhaseStatuses(tenantId: string, periodId: string): Record<Cycl
       state: hasReconciliation ? 'completed' : (hasCalculations ? 'in_progress' : 'not_started'),
       detail: hasReconciliation ? 'Reconciliation complete' : (hasCalculations ? 'Review mismatches' : 'Waiting for calculations'),
       detailEs: hasReconciliation ? 'Conciliación completa' : (hasCalculations ? 'Revisar diferencias' : 'Esperando cálculos'),
-      actionCount: hasReconciliation ? 0 : 3, // Mock: 3 mismatches to review
+      actionCount: hasReconciliation ? 0 : (hasCalculations ? 1 : 0), // OB-29: No fake mismatch counts
     },
     approve: {
       state: pendingApprovals === 0 && hasReconciliation ? 'completed' : (hasReconciliation ? 'in_progress' : 'not_started'),
@@ -313,10 +313,10 @@ function checkPendingApprovals(tenantId: string, periodId: string): number {
         : 0;
     }
 
-    // Demo default
-    return 5;
+    // OB-29: No hardcoded demo values
+    return 0;
   } catch {
-    return 5;
+    return 0;
   }
 }
 
@@ -385,10 +385,10 @@ export function getReconciliationMismatches(tenantId: string, periodId: string):
       const parsed = JSON.parse(mismatches);
       return Array.isArray(parsed) ? parsed.length : 0;
     }
-    // Demo default
-    return 3;
+    // OB-29: No hardcoded demo values
+    return 0;
   } catch {
-    return 3;
+    return 0;
   }
 }
 
