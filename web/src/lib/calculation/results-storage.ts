@@ -246,6 +246,11 @@ export function deleteCalculationRun(runId: string): boolean {
 /**
  * Save calculation results for a run
  * Uses chunked storage to handle large datasets
+ *
+ * OB-30-1: Implements eviction strategy for QuotaExceededError
+ * - First evicts old calculation runs (keeps only most recent 2)
+ * - If still insufficient, evicts raw data layer staging data
+ * - Throws visible error if results cannot be saved after eviction
  */
 export function saveCalculationResults(runId: string, results: CalculationResult[]): void {
   if (typeof window === 'undefined') return;
@@ -253,18 +258,133 @@ export function saveCalculationResults(runId: string, results: CalculationResult
   // Clear any existing results for this run
   deleteResultsForRun(runId);
 
-  // Save in chunks
-  const chunks = Math.ceil(results.length / CHUNK_SIZE);
-  for (let i = 0; i < chunks; i++) {
-    const chunkResults = results.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-    const key = `${STORAGE_KEY_RESULTS_PREFIX}${runId}_${i}`;
-    localStorage.setItem(key, JSON.stringify(chunkResults));
+  // Calculate data size to help with eviction decisions
+  const dataJson = JSON.stringify(results);
+  const estimatedSizeKB = Math.round(dataJson.length / 1024);
+  console.log(`[ResultsStorage] Saving ${results.length} results (~${estimatedSizeKB}KB) for run ${runId}`);
+
+  // Try to save with eviction strategy
+  let evictionAttempts = 0;
+  const maxEvictionAttempts = 3;
+
+  while (evictionAttempts < maxEvictionAttempts) {
+    try {
+      // Save in chunks
+      const chunks = Math.ceil(results.length / CHUNK_SIZE);
+      for (let i = 0; i < chunks; i++) {
+        const chunkResults = results.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const key = `${STORAGE_KEY_RESULTS_PREFIX}${runId}_${i}`;
+        localStorage.setItem(key, JSON.stringify(chunkResults));
+      }
+
+      // Save chunk count for retrieval
+      localStorage.setItem(`${STORAGE_KEY_RESULTS_PREFIX}${runId}_meta`, JSON.stringify({ chunks }));
+
+      console.log(`[ResultsStorage] Saved ${results.length} results for run ${runId} in ${chunks} chunks`);
+      return; // Success!
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        evictionAttempts++;
+        console.warn(`[ResultsStorage] QuotaExceededError on attempt ${evictionAttempts}. Running eviction...`);
+
+        // Run eviction strategy
+        const evicted = evictStorageForSpace(runId);
+        if (!evicted) {
+          console.error('[ResultsStorage] No more data to evict. Storage is full.');
+          break;
+        }
+      } else {
+        throw error; // Re-throw non-quota errors
+      }
+    }
   }
 
-  // Save chunk count for retrieval
-  localStorage.setItem(`${STORAGE_KEY_RESULTS_PREFIX}${runId}_meta`, JSON.stringify({ chunks }));
+  // If we get here, all eviction attempts failed
+  const errorMsg = `[ResultsStorage] CRITICAL: Failed to save calculation results after ${maxEvictionAttempts} eviction attempts. Run ID: ${runId}`;
+  console.error(errorMsg);
+  throw new Error(errorMsg);
+}
 
-  console.log(`[ResultsStorage] Saved ${results.length} results for run ${runId} in ${chunks} chunks`);
+/**
+ * OB-30-1: Eviction strategy to free localStorage space
+ * Returns true if something was evicted, false if nothing left to evict
+ */
+function evictStorageForSpace(protectedRunId: string): boolean {
+  if (typeof window === 'undefined') return false;
+
+  // STRATEGY 1: Evict old calculation runs (keep only most recent 2 per tenant/period)
+  const runs = getAllRuns();
+  const runsByTenantPeriod: Map<string, CalculationRun[]> = new Map();
+
+  // Group runs by tenant+period
+  for (const run of runs) {
+    const key = `${run.tenantId}:${run.period}`;
+    const group = runsByTenantPeriod.get(key) || [];
+    group.push(run);
+    runsByTenantPeriod.set(key, group);
+  }
+
+  // Find runs to evict (keep only 2 most recent per tenant/period)
+  const runsToEvict: CalculationRun[] = [];
+  for (const [, groupRuns] of Array.from(runsByTenantPeriod)) {
+    const sorted = groupRuns.sort(
+      (a, b) => new Date(b.calculatedAt).getTime() - new Date(a.calculatedAt).getTime()
+    );
+    // Keep first 2, evict the rest (but never evict protected run)
+    for (let i = 2; i < sorted.length; i++) {
+      if (sorted[i].id !== protectedRunId) {
+        runsToEvict.push(sorted[i]);
+      }
+    }
+  }
+
+  if (runsToEvict.length > 0) {
+    console.log(`[ResultsStorage] Evicting ${runsToEvict.length} old calculation runs`);
+    for (const run of runsToEvict) {
+      deleteResultsForRun(run.id);
+    }
+    // Update runs list
+    const filteredRuns = runs.filter((r) => !runsToEvict.some((e) => e.id === r.id));
+    saveRuns(filteredRuns);
+    return true;
+  }
+
+  // STRATEGY 2: Evict data layer staging data (keep only committed/aggregated)
+  const stagingKeys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('data_layer_') && !key.includes('_committed_')) {
+      stagingKeys.push(key);
+    }
+  }
+
+  if (stagingKeys.length > 0) {
+    console.log(`[ResultsStorage] Evicting ${stagingKeys.length} data layer staging keys`);
+    for (const key of stagingKeys) {
+      localStorage.removeItem(key);
+    }
+    return true;
+  }
+
+  // STRATEGY 3: Evict old import mappings
+  const importKeys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (key.startsWith('import_') || key.startsWith('sheet_mapping_'))) {
+      importKeys.push(key);
+    }
+  }
+
+  if (importKeys.length > 0) {
+    console.log(`[ResultsStorage] Evicting ${importKeys.length} old import keys`);
+    for (const key of importKeys) {
+      localStorage.removeItem(key);
+    }
+    return true;
+  }
+
+  // Nothing left to evict
+  return false;
 }
 
 /**
