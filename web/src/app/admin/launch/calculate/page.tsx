@@ -19,6 +19,7 @@ import {
   getPlansWithStatus,
   activatePlan,
   ensureTenantPlans,
+  resetToDefaultPlans,
 } from '@/lib/compensation/plan-storage';
 import type { CalculationStep } from '@/types/compensation-plan';
 import { ReconciliationTracePanel } from '@/components/reconciliation/ReconciliationTracePanel';
@@ -466,12 +467,37 @@ export default function CalculatePage() {
       {planStatus.hasActivePlan && (
         <Card className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30">
           <CardContent className="py-4">
-            <div className="flex items-center gap-2 text-green-800 dark:text-green-200">
-              <CheckCircle2 className="h-5 w-5" />
-              <span className="font-medium">
-                {locale === 'es-MX' ? 'Plan Activo' : 'Active Plan'}:
-              </span>
-              <span>{planStatus.activePlanName}</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-green-800 dark:text-green-200">
+                <CheckCircle2 className="h-5 w-5" />
+                <span className="font-medium">
+                  {locale === 'es-MX' ? 'Plan Activo' : 'Active Plan'}:
+                </span>
+                <span>{planStatus.activePlanName}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const count = resetToDefaultPlans(currentTenant!.id);
+                  if (count > 0) {
+                    // Refresh plan status
+                    const plansWithStatus = getPlansWithStatus(currentTenant!.id);
+                    const activePlan = plansWithStatus.find((p) => p.isActive);
+                    setPlanStatus({
+                      hasPlans: plansWithStatus.length > 0,
+                      hasActivePlan: !!activePlan,
+                      activePlanName: activePlan?.plan.name || null,
+                      draftPlans: plansWithStatus
+                        .filter((p) => p.plan.status === 'draft')
+                        .map((p) => ({ id: p.plan.id, name: p.plan.name })),
+                    });
+                    alert(`Reset ${count} plan(s) to validated defaults.`);
+                  }
+                }}
+              >
+                Reset to Default Plan
+              </Button>
             </div>
           </CardContent>
         </Card>

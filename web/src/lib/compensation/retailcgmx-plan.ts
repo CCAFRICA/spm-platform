@@ -73,7 +73,7 @@ const OPTICAL_SALES_MATRIX_NON_CERTIFIED: MatrixConfig = {
     [0,       0,          0,           250,         400],    // <80%
     [100,     150,        250,         400,         550],    // 80%-90%
     [150,     250,        400,         550,         750],    // 90%-100%
-    [400,     550,        750,         600,         1250],   // 100%-150% (note: 600 appears to be in original)
+    [400,     550,        750,         900,         1250],   // 100%-150%
     [500,     650,        900,         1100,        1500],   // 150%+
   ],
   currency: 'MXN',
@@ -191,9 +191,17 @@ function getCertifiedComponents(): PlanComponent[] {
             metric: 'store_goal_attainment',
             metricLabel: 'Cumplimiento meta tienda',
             min: 0,
+            max: 80,
+            rate: 0,
+            label: '<=80% cumplimiento',
+          },
+          {
+            metric: 'store_goal_attainment',
+            metricLabel: 'Cumplimiento meta tienda',
+            min: 80,
             max: 100,
             rate: 0.03,
-            label: '<100% cumplimiento',
+            label: '80%-99.99% cumplimiento',
           },
           {
             metric: 'store_goal_attainment',
@@ -211,7 +219,7 @@ function getCertifiedComponents(): PlanComponent[] {
     {
       id: 'servicios',
       name: 'Venta de Servicios',
-      description: 'Garantía Extendida - 4% de ventas individuales',
+      description: 'Garantia Extendida - 4% de ventas individuales',
       order: 6,
       enabled: true,
       componentType: 'percentage',
@@ -219,7 +227,7 @@ function getCertifiedComponents(): PlanComponent[] {
       percentageConfig: {
         rate: 0.04,
         appliedTo: 'individual_warranty_sales',
-        appliedToLabel: 'Ventas individuales de garantía extendida',
+        appliedToLabel: 'Ventas individuales de garantia extendida',
       },
     },
   ];
@@ -233,8 +241,8 @@ function getNonCertifiedComponents(): PlanComponent[] {
   return [
     {
       id: 'venta-optica-noncertified',
-      name: 'Venta Óptica',
-      description: 'Incentivo por ventas ópticas basado en cumplimiento y volumen de tienda (tarifa reducida)',
+      name: 'Venta Optica',
+      description: 'Incentivo por ventas opticas basado en cumplimiento y volumen de tienda (tarifa reducida)',
       order: 1,
       enabled: true,
       componentType: 'matrix_lookup',
@@ -274,7 +282,7 @@ function getNonCertifiedComponents(): PlanComponent[] {
     {
       id: 'seguros',
       name: 'Venta de Seguros',
-      description: 'Reactivación Club de Protección - porcentaje basado en cumplimiento de tienda',
+      description: 'Reactivacion Club de Proteccion - porcentaje basado en cumplimiento de tienda',
       order: 5,
       enabled: true,
       componentType: 'conditional_percentage',
@@ -285,9 +293,17 @@ function getNonCertifiedComponents(): PlanComponent[] {
             metric: 'store_goal_attainment',
             metricLabel: 'Cumplimiento meta tienda',
             min: 0,
+            max: 80,
+            rate: 0,
+            label: '<=80% cumplimiento',
+          },
+          {
+            metric: 'store_goal_attainment',
+            metricLabel: 'Cumplimiento meta tienda',
+            min: 80,
             max: 100,
             rate: 0.03,
-            label: '<100% cumplimiento',
+            label: '80%-99.99% cumplimiento',
           },
           {
             metric: 'store_goal_attainment',
@@ -305,7 +321,7 @@ function getNonCertifiedComponents(): PlanComponent[] {
     {
       id: 'servicios',
       name: 'Venta de Servicios',
-      description: 'Garantía Extendida - 4% de ventas individuales',
+      description: 'Garantia Extendida - 4% de ventas individuales',
       order: 6,
       enabled: true,
       componentType: 'percentage',
@@ -313,7 +329,7 @@ function getNonCertifiedComponents(): PlanComponent[] {
       percentageConfig: {
         rate: 0.04,
         appliedTo: 'individual_warranty_sales',
-        appliedToLabel: 'Ventas individuales de garantía extendida',
+        appliedToLabel: 'Ventas individuales de garantia extendida',
       },
     },
   ];

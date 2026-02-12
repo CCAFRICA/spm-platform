@@ -450,14 +450,19 @@ function getAllPlans(): CompensationPlanConfig[] {
 
   const stored = localStorage.getItem(STORAGE_KEY_PLANS);
   if (!stored) {
-    // Initialize with default plans
+    // Initialize with default plans (preserve Infinity)
     const defaults = getDefaultPlans();
-    localStorage.setItem(STORAGE_KEY_PLANS, JSON.stringify(defaults));
+    localStorage.setItem(STORAGE_KEY_PLANS, JSON.stringify(defaults, (_, value) =>
+      value === Infinity ? 'INFINITY' : value
+    ));
     return defaults;
   }
 
   try {
-    return JSON.parse(stored);
+    // OB-30: Restore Infinity values that were serialized as "INFINITY"
+    return JSON.parse(stored, (_, value) =>
+      value === 'INFINITY' ? Infinity : value
+    );
   } catch {
     return getDefaultPlans();
   }
@@ -465,7 +470,10 @@ function getAllPlans(): CompensationPlanConfig[] {
 
 function savePlans(plans: CompensationPlanConfig[]): void {
   if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY_PLANS, JSON.stringify(plans));
+    // OB-30: Preserve Infinity values during serialization
+    localStorage.setItem(STORAGE_KEY_PLANS, JSON.stringify(plans, (_, value) =>
+      value === Infinity ? 'INFINITY' : value
+    ));
   }
 }
 
@@ -841,6 +849,51 @@ export function initializePlans(): void {
     const defaults = getDefaultPlans();
     localStorage.setItem(STORAGE_KEY_PLANS, JSON.stringify(defaults));
   }
+}
+
+/**
+ * OB-30: Reset a tenant's plans to the hardcoded defaults from retailcgmx-plan.ts.
+ * This replaces any AI-imported plans with the known-good values.
+ * Use when AI extraction produced wrong tier tables/payout values.
+ * Returns the number of plans reset.
+ */
+export function resetToDefaultPlans(tenantId: string): number {
+  if (typeof window === 'undefined') return 0;
+
+  const defaults = getDefaultPlans();
+  const tenantDefaults = defaults.filter((p) => p.tenantId === tenantId);
+
+  if (tenantDefaults.length === 0) {
+    console.warn(`[PlanStorage] No default plans found for tenant "${tenantId}"`);
+    return 0;
+  }
+
+  // Remove all existing plans for this tenant, keep other tenants' plans
+  const allPlans = getAllPlans();
+  const otherTenantPlans = allPlans.filter((p) => p.tenantId !== tenantId);
+
+  // Activate the defaults
+  const activatedDefaults = tenantDefaults.map(p => ({
+    ...p,
+    status: 'active' as const,
+    updatedAt: new Date().toISOString(),
+  }));
+
+  const updated = [...otherTenantPlans, ...activatedDefaults];
+  // Serialize with Infinity preservation (JSON.stringify drops Infinity → null)
+  const serialized = JSON.stringify(updated, (_, value) =>
+    value === Infinity ? 'INFINITY' : value
+  );
+  localStorage.setItem(STORAGE_KEY_PLANS, serialized);
+
+  console.log(`[PlanStorage] Reset ${activatedDefaults.length} plans for tenant "${tenantId}" to defaults`);
+  activatedDefaults.forEach(p => {
+    const config = p.configuration;
+    const variantCount = config.type === 'additive_lookup' ? config.variants.length : 0;
+    console.log(`  - ${p.name} (${p.id}): ${variantCount} variants, status=active`);
+  });
+
+  return activatedDefaults.length;
 }
 
 /**
