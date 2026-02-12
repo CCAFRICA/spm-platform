@@ -269,16 +269,17 @@ function calculateMatrixLookup(
 
   // OB-27: NO SILENT FALLBACKS - log when metrics are missing
   // OB-27B: Use recordWarning for summary pattern (prevents console flood)
+  // OB-29 Phase 3B: Check for undefined/null/NaN/Infinity (zero-goal guard)
   const rowValue = metrics.metrics[config.rowMetric];
   const colValue = metrics.metrics[config.columnMetric];
 
-  if (rowValue === undefined) {
-    recordWarning(`${component.name}: Missing rowMetric "${config.rowMetric}"`);
-    return createZeroStep(component, `Missing metric: ${config.rowMetric}`);
+  if (rowValue === undefined || rowValue === null || !Number.isFinite(rowValue)) {
+    recordWarning(`${component.name}: Metric not measured ("${config.rowMetric}")`);
+    return createZeroStep(component, `Metric not measured: ${config.rowMetric}`);
   }
-  if (colValue === undefined) {
-    recordWarning(`${component.name}: Missing columnMetric "${config.columnMetric}"`);
-    return createZeroStep(component, `Missing metric: ${config.columnMetric}`);
+  if (colValue === undefined || colValue === null || !Number.isFinite(colValue)) {
+    recordWarning(`${component.name}: Metric not measured ("${config.columnMetric}")`);
+    return createZeroStep(component, `Metric not measured: ${config.columnMetric}`);
   }
 
   const rowBand = findBand(config.rowBands, rowValue);
@@ -338,10 +339,11 @@ function calculateTierLookup(
 
   // OB-27: NO SILENT FALLBACKS - log when metrics are missing
   // OB-27B: Use recordWarning for summary pattern (prevents console flood)
+  // OB-29 Phase 3B: Check for undefined/null/NaN/Infinity (zero-goal guard)
   const value = metrics.metrics[config.metric];
-  if (value === undefined) {
-    recordWarning(`${component.name}: Missing metric "${config.metric}"`);
-    return createZeroStep(component, `Missing metric: ${config.metric}`);
+  if (value === undefined || value === null || !Number.isFinite(value)) {
+    recordWarning(`${component.name}: Metric not measured ("${config.metric}")`);
+    return createZeroStep(component, `Metric not measured: ${config.metric}`);
   }
 
   const tier = findTier(config.tiers, value);
@@ -385,10 +387,11 @@ function calculatePercentage(
   const config = component.percentageConfig!;
 
   // OB-27: NO SILENT FALLBACKS - log when metrics are missing
+  // OB-29 Phase 3B: Check for undefined/null/NaN/Infinity (zero-goal guard)
   const baseValue = metrics.metrics[config.appliedTo];
-  if (baseValue === undefined) {
-    recordWarning(`${component.name}: Missing metric "${config.appliedTo}"`);
-    return createZeroStep(component, `Missing metric: ${config.appliedTo}`);
+  if (baseValue === undefined || baseValue === null || !Number.isFinite(baseValue)) {
+    recordWarning(`${component.name}: Metric not measured ("${config.appliedTo}")`);
+    return createZeroStep(component, `Metric not measured: ${config.appliedTo}`);
   }
 
   // Check minimum threshold
@@ -442,10 +445,11 @@ function calculateConditionalPercentage(
   }
 
   // OB-27: NO SILENT FALLBACKS - log when metrics are missing
+  // OB-29 Phase 3B: Check for undefined/null/NaN/Infinity (zero-goal guard)
   const baseValue = metrics.metrics[config.appliedTo];
-  if (baseValue === undefined) {
-    recordWarning(`${component.name}: Missing appliedTo metric "${config.appliedTo}"`);
-    return createZeroStep(component, `Missing metric: ${config.appliedTo}`);
+  if (baseValue === undefined || baseValue === null || !Number.isFinite(baseValue)) {
+    recordWarning(`${component.name}: Metric not measured ("${config.appliedTo}")`);
+    return createZeroStep(component, `Metric not measured: ${config.appliedTo}`);
   }
 
   // Find matching condition
@@ -455,9 +459,9 @@ function calculateConditionalPercentage(
   }
 
   const conditionValue = metrics.metrics[conditionMetric];
-  if (conditionValue === undefined) {
-    recordWarning(`${component.name}: Missing condition metric "${conditionMetric}"`);
-    return createZeroStep(component, `Missing condition metric: ${conditionMetric}`);
+  if (conditionValue === undefined || conditionValue === null || !Number.isFinite(conditionValue)) {
+    recordWarning(`${component.name}: Condition metric not measured ("${conditionMetric}")`);
+    return createZeroStep(component, `Condition metric not measured: ${conditionMetric}`);
   }
 
   const matchingCondition = config.conditions.find(
@@ -625,11 +629,19 @@ function getMultiplierFromCurve(
 // ============================================
 
 function findBand(bands: Band[], value: number): Band {
+  // OB-29 Phase 3B: Safety guard - return lowest band for non-finite values
+  if (!Number.isFinite(value)) {
+    return bands[0] || { min: 0, max: 0, label: 'Unknown' };
+  }
   const found = bands.find((b) => value >= b.min && value < b.max);
   return found || bands[bands.length - 1] || { min: 0, max: 0, label: 'Unknown' };
 }
 
 function findTier(tiers: Tier[], value: number): Tier {
+  // OB-29 Phase 3B: Safety guard - return zero-value tier for non-finite values
+  if (!Number.isFinite(value)) {
+    return { min: 0, max: 0, label: 'Not Measured', value: 0 };
+  }
   const found = tiers.find((t) => value >= t.min && value < t.max);
   return found || tiers[tiers.length - 1] || { min: 0, max: 0, label: 'Unknown', value: 0 };
 }
