@@ -655,13 +655,14 @@ export class CalculationOrchestrator {
   }
 
   /**
-   * OB-21: PLAN-DRIVEN metric extraction (no hardcoded metric names)
+   * HF-018: SCOPED METRICS PER COMPONENT
    *
-   * Uses the plan's own metric names (rowMetric, columnMetric, etc.) and
-   * infers the semantic type (attainment, amount, goal) from pattern analysis.
-   * Works for ANY plan without customer-specific code.
+   * Each plan component receives metrics ONLY from its corresponding data sheet.
+   * This prevents "metric bleed" where one sheet's values could be used for
+   * a different component's calculation.
    *
-   * PRINCIPLE 1: AI-First, Never Hardcoded.
+   * PRINCIPLE: AI-First semantic matching between component names and sheet names.
+   * No hardcoded sheet-to-component mappings.
    */
   private extractMetricsWithAIMappings(employee: EmployeeData): Record<string, number> | null {
     const attrs = employee.attributes as Record<string, unknown> | undefined;
@@ -672,196 +673,164 @@ export class CalculationOrchestrator {
     // Get componentMetrics from employee (aggregated by sheet name)
     const componentMetrics = attrs.componentMetrics as Record<string, SheetMetrics> | undefined;
 
-    if (componentMetrics && this.planComponents.length > 0) {
-      // OB-21: Iterate over PLAN COMPONENTS (not sheets)
-      // The plan defines what metric names to use
-      for (const component of this.planComponents) {
-        // 1. Extract the metric config from this plan component
-        const metricConfig = extractMetricConfig(component);
-
-        // 2. Find which sheet feeds this component via AI Import Context
-        const matchedSheet = findSheetForComponent(
-          component.name,
-          component.id,
-          this.aiImportContext?.sheets || []
-        );
-
-        // If no direct match, try to find sheet by matching in componentMetrics keys
-        let sheetMetrics: SheetMetrics | undefined;
-        if (matchedSheet && componentMetrics[matchedSheet]) {
-          sheetMetrics = componentMetrics[matchedSheet];
-        } else {
-          // Fallback: Try to find a sheet that matches component name loosely
-          const compNameNorm = component.name.toLowerCase().replace(/[-\s]/g, '_');
-          for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
-            const sheetNorm = sheetName.toLowerCase().replace(/[-\s]/g, '_');
-            if (sheetNorm.includes(compNameNorm) || compNameNorm.includes(sheetNorm)) {
-              sheetMetrics = sheetData;
-              break;
-            }
-          }
-        }
-
-        if (!sheetMetrics) {
-          continue;
-        }
-
-        // OB-24 FIX: Do NOT compute attainment from amount/goal - it produces wrong results
-        // when amounts and goals are summed across stores. Use source attainment only.
-        const enrichedMetrics: SheetMetrics = { ...sheetMetrics };
-
-        // OB-29: ZERO-GOAL GUARD (Universal Rule) — also applies to OB-24 path
-        // If goal is zero/null/undefined, the metric is "not measured" — clear any attainment
-        const goalVal = enrichedMetrics.goal;
-        if (goalVal === undefined || goalVal === null || goalVal === 0) {
-          const prevAtt = enrichedMetrics.attainment;
-          enrichedMetrics.attainment = undefined;
-          // Log only for first employee to avoid flood
-          if (Object.keys(metrics).length === 0) {
-            console.log(`[Orchestrator] OB-29 ZERO-GOAL (OB-24): goal=${goalVal}, was=${prevAtt}, now=undefined`);
-          }
-        } else {
-          // Normalize: if < 5, assume decimal ratio and multiply by 100
-          if (enrichedMetrics.attainment !== undefined &&
-              enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
-            enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
-          }
-        }
-
-        // 3. Build metrics using plan's own metric names
-        // OB-29 Phase 3B: Pass componentType for tier_lookup contextual validation
-        const componentMetricsResolved = buildComponentMetrics(metricConfig, enrichedMetrics, component.componentType);
-
-        // 4. Merge into employee's metrics
-        Object.assign(metrics, componentMetricsResolved);
-      }
-    }
-
-    // OB-27B FIX: Use metric-resolver to map ALL sheets to plan metrics
-    // This replaces the hardcoded sheetToExactMetrics map - NO HARDCODING!
-    // Uses findSheetForComponent pattern matching + buildComponentMetrics semantic resolution
-    if (componentMetrics && this.planComponents.length > 0) {
-      // Log once per calculation run to avoid console flood
-      const isFirstEmployee = !this._ob27bLogged;
-      if (isFirstEmployee) {
-        this._ob27bLogged = true;
-        console.log(`[Orchestrator] OB-27B: Processing ${Object.keys(componentMetrics).length} sheets with metric-resolver`);
-      }
-
-      for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
-        const sheetNorm = sheetName.toLowerCase().replace(/[-\s]/g, '_');
-
-        // Skip roster sheets (no metrics to extract)
-        if (sheetNorm.includes('colaborador') || sheetNorm.includes('roster') || sheetNorm.includes('datos')) {
-          continue;
-        }
-
-        // Find which plan component this sheet feeds using metric-resolver pattern matching
-        let matchedComponent: typeof this.planComponents[0] | undefined;
-        for (const component of this.planComponents) {
-          // Use findSheetForComponent with a fake aiContextSheet to leverage pattern matching
-          const matched = findSheetForComponent(
-            component.name,
-            component.id,
-            [{ sheetName, matchedComponent: null }]
-          );
-          if (matched === sheetName) {
-            matchedComponent = component;
-            break;
-          }
-        }
-
-        if (!matchedComponent) {
-          if (isFirstEmployee) {
-            console.warn(`[Orchestrator] OB-27B: No plan component matched for sheet "${sheetName}"`);
-          }
-          continue;
-        }
-
-        // Extract metric config from matched component (plan-defined metric names)
-        const metricConfig = extractMetricConfig(matchedComponent);
-
-        // OB-27B: Build enrichedMetrics with Carry Everything fallback chain
-        // 1. Use AI-mapped attainment if available
-        // 2. Fall back to _candidateAttainment (detected by field name pattern)
-        // 3. Fall back to computed from amount/goal
-        // OB-29: ZERO-GOAL GUARD — If goal is 0/null/undefined, this metric is "not measured"
-        const sheetDataAny = sheetData as Record<string, unknown>;
-        const enrichedMetrics: SheetMetrics = {
-          attainment: sheetData.attainment,
-          amount: sheetData.amount,
-          goal: sheetData.goal,
-        };
-
-        // OB-29: ZERO-GOAL GUARD (Universal Rule)
-        // If goal is zero, null, or undefined, the metric is "not measured" for this employee.
-        // Set attainment to undefined regardless of source value — this causes $0 payout.
-        // This is a UNIVERSAL rule: any comp engine must treat zero-goal as "not measured."
-        const goalValue = enrichedMetrics.goal;
-        const isZeroGoal = goalValue === undefined || goalValue === null || goalValue === 0;
-
-        if (isZeroGoal) {
-          // Zero goal = not measured. Clear any source attainment that might be infinity or garbage.
-          const prevAttainment = enrichedMetrics.attainment;
-          enrichedMetrics.attainment = undefined;
-          if (isFirstEmployee) {
-            console.log(`[Orchestrator] OB-29 ZERO-GOAL: ${sheetName} goal=${goalValue}, was attainment=${prevAttainment}, now=undefined → engine should return $0`);
-          }
-        } else {
-          // OB-27B: Use candidate attainment if primary is missing
-          if (enrichedMetrics.attainment === undefined && sheetDataAny._candidateAttainment !== undefined) {
-            enrichedMetrics.attainment = sheetDataAny._candidateAttainment as number;
-            if (isFirstEmployee) {
-              console.log(`[Orchestrator] OB-27B: ${sheetName} using _candidateAttainment = ${enrichedMetrics.attainment}`);
-            }
-          }
-
-          // OB-27B: Compute attainment from amount/goal if still missing
-          if (enrichedMetrics.attainment === undefined &&
-              enrichedMetrics.amount !== undefined &&
-              enrichedMetrics.goal !== undefined &&
-              enrichedMetrics.goal > 0) {
-            enrichedMetrics.attainment = (enrichedMetrics.amount / enrichedMetrics.goal) * 100;
-            if (isFirstEmployee) {
-              console.log(`[Orchestrator] OB-27B: ${sheetName} computed attainment = ${enrichedMetrics.attainment.toFixed(1)}%`);
-            }
-          }
-
-          // Normalize: if < 5, assume decimal ratio and multiply by 100
-          if (enrichedMetrics.attainment !== undefined &&
-              enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
-            enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
-          }
-        }
-
-        // Build metrics using plan's own metric names via semantic type inference
-        // OB-29 Phase 3B: Pass componentType for tier_lookup contextual validation
-        const resolved = buildComponentMetrics(metricConfig, enrichedMetrics, matchedComponent.componentType);
-
-        // Merge without overwriting existing values (plan-driven path has priority)
-        for (const [key, value] of Object.entries(resolved)) {
-          if (metrics[key] === undefined) {
-            metrics[key] = value;
-            if (isFirstEmployee) {
-              console.log(`[Orchestrator] OB-27B: ${sheetName} → ${key} = ${value}`);
-            }
-          }
-        }
-      }
-
-      if (isFirstEmployee) {
-        console.log(`[Orchestrator] OB-27B: Final metrics: ${Object.keys(metrics).length} keys: [${Object.keys(metrics).join(', ')}]`);
-      }
-    }
-
-    // FALLBACK: Extract from flat numeric attributes (backward compatibility)
-    if (Object.keys(metrics).length === 0) {
+    if (!componentMetrics || this.planComponents.length === 0) {
+      // FALLBACK: Extract from flat numeric attributes (backward compatibility)
       for (const [key, value] of Object.entries(attrs)) {
         if (key.startsWith('_') || key === 'componentMetrics') continue;
         if (typeof value === 'number') {
           metrics[key] = value;
         }
       }
+      return Object.keys(metrics).length > 0 ? metrics : null;
+    }
+
+    // HF-018: Log once per calculation run
+    const isFirstEmployee = !this._ob27bLogged;
+    if (isFirstEmployee) {
+      this._ob27bLogged = true;
+      console.log(`[HF-018] SCOPED METRICS: Processing ${this.planComponents.length} components with ${Object.keys(componentMetrics).length} sheets`);
+    }
+
+    // HF-018: Build component-to-sheet mapping using semantic matching
+    const componentSheetMap = new Map<string, string>();
+
+    for (const component of this.planComponents) {
+      // Strategy 1: AI Import Context mapping
+      let matchedSheet = findSheetForComponent(
+        component.name,
+        component.id,
+        this.aiImportContext?.sheets || []
+      );
+
+      // Strategy 2: Pattern-based matching against actual sheet names
+      if (!matchedSheet) {
+        for (const sheetName of Object.keys(componentMetrics)) {
+          const matched = findSheetForComponent(
+            component.name,
+            component.id,
+            [{ sheetName, matchedComponent: null }]
+          );
+          if (matched === sheetName) {
+            matchedSheet = sheetName;
+            break;
+          }
+        }
+      }
+
+      // Strategy 3: Loose name matching fallback
+      if (!matchedSheet) {
+        const compNameNorm = component.name.toLowerCase().replace(/[-\s]/g, '_');
+        const compIdNorm = component.id.toLowerCase().replace(/[-\s]/g, '_');
+        for (const sheetName of Object.keys(componentMetrics)) {
+          const sheetNorm = sheetName.toLowerCase().replace(/[-\s]/g, '_');
+          if (sheetNorm.includes(compNameNorm) || compNameNorm.includes(sheetNorm) ||
+              sheetNorm.includes(compIdNorm) || compIdNorm.includes(sheetNorm)) {
+            matchedSheet = sheetName;
+            break;
+          }
+        }
+      }
+
+      if (matchedSheet) {
+        componentSheetMap.set(component.id, matchedSheet);
+        if (isFirstEmployee) {
+          console.log(`[HF-018] Component "${component.name}" → Sheet "${matchedSheet}"`);
+        }
+      } else {
+        if (isFirstEmployee) {
+          console.warn(`[HF-018] Component "${component.name}" → NO SHEET MATCH (will produce $0)`);
+        }
+      }
+    }
+
+    // HF-018: Now build metrics - each component uses ONLY its matched sheet
+    for (const component of this.planComponents) {
+      const matchedSheet = componentSheetMap.get(component.id);
+
+      if (!matchedSheet) {
+        // No sheet matched - this component's metrics will be undefined → $0
+        continue;
+      }
+
+      const sheetMetrics = componentMetrics[matchedSheet];
+      if (!sheetMetrics) {
+        continue;
+      }
+
+      // Extract metric config from this plan component
+      const metricConfig = extractMetricConfig(component);
+
+      // HF-018: Build SCOPED enrichedMetrics from THIS SHEET ONLY
+      const sheetDataAny = sheetMetrics as Record<string, unknown>;
+      const enrichedMetrics: SheetMetrics = {
+        attainment: sheetMetrics.attainment,
+        amount: sheetMetrics.amount,
+        goal: sheetMetrics.goal,
+      };
+
+      // OB-29: ZERO-GOAL GUARD (Universal Rule)
+      // If goal is zero/null/undefined, the metric is "not measured" for this employee.
+      const goalValue = enrichedMetrics.goal;
+      const isZeroGoal = goalValue === undefined || goalValue === null || goalValue === 0;
+
+      if (isZeroGoal) {
+        // Zero goal = not measured. Clear any attainment.
+        const prevAttainment = enrichedMetrics.attainment;
+        enrichedMetrics.attainment = undefined;
+        if (isFirstEmployee) {
+          console.log(`[HF-018] ZERO-GOAL: ${matchedSheet} goal=${goalValue}, attainment was ${prevAttainment} → now undefined`);
+        }
+      } else {
+        // Use candidate attainment if primary is missing
+        if (enrichedMetrics.attainment === undefined && sheetDataAny._candidateAttainment !== undefined) {
+          enrichedMetrics.attainment = sheetDataAny._candidateAttainment as number;
+          if (isFirstEmployee) {
+            console.log(`[HF-018] ${matchedSheet} using _candidateAttainment = ${enrichedMetrics.attainment}`);
+          }
+        }
+
+        // Compute attainment from amount/goal if still missing
+        if (enrichedMetrics.attainment === undefined &&
+            enrichedMetrics.amount !== undefined &&
+            enrichedMetrics.goal !== undefined &&
+            enrichedMetrics.goal > 0) {
+          enrichedMetrics.attainment = (enrichedMetrics.amount / enrichedMetrics.goal) * 100;
+          if (isFirstEmployee) {
+            console.log(`[HF-018] ${matchedSheet} computed attainment = ${enrichedMetrics.attainment.toFixed(1)}%`);
+          }
+        }
+
+        // Normalize: if < 5, assume decimal ratio and multiply by 100
+        if (enrichedMetrics.attainment !== undefined &&
+            enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
+          enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
+        }
+      }
+
+      // Build metrics using plan's own metric names
+      // OB-29 Phase 3B: Pass componentType for tier_lookup contextual validation
+      const resolved = buildComponentMetrics(metricConfig, enrichedMetrics, component.componentType);
+
+      // HF-018: Log scoped vs potential merged (for first employee diagnostics)
+      if (isFirstEmployee && Object.keys(resolved).length > 0) {
+        for (const [key, value] of Object.entries(resolved)) {
+          console.log(`[HF-018] ${component.name}: ${key} = ${value} (from ${matchedSheet})`);
+        }
+      }
+
+      // Merge into employee's metrics
+      // HF-018: Each key should be unique per component, but we still don't overwrite
+      for (const [key, value] of Object.entries(resolved)) {
+        if (metrics[key] === undefined) {
+          metrics[key] = value;
+        } else if (isFirstEmployee) {
+          console.warn(`[HF-018] DUPLICATE KEY: ${key} already set to ${metrics[key]}, ignoring ${value} from ${matchedSheet}`);
+        }
+      }
+    }
+
+    if (isFirstEmployee) {
+      console.log(`[HF-018] Final metrics: ${Object.keys(metrics).length} keys: [${Object.keys(metrics).join(', ')}]`);
     }
 
     return Object.keys(metrics).length > 0 ? metrics : null;
