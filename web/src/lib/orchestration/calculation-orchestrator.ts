@@ -739,6 +739,32 @@ export class CalculationOrchestrator {
       }
     }
 
+    // OB-30-7v2: METRIC-TRACE diagnostic for store vs individual resolution
+    const empId = employee.id || employee.employeeNumber || '';
+    if (empId.includes('90198149')) {
+      console.log('[METRIC-TRACE] === Building aiMetrics for 90198149 ===');
+      console.log('[METRIC-TRACE] Sheets in componentMetrics:', Object.keys(componentMetrics));
+      for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
+        const sd = sheetData as Record<string, unknown>;
+        console.log(`[METRIC-TRACE] Sheet "${sheetName}":`, {
+          attainment: sd.attainment,
+          amount: sd.amount,
+          goal: sd.goal,
+          _storeAmount: sd._storeAmount,
+        });
+      }
+      console.log('[METRIC-TRACE] Component-to-Sheet mapping:');
+      for (const [compId, sheet] of Array.from(componentSheetMap.entries())) {
+        const comp = this.planComponents.find(c => c.id === compId);
+        const measLevel = (comp as unknown as Record<string, unknown>)?.measurementLevel;
+        console.log(`[METRIC-TRACE]   ${compId} ("${comp?.name}") -> "${sheet}" (measurementLevel: ${measLevel})`);
+      }
+      console.log('[METRIC-TRACE] AI Import Context sheets:', this.aiImportContext?.sheets?.map(s => ({
+        name: s.sheetName || (s as unknown as Record<string, unknown>).name,
+        matchedComponent: s.matchedComponent,
+      })));
+    }
+
     // HF-018: Now build metrics - each component uses ONLY its matched sheet
     for (const component of this.planComponents) {
       const matchedSheet = componentSheetMap.get(component.id);
@@ -807,6 +833,11 @@ export class CalculationOrchestrator {
           metrics[key] = value;
         }
       }
+    }
+
+    // OB-30-7v2: Trace final metrics for diagnostic employee
+    if (empId.includes('90198149')) {
+      console.log('[METRIC-TRACE] FINAL aiMetrics:', JSON.stringify(metrics, null, 2));
     }
 
     return Object.keys(metrics).length > 0 ? metrics : null;
