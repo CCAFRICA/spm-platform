@@ -153,6 +153,7 @@ export class CalculationOrchestrator {
   private _ob27bLogged = false;
 
   constructor(tenantId: string) {
+    console.log('[PATH] constructor called');
     // OB-16: Normalize tenantId - strip trailing underscores to prevent data mismatch
     const normalizedId = tenantId.replace(/_+$/g, '');
     if (normalizedId !== tenantId) {
@@ -171,6 +172,7 @@ export class CalculationOrchestrator {
    * Execute a calculation run
    */
   async executeRun(config: CalculationRunConfig, userId: string): Promise<OrchestrationResult> {
+    console.log('[PATH] executeRun called');
     // Create run record
     const run = this.createRun(config, userId);
     this.saveRun(run);
@@ -315,6 +317,7 @@ export class CalculationOrchestrator {
     periodId: string,
     planId: string
   ): Promise<CalculationResult | null> {
+    console.log('[PATH] calculateForEmployee called');
     // Get metrics for this employee/period
     const metrics = this.getEmployeeMetrics(employee, periodId);
 
@@ -334,6 +337,7 @@ export class CalculationOrchestrator {
    * HOTFIX: periodId is a hash, not a date — look up period metadata to get year/month
    */
   private getEmployeesForRun(config: CalculationRunConfig): EmployeeData[] {
+    console.log('[PATH] getEmployeesForRun called');
     const allEmployees = this.getEmployees();
 
     // HOTFIX: Look up period from storage to get actual year/month
@@ -395,6 +399,7 @@ export class CalculationOrchestrator {
    * OB-22: Parse month name (Spanish or English or number) to month number (1-12)
    */
   private parseMonthToNumber(month: string): number {
+    console.log('[PATH] parseMonthToNumber called');
     const monthStr = month.toLowerCase().trim();
 
     // Spanish month names
@@ -442,6 +447,7 @@ export class CalculationOrchestrator {
    * periodId is a hash like "period-177068616..." — need to look up actual period metadata
    */
   private resolvePeriodYearMonth(periodId: string, tenantId: string): { selectedYear: number; selectedMonth: number } {
+    console.log('[PATH] resolvePeriodYearMonth called');
     // Try to look up period from storage
     try {
       // Try tenant-specific periods first
@@ -501,6 +507,7 @@ export class CalculationOrchestrator {
    * Returns year/month from the STRING, not from Date object (avoids timezone shift)
    */
   private parseDateStringToYearMonth(dateStr: string): { selectedYear: number; selectedMonth: number } | null {
+    console.log('[PATH] parseDateStringToYearMonth called');
     // Try to extract YYYY-MM from the beginning of the string
     const match = dateStr.match(/^(\d{4})-(\d{2})/);
     if (match) {
@@ -526,6 +533,7 @@ export class CalculationOrchestrator {
    * Parse year/month from a period label like "January 2024" or "Enero 2024 (draft)"
    */
   private parseYearMonthFromLabel(label: string): { selectedYear: number; selectedMonth: number } | null {
+    console.log('[PATH] parseYearMonthFromLabel called');
     const monthNames: Record<string, number> = {
       'january': 1, 'february': 2, 'march': 3, 'april': 4,
       'may': 5, 'june': 6, 'july': 7, 'august': 8,
@@ -552,6 +560,7 @@ export class CalculationOrchestrator {
    * TODO: Make this AI-driven from plan interpretation in the future
    */
   private deriveIsCertified(employee: EmployeeData): boolean {
+    console.log('[PATH] deriveIsCertified called');
     // Check explicit attribute first
     if (employee.attributes?.isCertified !== undefined) {
       return Boolean(employee.attributes.isCertified);
@@ -587,6 +596,7 @@ export class CalculationOrchestrator {
    * AI-DRIVEN: Uses AI import context to extract metrics from aggregated data
    */
   private getEmployeeMetrics(employee: EmployeeData, periodId: string): EmployeeMetrics | null {
+    console.log('[PATH] getEmployeeMetrics called');
     // AI-DRIVEN PRIORITY 0: Extract metrics from aggregated employee attributes using AI mappings
     const aiMetrics = this.extractMetricsWithAIMappings(employee);
     if (aiMetrics && Object.keys(aiMetrics).length > 0) {
@@ -665,6 +675,7 @@ export class CalculationOrchestrator {
    * No hardcoded sheet-to-component mappings.
    */
   private extractMetricsWithAIMappings(employee: EmployeeData): Record<string, number> | null {
+    console.log('[PATH] extractMetricsWithAIMappings called');
     const attrs = employee.attributes as Record<string, unknown> | undefined;
     if (!attrs) return null;
 
@@ -837,6 +848,7 @@ export class CalculationOrchestrator {
     employee: EmployeeData,
     periodId: string
   ): Record<string, number> | null {
+    console.log('[PATH] calculateMetricsFromTransactions called');
     const transactions = this.getTransactions(employee.id, periodId);
 
     if (transactions.length === 0) {
@@ -875,6 +887,7 @@ export class CalculationOrchestrator {
    * Build calculation summary
    */
   private buildSummary(results: CalculationResult[]): OrchestrationResult['summary'] {
+    console.log('[PATH] buildSummary called');
     const byPlan: Record<string, { count: number; total: number }> = {};
     const byDepartment: Record<string, { count: number; total: number }> = {};
     const plansUsed = new Set<string>();
@@ -911,6 +924,7 @@ export class CalculationOrchestrator {
   // ============================================
 
   private createRun(config: CalculationRunConfig, userId: string): CalculationRun {
+    console.log('[PATH] createRun called');
     return {
       id: `run-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       tenantId: config.tenantId,
@@ -928,6 +942,7 @@ export class CalculationOrchestrator {
   }
 
   private saveRun(run: CalculationRun): void {
+    console.log('[PATH] saveRun called');
     if (typeof window === 'undefined') return;
 
     const runs = this.getRuns();
@@ -943,6 +958,7 @@ export class CalculationOrchestrator {
   }
 
   getRuns(periodId?: string): CalculationRun[] {
+    console.log('[PATH] getRuns called');
     if (typeof window === 'undefined') return [];
 
     const stored = localStorage.getItem(STORAGE_KEYS.CALCULATION_RUNS);
@@ -965,6 +981,7 @@ export class CalculationOrchestrator {
   }
 
   getRun(runId: string): CalculationRun | null {
+    console.log('[PATH] getRun called');
     const runs = this.getRuns();
     return runs.find((r) => r.id === runId) || null;
   }
@@ -978,6 +995,7 @@ export class CalculationOrchestrator {
   private static readonly CALC_INDEX_KEY = 'vialuce_calculations_index';
 
   private saveResults(results: CalculationResult[], runId: string): void {
+    console.log('[PATH] saveResults called');
     if (typeof window === 'undefined') return;
 
     const existing = this.getAllResults();
@@ -1006,6 +1024,7 @@ export class CalculationOrchestrator {
    * OB-22: Save results in chunks to avoid localStorage limits
    */
   private saveResultsChunked(results: (CalculationResult & { runId?: string })[]): void {
+    console.log('[PATH] saveResultsChunked called');
     // Clear old chunks first
     this.clearOldChunks();
 
@@ -1043,6 +1062,7 @@ export class CalculationOrchestrator {
    * OB-22: Clear old calculation chunks
    */
   private clearOldChunks(): void {
+    console.log('[PATH] clearOldChunks called');
     // Read current index to find how many chunks exist
     const indexStr = localStorage.getItem(CalculationOrchestrator.CALC_INDEX_KEY);
     if (indexStr) {
@@ -1064,6 +1084,7 @@ export class CalculationOrchestrator {
    * OB-22: Load results from chunked storage
    */
   private getAllResults(): (CalculationResult & { runId?: string })[] {
+    console.log('[PATH] getAllResults called');
     if (typeof window === 'undefined') return [];
 
     // Try chunked storage first
@@ -1103,12 +1124,14 @@ export class CalculationOrchestrator {
   }
 
   getResults(periodId: string): CalculationResult[] {
+    console.log('[PATH] getResults called');
     return this.getAllResults().filter(
       (r) => r.period === periodId || r.period === periodId.substring(0, 7)
     );
   }
 
   getEmployeeResult(employeeId: string, periodId: string): CalculationResult | null {
+    console.log('[PATH] getEmployeeResult called');
     const results = this.getResults(periodId);
     return results.find((r) => r.employeeId === employeeId) || null;
   }
@@ -1118,6 +1141,7 @@ export class CalculationOrchestrator {
   // ============================================
 
   private getEmployees(): EmployeeData[] {
+    console.log('[PATH] getEmployees called');
     if (typeof window === 'undefined') return [];
 
     // OB-16C PRIORITY 0: Aggregated data (bypasses 5MB localStorage limit)
@@ -1161,6 +1185,7 @@ export class CalculationOrchestrator {
    * OB-16C: Load employees from aggregated data (handles large imports)
    */
   private loadAggregatedEmployees(): EmployeeData[] {
+    console.log('[PATH] loadAggregatedEmployees called');
     const storageKey = `data_layer_committed_aggregated_${this.tenantId}`;
     const stored = localStorage.getItem(storageKey);
 
@@ -1225,6 +1250,7 @@ export class CalculationOrchestrator {
     sheetName: string,
     ...semanticTypes: string[]
   ): string | null {
+    console.log('[PATH] findFieldBySemantic called');
     if (!this.aiImportContext?.sheets) return null;
 
     const sheetInfo = this.aiImportContext.sheets.find(
@@ -1250,6 +1276,7 @@ export class CalculationOrchestrator {
     sheetName: string,
     semanticTypes: string[]
   ): string {
+    console.log('[PATH] extractFieldValue called');
     const fieldName = this.findFieldBySemantic(sheetName, ...semanticTypes);
     if (fieldName && content[fieldName] !== undefined && content[fieldName] !== null) {
       return String(content[fieldName]).trim();
@@ -1262,6 +1289,7 @@ export class CalculationOrchestrator {
    * Uses ONLY AI semantic mappings - NO HARDCODED FIELD NAMES
    */
   private extractEmployeesFromCommittedData(): EmployeeData[] {
+    console.log('[PATH] extractEmployeesFromCommittedData called');
     if (typeof window === 'undefined') return [];
 
     // AI-DRIVEN: Check for AI import context
@@ -1388,6 +1416,7 @@ export class CalculationOrchestrator {
   }
 
   saveEmployees(employees: EmployeeData[]): void {
+    console.log('[PATH] saveEmployees called');
     if (typeof window === 'undefined') return;
 
     const existing = this.getEmployees().filter((e) => e.tenantId !== this.tenantId);
@@ -1397,6 +1426,7 @@ export class CalculationOrchestrator {
   }
 
   private getMetricAggregate(employeeId: string, periodId: string): MetricAggregate | null {
+    console.log('[PATH] getMetricAggregate called');
     if (typeof window === 'undefined') return null;
 
     const stored = localStorage.getItem(STORAGE_KEYS.METRIC_AGGREGATES);
@@ -1416,6 +1446,7 @@ export class CalculationOrchestrator {
   }
 
   saveMetricAggregate(aggregate: MetricAggregate): void {
+    console.log('[PATH] saveMetricAggregate called');
     if (typeof window === 'undefined') return;
 
     const stored = localStorage.getItem(STORAGE_KEYS.METRIC_AGGREGATES);
@@ -1450,6 +1481,7 @@ export class CalculationOrchestrator {
     employeeId: string,
     periodId: string
   ): Array<{ amount: number; category?: string }> {
+    console.log('[PATH] getTransactions called');
     if (typeof window === 'undefined') return [];
 
     const stored = localStorage.getItem(STORAGE_KEYS.TRANSACTION_DATA);
@@ -1475,6 +1507,7 @@ export class CalculationOrchestrator {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private getQuotas(employeeId: string, periodId: string): Record<string, number> {
+    console.log('[PATH] getQuotas called');
     // In a real implementation, this would load from quota assignments
     // using employeeId and periodId. For now, return defaults.
     return {
@@ -1486,6 +1519,7 @@ export class CalculationOrchestrator {
   }
 
   private getPeriodStart(periodId: string): string {
+    console.log('[PATH] getPeriodStart called');
     // Parse period ID (e.g., "2025-01" -> "2025-01-01")
     if (periodId.length === 7) {
       return `${periodId}-01`;
@@ -1494,6 +1528,7 @@ export class CalculationOrchestrator {
   }
 
   private getPeriodEnd(periodId: string): string {
+    console.log('[PATH] getPeriodEnd called');
     // Parse period ID (e.g., "2025-01" -> "2025-01-31")
     if (periodId.length === 7) {
       const [year, month] = periodId.split('-').map(Number);
@@ -1513,6 +1548,7 @@ export class CalculationOrchestrator {
 const orchestrators: Map<string, CalculationOrchestrator> = new Map();
 
 export function getOrchestrator(tenantId: string): CalculationOrchestrator {
+  console.log('[PATH] getOrchestrator called');
   if (!orchestrators.has(tenantId)) {
     orchestrators.set(tenantId, new CalculationOrchestrator(tenantId));
   }
@@ -1528,6 +1564,7 @@ export async function runPeriodCalculation(
   userId: string,
   options?: CalculationRunConfig['options']
 ): Promise<OrchestrationResult> {
+  console.log('[PATH] runPeriodCalculation called');
   const orchestrator = getOrchestrator(tenantId);
 
   return orchestrator.executeRun(
@@ -1550,6 +1587,7 @@ export async function previewPeriodCalculation(
   periodId: string,
   userId: string
 ): Promise<OrchestrationResult> {
+  console.log('[PATH] previewPeriodCalculation called');
   const orchestrator = getOrchestrator(tenantId);
 
   return orchestrator.executeRun(
@@ -1568,6 +1606,7 @@ export async function previewPeriodCalculation(
  * Get calculation results for a period
  */
 export function getPeriodResults(tenantId: string, periodId: string): CalculationResult[] {
+  console.log('[PATH] getPeriodResults called');
   const orchestrator = getOrchestrator(tenantId);
   return orchestrator.getResults(periodId);
 }
@@ -1576,6 +1615,7 @@ export function getPeriodResults(tenantId: string, periodId: string): Calculatio
  * Get calculation runs for a period
  */
 export function getPeriodRuns(tenantId: string, periodId?: string): CalculationRun[] {
+  console.log('[PATH] getPeriodRuns called');
   const orchestrator = getOrchestrator(tenantId);
   return orchestrator.getRuns(periodId);
 }

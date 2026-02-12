@@ -50,6 +50,7 @@ let currentWarnings: WarningCounts | null = null;
  * Start a new calculation run - resets warning counters
  */
 export function startCalculationRun(): void {
+  console.log('[PATH] startCalculationRun called');
   currentWarnings = {
     counts: new Map(),
     totalEmployees: 0,
@@ -61,6 +62,7 @@ export function startCalculationRun(): void {
  * Record a warning (increments counter instead of logging)
  */
 function recordWarning(key: string): void {
+  console.log('[PATH] recordWarning called');
   if (!currentWarnings) {
     // Fallback: log directly if no run started
     console.warn(`[CalcEngine] ${key}`);
@@ -73,6 +75,7 @@ function recordWarning(key: string): void {
  * End calculation run and log warning summary (max 10 lines)
  */
 export function endCalculationRun(totalEmployees: number): void {
+  console.log('[PATH] endCalculationRun called');
   if (!currentWarnings) return;
 
   currentWarnings.totalEmployees = totalEmployees;
@@ -111,6 +114,7 @@ export function calculateIncentive(
   tenantId: string,
   planIdOverride?: string
 ): CalculationResult | null {
+  console.log('[PATH] calculateIncentive called');
   // Get plan - either by override or active for role
   const plan = planIdOverride
     ? getPlan(planIdOverride)
@@ -137,6 +141,7 @@ function calculateAdditiveLookup(
   employeeMetrics: EmployeeMetrics,
   plan: CompensationPlanConfig
 ): CalculationResult {
+  console.log('[PATH] calculateAdditiveLookup called');
   const config = plan.configuration as AdditiveLookupConfig;
   const warnings: string[] = [];
 
@@ -194,6 +199,7 @@ function calculateAdditiveLookup(
 }
 
 function findMatchingVariant(config: AdditiveLookupConfig, metrics: EmployeeMetrics) {
+  console.log('[PATH] findMatchingVariant called');
   return config.variants.find((variant) => {
     if (!variant.eligibilityCriteria) return true;
 
@@ -217,6 +223,7 @@ function calculateComponent(
   component: PlanComponent,
   metrics: EmployeeMetrics
 ): CalculationStep {
+  console.log('[PATH] calculateComponent called');
   // OB-27: Log component calculation for audit trail
   console.log(`[CalcEngine] Calculating "${component.name}" (${component.componentType}) for ${metrics.employeeName}`);
 
@@ -254,6 +261,7 @@ function calculateMatrixLookup(
   component: PlanComponent,
   metrics: EmployeeMetrics
 ): CalculationStep {
+  console.log('[PATH] calculateMatrixLookup called');
   const config = component.matrixConfig!;
 
   // Validation: Check for empty configuration
@@ -330,6 +338,7 @@ function calculateTierLookup(
   component: PlanComponent,
   metrics: EmployeeMetrics
 ): CalculationStep {
+  console.log('[PATH] calculateTierLookup called');
   const config = component.tierConfig!;
 
   // Validation: Check for empty configuration
@@ -394,6 +403,7 @@ function calculatePercentage(
   component: PlanComponent,
   metrics: EmployeeMetrics
 ): CalculationStep {
+  console.log('[PATH] calculatePercentage called');
   const config = component.percentageConfig!;
 
   // OB-27: NO SILENT FALLBACKS - log when metrics are missing
@@ -447,6 +457,7 @@ function calculateConditionalPercentage(
   component: PlanComponent,
   metrics: EmployeeMetrics
 ): CalculationStep {
+  console.log('[PATH] calculateConditionalPercentage called');
   const config = component.conditionalConfig!;
 
   // Validation: Check for empty conditions
@@ -519,6 +530,7 @@ function calculateWeightedKPI(
   employeeMetrics: EmployeeMetrics,
   plan: CompensationPlanConfig
 ): CalculationResult {
+  console.log('[PATH] calculateWeightedKPI called');
   const config = plan.configuration as WeightedKPIConfig;
   const components: CalculationStep[] = [];
 
@@ -606,6 +618,7 @@ function getMultiplierFromCurve(
   attainment: number,
   curve: WeightedKPIConfig['multiplierCurve']
 ): number {
+  console.log('[PATH] getMultiplierFromCurve called');
   const points = curve.points.sort((a, b) => a.attainment - b.attainment);
 
   // Below floor
@@ -639,6 +652,7 @@ function getMultiplierFromCurve(
 // ============================================
 
 function findBand(bands: Band[], value: number): Band {
+  console.log('[PATH] findBand called');
   // OB-29 Phase 3B: Safety guard - return lowest band for non-finite values
   if (!Number.isFinite(value)) {
     return bands[0] || { min: 0, max: 0, label: 'Unknown' };
@@ -648,6 +662,7 @@ function findBand(bands: Band[], value: number): Band {
 }
 
 function findTier(tiers: Tier[], value: number): Tier {
+  console.log('[PATH] findTier called');
   // OB-29 Phase 3B: Safety guard - return zero-value tier for non-finite values
   if (!Number.isFinite(value)) {
     return { min: 0, max: 0, label: 'Not Measured', value: 0 };
@@ -657,6 +672,7 @@ function findTier(tiers: Tier[], value: number): Tier {
 }
 
 function createZeroStep(component: PlanComponent, reason: string): CalculationStep {
+  console.log('[PATH] createZeroStep called');
   return {
     order: component.order,
     componentId: component.id,
@@ -689,6 +705,7 @@ export function calculateIncentiveWithConfig(
   config: AdditiveLookupConfig,
   basePlan: CompensationPlanConfig
 ): CalculationResult | null {
+  console.log('[PATH] calculateIncentiveWithConfig called');
   // Create a temporary plan with the modified config
   const tempPlan: CompensationPlanConfig = {
     ...basePlan,
@@ -706,6 +723,7 @@ export function calculateBatch(
   employees: EmployeeMetrics[],
   tenantId: string
 ): CalculationResult[] {
+  console.log('[PATH] calculateBatch called');
   return employees
     .map((emp) => calculateIncentive(emp, tenantId))
     .filter((result): result is CalculationResult => result !== null);
@@ -716,6 +734,7 @@ export function calculateBatch(
 // ============================================
 
 export function getMariaMetrics(): EmployeeMetrics {
+  console.log('[PATH] getMariaMetrics called');
   return {
     employeeId: 'maria-rodriguez',
     employeeName: 'Maria Rodriguez',
@@ -751,6 +770,7 @@ export function getMariaMetrics(): EmployeeMetrics {
 }
 
 export function getJamesMetrics(): EmployeeMetrics {
+  console.log('[PATH] getJamesMetrics called');
   return {
     employeeId: 'james-wilson',
     employeeName: 'James Wilson',
