@@ -1293,6 +1293,20 @@ function storeAggregatedData(
       }
       const storeSheets = storeComponentMetrics.get(storePeriodKey)!;
       const existing = storeSheets.get(sheetName) as MergedMetrics | undefined;
+
+      // [AGG-DIAG-90198149] Trace each merge for store 1008 Base_Venta_Tienda
+      if (storeId === '1008' && sheetName.toLowerCase().includes('tienda')) {
+        console.log('[AGG-DIAG-1008-MERGE] storePeriodKey=' + storePeriodKey + ' record:', {
+          newAmount: resolvedMetrics.amount,
+          newGoal: resolvedMetrics.goal,
+          newAtt: resolvedMetrics.attainment,
+          existingAmount: existing?.amount,
+          existingGoal: existing?.goal,
+          willBecomeAmount: (existing?.amount || 0) + (resolvedMetrics.amount || 0),
+          willBecomeGoal: (existing?.goal || 0) + (resolvedMetrics.goal || 0),
+        });
+      }
+
       storeSheets.set(sheetName, mergeMetrics(existing, resolvedMetrics));
 
       // HF-017: Also index by storeId-only key for period-agnostic lookup
@@ -1319,20 +1333,24 @@ function storeAggregatedData(
     const store1008Count = _tiendaStoreIds.get('1008') || 0;
     console.log('[AGG-DIAG-TIENDA] Store 1008 records:', store1008Count,
       '| All records merged into single key?', _tiendaStoreIds.size === 1 ? 'YES - BUG!' : 'No');
-    // Show the storeComponentMetrics entry for store 1008
-    const store1008Metrics = storeComponentMetrics.get('1008') || storeComponentMetrics.get('1008_1_2025');
-    if (store1008Metrics) {
-      const tiendaEntry = store1008Metrics.get('Base_Venta_Tienda') || Array.from(store1008Metrics.entries()).find(([k]) => k.toLowerCase().includes('tienda'))?.[1];
-      if (tiendaEntry) {
-        console.log('[AGG-DIAG-TIENDA] Store 1008 merged result:', {
-          attainment: tiendaEntry.attainment,
-          attainmentSource: tiendaEntry.attainmentSource,
-          amount: tiendaEntry.amount,
-          goal: tiendaEntry.goal,
-          computedCheck: tiendaEntry.goal && tiendaEntry.goal > 0 ? ((tiendaEntry.amount || 0) / tiendaEntry.goal * 100).toFixed(2) : 'N/A',
-        });
+    // Show storeComponentMetrics entry for ALL keys containing '1008'
+    const keysWithTienda: string[] = [];
+    for (const key of Array.from(storeComponentMetrics.keys())) {
+      if (key === '1008' || key.startsWith('1008_')) {
+        keysWithTienda.push(key);
+        const sheetMap = storeComponentMetrics.get(key)!;
+        for (const [sn, entry] of Array.from(sheetMap.entries())) {
+          if (sn.toLowerCase().includes('tienda')) {
+            console.log('[AGG-DIAG-TIENDA] storeComponentMetrics["' + key + '"]["' + sn + '"]:', {
+              att: entry.attainment, attSrc: entry.attainmentSource,
+              amt: entry.amount, goal: entry.goal,
+              check: entry.goal && entry.goal > 0 ? ((entry.amount || 0) / entry.goal * 100).toFixed(2) : 'N/A',
+            });
+          }
+        }
       }
     }
+    console.log('[AGG-DIAG-TIENDA] Keys matching store 1008:', keysWithTienda);
   }
 
   console.log(`[DataLayer] Employee componentMetrics: ${empComponentMetrics.size} employees`);
