@@ -139,16 +139,26 @@ export interface SheetMetrics {
  * Takes the plan's expected metric names and fills them with the
  * aggregated semantic values from the matched sheet.
  *
+ * OB-29 Phase 3B CONTEXTUAL FIX:
+ * - tier_lookup components ONLY accept attainment values (no amount fallback)
+ * - This prevents raw counts/amounts from being incorrectly used as percentages
+ * - If attainment is unavailable for tier_lookup, metric is NOT added → engine returns $0
+ *
  * @param component - Plan component with metric name config
  * @param sheetMetrics - Aggregated semantic values {attainment, amount, goal, quantity}
+ * @param componentType - Optional: the plan component type (tier_lookup, matrix_lookup, etc.)
  * @returns Metrics object with plan-expected keys and aggregated values
  */
 export function buildComponentMetrics(
   component: ComponentMetricConfig,
-  sheetMetrics: SheetMetrics
+  sheetMetrics: SheetMetrics,
+  componentType?: string
 ): Record<string, number> {
   const metricMap = resolveComponentMetrics(component);
   const result: Record<string, number> = {};
+
+  // OB-29 Phase 3B: tier_lookup expects ATTAINMENT PERCENTAGE, not raw amounts
+  const isTierLookup = componentType === 'tier_lookup';
 
   for (const [metricName, semanticType] of Object.entries(metricMap)) {
     switch (semanticType) {
@@ -159,7 +169,13 @@ export function buildComponentMetrics(
         // OB-29: If attainment is undefined (zero-goal), metric is NOT added → engine returns $0
         break;
       case 'amount':
-        if (sheetMetrics.amount !== undefined) {
+        // OB-29 Phase 3B: For tier_lookup, amount is INVALID - it expects attainment
+        if (isTierLookup) {
+          console.warn(
+            `[MetricResolver] OB-29 Phase 3B: tier_lookup metric "${metricName}" resolved to 'amount' type - REJECTED (tier_lookup requires attainment)`
+          );
+          // DO NOT add metric - this will trigger zero-goal guard in engine
+        } else if (sheetMetrics.amount !== undefined) {
           result[metricName] = sheetMetrics.amount;
         }
         break;
@@ -169,17 +185,31 @@ export function buildComponentMetrics(
         }
         break;
       case 'quantity':
-        if (sheetMetrics.quantity !== undefined) {
+        // OB-29 Phase 3B: For tier_lookup, quantity is INVALID - it expects attainment
+        if (isTierLookup) {
+          console.warn(
+            `[MetricResolver] OB-29 Phase 3B: tier_lookup metric "${metricName}" resolved to 'quantity' type - REJECTED (tier_lookup requires attainment)`
+          );
+          // DO NOT add metric - this will trigger zero-goal guard in engine
+        } else if (sheetMetrics.quantity !== undefined) {
           result[metricName] = sheetMetrics.quantity;
         }
         break;
       default:
-        // Unknown type - try amount as fallback (most common)
-        console.warn(
-          `[MetricResolver] Unknown semantic type for "${metricName}", trying amount fallback`
-        );
-        if (sheetMetrics.amount !== undefined) {
-          result[metricName] = sheetMetrics.amount;
+        // OB-29 Phase 3B: For tier_lookup, unknown type gets NO fallback
+        if (isTierLookup) {
+          console.warn(
+            `[MetricResolver] OB-29 Phase 3B: tier_lookup metric "${metricName}" has unknown type - REJECTED (no amount fallback for tier_lookup)`
+          );
+          // DO NOT add metric - this will trigger zero-goal guard in engine
+        } else {
+          // Unknown type - try amount as fallback (most common) for non-tier_lookup
+          console.warn(
+            `[MetricResolver] Unknown semantic type for "${metricName}", trying amount fallback`
+          );
+          if (sheetMetrics.amount !== undefined) {
+            result[metricName] = sheetMetrics.amount;
+          }
         }
     }
   }

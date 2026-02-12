@@ -729,7 +729,8 @@ export class CalculationOrchestrator {
         }
 
         // 3. Build metrics using plan's own metric names
-        const componentMetricsResolved = buildComponentMetrics(metricConfig, enrichedMetrics);
+        // OB-29 Phase 3B: Pass componentType for tier_lookup contextual validation
+        const componentMetricsResolved = buildComponentMetrics(metricConfig, enrichedMetrics, component.componentType);
 
         // 4. Merge into employee's metrics
         Object.assign(metrics, componentMetricsResolved);
@@ -834,7 +835,8 @@ export class CalculationOrchestrator {
         }
 
         // Build metrics using plan's own metric names via semantic type inference
-        const resolved = buildComponentMetrics(metricConfig, enrichedMetrics);
+        // OB-29 Phase 3B: Pass componentType for tier_lookup contextual validation
+        const resolved = buildComponentMetrics(metricConfig, enrichedMetrics, matchedComponent.componentType);
 
         // Merge without overwriting existing values (plan-driven path has priority)
         for (const [key, value] of Object.entries(resolved)) {
