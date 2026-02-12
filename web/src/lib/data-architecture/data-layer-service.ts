@@ -430,6 +430,20 @@ function resolvePeriodFromRecord(
     if (isoMatch) {
       return { month: parseInt(isoMatch[2], 10), year: parseInt(isoMatch[1], 10) };
     }
+
+    // OB-30: Check for Excel serial date numbers (e.g. 45322 = Jan 31, 2024)
+    // Excel serial dates: days since Jan 1, 1900. Range 36526-73415 covers years 2000-2100.
+    // Use broader range (365-100000) to handle edge cases while avoiding month (1-12) / year (1900-2100) confusion.
+    const numValue = typeof value === 'number' ? value : parseFloat(str);
+    if (!isNaN(numValue) && numValue > 365 && numValue < 100000 && Number.isInteger(numValue)) {
+      // Convert Excel serial to JS Date: subtract Excel-to-Unix epoch offset (25569 days)
+      const jsDate = new Date((numValue - 25569) * 86400 * 1000);
+      const excelYear = jsDate.getUTCFullYear();
+      const excelMonth = jsDate.getUTCMonth() + 1;
+      if (excelYear >= 2000 && excelYear <= 2100 && excelMonth >= 1 && excelMonth <= 12) {
+        return { month: excelMonth, year: excelYear };
+      }
+    }
   }
 
   // Strategy 2: Multiple period fields - classify by value range
@@ -1235,21 +1249,6 @@ function storeAggregatedData(
     const storePeriodKey = recordMonth || recordYear
       ? `${storeId}_${recordMonth}_${recordYear}`
       : storeId;
-
-    // [PERIOD-DIAG] OB-30 Step 9: Log period detection for store sheets (first record only)
-    if (sheetName.toLowerCase().includes('tienda') && storeId === '1008') {
-      console.log(`[PERIOD-DIAG] Sheet: ${sheetName}, storeId: ${storeId}`);
-      console.log(`[PERIOD-DIAG] Record fields: ${Object.keys(content).filter(k => !k.startsWith('_')).join(', ')}`);
-      console.log(`[PERIOD-DIAG] _meta fields: ${Object.keys(content).filter(k => k.startsWith('_')).join(', ')}`);
-      console.log(`[PERIOD-DIAG] componentPeriodFields: ${JSON.stringify(componentPeriodFields)}`);
-      console.log(`[PERIOD-DIAG] componentDateFields: ${JSON.stringify(componentDateFields)}`);
-      console.log(`[PERIOD-DIAG] resolvePeriodFromRecord result: month=${componentPeriod.month}, year=${componentPeriod.year}`);
-      console.log(`[PERIOD-DIAG] storePeriodKey: "${storePeriodKey}"`);
-      // Log raw values of any field that might contain period info
-      const periodCandidates = Object.entries(content as Record<string, unknown>)
-        .filter(([k]) => /period|fecha|mes|month|year|año|date|periodo/i.test(k));
-      console.log(`[PERIOD-DIAG] Period-candidate field values:`, JSON.stringify(periodCandidates));
-    }
 
     // OB-24 R8: Use semantic resolution hierarchy for metrics
     // AI-first: no pattern fallbacks for attainment/amount/goal
