@@ -1171,10 +1171,6 @@ function storeAggregatedData(
     return merged;
   };
 
-  // [AGG-DIAG-90198149] Tracking vars for Base_Venta_Tienda storeId grouping
-  let _tiendaDiagCount = 0;
-  const _tiendaStoreIds = new Map<string, number>();
-
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
 
@@ -1249,27 +1245,6 @@ function storeAggregatedData(
       goalField         // AI-mapped goal field (or null)
     );
 
-    // [AGG-DIAG-90198149] STEP 3 trace: storeId extraction for store_component sheets
-    if (sheetName.toLowerCase().includes('tienda')) {
-      if (!(_tiendaDiagCount > 5)) {
-        const rawStoreVal = effectiveStoreIdField ? safeFieldLookup(content, effectiveStoreIdField) : '(no field)';
-        console.log('[AGG-DIAG-TIENDA] Record #' + (_tiendaDiagCount + 1) + ':', {
-          storeIdField: effectiveStoreIdField,
-          rawStoreValue: rawStoreVal,
-          normalizedStoreId: storeId,
-          empIdField: effectiveEmpIdField,
-          empId: empId,
-          storePeriodKey: (recordMonth || recordYear) ? storeId + '_' + recordMonth + '_' + recordYear : storeId,
-          amount: resolvedMetrics.amount,
-          goal: resolvedMetrics.goal,
-          attainment: resolvedMetrics.attainment,
-        });
-      }
-      _tiendaDiagCount++;
-      // Track unique storeIds for summary
-      _tiendaStoreIds.set(storeId, (_tiendaStoreIds.get(storeId) || 0) + 1);
-    }
-
     // OB-24 R9: Determine topology using classifySheets result
     const topology = sheetTopology.get(sheetName);
     const isStoreLevel = topology?.topology === 'store_component' || (!empId && storeId);
@@ -1293,64 +1268,13 @@ function storeAggregatedData(
       }
       const storeSheets = storeComponentMetrics.get(storePeriodKey)!;
       const existing = storeSheets.get(sheetName) as MergedMetrics | undefined;
-
-      // [AGG-DIAG-90198149] Trace each merge for store 1008 Base_Venta_Tienda
-      if (storeId === '1008' && sheetName.toLowerCase().includes('tienda')) {
-        console.log('[AGG-DIAG-1008-MERGE] storePeriodKey=' + storePeriodKey + ' record:', {
-          newAmount: resolvedMetrics.amount,
-          newGoal: resolvedMetrics.goal,
-          newAtt: resolvedMetrics.attainment,
-          existingAmount: existing?.amount,
-          existingGoal: existing?.goal,
-          willBecomeAmount: (existing?.amount || 0) + (resolvedMetrics.amount || 0),
-          willBecomeGoal: (existing?.goal || 0) + (resolvedMetrics.goal || 0),
-        });
-      }
-
       storeSheets.set(sheetName, mergeMetrics(existing, resolvedMetrics));
 
-      // HF-017: Also index by storeId-only key for period-agnostic lookup
-      // This ensures employees with periods can find store data without periods
-      if (storePeriodKey !== storeId) {
-        if (!storeComponentMetrics.has(storeId)) {
-          storeComponentMetrics.set(storeId, new Map());
-        }
-        const storeOnlySheets = storeComponentMetrics.get(storeId)!;
-        const existingOnly = storeOnlySheets.get(sheetName) as MergedMetrics | undefined;
-        storeOnlySheets.set(sheetName, mergeMetrics(existingOnly, resolvedMetrics));
-      }
+      // OB-30 FIX: Removed HF-017 period-agnostic fallback.
+      // It was merging ALL periods into a single storeId key, producing
+      // sum-of-all-months instead of per-month values (e.g. 64M vs 22M).
+      // STEP 4's fallback now handles period-less lookup via prefix scan.
     }
-  }
-
-  // [AGG-DIAG-90198149] Summary: Base_Venta_Tienda storeId grouping
-  if (_tiendaDiagCount > 0) {
-    console.log('[AGG-DIAG-TIENDA] SUMMARY:', {
-      totalRecords: _tiendaDiagCount,
-      uniqueStoreIds: _tiendaStoreIds.size,
-      sampleStoreIds: Array.from(_tiendaStoreIds.entries()).slice(0, 10).map(([id, count]) => id + ':' + count),
-    });
-    // Check for store 1008 specifically
-    const store1008Count = _tiendaStoreIds.get('1008') || 0;
-    console.log('[AGG-DIAG-TIENDA] Store 1008 records:', store1008Count,
-      '| All records merged into single key?', _tiendaStoreIds.size === 1 ? 'YES - BUG!' : 'No');
-    // Show storeComponentMetrics entry for ALL keys containing '1008'
-    const keysWithTienda: string[] = [];
-    for (const key of Array.from(storeComponentMetrics.keys())) {
-      if (key === '1008' || key.startsWith('1008_')) {
-        keysWithTienda.push(key);
-        const sheetMap = storeComponentMetrics.get(key)!;
-        for (const [sn, entry] of Array.from(sheetMap.entries())) {
-          if (sn.toLowerCase().includes('tienda')) {
-            console.log('[AGG-DIAG-TIENDA] storeComponentMetrics["' + key + '"]["' + sn + '"]:', {
-              att: entry.attainment, attSrc: entry.attainmentSource,
-              amt: entry.amount, goal: entry.goal,
-              check: entry.goal && entry.goal > 0 ? ((entry.amount || 0) / entry.goal * 100).toFixed(2) : 'N/A',
-            });
-          }
-        }
-      }
-    }
-    console.log('[AGG-DIAG-TIENDA] Keys matching store 1008:', keysWithTienda);
   }
 
   console.log(`[DataLayer] Employee componentMetrics: ${empComponentMetrics.size} employees`);
@@ -1443,14 +1367,29 @@ function storeAggregatedData(
     // OB-24 R9: Add store-level component metrics ONLY for sheets classified as store_component
     // This is topology-aware: only join store data to employee if the sheet is store-level
     // Use period-aware key for proper period isolation
-    // OB-28: Added fallback to non-period key for period-less store attribution
+    // OB-30 FIX: Period-aware store lookup with safe fallbacks
+    // Primary: exact period key (e.g. "1008_1_2025")
+    // Fallback 1: bare storeId key (for stores without period data)
+    // Fallback 2: prefix scan (for employees without periods, stores with periods)
     let storeMetrics = storeComponentMetrics.get(storePeriodKey);
 
-    // OB-28: Fallback to non-period key if period-aware key not found
     let usedFallbackKey = false;
     if (!storeMetrics && storePeriodKey !== storeId && storeId) {
+      // Fallback 1: bare storeId key (store records had no period)
       storeMetrics = storeComponentMetrics.get(storeId);
       usedFallbackKey = !!storeMetrics;
+    }
+    if (!storeMetrics && storeId) {
+      // Fallback 2: prefix scan — find first period-keyed entry for this store
+      // Handles edge case: employee has no period, store records have periods
+      const prefix = storeId + '_';
+      for (const key of Array.from(storeComponentMetrics.keys())) {
+        if (key.startsWith(prefix)) {
+          storeMetrics = storeComponentMetrics.get(key);
+          usedFallbackKey = true;
+          break;
+        }
+      }
     }
 
     // HF-017: Log first store lookup for debugging
@@ -1468,22 +1407,6 @@ function storeAggregatedData(
       storeAttributionAttempts++;
       for (const [sheetName, metrics] of Array.from(storeMetrics.entries())) {
         const topology = sheetTopology.get(sheetName);
-
-        // [AGG-DIAG-90198149] Diagnostic: show store metrics being attached
-        if (empId === '90198149' && sheetName.toLowerCase().includes('tienda')) {
-          const computedAtt = (metrics.amount && metrics.goal && metrics.goal > 0)
-            ? ((metrics.amount / metrics.goal) * 100).toFixed(2)
-            : 'N/A';
-          console.log('[AGG-DIAG-90198149] Attaching ' + sheetName + ':', {
-            storeId,
-            attainment: metrics.attainment,
-            attainmentSource: metrics.attainmentSource,
-            amount: metrics.amount,
-            goal: metrics.goal,
-            computedFromTotals: computedAtt,
-            topology: topology?.topology,
-          });
-        }
 
         // OB-30 FIX: For store_component sheets, store-level metrics OVERRIDE employee-level
         // This ensures all employees in a store share the same store attainment
