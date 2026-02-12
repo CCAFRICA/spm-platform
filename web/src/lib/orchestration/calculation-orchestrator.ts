@@ -25,6 +25,7 @@ import {
   buildComponentMetrics,
   extractMetricConfig,
   findSheetForComponent,
+  inferSemanticType,
   type SheetMetrics,
 } from './metric-resolver';
 import type { PlanComponent } from '@/types/compensation-plan';
@@ -152,6 +153,11 @@ export class CalculationOrchestrator {
   private planComponents: PlanComponent[] = [];
   // OB-27B: Log flag to avoid console spam
   private _ob27bLogged = false;
+  // OB-30-7v2: Store-level totals of employee-level amounts, keyed by storeId → sheetName → totalAmount
+  // Used for metrics like store_optical_sales that need sum of individual amounts per store
+  private storeAmountTotals = new Map<string, Map<string, number>>();
+  // OB-30-7v2: Sheet topology cache for the orchestrator
+  private sheetTopologyMap = new Map<string, 'employee_component' | 'store_component' | 'roster'>();
 
   constructor(tenantId: string) {
     // OB-16: Normalize tenantId - strip trailing underscores to prevent data mismatch
@@ -203,6 +209,11 @@ export class CalculationOrchestrator {
       if (activePlan.configuration.type === 'additive_lookup') {
         this.planComponents = activePlan.configuration.variants.flatMap(v => v.components);
       }
+
+      // OB-30-7v2: Build sheet topology first, then compute store-level totals
+      // Topology is needed to distinguish employee vs store sheets when summing
+      this.buildSheetTopology();
+      this.buildStoreAmountTotals(employees);
 
       // Process each employee
       const results: CalculationResult[] = [];
@@ -739,6 +750,47 @@ export class CalculationOrchestrator {
       }
     }
 
+    // OB-30-7v2: TOPOLOGY-AWARE VALIDATION
+    // For tier_lookup/conditional components with measurementLevel='store', the matched sheet
+    // MUST be a store_component sheet. If it matched an employee_component sheet (due to
+    // fuzzy AI matchedComponent overlap), find the correct store-level sheet instead.
+    // Exception: matrix_lookup components need the individual sheet for row metric (attainment)
+    // — the column metric (store amount) is handled separately via storeAmountTotals.
+    for (const component of this.planComponents) {
+      if (component.measurementLevel !== 'store') continue;
+      if (component.componentType === 'matrix_lookup') continue; // matrix handled separately
+
+      const currentSheet = componentSheetMap.get(component.id);
+      if (!currentSheet) continue;
+
+      const currentTopology = this.sheetTopologyMap.get(currentSheet);
+      if (currentTopology === 'store_component') continue; // already correct
+
+      // MISMATCH: store-level component matched to non-store sheet. Find correct store sheet.
+      // Use Strategy 2 (SHEET_COMPONENT_PATTERNS) to find the right store sheet
+      let correctSheet: string | null = null;
+      for (const sheetName of Object.keys(componentMetrics)) {
+        const sheetTopo = this.sheetTopologyMap.get(sheetName);
+        if (sheetTopo !== 'store_component') continue;
+        // Check if this store sheet matches the component
+        const matched = findSheetForComponent(
+          component.name,
+          component.id,
+          [{ sheetName, matchedComponent: null }]
+        );
+        if (matched === sheetName) {
+          correctSheet = sheetName;
+          break;
+        }
+      }
+
+      if (correctSheet) {
+        console.log(`[Topology Fix] Component "${component.name}" (${component.id}): ` +
+          `overriding "${currentSheet}" (${currentTopology}) with "${correctSheet}" (store_component)`);
+        componentSheetMap.set(component.id, correctSheet);
+      }
+    }
+
     // OB-30-7v2: METRIC-TRACE diagnostic for store vs individual resolution
     const empId = employee.id || employee.employeeNumber || '';
     if (empId.includes('90198149')) {
@@ -827,6 +879,29 @@ export class CalculationOrchestrator {
       // OB-29 Phase 3B: Pass componentType for tier_lookup contextual validation
       const resolved = buildComponentMetrics(metricConfig, enrichedMetrics, component.componentType);
 
+      // OB-30-7v2: For matrix_lookup components, the column metric may need store-level total
+      // If the sheet is employee-level and the column metric name contains "store_",
+      // override with the store's total amount from storeAmountTotals
+      if (component.componentType === 'matrix_lookup' && component.matrixConfig) {
+        const colMetric = component.matrixConfig.columnMetric;
+        const colSemantic = inferSemanticType(colMetric);
+        const sheetTopo = this.sheetTopologyMap.get(matchedSheet);
+
+        if (colMetric.startsWith('store_') && colSemantic === 'amount' &&
+            sheetTopo === 'employee_component' && employee.storeId) {
+          const storeTotals = this.storeAmountTotals.get(employee.storeId);
+          if (storeTotals) {
+            const storeTotal = storeTotals.get(matchedSheet);
+            if (storeTotal !== undefined) {
+              resolved[colMetric] = storeTotal;
+              if (empId.includes('90198149')) {
+                console.log(`[FIX-VERIFY] ${colMetric}: individual=${enrichedMetrics.amount}, storeTotal=${storeTotal} (from storeAmountTotals)`);
+              }
+            }
+          }
+        }
+      }
+
       // Merge into employee's metrics
       for (const [key, value] of Object.entries(resolved)) {
         if (metrics[key] === undefined) {
@@ -835,12 +910,100 @@ export class CalculationOrchestrator {
       }
     }
 
-    // OB-30-7v2: Trace final metrics for diagnostic employee
+    // OB-30-7v2: FIX-VERIFY diagnostic for employee 90198149
     if (empId.includes('90198149')) {
       console.log('[METRIC-TRACE] FINAL aiMetrics:', JSON.stringify(metrics, null, 2));
+      console.log('[FIX-VERIFY] store_sales_attainment:', metrics.store_sales_attainment,
+        '(should be ~101.8, was 97.1)');
+      console.log('[FIX-VERIFY] store_optical_sales:', metrics.store_optical_sales,
+        '(should be store total $60K-$180K range, was 217265)');
+      console.log('[FIX-VERIFY] new_customers_attainment:', metrics.new_customers_attainment,
+        '(should come from Base_Clientes_Nuevos store record)');
     }
 
     return Object.keys(metrics).length > 0 ? metrics : null;
+  }
+
+  /**
+   * OB-30-7v2: Build store-level totals of employee amounts for metrics like store_optical_sales.
+   * Sums the 'amount' field from each employee-level sheet by storeId.
+   * This allows the optical matrix column axis to use the STORE total instead of individual amount.
+   */
+  private buildStoreAmountTotals(employees: EmployeeData[]): void {
+    this.storeAmountTotals.clear();
+
+    for (const emp of employees) {
+      const storeId = emp.storeId;
+      if (!storeId) continue;
+
+      const attrs = emp.attributes as Record<string, unknown> | undefined;
+      const componentMetrics = attrs?.componentMetrics as Record<string, { amount?: number }> | undefined;
+      if (!componentMetrics) continue;
+
+      for (const [sheetName, sheetData] of Object.entries(componentMetrics)) {
+        // Only sum employee-level sheets (store-level sheets already have correct amounts)
+        const topology = this.sheetTopologyMap.get(sheetName);
+        // If topology not built yet, skip topology check - we'll rebuild after
+        if (topology === 'store_component') continue;
+
+        const amount = sheetData?.amount;
+        if (amount === undefined || amount === null || typeof amount !== 'number') continue;
+
+        if (!this.storeAmountTotals.has(storeId)) {
+          this.storeAmountTotals.set(storeId, new Map());
+        }
+        const sheetMap = this.storeAmountTotals.get(storeId)!;
+        sheetMap.set(sheetName, (sheetMap.get(sheetName) || 0) + amount);
+      }
+    }
+
+    // Log summary
+    const storeCount = this.storeAmountTotals.size;
+    if (storeCount > 0) {
+      const sampleStoreId = Array.from(this.storeAmountTotals.keys())[0];
+      const sampleSheets = this.storeAmountTotals.get(sampleStoreId);
+      console.log(`[Store Totals] Computed store-level sums for ${storeCount} stores`);
+      if (sampleSheets) {
+        for (const [sheet, total] of Array.from(sampleSheets.entries())) {
+          console.log(`[Store Totals]   Sample store ${sampleStoreId}: ${sheet} = $${total.toLocaleString()}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * OB-30-7v2: Build sheet topology map from AI import context.
+   * Classifies each sheet as employee_component, store_component, or roster
+   * based on whether it has employeeId or storeId field mappings.
+   */
+  private buildSheetTopology(): void {
+    this.sheetTopologyMap.clear();
+
+    if (!this.aiImportContext?.sheets) return;
+
+    for (const sheet of this.aiImportContext.sheets) {
+      const sheetName = sheet.sheetName || (sheet as unknown as Record<string, unknown>).name as string || '';
+      if (!sheetName) continue;
+
+      const mappings = sheet.fieldMappings || [];
+      const hasEmployeeId = mappings.some(
+        (fm: { semanticType?: string }) => fm.semanticType?.toLowerCase() === 'employeeid'
+      );
+      const hasStoreId = mappings.some(
+        (fm: { semanticType?: string }) => fm.semanticType?.toLowerCase() === 'storeid'
+      );
+
+      if (sheet.classification === 'roster') {
+        this.sheetTopologyMap.set(sheetName, 'roster');
+      } else if (hasEmployeeId) {
+        this.sheetTopologyMap.set(sheetName, 'employee_component');
+      } else if (hasStoreId) {
+        this.sheetTopologyMap.set(sheetName, 'store_component');
+      }
+    }
+
+    console.log('[Topology] Orchestrator sheet classification:',
+      Object.fromEntries(Array.from(this.sheetTopologyMap.entries())));
   }
 
   /**
