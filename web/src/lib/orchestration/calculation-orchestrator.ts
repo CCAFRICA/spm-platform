@@ -574,6 +574,17 @@ export class CalculationOrchestrator {
   private getEmployeeMetrics(employee: EmployeeData, periodId: string): EmployeeMetrics | null {
     // AI-DRIVEN PRIORITY 0: Extract metrics from aggregated employee attributes using AI mappings
     const aiMetrics = this.extractMetricsWithAIMappings(employee);
+
+    // OB-30 DIAGNOSTIC: Dump metrics for specific employee
+    if (employee.id?.includes('90198149') || employee.employeeNumber?.includes('90198149')) {
+      console.log('[METRICS-DUMP] Employee 90198149 metrics:', JSON.stringify(aiMetrics, null, 2));
+      console.log('[METRICS-DUMP] Available metric keys:', aiMetrics ? Object.keys(aiMetrics) : 'null');
+      console.log('[METRICS-DUMP] store_sales_attainment value:', aiMetrics?.store_sales_attainment);
+      console.log('[METRICS-DUMP] optical_attainment value:', aiMetrics?.optical_attainment);
+      console.log('[METRICS-DUMP] new_customers_attainment value:', aiMetrics?.new_customers_attainment);
+      console.log('[METRICS-DUMP] collections_attainment value:', aiMetrics?.collections_attainment);
+    }
+
     if (aiMetrics && Object.keys(aiMetrics).length > 0) {
       return {
         employeeId: employee.id,

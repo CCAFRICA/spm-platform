@@ -149,10 +149,16 @@ const scriptTemplate = `
       matchedEmployees++;
 
       // Compare per-component
+      // FIX: Proper variant detection - 'no certificado' contains 'certificado' so must check for negation
+      const vId = (emp.variantId || '').toLowerCase();
+      const vName = (emp.variantName || '').toLowerCase();
+      const isNonCert = vId === 'non-certified' || vId.includes('non') || vName.includes('no certificado') || vName.includes('no cert');
+      const isCert = !isNonCert && (vId === 'certified' || vName.includes('certificado') || vName.includes('certified'));
+
       const comparison = {
         employeeId: empId,
         certified: gtData.certified,
-        vlCertified: emp.variantId === 'certified' || (emp.variantName || '').toLowerCase().includes('certificado'),
+        vlCertified: isCert,
         vlTotal,
         gtTotal: gtData.total,
         diff: vlTotal - gtData.total,
