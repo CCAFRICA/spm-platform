@@ -873,6 +873,12 @@ export class CalculationOrchestrator {
             enrichedMetrics.attainment > 0 && enrichedMetrics.attainment < 5) {
           enrichedMetrics.attainment = enrichedMetrics.attainment * 100;
         }
+
+        // OB-30-7v2c: Final safety net — reject Infinity/NaN from any computation path
+        if (enrichedMetrics.attainment !== undefined && !Number.isFinite(enrichedMetrics.attainment)) {
+          enrichedMetrics.attainment = undefined;
+          enrichedMetrics.amount = undefined;
+        }
       }
 
       // Build metrics using plan's own metric names
