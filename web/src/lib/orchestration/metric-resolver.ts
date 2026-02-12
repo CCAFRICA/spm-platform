@@ -171,9 +171,6 @@ export function buildComponentMetrics(
       case 'amount':
         // OB-29 Phase 3B: For tier_lookup, amount is INVALID - it expects attainment
         if (isTierLookup) {
-          console.warn(
-            `[MetricResolver] OB-29 Phase 3B: tier_lookup metric "${metricName}" resolved to 'amount' type - REJECTED (tier_lookup requires attainment)`
-          );
           // DO NOT add metric - this will trigger zero-goal guard in engine
         } else if (sheetMetrics.amount !== undefined) {
           result[metricName] = sheetMetrics.amount;
@@ -187,9 +184,6 @@ export function buildComponentMetrics(
       case 'quantity':
         // OB-29 Phase 3B: For tier_lookup, quantity is INVALID - it expects attainment
         if (isTierLookup) {
-          console.warn(
-            `[MetricResolver] OB-29 Phase 3B: tier_lookup metric "${metricName}" resolved to 'quantity' type - REJECTED (tier_lookup requires attainment)`
-          );
           // DO NOT add metric - this will trigger zero-goal guard in engine
         } else if (sheetMetrics.quantity !== undefined) {
           result[metricName] = sheetMetrics.quantity;
@@ -198,15 +192,9 @@ export function buildComponentMetrics(
       default:
         // OB-29 Phase 3B: For tier_lookup, unknown type gets NO fallback
         if (isTierLookup) {
-          console.warn(
-            `[MetricResolver] OB-29 Phase 3B: tier_lookup metric "${metricName}" has unknown type - REJECTED (no amount fallback for tier_lookup)`
-          );
           // DO NOT add metric - this will trigger zero-goal guard in engine
         } else {
           // Unknown type - try amount as fallback (most common) for non-tier_lookup
-          console.warn(
-            `[MetricResolver] Unknown semantic type for "${metricName}", trying amount fallback`
-          );
           if (sheetMetrics.amount !== undefined) {
             result[metricName] = sheetMetrics.amount;
           }

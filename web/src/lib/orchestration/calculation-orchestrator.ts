@@ -684,13 +684,6 @@ export class CalculationOrchestrator {
       return Object.keys(metrics).length > 0 ? metrics : null;
     }
 
-    // HF-018: Log once per calculation run
-    const isFirstEmployee = !this._ob27bLogged;
-    if (isFirstEmployee) {
-      this._ob27bLogged = true;
-      console.log(`[HF-018] SCOPED METRICS: Processing ${this.planComponents.length} components with ${Object.keys(componentMetrics).length} sheets`);
-    }
-
     // HF-018: Build component-to-sheet mapping using semantic matching
     const componentSheetMap = new Map<string, string>();
 
@@ -733,13 +726,6 @@ export class CalculationOrchestrator {
 
       if (matchedSheet) {
         componentSheetMap.set(component.id, matchedSheet);
-        if (isFirstEmployee) {
-          console.log(`[HF-018] Component "${component.name}" → Sheet "${matchedSheet}"`);
-        }
-      } else {
-        if (isFirstEmployee) {
-          console.warn(`[HF-018] Component "${component.name}" → NO SHEET MATCH (will produce $0)`);
-        }
       }
     }
 
@@ -775,18 +761,11 @@ export class CalculationOrchestrator {
 
       if (isZeroGoal) {
         // Zero goal = not measured. Clear any attainment.
-        const prevAttainment = enrichedMetrics.attainment;
         enrichedMetrics.attainment = undefined;
-        if (isFirstEmployee) {
-          console.log(`[HF-018] ZERO-GOAL: ${matchedSheet} goal=${goalValue}, attainment was ${prevAttainment} → now undefined`);
-        }
       } else {
         // Use candidate attainment if primary is missing
         if (enrichedMetrics.attainment === undefined && sheetDataAny._candidateAttainment !== undefined) {
           enrichedMetrics.attainment = sheetDataAny._candidateAttainment as number;
-          if (isFirstEmployee) {
-            console.log(`[HF-018] ${matchedSheet} using _candidateAttainment = ${enrichedMetrics.attainment}`);
-          }
         }
 
         // Compute attainment from amount/goal if still missing
@@ -795,9 +774,6 @@ export class CalculationOrchestrator {
             enrichedMetrics.goal !== undefined &&
             enrichedMetrics.goal > 0) {
           enrichedMetrics.attainment = (enrichedMetrics.amount / enrichedMetrics.goal) * 100;
-          if (isFirstEmployee) {
-            console.log(`[HF-018] ${matchedSheet} computed attainment = ${enrichedMetrics.attainment.toFixed(1)}%`);
-          }
         }
 
         // Normalize: if < 5, assume decimal ratio and multiply by 100
@@ -811,26 +787,12 @@ export class CalculationOrchestrator {
       // OB-29 Phase 3B: Pass componentType for tier_lookup contextual validation
       const resolved = buildComponentMetrics(metricConfig, enrichedMetrics, component.componentType);
 
-      // HF-018: Log scoped vs potential merged (for first employee diagnostics)
-      if (isFirstEmployee && Object.keys(resolved).length > 0) {
-        for (const [key, value] of Object.entries(resolved)) {
-          console.log(`[HF-018] ${component.name}: ${key} = ${value} (from ${matchedSheet})`);
-        }
-      }
-
       // Merge into employee's metrics
-      // HF-018: Each key should be unique per component, but we still don't overwrite
       for (const [key, value] of Object.entries(resolved)) {
         if (metrics[key] === undefined) {
           metrics[key] = value;
-        } else if (isFirstEmployee) {
-          console.warn(`[HF-018] DUPLICATE KEY: ${key} already set to ${metrics[key]}, ignoring ${value} from ${matchedSheet}`);
         }
       }
-    }
-
-    if (isFirstEmployee) {
-      console.log(`[HF-018] Final metrics: ${Object.keys(metrics).length} keys: [${Object.keys(metrics).join(', ')}]`);
     }
 
     return Object.keys(metrics).length > 0 ? metrics : null;
