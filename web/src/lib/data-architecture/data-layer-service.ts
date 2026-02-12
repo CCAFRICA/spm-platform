@@ -1321,7 +1321,8 @@ function storeAggregatedData(
   // HF-017: Track store attribution for diagnostics
   let storeAttributionAttempts = 0;
   let storeAttributionSuccess = 0;
-  let storeAttributionFiltered = 0;
+  // OB-30: storeAttributionFiltered is always 0 now since store metrics always override for store_component
+  const storeAttributionFiltered = 0;
   let firstStoreLookupLogged = false;
 
   for (const [, emp] of Array.from(employeeMap.entries())) {
@@ -1397,17 +1398,17 @@ function storeAggregatedData(
       storeAttributionAttempts++;
       for (const [sheetName, metrics] of Array.from(storeMetrics.entries())) {
         const topology = sheetTopology.get(sheetName);
-        // Only add store metrics if sheet is classified as store_component
-        // AND not already present from employee-level
-        if (topology?.topology === 'store_component' && !componentMetrics[sheetName]) {
+        // OB-30 FIX: For store_component sheets, store-level metrics OVERRIDE employee-level
+        // This ensures all employees in a store share the same store attainment
+        if (topology?.topology === 'store_component') {
+          // Override with store-level metrics (all employees in store share this)
           componentMetrics[sheetName] = { ...metrics };
           storeAttributionSuccess++;
-        } else if (componentMetrics[sheetName]) {
-          // Already present from employee-level - expected
-        } else {
-          // Filtered due to topology
-          storeAttributionFiltered++;
+        } else if (!componentMetrics[sheetName]) {
+          // Non-store sheets: only add if employee doesn't have individual metrics
+          componentMetrics[sheetName] = { ...metrics };
         }
+        // Otherwise: employee already has individual metrics, keep them
       }
     }
 

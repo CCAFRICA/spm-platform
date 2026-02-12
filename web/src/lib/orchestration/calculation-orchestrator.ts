@@ -581,10 +581,21 @@ export class CalculationOrchestrator {
       const componentMetrics = attrs?.componentMetrics as Record<string, unknown> | undefined;
       console.log('[METRICS-DUMP] Employee 90198149');
       console.log('[METRICS-DUMP] componentMetrics sheets:', componentMetrics ? Object.keys(componentMetrics) : 'null');
-      console.log('[METRICS-DUMP] componentMetrics values:', componentMetrics ? JSON.stringify(componentMetrics, null, 2) : 'null');
-      console.log('[METRICS-DUMP] Final aiMetrics:', aiMetrics ? JSON.stringify(aiMetrics, null, 2) : 'null');
-      console.log('[METRICS-DUMP] store_sales_attainment:', aiMetrics?.store_sales_attainment);
-      console.log('[METRICS-DUMP] optical_attainment:', aiMetrics?.optical_attainment);
+      // Show raw values per sheet to trace attainment source
+      if (componentMetrics) {
+        for (const [sheet, values] of Object.entries(componentMetrics)) {
+          const v = values as Record<string, unknown>;
+          console.log(`[METRICS-DUMP] Sheet "${sheet}":`, {
+            attainment: v.attainment,
+            amount: v.amount,
+            goal: v.goal,
+            _candidateAttainment: v._candidateAttainment,
+            _rawFields: v._rawFields ? Object.keys(v._rawFields as object) : undefined
+          });
+        }
+      }
+      console.log('[METRICS-DUMP] Final store_sales_attainment:', aiMetrics?.store_sales_attainment);
+      console.log('[METRICS-DUMP] GT C2_Att for this employee: 101.8 (expected $150)');
     }
 
     if (aiMetrics && Object.keys(aiMetrics).length > 0) {
