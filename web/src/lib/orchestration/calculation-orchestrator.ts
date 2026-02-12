@@ -163,9 +163,6 @@ export class CalculationOrchestrator {
 
     // AI-DRIVEN: Load AI import context for metric extraction
     this.aiImportContext = loadImportContext(normalizedId);
-    if (this.aiImportContext) {
-      console.log(`[Orchestrator] Loaded AI import context: ${this.aiImportContext.sheets.length} sheets, roster=${this.aiImportContext.rosterSheet}`);
-    }
   }
 
   /**
@@ -205,7 +202,6 @@ export class CalculationOrchestrator {
       // OB-21: Extract all plan components for plan-driven metric resolution
       if (activePlan.configuration.type === 'additive_lookup') {
         this.planComponents = activePlan.configuration.variants.flatMap(v => v.components);
-        console.log(`[Orchestrator] OB-21: Loaded ${this.planComponents.length} plan components for metric resolution`);
       }
 
       // Process each employee
@@ -341,9 +337,6 @@ export class CalculationOrchestrator {
     // HOTFIX: Look up period from storage to get actual year/month
     const { selectedYear, selectedMonth } = this.resolvePeriodYearMonth(config.periodId, config.tenantId);
 
-    console.log(`[Orchestrator] Period filter: ${config.periodId} -> year=${selectedYear}, month=${selectedMonth}`);
-    console.log(`[Orchestrator] Total employees before period filter: ${allEmployees.length}`);
-
     const filtered = allEmployees.filter((emp) => {
       // Filter by status
       if (!config.options?.includeInactive && emp.status !== 'active') {
@@ -389,7 +382,6 @@ export class CalculationOrchestrator {
       return true;
     });
 
-    console.log(`[Orchestrator] Employees after period filter: ${filtered.length}`);
     return filtered;
   }
 
@@ -948,18 +940,7 @@ export class CalculationOrchestrator {
    */
   private async saveResultsAsync(results: CalculationResult[], runId: string, totalPayout: number): Promise<boolean> {
     if (typeof window === 'undefined') return false;
-
-    console.log(`[Orchestrator] OB-30-1: Saving ${results.length} results to IndexedDB...`);
-
-    const success = await saveResultsToIndexedDB(runId, this.tenantId, results, totalPayout);
-
-    if (success) {
-      console.log(`[Orchestrator] OB-30-1: Successfully saved ${results.length} results to IndexedDB`);
-    } else {
-      console.error(`[Orchestrator] OB-30-1: FAILED to save results to IndexedDB`);
-    }
-
-    return success;
+    return await saveResultsToIndexedDB(runId, this.tenantId, results, totalPayout);
   }
 
   // Legacy sync wrapper for backward compatibility
@@ -986,8 +967,6 @@ export class CalculationOrchestrator {
     for (let i = 0; i < results.length; i += CalculationOrchestrator.CHUNK_SIZE) {
       chunks.push(results.slice(i, i + CalculationOrchestrator.CHUNK_SIZE));
     }
-
-    console.log(`[Orchestrator] OB-22: Saving ${results.length} results in ${chunks.length} chunks`);
 
     // OB-30-1: Track which chunks saved successfully
     let savedChunks = 0;
@@ -1038,7 +1017,6 @@ export class CalculationOrchestrator {
     if (savedChunks < chunks.length) {
       console.error(`[Orchestrator] WARNING: Only saved ${savedChunks}/${chunks.length} chunks (${savedChunks * CalculationOrchestrator.CHUNK_SIZE}/${results.length} results)`);
     } else {
-      console.log(`[Orchestrator] Successfully saved all ${chunks.length} chunks`);
     }
   }
 
@@ -1058,7 +1036,6 @@ export class CalculationOrchestrator {
       }
     }
     if (stagingKeys.length > 0) {
-      console.log(`[Orchestrator] Evicting ${stagingKeys.length} staging data keys`);
       for (const key of stagingKeys) {
         localStorage.removeItem(key);
       }
@@ -1074,7 +1051,6 @@ export class CalculationOrchestrator {
       }
     }
     if (importKeys.length > 0) {
-      console.log(`[Orchestrator] Evicting ${importKeys.length} import mapping keys`);
       for (const key of importKeys) {
         localStorage.removeItem(key);
       }
@@ -1088,7 +1064,6 @@ export class CalculationOrchestrator {
       try {
         const auditLogs = JSON.parse(auditStr);
         if (Array.isArray(auditLogs) && auditLogs.length > 100) {
-          console.log(`[Orchestrator] Trimming audit logs from ${auditLogs.length} to 100`);
           localStorage.setItem(auditKey, JSON.stringify(auditLogs.slice(-100)));
           return true;
         }
@@ -1106,7 +1081,6 @@ export class CalculationOrchestrator {
       }
     }
     if (transactionKeys.length > 0) {
-      console.log(`[Orchestrator] Evicting ${transactionKeys.length} transaction/dispute keys`);
       for (const key of transactionKeys) {
         localStorage.removeItem(key);
       }
@@ -1135,15 +1109,9 @@ export class CalculationOrchestrator {
     }
 
     if (keysToEvict.length > 0) {
-      let freedBytes = 0;
       for (const key of keysToEvict) {
-        const value = localStorage.getItem(key);
-        if (value) {
-          freedBytes += value.length * 2; // UTF-16 encoding
-        }
         localStorage.removeItem(key);
       }
-      console.log(`[Orchestrator] OB-30-1: Evicted ${keysToEvict.length} aggregated data keys (~${(freedBytes / 1024 / 1024).toFixed(2)}MB freed)`);
     }
   }
 
@@ -1191,7 +1159,6 @@ export class CalculationOrchestrator {
         }
 
         if (results.length > 0) {
-          console.log(`[Orchestrator] OB-22: Loaded ${results.length} results from ${index.chunkCount} chunks`);
           return results;
         }
       } catch (error) {
@@ -1231,7 +1198,6 @@ export class CalculationOrchestrator {
     // OB-16C PRIORITY 0: Aggregated data (bypasses 5MB localStorage limit)
     const aggregatedEmployees = this.loadAggregatedEmployees();
     if (aggregatedEmployees.length > 0) {
-      console.log(`[Orchestrator] Using ${aggregatedEmployees.length} employees from AGGREGATED data`);
       return aggregatedEmployees;
     }
 
@@ -1239,7 +1205,6 @@ export class CalculationOrchestrator {
     // This ensures when a data import is committed, those employees are used
     const committedEmployees = this.extractEmployeesFromCommittedData();
     if (committedEmployees.length > 0) {
-      console.log(`[Orchestrator] Using ${committedEmployees.length} employees from committed import data`);
       return committedEmployees;
     }
 
@@ -1250,7 +1215,6 @@ export class CalculationOrchestrator {
         const employees: EmployeeData[] = JSON.parse(stored);
         const filtered = employees.filter((e) => e.tenantId === this.tenantId);
         if (filtered.length > 0) {
-          console.log(`[Orchestrator] Using ${filtered.length} employees from stored data`);
           return filtered;
         }
       } catch {
@@ -1261,7 +1225,6 @@ export class CalculationOrchestrator {
     // NO DEMO FALLBACK - Return empty array with clear error message
     // Demo data masks real issues and is a compliance violation in production
     console.error(`[Orchestrator] ERROR: No employee data found for tenant "${this.tenantId}". Import data first.`);
-    console.log(`[Orchestrator] Checked: aggregated (0), committed data (0), stored data (0 for this tenant)`);
     return [];
   }
 
@@ -1273,19 +1236,15 @@ export class CalculationOrchestrator {
     const stored = localStorage.getItem(storageKey);
 
     if (!stored) {
-      console.log(`[Orchestrator] No aggregated data found for tenant ${this.tenantId}`);
       return [];
     }
 
     try {
       const aggregated: Array<Record<string, unknown>> = JSON.parse(stored);
-      console.log(`[Orchestrator] Found ${aggregated.length} aggregated employee records`);
 
       // Log sample for diagnostic
       if (aggregated.length > 0) {
-        console.log(`[Orchestrator] Sample record keys:`, Object.keys(aggregated[0]));
         if (aggregated[0].componentMetrics) {
-          console.log(`[Orchestrator] Sample componentMetrics sheets:`, Object.keys(aggregated[0].componentMetrics as object));
         }
       }
 
@@ -1388,13 +1347,10 @@ export class CalculationOrchestrator {
       console.warn('[Orchestrator] NO ROSTER SHEET IDENTIFIED in AI context - cannot extract employees.');
       return [];
     }
-    console.log(`[Orchestrator] AI identified roster sheet: "${rosterSheet}"`);
 
     // Get tenant batch IDs
     const batchesStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_BATCHES);
-    console.log(`[Orchestrator] Looking for batches, tenantId: ${this.tenantId}`);
     if (!batchesStored) {
-      console.log('[Orchestrator] No batches found in localStorage');
       return [];
     }
 
@@ -1404,21 +1360,18 @@ export class CalculationOrchestrator {
       tenantBatchIds = batches
         .filter(([, batch]) => batch.tenantId === this.tenantId)
         .map(([id]) => id);
-      console.log(`[Orchestrator] Batches matching tenantId '${this.tenantId}': ${tenantBatchIds.length}`);
     } catch (e) {
       console.error('[Orchestrator] Error parsing batches:', e);
       return [];
     }
 
     if (tenantBatchIds.length === 0) {
-      console.log(`[Orchestrator] No batches found for tenant ${this.tenantId}`);
       return [];
     }
 
     // Get committed records
     const committedStored = localStorage.getItem(STORAGE_KEYS.DATA_LAYER_COMMITTED);
     if (!committedStored) {
-      console.log('[Orchestrator] No committed records in localStorage');
       return [];
     }
 
@@ -1431,10 +1384,6 @@ export class CalculationOrchestrator {
           content: Record<string, unknown>;
         }
       ][] = JSON.parse(committedStored);
-      console.log(`[Orchestrator] Total committed records: ${committed.length}`);
-
-      let matchingBatchCount = 0;
-      let rosterRecordCount = 0;
 
       for (const [, record] of committed) {
         if (
@@ -1443,7 +1392,6 @@ export class CalculationOrchestrator {
         ) {
           continue;
         }
-        matchingBatchCount++;
 
         const content = record.content;
         const sheetName = String(content._sheetName || '');
@@ -1452,7 +1400,6 @@ export class CalculationOrchestrator {
         if (sheetName.toLowerCase() !== rosterSheet.toLowerCase()) {
           continue;
         }
-        rosterRecordCount++;
 
         // AI-DRIVEN: Extract employee ID using semantic mapping
         const employeeId = this.extractFieldValue(content, sheetName, ['employeeId', 'employee_id']);
@@ -1484,9 +1431,6 @@ export class CalculationOrchestrator {
           attributes: {},
         });
       }
-      console.log(`[Orchestrator] Records matching batch: ${matchingBatchCount}`);
-      console.log(`[Orchestrator] Roster records found: ${rosterRecordCount}`);
-      console.log(`[Orchestrator] Final employee count: ${employees.length}`);
     } catch (e) {
       console.error('[Orchestrator] Error extracting employees:', e);
       return [];
