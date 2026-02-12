@@ -1171,6 +1171,10 @@ function storeAggregatedData(
     return merged;
   };
 
+  // [AGG-DIAG-90198149] Tracking vars for Base_Venta_Tienda storeId grouping
+  let _tiendaDiagCount = 0;
+  const _tiendaStoreIds = new Map<string, number>();
+
   for (const content of componentRecords) {
     const sheetName = String(content['_sheetName'] || 'unknown');
 
@@ -1245,6 +1249,27 @@ function storeAggregatedData(
       goalField         // AI-mapped goal field (or null)
     );
 
+    // [AGG-DIAG-90198149] STEP 3 trace: storeId extraction for store_component sheets
+    if (sheetName.toLowerCase().includes('tienda')) {
+      if (!(_tiendaDiagCount > 5)) {
+        const rawStoreVal = effectiveStoreIdField ? safeFieldLookup(content, effectiveStoreIdField) : '(no field)';
+        console.log('[AGG-DIAG-TIENDA] Record #' + (_tiendaDiagCount + 1) + ':', {
+          storeIdField: effectiveStoreIdField,
+          rawStoreValue: rawStoreVal,
+          normalizedStoreId: storeId,
+          empIdField: effectiveEmpIdField,
+          empId: empId,
+          storePeriodKey: (recordMonth || recordYear) ? storeId + '_' + recordMonth + '_' + recordYear : storeId,
+          amount: resolvedMetrics.amount,
+          goal: resolvedMetrics.goal,
+          attainment: resolvedMetrics.attainment,
+        });
+      }
+      _tiendaDiagCount++;
+      // Track unique storeIds for summary
+      _tiendaStoreIds.set(storeId, (_tiendaStoreIds.get(storeId) || 0) + 1);
+    }
+
     // OB-24 R9: Determine topology using classifySheets result
     const topology = sheetTopology.get(sheetName);
     const isStoreLevel = topology?.topology === 'store_component' || (!empId && storeId);
@@ -1279,6 +1304,33 @@ function storeAggregatedData(
         const storeOnlySheets = storeComponentMetrics.get(storeId)!;
         const existingOnly = storeOnlySheets.get(sheetName) as MergedMetrics | undefined;
         storeOnlySheets.set(sheetName, mergeMetrics(existingOnly, resolvedMetrics));
+      }
+    }
+  }
+
+  // [AGG-DIAG-90198149] Summary: Base_Venta_Tienda storeId grouping
+  if (_tiendaDiagCount > 0) {
+    console.log('[AGG-DIAG-TIENDA] SUMMARY:', {
+      totalRecords: _tiendaDiagCount,
+      uniqueStoreIds: _tiendaStoreIds.size,
+      sampleStoreIds: Array.from(_tiendaStoreIds.entries()).slice(0, 10).map(([id, count]) => id + ':' + count),
+    });
+    // Check for store 1008 specifically
+    const store1008Count = _tiendaStoreIds.get('1008') || 0;
+    console.log('[AGG-DIAG-TIENDA] Store 1008 records:', store1008Count,
+      '| All records merged into single key?', _tiendaStoreIds.size === 1 ? 'YES - BUG!' : 'No');
+    // Show the storeComponentMetrics entry for store 1008
+    const store1008Metrics = storeComponentMetrics.get('1008') || storeComponentMetrics.get('1008_1_2025');
+    if (store1008Metrics) {
+      const tiendaEntry = store1008Metrics.get('Base_Venta_Tienda') || Array.from(store1008Metrics.entries()).find(([k]) => k.toLowerCase().includes('tienda'))?.[1];
+      if (tiendaEntry) {
+        console.log('[AGG-DIAG-TIENDA] Store 1008 merged result:', {
+          attainment: tiendaEntry.attainment,
+          attainmentSource: tiendaEntry.attainmentSource,
+          amount: tiendaEntry.amount,
+          goal: tiendaEntry.goal,
+          computedCheck: tiendaEntry.goal && tiendaEntry.goal > 0 ? ((tiendaEntry.amount || 0) / tiendaEntry.goal * 100).toFixed(2) : 'N/A',
+        });
       }
     }
   }
