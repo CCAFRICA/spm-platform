@@ -12,7 +12,7 @@ import type { UserRole } from '@/types/auth';
 
 // Storage keys for checking real system state
 const STORAGE_KEYS = {
-  PLANS: 'vialuce_plans',
+  PLANS: 'compensation_plans',
   BATCHES: 'data_layer_batches',
   COMMITTED: 'data_layer_committed',
   CALCULATIONS: 'vialuce_calculations',

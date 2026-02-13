@@ -291,10 +291,12 @@ function formatPeriodLabel(period: string, isSpanish: boolean = false): string {
 
 function checkHasPlans(tenantId: string): boolean {
   try {
-    const stored = localStorage.getItem('vialuce_plans');
+    const stored = localStorage.getItem('compensation_plans');
     if (!stored) return false;
     const plans = JSON.parse(stored);
-    return plans.some((p: { tenantId: string }) => p.tenantId === tenantId);
+    return Array.isArray(plans) && plans.some((p: { tenantId: string; status?: string }) =>
+      p.tenantId === tenantId && p.status !== 'archived'
+    );
   } catch {
     return false;
   }

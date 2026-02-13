@@ -70,34 +70,38 @@ export default function PerformPage() {
 
   const isManager = userRole === 'manager' || userRole === 'admin' || userRole === 'vl_admin';
 
-  // HF-018: Fetch real calculation results from both storage systems
+  // OB-38: Fetch calculation results -- orchestrator is the primary producer
   useEffect(() => {
     if (!currentTenant) return;
 
     const period = getCurrentPeriod();
     let results: CalculationResult[] = [];
 
-    // Priority 1: Results storage (OB-29 chunked system — same as landing page)
-    const run = getLatestRun(currentTenant.id, period);
-    if (run) {
-      results = getCalculationResults(run.id);
+    // Priority 1: Orchestrator storage (vialuce_calculations_chunk_N -- where calculate page writes)
+    results = getPeriodResults(currentTenant.id, period);
+
+    // Priority 2: Orchestrator with any period (data may be from a different period)
+    if (results.length === 0) {
+      results = getPeriodResults(currentTenant.id, '');
     }
 
-    // Priority 2: Search all runs for this tenant (data may be from a different period)
+    // Priority 3: Results storage (OB-29 chunked system -- alternate path)
+    if (results.length === 0) {
+      const run = getLatestRun(currentTenant.id, period);
+      if (run) {
+        results = getCalculationResults(run.id);
+      }
+    }
+
+    // Priority 4: Results storage -- any period
     if (results.length === 0) {
       const allRuns = getCalculationRuns(currentTenant.id);
       if (allRuns.length > 0) {
-        // Use most recent run regardless of period
         const latestRun = allRuns.sort(
           (a, b) => new Date(b.calculatedAt).getTime() - new Date(a.calculatedAt).getTime()
         )[0];
         results = getCalculationResults(latestRun.id);
       }
-    }
-
-    // Priority 3: Orchestrator storage (legacy vialuce_calculations keys)
-    if (results.length === 0) {
-      results = getPeriodResults(currentTenant.id, period);
     }
 
     setAllResults(results);

@@ -56,31 +56,59 @@ function loadLatestResults(tenantId: string): CalcResultSummary[] {
   if (typeof window === 'undefined') return [];
 
   try {
-    // Find latest completed run
+    // Check for completed runs
     const runsStr = localStorage.getItem('vialuce_calculation_runs');
-    if (!runsStr) return [];
+    const hasRuns = runsStr && JSON.parse(runsStr).some(
+      (r: { tenantId: string; status: string }) => r.tenantId === tenantId && r.status === 'completed'
+    );
 
-    const runs: Array<{ id: string; tenantId: string; status: string; startedAt: string }> = JSON.parse(runsStr);
-    const tenantRuns = runs
-      .filter(r => r.tenantId === tenantId && r.status === 'completed')
-      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+    if (!hasRuns) return [];
 
-    if (tenantRuns.length === 0) return [];
-    const latestRunId = tenantRuns[0].id;
-
-    // Load chunked results
-    const results: CalcResultSummary[] = [];
-    for (let chunk = 0; chunk < 100; chunk++) {
-      const chunkKey = `calculation_results_${latestRunId}_${chunk}`;
-      const chunkData = localStorage.getItem(chunkKey);
-      if (!chunkData) break;
-      const parsed = JSON.parse(chunkData);
-      if (Array.isArray(parsed)) {
-        results.push(...parsed);
+    // Priority 1: Orchestrator chunked storage (vialuce_calculations_chunk_N)
+    const indexStr = localStorage.getItem('vialuce_calculations_index');
+    if (indexStr) {
+      const index = JSON.parse(indexStr);
+      if (index.tenantId === tenantId && index.chunkCount > 0) {
+        const results: CalcResultSummary[] = [];
+        for (let i = 0; i < index.chunkCount; i++) {
+          const chunkData = localStorage.getItem(`vialuce_calculations_chunk_${i}`);
+          if (chunkData) {
+            const parsed = JSON.parse(chunkData);
+            if (Array.isArray(parsed)) results.push(...parsed);
+          }
+        }
+        if (results.length > 0) return results;
       }
     }
 
-    return results;
+    // Priority 2: Results-storage format (calculation_results_{runId}_N)
+    if (runsStr) {
+      const runs: Array<{ id: string; tenantId: string; status: string; startedAt: string }> = JSON.parse(runsStr);
+      const tenantRuns = runs
+        .filter(r => r.tenantId === tenantId && r.status === 'completed')
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+
+      if (tenantRuns.length > 0) {
+        const latestRunId = tenantRuns[0].id;
+        const results: CalcResultSummary[] = [];
+        for (let chunk = 0; chunk < 100; chunk++) {
+          const chunkData = localStorage.getItem(`calculation_results_${latestRunId}_${chunk}`);
+          if (!chunkData) break;
+          const parsed = JSON.parse(chunkData);
+          if (Array.isArray(parsed)) results.push(...parsed);
+        }
+        if (results.length > 0) return results;
+      }
+    }
+
+    // Priority 3: Legacy single-key storage
+    const legacyStr = localStorage.getItem('vialuce_calculations');
+    if (legacyStr) {
+      const parsed = JSON.parse(legacyStr);
+      if (Array.isArray(parsed)) return parsed;
+    }
+
+    return [];
   } catch {
     return [];
   }
