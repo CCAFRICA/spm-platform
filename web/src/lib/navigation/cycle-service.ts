@@ -20,15 +20,18 @@ import type { CycleState, CyclePhase, PhaseStatus } from '@/types/navigation';
 /**
  * Get the current cycle state for a tenant
  */
-export function getCycleState(tenantId: string): CycleState {
+export function getCycleState(tenantId: string, isSpanish: boolean = false): CycleState {
   // Get current period info
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth();
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+  const monthNamesEn = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthNamesEs = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-  const periodLabel = `${monthNames[month]} ${year}`;
+  const names = isSpanish ? monthNamesEs : monthNamesEn;
+  const periodLabel = `${names[month]} ${year}`;
   const periodId = `${year}-${String(month + 1).padStart(2, '0')}`;
 
   // Check system state from localStorage to determine phases

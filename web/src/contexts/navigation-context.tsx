@@ -24,6 +24,7 @@ import {
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from './auth-context';
 import { useTenant } from './tenant-context';
+import { useLocale } from './locale-context';
 import { isVLAdmin } from '@/types/auth';
 import type {
   WorkspaceId,
@@ -92,9 +93,10 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const { user } = useAuth();
   const { currentTenant } = useTenant();
 
-  // Locale follows tenant configuration for all users
+  // Locale follows user's language selector (single source of truth)
+  const { locale } = useLocale();
   const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
   const userRole = user?.role || null;
   const tenantId = userIsVLAdmin ? 'platform' : (currentTenant?.id || 'default');
   // Core state
@@ -170,15 +172,15 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     if (!user || !userRole) return;
 
     // THE CYCLE (central pacemaker)
-    const cycle = getCycleState(tenantId);
+    const cycle = getCycleState(tenantId, isSpanish);
     setCycleState(cycle);
 
     // Multi-period timeline
-    const periods = getAllPeriods(tenantId);
+    const periods = getAllPeriods(tenantId, isSpanish);
     setPeriodStates(periods);
 
     // Next action for this persona
-    const action = getNextAction(tenantId, persona);
+    const action = getNextAction(tenantId, persona, isSpanish);
     setNextAction(action);
 
     // THE QUEUE (peripheral oscillators)
@@ -188,7 +190,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     // THE PULSE (feedback loops)
     const pulse = getClockPulseMetrics(tenantId, persona, user.id);
     setPulseMetrics(pulse);
-  }, [user, userRole, tenantId, persona]);
+  }, [user, userRole, tenantId, persona, isSpanish]);
 
   // Initial data load
   useEffect(() => {

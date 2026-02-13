@@ -87,13 +87,13 @@ function personaToRole(persona: PersonaType): UserRole {
  * Reads from the lifecycle state machine when available, falls back to
  * the base cycle-service heuristics.
  */
-export function getCycleState(tenantId: string): CycleState {
+export function getCycleState(tenantId: string, isSpanish: boolean = false): CycleState {
   // Try lifecycle state machine first (OB-34)
   const cycles = listCycles(tenantId);
   if (cycles.length > 0) {
     const activeCycle = cycles[0]; // Most recent
     const mapping = STATE_TO_PHASE[activeCycle.state];
-    const baseCycle = getBaseCycleState(tenantId);
+    const baseCycle = getBaseCycleState(tenantId, isSpanish);
 
     // Overlay lifecycle state onto the base cycle for richer phase details
     return {
@@ -104,14 +104,14 @@ export function getCycleState(tenantId: string): CycleState {
   }
 
   // Fall back to existing heuristic-based cycle state
-  return getBaseCycleState(tenantId);
+  return getBaseCycleState(tenantId, isSpanish);
 }
 
 /**
  * Get all periods with calculation data, sorted most recent first.
  * Scans localStorage for lifecycle cycles and calculation runs.
  */
-export function getAllPeriods(tenantId: string): PeriodState[] {
+export function getAllPeriods(tenantId: string, isSpanish: boolean = false): PeriodState[] {
   const periods: PeriodState[] = [];
   const seenPeriods = new Set<string>();
 
@@ -124,7 +124,7 @@ export function getAllPeriods(tenantId: string): PeriodState[] {
     const mapping = STATE_TO_PHASE[cycle.state];
     periods.push({
       period: cycle.period,
-      periodLabel: formatPeriodLabel(cycle.period),
+      periodLabel: formatPeriodLabel(cycle.period, isSpanish),
       lifecycleState: cycle.state,
       phase: mapping.phase,
       progress: mapping.progress,
@@ -147,7 +147,7 @@ export function getAllPeriods(tenantId: string): PeriodState[] {
           const mapping = STATE_TO_PHASE[state];
           periods.push({
             period: run.periodId,
-            periodLabel: formatPeriodLabel(run.periodId),
+            periodLabel: formatPeriodLabel(run.periodId, isSpanish),
             lifecycleState: state,
             phase: mapping.phase,
             progress: mapping.progress,
@@ -173,18 +173,18 @@ export function getAllPeriods(tenantId: string): PeriodState[] {
  * Get the next recommended action for a persona in the current cycle.
  * Returns a verb phrase that describes what the user should do next.
  */
-export function getNextAction(tenantId: string, persona: PersonaType): string {
-  const cycle = getCycleState(tenantId);
+export function getNextAction(tenantId: string, persona: PersonaType, isSpanish: boolean = false): string {
+  const cycle = getCycleState(tenantId, isSpanish);
   const phase = cycle.currentPhase;
 
   switch (persona) {
     case 'vl_admin':
     case 'platform_admin':
-      return getAdminNextAction(phase, tenantId);
+      return getAdminNextAction(phase, tenantId, isSpanish);
     case 'manager':
-      return getManagerNextAction(phase);
+      return getManagerNextAction(phase, isSpanish);
     case 'sales_rep':
-      return getRepNextAction(phase);
+      return getRepNextAction(phase, isSpanish);
   }
 }
 
@@ -229,41 +229,41 @@ export function getClockSnapshot(
 // NEXT ACTION HELPERS
 // =============================================================================
 
-function getAdminNextAction(phase: CyclePhase, tenantId: string): string {
+function getAdminNextAction(phase: CyclePhase, tenantId: string, isSpanish: boolean): string {
   // Check actual system state for more specific actions
   if (typeof window !== 'undefined') {
     const hasPlans = checkHasPlans(tenantId);
-    if (!hasPlans) return 'Import Commission Plan';
+    if (!hasPlans) return isSpanish ? 'Importar Plan de Comisiones' : 'Import Commission Plan';
 
     const hasData = checkHasData(tenantId);
-    if (!hasData) return 'Import Performance Data';
+    if (!hasData) return isSpanish ? 'Importar Datos de Rendimiento' : 'Import Performance Data';
   }
 
   switch (phase) {
-    case 'import': return 'Import Data';
-    case 'calculate': return 'Run Preview';
-    case 'reconcile': return 'Review Results';
-    case 'approve': return 'Submit for Approval';
-    case 'pay': return 'Process Payroll';
-    case 'closed': return 'Start Next Period';
-    default: return 'Review Dashboard';
+    case 'import': return isSpanish ? 'Importar Datos' : 'Import Data';
+    case 'calculate': return isSpanish ? 'Ejecutar Vista Previa' : 'Run Preview';
+    case 'reconcile': return isSpanish ? 'Revisar Resultados' : 'Review Results';
+    case 'approve': return isSpanish ? 'Enviar para Aprobacion' : 'Submit for Approval';
+    case 'pay': return isSpanish ? 'Procesar Nomina' : 'Process Payroll';
+    case 'closed': return isSpanish ? 'Iniciar Siguiente Periodo' : 'Start Next Period';
+    default: return isSpanish ? 'Revisar Tablero' : 'Review Dashboard';
   }
 }
 
-function getManagerNextAction(phase: CyclePhase): string {
+function getManagerNextAction(phase: CyclePhase, isSpanish: boolean): string {
   switch (phase) {
-    case 'approve': return 'Review Team Results';
-    case 'pay': return 'Confirm Team Payouts';
-    case 'closed': return 'View Team Summary';
-    default: return 'Monitor Team Performance';
+    case 'approve': return isSpanish ? 'Revisar Resultados del Equipo' : 'Review Team Results';
+    case 'pay': return isSpanish ? 'Confirmar Pagos del Equipo' : 'Confirm Team Payouts';
+    case 'closed': return isSpanish ? 'Ver Resumen del Equipo' : 'View Team Summary';
+    default: return isSpanish ? 'Monitorear Rendimiento del Equipo' : 'Monitor Team Performance';
   }
 }
 
-function getRepNextAction(phase: CyclePhase): string {
+function getRepNextAction(phase: CyclePhase, isSpanish: boolean): string {
   switch (phase) {
     case 'pay':
-    case 'closed': return 'View Statement';
-    default: return 'Check Performance';
+    case 'closed': return isSpanish ? 'Ver Estado de Cuenta' : 'View Statement';
+    default: return isSpanish ? 'Revisar Rendimiento' : 'Check Performance';
   }
 }
 
@@ -271,17 +271,20 @@ function getRepNextAction(phase: CyclePhase): string {
 // INTERNAL HELPERS
 // =============================================================================
 
-function formatPeriodLabel(period: string): string {
-  // 'YYYY-MM' -> 'Jan 2025'
+function formatPeriodLabel(period: string, isSpanish: boolean = false): string {
+  // 'YYYY-MM' -> 'Jan 2025' or 'Ene 2025'
   const parts = period.split('-');
   if (parts.length !== 2) return period;
 
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  const monthNamesEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthNamesEs = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const monthIndex = parseInt(parts[1], 10) - 1;
 
   if (monthIndex >= 0 && monthIndex < 12) {
-    return `${monthNames[monthIndex]} ${parts[0]}`;
+    const names = isSpanish ? monthNamesEs : monthNamesEn;
+    return `${names[monthIndex]} ${parts[0]}`;
   }
   return period;
 }
