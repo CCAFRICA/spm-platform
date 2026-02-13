@@ -56,10 +56,11 @@ function loadLatestResults(tenantId: string): CalcResultSummary[] {
   if (typeof window === 'undefined') return [];
 
   try {
-    // Check for completed runs
+    // Check for completed runs (for 'platform' tenantId, match any tenant)
     const runsStr = localStorage.getItem('vialuce_calculation_runs');
     const hasRuns = runsStr && JSON.parse(runsStr).some(
-      (r: { tenantId: string; status: string }) => r.tenantId === tenantId && r.status === 'completed'
+      (r: { tenantId: string; status: string }) =>
+        (tenantId === 'platform' || r.tenantId === tenantId) && r.status === 'completed'
     );
 
     if (!hasRuns) return [];
@@ -68,7 +69,7 @@ function loadLatestResults(tenantId: string): CalcResultSummary[] {
     const indexStr = localStorage.getItem('vialuce_calculations_index');
     if (indexStr) {
       const index = JSON.parse(indexStr);
-      if (index.tenantId === tenantId && index.chunkCount > 0) {
+      if ((tenantId === 'platform' || index.tenantId === tenantId) && index.chunkCount > 0) {
         const results: CalcResultSummary[] = [];
         for (let i = 0; i < index.chunkCount; i++) {
           const chunkData = localStorage.getItem(`vialuce_calculations_chunk_${i}`);
@@ -85,7 +86,7 @@ function loadLatestResults(tenantId: string): CalcResultSummary[] {
     if (runsStr) {
       const runs: Array<{ id: string; tenantId: string; status: string; startedAt: string }> = JSON.parse(runsStr);
       const tenantRuns = runs
-        .filter(r => r.tenantId === tenantId && r.status === 'completed')
+        .filter(r => (tenantId === 'platform' || r.tenantId === tenantId) && r.status === 'completed')
         .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
 
       if (tenantRuns.length > 0) {
@@ -348,40 +349,53 @@ function getAdminMetrics(tenantId: string): PulseMetric[] {
 }
 
 function getVLAdminMetrics(): PulseMetric[] {
-  // OB-29: Read real data from localStorage, not hardcoded values
   const getRealCounts = () => {
     if (typeof window === 'undefined') {
       return { tenants: 0, users: 0, calcsToday: 0, issues: 0 };
     }
 
-    // Count tenants with data
-    const tenantKeys = Object.keys(localStorage).filter(k =>
-      k.includes('data_layer_committed') || k.includes('compensation_plans')
-    );
+    // Count tenants with plans or committed data
     const uniqueTenants = new Set<string>();
-    tenantKeys.forEach(k => {
-      const match = k.match(/_(retailco|retailcgmx|retail_conglomerate|techcorp|restaurantmx)/i);
-      if (match) uniqueTenants.add(match[1]);
-    });
+    try {
+      const plansStr = localStorage.getItem('compensation_plans');
+      if (plansStr) {
+        const plans: Array<{ tenantId: string }> = JSON.parse(plansStr);
+        plans.forEach(p => uniqueTenants.add(p.tenantId));
+      }
+    } catch { /* ignore */ }
+    try {
+      const runsStr = localStorage.getItem('vialuce_calculation_runs');
+      if (runsStr) {
+        const runs: Array<{ tenantId: string }> = JSON.parse(runsStr);
+        runs.forEach(r => uniqueTenants.add(r.tenantId));
+      }
+    } catch { /* ignore */ }
+
+    // Count total employees from calculation results
+    let totalUsers = 0;
+    const allResults = loadLatestResults('platform');
+    if (allResults.length > 0) {
+      totalUsers = allResults.length;
+    }
 
     // Count calculation runs today
     let calcsToday = 0;
-    const runsStr = localStorage.getItem('vialuce_calculation_runs');
-    if (runsStr) {
-      try {
+    try {
+      const runsStr = localStorage.getItem('vialuce_calculation_runs');
+      if (runsStr) {
         const runs = JSON.parse(runsStr);
         const today = new Date().toISOString().split('T')[0];
         calcsToday = runs.filter((r: { startedAt?: string }) =>
           r.startedAt?.startsWith(today)
         ).length;
-      } catch { /* ignore */ }
-    }
+      }
+    } catch { /* ignore */ }
 
     return {
       tenants: uniqueTenants.size || 0,
-      users: 0, // Would need auth system integration
+      users: totalUsers,
       calcsToday,
-      issues: 0, // Would need dispute system integration
+      issues: 0,
     };
   };
 
@@ -400,8 +414,8 @@ function getVLAdminMetrics(): PulseMetric[] {
       id: 'cc-total-users',
       label: 'Total Users',
       labelEs: 'Usuarios Totales',
-      value: '—', // Requires auth system integration
-      format: 'text',
+      value: counts.users > 0 ? counts.users : '—',
+      format: counts.users > 0 ? 'number' : 'text',
       roles: ['vl_admin'],
     },
     {
@@ -416,7 +430,7 @@ function getVLAdminMetrics(): PulseMetric[] {
       id: 'cc-issues',
       label: 'Outstanding Issues',
       labelEs: 'Problemas Pendientes',
-      value: '—', // Requires dispute system integration
+      value: '—',
       format: 'text',
       roles: ['vl_admin'],
     },

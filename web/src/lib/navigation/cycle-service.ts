@@ -21,18 +21,32 @@ import type { CycleState, CyclePhase, PhaseStatus } from '@/types/navigation';
  * Get the current cycle state for a tenant
  */
 export function getCycleState(tenantId: string, isSpanish: boolean = false): CycleState {
-  // Get current period info
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
   const monthNamesEn = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
   const monthNamesEs = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
   const names = isSpanish ? monthNamesEs : monthNamesEn;
-  const periodLabel = `${names[month]} ${year}`;
-  const periodId = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+  // Detect the working period from actual data instead of calendar date.
+  // The real data may be for a past period (e.g. 2024-01) while today is 2026-02.
+  const detectedPeriod = detectWorkingPeriod(tenantId);
+
+  let periodId: string;
+  let periodLabel: string;
+
+  if (detectedPeriod) {
+    periodId = detectedPeriod;
+    const parts = detectedPeriod.split('-');
+    const monthIndex = parseInt(parts[1], 10) - 1;
+    periodLabel = (monthIndex >= 0 && monthIndex < 12)
+      ? `${names[monthIndex]} ${parts[0]}`
+      : detectedPeriod;
+  } else {
+    // No data at all — fall back to current calendar date
+    const now = new Date();
+    periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    periodLabel = `${names[now.getMonth()]} ${now.getFullYear()}`;
+  }
 
   // Check system state from localStorage to determine phases
   const phaseStatuses = determinePhaseStatuses(tenantId, periodId);
@@ -183,6 +197,51 @@ function countPendingActions(statuses: Record<CyclePhase, PhaseStatus>): number 
 }
 
 // =============================================================================
+// WORKING PERIOD DETECTION
+// =============================================================================
+
+/**
+ * Detect the actual working period from data instead of using the calendar date.
+ * Scans vialuce_calculation_runs for the most recent completed run's periodId.
+ * For VL Admin (tenantId='platform'), scans across all tenants.
+ */
+function detectWorkingPeriod(tenantId: string): string | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    // Check calculation runs first (most specific indicator)
+    const runsStr = localStorage.getItem('vialuce_calculation_runs');
+    if (runsStr) {
+      const runs: Array<{ tenantId: string; periodId: string; status: string; startedAt?: string }> = JSON.parse(runsStr);
+      const completedRuns = runs
+        .filter(r => r.status === 'completed' && (tenantId === 'platform' || r.tenantId === tenantId))
+        .sort((a, b) => {
+          const ta = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+          const tb = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+          return tb - ta;
+        });
+      if (completedRuns.length > 0 && completedRuns[0].periodId) {
+        return completedRuns[0].periodId;
+      }
+    }
+
+    // Fall back to checking data_layer_batches for import date context
+    const batchesStr = localStorage.getItem('data_layer_batches');
+    if (batchesStr) {
+      const batches: [string, { status: string; periodId?: string; createdAt?: string }][] = JSON.parse(batchesStr);
+      const committed = batches.filter(([, b]) => b.status === 'committed' && b.periodId);
+      if (committed.length > 0) {
+        return committed[0][1].periodId!;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// =============================================================================
 // DATA CHECKING FUNCTIONS
 // =============================================================================
 
@@ -257,8 +316,9 @@ function checkHasCalculationsWithInfo(tenantId: string, periodId: string): {
     const runsData = localStorage.getItem('vialuce_calculation_runs');
     if (runsData) {
       const runs: Array<{ tenantId: string; periodId: string; status: string; calculatedAt?: string; totalEmployees?: number }> = JSON.parse(runsData);
+      // For VL Admin (tenantId='platform'), match any tenant
       const completedRun = runs.find(
-        (r) => r.tenantId === tenantId && r.periodId === periodId && r.status === 'completed'
+        (r) => (tenantId === 'platform' || r.tenantId === tenantId) && r.periodId === periodId && r.status === 'completed'
       );
       if (completedRun) {
         return {
@@ -286,7 +346,7 @@ function checkHasCalculations(tenantId: string, periodId: string): boolean {
     if (runsData) {
       const runs: Array<{ tenantId: string; periodId: string; status: string }> = JSON.parse(runsData);
       const hasCompletedRun = runs.some(
-        (r) => r.tenantId === tenantId && r.periodId === periodId && r.status === 'completed'
+        (r) => (tenantId === 'platform' || r.tenantId === tenantId) && r.periodId === periodId && r.status === 'completed'
       );
       if (hasCompletedRun) return true;
     }

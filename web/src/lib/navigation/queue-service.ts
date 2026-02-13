@@ -353,6 +353,8 @@ function hasTenantPlans(tenantId: string): boolean {
     const stored = localStorage.getItem(STORAGE_KEYS.PLANS);
     if (!stored) return false;
     const plans = JSON.parse(stored);
+    // For VL Admin (tenantId='platform'), check if ANY plans exist
+    if (tenantId === 'platform') return plans.length > 0;
     return plans.some((p: { tenantId: string }) => p.tenantId === tenantId);
   } catch {
     return false;
@@ -364,6 +366,7 @@ function hasTenantActivePlan(tenantId: string): boolean {
     const stored = localStorage.getItem(STORAGE_KEYS.PLANS);
     if (!stored) return false;
     const plans = JSON.parse(stored);
+    if (tenantId === 'platform') return plans.some((p: { status: string }) => p.status === 'active');
     return plans.some((p: { tenantId: string; status: string }) =>
       p.tenantId === tenantId && p.status === 'active'
     );
@@ -379,7 +382,7 @@ function getTenantDraftPlans(tenantId: string): string[] {
     const plans = JSON.parse(stored);
     return plans
       .filter((p: { tenantId: string; status: string }) =>
-        p.tenantId === tenantId && p.status === 'draft'
+        (tenantId === 'platform' || p.tenantId === tenantId) && p.status === 'draft'
       )
       .map((p: { id: string }) => p.id);
   } catch {
@@ -393,8 +396,9 @@ function hasTenantCommittedData(tenantId: string): boolean {
     if (!batchesStored) return false;
 
     const batches: [string, { tenantId: string; status?: string }][] = JSON.parse(batchesStored);
+    // For VL Admin (tenantId='platform'), check any tenant's batches
     const tenantBatchIds = batches
-      .filter(([, b]) => b.tenantId === tenantId)
+      .filter(([, b]) => tenantId === 'platform' || b.tenantId === tenantId)
       .map(([id]) => id);
 
     if (tenantBatchIds.length === 0) return false;
@@ -430,7 +434,7 @@ function hasTenantCalculations(tenantId: string): boolean {
     if (!stored) return false;
     const runs = JSON.parse(stored);
     return runs.some((r: { tenantId: string; status: string }) =>
-      r.tenantId === tenantId && r.status === 'completed'
+      (tenantId === 'platform' || r.tenantId === tenantId) && r.status === 'completed'
     );
   } catch {
     return false;

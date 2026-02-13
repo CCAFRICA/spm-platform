@@ -294,6 +294,10 @@ function checkHasPlans(tenantId: string): boolean {
     const stored = localStorage.getItem('compensation_plans');
     if (!stored) return false;
     const plans = JSON.parse(stored);
+    // For VL Admin (tenantId='platform'), check if ANY non-archived plans exist
+    if (tenantId === 'platform') {
+      return Array.isArray(plans) && plans.some((p: { status?: string }) => p.status !== 'archived');
+    }
     return Array.isArray(plans) && plans.some((p: { tenantId: string; status?: string }) =>
       p.tenantId === tenantId && p.status !== 'archived'
     );
@@ -302,13 +306,14 @@ function checkHasPlans(tenantId: string): boolean {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function checkHasData(_tenantId: string): boolean {
+function checkHasData(tenantId: string): boolean {
   try {
     const batchesData = localStorage.getItem('data_layer_batches');
     if (!batchesData) return false;
-    const batches: [string, { status: string }][] = JSON.parse(batchesData);
-    return batches.some(([, b]) => b.status === 'committed');
+    const batches: [string, { tenantId?: string; status: string }][] = JSON.parse(batchesData);
+    // For VL Admin (tenantId='platform'), check any committed batch
+    if (tenantId === 'platform') return batches.some(([, b]) => b.status === 'committed');
+    return batches.some(([, b]) => b.status === 'committed' && (!b.tenantId || b.tenantId === tenantId));
   } catch {
     return false;
   }
