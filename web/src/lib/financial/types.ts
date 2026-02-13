@@ -169,6 +169,76 @@ export interface Cheque {
 }
 
 /**
+ * Articulo - POS item-level detail record (12 columns)
+ * Matches the articulos_YYYYMMDD.TXT companion file from SoftRestaurant/ICG.
+ * Each row is one line item within a cheque.
+ */
+export interface Articulo {
+  // Identifiers
+  numeroFranquicia: string;     // Location ID (links to cheque)
+  numeroCheque: number;         // Parent cheque number
+  folioArticulo: number;        // Line item sequence number
+
+  // Context
+  fecha: string;                // Transaction date (ISO)
+  meseroId: number;             // Server ID
+
+  // Product
+  articuloId: number;           // Product/SKU ID
+  descripcion: string;          // Product description (raw, messy -- normalization target)
+  grupo: string;                // Product group/category (raw)
+
+  // Amounts (MXN)
+  cantidad: number;             // Quantity
+  precioUnitario: number;       // Unit price
+  importe: number;              // Line total (qty x price)
+  descuento: number;            // Discount on this item
+
+  // Metadata
+  importBatchId?: string;
+  importedAt?: string;
+}
+
+/**
+ * Column name aliases for articulos files
+ */
+export const ARTICULO_COLUMN_ALIASES: Record<string, keyof Articulo> = {
+  // SoftRestaurant aliases
+  'numero_franquicia': 'numeroFranquicia',
+  'numero_cheque': 'numeroCheque',
+  'folio_articulo': 'folioArticulo',
+  'fecha': 'fecha',
+  'mesero_id': 'meseroId',
+  'articulo_id': 'articuloId',
+  'descripcion': 'descripcion',
+  'grupo': 'grupo',
+  'cantidad': 'cantidad',
+  'precio_unitario': 'precioUnitario',
+  'importe': 'importe',
+  'descuento': 'descuento',
+
+  // ICG aliases
+  'num_franquicia': 'numeroFranquicia',
+  'no_cheque': 'numeroCheque',
+  'folio_item': 'folioArticulo',
+  'id_mesero': 'meseroId',
+  'id_articulo': 'articuloId',
+  'description': 'descripcion',
+  'group': 'grupo',
+  'quantity': 'cantidad',
+  'unit_price': 'precioUnitario',
+  'amount': 'importe',
+  'discount': 'descuento',
+
+  // Uppercase aliases (common in export files)
+  'producto': 'descripcion',
+  'nombre_articulo': 'descripcion',
+  'categoria': 'grupo',
+  'precio': 'precioUnitario',
+  'total_linea': 'importe',
+};
+
+/**
  * Column name aliases for POS systems
  */
 export const CHEQUE_COLUMN_ALIASES: Record<string, keyof Cheque> = {

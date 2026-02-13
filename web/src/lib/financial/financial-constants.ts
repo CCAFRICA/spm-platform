@@ -95,6 +95,23 @@ export const CHEQUE_COLUMNS = [
 
 export const CHEQUE_COLUMN_COUNT = 23;
 
+export const ARTICULO_COLUMNS = [
+  'numero_franquicia',
+  'numero_cheque',
+  'folio_articulo',
+  'fecha',
+  'mesero_id',
+  'articulo_id',
+  'descripcion',
+  'grupo',
+  'cantidad',
+  'precio_unitario',
+  'importe',
+  'descuento',
+] as const;
+
+export const ARTICULO_COLUMN_COUNT = 12;
+
 // ============================================
 // VALIDATION RULES
 // ============================================
