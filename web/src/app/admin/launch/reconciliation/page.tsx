@@ -17,9 +17,8 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
-import { getPeriodRuns } from '@/lib/orchestration/calculation-orchestrator';
+import { getPeriodRuns, getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
 import {
-  getCalculationRuns,
   getCalculationResults as getStoredResults,
 } from '@/lib/calculation/results-storage';
 import {
@@ -514,46 +513,61 @@ export default function ReconciliationPage() {
   // ============================================
 
   const handleRunComparison = () => {
-    if (!currentTenant || !parsedFile || !employeeIdField || !amountField) return;
+    if (!currentTenant || !parsedFile || !employeeIdField || !amountField) {
+      console.warn('[Reconciliation] Guard failed:', { currentTenant: !!currentTenant, parsedFile: !!parsedFile, employeeIdField, amountField });
+      return;
+    }
 
     setIsRunning(true);
     setComparisonResult(null);
 
-    try {
-      // Get VL calculation results for selected batch
-      let vlResults: import('@/types/compensation-plan').CalculationResult[] = [];
+    // HF-022: Use requestAnimationFrame to let React render the loading state
+    // before running the synchronous comparison (can take seconds for 2000+ rows)
+    requestAnimationFrame(() => {
+      try {
+        // HF-022: Read VL results from orchestrator (vialuce_calculations_chunk_*)
+        // NOT from results-storage (calculation_results_*) — different key format
+        let vlResults: import('@/types/compensation-plan').CalculationResult[] = [];
 
-      if (selectedBatch) {
-        // Try results-storage first (chunked storage)
-        vlResults = getStoredResults(selectedBatch);
-      }
-
-      // If no batch selected or no results, try all runs for tenant
-      if (vlResults.length === 0) {
-        const allRuns = getCalculationRuns(currentTenant.id);
-        if (allRuns.length > 0) {
-          const latestRun = allRuns.sort(
-            (a, b) => new Date(b.calculatedAt).getTime() - new Date(a.calculatedAt).getTime()
-          )[0];
-          vlResults = getStoredResults(latestRun.id);
+        if (selectedBatch) {
+          const batch = batches.find(b => b.id === selectedBatch);
+          if (batch) {
+            vlResults = getPeriodResults(currentTenant.id, batch.periodId);
+            console.log(`[Reconciliation] Orchestrator results for period '${batch.periodId}': ${vlResults.length} employees`);
+          }
         }
+
+        // Fallback 1: Get all orchestrator results for tenant
+        if (vlResults.length === 0) {
+          vlResults = getPeriodResults(currentTenant.id, '');
+          console.log(`[Reconciliation] Orchestrator fallback (all periods): ${vlResults.length} employees`);
+        }
+
+        // Fallback 2: Try results-storage format (calculation_results_*)
+        if (vlResults.length === 0 && selectedBatch) {
+          vlResults = getStoredResults(selectedBatch);
+          console.log(`[Reconciliation] Results-storage fallback for run '${selectedBatch}': ${vlResults.length} employees`);
+        }
+
+        console.log(`[Reconciliation] Comparing ${parsedFile.rows.length} file rows vs ${vlResults.length} VL results (empId='${employeeIdField}', amt='${amountField}')`);
+
+        // Run comparison
+        const result = runComparison(
+          parsedFile.rows,
+          vlResults,
+          aiMappings,
+          employeeIdField,
+          amountField,
+        );
+
+        console.log(`[Reconciliation] Result: ${result.summary.matched} matched, ${result.summary.fileOnly} file-only, ${result.summary.vlOnly} vl-only`);
+        setComparisonResult(result);
+      } catch (error) {
+        console.error('[Reconciliation] Comparison error:', error);
+      } finally {
+        setIsRunning(false);
       }
-
-      // Run comparison
-      const result = runComparison(
-        parsedFile.rows,
-        vlResults,
-        aiMappings,
-        employeeIdField,
-        amountField,
-      );
-
-      setComparisonResult(result);
-    } catch (error) {
-      console.error('Comparison error:', error);
-    } finally {
-      setIsRunning(false);
-    }
+    });
   };
 
   // Filter and sort employees from comparison result
