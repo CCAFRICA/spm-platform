@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { savePlan, activatePlan } from '@/lib/compensation/plan-storage';
@@ -233,6 +233,7 @@ export default function PlanImportPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
+  const { format: fmt } = useCurrency();
   const [isDragging, setIsDragging] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -1037,7 +1038,7 @@ export default function PlanImportPage() {
                         <div key={idx} className="bg-emerald-50 dark:bg-emerald-900/20 rounded p-2 text-sm">
                           <span className="font-medium">{ex?.employeeType ?? 'Employee'}:</span>{' '}
                           <span className="text-emerald-700 dark:text-emerald-300">
-                            ${(ex?.expectedTotal ?? 0).toLocaleString()}
+                            {fmt(ex?.expectedTotal ?? 0)}
                           </span>
                         </div>
                       ))}

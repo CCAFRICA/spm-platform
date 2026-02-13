@@ -8,6 +8,7 @@ import {
   Legend,
   Tooltip,
 } from "recharts";
+import { useCurrency } from "@/contexts/tenant-context";
 
 interface PieChartData {
   name: string;
@@ -20,6 +21,7 @@ interface CompensationPieChartProps {
 }
 
 export function CompensationPieChart({ data }: CompensationPieChartProps) {
+  const { format: fmt } = useCurrency();
   const total = data.reduce((sum, item) => sum + item.value, 0);
 
   const renderCustomLabel = ({
@@ -67,7 +69,7 @@ export function CompensationPieChart({ data }: CompensationPieChartProps) {
             {data.name}
           </p>
           <p className="text-sm text-slate-500">
-            ${data.value.toLocaleString()}
+            {fmt(data.value)}
           </p>
           <p className="text-xs text-slate-400">
             {((data.value / total) * 100).toFixed(1)}% of total

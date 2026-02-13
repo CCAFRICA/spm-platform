@@ -185,7 +185,7 @@ function ComponentCard({ step, compact, formatCurrency, formatPercent }: Compone
             {Object.entries(step.inputs.additionalFactors).map(([key, value]) => (
               <Badge key={key} variant="secondary" className="text-xs">
                 {key.replace(/_/g, ' ')}: {typeof value === 'number' && value > 1000
-                  ? `$${value.toLocaleString()}`
+                  ? formatCurrency(value)
                   : value}
               </Badge>
             ))}

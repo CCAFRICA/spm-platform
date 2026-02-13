@@ -1,6 +1,7 @@
 'use client';
 
 import type { CalculationStep } from '@/types/compensation-plan';
+import { useCurrency } from '@/contexts/tenant-context';
 import { cn } from '@/lib/utils';
 
 interface LookupTableVisualizationProps {
@@ -26,6 +27,7 @@ interface MatrixVisualizationProps {
 }
 
 function MatrixVisualization({ step, compact }: MatrixVisualizationProps) {
+  const { format: formatCurrency } = useCurrency();
   const { lookupDetails } = step;
   if (!lookupDetails) return null;
 
@@ -43,10 +45,6 @@ function MatrixVisualization({ step, compact }: MatrixVisualizationProps) {
 
   const matchedRowIndex = rowLabels.findIndex((l) => l === lookupDetails.rowBand);
   const matchedColIndex = colLabels.findIndex((l) => l === lookupDetails.colBand);
-
-  const formatCurrency = (value: number) => {
-    return `$${value.toLocaleString()}`;
-  };
 
   if (compact) {
     return (
@@ -143,6 +141,7 @@ interface TierVisualizationProps {
 }
 
 function TierVisualization({ step, compact }: TierVisualizationProps) {
+  const { format: formatCurrency } = useCurrency();
   const { lookupDetails, inputs } = step;
   if (!lookupDetails) return null;
 
@@ -150,10 +149,6 @@ function TierVisualization({ step, compact }: TierVisualizationProps) {
   // In production, this would come from the plan configuration
   const tiers = getTiersForComponent(step.componentId);
   const matchedTierIndex = tiers.findIndex((t) => t.label === lookupDetails.tierLabel);
-
-  const formatCurrency = (value: number) => {
-    return `$${value.toLocaleString()}`;
-  };
 
   if (compact) {
     return (

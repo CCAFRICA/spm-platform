@@ -22,6 +22,7 @@ import {
   Search,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { useCurrency } from "@/contexts/tenant-context";
 
 // Mock adjustments data
 const adjustments = [
@@ -110,6 +111,7 @@ const statusConfig = {
 };
 
 export default function AdjustmentsPage() {
+  const { format: fmt } = useCurrency();
   const [filter, setFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -207,7 +209,7 @@ export default function AdjustmentsPage() {
                 <div>
                   <p className="text-sm text-slate-500">Approved Total</p>
                   <p className="text-2xl font-bold text-slate-900 dark:text-slate-50">
-                    ${stats.totalAmount.toFixed(2)}
+                    {fmt(stats.totalAmount)}
                   </p>
                 </div>
                 <DollarSign className="h-8 w-8 text-slate-300" />
@@ -293,7 +295,7 @@ export default function AdjustmentsPage() {
                       </div>
                       <div className="text-right">
                         <p className={`text-xl font-bold ${adj.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                          {adj.amount >= 0 ? "+" : ""}${Math.abs(adj.amount).toFixed(2)}
+                          {adj.amount >= 0 ? "+" : "-"}{fmt(Math.abs(adj.amount))}
                         </p>
                         {adj.quotaChange && (
                           <p className="text-sm text-slate-500">

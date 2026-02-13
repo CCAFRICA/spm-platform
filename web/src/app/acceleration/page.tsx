@@ -25,6 +25,7 @@ import {
   Clock,
   Award,
 } from "lucide-react";
+import { useCurrency } from "@/contexts/tenant-context";
 import { GoalPacing } from "@/components/acceleration/goal-pacing";
 import { CoachingCard } from "@/components/acceleration/coaching-card";
 import { BadgeDisplay } from "@/components/acceleration/badge-display";
@@ -279,6 +280,7 @@ function getSeverityIcon(severity: string) {
 }
 
 export default function AccelerationPage() {
+  const { format: fmt } = useCurrency();
   const [alertsList, setAlertsList] = useState(alerts);
   const unreadAlerts = alertsList.filter((a) => !a.read).length;
 
@@ -394,7 +396,7 @@ export default function AccelerationPage() {
                       <div>
                         <p className="text-xs text-slate-500 dark:text-slate-400">Total Payout</p>
                         <p className="font-medium text-emerald-600">
-                          ${spif.totalPayout.toLocaleString()}
+                          {fmt(spif.totalPayout)}
                         </p>
                       </div>
                     </div>

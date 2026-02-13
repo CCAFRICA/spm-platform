@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
+import { useCurrency } from '@/contexts/tenant-context';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { isVLAdmin } from '@/types/auth';
 import {
@@ -196,6 +197,7 @@ function getStatusIcon(status: LaunchStep['status']) {
 export default function CustomerLaunchDashboard() {
   const router = useRouter();
   const { user } = useAuth();
+  const { format: fmt } = useCurrency();
   const [launches, setLaunches] = useState<CustomerLaunch[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -765,7 +767,7 @@ export default function CustomerLaunchDashboard() {
                       </div>
                       <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
                         <p className="text-2xl font-bold text-emerald-600">
-                          ${selectedLaunch.testCalculationResult.totalPayout.toLocaleString()}
+                          {fmt(selectedLaunch.testCalculationResult.totalPayout)}
                         </p>
                         <p className="text-xs text-slate-500">
                           {locale === 'es-MX' ? 'Total' : 'Total Payout'}

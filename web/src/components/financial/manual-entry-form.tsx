@@ -158,7 +158,7 @@ export function ManualEntryForm({ onSubmit, onCancel, salesReps }: ManualEntryFo
                     <SelectContent>
                       {products.map((product) => (
                         <SelectItem key={product.id} value={product.id}>
-                          {product.name} - ${product.basePrice.toLocaleString()}
+                          {product.name} - {formatCurrency(product.basePrice)}
                         </SelectItem>
                       ))}
                     </SelectContent>

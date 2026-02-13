@@ -7,6 +7,7 @@
  * All labels come from the data — zero hardcoded component names.
  */
 
+import { useCurrency } from '@/contexts/tenant-context';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -53,6 +54,7 @@ function statusBg(status: PipelineLayer['status']): string {
 }
 
 export function PipelineHealth({ health }: PipelineHealthProps) {
+  const { format: fmt } = useCurrency();
   const overallColor = health.overallStatus === 'healthy'
     ? 'text-green-600' : health.overallStatus === 'warnings'
     ? 'text-amber-600' : 'text-red-600';
@@ -119,9 +121,9 @@ export function PipelineHealth({ health }: PipelineHealthProps) {
                   )}
                   {layer.key === 'outcome' && 'vlTotal' in data && (
                     <div className="mt-2 ml-10 text-xs text-slate-500">
-                      VL Total: ${(data as PipelineHealthResult['layers']['outcome']).vlTotal.toLocaleString()}
+                      VL Total: {fmt((data as PipelineHealthResult['layers']['outcome']).vlTotal)}
                       {(data as PipelineHealthResult['layers']['outcome']).gtTotal !== undefined && (
-                        <> · GT Total: ${(data as PipelineHealthResult['layers']['outcome']).gtTotal!.toLocaleString()}</>
+                        <> · GT Total: {fmt((data as PipelineHealthResult['layers']['outcome']).gtTotal!)}</>
                       )}
                     </div>
                   )}

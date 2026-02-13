@@ -27,6 +27,7 @@ import {
   Users,
   FileText,
 } from 'lucide-react';
+import { useCurrency } from '@/contexts/tenant-context';
 import { CalculationBreakdown } from '@/components/compensation/CalculationBreakdown';
 import {
   getDispute,
@@ -40,7 +41,6 @@ import type { DisputeCategory } from '@/types/dispute';
 import type { CalculationResult } from '@/types/compensation-plan';
 import { DISPUTE_CATEGORIES } from '@/types/dispute';
 import { cn } from '@/lib/utils';
-import { useCurrency } from '@/contexts/tenant-context';
 
 interface GuidedDisputeFlowProps {
   disputeId: string;
@@ -345,6 +345,7 @@ function Step2CompareTransactions({
   onContinue,
   onBack,
 }: Step2Props) {
+  const { format: fmt } = useCurrency();
   const avgIncentive =
     SIMILAR_TRANSACTIONS.reduce((sum, t) => sum + t.incentive, 0) / SIMILAR_TRANSACTIONS.length;
 
@@ -374,9 +375,9 @@ function Step2CompareTransactions({
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-lg font-bold">${txn.incentive.toFixed(2)}</div>
+                  <div className="text-lg font-bold">{fmt(txn.incentive)}</div>
                   <div className="text-sm text-muted-foreground">
-                    on ${txn.amount.toLocaleString()}
+                    on {fmt(txn.amount)}
                   </div>
                 </div>
               </div>
@@ -387,7 +388,7 @@ function Step2CompareTransactions({
                 <div className="font-medium">Average Incentive</div>
                 <div className="text-sm text-muted-foreground">For similar transactions</div>
               </div>
-              <div className="text-2xl font-bold text-primary">${avgIncentive.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-primary">{fmt(avgIncentive)}</div>
             </div>
           </div>
         </CardContent>

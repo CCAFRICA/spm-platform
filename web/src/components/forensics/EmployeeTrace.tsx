@@ -27,6 +27,7 @@ import {
   FileText,
   ArrowRight,
 } from 'lucide-react';
+import { useCurrency } from '@/contexts/tenant-context';
 import type { CalculationTrace, ComponentTrace, MetricTrace } from '@/lib/forensics/types';
 
 interface EmployeeTraceProps {
@@ -34,6 +35,7 @@ interface EmployeeTraceProps {
 }
 
 export function EmployeeTrace({ trace }: EmployeeTraceProps) {
+  const { format: fmt } = useCurrency();
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -59,7 +61,7 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
               </div>
             </div>
             <div className="text-right">
-              <p className="text-2xl font-bold">${trace.totalIncentive.toLocaleString()}</p>
+              <p className="text-2xl font-bold">{fmt(trace.totalIncentive)}</p>
               <p className="text-sm text-slate-500">{trace.currency}</p>
             </div>
           </div>
@@ -152,6 +154,7 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
 }
 
 function ComponentCard({ component, index }: { component: ComponentTrace; index: number }) {
+  const { format: fmt } = useCurrency();
   return (
     <Card>
       <CardHeader>
@@ -164,7 +167,7 @@ function ComponentCard({ component, index }: { component: ComponentTrace; index:
           <div className="flex items-center gap-2">
             <Badge variant="outline">{component.calculationType}</Badge>
             <Badge variant="outline">{component.measurementLevel}</Badge>
-            <span className="text-lg font-bold">${component.outputValue.toLocaleString()}</span>
+            <span className="text-lg font-bold">{fmt(component.outputValue)}</span>
           </div>
         </div>
       </CardHeader>
@@ -231,7 +234,7 @@ function ComponentCard({ component, index }: { component: ComponentTrace; index:
               <div><span className="text-slate-500">Rate:</span> {(component.lookup.rate * 100).toFixed(1)}%</div>
             )}
             {component.lookup.baseAmount !== undefined && (
-              <div><span className="text-slate-500">Base:</span> ${component.lookup.baseAmount.toLocaleString()}</div>
+              <div><span className="text-slate-500">Base:</span> {fmt(component.lookup.baseAmount)}</div>
             )}
           </div>
         </div>

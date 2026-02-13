@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { PercentageConfig } from '@/types/compensation-plan';
+import { useCurrency } from '@/contexts/tenant-context';
 import { cn } from '@/lib/utils';
 
 interface PercentageEditorProps {
@@ -21,6 +22,7 @@ export function PercentageEditor({
   originalConfig,
   compact = false,
 }: PercentageEditorProps) {
+  const { format: fmt } = useCurrency();
   const handleChange = (field: keyof PercentageConfig, value: string) => {
     if (readOnly || !onChange) return;
 
@@ -94,7 +96,7 @@ export function PercentageEditor({
               {readOnly ? (
                 <div className="text-sm mt-1">
                   {config.minThreshold !== undefined
-                    ? `$${config.minThreshold.toLocaleString()}`
+                    ? fmt(config.minThreshold)
                     : 'None'}
                 </div>
               ) : (
@@ -116,7 +118,7 @@ export function PercentageEditor({
               {readOnly ? (
                 <div className="text-sm mt-1">
                   {config.maxPayout !== undefined
-                    ? `$${config.maxPayout.toLocaleString()}`
+                    ? fmt(config.maxPayout)
                     : 'No cap'}
                 </div>
               ) : (
@@ -135,8 +137,8 @@ export function PercentageEditor({
           <div className="p-3 bg-muted/50 rounded-md">
             <div className="text-xs text-muted-foreground mb-1">Example Calculation</div>
             <div className="text-sm">
-              $10,000 {config.appliedToLabel} × {formatPercent(config.rate)} ={' '}
-              <span className="font-semibold">${(10000 * config.rate).toLocaleString()}</span>
+              {fmt(10000)} {config.appliedToLabel} × {formatPercent(config.rate)} ={' '}
+              <span className="font-semibold">{fmt(10000 * config.rate)}</span>
             </div>
           </div>
         </div>
