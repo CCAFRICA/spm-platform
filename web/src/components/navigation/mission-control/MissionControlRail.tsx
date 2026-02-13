@@ -10,6 +10,7 @@
 import { cn } from '@/lib/utils';
 import { useNavigation, useCommandPalette } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { CycleIndicator } from './CycleIndicator';
 import { QueuePanel } from './QueuePanel';
 import { PulseMetrics } from './PulseMetrics';
@@ -34,8 +35,9 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
   const { isRailCollapsed, toggleRailCollapsed, userRole } = useNavigation();
   const { setOpen: setCommandPaletteOpen } = useCommandPalette();
   const { currentTenant } = useTenant();
+  const { locale } = useLocale();
 
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   // Check if user is admin/vl_admin to show cycle
   const showCycle = userRole === 'vl_admin' || userRole === 'admin';

@@ -41,7 +41,7 @@ export default function DataQualityPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id || 'retailco';
 
   const [qualityScore, setQualityScore] = useState<QualityScore | null>(null);

@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { AccessControl, MANAGER_ROLES } from '@/components/access-control';
 
 interface LoginAudit {
@@ -77,7 +78,8 @@ export default function LoginAuditsPage() {
 
 function LoginAuditsPageContent() {
   const { currentTenant } = useTenant();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
   const audits = isHospitality ? mockLoginAudits : techCorpLoginAudits;

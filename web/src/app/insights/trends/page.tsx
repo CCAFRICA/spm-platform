@@ -42,7 +42,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useLocale } from '@/contexts/locale-context';
-import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useCurrency } from '@/contexts/tenant-context';
 
 // Enhanced mock data with more detail
 const yoyData = [
@@ -92,9 +92,8 @@ const projectionData = [
 
 export default function TrendsPage() {
   const { locale } = useLocale();
-  const { currentTenant } = useTenant();
   const { symbol } = useCurrency();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   // Compact formatter for chart axes (e.g. $1.2M, $450K)
   const formatCompact = (amount: number): string => {

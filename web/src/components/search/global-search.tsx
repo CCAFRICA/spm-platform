@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Building2, User, Receipt } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { useDebounce } from '@/hooks/use-debounce';
 import { getFranquicias, getMeseros, getCheques } from '@/lib/restaurant-service';
 import Link from 'next/link';
@@ -28,8 +29,8 @@ export function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // VL Admin locale override: VL Admins always see English regardless of tenant locale
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
 
   const performSearch = useCallback(async (q: string) => {
     if (!q || q.length < 2) {

@@ -1081,7 +1081,7 @@ export default function DataPackageImportPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth(); // For authentication check
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   const [currentStep, setCurrentStep] = useState<Step>('upload');
   const [isProcessing, setIsProcessing] = useState(false);

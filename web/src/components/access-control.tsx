@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Shield, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 
 type UserRole = 'sales_rep' | 'supervisor' | 'manager' | 'admin' | 'vl_admin';
@@ -22,9 +22,9 @@ export function AccessControl({
   fallbackMessage,
 }: AccessControlProps) {
   const router = useRouter();
-  const { currentTenant } = useTenant();
+  const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   // Get role from auth context (no direct localStorage access)
   const currentRole = (user?.role as UserRole) || 'sales_rep';

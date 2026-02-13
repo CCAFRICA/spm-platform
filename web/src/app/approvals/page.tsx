@@ -59,7 +59,7 @@ export default function ApprovalCenterPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   const [activeTab, setActiveTab] = useState('pending');
   const [domainFilter, setDomainFilter] = useState<string>('all');

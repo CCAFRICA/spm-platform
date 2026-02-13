@@ -60,7 +60,7 @@ export default function AccessControlPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id || 'retailco';
   const userId = user?.id || 'admin';
 

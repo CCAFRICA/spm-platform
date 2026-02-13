@@ -8,7 +8,7 @@
  */
 
 import { useRouter } from 'next/navigation';
-import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -26,9 +26,9 @@ import {
 
 export default function ConfigurePage() {
   const router = useRouter();
-  const { currentTenant } = useTenant();
+  const { locale } = useLocale();
 
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   const configSections = [
     {

@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useTerm, useTenant } from '@/contexts/tenant-context';
+import { useTerm } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { pageVariants } from '@/lib/animations';
 import { TableSkeleton } from '@/components/ui/skeleton-loaders';
@@ -34,9 +34,8 @@ const mockInquiries = [
 
 export default function InquiriesPage() {
   const transactionTerm = useTerm('transaction');
-  const { currentTenant } = useTenant();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
   const [inquiries, setInquiries] = useState(mockInquiries);
   const [statusFilter, setStatusFilter] = useState('all');
   const [isLoading, setIsLoading] = useState(true);

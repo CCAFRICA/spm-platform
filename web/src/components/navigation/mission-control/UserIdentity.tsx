@@ -7,7 +7,7 @@
  */
 
 import { useAuth } from '@/contexts/auth-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { getUserDisplayRole, isVLAdmin } from '@/types/auth';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -33,12 +33,12 @@ interface UserIdentityProps {
 
 export function UserIdentity({ collapsed = false }: UserIdentityProps) {
   const { user, logout } = useAuth();
-  const { currentTenant } = useTenant();
+  const { locale } = useLocale();
 
   if (!user) return null;
 
   const userIsVLAdmin = isVLAdmin(user);
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
   const displayRole = getUserDisplayRole(user);
   const initials = user.name
     .split(' ')

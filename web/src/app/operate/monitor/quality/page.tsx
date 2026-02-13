@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,10 +21,10 @@ import {
 } from 'lucide-react';
 
 export default function DataQualityPage() {
-  const { currentTenant } = useTenant();
+  const { locale } = useLocale();
   const [isScanning, setIsScanning] = useState(false);
 
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   const qualityIssues = [
     {

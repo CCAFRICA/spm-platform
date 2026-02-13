@@ -74,7 +74,7 @@ export default function TransactionsPage() {
 
   // Access control
   const dataAccessLevel = accessControl.getDataAccessLevel(user);
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   // Get user's meseroId for hospitality filtering
   const userMeseroId = useMemo(() => {

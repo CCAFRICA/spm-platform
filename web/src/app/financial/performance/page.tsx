@@ -35,7 +35,8 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useCurrency } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import {
   LineChart,
   Line,
@@ -175,9 +176,9 @@ function generateSeedData(): LocationBenchmark[] {
 }
 
 export default function LocationBenchmarksPage() {
-  const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
 
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');

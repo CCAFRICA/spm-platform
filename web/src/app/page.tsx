@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant, useCurrency } from "@/contexts/tenant-context";
+import { useLocale } from "@/contexts/locale-context";
 import { isTenantUser } from "@/types/auth";
 import { getCheques } from "@/lib/restaurant-service";
 import { isStaticTenant } from "@/lib/tenant-data-service";
@@ -123,8 +124,9 @@ export default function DashboardPage() {
   const { format } = useCurrency();
   const { stats, recentActivity, quickLinks } = dashboardData;
 
-  // Language follows the tenant's configured locale
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  // Language follows the user's language selector preference
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
   // Only show mock data for static tenants

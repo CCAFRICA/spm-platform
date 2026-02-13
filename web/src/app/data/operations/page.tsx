@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 
 interface DailyJob {
   id: string;
@@ -42,8 +42,8 @@ interface DailyJob {
 const initialJobs: DailyJob[] = [];
 
 export default function DailyOperationsPage() {
-  const { currentTenant } = useTenant();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
 
   const [jobs, setJobs] = useState<DailyJob[]>(initialJobs);
 

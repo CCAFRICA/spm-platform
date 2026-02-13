@@ -55,7 +55,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  useLocale(); // Initialize locale context
+  const { locale } = useLocale();
   const transactionTerm = useTerm("transaction", true);
   const locationTerm = useTerm("location", true);
   const salesFinanceEnabled = useFeature("salesFinance");
@@ -66,9 +66,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   // Check if user is VL Admin
   const userIsVLAdmin = user && isVLAdmin(user);
 
-  // Language follows the LOGGED-IN USER's context, not the tenant's setting
-  // VL Admin always sees English; tenant users see their tenant's locale
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  // Language follows the user's language selector preference (localStorage)
+  const isSpanish = locale === 'es-MX';
 
   // Get user's accessible modules
   const accessibleModules = accessControl.getAccessibleModules(user);

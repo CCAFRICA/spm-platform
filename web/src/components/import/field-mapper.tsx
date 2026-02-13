@@ -28,7 +28,6 @@ import {
 import type { FieldMapping } from '@/lib/import-pipeline/smart-mapper';
 import { getPlatformFields } from '@/lib/import-pipeline/smart-mapper';
 import { useLocale } from '@/contexts/locale-context';
-import { useTenant } from '@/contexts/tenant-context';
 import { cn } from '@/lib/utils';
 
 interface FieldMapperProps {
@@ -45,8 +44,7 @@ export function FieldMapper({
   className,
 }: FieldMapperProps) {
   const { locale } = useLocale();
-  const { currentTenant } = useTenant();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
   const [templateName, setTemplateName] = useState('');
 
   const platformFields = getPlatformFields();

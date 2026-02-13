@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Users2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 
 export default function ConfigurationTeamsPage() {
   const router = useRouter();
-  const { currentTenant } = useTenant();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
 
   // Auto-redirect to full teams management
   useEffect(() => {

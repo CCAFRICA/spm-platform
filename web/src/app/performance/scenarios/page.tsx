@@ -65,7 +65,7 @@ export default function ScenarioModelingPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   const [activePlan, setActivePlan] = useState<CompensationPlanConfig | null>(null);
   const [baselineResults, setBaselineResults] = useState<Map<string, CalculationResult>>(new Map());

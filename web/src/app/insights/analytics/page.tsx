@@ -92,7 +92,7 @@ function getDateRange(range: TimeRange): { start: string; end: string } {
 export default function AnalyticsDashboardPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id || 'retailco';
 
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');

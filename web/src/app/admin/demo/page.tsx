@@ -33,12 +33,10 @@ import {
 import type { GuidedTour, DemoState } from '@/types/demo';
 import { TOUR_CATEGORIES } from '@/types/demo';
 import { useLocale } from '@/contexts/locale-context';
-import { useTenant } from '@/contexts/tenant-context';
 
 export default function DemoControlCenterPage() {
   const { locale } = useLocale();
-  const { currentTenant } = useTenant();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   const [activeTab, setActiveTab] = useState('reset');
   const [demoState, setDemoState] = useState<DemoState | null>(null);

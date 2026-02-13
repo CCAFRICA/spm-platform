@@ -49,7 +49,7 @@ export default function RolesPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id || 'retailco';
 
   const [roles, setRoles] = useState<Role[]>([]);

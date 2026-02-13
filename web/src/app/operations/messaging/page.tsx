@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 
 type RecipientType = 'individual' | 'team' | 'channel' | 'location';
 type LocationType = 'store' | 'city' | 'state';
@@ -90,8 +90,8 @@ const recentMessages: RecentMessage[] = [
 ];
 
 export default function MessagingPage() {
-  const { currentTenant } = useTenant();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
 
   const [recipientType, setRecipientType] = useState<RecipientType>('individual');
   const [locationType, setLocationType] = useState<LocationType>('store');

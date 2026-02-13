@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { getFinancialService } from '@/lib/financial/financial-service';
 import { ChequeImportService } from '@/lib/financial/cheque-import-service';
 import {
@@ -189,7 +190,8 @@ function generateSeedData(_tenantId: string): {
 export default function NetworkPulseDashboard() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
 
   const tenantId = currentTenant?.id || 'restaurantmx';
 

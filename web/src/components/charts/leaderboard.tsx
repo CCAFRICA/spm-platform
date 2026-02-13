@@ -2,7 +2,8 @@
 
 import { Trophy, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useCurrency, useTenant } from '@/contexts/tenant-context';
+import { useCurrency } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { cn } from '@/lib/utils';
 
 interface LeaderboardItem {
@@ -30,8 +31,8 @@ export function Leaderboard({
   maxItems = 10,
 }: LeaderboardProps) {
   const { format } = useCurrency();
-  const { currentTenant } = useTenant();
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
 
   const getRankBadgeStyle = (rank: number) => {
     if (rank === 1) return 'bg-yellow-100 text-yellow-700 border-yellow-300';

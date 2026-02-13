@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { isVLAdmin } from '@/types/auth';
 import {
   getTenantProvisioningEngine,
@@ -185,7 +186,7 @@ const TIMEZONES: { value: string; label: string }[] = [
 export default function NewTenantPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const { currentTenant, setTenant } = useTenant();
+  const { setTenant } = useTenant();
   const [currentStep, setCurrentStep] = useState<Step>('basic');
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisionResult, setProvisionResult] = useState<{
@@ -197,7 +198,8 @@ export default function NewTenantPage() {
 
   // VL Admin locale override: VL Admins always see English regardless of tenant locale
   const userIsVLAdmin = user && isVLAdmin(user);
-  const locale = (userIsVLAdmin ? 'en-US' : (currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US')) as 'en-US' | 'es-MX';
+  const { locale: contextLocale } = useLocale();
+  const locale = (userIsVLAdmin ? 'en-US' : (contextLocale === 'es-MX' ? 'es-MX' : 'en-US')) as 'en-US' | 'es-MX';
   const t = labels[locale];
 
   // Form state

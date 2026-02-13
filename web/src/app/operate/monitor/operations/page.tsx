@@ -6,7 +6,7 @@
  * Real-time view of system operations and processing status.
  */
 
-import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Activity,
@@ -17,9 +17,9 @@ import {
 } from 'lucide-react';
 
 export default function DailyOperationsPage() {
-  const { currentTenant } = useTenant();
+  const { locale } = useLocale();
 
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   return (
     <div className="p-6 space-y-6">

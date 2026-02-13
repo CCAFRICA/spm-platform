@@ -37,7 +37,7 @@ export default function PlanApprovalsPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id || 'retailco';
 
   const [requests, setRequests] = useState<PlanApprovalRequest[]>([]);

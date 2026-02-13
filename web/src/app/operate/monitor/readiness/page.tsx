@@ -6,7 +6,7 @@
  * Shows data readiness status for the current compensation cycle.
  */
 
-import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -22,9 +22,9 @@ import {
 } from 'lucide-react';
 
 export default function DataReadinessPage() {
-  const { currentTenant } = useTenant();
+  const { locale } = useLocale();
 
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   const dataCategories = [
     {

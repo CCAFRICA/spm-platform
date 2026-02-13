@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import {
   getPeriodProcessor,
@@ -76,9 +77,10 @@ type PeriodType = 'monthly' | 'quarterly';
 
 export default function PeriodsPage() {
   const { currentTenant } = useTenant();
+  const { locale } = useLocale();
   const { user } = useAuth();
 
-  const isSpanish = currentTenant?.locale === 'es-MX';
+  const isSpanish = locale === 'es-MX';
 
   const [periods, setPeriods] = useState<PayrollPeriod[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
