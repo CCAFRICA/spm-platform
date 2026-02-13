@@ -13,6 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent } from '@/lib/financial-service';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface RepData {
   repId: string;
@@ -29,6 +30,7 @@ interface RevenueByRepProps {
 }
 
 export function RevenueByRep({ data }: RevenueByRepProps) {
+  const { symbol } = useCurrency();
   const sortedData = [...data].sort((a, b) => b.revenue - a.revenue);
 
   const getBarColor = (attainment: number) => {
@@ -76,7 +78,7 @@ export function RevenueByRep({ data }: RevenueByRepProps) {
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
               <XAxis
                 type="number"
-                tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
+                tickFormatter={(value) => `${symbol}${(value / 1000).toFixed(0)}K`}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={{ stroke: '#e2e8f0' }}

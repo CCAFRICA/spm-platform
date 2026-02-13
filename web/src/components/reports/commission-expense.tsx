@@ -14,6 +14,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent } from '@/lib/financial-service';
+import { useCurrency } from '@/contexts/tenant-context';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
 interface ExpenseData {
@@ -36,6 +37,7 @@ interface CommissionExpenseProps {
 }
 
 export function CommissionExpense({ data, summary }: CommissionExpenseProps) {
+  const { symbol } = useCurrency();
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; dataKey: string; color: string }[]; label?: string }) => {
     if (active && payload && payload.length) {
       return (
@@ -91,7 +93,7 @@ export function CommissionExpense({ data, summary }: CommissionExpenseProps) {
               />
               <YAxis
                 yAxisId="left"
-                tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
+                tickFormatter={(value) => `${symbol}${(value / 1000).toFixed(0)}K`}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={{ stroke: '#e2e8f0' }}

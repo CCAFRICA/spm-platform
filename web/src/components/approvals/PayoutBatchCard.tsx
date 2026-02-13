@@ -28,6 +28,7 @@ import { PayoutBatch, PayoutStatus } from '@/lib/payout-service';
 import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface PayoutBatchCardProps {
   batch: PayoutBatch;
@@ -47,14 +48,7 @@ export function PayoutBatchCard({
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [rejectionError, setRejectionError] = useState('');
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value);
-  };
+  const { format: formatCurrency } = useCurrency();
 
   const getStatusBadge = (status: PayoutStatus) => {
     const config: Record<PayoutStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string; icon: React.ReactNode }> = {

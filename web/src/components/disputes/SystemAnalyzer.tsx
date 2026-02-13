@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { Dispute } from '@/types/dispute';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface SystemAnalyzerProps {
   dispute: Dispute;
@@ -120,6 +121,7 @@ export function SystemAnalyzer({ dispute, onAnalysisComplete, formatCurrency: fo
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [progress, setProgress] = useState(0);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const { format: formatCurrencyHook } = useCurrency();
 
   useEffect(() => {
     // Simulate analysis progress
@@ -173,15 +175,8 @@ export function SystemAnalyzer({ dispute, onAnalysisComplete, formatCurrency: fo
     }
   };
 
-  // Use provided formatter or default to USD
-  const formatCurrency = formatCurrencyProp || ((value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  });
+  // Use provided formatter or tenant-aware default
+  const formatCurrency = formatCurrencyProp || formatCurrencyHook;
 
   if (isAnalyzing) {
     return (

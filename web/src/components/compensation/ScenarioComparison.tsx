@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { CalculationResult } from '@/types/compensation-plan';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface ScenarioComparisonProps {
   baseline: CalculationResult;
@@ -25,18 +26,11 @@ export function ScenarioComparison({
   employeeName,
   scenarioName,
 }: ScenarioComparisonProps) {
+  const { format: formatCurrency } = useCurrency();
   const difference = scenario.totalIncentive - baseline.totalIncentive;
   const percentChange = baseline.totalIncentive > 0
     ? ((difference / baseline.totalIncentive) * 100)
     : 0;
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value);
-  };
 
   const getChangeIcon = (change: number) => {
     if (change > 0) return <ArrowUp className="h-4 w-4 text-green-600" />;

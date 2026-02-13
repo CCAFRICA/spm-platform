@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import type { KPIMetric, MetricType } from '@/types/analytics';
 import { useLocale } from '@/contexts/locale-context';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface KPICardProps {
   metric: KPIMetric;
@@ -52,6 +53,7 @@ const COLOR_MAP: Record<MetricType, string> = {
 
 export function KPICard({ metric, onClick }: KPICardProps) {
   const { locale } = useLocale();
+  const { format: formatCurrency } = useCurrency();
   const isSpanish = locale === 'es-MX';
 
   const Icon = ICON_MAP[metric.id] || BarChart3;
@@ -59,12 +61,7 @@ export function KPICard({ metric, onClick }: KPICardProps) {
 
   const formatValue = (value: number, format: string) => {
     if (format === 'currency') {
-      return new Intl.NumberFormat(locale, {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-      }).format(value);
+      return formatCurrency(value);
     }
     if (format === 'percent') {
       return `${value.toFixed(1)}%`;

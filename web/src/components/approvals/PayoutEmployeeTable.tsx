@@ -14,19 +14,14 @@ import { AlertTriangle, ExternalLink } from 'lucide-react';
 import { PayoutEmployee } from '@/lib/payout-service';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface PayoutEmployeeTableProps {
   employees: PayoutEmployee[];
 }
 
 export function PayoutEmployeeTable({ employees }: PayoutEmployeeTableProps) {
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value);
-  };
+  const { format: formatCurrency } = useCurrency();
 
   const totalIncentives = employees.reduce((sum, e) => sum + e.incentives, 0);
   const totalAdjustments = employees.reduce((sum, e) => sum + e.adjustments, 0);

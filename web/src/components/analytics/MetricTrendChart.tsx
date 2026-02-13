@@ -21,6 +21,7 @@ import {
 } from 'recharts';
 import type { MetricTimeSeries } from '@/types/analytics';
 import { useLocale } from '@/contexts/locale-context';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface MetricTrendChartProps {
   series: MetricTimeSeries;
@@ -38,6 +39,7 @@ export function MetricTrendChart({
   height = 300,
 }: MetricTrendChartProps) {
   const { locale } = useLocale();
+  const { symbol } = useCurrency();
   const isSpanish = locale === 'es-MX';
 
   const formatDate = (dateStr: string) => {
@@ -50,10 +52,10 @@ export function MetricTrendChart({
       return `${value.toFixed(1)}%`;
     }
     if (value >= 1000000) {
-      return `$${(value / 1000000).toFixed(1)}M`;
+      return `${symbol}${(value / 1000000).toFixed(1)}M`;
     }
     if (value >= 1000) {
-      return `$${(value / 1000).toFixed(0)}K`;
+      return `${symbol}${(value / 1000).toFixed(0)}K`;
     }
     return value.toFixed(0);
   };

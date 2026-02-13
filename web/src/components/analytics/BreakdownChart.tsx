@@ -23,6 +23,7 @@ import {
 import { ChevronRight, TrendingUp, TrendingDown } from 'lucide-react';
 import type { DimensionBreakdown } from '@/types/analytics';
 import { useLocale } from '@/contexts/locale-context';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface BreakdownChartProps {
   breakdown: DimensionBreakdown;
@@ -46,16 +47,17 @@ export function BreakdownChart({
   height = 300,
 }: BreakdownChartProps) {
   const { locale } = useLocale();
+  const { symbol } = useCurrency();
   const isSpanish = locale === 'es-MX';
 
   const formatCurrency = (value: number) => {
     if (value >= 1000000) {
-      return `$${(value / 1000000).toFixed(1)}M`;
+      return `${symbol}${(value / 1000000).toFixed(1)}M`;
     }
     if (value >= 1000) {
-      return `$${(value / 1000).toFixed(0)}K`;
+      return `${symbol}${(value / 1000).toFixed(0)}K`;
     }
-    return `$${value}`;
+    return `${symbol}${value}`;
   };
 
   const data = breakdown.segments.map((segment, index) => ({

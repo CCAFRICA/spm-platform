@@ -11,6 +11,7 @@ import {
   Area,
   ComposedChart,
 } from "recharts";
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface TrendData {
   month: string;
@@ -23,14 +24,15 @@ interface CompensationTrendChartProps {
 }
 
 export function CompensationTrendChart({ data }: CompensationTrendChartProps) {
+  const { symbol } = useCurrency();
   const formatCurrency = (value: number) => {
     if (value >= 1000000) {
-      return `$${(value / 1000000).toFixed(1)}M`;
+      return `${symbol}${(value / 1000000).toFixed(1)}M`;
     }
     if (value >= 1000) {
-      return `$${(value / 1000).toFixed(0)}K`;
+      return `${symbol}${(value / 1000).toFixed(0)}K`;
     }
-    return `$${value}`;
+    return `${symbol}${value}`;
   };
 
   const CustomTooltip = ({

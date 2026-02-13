@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { GuidedDisputeFlow } from '@/components/disputes/GuidedDisputeFlow';
 import { useAuth } from '@/contexts/auth-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import {
   getByTransaction,
   createDraft,
@@ -48,6 +48,7 @@ export default function DisputePage({ params }: { params: Promise<{ id: string }
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
+  const { format: formatCurrency } = useCurrency();
 
   const [dispute, setDispute] = useState<Dispute | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -83,14 +84,6 @@ export default function DisputePage({ params }: { params: Promise<{ id: string }
 
   const handleCancel = () => {
     router.push(`/transactions/${transactionId}`);
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value);
   };
 
   if (!transaction) {

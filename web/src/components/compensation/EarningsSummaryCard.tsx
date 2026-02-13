@@ -11,6 +11,7 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface EarningsSummaryCardProps {
   currentPeriod: {
@@ -40,18 +41,11 @@ export function EarningsSummaryCard({
     ? (ytdEarnings / ytdTarget) * 100
     : 0;
 
+  const { format: formatCurrency } = useCurrency();
+
   const periodChange = currentPeriod.previousPeriod > 0
     ? ((currentPeriod.earnings - currentPeriod.previousPeriod) / currentPeriod.previousPeriod) * 100
     : 0;
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
 
   return (
     <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">

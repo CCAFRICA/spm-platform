@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { containerVariants, itemVariants } from '@/lib/animations';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface GoalMilestone {
   date: string;
@@ -36,6 +37,8 @@ interface GoalPacingProps {
 }
 
 export function GoalPacing({ goals, className }: GoalPacingProps) {
+  const { format: formatCurrency } = useCurrency();
+
   const getStatusConfig = (status: Goal['status']) => {
     switch (status) {
       case 'ahead':
@@ -87,15 +90,6 @@ export function GoalPacing({ goals, className }: GoalPacingProps) {
       pacingDiff,
       daysRemaining: Math.max(0, Math.ceil(totalDays - daysElapsed)),
     };
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
   };
 
   return (

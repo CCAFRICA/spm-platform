@@ -12,6 +12,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface EmployeeImpact {
   id: string;
@@ -28,6 +29,7 @@ interface TeamImpactSummaryProps {
 }
 
 export function TeamImpactSummary({ impacts }: TeamImpactSummaryProps) {
+  const { format: formatCurrency } = useCurrency();
   const totalBaseline = impacts.reduce((sum, e) => sum + e.baseline, 0);
   const totalScenario = impacts.reduce((sum, e) => sum + e.scenario, 0);
   const totalDifference = totalScenario - totalBaseline;
@@ -35,15 +37,6 @@ export function TeamImpactSummary({ impacts }: TeamImpactSummaryProps) {
   const gainers = impacts.filter((e) => e.difference > 0);
   const losers = impacts.filter((e) => e.difference < 0);
   const unchanged = impacts.filter((e) => e.difference === 0);
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
 
   const sortedByImpact = [...impacts].sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference));
 

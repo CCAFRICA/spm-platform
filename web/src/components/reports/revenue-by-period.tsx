@@ -15,6 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency } from '@/lib/financial-service';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface PeriodData {
   period: string;
@@ -31,6 +32,7 @@ interface RevenueByPeriodProps {
 }
 
 export function RevenueByPeriod({ monthlyData, quarterlyData }: RevenueByPeriodProps) {
+  const { symbol } = useCurrency();
   const [view, setView] = useState<'monthly' | 'quarterly'>('monthly');
   const data = view === 'monthly' ? monthlyData : quarterlyData;
 
@@ -79,7 +81,7 @@ export function RevenueByPeriod({ monthlyData, quarterlyData }: RevenueByPeriodP
                 axisLine={{ stroke: '#e2e8f0' }}
               />
               <YAxis
-                tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
+                tickFormatter={(value) => `${symbol}${(value / 1000).toFixed(0)}K`}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={{ stroke: '#e2e8f0' }}

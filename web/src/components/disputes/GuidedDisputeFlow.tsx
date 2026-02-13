@@ -40,6 +40,7 @@ import type { DisputeCategory } from '@/types/dispute';
 import type { CalculationResult } from '@/types/compensation-plan';
 import { DISPUTE_CATEGORIES } from '@/types/dispute';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface GuidedDisputeFlowProps {
   disputeId: string;
@@ -489,13 +490,10 @@ function Step3BuildCase({
   onSubmit,
   onBack,
 }: Step3Props) {
+  const { format: formatCurrencyNum } = useCurrency();
   const formatCurrency = (value: string) => {
     const num = parseFloat(value) || 0;
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(num);
+    return formatCurrencyNum(num);
   };
 
   return (

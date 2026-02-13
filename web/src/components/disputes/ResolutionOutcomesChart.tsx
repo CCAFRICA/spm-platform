@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { CheckCircle, XCircle, MinusCircle, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface OutcomeData {
   outcome: 'approved' | 'partial' | 'denied' | 'self_resolved';
@@ -57,17 +58,9 @@ export function ResolutionOutcomesChart({
   title = 'Resolution Outcomes',
   description = 'How disputes were resolved',
 }: ResolutionOutcomesChartProps) {
+  const { format: formatCurrency } = useCurrency();
   const total = data.reduce((sum, d) => sum + d.count, 0);
   const totalPaid = data.reduce((sum, d) => sum + d.totalAmount, 0);
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
 
   return (
     <Card>

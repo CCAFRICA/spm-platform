@@ -95,7 +95,7 @@ interface ExecutiveData {
 
 export default function InsightsPerformancePage() {
   const { currentTenant } = useTenant();
-  const { format } = useCurrency();
+  const { format, symbol } = useCurrency();
   const [data, setData] = useState<ExecutiveData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -400,7 +400,7 @@ export default function InsightsPerformancePage() {
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={techCorpRegionalData} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                      <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`} />
+                      <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(value) => `${symbol}${(value / 1000000).toFixed(1)}M`} />
                       <YAxis type="category" dataKey="region" tickLine={false} axisLine={false} width={60} />
                       <Tooltip
                         formatter={(value: number) => [format(value), 'Sales']}
@@ -534,7 +534,7 @@ export default function InsightsPerformancePage() {
                 type="number"
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                tickFormatter={(value) => `${symbol}${(value / 1000).toFixed(0)}k`}
               />
               <YAxis type="category" dataKey="region" tickLine={false} axisLine={false} width={80} />
               <Tooltip

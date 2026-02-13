@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import {
   getLatestSummary,
@@ -32,6 +32,7 @@ export default function ResultsDashboardPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
+  const { format: formatCurrency } = useCurrency();
   const [summary, setSummary] = useState<CalculationSummary | null>(null);
   const [briefing, setBriefing] = useState<string | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(false);
@@ -42,14 +43,6 @@ export default function ResultsDashboardPage() {
 
   const hasAccess = user && isVLAdmin(user);
   const tenantId = currentTenant?.id || '';
-
-  const formatCurrency = (amount: number): string => {
-    const code = currentTenant?.currency || 'USD';
-    const loc = code === 'MXN' ? 'es-MX' : 'en-US';
-    return new Intl.NumberFormat(loc, {
-      style: 'currency', currency: code, minimumFractionDigits: 0, maximumFractionDigits: 0,
-    }).format(amount);
-  };
 
   // Load or build summary
   useEffect(() => {

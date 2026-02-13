@@ -42,7 +42,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useLocale } from '@/contexts/locale-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 
 // Enhanced mock data with more detail
 const yoyData = [
@@ -90,17 +90,19 @@ const projectionData = [
   { month: 'Mar', monthEs: 'Mar', actual: null, projected: 575000 },
 ];
 
-function formatCurrency(amount: number): string {
-  if (amount >= 1000000) {
-    return `$${(amount / 1000000).toFixed(1)}M`;
-  }
-  return `$${(amount / 1000).toFixed(0)}K`;
-}
-
 export default function TrendsPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
+  const { symbol } = useCurrency();
   const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
+
+  // Compact formatter for chart axes (e.g. $1.2M, $450K)
+  const formatCompact = (amount: number): string => {
+    if (amount >= 1000000) {
+      return `${symbol}${(amount / 1000000).toFixed(1)}M`;
+    }
+    return `${symbol}${(amount / 1000).toFixed(0)}K`;
+  };
 
   const [timeRange, setTimeRange] = useState('ytd');
 
@@ -266,11 +268,11 @@ export default function TrendsPage() {
                     <YAxis
                       tickLine={false}
                       axisLine={false}
-                      tickFormatter={(v) => formatCurrency(v)}
+                      tickFormatter={(v) => formatCompact(v)}
                       tick={{ fill: '#64748b' }}
                     />
                     <Tooltip
-                      formatter={(value: number) => [formatCurrency(value), '']}
+                      formatter={(value: number) => [formatCompact(value), '']}
                       contentStyle={{
                         backgroundColor: 'white',
                         border: '1px solid #e2e8f0',
@@ -329,7 +331,7 @@ export default function TrendsPage() {
                       <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
                       <XAxis
                         type="number"
-                        tickFormatter={(v) => formatCurrency(v)}
+                        tickFormatter={(v) => formatCompact(v)}
                         tick={{ fill: '#64748b' }}
                       />
                       <YAxis
@@ -341,7 +343,7 @@ export default function TrendsPage() {
                         width={100}
                       />
                       <Tooltip
-                        formatter={(value: number) => [formatCurrency(value), '']}
+                        formatter={(value: number) => [formatCompact(value), '']}
                         contentStyle={{
                           backgroundColor: 'white',
                           border: '1px solid #e2e8f0',
@@ -374,7 +376,7 @@ export default function TrendsPage() {
                         <div>
                           <p className="font-medium">{isSpanish ? comp.nameEs : comp.name}</p>
                           <p className="text-sm text-muted-foreground">
-                            {formatCurrency(comp.value)}
+                            {formatCompact(comp.value)}
                           </p>
                         </div>
                         <div className={`flex items-center gap-1 ${
@@ -418,12 +420,12 @@ export default function TrendsPage() {
                       axisLine={false}
                     />
                     <YAxis
-                      tickFormatter={(v) => formatCurrency(v)}
+                      tickFormatter={(v) => formatCompact(v)}
                       tickLine={false}
                       axisLine={false}
                     />
                     <Tooltip
-                      formatter={(value: number) => [formatCurrency(value), '']}
+                      formatter={(value: number) => [formatCompact(value), '']}
                       contentStyle={{
                         backgroundColor: 'white',
                         border: '1px solid #e2e8f0',
@@ -477,10 +479,10 @@ export default function TrendsPage() {
                       <YAxis
                         tickLine={false}
                         axisLine={false}
-                        tickFormatter={(v) => formatCurrency(v)}
+                        tickFormatter={(v) => formatCompact(v)}
                       />
                       <Tooltip
-                        formatter={(value: number) => [formatCurrency(value), '']}
+                        formatter={(value: number) => [formatCompact(value), '']}
                         contentStyle={{
                           backgroundColor: 'white',
                           border: '1px solid #e2e8f0',
@@ -536,10 +538,10 @@ export default function TrendsPage() {
                       <YAxis
                         tickLine={false}
                         axisLine={false}
-                        tickFormatter={(v) => formatCurrency(v)}
+                        tickFormatter={(v) => formatCompact(v)}
                       />
                       <Tooltip
-                        formatter={(value: number) => [formatCurrency(value), '']}
+                        formatter={(value: number) => [formatCompact(value), '']}
                         contentStyle={{
                           backgroundColor: 'white',
                           border: '1px solid #e2e8f0',

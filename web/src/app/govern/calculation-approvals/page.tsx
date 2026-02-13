@@ -10,7 +10,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/auth-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import {
   listApprovalItems,
@@ -33,6 +33,7 @@ import {
 export default function CalculationApprovalPage() {
   const { user } = useAuth();
   const { currentTenant } = useTenant();
+  const { format: formatCurrency } = useCurrency();
   const [items, setItems] = useState<ApprovalItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<ApprovalItem | null>(null);
   const [comments, setComments] = useState('');
@@ -40,14 +41,6 @@ export default function CalculationApprovalPage() {
 
   const tenantId = currentTenant?.id || '';
   const hasAccess = user && isVLAdmin(user);
-
-  const formatCurrency = (amount: number): string => {
-    const code = currentTenant?.currency || 'USD';
-    const loc = code === 'MXN' ? 'es-MX' : 'en-US';
-    return new Intl.NumberFormat(loc, {
-      style: 'currency', currency: code, minimumFractionDigits: 0, maximumFractionDigits: 0,
-    }).format(amount);
-  };
 
   useEffect(() => {
     if (!tenantId) return;

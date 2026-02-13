@@ -33,6 +33,7 @@ import { payoutService, PayoutBatch, PayoutStatus } from '@/lib/payout-service';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -48,6 +49,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
   const [rejectionReason, setRejectionReason] = useState('');
   const [rejectionError, setRejectionError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const { format: formatCurrency } = useCurrency();
 
   useEffect(() => {
     payoutService.initialize();
@@ -55,14 +57,6 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
     setBatch(batchData);
     setIsLoading(false);
   }, [id]);
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value);
-  };
 
   const getStatusBadge = (status: PayoutStatus) => {
     const config: Record<PayoutStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string; icon: React.ReactNode }> = {

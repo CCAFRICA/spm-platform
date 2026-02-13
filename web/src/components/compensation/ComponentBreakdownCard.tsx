@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { CalculationResult } from '@/types/compensation-plan';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface ComponentBreakdownCardProps {
   result: CalculationResult;
@@ -57,15 +58,8 @@ function getComponentColor(componentName: string): string {
 }
 
 export function ComponentBreakdownCard({ result, onViewDetails }: ComponentBreakdownCardProps) {
+  const { format: formatCurrency } = useCurrency();
   const totalEarnings = result.totalIncentive;
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value);
-  };
 
   // Sort components by value descending
   const sortedComponents = [...result.components].sort((a, b) => b.outputValue - a.outputValue);

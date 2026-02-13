@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCurrency, formatPercent } from '@/lib/financial-service';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface RegionData {
   region: string;
@@ -27,6 +28,7 @@ interface RevenueByRegionProps {
 }
 
 export function RevenueByRegion({ data }: RevenueByRegionProps) {
+  const { symbol } = useCurrency();
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; dataKey: string }[]; label?: string }) => {
     if (active && payload && payload.length) {
       const region = data.find((d) => d.region === label);
@@ -63,7 +65,7 @@ export function RevenueByRegion({ data }: RevenueByRegionProps) {
                 axisLine={{ stroke: '#e2e8f0' }}
               />
               <YAxis
-                tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`}
+                tickFormatter={(value) => `${symbol}${(value / 1000000).toFixed(1)}M`}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={{ stroke: '#e2e8f0' }}

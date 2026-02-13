@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import {
@@ -192,6 +192,7 @@ export default function CalculatePage() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
+  const { format: formatCurrency } = useCurrency();
   const [periods, setPeriods] = useState<Period[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [isRunning, setIsRunning] = useState(false);
@@ -218,18 +219,6 @@ export default function CalculatePage() {
   // VL Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
   const t = labels[locale];
-
-  // Currency formatter based on tenant settings
-  const formatCurrency = (amount: number): string => {
-    const currencyCode = currentTenant?.currency || 'USD';
-    const currencyLocale = currencyCode === 'MXN' ? 'es-MX' : 'en-US';
-    return new Intl.NumberFormat(currencyLocale, {
-      style: 'currency',
-      currency: currencyCode,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
 
   // Check VL Admin access
   const hasAccess = user && isVLAdmin(user);

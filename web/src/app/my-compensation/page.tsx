@@ -39,7 +39,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { getByEmployee } from '@/lib/disputes/dispute-service';
 import { createDraft, submitDispute } from '@/lib/disputes/dispute-service';
@@ -93,6 +93,7 @@ function mapRole(role: string): 'vl_admin' | 'platform_admin' | 'manager' | 'sal
 export default function MyCompensationPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
+  const { format: formatCurrency } = useCurrency();
   const [period, setPeriod] = useState<Period>('current');
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
   const [pendingDisputes, setPendingDisputes] = useState(0);
@@ -322,15 +323,6 @@ export default function MyCompensationPage() {
     ytdTarget: 24000,
     pendingPayouts: currentPeriodEarnings,
     nextPayDate: new Date(now.getFullYear(), now.getMonth() + 1, 15).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-  };
-
-  // Currency formatter
-  const formatCurrency = (amount: number): string => {
-    const code = currentTenant?.currency || 'USD';
-    const loc = code === 'MXN' ? 'es-MX' : 'en-US';
-    return new Intl.NumberFormat(loc, {
-      style: 'currency', currency: code, minimumFractionDigits: 0, maximumFractionDigits: 0,
-    }).format(amount);
   };
 
   return (

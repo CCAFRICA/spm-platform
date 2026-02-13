@@ -21,6 +21,7 @@ import { CheckCircle, XCircle, MinusCircle, Loader2, AlertTriangle } from 'lucid
 import type { Dispute, DisputeOutcome } from '@/types/dispute';
 import type { AnalysisResult } from './SystemAnalyzer';
 import { cn } from '@/lib/utils';
+import { useCurrency } from '@/contexts/tenant-context';
 
 interface DisputeResolutionFormProps {
   dispute: Dispute;
@@ -52,16 +53,10 @@ export function DisputeResolutionForm({
   const [explanation, setExplanation] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const { format: formatCurrencyHook } = useCurrency();
 
-  // Use provided formatter or default to USD
-  const formatCurrency = formatCurrencyProp || ((value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  });
+  // Use provided formatter or tenant-aware default
+  const formatCurrency = formatCurrencyProp || formatCurrencyHook;
 
   const handleSubmit = () => {
     setShowConfirmDialog(true);

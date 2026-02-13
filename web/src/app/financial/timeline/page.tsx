@@ -151,18 +151,18 @@ const COLORS = {
   },
 };
 
-const METRIC_CONFIG = {
-  revenue: { label: 'Revenue', format: (v: number) => `$${(v / 1000).toFixed(0)}K`, icon: DollarSign },
-  checks: { label: 'Checks Served', format: (v: number) => v.toLocaleString(), icon: Receipt },
-  avgCheck: { label: 'Avg Check', format: (v: number) => `$${v.toFixed(2)}`, icon: TrendingUp },
-  tips: { label: 'Tips', format: (v: number) => `$${(v / 1000).toFixed(1)}K`, icon: Percent },
-};
-
 export default function RevenueTimelinePage() {
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [metric, setMetric] = useState<Metric>('revenue');
   const [scope, setScope] = useState<Scope>('all');
-  const { format } = useCurrency();
+  const { format, symbol } = useCurrency();
+
+  const METRIC_CONFIG = {
+    revenue: { label: 'Revenue', format: (v: number) => `${symbol}${(v / 1000).toFixed(0)}K`, icon: DollarSign },
+    checks: { label: 'Checks Served', format: (v: number) => v.toLocaleString(), icon: Receipt },
+    avgCheck: { label: 'Avg Check', format: (v: number) => `${symbol}${v.toFixed(2)}`, icon: TrendingUp },
+    tips: { label: 'Tips', format: (v: number) => `${symbol}${(v / 1000).toFixed(1)}K`, icon: Percent },
+  };
 
   // Generate data based on selections
   const chartData = useMemo(() => {
@@ -240,7 +240,7 @@ export default function RevenueTimelinePage() {
                 </p>
                 <p className="text-2xl font-bold">
                   {metric === 'avgCheck'
-                    ? `$${stats.avg.toFixed(2)}`
+                    ? `${symbol}${stats.avg.toFixed(2)}`
                     : metricConfig.format(stats.total)}
                 </p>
               </div>
@@ -333,7 +333,7 @@ export default function RevenueTimelinePage() {
                   <YAxis
                     stroke="#6b7280"
                     tickFormatter={(v) => metric === 'revenue' || metric === 'tips'
-                      ? `$${(v / 1000).toFixed(0)}K`
+                      ? `${symbol}${(v / 1000).toFixed(0)}K`
                       : v.toLocaleString()
                     }
                   />
@@ -361,7 +361,7 @@ export default function RevenueTimelinePage() {
                   <YAxis
                     stroke="#6b7280"
                     tickFormatter={(v) => metric === 'revenue' || metric === 'tips'
-                      ? `$${(v / 1000).toFixed(0)}K`
+                      ? `${symbol}${(v / 1000).toFixed(0)}K`
                       : v.toLocaleString()
                     }
                   />

@@ -18,6 +18,7 @@ import { PayoutBatchCard } from '@/components/approvals/PayoutBatchCard';
 import { payoutService, PayoutBatch } from '@/lib/payout-service';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { useCurrency } from '@/contexts/tenant-context';
 
 export default function PayoutApprovalsPage() {
   const [pendingBatches, setPendingBatches] = useState<PayoutBatch[]>([]);
@@ -31,6 +32,7 @@ export default function PayoutApprovalsPage() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const { format: formatCurrency } = useCurrency();
 
   useEffect(() => {
     loadData();
@@ -81,14 +83,6 @@ export default function PayoutApprovalsPage() {
 
     setProcessingId(null);
     loadData();
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-    }).format(value);
   };
 
   if (isLoading) {
