@@ -32,9 +32,15 @@ import type {
   QueueItem,
   PulseMetric,
 } from '@/types/navigation';
-import { getCycleState } from '@/lib/navigation/cycle-service';
-import { getQueueItems } from '@/lib/navigation/queue-service';
-import { getPulseMetrics } from '@/lib/navigation/pulse-service';
+import {
+  getCycleState,
+  getAllPeriods,
+  getNextAction,
+  type PersonaType,
+  type PeriodState,
+} from '@/lib/navigation/compensation-clock-service';
+import { getQueueItems as getBaseQueueItems } from '@/lib/navigation/queue-service';
+import { getPulseMetrics as getBasePulseMetrics } from '@/lib/navigation/pulse-service';
 import { getWorkspaceForRoute, WORKSPACES } from '@/lib/navigation/workspace-config';
 import { getDefaultWorkspace, canAccessWorkspace } from '@/lib/navigation/role-workspaces';
 import { logWorkspaceSwitch } from '@/lib/navigation/navigation-signals';
@@ -60,6 +66,10 @@ interface NavigationContextType extends NavigationState {
   // Actions
   navigateToWorkspace: (workspace: WorkspaceId) => void;
   refreshData: () => void;
+
+  // Clock service data
+  periodStates: PeriodState[];
+  nextAction: string;
 
   // Helpers
   isSpanish: boolean;
@@ -95,6 +105,8 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [pulseMetrics, setPulseMetrics] = useState<PulseMetric[]>([]);
   const [recentPages, setRecentPages] = useState<string[]>([]);
+  const [periodStates, setPeriodStates] = useState<PeriodState[]>([]);
+  const [nextAction, setNextAction] = useState<string>('');
 
   // Initialize from localStorage
   useEffect(() => {
@@ -147,22 +159,36 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     }
   }, [pathname, activeWorkspace, userRole]);
 
-  // Load data
+  // Map role to persona type for clock service
+  const persona: PersonaType = userRole === 'vl_admin' ? 'vl_admin'
+    : userRole === 'admin' ? 'platform_admin'
+    : userRole === 'manager' ? 'manager'
+    : 'sales_rep';
+
+  // Load data from CompensationClockService (unified source of truth)
   const refreshData = useCallback(() => {
     if (!user || !userRole) return;
 
-    // Get cycle state
+    // THE CYCLE (central pacemaker)
     const cycle = getCycleState(tenantId);
     setCycleState(cycle);
 
-    // Get queue items
-    const queue = getQueueItems(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
+    // Multi-period timeline
+    const periods = getAllPeriods(tenantId);
+    setPeriodStates(periods);
+
+    // Next action for this persona
+    const action = getNextAction(tenantId, persona);
+    setNextAction(action);
+
+    // THE QUEUE (peripheral oscillators)
+    const queue = getBaseQueueItems(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
     setQueueItems(queue);
 
-    // Get pulse metrics
-    const pulse = getPulseMetrics(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
+    // THE PULSE (feedback loops)
+    const pulse = getBasePulseMetrics(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
     setPulseMetrics(pulse);
-  }, [user, userRole, tenantId]);
+  }, [user, userRole, tenantId, persona]);
 
   // Initial data load
   useEffect(() => {
@@ -224,6 +250,8 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     setCommandPaletteOpen,
     navigateToWorkspace,
     refreshData,
+    periodStates,
+    nextAction,
     isSpanish,
     userRole,
   };
@@ -271,8 +299,8 @@ export function useCommandPalette() {
  * Hook for cycle state
  */
 export function useCycleState() {
-  const { cycleState, isSpanish } = useNavigation();
-  return { cycleState, isSpanish };
+  const { cycleState, periodStates, nextAction, isSpanish } = useNavigation();
+  return { cycleState, periodStates, nextAction, isSpanish };
 }
 
 /**

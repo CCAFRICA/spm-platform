@@ -4,7 +4,12 @@
  * Cycle Indicator Component
  *
  * Visual representation of the compensation cycle progress.
- * Shows: Import → Calculate → Reconcile → Approve → Pay
+ * Shows: Import -> Calculate -> Reconcile -> Approve -> Pay
+ *
+ * Powered by CompensationClockService (OB-36):
+ * - cycleState: current phase + progress from lifecycle state machine
+ * - periodStates: multi-period timeline (most recent first)
+ * - nextAction: contextual verb phrase for the active persona
  */
 
 import { useRouter } from 'next/navigation';
@@ -16,6 +21,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import type { CyclePhase, PhaseStatus } from '@/types/navigation';
 import { CYCLE_PHASE_LABELS } from '@/types/navigation';
+import type { PeriodState } from '@/lib/navigation/compensation-clock-service';
 import {
   Upload,
   Calculator,
@@ -23,6 +29,7 @@ import {
   CheckCircle,
   Wallet,
   Lock,
+  ChevronRight,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -46,7 +53,7 @@ const PHASE_ICONS: Record<CyclePhase, React.ComponentType<{ className?: string }
 
 export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
   const router = useRouter();
-  const { cycleState, isSpanish } = useCycleState();
+  const { cycleState, periodStates, nextAction, isSpanish } = useCycleState();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
 
@@ -124,6 +131,9 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
                 {isSpanish ? status.detailEs : status.detail}
               </p>
               <p className="text-xs mt-1">{cycleState.periodLabel}</p>
+              {nextAction && (
+                <p className="text-xs mt-1 font-medium text-blue-600">{nextAction}</p>
+              )}
             </div>
           </TooltipContent>
         </Tooltip>
@@ -198,14 +208,21 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
         })}
       </div>
 
-      {/* Period and Status */}
+      {/* Period and Next Action */}
       <div className="text-xs">
         <p className="font-medium text-slate-700">{cycleState.periodLabel}</p>
-        <p className="text-slate-500">
-          {isSpanish
-            ? cycleState.phaseStatuses[cycleState.currentPhase].detailEs
-            : cycleState.phaseStatuses[cycleState.currentPhase].detail}
-        </p>
+        {nextAction ? (
+          <p className="text-blue-600 font-medium flex items-center gap-1 mt-0.5">
+            <ChevronRight className="h-3 w-3" />
+            {nextAction}
+          </p>
+        ) : (
+          <p className="text-slate-500">
+            {isSpanish
+              ? cycleState.phaseStatuses[cycleState.currentPhase].detailEs
+              : cycleState.phaseStatuses[cycleState.currentPhase].detail}
+          </p>
+        )}
       </div>
 
       {/* Progress Bar */}
@@ -220,6 +237,95 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
             style={{ width: `${cycleState.completionPercentage}%` }}
           />
         </div>
+      </div>
+
+      {/* Multi-Period Timeline */}
+      {periodStates && periodStates.length > 0 && (
+        <PeriodTimeline periods={periodStates} isSpanish={isSpanish} />
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// MULTI-PERIOD TIMELINE SUB-COMPONENT
+// =============================================================================
+
+interface PeriodTimelineProps {
+  periods: PeriodState[];
+  isSpanish: boolean;
+}
+
+const LIFECYCLE_STATE_LABELS: Record<string, { en: string; es: string }> = {
+  AWAITING_DATA:    { en: 'Awaiting Data',    es: 'Esperando Datos' },
+  DRAFT:            { en: 'Draft',            es: 'Borrador' },
+  PREVIEW:          { en: 'Preview',          es: 'Vista Previa' },
+  OFFICIAL:         { en: 'Official',         es: 'Oficial' },
+  PENDING_APPROVAL: { en: 'Pending Approval', es: 'Pendiente de Aprobacion' },
+  APPROVED:         { en: 'Approved',         es: 'Aprobado' },
+  REJECTED:         { en: 'Rejected',         es: 'Rechazado' },
+  PAID:             { en: 'Paid',             es: 'Pagado' },
+};
+
+function getLifecycleColor(state: string): string {
+  switch (state) {
+    case 'APPROVED':
+    case 'PAID':
+      return 'bg-green-100 text-green-700';
+    case 'OFFICIAL':
+    case 'PREVIEW':
+      return 'bg-blue-100 text-blue-700';
+    case 'PENDING_APPROVAL':
+      return 'bg-amber-100 text-amber-700';
+    case 'REJECTED':
+      return 'bg-red-100 text-red-700';
+    case 'DRAFT':
+      return 'bg-slate-100 text-slate-600';
+    case 'AWAITING_DATA':
+    default:
+      return 'bg-slate-50 text-slate-500';
+  }
+}
+
+function PeriodTimeline({ periods, isSpanish }: PeriodTimelineProps) {
+  if (periods.length <= 1) return null;
+
+  // Show up to 4 most recent periods
+  const displayPeriods = periods.slice(0, 4);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100">
+      <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+        {isSpanish ? 'Periodos' : 'Periods'}
+      </h4>
+      <div className="space-y-1.5">
+        {displayPeriods.map((period) => {
+          const stateLabel = LIFECYCLE_STATE_LABELS[period.lifecycleState];
+          return (
+            <div
+              key={period.period}
+              className={cn(
+                'flex items-center justify-between text-[11px] px-2 py-1 rounded',
+                period.isActive ? 'bg-slate-50' : ''
+              )}
+            >
+              <span className={cn(
+                'font-medium',
+                period.isActive ? 'text-slate-800' : 'text-slate-500'
+              )}>
+                {period.periodLabel}
+              </span>
+              <span className={cn(
+                'px-1.5 py-0.5 rounded text-[10px] font-medium',
+                getLifecycleColor(period.lifecycleState)
+              )}>
+                {stateLabel
+                  ? (isSpanish ? stateLabel.es : stateLabel.en)
+                  : period.lifecycleState}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
