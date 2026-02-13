@@ -31,6 +31,7 @@ import {
 import {
   mapColumns,
   recordMappingFeedback,
+  buildMappingTargets,
   getEmployeeIdMapping,
   getTotalAmountMapping,
   type ColumnMapping,
@@ -142,6 +143,14 @@ const labels = {
     mappedTo: 'Mapped to',
     confidence: 'Confidence',
     unmapped: 'Not mapped',
+    confirmMapping: 'Confirm Column Mapping',
+    confirmMappingDesc: 'Review AI suggestions and adjust if needed',
+    sourceColumn: 'Source Column',
+    high: 'High',
+    medium: 'Medium',
+    low: 'Low',
+    confirmAndProceed: 'Confirm Mapping',
+    noMapping: 'None (skip)',
   },
   'es-MX': {
     title: 'Reconciliacion de Benchmark',
@@ -199,6 +208,14 @@ const labels = {
     mappedTo: 'Mapeado a',
     confidence: 'Confianza',
     unmapped: 'Sin mapear',
+    confirmMapping: 'Confirmar Mapeo de Columnas',
+    confirmMappingDesc: 'Revise las sugerencias de IA y ajuste si es necesario',
+    sourceColumn: 'Columna Fuente',
+    high: 'Alta',
+    medium: 'Media',
+    low: 'Baja',
+    confirmAndProceed: 'Confirmar Mapeo',
+    noMapping: 'Ninguno (omitir)',
   },
 };
 
@@ -244,6 +261,8 @@ export default function ReconciliationPage() {
   const [aiMappings, setAiMappings] = useState<ColumnMapping[]>([]);
   const [aiMappingResult, setAiMappingResult] = useState<MappingResult | null>(null);
   const [isMapping, setIsMapping] = useState(false);
+  // HF-021 Phase 3: Confirmation state
+  const [mappingConfirmed, setMappingConfirmed] = useState(false);
 
   // Field mapping state (derived from AI or manual)
   const [employeeIdField, setEmployeeIdField] = useState<string>('');
@@ -450,6 +469,7 @@ export default function ReconciliationPage() {
     setAiMappings([]);
     setAiMappingResult(null);
     setIsMapping(false);
+    setMappingConfirmed(false);
     setSession(null);
     setComparisonItems([]);
   };
@@ -915,6 +935,121 @@ export default function ReconciliationPage() {
                   : `Showing 5 of ${parsedFile.totalRows} rows`}
               </p>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* HF-021 Phase 3: Column Mapping Confirmation */}
+      {parsedFile && aiMappings.length > 0 && !mappingConfirmed && !isMapping && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-purple-600" />
+              {t.confirmMapping}
+            </CardTitle>
+            <CardDescription>{t.confirmMappingDesc}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">{t.sourceColumn}</TableHead>
+                    <TableHead className="text-xs">{t.mappedTo}</TableHead>
+                    <TableHead className="text-xs">{t.confidence}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {aiMappings.map((mapping) => {
+                    const targets = currentTenant ? buildMappingTargets(currentTenant.id) : [];
+                    return (
+                      <TableRow key={mapping.sourceColumn}>
+                        <TableCell className="font-mono text-xs">{mapping.sourceColumn}</TableCell>
+                        <TableCell>
+                          <Select
+                            value={mapping.mappedTo}
+                            onValueChange={(newTarget) => {
+                              // Update local mapping
+                              setAiMappings(prev => prev.map(m =>
+                                m.sourceColumn === mapping.sourceColumn
+                                  ? { ...m, mappedTo: newTarget, mappedToLabel: targets.find(t => t.id === newTarget)?.label || newTarget, isUserOverride: true }
+                                  : m
+                              ));
+                              // Update employee ID / amount fields
+                              if (newTarget === 'employee_id') setEmployeeIdField(mapping.sourceColumn);
+                              if (newTarget === 'total_amount') setAmountField(mapping.sourceColumn);
+                              // Record corrective training signal
+                              if (aiMappingResult?.signalId && newTarget !== mapping.mappedTo) {
+                                recordMappingFeedback(
+                                  aiMappingResult.signalId,
+                                  'corrected',
+                                  { [mapping.sourceColumn]: newTarget },
+                                  currentTenant?.id,
+                                );
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-48">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="unmapped">{t.noMapping}</SelectItem>
+                              {targets.map((target) => (
+                                <SelectItem key={target.id} value={target.id}>
+                                  {target.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          {mapping.mappedTo !== 'unmapped' ? (
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                'text-xs',
+                                mapping.confidence >= 0.8
+                                  ? 'border-emerald-300 text-emerald-700 bg-emerald-50'
+                                  : mapping.confidence >= 0.5
+                                  ? 'border-amber-300 text-amber-700 bg-amber-50'
+                                  : 'border-red-300 text-red-700 bg-red-50'
+                              )}
+                            >
+                              {mapping.confidence >= 0.8
+                                ? t.high
+                                : mapping.confidence >= 0.5
+                                ? t.medium
+                                : t.low}
+                              {' '}{Math.round(mapping.confidence * 100)}%
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-slate-400">--</span>
+                          )}
+                          {mapping.isUserOverride && (
+                            <Badge variant="outline" className="text-xs ml-1 border-blue-300 text-blue-600">
+                              {locale === 'es-MX' ? 'Editado' : 'Edited'}
+                            </Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            <Button
+              className="w-full mt-4"
+              onClick={() => {
+                setMappingConfirmed(true);
+                // Record acceptance if no overrides were made
+                if (aiMappingResult?.signalId && !aiMappings.some(m => m.isUserOverride)) {
+                  recordMappingFeedback(aiMappingResult.signalId, 'accepted', undefined, currentTenant?.id);
+                }
+              }}
+            >
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+              {t.confirmAndProceed}
+            </Button>
           </CardContent>
         </Card>
       )}
