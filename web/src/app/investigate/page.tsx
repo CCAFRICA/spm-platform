@@ -24,6 +24,8 @@ import {
   MessageCircle,
   Edit,
   ArrowRight,
+  GitCompare,
+  ShieldCheck,
 } from 'lucide-react';
 
 export default function InvestigatePage() {
@@ -83,6 +85,20 @@ export default function InvestigatePage() {
       description: isSpanish ? 'Ver ajustes manuales' : 'View manual adjustments',
       route: '/investigate/adjustments',
       color: 'slate',
+    },
+    {
+      icon: GitCompare,
+      label: isSpanish ? 'Conciliación' : 'Reconciliation',
+      description: isSpanish ? 'Comparar resultados con datos externos' : 'Compare results against ground truth',
+      route: '/investigate/reconciliation',
+      color: 'blue',
+    },
+    {
+      icon: ShieldCheck,
+      label: isSpanish ? 'Validación del Plan' : 'Plan Validation',
+      description: isSpanish ? 'Verificar estructura del plan' : 'Verify plan structure and consistency',
+      route: '/investigate/plan-validation',
+      color: 'green',
     },
   ];
 

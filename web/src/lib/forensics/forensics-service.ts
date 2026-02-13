@@ -273,11 +273,11 @@ export function runReconciliation(
     .map(t => t.employeeId);
 
   const unmatchedGT: string[] = [];
-  for (const [empId] of gtByEmployee) {
+  Array.from(gtByEmployee.keys()).forEach(empId => {
     if (!processedGT.has(empId) && !vlByEmployee.has(empId)) {
       unmatchedGT.push(empId);
     }
-  }
+  });
 
   // Build aggregates (dynamic from plan components)
   const componentTotals: ComponentAggregate[] = allComponents.map(comp => ({
@@ -543,7 +543,7 @@ function checkPopulationLayer(
     const periodSet = new Set<string>();
 
     for (const emp of aggData) {
-      const id = emp.employeeId || '';
+      const id = String(emp.employeeId || '');
       if (idSet.has(id)) duplicates++;
       idSet.add(id);
       if (emp.month && emp.year) {

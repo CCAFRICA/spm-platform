@@ -226,6 +226,15 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/investigate/adjustments/history', label: 'Adjustment History', labelEs: 'Historial de Ajustes', icon: 'History', roles: ['vl_admin', 'admin'] },
         ],
       },
+      {
+        id: 'forensics',
+        label: 'Forensics',
+        labelEs: 'Forense',
+        routes: [
+          { path: '/investigate/reconciliation', label: 'Reconciliation Studio', labelEs: 'Estudio de Conciliación', icon: 'GitCompare', roles: ['vl_admin', 'admin'] },
+          { path: '/investigate/plan-validation', label: 'Plan Validation', labelEs: 'Validación del Plan', icon: 'ShieldCheck', roles: ['vl_admin', 'admin'] },
+        ],
+      },
     ],
   },
 
