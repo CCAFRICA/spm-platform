@@ -40,6 +40,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         labelEs: 'Calcular',
         routes: [
           { path: '/operate/calculate', label: 'Run Calculations', labelEs: 'Ejecutar Cálculos', icon: 'Calculator', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/results', label: 'Results Dashboard', labelEs: 'Panel de Resultados', icon: 'BarChart3', roles: ['vl_admin', 'admin'] },
           { path: '/operate/calculate/rate-tables', label: 'Rate Tables', labelEs: 'Tablas de Tarifas', icon: 'Table', roles: ['vl_admin', 'admin'] },
           { path: '/operate/calculate/ranges', label: 'Performance Ranges', labelEs: 'Rangos de Rendimiento', icon: 'Sliders', roles: ['vl_admin', 'admin'] },
         ],

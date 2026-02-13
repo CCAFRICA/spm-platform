@@ -324,7 +324,7 @@ export default function CalculatePage() {
         }
         if (runType === 'preview') {
           currentCycle = transitionCycle(currentCycle, 'PREVIEW', user.name, 'Preview calculation completed', {
-            runId: orchestrationResult.runId,
+            runId: orchestrationResult.run.id,
           });
         } else {
           // Official run: transition to PREVIEW first if needed, then to OFFICIAL
@@ -333,15 +333,12 @@ export default function CalculatePage() {
           }
           const snapshot: OfficialSnapshot = {
             timestamp: new Date().toISOString(),
-            runId: orchestrationResult.runId,
+            runId: orchestrationResult.run.id,
             totalPayout: orchestrationResult.summary.totalPayout,
             employeeCount: orchestrationResult.summary.employeesProcessed,
-            componentTotals: orchestrationResult.summary.componentBreakdown?.reduce(
-              (acc: Record<string, number>, c: { componentName: string; total: number }) => {
-                acc[c.componentName] = c.total;
-                return acc;
-              }, {} as Record<string, number>
-            ) || {},
+            componentTotals: Object.fromEntries(
+              Object.entries(orchestrationResult.summary.byPlan || {}).map(([k, v]) => [k, v.total])
+            ),
             immutable: true,
           };
           currentCycle = transitionCycle(currentCycle, 'OFFICIAL', user.name, 'Official calculation completed', { snapshot });
