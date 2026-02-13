@@ -14,7 +14,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { getPeriodRuns } from '@/lib/orchestration/calculation-orchestrator';
@@ -162,6 +162,29 @@ const labels = {
     exportResults: 'Export Results',
     fileOnlyCount: 'File Only',
     vlOnlyCount: 'VL Only',
+    // Phase 4: Inline locale elimination
+    fileOnly: 'File Only',
+    vlOnly: 'VL Only',
+    exact: 'Exact',
+    toleranceLabel: 'Tolerance',
+    amberLabel: 'Amber',
+    redLabel: 'Red',
+    official: 'Official',
+    previewRun: 'Preview',
+    adjustment: 'Adjustment',
+    employees: 'employees',
+    showingNOfTotal: 'Showing',
+    ofLabel: 'of',
+    edited: 'Edited',
+    exactTolerance: 'Exact / Tolerance',
+    redFlags: 'Red Flags',
+    flagged: 'Flagged',
+    component: 'Component',
+    matchMsg: 'Values match within tolerance threshold.',
+    diffMsg: 'Review calculation components and input data.',
+    fileOnlyMsg: 'Employee exists in uploaded file but has no VL calculation. Verify they are included in the period.',
+    vlOnlyMsg: 'Employee has VL calculation but is not in uploaded file. May be a new hire or benchmark data issue.',
+    differenceOf: 'Difference of',
   },
   'es-MX': {
     title: 'Reconciliacion de Benchmark',
@@ -231,6 +254,29 @@ const labels = {
     exportResults: 'Exportar Resultados',
     fileOnlyCount: 'Solo Archivo',
     vlOnlyCount: 'Solo VL',
+    // Phase 4: Inline locale elimination
+    fileOnly: 'Solo Archivo',
+    vlOnly: 'Solo VL',
+    exact: 'Exacto',
+    toleranceLabel: 'Tolerancia',
+    amberLabel: 'Ambar',
+    redLabel: 'Rojo',
+    official: 'Oficial',
+    previewRun: 'Vista Previa',
+    adjustment: 'Ajuste',
+    employees: 'empleados',
+    showingNOfTotal: 'Mostrando',
+    ofLabel: 'de',
+    edited: 'Editado',
+    exactTolerance: 'Exactos / Tolerancia',
+    redFlags: 'Alertas Rojas',
+    flagged: 'Con Alertas',
+    component: 'Componente',
+    matchMsg: 'Los valores coinciden dentro del margen de tolerancia.',
+    diffMsg: 'Verificar componentes de calculo y datos de entrada.',
+    fileOnlyMsg: 'El empleado existe en el archivo pero no tiene calculo en VL. Verificar que este incluido en el periodo.',
+    vlOnlyMsg: 'El empleado tiene calculo en VL pero no aparece en el archivo. Puede ser una nueva contratacion o error en datos de referencia.',
+    differenceOf: 'Diferencia de',
   },
 };
 
@@ -275,9 +321,10 @@ export default function ReconciliationPage() {
   const [filter, setFilter] = useState<'all' | 'matched' | 'file_only' | 'vl_only' | 'flagged'>('all');
   const [sortDesc, setSortDesc] = useState(true);
 
-  // VL Admin always sees English, tenant users see tenant locale
+  // Locale and currency
   const { locale } = useAdminLocale();
   const t = labels[locale];
+  const { format: formatCurrency } = useCurrency();
 
   // Check VL Admin access
   const hasAccess = user && isVLAdmin(user);
@@ -527,23 +574,23 @@ export default function ReconciliationPage() {
         })
     : [];
 
-  // Get flag/population badge for an employee
+  // Get flag/population badge for an employee (Wayfinder Layer 2: attention patterns)
   const getFlagBadge = (emp: EmployeeComparison) => {
     if (emp.population === 'file_only') {
-      return <Badge className="bg-orange-100 text-orange-800 text-xs">{locale === 'es-MX' ? 'Solo Archivo' : 'File Only'}</Badge>;
+      return <Badge variant="outline" className="text-xs border-slate-400 text-slate-600">{t.fileOnly}</Badge>;
     }
     if (emp.population === 'vl_only') {
-      return <Badge className="bg-purple-100 text-purple-800 text-xs">{locale === 'es-MX' ? 'Solo VL' : 'VL Only'}</Badge>;
+      return <Badge variant="outline" className="text-xs border-slate-400 text-slate-500">{t.vlOnly}</Badge>;
     }
     switch (emp.totalFlag) {
       case 'exact':
-        return <Badge className="bg-emerald-100 text-emerald-800 text-xs">{locale === 'es-MX' ? 'Exacto' : 'Exact'}</Badge>;
+        return <Badge variant="outline" className="text-xs border-slate-600 text-slate-900 dark:text-slate-100 font-semibold">{t.exact}</Badge>;
       case 'tolerance':
-        return <Badge className="bg-emerald-100 text-emerald-700 text-xs">{locale === 'es-MX' ? 'Tolerancia' : 'Tolerance'}</Badge>;
+        return <Badge variant="outline" className="text-xs border-slate-300 text-slate-600">{t.toleranceLabel}</Badge>;
       case 'amber':
-        return <Badge className="bg-amber-100 text-amber-800 text-xs">Amber</Badge>;
+        return <Badge variant="outline" className="text-xs border-amber-400 text-amber-700 font-medium">{t.amberLabel}</Badge>;
       case 'red':
-        return <Badge className="bg-red-100 text-red-800 text-xs">Red</Badge>;
+        return <Badge variant="outline" className="text-xs border-orange-500 text-orange-800 dark:text-orange-300 font-bold">{t.redLabel}</Badge>;
     }
   };
 
@@ -883,16 +930,16 @@ export default function ReconciliationPage() {
                   </div>
                 ) : (
                   batches.map((batch) => {
-                    const runLabel = batch.runType === 'official' ? (locale === 'es-MX' ? 'Oficial' : 'Official')
-                      : batch.runType === 'preview' ? 'Preview'
-                      : batch.runType === 'adjustment' ? (locale === 'es-MX' ? 'Ajuste' : 'Adjustment')
+                    const runLabel = batch.runType === 'official' ? t.official
+                      : batch.runType === 'preview' ? t.previewRun
+                      : batch.runType === 'adjustment' ? t.adjustment
                       : batch.runType;
                     const dateStr = batch.completedAt
                       ? new Date(batch.completedAt).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })
                       : '';
                     return (
                       <SelectItem key={batch.id} value={batch.id}>
-                        {batch.periodId} - {runLabel} | {dateStr} | {batch.employeesProcessed} {locale === 'es-MX' ? 'empleados' : 'employees'} | ${batch.totalPayout.toLocaleString()}
+                        {batch.periodId} - {runLabel} | {dateStr} | {batch.employeesProcessed} {t.employees} | {formatCurrency(batch.totalPayout)}
                       </SelectItem>
                     );
                   })
@@ -960,9 +1007,7 @@ export default function ReconciliationPage() {
             </div>
             {parsedFile.totalRows > 5 && (
               <p className="text-center text-xs text-slate-400 mt-2">
-                {locale === 'es-MX'
-                  ? `Mostrando 5 de ${parsedFile.totalRows} filas`
-                  : `Showing 5 of ${parsedFile.totalRows} rows`}
+                {`${t.showingNOfTotal} 5 ${t.ofLabel} ${parsedFile.totalRows}`}
               </p>
             )}
           </CardContent>
@@ -1057,7 +1102,7 @@ export default function ReconciliationPage() {
                           )}
                           {mapping.isUserOverride && (
                             <Badge variant="outline" className="text-xs ml-1 border-blue-300 text-blue-600">
-                              {locale === 'es-MX' ? 'Editado' : 'Edited'}
+                              {t.edited}
                             </Badge>
                           )}
                         </TableCell>
@@ -1103,17 +1148,17 @@ export default function ReconciliationPage() {
             </Button>
           </div>
 
-          {/* Summary Cards */}
+          {/* Summary Cards (Wayfinder Layer 2: attention patterns) */}
           <div className="grid gap-4 md:grid-cols-4">
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-full bg-emerald-100 dark:bg-emerald-900/30">
-                    <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+                  <div className="p-3 rounded-full bg-slate-100 dark:bg-slate-800">
+                    <CheckCircle2 className="h-6 w-6 text-slate-700 dark:text-slate-300" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{locale === 'es-MX' ? 'Exactos / Tolerancia' : 'Exact / Tolerance'}</p>
-                    <p className="text-2xl font-bold text-emerald-600">
+                    <p className="text-sm text-slate-500">{t.exactTolerance}</p>
+                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
                       {comparisonResult.summary.exactMatches + comparisonResult.summary.toleranceMatches}
                     </p>
                   </div>
@@ -1124,12 +1169,12 @@ export default function ReconciliationPage() {
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-full bg-amber-100 dark:bg-amber-900/30">
-                    <AlertTriangle className="h-6 w-6 text-amber-600" />
+                  <div className="p-3 rounded-full bg-slate-100 dark:bg-slate-800">
+                    <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">Amber (5-15%)</p>
-                    <p className="text-2xl font-bold text-amber-600">{comparisonResult.summary.amberFlags}</p>
+                    <p className="text-sm text-slate-500">{t.amberLabel} (5-15%)</p>
+                    <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{comparisonResult.summary.amberFlags}</p>
                   </div>
                 </div>
               </CardContent>
@@ -1138,12 +1183,12 @@ export default function ReconciliationPage() {
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-full bg-red-100 dark:bg-red-900/30">
-                    <XCircle className="h-6 w-6 text-red-600" />
+                  <div className="p-3 rounded-full bg-slate-100 dark:bg-slate-800">
+                    <XCircle className="h-6 w-6 text-orange-700 dark:text-orange-400" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{locale === 'es-MX' ? 'Alertas Rojas' : 'Red Flags'} (&gt;15%)</p>
-                    <p className="text-2xl font-bold text-red-600">{comparisonResult.summary.redFlags}</p>
+                    <p className="text-sm text-slate-500">{t.redFlags} (&gt;15%)</p>
+                    <p className="text-2xl font-bold text-orange-800 dark:text-orange-300">{comparisonResult.summary.redFlags}</p>
                   </div>
                 </div>
               </CardContent>
@@ -1152,8 +1197,8 @@ export default function ReconciliationPage() {
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900/30">
-                    <TrendingUp className="h-6 w-6 text-blue-600" />
+                  <div className="p-3 rounded-full bg-slate-100 dark:bg-slate-800">
+                    <TrendingUp className="h-6 w-6 text-slate-600 dark:text-slate-400" />
                   </div>
                   <div>
                     <p className="text-sm text-slate-500">{t.matched}</p>
@@ -1173,26 +1218,26 @@ export default function ReconciliationPage() {
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="text-center p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                   <p className="text-sm text-slate-500">{t.sourceTotal}</p>
-                  <p className="text-2xl font-bold">${comparisonResult.summary.fileTotalAmount.toLocaleString()}</p>
+                  <p className="text-2xl font-bold">{formatCurrency(comparisonResult.summary.fileTotalAmount)}</p>
                 </div>
                 <div className="text-center p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                   <p className="text-sm text-slate-500">{t.targetTotal}</p>
-                  <p className="text-2xl font-bold">${comparisonResult.summary.vlTotalAmount.toLocaleString()}</p>
+                  <p className="text-2xl font-bold">{formatCurrency(comparisonResult.summary.vlTotalAmount)}</p>
                 </div>
                 <div className={cn(
                   'text-center p-4 rounded-lg',
                   Math.abs(comparisonResult.summary.totalDelta) < 1
-                    ? 'bg-emerald-50 dark:bg-emerald-900/30'
-                    : 'bg-red-50 dark:bg-red-900/30'
+                    ? 'bg-slate-50 dark:bg-slate-800'
+                    : 'bg-slate-50 dark:bg-slate-800 border border-amber-200 dark:border-amber-800'
                 )}>
                   <p className="text-sm text-slate-500">{t.difference}</p>
                   <p className={cn(
                     'text-2xl font-bold',
                     Math.abs(comparisonResult.summary.totalDelta) < 1
-                      ? 'text-emerald-600'
-                      : 'text-red-600'
+                      ? 'text-slate-900 dark:text-slate-100'
+                      : 'text-amber-700 dark:text-amber-400'
                   )}>
-                    ${Math.abs(comparisonResult.summary.totalDelta).toLocaleString()}
+                    {formatCurrency(Math.abs(comparisonResult.summary.totalDelta))}
                   </p>
                 </div>
               </div>
@@ -1205,7 +1250,7 @@ export default function ReconciliationPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>{t.employeeComparison}</CardTitle>
-                  <CardDescription>{filteredEmployees.length} {locale === 'es-MX' ? 'empleados' : 'employees'}</CardDescription>
+                  <CardDescription>{filteredEmployees.length} {t.employees}</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
@@ -1215,9 +1260,9 @@ export default function ReconciliationPage() {
                     <SelectContent>
                       <SelectItem value="all">{t.all}</SelectItem>
                       <SelectItem value="matched">{t.matchedOnly}</SelectItem>
-                      <SelectItem value="file_only">{locale === 'es-MX' ? 'Solo Archivo' : 'File Only'}</SelectItem>
-                      <SelectItem value="vl_only">{locale === 'es-MX' ? 'Solo VL' : 'VL Only'}</SelectItem>
-                      <SelectItem value="flagged">{locale === 'es-MX' ? 'Con Alertas' : 'Flagged'}</SelectItem>
+                      <SelectItem value="file_only">{t.fileOnly}</SelectItem>
+                      <SelectItem value="vl_only">{t.vlOnly}</SelectItem>
+                      <SelectItem value="flagged">{t.flagged}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button
@@ -1251,8 +1296,8 @@ export default function ReconciliationPage() {
                           <p className="text-xs text-slate-400">{emp.employeeId}</p>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right">${emp.fileTotal.toLocaleString()}</TableCell>
-                      <TableCell className="text-right">${emp.vlTotal.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(emp.fileTotal)}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(emp.vlTotal)}</TableCell>
                       <TableCell className={cn('text-right font-medium', getFlagColor(emp.totalFlag))}>
                         <div className="flex items-center justify-end gap-1">
                           {emp.totalDelta > 0 ? (
@@ -1262,7 +1307,7 @@ export default function ReconciliationPage() {
                           ) : (
                             <Minus className="h-4 w-4 text-slate-400" />
                           )}
-                          ${Math.abs(emp.totalDelta).toLocaleString()}
+                          {formatCurrency(Math.abs(emp.totalDelta))}
                           <span className="text-xs text-slate-400">
                             ({(Math.abs(emp.totalDeltaPercent) * 100).toFixed(1)}%)
                           </span>
@@ -1284,7 +1329,7 @@ export default function ReconciliationPage() {
               </Table>
               {filteredEmployees.length > 20 && (
                 <p className="text-center text-sm text-slate-500 mt-4">
-                  {locale === 'es-MX' ? 'Mostrando 20 de' : 'Showing 20 of'} {filteredEmployees.length}
+                  {t.showingNOfTotal} 20 {t.ofLabel} {filteredEmployees.length}
                 </p>
               )}
             </CardContent>
@@ -1308,11 +1353,11 @@ export default function ReconciliationPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                     <p className="text-sm text-slate-500">{t.expected}</p>
-                    <p className="text-xl font-bold">${selectedEmployee.fileTotal.toLocaleString()}</p>
+                    <p className="text-xl font-bold">{formatCurrency(selectedEmployee.fileTotal)}</p>
                   </div>
                   <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                     <p className="text-sm text-slate-500">{t.calculated}</p>
-                    <p className="text-xl font-bold">${selectedEmployee.vlTotal.toLocaleString()}</p>
+                    <p className="text-xl font-bold">{formatCurrency(selectedEmployee.vlTotal)}</p>
                   </div>
                 </div>
 
@@ -1323,7 +1368,7 @@ export default function ReconciliationPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="text-xs">{locale === 'es-MX' ? 'Componente' : 'Component'}</TableHead>
+                          <TableHead className="text-xs">{t.component}</TableHead>
                           <TableHead className="text-xs text-right">{t.expected}</TableHead>
                           <TableHead className="text-xs text-right">{t.calculated}</TableHead>
                           <TableHead className="text-xs text-right">{t.variance}</TableHead>
@@ -1333,10 +1378,10 @@ export default function ReconciliationPage() {
                         {selectedEmployee.components.map((comp) => (
                           <TableRow key={comp.componentId}>
                             <TableCell className="text-xs">{comp.componentName}</TableCell>
-                            <TableCell className="text-xs text-right">${comp.fileValue.toLocaleString()}</TableCell>
-                            <TableCell className="text-xs text-right">${comp.vlValue.toLocaleString()}</TableCell>
+                            <TableCell className="text-xs text-right">{formatCurrency(comp.fileValue)}</TableCell>
+                            <TableCell className="text-xs text-right">{formatCurrency(comp.vlValue)}</TableCell>
                             <TableCell className={cn('text-xs text-right', getFlagColor(comp.flag))}>
-                              ${Math.abs(comp.delta).toLocaleString()} ({(Math.abs(comp.deltaPercent) * 100).toFixed(1)}%)
+                              {formatCurrency(Math.abs(comp.delta))} ({(Math.abs(comp.deltaPercent) * 100).toFixed(1)}%)
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1345,31 +1390,16 @@ export default function ReconciliationPage() {
                   </div>
                 )}
 
-                <div className={cn(
-                  'p-4 rounded-lg',
-                  selectedEmployee.totalFlag === 'exact' || selectedEmployee.totalFlag === 'tolerance'
-                    ? 'bg-emerald-50 dark:bg-emerald-900/30'
-                    : selectedEmployee.totalFlag === 'amber'
-                    ? 'bg-amber-50 dark:bg-amber-900/30'
-                    : 'bg-red-50 dark:bg-red-900/30'
-                )}>
+                <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800">
                   <p className="text-sm font-medium mb-2">{t.reasoning}</p>
                   <p className="text-sm">
                     {selectedEmployee.population === 'matched'
                       ? selectedEmployee.totalFlag === 'exact' || selectedEmployee.totalFlag === 'tolerance'
-                        ? locale === 'es-MX'
-                          ? 'Los valores coinciden dentro del margen de tolerancia.'
-                          : 'Values match within tolerance threshold.'
-                        : locale === 'es-MX'
-                        ? `Diferencia de $${Math.abs(selectedEmployee.totalDelta).toLocaleString()} (${(Math.abs(selectedEmployee.totalDeltaPercent) * 100).toFixed(1)}%). Verificar componentes de calculo y datos de entrada.`
-                        : `Difference of $${Math.abs(selectedEmployee.totalDelta).toLocaleString()} (${(Math.abs(selectedEmployee.totalDeltaPercent) * 100).toFixed(1)}%). Review calculation components and input data.`
+                        ? t.matchMsg
+                        : `${t.differenceOf} ${formatCurrency(Math.abs(selectedEmployee.totalDelta))} (${(Math.abs(selectedEmployee.totalDeltaPercent) * 100).toFixed(1)}%). ${t.diffMsg}`
                       : selectedEmployee.population === 'file_only'
-                      ? locale === 'es-MX'
-                        ? 'El empleado existe en el archivo pero no tiene calculo en VL. Verificar que este incluido en el periodo.'
-                        : 'Employee exists in uploaded file but has no VL calculation. Verify they are included in the period.'
-                      : locale === 'es-MX'
-                      ? 'El empleado tiene calculo en VL pero no aparece en el archivo. Puede ser una nueva contratacion o error en datos de referencia.'
-                      : 'Employee has VL calculation but is not in uploaded file. May be a new hire or benchmark data issue.'}
+                      ? t.fileOnlyMsg
+                      : t.vlOnlyMsg}
                   </p>
                 </div>
               </div>

@@ -301,10 +301,10 @@ function buildSummary(employees: EmployeeComparison[]): ComparisonSummary {
  */
 export function getFlagColor(flag: DeltaFlag): string {
   switch (flag) {
-    case 'exact': return 'text-emerald-600';
-    case 'tolerance': return 'text-emerald-500';
-    case 'amber': return 'text-amber-600';
-    case 'red': return 'text-red-600';
+    case 'exact': return 'text-slate-900 dark:text-slate-100';
+    case 'tolerance': return 'text-slate-500 dark:text-slate-400';
+    case 'amber': return 'text-amber-700 dark:text-amber-400';
+    case 'red': return 'text-orange-800 dark:text-orange-300 font-bold';
   }
 }
 
