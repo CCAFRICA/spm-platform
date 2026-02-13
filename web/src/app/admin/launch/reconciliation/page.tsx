@@ -88,6 +88,7 @@ import {
   FileSpreadsheet,
   Sparkles,
   Loader2,
+  Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -157,6 +158,10 @@ const labels = {
     low: 'Low',
     confirmAndProceed: 'Confirm Mapping',
     noMapping: 'None (skip)',
+    exportCSV: 'Export CSV',
+    exportResults: 'Export Results',
+    fileOnlyCount: 'File Only',
+    vlOnlyCount: 'VL Only',
   },
   'es-MX': {
     title: 'Reconciliacion de Benchmark',
@@ -222,6 +227,10 @@ const labels = {
     low: 'Baja',
     confirmAndProceed: 'Confirmar Mapeo',
     noMapping: 'Ninguno (omitir)',
+    exportCSV: 'Exportar CSV',
+    exportResults: 'Exportar Resultados',
+    fileOnlyCount: 'Solo Archivo',
+    vlOnlyCount: 'Solo VL',
   },
 };
 
@@ -536,6 +545,94 @@ export default function ReconciliationPage() {
       case 'red':
         return <Badge className="bg-red-100 text-red-800 text-xs">Red</Badge>;
     }
+  };
+
+  // Phase 5: Export comparison results to CSV
+  const handleExportCSV = () => {
+    if (!comparisonResult) return;
+
+    const rows: string[][] = [];
+    // Header row
+    const headers = [
+      'Employee ID', 'Employee Name', 'Population',
+      'File Total', 'VL Total', 'Delta', 'Delta %', 'Flag',
+    ];
+
+    // Add component columns if any employee has components
+    const hasComponents = comparisonResult.employees.some(e => e.components.length > 0);
+    const componentNames: string[] = [];
+    if (hasComponents) {
+      const first = comparisonResult.employees.find(e => e.components.length > 0);
+      if (first) {
+        for (const comp of first.components) {
+          componentNames.push(comp.componentName);
+          headers.push(`${comp.componentName} (File)`, `${comp.componentName} (VL)`, `${comp.componentName} (Delta)`);
+        }
+      }
+    }
+
+    rows.push(headers);
+
+    // Data rows
+    for (const emp of comparisonResult.employees) {
+      const row = [
+        emp.employeeId,
+        emp.employeeName,
+        emp.population,
+        emp.fileTotal.toString(),
+        emp.vlTotal.toString(),
+        emp.totalDelta.toString(),
+        (emp.totalDeltaPercent * 100).toFixed(2) + '%',
+        emp.totalFlag,
+      ];
+
+      if (hasComponents) {
+        for (const compName of componentNames) {
+          const comp = emp.components.find(c => c.componentName === compName);
+          row.push(
+            comp ? comp.fileValue.toString() : '',
+            comp ? comp.vlValue.toString() : '',
+            comp ? comp.delta.toString() : '',
+          );
+        }
+      }
+
+      rows.push(row);
+    }
+
+    // Summary row
+    rows.push([]);
+    rows.push(['Summary']);
+    rows.push(['Total Employees', comparisonResult.summary.totalEmployees.toString()]);
+    rows.push(['Matched', comparisonResult.summary.matched.toString()]);
+    rows.push(['File Only', comparisonResult.summary.fileOnly.toString()]);
+    rows.push(['VL Only', comparisonResult.summary.vlOnly.toString()]);
+    rows.push(['Exact Matches', comparisonResult.summary.exactMatches.toString()]);
+    rows.push(['Within Tolerance', comparisonResult.summary.toleranceMatches.toString()]);
+    rows.push(['Amber Flags', comparisonResult.summary.amberFlags.toString()]);
+    rows.push(['Red Flags', comparisonResult.summary.redFlags.toString()]);
+    rows.push(['File Total', comparisonResult.summary.fileTotalAmount.toString()]);
+    rows.push(['VL Total', comparisonResult.summary.vlTotalAmount.toString()]);
+    rows.push(['Total Delta', comparisonResult.summary.totalDelta.toString()]);
+
+    // Convert to CSV string
+    const csvContent = rows.map(row =>
+      row.map(cell => {
+        if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
+          return `"${cell.replace(/"/g, '""')}"`;
+        }
+        return cell;
+      }).join(',')
+    ).join('\n');
+
+    // Trigger download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `reconciliation_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   // Access denied
@@ -978,9 +1075,25 @@ export default function ReconciliationPage() {
         </Card>
       )}
 
-      {/* Phase 4: Comparison Results */}
+      {/* Phase 4-5: Comparison Results */}
       {comparisonResult && (
         <>
+          {/* Export bar */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4 text-sm text-slate-500">
+              {comparisonResult.summary.fileOnly > 0 && (
+                <span>{t.fileOnlyCount}: <strong className="text-orange-600">{comparisonResult.summary.fileOnly}</strong></span>
+              )}
+              {comparisonResult.summary.vlOnly > 0 && (
+                <span>{t.vlOnlyCount}: <strong className="text-purple-600">{comparisonResult.summary.vlOnly}</strong></span>
+              )}
+            </div>
+            <Button variant="outline" size="sm" onClick={handleExportCSV}>
+              <Download className="h-4 w-4 mr-1" />
+              {t.exportCSV}
+            </Button>
+          </div>
+
           {/* Summary Cards */}
           <div className="grid gap-4 md:grid-cols-4">
             <Card>
