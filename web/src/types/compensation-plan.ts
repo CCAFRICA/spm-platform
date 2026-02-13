@@ -82,6 +82,7 @@ export interface MatrixConfig {
   columnBands: Band[];
   values: number[][]; // values[rowIndex][colIndex]
   currency: string;
+  columnMetricSource?: string; // OB-34: topology hint for column metric resolution (e.g. 'store_component')
 }
 
 export interface Band {

@@ -860,22 +860,50 @@ export class CalculationOrchestrator {
       // OB-29 Phase 3B: Pass componentType for tier_lookup contextual validation
       const resolved = buildComponentMetrics(metricConfig, enrichedMetrics, component.componentType);
 
-      // OB-30-7v2: For matrix_lookup components, the column metric may need store-level total
-      // If the sheet is employee-level and the column metric name contains "store_",
-      // override with the store's total amount from storeAmountTotals
+      // OB-34: For matrix_lookup components, resolve column metric from the best source.
+      // Priority 1: columnMetricSource='store_component' -> read from store-level committed data
+      // Priority 2: Fall back to buildStoreAmountTotals() computed sums (OB-30 legacy)
       if (component.componentType === 'matrix_lookup' && component.matrixConfig) {
         const colMetric = component.matrixConfig.columnMetric;
         const colSemantic = inferSemanticType(colMetric);
-        const sheetTopo = this.sheetTopologyMap.get(matchedSheet);
+        const colSource = component.matrixConfig.columnMetricSource;
 
-        if (colMetric.startsWith('store_') && colSemantic === 'amount' &&
-            sheetTopo === 'employee_component' && employee.storeId) {
-          const storeTotals = this.storeAmountTotals.get(employee.storeId);
-          if (storeTotals) {
-            const storeTotal = storeTotals.get(matchedSheet);
-            if (storeTotal !== undefined) {
-              resolved[colMetric] = storeTotal;
+        if (colMetric.startsWith('store_') && colSemantic === 'amount' && employee.storeId) {
+          let storeValue: number | undefined;
+
+          // OB-34 Priority 1: Read from store-level committed data via componentMetrics
+          if (colSource === 'store_component') {
+            const attrs = employee.attributes as Record<string, unknown> | undefined;
+            const empComponentMetrics = attrs?.componentMetrics as Record<string, { amount?: number }> | undefined;
+            if (empComponentMetrics) {
+              // Find the store_component sheet that matches this component
+              for (const [sName, sData] of Object.entries(empComponentMetrics)) {
+                const topo = this.sheetTopologyMap.get(sName);
+                if (topo === 'store_component' && sData?.amount !== undefined) {
+                  // Use the store-level sheet's amount directly (already store-level)
+                  storeValue = sData.amount;
+                  break;
+                }
+              }
             }
+          }
+
+          // OB-30 Priority 2: Fall back to computed storeAmountTotals
+          if (storeValue === undefined) {
+            const sheetTopo = this.sheetTopologyMap.get(matchedSheet);
+            if (sheetTopo === 'employee_component') {
+              const storeTotals = this.storeAmountTotals.get(employee.storeId);
+              if (storeTotals) {
+                const total = storeTotals.get(matchedSheet);
+                if (total !== undefined) {
+                  storeValue = total;
+                }
+              }
+            }
+          }
+
+          if (storeValue !== undefined) {
+            resolved[colMetric] = storeValue;
           }
         }
       }

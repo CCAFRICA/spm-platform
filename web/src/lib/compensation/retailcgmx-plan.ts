@@ -46,6 +46,7 @@ const OPTICAL_SALES_MATRIX_CERTIFIED: MatrixConfig = {
     [1000,    1300,       1800,        2200,        3000],   // 150%+
   ],
   currency: 'MXN',
+  columnMetricSource: 'store_component', // OB-34: read column metric from store-level committed data
 };
 
 const OPTICAL_SALES_MATRIX_NON_CERTIFIED: MatrixConfig = {
@@ -77,6 +78,7 @@ const OPTICAL_SALES_MATRIX_NON_CERTIFIED: MatrixConfig = {
     [500,     650,        900,         1100,        1500],   // 150%+
   ],
   currency: 'MXN',
+  columnMetricSource: 'store_component', // OB-34: read column metric from store-level committed data
 };
 
 // Component 2: Venta de Tienda (Store Sales) - Tiered Lookup (same for both)
