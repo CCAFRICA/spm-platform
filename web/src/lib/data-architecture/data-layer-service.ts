@@ -1504,10 +1504,9 @@ function storeAggregatedData(
   }
 
   // STEP 5: Store to localStorage (componentMetrics structure is already compact)
-  console.log(`[COMMIT-VERIFY] STEP 5 reached. Aggregated ${aggregated.length} records. Serializing...`);
   const serialized = JSON.stringify(aggregated);
   const sizeKB = Math.round(serialized.length / 1024);
-  console.log(`[COMMIT-VERIFY] Serialized OK: ${sizeKB} KB (${aggregated.length} records)`);
+  console.log(`[DataLayer] Aggregated payload: ${sizeKB} KB (${aggregated.length} records)`);
 
   // Log sample of first employee's componentMetrics for verification
   if (aggregated.length > 0 && aggregated[0].componentMetrics) {
@@ -1563,10 +1562,10 @@ function storeAggregatedData(
     // Verify storage succeeded
     const verify = localStorage.getItem(storageKey);
     if (verify && verify.length > 0) {
-      console.log(`[COMMIT-VERIFY] SUCCESS: Key "${storageKey}" written, ${finalSizeKB} KB, ${aggregated.length} employees`);
+      console.log(`[DataLayer] SUCCESS: Stored ${aggregated.length} employees, ${finalSizeKB} KB`);
       reportStorageUsage();
     } else {
-      console.error(`[COMMIT-VERIFY] FAILED: Key "${storageKey}" not found after write!`);
+      console.error(`[DataLayer] FAILED: Verification failed - key not found after write`);
     }
 
     return { employeeCount: aggregated.length, sizeKB: finalSizeKB };
