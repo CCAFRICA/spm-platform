@@ -105,10 +105,10 @@ export function runComparison(
   employeeIdField: string,
   totalAmountField: string,
 ): ComparisonResult {
-  // Build lookup maps
+  // Build lookup maps with normalized IDs
   const fileByEmployee = new Map<string, Record<string, unknown>>();
   for (const row of fileRows) {
-    const empId = String(row[employeeIdField] ?? '').trim();
+    const empId = normalizeId(String(row[employeeIdField] ?? ''));
     if (empId) {
       fileByEmployee.set(empId, row);
     }
@@ -116,7 +116,10 @@ export function runComparison(
 
   const vlByEmployee = new Map<string, CalculationResult>();
   for (const result of vlResults) {
-    vlByEmployee.set(result.employeeId, result);
+    const empId = normalizeId(result.employeeId);
+    if (empId) {
+      vlByEmployee.set(empId, result);
+    }
   }
 
   // Get component mappings
@@ -206,6 +209,19 @@ export function runComparison(
 // ============================================
 // HELPERS
 // ============================================
+
+/**
+ * Normalize employee ID for matching: trim, lowercase, strip leading zeros
+ * Handles numeric strings, padded IDs, and mixed-case IDs
+ */
+function normalizeId(id: string): string {
+  let normalized = String(id).trim();
+  // If purely numeric (possibly with leading zeros), strip leading zeros
+  if (/^\d+$/.test(normalized)) {
+    normalized = String(parseInt(normalized, 10));
+  }
+  return normalized;
+}
 
 /**
  * Classify a delta percentage into a flag category
