@@ -28,9 +28,15 @@
   }
 
   function getPlans() {
+    const tenantId = getTenantId();
     const raw = localStorage.getItem('compensation_plans');
     if (!raw) return [];
-    try { return JSON.parse(raw); } catch { return []; }
+    try {
+      // Deserialize with INFINITY restoration (plan-storage.ts uses "INFINITY" placeholder)
+      const all = JSON.parse(raw, (k, v) => v === 'INFINITY' ? Infinity : v);
+      // Filter by tenantId to match orchestrator's getPlans(tenantId) behavior
+      return all.filter(p => p.tenantId === tenantId);
+    } catch { return []; }
   }
 
   function getVLResults() {
