@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 
 interface AlertRule {
   id: string;
@@ -61,8 +61,8 @@ export default function AlertsPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
   const { format } = useCurrency();
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : (currentTenant?.locale === 'es-MX');
   const lang = isSpanish ? 'es' : 'en';
 
   const [alerts, setAlerts] = useState<AlertRule[]>([

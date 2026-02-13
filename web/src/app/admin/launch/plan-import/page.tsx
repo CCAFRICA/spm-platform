@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { savePlan, activatePlan } from '@/lib/compensation/plan-storage';
 import { parseFile } from '@/lib/import-pipeline/file-parser';
@@ -257,7 +257,7 @@ export default function PlanImportPage() {
   const t = labels[locale];
 
   // Check VL Admin access
-  const hasAccess = user && isCCAdmin(user);
+  const hasAccess = user && isVLAdmin(user);
 
   // File drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {

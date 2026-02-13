@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import {
   getPeriodProcessor,
   getValidTransitions,
@@ -79,8 +79,8 @@ export default function PeriodsPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
 
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
 
   const [periods, setPeriods] = useState<PayrollPeriod[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);

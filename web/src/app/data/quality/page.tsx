@@ -18,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { toast } from 'sonner';
 import {
   getPendingItems,
@@ -42,8 +42,8 @@ export default function DataQualityPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
   const tenantId = currentTenant?.id || 'retailco';
 
   const [qualityScore, setQualityScore] = useState<QualityScore | null>(null);

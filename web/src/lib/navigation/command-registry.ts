@@ -70,7 +70,7 @@ function getPageCommands(role: UserRole, isSpanish: boolean): CommandItem[] {
 function getActionCommands(role: UserRole, isSpanish: boolean): CommandItem[] {
   const actions: CommandItem[] = [];
 
-  // Admin/CC Admin actions
+  // Admin/VL Admin actions
   if (role === 'vl_admin' || role === 'admin') {
     actions.push({
       id: 'action-run-calculations',

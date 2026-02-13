@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import {
   listApprovalItems,
   resolveApproval,
@@ -39,7 +39,7 @@ export default function CalculationApprovalPage() {
   const [error, setError] = useState<string | null>(null);
 
   const tenantId = currentTenant?.id || '';
-  const hasAccess = user && isCCAdmin(user);
+  const hasAccess = user && isVLAdmin(user);
 
   const formatCurrency = (amount: number): string => {
     const code = currentTenant?.currency || 'USD';

@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import {
   getReconciliationBridge,
@@ -192,7 +192,7 @@ export default function ReconciliationPage() {
   const t = labels[locale];
 
   // Check VL Admin access
-  const hasAccess = user && isCCAdmin(user);
+  const hasAccess = user && isVLAdmin(user);
 
   // Load calculation batches
   useEffect(() => {

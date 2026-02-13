@@ -58,7 +58,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 
 interface TeamMember {
   id: string;
@@ -153,8 +153,8 @@ const regions = ['CDMX', 'Jalisco', 'Nuevo León', 'Puebla', 'Nacional'];
 export default function TeamsPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   const [teams, setTeams] = useState<Team[]>(mockTeams);
   const [searchTerm, setSearchTerm] = useState('');

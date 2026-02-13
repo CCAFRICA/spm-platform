@@ -46,7 +46,7 @@ import {
 } from '@/components/ui/dialog';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 
 interface FileColumn {
   id: string;
@@ -85,8 +85,8 @@ const initialAlertConfigs: AlertConfig[] = [];
 export default function DataReadinessPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   const [files, setFiles] = useState<ExpectedFile[]>(initialFiles);
   const [alertConfigs, setAlertConfigs] = useState<AlertConfig[]>(initialAlertConfigs);

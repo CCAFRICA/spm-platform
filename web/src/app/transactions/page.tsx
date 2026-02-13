@@ -18,7 +18,7 @@ import { useTenant, useTerm, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
 import { accessControl } from '@/lib/access-control';
-import { isTenantUser, isCCAdmin } from '@/types/auth';
+import { isTenantUser, isVLAdmin } from '@/types/auth';
 import { pageVariants } from '@/lib/animations';
 import { TableSkeleton } from '@/components/ui/skeleton-loaders';
 import { toast } from 'sonner';
@@ -74,8 +74,8 @@ export default function TransactionsPage() {
 
   // Access control
   const dataAccessLevel = accessControl.getDataAccessLevel(user);
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
 
   // Get user's meseroId for hospitality filtering
   const userMeseroId = useMemo(() => {

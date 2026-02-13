@@ -10,7 +10,7 @@ interface TenantContextState {
   currentTenant: TenantConfig | null;
   isLoading: boolean;
   error: string | null;
-  isCCAdmin: boolean;
+  isVLAdmin: boolean;
   availableTenants: TenantSummary[];
   setTenant: (tenantId: string) => Promise<void>;
   clearTenant: () => void;
@@ -112,7 +112,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   const [availableTenants, setAvailableTenants] = useState<TenantSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isCCAdmin, setIsCCAdmin] = useState(false);
+  const [isVLAdmin, setIsVLAdmin] = useState(false);
 
   const loadTenant = useCallback(async (tenantId: string): Promise<void> => {
     // OB-16A: Normalize tenant ID at the entry point
@@ -148,7 +148,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         // Check if user is VL Admin
         const userRole = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_USER_ROLE) : null;
         const isAdmin = userRole === 'vl_admin';
-        setIsCCAdmin(isAdmin);
+        setIsVLAdmin(isAdmin);
 
         // Load available tenants for VL Admin (both static and dynamic)
         if (isAdmin) {
@@ -218,10 +218,10 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(STORAGE_KEY_TENANT);
     }
-    if (isCCAdmin) {
+    if (isVLAdmin) {
       router.push('/select-tenant');
     }
-  }, [isCCAdmin, router]);
+  }, [isVLAdmin, router]);
 
   const refreshTenant = useCallback(async (): Promise<void> => {
     if (currentTenant) {
@@ -236,7 +236,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       currentTenant,
       isLoading,
       error,
-      isCCAdmin,
+      isVLAdmin,
       availableTenants,
       setTenant,
       clearTenant,

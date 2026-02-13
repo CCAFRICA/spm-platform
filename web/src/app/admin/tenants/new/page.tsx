@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import {
   getTenantProvisioningEngine,
   getIndustryTemplates,
@@ -79,7 +79,7 @@ const labels = {
       apiAccess: 'API Access',
     },
     accessDenied: 'Access Denied',
-    accessDeniedDesc: 'Only CC Admins can provision new tenants.',
+    accessDeniedDesc: 'Only VL Admins can provision new tenants.',
   },
   'es-MX': {
     title: 'Provisión de Nuevo Inquilino',
@@ -195,9 +195,9 @@ export default function NewTenantPage() {
     warnings: string[];
   } | null>(null);
 
-  // CC Admin locale override: CC Admins always see English regardless of tenant locale
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const locale = (userIsCCAdmin ? 'en-US' : (currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US')) as 'en-US' | 'es-MX';
+  // VL Admin locale override: VL Admins always see English regardless of tenant locale
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const locale = (userIsVLAdmin ? 'en-US' : (currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US')) as 'en-US' | 'es-MX';
   const t = labels[locale];
 
   // Form state
@@ -243,8 +243,8 @@ export default function NewTenantPage() {
 
   const industryTemplates = getIndustryTemplates();
 
-  // Check CC Admin access
-  if (!user || !isCCAdmin(user)) {
+  // Check VL Admin access
+  if (!user || !isVLAdmin(user)) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Card className="w-full max-w-md">

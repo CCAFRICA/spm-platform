@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { LogOut, Settings, User, Shield, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { usePermissions } from '@/hooks/use-permissions';
-import { isCCAdmin, isTenantUser } from '@/types/auth';
+import { isVLAdmin, isTenantUser } from '@/types/auth';
 
 export function UserMenu() {
   const router = useRouter();
@@ -97,7 +97,7 @@ export function UserMenu() {
                 </span>
                 <div className="flex gap-1 mt-1">
                   <Badge variant="outline" className="w-fit text-xs">
-                    {isCCAdmin(user) ? 'Platform Admin' : user.role}
+                    {isVLAdmin(user) ? 'Platform Admin' : user.role}
                   </Badge>
                   {isTenantUser(user) && user.regionId && (
                     <Badge variant="secondary" className="w-fit text-xs">

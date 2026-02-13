@@ -1,23 +1,23 @@
 /**
- * useAdminLocale - Global hook for CC Admin language handling
+ * useAdminLocale - Global hook for VL Admin language handling
  *
- * CC Admin users always see English regardless of tenant locale.
+ * VL Admin users always see English regardless of tenant locale.
  * This ensures consistent experience for platform administrators.
  */
 
 import { useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 
 export type SupportedLocale = 'en-US' | 'es-MX';
 
 interface AdminLocaleResult {
   /** The effective locale to use for display */
   locale: SupportedLocale;
-  /** Whether the current user is a CC Admin */
-  isCCAdminUser: boolean;
-  /** Whether Spanish should be used (always false for CC Admin) */
+  /** Whether the current user is a VL Admin */
+  isVLAdminUser: boolean;
+  /** Whether Spanish should be used (always false for VL Admin) */
   isSpanish: boolean;
   /** Helper to get localized label from a labels object */
   getLabel: <T extends Record<SupportedLocale, Record<string, string>>>(
@@ -27,7 +27,7 @@ interface AdminLocaleResult {
 
 /**
  * Hook that returns the correct locale for the current user.
- * CC Admin users always get English ('en-US') regardless of tenant locale.
+ * VL Admin users always get English ('en-US') regardless of tenant locale.
  * Regular tenant users get the tenant's configured locale.
  */
 export function useAdminLocale(): AdminLocaleResult {
@@ -35,13 +35,13 @@ export function useAdminLocale(): AdminLocaleResult {
   const { currentTenant } = useTenant();
 
   return useMemo(() => {
-    // CC Admin always sees English
-    const isCCAdminUser = user ? isCCAdmin(user) : false;
+    // VL Admin always sees English
+    const isVLAdminUser = user ? isVLAdmin(user) : false;
 
     // Determine the effective locale
     let locale: SupportedLocale = 'en-US';
 
-    if (!isCCAdminUser && currentTenant?.locale === 'es-MX') {
+    if (!isVLAdminUser && currentTenant?.locale === 'es-MX') {
       locale = 'es-MX';
     }
 
@@ -56,7 +56,7 @@ export function useAdminLocale(): AdminLocaleResult {
 
     return {
       locale,
-      isCCAdminUser,
+      isVLAdminUser,
       isSpanish,
       getLabel,
     };

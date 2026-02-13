@@ -15,12 +15,12 @@ import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 
 export function TenantSwitcher() {
-  const { currentTenant, availableTenants, setTenant, isCCAdmin } = useTenant();
+  const { currentTenant, availableTenants, setTenant, isVLAdmin } = useTenant();
   const { logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
 
-  // Only show for CC Admin users
-  if (!isCCAdmin) {
+  // Only show for VL Admin users
+  if (!isVLAdmin) {
     return null;
   }
 

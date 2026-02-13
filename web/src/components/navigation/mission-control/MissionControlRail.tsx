@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { useNavigation, useCommandPalette } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { CycleIndicator } from './CycleIndicator';
 import { QueuePanel } from './QueuePanel';
 import { PulseMetrics } from './PulseMetrics';
@@ -38,10 +38,10 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
   const { currentTenant } = useTenant();
   const { user } = useAuth();
 
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
 
-  // Check if user is admin/cc_admin to show cycle
+  // Check if user is admin/vl_admin to show cycle
   const showCycle = userRole === 'vl_admin' || userRole === 'admin';
 
   return (

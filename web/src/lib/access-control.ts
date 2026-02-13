@@ -10,7 +10,7 @@
  */
 
 import type { User } from '@/types/auth';
-import { isCCAdmin, isTenantUser } from '@/types/auth';
+import { isVLAdmin, isTenantUser } from '@/types/auth';
 
 // Permission types
 export type Permission =
@@ -93,8 +93,8 @@ const MODULE_ACCESS: Record<string, AppModule[]> = {
     'data_import',
     'audit_log',
   ],
-  cc_admin: [
-    // CC Admin has access to everything
+  vl_admin: [
+    // VL Admin has access to everything
     'dashboard',
     'my_compensation',
     'transactions',
@@ -147,8 +147,8 @@ class AccessControlService {
   canAccessModule(user: User | null, module: AppModule): boolean {
     if (!user) return false;
 
-    // CC Admin has access to everything
-    if (isCCAdmin(user)) return true;
+    // VL Admin has access to everything
+    if (isVLAdmin(user)) return true;
 
     const allowedModules = MODULE_ACCESS[user.role] || [];
     return allowedModules.includes(module);
@@ -160,8 +160,8 @@ class AccessControlService {
   canAccessRoute(user: User | null, pathname: string): boolean {
     if (!user) return false;
 
-    // CC Admin has access to everything
-    if (isCCAdmin(user)) return true;
+    // VL Admin has access to everything
+    if (isVLAdmin(user)) return true;
 
     // Find matching module for route
     const appModule = this.getModuleForRoute(pathname);
@@ -197,7 +197,7 @@ class AccessControlService {
    */
   getDataAccessLevel(user: User | null): DataAccessLevel {
     if (!user) return 'own';
-    if (isCCAdmin(user)) return 'all';
+    if (isVLAdmin(user)) return 'all';
     if (isTenantUser(user)) return user.dataAccessLevel;
     return 'own';
   }
@@ -207,7 +207,7 @@ class AccessControlService {
    */
   hasPermission(user: User | null, permission: Permission): boolean {
     if (!user) return false;
-    if (isCCAdmin(user)) return true;
+    if (isVLAdmin(user)) return true;
     if (isTenantUser(user)) {
       return user.permissions.includes(permission);
     }
@@ -260,7 +260,7 @@ class AccessControlService {
    */
   canViewUserData(currentUser: User | null, targetUserId: string): boolean {
     if (!currentUser) return false;
-    if (isCCAdmin(currentUser)) return true;
+    if (isVLAdmin(currentUser)) return true;
 
     const accessLevel = this.getDataAccessLevel(currentUser);
 
@@ -281,7 +281,7 @@ class AccessControlService {
    */
   getAccessibleModules(user: User | null): AppModule[] {
     if (!user) return [];
-    if (isCCAdmin(user)) return MODULE_ACCESS.cc_admin;
+    if (isVLAdmin(user)) return MODULE_ACCESS.vl_admin;
     return MODULE_ACCESS[user.role] || [];
   }
 
@@ -290,7 +290,7 @@ class AccessControlService {
    */
   isManagerOrAbove(user: User | null): boolean {
     if (!user) return false;
-    if (isCCAdmin(user)) return true;
+    if (isVLAdmin(user)) return true;
     return ['manager', 'admin'].includes(user.role);
   }
 
@@ -299,7 +299,7 @@ class AccessControlService {
    */
   isAdmin(user: User | null): boolean {
     if (!user) return false;
-    if (isCCAdmin(user)) return true;
+    if (isVLAdmin(user)) return true;
     return user.role === 'admin';
   }
 }

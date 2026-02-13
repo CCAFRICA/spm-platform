@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import {
   getCustomerLaunches,
   createCustomerLaunch,
@@ -74,7 +74,7 @@ const labels = {
     createdBy: 'Created By',
     goLiveDate: 'Go-Live Date',
     accessDenied: 'Access Denied',
-    accessDeniedDesc: 'You must be a CC Admin to access this page.',
+    accessDeniedDesc: 'You must be a VL Admin to access this page.',
     refreshing: 'Refreshing...',
     refresh: 'Refresh',
     // Step names
@@ -124,7 +124,7 @@ const labels = {
     createdBy: 'Creado Por',
     goLiveDate: 'Fecha de Lanzamiento',
     accessDenied: 'Acceso Denegado',
-    accessDeniedDesc: 'Debe ser un CC Admin para acceder a esta página.',
+    accessDeniedDesc: 'Debe ser un VL Admin para acceder a esta página.',
     refreshing: 'Actualizando...',
     refresh: 'Actualizar',
     // Step names
@@ -202,12 +202,12 @@ export default function CustomerLaunchDashboard() {
   const [newLaunch, setNewLaunch] = useState({ customerId: '', customerName: '' });
   const [selectedLaunch, setSelectedLaunch] = useState<CustomerLaunch | null>(null);
 
-  // CC Admin always sees English, tenant users see tenant locale
+  // VL Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
   const t = labels[locale];
 
-  // Check CC Admin access
-  const hasAccess = user && isCCAdmin(user);
+  // Check VL Admin access
+  const hasAccess = user && isVLAdmin(user);
 
   // Load launches
   const loadLaunches = () => {

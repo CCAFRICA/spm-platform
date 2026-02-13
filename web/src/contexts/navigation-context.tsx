@@ -24,7 +24,7 @@ import {
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from './auth-context';
 import { useTenant } from './tenant-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import type {
   WorkspaceId,
   NavigationState,
@@ -93,10 +93,10 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const { currentTenant } = useTenant();
 
   // Determine if user is VL Admin (always English) or follows tenant locale
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
   const userRole = user?.role || null;
-  const tenantId = userIsCCAdmin ? 'platform' : (currentTenant?.id || 'default');
+  const tenantId = userIsVLAdmin ? 'platform' : (currentTenant?.id || 'default');
   // Core state
   const [activeWorkspace, setActiveWorkspaceState] = useState<WorkspaceId>('perform');
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);

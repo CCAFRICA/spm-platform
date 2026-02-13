@@ -8,7 +8,7 @@
 
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { getUserDisplayRole, isCCAdmin } from '@/types/auth';
+import { getUserDisplayRole, isVLAdmin } from '@/types/auth';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -37,8 +37,8 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
 
   if (!user) return null;
 
-  const userIsCCAdmin = isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
+  const userIsVLAdmin = isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
   const displayRole = getUserDisplayRole(user);
   const initials = user.name
     .split(' ')
@@ -124,9 +124,9 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
           <div className="flex flex-col">
             <span className="font-medium">{user.name}</span>
             <span className="text-xs text-muted-foreground">{user.email}</span>
-            {userIsCCAdmin && (
+            {userIsVLAdmin && (
               <Badge variant="secondary" className="mt-1 w-fit text-xs">
-                CC Admin
+                VL Admin
               </Badge>
             )}
           </div>

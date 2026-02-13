@@ -28,7 +28,7 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 
 type RecipientType = 'individual' | 'team' | 'channel' | 'location';
 type LocationType = 'store' | 'city' | 'state';
@@ -94,8 +94,8 @@ const recentMessages: RecentMessage[] = [
 export default function MessagingPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   const [recipientType, setRecipientType] = useState<RecipientType>('individual');
   const [locationType, setLocationType] = useState<LocationType>('store');

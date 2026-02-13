@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import {
   runPeriodCalculation,
@@ -232,7 +232,7 @@ export default function CalculatePage() {
   };
 
   // Check VL Admin access
-  const hasAccess = user && isCCAdmin(user);
+  const hasAccess = user && isVLAdmin(user);
 
   // Load periods and check plans
   useEffect(() => {

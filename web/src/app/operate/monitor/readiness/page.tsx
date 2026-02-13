@@ -8,7 +8,7 @@
 
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -27,8 +27,8 @@ export default function DataReadinessPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
 
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
 
   const dataCategories = [
     {

@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import {
   getLatestSummary,
   buildCalculationSummary,
@@ -40,7 +40,7 @@ export default function ResultsDashboardPage() {
   const [sortField, setSortField] = useState<string>('total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  const hasAccess = user && isCCAdmin(user);
+  const hasAccess = user && isVLAdmin(user);
   const tenantId = currentTenant?.id || '';
 
   const formatCurrency = (amount: number): string => {

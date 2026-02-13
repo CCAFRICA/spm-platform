@@ -305,7 +305,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
           {/* Language Switcher */}
           <LanguageSwitcher />
 
-          {/* Tenant Switcher (CC Admin only) */}
+          {/* Tenant Switcher (VL Admin only) */}
           <TenantSwitcher />
 
           {/* Settings - Hidden on desktop as Rail has user menu */}

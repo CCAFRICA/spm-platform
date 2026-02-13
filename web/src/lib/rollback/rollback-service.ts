@@ -288,7 +288,7 @@ export function resetTenant(
       };
 
     case 'full':
-      // Full reset - only for CC Admin
+      // Full reset - only for VL Admin
       resetTenantData(tenantId);
       return {
         success: true,

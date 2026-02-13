@@ -23,7 +23,7 @@ import {
 import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { getFinancialService } from '@/lib/financial/financial-service';
 import { ChequeImportService } from '@/lib/financial/cheque-import-service';
 import {
@@ -192,8 +192,8 @@ export default function NetworkPulseDashboard() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
   const { user } = useAuth();
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
 
   const tenantId = currentTenant?.id || 'restaurantmx';
 

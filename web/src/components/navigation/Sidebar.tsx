@@ -24,7 +24,7 @@ import {
 import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
-import { isCCAdmin } from "@/types/auth";
+import { isVLAdmin } from "@/types/auth";
 import { accessControl, type AppModule } from "@/lib/access-control";
 import { MODULE_TOKENS, type ModuleId } from "@/lib/design-system/tokens";
 
@@ -33,7 +33,7 @@ interface NavChild {
   href: string;
   feature?: keyof import("@/types/tenant").TenantConfig["features"];
   module?: AppModule; // For access control
-  ccAdminOnly?: boolean; // Only visible to CC Admin users
+  vlAdminOnly?: boolean; // Only visible to VL Admin users
 }
 
 interface NavItem {
@@ -63,12 +63,12 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   const [expandedItems, setExpandedItems] = useState<string[]>(["Insights", "Transactions"]);
 
-  // Check if user is CC Admin
-  const userIsCCAdmin = user && isCCAdmin(user);
+  // Check if user is VL Admin
+  const userIsVLAdmin = user && isVLAdmin(user);
 
   // Language follows the LOGGED-IN USER's context, not the tenant's setting
-  // CC Admin always sees English; tenant users see their tenant's locale
-  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
+  // VL Admin always sees English; tenant users see their tenant's locale
+  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
 
   // Get user's accessible modules
   const accessibleModules = accessControl.getAccessibleModules(user);
@@ -223,11 +223,11 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       moduleId: "admin",
       children: [
         { name: isSpanish ? "Registro de Auditoría" : "Audit Log", href: "/admin/audit", module: "audit_log" },
-        { name: isSpanish ? "Nuevo Inquilino" : "New Tenant", href: "/admin/tenants/new", ccAdminOnly: true },
-        { name: isSpanish ? "Lanzamiento de Cliente" : "Customer Launch", href: "/admin/launch", ccAdminOnly: true },
-        { name: isSpanish ? "Importar Plan" : "Plan Import", href: "/admin/launch/plan-import", ccAdminOnly: true },
-        { name: isSpanish ? "Ejecutar Cálculos" : "Run Calculations", href: "/admin/launch/calculate", ccAdminOnly: true },
-        { name: isSpanish ? "Reconciliación" : "Reconciliation", href: "/admin/launch/reconciliation", ccAdminOnly: true },
+        { name: isSpanish ? "Nuevo Inquilino" : "New Tenant", href: "/admin/tenants/new", vlAdminOnly: true },
+        { name: isSpanish ? "Lanzamiento de Cliente" : "Customer Launch", href: "/admin/launch", vlAdminOnly: true },
+        { name: isSpanish ? "Importar Plan" : "Plan Import", href: "/admin/launch/plan-import", vlAdminOnly: true },
+        { name: isSpanish ? "Ejecutar Cálculos" : "Run Calculations", href: "/admin/launch/calculate", vlAdminOnly: true },
+        { name: isSpanish ? "Reconciliación" : "Reconciliation", href: "/admin/launch/reconciliation", vlAdminOnly: true },
       ],
     },
   ];
@@ -248,18 +248,18 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     return item.children.some((child) => pathname === child.href);
   };
 
-  // Filter children based on feature flags, access control, and CC Admin status
+  // Filter children based on feature flags, access control, and VL Admin status
   const filterChildren = (children: NavChild[]) => {
     return children.filter((child) => {
-      // Check CC Admin only items
-      if (child.ccAdminOnly && !userIsCCAdmin) return false;
+      // Check VL Admin only items
+      if (child.vlAdminOnly && !userIsVLAdmin) return false;
       // Check feature flags
       if (child.feature) {
         if (child.feature === "salesFinance" && !salesFinanceEnabled) return false;
         if (child.feature === "financial" && !financialEnabled) return false;
       }
-      // Check module access (skip for CC Admin only items)
-      if (!child.ccAdminOnly && child.module && !accessibleModules.includes(child.module)) return false;
+      // Check module access (skip for VL Admin only items)
+      if (!child.vlAdminOnly && child.module && !accessibleModules.includes(child.module)) return false;
       return true;
     });
   };

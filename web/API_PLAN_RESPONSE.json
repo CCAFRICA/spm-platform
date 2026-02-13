@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-02-13T03:42:58.237Z",
-  "requestId": "dbf51f6f-af54-4092-8bed-84e3792f781f",
+  "timestamp": "2026-02-13T07:24:13.533Z",
+  "requestId": "86eaa587-b782-4fcf-9cf8-49202e2a0c2f",
   "confidence": 0.94,
   "fullResult": {
     "planName": "RetailCorp Optometrist Incentive Plan",
@@ -455,67 +455,73 @@
           "rate": 0.04
         },
         "confidence": 95,
-        "reasoning": "Simple 4% commission on extended warranty sales (Garantía Extendida)"
+        "reasoning": "Flat 4% commission on extended warranty sales (Garantía Extendida)"
       }
     ],
     "requiredInputs": [
       {
         "field": "optical_sales",
-        "description": "Monthly optical sales amount",
-        "scope": "store",
+        "description": "Individual optical sales amount",
+        "scope": "employee",
         "dataType": "currency"
       },
       {
         "field": "optical_goal",
-        "description": "Monthly optical sales goal",
+        "description": "Individual optical sales goal",
+        "scope": "employee",
+        "dataType": "currency"
+      },
+      {
+        "field": "store_optical_sales",
+        "description": "Total store optical sales",
         "scope": "store",
         "dataType": "currency"
       },
       {
         "field": "store_sales",
-        "description": "Monthly total store sales",
+        "description": "Total store sales",
         "scope": "store",
         "dataType": "currency"
       },
       {
-        "field": "store_goal",
-        "description": "Monthly store sales goal",
+        "field": "store_sales_goal",
+        "description": "Store sales goal",
         "scope": "store",
         "dataType": "currency"
       },
       {
-        "field": "new_customers_actual",
-        "description": "Number of new customers acquired",
+        "field": "new_customers_achieved",
+        "description": "New customers acquired",
         "scope": "store",
         "dataType": "number"
       },
       {
         "field": "new_customers_goal",
-        "description": "Monthly new customers goal",
+        "description": "New customers goal",
         "scope": "store",
         "dataType": "number"
       },
       {
-        "field": "collections_actual",
-        "description": "Monthly collections amount",
+        "field": "collections_amount",
+        "description": "Collections amount",
         "scope": "store",
         "dataType": "currency"
       },
       {
         "field": "collections_goal",
-        "description": "Monthly collections goal",
+        "description": "Collections goal",
         "scope": "store",
         "dataType": "currency"
       },
       {
-        "field": "insurance_sales_individual",
-        "description": "Individual insurance sales (Reactivación Club de Protección)",
+        "field": "insurance_sales",
+        "description": "Individual insurance sales",
         "scope": "employee",
         "dataType": "currency"
       },
       {
-        "field": "warranty_sales_individual",
-        "description": "Individual warranty sales (Garantía Extendida)",
+        "field": "warranty_sales",
+        "description": "Individual warranty sales",
         "scope": "employee",
         "dataType": "currency"
       }
@@ -526,14 +532,15 @@
         "inputs": {
           "optical_sales": 970792,
           "optical_goal": 1001242,
+          "store_optical_sales": 970792,
           "store_sales": 2465906,
-          "store_goal": 2345334,
-          "new_customers_actual": 36,
+          "store_sales_goal": 2345334,
+          "new_customers_achieved": 36,
           "new_customers_goal": 35,
-          "collections_actual": 470599,
+          "collections_amount": 470599,
           "collections_goal": 456893,
-          "insurance_sales_individual": 2140,
-          "warranty_sales_individual": 4276
+          "insurance_sales": 2140,
+          "warranty_sales": 4276
         },
         "expectedTotal": 2335,
         "componentBreakdown": {
@@ -550,14 +557,15 @@
         "inputs": {
           "optical_sales": 970792,
           "optical_goal": 1001242,
+          "store_optical_sales": 970792,
           "store_sales": 2465906,
-          "store_goal": 2345334,
-          "new_customers_actual": 36,
+          "store_sales_goal": 2345334,
+          "new_customers_achieved": 36,
           "new_customers_goal": 35,
-          "collections_actual": 470599,
+          "collections_amount": 470599,
           "collections_goal": 456893,
-          "insurance_sales_individual": 2140,
-          "warranty_sales_individual": 4276
+          "insurance_sales": 2140,
+          "warranty_sales": 4276
         },
         "expectedTotal": 1585,
         "componentBreakdown": {
@@ -571,7 +579,7 @@
       }
     ],
     "confidence": 94,
-    "reasoning": "Successfully extracted complete compensation structure with all payout values from tables. Document clearly shows two employee types with different optical sales matrices but identical other components. All numeric values extracted from tables including worked examples that validate the structure. Insurance sales uses conditional percentage based on store performance, while warranty sales is flat 4%. High confidence due to complete worked examples provided in slides 11 and 20."
+    "reasoning": "Successfully extracted complete compensation structure with all 6 components for both employee types. All payout matrices and tiers are fully populated with numeric values. The worked examples validate the calculations and show the difference between certified ($2,335) and non-certified ($1,585) total payouts. The main difference is in the optical sales component where certified optometrists earn higher amounts."
   },
   "componentsDetail": [
     {

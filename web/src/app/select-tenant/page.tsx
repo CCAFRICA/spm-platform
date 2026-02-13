@@ -31,7 +31,7 @@ import type { TenantSummary } from '@/types/tenant';
 
 export default function SelectTenantPage() {
   const router = useRouter();
-  const { user, isCCAdmin, logout, isLoading: authLoading } = useAuth();
+  const { user, isVLAdmin, logout, isLoading: authLoading } = useAuth();
   const { availableTenants: contextTenants, setTenant, isLoading: tenantLoading } = useTenant();
   const [selectingTenant, setSelectingTenant] = useState<string | null>(null);
   const [localTenants, setLocalTenants] = useState<TenantSummary[]>([]);
@@ -80,7 +80,7 @@ export default function SelectTenantPage() {
   // Load tenants directly if context doesn't have them (timing issue after login)
   useEffect(() => {
     async function loadTenants() {
-      if (isCCAdmin && contextTenants.length === 0 && !loadingTenants) {
+      if (isVLAdmin && contextTenants.length === 0 && !loadingTenants) {
         setLoadingTenants(true);
         try {
           // Load static tenants from registry file
@@ -105,7 +105,7 @@ export default function SelectTenantPage() {
       }
     }
     loadTenants();
-  }, [isCCAdmin, contextTenants.length, loadingTenants]);
+  }, [isVLAdmin, contextTenants.length, loadingTenants]);
 
   // Use context tenants if available, otherwise use locally loaded ones
   // Use localTenants if we just deleted something (forceLocalTenants) or if contextTenants is empty
@@ -113,14 +113,14 @@ export default function SelectTenantPage() {
 
   useEffect(() => {
     // Redirect non-VL Admin users to home
-    if (!authLoading && !isCCAdmin && user) {
+    if (!authLoading && !isVLAdmin && user) {
       router.push('/');
     }
     // Redirect unauthenticated users to login
     if (!authLoading && !user) {
       router.push('/login');
     }
-  }, [isCCAdmin, user, router, authLoading]);
+  }, [isVLAdmin, user, router, authLoading]);
 
   const handleSelectTenant = async (tenantId: string) => {
     setSelectingTenant(tenantId);
@@ -161,7 +161,7 @@ export default function SelectTenantPage() {
   }
 
   // Don't render for non-VL Admin
-  if (!isCCAdmin) {
+  if (!isVLAdmin) {
     return null;
   }
 

@@ -1,15 +1,15 @@
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin, isTenantUser } from '@/types/auth';
+import { isVLAdmin, isTenantUser } from '@/types/auth';
 
 export function usePermissions() {
-  const { user, hasPermission, isCCAdmin: isCCAdminUser } = useAuth();
+  const { user, hasPermission, isVLAdmin: isVLAdminUser } = useAuth();
 
-  // CC Admin has all permissions
-  const isAdmin = isCCAdminUser || user?.role === 'admin';
+  // VL Admin has all permissions
+  const isAdmin = isVLAdminUser || user?.role === 'admin';
 
   return {
     // Role checks
-    isCCAdmin: isCCAdminUser,
+    isVLAdmin: isVLAdminUser,
     isAdmin,
     isManager: user?.role === 'manager' || isAdmin,
     isRep: user?.role === 'sales_rep',
@@ -17,16 +17,16 @@ export function usePermissions() {
     // Permission checks
     hasPermission,
 
-    // Common shortcuts - CC Admin has all permissions
-    canViewTeam: isCCAdminUser || hasPermission('view_team_compensation'),
-    canViewAll: isCCAdminUser || hasPermission('view_all_compensation'),
-    canApprove: isCCAdminUser || hasPermission('approve_adjustment_tier2') || hasPermission('approve_adjustment_tier3'),
-    canEditConfig: isCCAdminUser || hasPermission('edit_terminology'),
-    canManageUsers: isCCAdminUser || hasPermission('manage_users'),
-    canViewAudit: isCCAdminUser || hasPermission('view_audit_log'),
-    canImportData: isCCAdminUser || hasPermission('import_transactions'),
+    // Common shortcuts - VL Admin has all permissions
+    canViewTeam: isVLAdminUser || hasPermission('view_team_compensation'),
+    canViewAll: isVLAdminUser || hasPermission('view_all_compensation'),
+    canApprove: isVLAdminUser || hasPermission('approve_adjustment_tier2') || hasPermission('approve_adjustment_tier3'),
+    canEditConfig: isVLAdminUser || hasPermission('edit_terminology'),
+    canManageUsers: isVLAdminUser || hasPermission('manage_users'),
+    canViewAudit: isVLAdminUser || hasPermission('view_audit_log'),
+    canImportData: isVLAdminUser || hasPermission('import_transactions'),
 
-    // Data access level - CC Admin has 'all' access
-    dataAccessLevel: user && isCCAdmin(user) ? 'all' : (user && isTenantUser(user) ? user.dataAccessLevel : 'own'),
+    // Data access level - VL Admin has 'all' access
+    dataAccessLevel: user && isVLAdmin(user) ? 'all' : (user && isTenantUser(user) ? user.dataAccessLevel : 'own'),
   };
 }

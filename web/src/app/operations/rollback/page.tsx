@@ -62,7 +62,7 @@ import { cn } from '@/lib/utils';
 
 export default function RollbackManagementPage() {
   const { locale } = useLocale();
-  const { currentTenant, isCCAdmin } = useTenant();
+  const { currentTenant, isVLAdmin } = useTenant();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
 
@@ -162,7 +162,7 @@ export default function RollbackManagementPage() {
             </p>
           </div>
         </div>
-        {isCCAdmin && (
+        {isVLAdmin && (
           <Button variant="destructive" onClick={() => setShowResetDialog(true)}>
             <RefreshCw className="h-4 w-4 mr-2" />
             {isSpanish ? 'Reiniciar Tenant' : 'Reset Tenant'}

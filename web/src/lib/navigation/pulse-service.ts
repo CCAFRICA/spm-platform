@@ -31,7 +31,7 @@ export function getPulseMetrics(
     case 'admin':
       return getAdminMetrics(tenantId);
     case 'vl_admin':
-      return getCCAdminMetrics();
+      return getVLAdminMetrics();
     default:
       return [];
   }
@@ -319,7 +319,7 @@ function getAdminMetrics(tenantId: string): PulseMetric[] {
   ];
 }
 
-function getCCAdminMetrics(): PulseMetric[] {
+function getVLAdminMetrics(): PulseMetric[] {
   // OB-29: Read real data from localStorage, not hardcoded values
   const getRealCounts = () => {
     if (typeof window === 'undefined') {

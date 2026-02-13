@@ -29,9 +29,9 @@ export function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // CC Admin locale override: CC Admins always see English regardless of tenant locale
-  const userIsCCAdmin = user?.role === 'vl_admin';
-  const isSpanish = userIsCCAdmin ? false : (currentTenant?.locale === 'es-MX');
+  // VL Admin locale override: VL Admins always see English regardless of tenant locale
+  const userIsVLAdmin = user?.role === 'vl_admin';
+  const isSpanish = userIsVLAdmin ? false : (currentTenant?.locale === 'es-MX');
 
   const performSearch = useCallback(async (q: string) => {
     if (!q || q.length < 2) {

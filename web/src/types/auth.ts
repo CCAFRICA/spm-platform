@@ -35,15 +35,9 @@ export interface VLAdminUser extends BaseUser {
 
 export type User = TenantUser | VLAdminUser;
 
-// Backward compatibility alias
-export type CCAdminUser = VLAdminUser;
-
 export function isVLAdmin(user: User): user is VLAdminUser {
   return user.role === 'vl_admin';
 }
-
-// Backward compatibility alias
-export const isCCAdmin = isVLAdmin;
 
 export function isTenantUser(user: User): user is TenantUser {
   return user.role !== 'vl_admin';

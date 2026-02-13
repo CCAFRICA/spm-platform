@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation';
 import { useCycleState } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,8 +33,8 @@ export default function PayPage() {
   useTenant();
   const { user } = useAuth();
 
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const displaySpanish = userIsCCAdmin ? false : isSpanish;
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const displaySpanish = userIsVLAdmin ? false : isSpanish;
 
   const payStatus = cycleState?.phaseStatuses.pay;
   const approveStatus = cycleState?.phaseStatuses.approve;

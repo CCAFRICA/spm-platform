@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { useLocale } from '@/contexts/locale-context';
 import { toast } from 'sonner';
 import { getActivePlan } from '@/lib/compensation/plan-storage';
@@ -66,8 +66,8 @@ export default function ScenarioModelingPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
   const { locale } = useLocale();
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const isSpanish = userIsCCAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
 
   const [activePlan, setActivePlan] = useState<CompensationPlanConfig | null>(null);
   const [baselineResults, setBaselineResults] = useState<Map<string, CalculationResult>>(new Map());

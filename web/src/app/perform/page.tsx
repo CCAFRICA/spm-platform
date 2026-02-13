@@ -12,7 +12,7 @@ import { useRouter } from 'next/navigation';
 import { usePulse, useNavigation } from '@/contexts/navigation-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { formatMetricValue, getTrendArrow, getTrendColor } from '@/lib/navigation/pulse-service';
 import { getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -61,8 +61,8 @@ export default function PerformPage() {
   const [allResults, setAllResults] = useState<CalculationResult[]>([]);
   const [hasResults, setHasResults] = useState(false);
 
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const displaySpanish = userIsCCAdmin ? false : isSpanish;
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const displaySpanish = userIsVLAdmin ? false : isSpanish;
   const currency = currentTenant?.currency || 'USD';
 
   const isManager = userRole === 'manager' || userRole === 'admin' || userRole === 'vl_admin';

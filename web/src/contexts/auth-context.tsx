@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { useRouter } from 'next/navigation';
 import { audit } from '@/lib/audit-service';
 import type { User, TenantUser, VLAdminUser } from '@/types/auth';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { STORAGE_KEY_USER_ROLE, STORAGE_KEY_TENANT } from '@/contexts/tenant-context';
 import { migrateStorageKeys } from '@/lib/storage/storage-migration';
 
@@ -409,7 +409,7 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  isCCAdmin: boolean;
+  isVLAdmin: boolean;
   login: (email: string) => Promise<boolean>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
@@ -462,7 +462,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY_USER_ROLE, foundUser.role);
 
     // Set tenant for non-VL Admin users
-    if (!isCCAdmin(foundUser)) {
+    if (!isVLAdmin(foundUser)) {
       localStorage.setItem(STORAGE_KEY_TENANT, foundUser.tenantId);
     } else {
       // Clear tenant selection for VL Admin
@@ -476,12 +476,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       entityName: foundUser.name,
       metadata: {
         role: foundUser.role,
-        tenantId: isCCAdmin(foundUser) ? null : foundUser.tenantId,
+        tenantId: isVLAdmin(foundUser) ? null : foundUser.tenantId,
       },
     });
 
     // Route based on user type
-    if (isCCAdmin(foundUser)) {
+    if (isVLAdmin(foundUser)) {
       router.push('/select-tenant');
     } else {
       router.push('/');
@@ -509,11 +509,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const hasPermission = (permission: string): boolean => {
     if (!user) return false;
     // VL Admins have all permissions
-    if (isCCAdmin(user)) return true;
+    if (isVLAdmin(user)) return true;
     return user.permissions.includes(permission);
   };
 
-  const isUserCCAdmin = user ? isCCAdmin(user) : false;
+  const isUserVLAdmin = user ? isVLAdmin(user) : false;
 
   return (
     <AuthContext.Provider
@@ -521,7 +521,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: !!user,
         isLoading,
-        isCCAdmin: isUserCCAdmin,
+        isVLAdmin: isUserVLAdmin,
         login,
         logout,
         hasPermission,

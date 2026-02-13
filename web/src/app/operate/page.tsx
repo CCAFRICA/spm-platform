@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation';
 import { useCycleState, useQueue } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { CYCLE_PHASE_LABELS } from '@/types/navigation';
 import { getRouteForPhase } from '@/lib/navigation/cycle-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,8 +47,8 @@ export default function OperatePage() {
   useTenant();
   const { user } = useAuth();
 
-  const userIsCCAdmin = user && isCCAdmin(user);
-  const displaySpanish = userIsCCAdmin ? false : isSpanish;
+  const userIsVLAdmin = user && isVLAdmin(user);
+  const displaySpanish = userIsVLAdmin ? false : isSpanish;
 
   // Cycle phases to display
   const cyclePhases: CyclePhase[] = ['import', 'calculate', 'reconcile', 'approve', 'pay'];

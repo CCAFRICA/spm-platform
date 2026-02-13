@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant, useCurrency } from "@/contexts/tenant-context";
-import { isTenantUser, isCCAdmin } from "@/types/auth";
+import { isTenantUser, isVLAdmin } from "@/types/auth";
 import { getCheques } from "@/lib/restaurant-service";
 import { isStaticTenant } from "@/lib/tenant-data-service";
 import type { Cheque } from "@/types/cheques";
@@ -119,9 +119,9 @@ export default function DashboardPage() {
   const { stats, recentActivity, quickLinks } = dashboardData;
 
   // Language follows the LOGGED-IN USER's context, not the tenant's setting
-  // CC Admin always sees English; tenant users see their tenant's locale
-  const userIsCCAdmin = authUser && isCCAdmin(authUser);
-  const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
+  // VL Admin always sees English; tenant users see their tenant's locale
+  const userIsVLAdmin = authUser && isVLAdmin(authUser);
+  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
   // Only show mock data for static tenants

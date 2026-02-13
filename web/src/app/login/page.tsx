@@ -10,7 +10,7 @@ import { DollarSign, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth, ALL_USERS } from '@/contexts/auth-context';
 import { LoadingButton } from '@/components/ui/loading-button';
 import { useLocale } from '@/contexts/locale-context';
-import { isCCAdmin } from '@/types/auth';
+import { isVLAdmin } from '@/types/auth';
 import { Button } from '@/components/ui/button';
 
 export default function LoginPage() {
@@ -33,7 +33,7 @@ export default function LoginPage() {
     if (success) {
       const user = ALL_USERS.find(u => u.email.toLowerCase() === emailInput.toLowerCase());
       toast.success(t('auth.welcomeBack', { name: user?.name || '' }), {
-        description: isCCAdmin(user!) ? 'Platform Administrator' : `Logged in as ${user?.role}`,
+        description: isVLAdmin(user!) ? 'Platform Administrator' : `Logged in as ${user?.role}`,
       });
     } else {
       setLoginError('Invalid credentials. Please check your email address.');
