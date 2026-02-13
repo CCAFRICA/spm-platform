@@ -63,8 +63,30 @@ export class AIService {
     const startTime = Date.now();
     const requestId = crypto.randomUUID();
 
-    // Execute through adapter
-    const adapterResponse = await this.adapter.execute(request);
+    let adapterResponse;
+    try {
+      // Execute through adapter
+      adapterResponse = await this.adapter.execute(request);
+    } catch (error) {
+      // Graceful degradation: return a zero-confidence response instead of throwing
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn(`[AIService] ${request.task} failed: ${errorMessage}`);
+      return {
+        task: request.task,
+        result: {
+          error: errorMessage,
+          fallback: true,
+          confidence: 0,
+        },
+        confidence: 0,
+        tokenUsage: { input: 0, output: 0 },
+        requestId,
+        provider: this.config.provider,
+        model: this.config.model,
+        latencyMs: Date.now() - startTime,
+        timestamp: new Date().toISOString(),
+      };
+    }
 
     // Build full response
     const response: AIResponse = {
