@@ -9,3 +9,4 @@ export * from './engine';
 export * from './reconciliation-bridge';
 export * from './employee-reconciliation-trace';
 export * from './comparison-depth-engine';
+export * from './adaptive-comparison-engine';
