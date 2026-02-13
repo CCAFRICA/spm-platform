@@ -8,6 +8,7 @@
  * All component names from plan.
  */
 
+import { useCurrency } from '@/contexts/tenant-context';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
@@ -18,6 +19,7 @@ interface AggregateBarProps {
 }
 
 export function AggregateBar({ session }: AggregateBarProps) {
+  const { format: fmt } = useCurrency();
   const { aggregates, population } = session;
   const diffPct = aggregates.gtTotal && aggregates.gtTotal > 0
     ? ((aggregates.difference ?? 0) / aggregates.gtTotal * 100).toFixed(2)
@@ -30,14 +32,14 @@ export function AggregateBar({ session }: AggregateBarProps) {
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-slate-500 mb-1">VL Total</p>
-            <p className="text-xl font-bold">${aggregates.vlTotal.toLocaleString()}</p>
+            <p className="text-xl font-bold">{fmt(aggregates.vlTotal)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-slate-500 mb-1">GT Total</p>
             <p className="text-xl font-bold">
-              {aggregates.gtTotal !== undefined ? `$${aggregates.gtTotal.toLocaleString()}` : '—'}
+              {aggregates.gtTotal !== undefined ? fmt(aggregates.gtTotal) : '—'}
             </p>
           </CardContent>
         </Card>
@@ -49,7 +51,7 @@ export function AggregateBar({ session }: AggregateBarProps) {
                 ? 'text-green-600' : 'text-red-600'
             }`}>
               {aggregates.difference !== undefined
-                ? `${aggregates.difference >= 0 ? '+' : ''}$${aggregates.difference.toLocaleString()}`
+                ? `${aggregates.difference >= 0 ? '+' : ''}${fmt(Math.abs(aggregates.difference))}`
                 : '—'}
               {diffPct && <span className="text-sm ml-1">({diffPct}%)</span>}
             </p>
@@ -88,10 +90,10 @@ export function AggregateBar({ session }: AggregateBarProps) {
               {aggregates.componentTotals.map(ct => (
                 <div key={ct.componentId} className="text-center">
                   <p className="text-xs font-medium text-slate-700 truncate">{ct.componentName}</p>
-                  <p className="text-sm font-bold mt-1">${ct.vlTotal.toLocaleString()}</p>
+                  <p className="text-sm font-bold mt-1">{fmt(ct.vlTotal)}</p>
                   {ct.difference !== undefined && (
                     <p className={`text-xs ${Math.abs(ct.difference) < 1 ? 'text-green-600' : 'text-red-600'}`}>
-                      {ct.difference >= 0 ? '+' : ''}${ct.difference.toLocaleString()}
+                      {ct.difference >= 0 ? '+' : ''}{fmt(Math.abs(ct.difference))}
                     </p>
                   )}
                   {ct.employeesAffected !== undefined && ct.employeesAffected > 0 && (
