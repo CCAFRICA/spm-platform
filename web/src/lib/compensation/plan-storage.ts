@@ -860,9 +860,11 @@ export function initializePlans(): void {
 export function resetToDefaultPlans(tenantId: string): number {
   if (typeof window === 'undefined') return 0;
 
-  // OB-30-9 FIX: Default plans are keyed to their original tenantId (retailco, retailcgmx).
-  // Re-key ALL defaults to the CURRENT tenant so they're always found.
-  const defaults = getDefaultPlans().map(p => ({ ...p, tenantId }));
+  // OB-31-4 FIX: Use ONLY the CGMX unified plan (has correct tier tables,
+  // measurementPeriod flags, and matches the actual data structure).
+  // Re-key to the CURRENT tenant so it's always found.
+  const cgmxPlan = createRetailCGMXUnifiedPlan();
+  const defaults = [{ ...cgmxPlan, tenantId }];
 
   if (defaults.length === 0) {
     console.warn(`[PlanStorage] No default plans available`);
