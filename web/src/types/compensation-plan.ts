@@ -62,6 +62,10 @@ export interface PlanComponent {
   enabled: boolean;
   componentType: ComponentType;
   measurementLevel: MeasurementLevel;
+  /** OB-31: Period aggregation mode for metric data.
+   * 'current' (default) = use period-specific data for this calculation period
+   * 'cumulative' = use all-periods cumulative data (e.g., Collections) */
+  measurementPeriod?: 'current' | 'cumulative';
   matrixConfig?: MatrixConfig;
   tierConfig?: TierConfig;
   percentageConfig?: PercentageConfig;

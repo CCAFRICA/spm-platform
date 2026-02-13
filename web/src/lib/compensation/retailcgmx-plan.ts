@@ -175,6 +175,7 @@ function getCertifiedComponents(): PlanComponent[] {
       enabled: true,
       componentType: 'tier_lookup',
       measurementLevel: 'store',
+      measurementPeriod: 'cumulative',
       tierConfig: COLLECTIONS_TIERS,
     },
     {
@@ -277,6 +278,7 @@ function getNonCertifiedComponents(): PlanComponent[] {
       enabled: true,
       componentType: 'tier_lookup',
       measurementLevel: 'store',
+      measurementPeriod: 'cumulative',
       tierConfig: COLLECTIONS_TIERS,
     },
     {

@@ -784,14 +784,11 @@ export class CalculationOrchestrator {
         continue;
       }
 
-      // OB-30-9: For collections/cobranza components, use cumulative (all-periods) store metrics
-      // GT expects cumulative collections attainment, not single-month
-      const isCollections = component.id === 'cobranza' ||
-        component.id.toLowerCase().includes('cobran') ||
-        matchedSheet.toLowerCase().includes('cobran');
-
+      // OB-31-2: Use measurementPeriod flag from plan component to select data source
+      // 'cumulative' = use all-periods aggregated data (e.g., Collections)
+      // 'current' or undefined = use period-specific data (default)
       let sheetMetrics = componentMetrics[matchedSheet];
-      if (isCollections && cumulativeComponentMetrics?.[matchedSheet]) {
+      if (component.measurementPeriod === 'cumulative' && cumulativeComponentMetrics?.[matchedSheet]) {
         sheetMetrics = cumulativeComponentMetrics[matchedSheet];
       }
       if (!sheetMetrics) {
