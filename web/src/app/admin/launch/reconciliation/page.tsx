@@ -17,11 +17,17 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
+import { getPeriodRuns } from '@/lib/orchestration/calculation-orchestrator';
 import {
-  getReconciliationBridge,
-  type ExtendedReconciliationSession,
-} from '@/lib/reconciliation/reconciliation-bridge';
-import { getOrchestrator, getPeriodRuns } from '@/lib/orchestration/calculation-orchestrator';
+  getCalculationRuns,
+  getCalculationResults as getStoredResults,
+} from '@/lib/calculation/results-storage';
+import {
+  runComparison,
+  getFlagColor,
+  type ComparisonResult,
+  type EmployeeComparison,
+} from '@/lib/reconciliation/comparison-engine';
 import {
   parseFile,
   parseSheetFromWorkbook,
@@ -219,13 +225,6 @@ const labels = {
   },
 };
 
-interface BenchmarkRow {
-  employeeId: string;
-  employeeName?: string;
-  amount: number;
-  [key: string]: unknown;
-}
-
 interface CalculationBatch {
   id: string;
   periodId: string;
@@ -233,17 +232,6 @@ interface CalculationBatch {
   completedAt: string;
   totalPayout: number;
   employeesProcessed: number;
-}
-
-interface ComparisonItem {
-  employeeId: string;
-  employeeName: string;
-  expected: number;
-  calculated: number;
-  variance: number;
-  variancePercent: number;
-  status: 'matched' | 'discrepancy' | 'missing_benchmark' | 'missing_calculated';
-  benchmarkRow?: BenchmarkRow;
 }
 
 export default function ReconciliationPage() {
@@ -272,10 +260,10 @@ export default function ReconciliationPage() {
   const [batches, setBatches] = useState<CalculationBatch[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<string>('');
   const [isRunning, setIsRunning] = useState(false);
-  const [session, setSession] = useState<ExtendedReconciliationSession | null>(null);
-  const [comparisonItems, setComparisonItems] = useState<ComparisonItem[]>([]);
-  const [selectedItem, setSelectedItem] = useState<ComparisonItem | null>(null);
-  const [filter, setFilter] = useState<'all' | 'matched' | 'discrepancy' | 'missing'>('all');
+  // Phase 4: New comparison engine result
+  const [comparisonResult, setComparisonResult] = useState<ComparisonResult | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeComparison | null>(null);
+  const [filter, setFilter] = useState<'all' | 'matched' | 'file_only' | 'vl_only' | 'flagged'>('all');
   const [sortDesc, setSortDesc] = useState(true);
 
   // VL Admin always sees English, tenant users see tenant locale
@@ -284,15 +272,6 @@ export default function ReconciliationPage() {
 
   // Check VL Admin access
   const hasAccess = user && isVLAdmin(user);
-
-  // Derive benchmark data from parsed file + field mapping
-  const benchmarkData: BenchmarkRow[] = parsedFile && employeeIdField && amountField
-    ? parsedFile.rows.map((row) => ({
-        employeeId: String(row[employeeIdField] ?? ''),
-        amount: Number(row[amountField] ?? 0),
-        ...row,
-      }))
-    : [];
 
   // Load calculation batches
   useEffect(() => {
@@ -470,148 +449,93 @@ export default function ReconciliationPage() {
     setAiMappingResult(null);
     setIsMapping(false);
     setMappingConfirmed(false);
-    setSession(null);
-    setComparisonItems([]);
+    setComparisonResult(null);
+    setSelectedEmployee(null);
   };
 
   // ============================================
-  // RECONCILIATION (existing logic, will be enhanced in Phase 4)
+  // Phase 4: Comparison Engine
   // ============================================
 
-  const handleRunReconciliation = async () => {
-    if (!currentTenant || !selectedBatch || benchmarkData.length === 0 || !user) return;
+  const handleRunComparison = () => {
+    if (!currentTenant || !parsedFile || !employeeIdField || !amountField) return;
 
     setIsRunning(true);
-    setSession(null);
-    setComparisonItems([]);
+    setComparisonResult(null);
 
     try {
-      const bridge = getReconciliationBridge(currentTenant.id);
-      const orchestrator = getOrchestrator(currentTenant.id);
+      // Get VL calculation results for selected batch
+      let vlResults: import('@/types/compensation-plan').CalculationResult[] = [];
 
-      const batch = batches.find((b) => b.id === selectedBatch);
-      if (!batch) throw new Error('Batch not found');
+      if (selectedBatch) {
+        // Try results-storage first (chunked storage)
+        vlResults = getStoredResults(selectedBatch);
+      }
 
-      const calculatedResults = orchestrator.getResults(batch.periodId);
-
-      // Create source data (benchmark) with field mapping
-      const sourceData = benchmarkData.map((row, index) => ({
-        id: `benchmark-${index}`,
-        employeeId: row.employeeId,
-        amount: row.amount,
-        date: new Date().toISOString(),
-        type: 'benchmark',
-      }));
-
-      // Create target data (calculated)
-      const targetData = calculatedResults.map((r) => ({
-        id: r.employeeId,
-        employeeId: r.employeeId,
-        amount: r.totalIncentive,
-        date: r.calculatedAt,
-        type: 'calculated',
-      }));
-
-      const newSession = bridge.createSession({
-        tenantId: currentTenant.id,
-        periodId: batch.periodId,
-        mode: 'operational',
-        sourceSystem: 'Benchmark',
-        targetSystem: 'Calculated',
-        createdBy: user.name,
-      });
-
-      const result = await bridge.runReconciliation(newSession.id, sourceData, targetData);
-      setSession(result);
-
-      // Build comparison items
-      const items: ComparisonItem[] = [];
-
-      for (const item of result.items || []) {
-        if (item.sourceRecord && item.targetRecord) {
-          const variance = item.sourceRecord.amount - item.targetRecord.amount;
-          items.push({
-            employeeId: item.sourceRecord.employeeId,
-            employeeName: item.sourceRecord.employeeId,
-            expected: item.sourceRecord.amount,
-            calculated: item.targetRecord.amount,
-            variance,
-            variancePercent: item.sourceRecord.amount > 0 ? (variance / item.sourceRecord.amount) * 100 : 0,
-            status: Math.abs(variance) < 0.01 ? 'matched' : 'discrepancy',
-          });
-        } else if (item.sourceRecord && !item.targetRecord) {
-          items.push({
-            employeeId: item.sourceRecord.employeeId,
-            employeeName: item.sourceRecord.employeeId,
-            expected: item.sourceRecord.amount,
-            calculated: 0,
-            variance: item.sourceRecord.amount,
-            variancePercent: 100,
-            status: 'missing_calculated',
-          });
-        } else if (!item.sourceRecord && item.targetRecord) {
-          items.push({
-            employeeId: item.targetRecord.employeeId,
-            employeeName: item.targetRecord.employeeId,
-            expected: 0,
-            calculated: item.targetRecord.amount,
-            variance: -item.targetRecord.amount,
-            variancePercent: 100,
-            status: 'missing_benchmark',
-          });
+      // If no batch selected or no results, try all runs for tenant
+      if (vlResults.length === 0) {
+        const allRuns = getCalculationRuns(currentTenant.id);
+        if (allRuns.length > 0) {
+          const latestRun = allRuns.sort(
+            (a, b) => new Date(b.calculatedAt).getTime() - new Date(a.calculatedAt).getTime()
+          )[0];
+          vlResults = getStoredResults(latestRun.id);
         }
       }
 
-      setComparisonItems(items);
+      // Run comparison
+      const result = runComparison(
+        parsedFile.rows,
+        vlResults,
+        aiMappings,
+        employeeIdField,
+        amountField,
+      );
+
+      setComparisonResult(result);
     } catch (error) {
-      console.error('Reconciliation error:', error);
+      console.error('Comparison error:', error);
     } finally {
       setIsRunning(false);
     }
   };
 
-  // Filter and sort items
-  const filteredItems = comparisonItems
-    .filter((item) => {
-      if (filter === 'all') return true;
-      if (filter === 'matched') return item.status === 'matched';
-      if (filter === 'discrepancy') return item.status === 'discrepancy';
-      if (filter === 'missing') return item.status === 'missing_benchmark' || item.status === 'missing_calculated';
-      return true;
-    })
-    .sort((a, b) => {
-      const aVar = Math.abs(a.variance);
-      const bVar = Math.abs(b.variance);
-      return sortDesc ? bVar - aVar : aVar - bVar;
-    });
+  // Filter and sort employees from comparison result
+  const filteredEmployees = comparisonResult
+    ? comparisonResult.employees
+        .filter((emp) => {
+          if (filter === 'all') return true;
+          if (filter === 'matched') return emp.population === 'matched';
+          if (filter === 'file_only') return emp.population === 'file_only';
+          if (filter === 'vl_only') return emp.population === 'vl_only';
+          if (filter === 'flagged') return emp.totalFlag === 'amber' || emp.totalFlag === 'red';
+          return true;
+        })
+        .sort((a, b) => {
+          const aVar = Math.abs(a.totalDelta);
+          const bVar = Math.abs(b.totalDelta);
+          return sortDesc ? bVar - aVar : aVar - bVar;
+        })
+    : [];
 
-  // Get status badge
-  const getStatusBadge = (status: ComparisonItem['status']) => {
-    switch (status) {
-      case 'matched':
-        return <Badge className="bg-emerald-100 text-emerald-800">{t.matched}</Badge>;
-      case 'discrepancy':
-        return <Badge className="bg-amber-100 text-amber-800">{t.discrepancies}</Badge>;
-      case 'missing_benchmark':
-        return <Badge className="bg-red-100 text-red-800">{locale === 'es-MX' ? 'Sin Benchmark' : 'No Benchmark'}</Badge>;
-      case 'missing_calculated':
-        return <Badge className="bg-red-100 text-red-800">{locale === 'es-MX' ? 'Sin Calculo' : 'Not Calculated'}</Badge>;
-      default:
-        return null;
+  // Get flag/population badge for an employee
+  const getFlagBadge = (emp: EmployeeComparison) => {
+    if (emp.population === 'file_only') {
+      return <Badge className="bg-orange-100 text-orange-800 text-xs">{locale === 'es-MX' ? 'Solo Archivo' : 'File Only'}</Badge>;
     }
-  };
-
-  // Calculate summary stats
-  const stats = {
-    total: comparisonItems.length,
-    matched: comparisonItems.filter((i) => i.status === 'matched').length,
-    discrepancies: comparisonItems.filter((i) => i.status === 'discrepancy').length,
-    missing: comparisonItems.filter((i) => i.status.includes('missing')).length,
-    matchRate: comparisonItems.length > 0
-      ? (comparisonItems.filter((i) => i.status === 'matched').length / comparisonItems.length) * 100
-      : 0,
-    benchmarkTotal: comparisonItems.reduce((sum, i) => sum + i.expected, 0),
-    calculatedTotal: comparisonItems.reduce((sum, i) => sum + i.calculated, 0),
+    if (emp.population === 'vl_only') {
+      return <Badge className="bg-purple-100 text-purple-800 text-xs">{locale === 'es-MX' ? 'Solo VL' : 'VL Only'}</Badge>;
+    }
+    switch (emp.totalFlag) {
+      case 'exact':
+        return <Badge className="bg-emerald-100 text-emerald-800 text-xs">{locale === 'es-MX' ? 'Exacto' : 'Exact'}</Badge>;
+      case 'tolerance':
+        return <Badge className="bg-emerald-100 text-emerald-700 text-xs">{locale === 'es-MX' ? 'Tolerancia' : 'Tolerance'}</Badge>;
+      case 'amber':
+        return <Badge className="bg-amber-100 text-amber-800 text-xs">Amber</Badge>;
+      case 'red':
+        return <Badge className="bg-red-100 text-red-800 text-xs">Red</Badge>;
+    }
   };
 
   // Access denied
@@ -872,8 +796,8 @@ export default function ReconciliationPage() {
 
             <Button
               className="w-full mt-4"
-              onClick={handleRunReconciliation}
-              disabled={!selectedBatch || benchmarkData.length === 0 || isRunning}
+              onClick={handleRunComparison}
+              disabled={!parsedFile || !employeeIdField || !amountField || isRunning}
             >
               {isRunning ? (
                 <>
@@ -1054,25 +978,11 @@ export default function ReconciliationPage() {
         </Card>
       )}
 
-      {/* Results */}
-      {session && (
+      {/* Phase 4: Comparison Results */}
+      {comparisonResult && (
         <>
           {/* Summary Cards */}
           <div className="grid gap-4 md:grid-cols-4">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900/30">
-                    <TrendingUp className="h-6 w-6 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500">{t.matchRate}</p>
-                    <p className="text-2xl font-bold">{stats.matchRate.toFixed(1)}%</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-4">
@@ -1080,8 +990,10 @@ export default function ReconciliationPage() {
                     <CheckCircle2 className="h-6 w-6 text-emerald-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.matched}</p>
-                    <p className="text-2xl font-bold">{stats.matched}</p>
+                    <p className="text-sm text-slate-500">{locale === 'es-MX' ? 'Exactos / Tolerancia' : 'Exact / Tolerance'}</p>
+                    <p className="text-2xl font-bold text-emerald-600">
+                      {comparisonResult.summary.exactMatches + comparisonResult.summary.toleranceMatches}
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -1094,8 +1006,8 @@ export default function ReconciliationPage() {
                     <AlertTriangle className="h-6 w-6 text-amber-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.discrepancies}</p>
-                    <p className="text-2xl font-bold">{stats.discrepancies}</p>
+                    <p className="text-sm text-slate-500">Amber (5-15%)</p>
+                    <p className="text-2xl font-bold text-amber-600">{comparisonResult.summary.amberFlags}</p>
                   </div>
                 </div>
               </CardContent>
@@ -1108,8 +1020,25 @@ export default function ReconciliationPage() {
                     <XCircle className="h-6 w-6 text-red-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.missing}</p>
-                    <p className="text-2xl font-bold">{stats.missing}</p>
+                    <p className="text-sm text-slate-500">{locale === 'es-MX' ? 'Alertas Rojas' : 'Red Flags'} (&gt;15%)</p>
+                    <p className="text-2xl font-bold text-red-600">{comparisonResult.summary.redFlags}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900/30">
+                    <TrendingUp className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500">{t.matched}</p>
+                    <p className="text-2xl font-bold">
+                      {comparisonResult.summary.matched}
+                      <span className="text-sm font-normal text-slate-400 ml-1">/ {comparisonResult.summary.totalEmployees}</span>
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -1122,26 +1051,26 @@ export default function ReconciliationPage() {
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="text-center p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                   <p className="text-sm text-slate-500">{t.sourceTotal}</p>
-                  <p className="text-2xl font-bold">${stats.benchmarkTotal.toLocaleString()}</p>
+                  <p className="text-2xl font-bold">${comparisonResult.summary.fileTotalAmount.toLocaleString()}</p>
                 </div>
                 <div className="text-center p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                   <p className="text-sm text-slate-500">{t.targetTotal}</p>
-                  <p className="text-2xl font-bold">${stats.calculatedTotal.toLocaleString()}</p>
+                  <p className="text-2xl font-bold">${comparisonResult.summary.vlTotalAmount.toLocaleString()}</p>
                 </div>
                 <div className={cn(
                   'text-center p-4 rounded-lg',
-                  Math.abs(stats.benchmarkTotal - stats.calculatedTotal) < 1
+                  Math.abs(comparisonResult.summary.totalDelta) < 1
                     ? 'bg-emerald-50 dark:bg-emerald-900/30'
                     : 'bg-red-50 dark:bg-red-900/30'
                 )}>
                   <p className="text-sm text-slate-500">{t.difference}</p>
                   <p className={cn(
                     'text-2xl font-bold',
-                    Math.abs(stats.benchmarkTotal - stats.calculatedTotal) < 1
+                    Math.abs(comparisonResult.summary.totalDelta) < 1
                       ? 'text-emerald-600'
                       : 'text-red-600'
                   )}>
-                    ${Math.abs(stats.benchmarkTotal - stats.calculatedTotal).toLocaleString()}
+                    ${Math.abs(comparisonResult.summary.totalDelta).toLocaleString()}
                   </p>
                 </div>
               </div>
@@ -1154,7 +1083,7 @@ export default function ReconciliationPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>{t.employeeComparison}</CardTitle>
-                  <CardDescription>{filteredItems.length} items</CardDescription>
+                  <CardDescription>{filteredEmployees.length} {locale === 'es-MX' ? 'empleados' : 'employees'}</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
@@ -1164,8 +1093,9 @@ export default function ReconciliationPage() {
                     <SelectContent>
                       <SelectItem value="all">{t.all}</SelectItem>
                       <SelectItem value="matched">{t.matchedOnly}</SelectItem>
-                      <SelectItem value="discrepancy">{t.discrepanciesOnly}</SelectItem>
-                      <SelectItem value="missing">{t.missingOnly}</SelectItem>
+                      <SelectItem value="file_only">{locale === 'es-MX' ? 'Solo Archivo' : 'File Only'}</SelectItem>
+                      <SelectItem value="vl_only">{locale === 'es-MX' ? 'Solo VL' : 'VL Only'}</SelectItem>
+                      <SelectItem value="flagged">{locale === 'es-MX' ? 'Con Alertas' : 'Flagged'}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button
@@ -1191,35 +1121,37 @@ export default function ReconciliationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredItems.slice(0, 20).map((item) => (
-                    <TableRow key={item.employeeId}>
-                      <TableCell className="font-medium">{item.employeeId}</TableCell>
-                      <TableCell className="text-right">${item.expected.toLocaleString()}</TableCell>
-                      <TableCell className="text-right">${item.calculated.toLocaleString()}</TableCell>
-                      <TableCell className={cn(
-                        'text-right font-medium',
-                        item.variance > 0 ? 'text-red-600' : item.variance < 0 ? 'text-emerald-600' : ''
-                      )}>
+                  {filteredEmployees.slice(0, 20).map((emp) => (
+                    <TableRow key={emp.employeeId}>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{emp.employeeName}</p>
+                          <p className="text-xs text-slate-400">{emp.employeeId}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">${emp.fileTotal.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">${emp.vlTotal.toLocaleString()}</TableCell>
+                      <TableCell className={cn('text-right font-medium', getFlagColor(emp.totalFlag))}>
                         <div className="flex items-center justify-end gap-1">
-                          {item.variance > 0 ? (
-                            <TrendingDown className="h-4 w-4" />
-                          ) : item.variance < 0 ? (
+                          {emp.totalDelta > 0 ? (
                             <TrendingUp className="h-4 w-4" />
+                          ) : emp.totalDelta < 0 ? (
+                            <TrendingDown className="h-4 w-4" />
                           ) : (
                             <Minus className="h-4 w-4 text-slate-400" />
                           )}
-                          ${Math.abs(item.variance).toLocaleString()}
+                          ${Math.abs(emp.totalDelta).toLocaleString()}
                           <span className="text-xs text-slate-400">
-                            ({item.variancePercent.toFixed(1)}%)
+                            ({(Math.abs(emp.totalDeltaPercent) * 100).toFixed(1)}%)
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell>{getStatusBadge(item.status)}</TableCell>
+                      <TableCell>{getFlagBadge(emp)}</TableCell>
                       <TableCell>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setSelectedItem(item)}
+                          onClick={() => setSelectedEmployee(emp)}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -1228,9 +1160,9 @@ export default function ReconciliationPage() {
                   ))}
                 </TableBody>
               </Table>
-              {filteredItems.length > 20 && (
+              {filteredEmployees.length > 20 && (
                 <p className="text-center text-sm text-slate-500 mt-4">
-                  {locale === 'es-MX' ? 'Mostrando 20 de' : 'Showing 20 of'} {filteredItems.length}
+                  {locale === 'es-MX' ? 'Mostrando 20 de' : 'Showing 20 of'} {filteredEmployees.length}
                 </p>
               )}
             </CardContent>
@@ -1239,49 +1171,83 @@ export default function ReconciliationPage() {
       )}
 
       {/* Detail Dialog */}
-      <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
+      <Dialog open={!!selectedEmployee} onOpenChange={() => setSelectedEmployee(null)}>
         <DialogContent className="max-w-lg">
-          {selectedItem && (
+          {selectedEmployee && (
             <>
               <DialogHeader>
-                <DialogTitle>{selectedItem.employeeId}</DialogTitle>
-                <DialogDescription>{getStatusBadge(selectedItem.status)}</DialogDescription>
+                <DialogTitle>{selectedEmployee.employeeName}</DialogTitle>
+                <DialogDescription className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">{selectedEmployee.employeeId}</span>
+                  {getFlagBadge(selectedEmployee)}
+                </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 pt-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                     <p className="text-sm text-slate-500">{t.expected}</p>
-                    <p className="text-xl font-bold">${selectedItem.expected.toLocaleString()}</p>
+                    <p className="text-xl font-bold">${selectedEmployee.fileTotal.toLocaleString()}</p>
                   </div>
                   <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                     <p className="text-sm text-slate-500">{t.calculated}</p>
-                    <p className="text-xl font-bold">${selectedItem.calculated.toLocaleString()}</p>
+                    <p className="text-xl font-bold">${selectedEmployee.vlTotal.toLocaleString()}</p>
                   </div>
                 </div>
 
+                {/* Per-component breakdown */}
+                {selectedEmployee.components.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2">{t.componentDetail}</p>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">{locale === 'es-MX' ? 'Componente' : 'Component'}</TableHead>
+                          <TableHead className="text-xs text-right">{t.expected}</TableHead>
+                          <TableHead className="text-xs text-right">{t.calculated}</TableHead>
+                          <TableHead className="text-xs text-right">{t.variance}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedEmployee.components.map((comp) => (
+                          <TableRow key={comp.componentId}>
+                            <TableCell className="text-xs">{comp.componentName}</TableCell>
+                            <TableCell className="text-xs text-right">${comp.fileValue.toLocaleString()}</TableCell>
+                            <TableCell className="text-xs text-right">${comp.vlValue.toLocaleString()}</TableCell>
+                            <TableCell className={cn('text-xs text-right', getFlagColor(comp.flag))}>
+                              ${Math.abs(comp.delta).toLocaleString()} ({(Math.abs(comp.deltaPercent) * 100).toFixed(1)}%)
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+
                 <div className={cn(
                   'p-4 rounded-lg',
-                  selectedItem.status === 'matched'
+                  selectedEmployee.totalFlag === 'exact' || selectedEmployee.totalFlag === 'tolerance'
                     ? 'bg-emerald-50 dark:bg-emerald-900/30'
-                    : 'bg-amber-50 dark:bg-amber-900/30'
+                    : selectedEmployee.totalFlag === 'amber'
+                    ? 'bg-amber-50 dark:bg-amber-900/30'
+                    : 'bg-red-50 dark:bg-red-900/30'
                 )}>
                   <p className="text-sm font-medium mb-2">{t.reasoning}</p>
                   <p className="text-sm">
-                    {selectedItem.status === 'matched'
+                    {selectedEmployee.population === 'matched'
+                      ? selectedEmployee.totalFlag === 'exact' || selectedEmployee.totalFlag === 'tolerance'
+                        ? locale === 'es-MX'
+                          ? 'Los valores coinciden dentro del margen de tolerancia.'
+                          : 'Values match within tolerance threshold.'
+                        : locale === 'es-MX'
+                        ? `Diferencia de $${Math.abs(selectedEmployee.totalDelta).toLocaleString()} (${(Math.abs(selectedEmployee.totalDeltaPercent) * 100).toFixed(1)}%). Verificar componentes de calculo y datos de entrada.`
+                        : `Difference of $${Math.abs(selectedEmployee.totalDelta).toLocaleString()} (${(Math.abs(selectedEmployee.totalDeltaPercent) * 100).toFixed(1)}%). Review calculation components and input data.`
+                      : selectedEmployee.population === 'file_only'
                       ? locale === 'es-MX'
-                        ? 'Los valores coinciden dentro del margen de tolerancia.'
-                        : 'Values match within tolerance threshold.'
-                      : selectedItem.status === 'discrepancy'
-                      ? locale === 'es-MX'
-                        ? `Diferencia de $${Math.abs(selectedItem.variance).toLocaleString()} (${selectedItem.variancePercent.toFixed(1)}%). Verificar componentes de calculo y datos de entrada.`
-                        : `Difference of $${Math.abs(selectedItem.variance).toLocaleString()} (${selectedItem.variancePercent.toFixed(1)}%). Review calculation components and input data.`
-                      : selectedItem.status === 'missing_calculated'
-                      ? locale === 'es-MX'
-                        ? 'El empleado existe en el benchmark pero no tiene calculo. Verificar que este incluido en el periodo y tenga metricas.'
-                        : 'Employee exists in benchmark but has no calculation. Verify they are included in the period and have metrics.'
+                        ? 'El empleado existe en el archivo pero no tiene calculo en VL. Verificar que este incluido en el periodo.'
+                        : 'Employee exists in uploaded file but has no VL calculation. Verify they are included in the period.'
                       : locale === 'es-MX'
-                      ? 'El empleado tiene calculo pero no aparece en el benchmark. Puede ser una nueva contratacion o error en datos de referencia.'
-                      : 'Employee has calculation but is not in benchmark. May be a new hire or benchmark data issue.'}
+                      ? 'El empleado tiene calculo en VL pero no aparece en el archivo. Puede ser una nueva contratacion o error en datos de referencia.'
+                      : 'Employee has VL calculation but is not in uploaded file. May be a new hire or benchmark data issue.'}
                   </p>
                 </div>
               </div>
