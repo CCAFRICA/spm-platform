@@ -18,10 +18,7 @@ import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { getPeriodRuns } from '@/lib/orchestration/calculation-orchestrator';
-import {
-  loadResultsFromIndexedDB,
-  getLatestRunFromIndexedDB,
-} from '@/lib/calculation/indexed-db-storage';
+import { getTraces } from '@/lib/forensics/forensics-service';
 import {
   runComparison,
   getFlagColor,
@@ -522,49 +519,39 @@ export default function ReconciliationPage() {
     setIsRunning(true);
     setComparisonResult(null);
 
-    // HF-022: Use requestAnimationFrame so React renders the loading spinner,
-    // then run async IndexedDB fetch + synchronous comparison
+    // HF-022: Use requestAnimationFrame so React renders the loading spinner
+    // before the synchronous comparison (can take seconds for 2000+ rows)
     requestAnimationFrame(() => {
-      (async () => {
-        try {
-          let vlResults: import('@/types/compensation-plan').CalculationResult[] = [];
+      try {
+        // HF-022: Read from forensics traces — the ONLY storage path the
+        // orchestrator actually writes to (saveTraces at line 296).
+        // IndexedDB saveResults exists but is never called.
+        const batch = selectedBatch ? batches.find(b => b.id === selectedBatch) : null;
+        const traces = getTraces(currentTenant.id, batch?.id);
+        console.log(`[Reconciliation] Forensics traces for tenant '${currentTenant.id}', run '${batch?.id || 'latest'}': ${traces.length} employees`);
 
-          // Primary: load from IndexedDB using the selected batch run ID
-          if (selectedBatch) {
-            vlResults = await loadResultsFromIndexedDB(selectedBatch);
-            console.log(`[Reconciliation] IndexedDB results for run '${selectedBatch}': ${vlResults.length} employees`);
-          }
+        // CalculationTrace has employeeId, employeeName, totalIncentive,
+        // and components[].componentId / outputValue — structurally compatible
+        // with CalculationResult for comparison purposes.
+        const vlResults = traces as unknown as import('@/types/compensation-plan').CalculationResult[];
 
-          // Fallback: get the latest run for this tenant from IndexedDB
-          if (vlResults.length === 0) {
-            const latestRun = await getLatestRunFromIndexedDB(currentTenant.id);
-            if (latestRun) {
-              vlResults = await loadResultsFromIndexedDB(latestRun.runId);
-              console.log(`[Reconciliation] IndexedDB fallback (latest run '${latestRun.runId}'): ${vlResults.length} employees`);
-            } else {
-              console.warn('[Reconciliation] No runs found in IndexedDB for tenant:', currentTenant.id);
-            }
-          }
+        console.log(`[Reconciliation] Comparing ${parsedFile.rows.length} file rows vs ${vlResults.length} VL results (empId='${employeeIdField}', amt='${amountField}')`);
 
-          console.log(`[Reconciliation] Comparing ${parsedFile.rows.length} file rows vs ${vlResults.length} VL results (empId='${employeeIdField}', amt='${amountField}')`);
+        const result = runComparison(
+          parsedFile.rows,
+          vlResults,
+          aiMappings,
+          employeeIdField,
+          amountField,
+        );
 
-          // Run comparison
-          const result = runComparison(
-            parsedFile.rows,
-            vlResults,
-            aiMappings,
-            employeeIdField,
-            amountField,
-          );
-
-          console.log(`[Reconciliation] Result: ${result.summary.matched} matched, ${result.summary.fileOnly} file-only, ${result.summary.vlOnly} vl-only`);
-          setComparisonResult(result);
-        } catch (error) {
-          console.error('[Reconciliation] Comparison error:', error);
-        } finally {
-          setIsRunning(false);
-        }
-      })();
+        console.log(`[Reconciliation] Result: ${result.summary.matched} matched, ${result.summary.fileOnly} file-only, ${result.summary.vlOnly} vl-only`);
+        setComparisonResult(result);
+      } catch (error) {
+        console.error('[Reconciliation] Comparison error:', error);
+      } finally {
+        setIsRunning(false);
+      }
     });
   };
 
