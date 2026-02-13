@@ -3748,7 +3748,7 @@ export default function DataPackageImportPage() {
                     : 'Data has been successfully imported into the system.'}
                 </p>
                 <Badge variant="outline" className="text-green-700 border-green-400 text-lg px-4 py-1">
-                  {isSpanish ? 'ID de Importación' : 'Import ID'}: {importId}
+                  {isSpanish ? 'ID de Importación' : 'Import ID'}: #{importId?.slice(-8)}
                 </Badge>
               </div>
 
