@@ -36,11 +36,11 @@ import {
   getCycleState,
   getAllPeriods,
   getNextAction,
+  getQueueItems as getClockQueueItems,
+  getPulseMetrics as getClockPulseMetrics,
   type PersonaType,
   type PeriodState,
 } from '@/lib/navigation/compensation-clock-service';
-import { getQueueItems as getBaseQueueItems } from '@/lib/navigation/queue-service';
-import { getPulseMetrics as getBasePulseMetrics } from '@/lib/navigation/pulse-service';
 import { getWorkspaceForRoute, WORKSPACES } from '@/lib/navigation/workspace-config';
 import { getDefaultWorkspace, canAccessWorkspace } from '@/lib/navigation/role-workspaces';
 import { logWorkspaceSwitch } from '@/lib/navigation/navigation-signals';
@@ -182,11 +182,11 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     setNextAction(action);
 
     // THE QUEUE (peripheral oscillators)
-    const queue = getBaseQueueItems(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
+    const queue = getClockQueueItems(tenantId, persona, user.id);
     setQueueItems(queue);
 
     // THE PULSE (feedback loops)
-    const pulse = getBasePulseMetrics(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
+    const pulse = getClockPulseMetrics(tenantId, persona, user.id);
     setPulseMetrics(pulse);
   }, [user, userRole, tenantId, persona]);
 
