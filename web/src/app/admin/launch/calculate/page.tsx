@@ -81,6 +81,11 @@ import {
   assessDataCompleteness,
   type DataCompleteness,
 } from '@/lib/data-architecture/data-package';
+import { createApprovalItem } from '@/lib/governance/approval-service';
+import {
+  buildCalculationSummary,
+  saveSummary,
+} from '@/lib/calculation/calculation-summary-service';
 
 // Bilingual labels
 const labels = {
@@ -361,6 +366,32 @@ export default function CalculatePage() {
             immutable: true,
           };
           currentCycle = transitionCycle(currentCycle, 'OFFICIAL', user.name, 'Official calculation completed', { snapshot });
+
+          // Build and save calculation summary for Results Dashboard
+          try {
+            // Map CalculationResult[] to lightweight trace shape for summary builder
+            const tracelike = orchestrationResult.results.map(r => ({
+              employeeId: r.employeeId,
+              employeeName: r.employeeName,
+              storeId: r.storeId || '',
+              variant: { variantName: r.variantName || 'Default' },
+              totalIncentive: r.totalIncentive,
+              components: r.components.map(c => ({
+                componentId: c.componentId,
+                componentName: c.componentName,
+                outputValue: c.outputValue,
+              })),
+            }));
+            const summary = buildCalculationSummary(
+              tracelike as Parameters<typeof buildCalculationSummary>[0],
+              orchestrationResult.run.id,
+              currentTenant.id,
+              selectedPeriod
+            );
+            saveSummary(summary);
+          } catch (sumErr) {
+            console.warn('[Summary] Failed to build summary (non-fatal):', sumErr);
+          }
         }
         setCycle(currentCycle);
       } catch (lcError) {
@@ -384,6 +415,22 @@ export default function CalculatePage() {
     try {
       const updated = transitionCycle(cycle, 'PENDING_APPROVAL', user.name, 'Submitted for approval');
       setCycle(updated);
+
+      // Create approval item from official snapshot
+      const snapshot = cycle.officialSnapshot;
+      if (snapshot) {
+        createApprovalItem(
+          currentTenant.id,
+          cycle.cycleId,
+          cycle.period,
+          user.name,
+          {
+            totalPayout: snapshot.totalPayout,
+            employeeCount: snapshot.employeeCount,
+            componentTotals: snapshot.componentTotals,
+          }
+        );
+      }
     } catch (e) {
       console.error('Submit for approval failed:', e);
       alert(e instanceof Error ? e.message : 'Failed to submit for approval');

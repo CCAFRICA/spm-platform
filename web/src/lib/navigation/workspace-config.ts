@@ -392,6 +392,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Approvals',
         labelEs: 'Aprobaciones',
         routes: [
+          { path: '/govern/calculation-approvals', label: 'Calculation Approvals', labelEs: 'Aprobaciones de Cálculo', icon: 'ShieldCheck', roles: ['vl_admin', 'admin'] },
           { path: '/govern/approvals', label: 'Approval History', labelEs: 'Historial de Aprobaciones', icon: 'CheckCircle', roles: ['vl_admin', 'admin', 'manager'] },
           { path: '/govern/approvals/routing', label: 'Routing Audit', labelEs: 'Auditoría de Enrutamiento', icon: 'Route', roles: ['vl_admin', 'admin'] },
         ],
