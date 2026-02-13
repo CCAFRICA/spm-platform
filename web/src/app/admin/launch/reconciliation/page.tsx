@@ -882,11 +882,20 @@ export default function ReconciliationPage() {
                     {t.noBatches}
                   </div>
                 ) : (
-                  batches.map((batch) => (
-                    <SelectItem key={batch.id} value={batch.id}>
-                      {batch.periodId} - {batch.runType} (${batch.totalPayout.toLocaleString()})
-                    </SelectItem>
-                  ))
+                  batches.map((batch) => {
+                    const runLabel = batch.runType === 'official' ? (locale === 'es-MX' ? 'Oficial' : 'Official')
+                      : batch.runType === 'preview' ? 'Preview'
+                      : batch.runType === 'adjustment' ? (locale === 'es-MX' ? 'Ajuste' : 'Adjustment')
+                      : batch.runType;
+                    const dateStr = batch.completedAt
+                      ? new Date(batch.completedAt).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })
+                      : '';
+                    return (
+                      <SelectItem key={batch.id} value={batch.id}>
+                        {batch.periodId} - {runLabel} | {dateStr} | {batch.employeesProcessed} {locale === 'es-MX' ? 'empleados' : 'employees'} | ${batch.totalPayout.toLocaleString()}
+                      </SelectItem>
+                    );
+                  })
                 )}
               </SelectContent>
             </Select>
