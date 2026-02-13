@@ -14,6 +14,11 @@ import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { formatMetricValue, getTrendArrow, getTrendColor } from '@/lib/navigation/pulse-service';
 import { getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
+import {
+  getLatestRun,
+  getCalculationResults,
+  getCalculationRuns,
+} from '@/lib/calculation/results-storage';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -65,12 +70,36 @@ export default function PerformPage() {
 
   const isManager = userRole === 'manager' || userRole === 'admin' || userRole === 'vl_admin';
 
-  // OB-29: Fetch real calculation results
+  // HF-018: Fetch real calculation results from both storage systems
   useEffect(() => {
     if (!currentTenant) return;
 
     const period = getCurrentPeriod();
-    const results = getPeriodResults(currentTenant.id, period);
+    let results: CalculationResult[] = [];
+
+    // Priority 1: Results storage (OB-29 chunked system — same as landing page)
+    const run = getLatestRun(currentTenant.id, period);
+    if (run) {
+      results = getCalculationResults(run.id);
+    }
+
+    // Priority 2: Search all runs for this tenant (data may be from a different period)
+    if (results.length === 0) {
+      const allRuns = getCalculationRuns(currentTenant.id);
+      if (allRuns.length > 0) {
+        // Use most recent run regardless of period
+        const latestRun = allRuns.sort(
+          (a, b) => new Date(b.calculatedAt).getTime() - new Date(a.calculatedAt).getTime()
+        )[0];
+        results = getCalculationResults(latestRun.id);
+      }
+    }
+
+    // Priority 3: Orchestrator storage (legacy vialuce_calculations keys)
+    if (results.length === 0) {
+      results = getPeriodResults(currentTenant.id, period);
+    }
+
     setAllResults(results);
     setHasResults(results.length > 0);
 

@@ -140,14 +140,19 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   }, [userRole]);
 
   // Update active workspace based on current route
+  // HF-018: Removed activeWorkspace from deps to prevent double-fire on workspace switch
   useEffect(() => {
     if (!pathname) return;
 
     const wsForRoute = getWorkspaceForRoute(pathname);
-    if (wsForRoute && wsForRoute !== activeWorkspace) {
-      if (userRole && canAccessWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
-        setActiveWorkspaceState(wsForRoute);
-      }
+    if (wsForRoute) {
+      setActiveWorkspaceState(prev => {
+        if (prev === wsForRoute) return prev;
+        if (userRole && canAccessWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
+          return wsForRoute;
+        }
+        return prev;
+      });
     }
 
     // Track recent pages
@@ -159,7 +164,8 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
         return updated;
       });
     }
-  }, [pathname, activeWorkspace, userRole]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, userRole]);
 
   // Map role to persona type for clock service
   const persona: PersonaType = userRole === 'vl_admin' ? 'vl_admin'

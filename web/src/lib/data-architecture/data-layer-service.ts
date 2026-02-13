@@ -1603,10 +1603,15 @@ export function loadAggregatedData(tenantId: string): Array<Record<string, unkno
 /**
  * OB-16C: Cleanup stale data from localStorage
  */
+// HF-018: Track if cleanup already ran this session to avoid repeated runs
+let _cleanupRanForTenant: string | null = null;
+
 export function cleanupStaleData(currentTenantId: string): void {
   if (typeof window === 'undefined') return;
 
-  console.log(`[DataLayer] Running stale data cleanup for tenant: ${currentTenantId}`);
+  // Only run once per tenant per session
+  if (_cleanupRanForTenant === currentTenantId) return;
+  _cleanupRanForTenant = currentTenantId;
 
   let removedKeys = 0;
   let freedBytes = 0;
@@ -1667,8 +1672,9 @@ export function cleanupStaleData(currentTenantId: string): void {
     freedBytes += size;
   }
 
-  console.log(`[DataLayer] Cleanup complete: removed ${removedKeys} keys, freed ~${Math.round(freedBytes / 1024)} KB`);
-  reportStorageUsage();
+  if (removedKeys > 0) {
+    console.log(`[DataLayer] Cleanup: removed ${removedKeys} keys, freed ~${Math.round(freedBytes / 1024)} KB`);
+  }
 }
 
 export function initializeDataLayer(): void {
