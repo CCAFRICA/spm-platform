@@ -17,10 +17,11 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
-import { getPeriodRuns, getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
+import { getPeriodRuns } from '@/lib/orchestration/calculation-orchestrator';
 import {
-  getCalculationResults as getStoredResults,
-} from '@/lib/calculation/results-storage';
+  loadResultsFromIndexedDB,
+  getLatestRunFromIndexedDB,
+} from '@/lib/calculation/indexed-db-storage';
 import {
   runComparison,
   getFlagColor,
@@ -521,52 +522,49 @@ export default function ReconciliationPage() {
     setIsRunning(true);
     setComparisonResult(null);
 
-    // HF-022: Use requestAnimationFrame to let React render the loading state
-    // before running the synchronous comparison (can take seconds for 2000+ rows)
+    // HF-022: Use requestAnimationFrame so React renders the loading spinner,
+    // then run async IndexedDB fetch + synchronous comparison
     requestAnimationFrame(() => {
-      try {
-        // HF-022: Read VL results from orchestrator (vialuce_calculations_chunk_*)
-        // NOT from results-storage (calculation_results_*) — different key format
-        let vlResults: import('@/types/compensation-plan').CalculationResult[] = [];
+      (async () => {
+        try {
+          let vlResults: import('@/types/compensation-plan').CalculationResult[] = [];
 
-        if (selectedBatch) {
-          const batch = batches.find(b => b.id === selectedBatch);
-          if (batch) {
-            vlResults = getPeriodResults(currentTenant.id, batch.periodId);
-            console.log(`[Reconciliation] Orchestrator results for period '${batch.periodId}': ${vlResults.length} employees`);
+          // Primary: load from IndexedDB using the selected batch run ID
+          if (selectedBatch) {
+            vlResults = await loadResultsFromIndexedDB(selectedBatch);
+            console.log(`[Reconciliation] IndexedDB results for run '${selectedBatch}': ${vlResults.length} employees`);
           }
+
+          // Fallback: get the latest run for this tenant from IndexedDB
+          if (vlResults.length === 0) {
+            const latestRun = await getLatestRunFromIndexedDB(currentTenant.id);
+            if (latestRun) {
+              vlResults = await loadResultsFromIndexedDB(latestRun.runId);
+              console.log(`[Reconciliation] IndexedDB fallback (latest run '${latestRun.runId}'): ${vlResults.length} employees`);
+            } else {
+              console.warn('[Reconciliation] No runs found in IndexedDB for tenant:', currentTenant.id);
+            }
+          }
+
+          console.log(`[Reconciliation] Comparing ${parsedFile.rows.length} file rows vs ${vlResults.length} VL results (empId='${employeeIdField}', amt='${amountField}')`);
+
+          // Run comparison
+          const result = runComparison(
+            parsedFile.rows,
+            vlResults,
+            aiMappings,
+            employeeIdField,
+            amountField,
+          );
+
+          console.log(`[Reconciliation] Result: ${result.summary.matched} matched, ${result.summary.fileOnly} file-only, ${result.summary.vlOnly} vl-only`);
+          setComparisonResult(result);
+        } catch (error) {
+          console.error('[Reconciliation] Comparison error:', error);
+        } finally {
+          setIsRunning(false);
         }
-
-        // Fallback 1: Get all orchestrator results for tenant
-        if (vlResults.length === 0) {
-          vlResults = getPeriodResults(currentTenant.id, '');
-          console.log(`[Reconciliation] Orchestrator fallback (all periods): ${vlResults.length} employees`);
-        }
-
-        // Fallback 2: Try results-storage format (calculation_results_*)
-        if (vlResults.length === 0 && selectedBatch) {
-          vlResults = getStoredResults(selectedBatch);
-          console.log(`[Reconciliation] Results-storage fallback for run '${selectedBatch}': ${vlResults.length} employees`);
-        }
-
-        console.log(`[Reconciliation] Comparing ${parsedFile.rows.length} file rows vs ${vlResults.length} VL results (empId='${employeeIdField}', amt='${amountField}')`);
-
-        // Run comparison
-        const result = runComparison(
-          parsedFile.rows,
-          vlResults,
-          aiMappings,
-          employeeIdField,
-          amountField,
-        );
-
-        console.log(`[Reconciliation] Result: ${result.summary.matched} matched, ${result.summary.fileOnly} file-only, ${result.summary.vlOnly} vl-only`);
-        setComparisonResult(result);
-      } catch (error) {
-        console.error('[Reconciliation] Comparison error:', error);
-      } finally {
-        setIsRunning(false);
-      }
+      })();
     });
   };
 
