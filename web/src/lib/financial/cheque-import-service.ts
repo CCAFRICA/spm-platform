@@ -55,12 +55,28 @@ interface ImportBatch {
 }
 
 // ============================================
-// STORAGE HELPERS
+// CHUNKED STORAGE HELPERS
 // ============================================
+
+const CHUNK_SIZE = 2000; // Items per chunk to stay within localStorage limits
 
 function loadFromStorage<T>(key: string): T[] {
   if (typeof window === 'undefined') return [];
   try {
+    // Check for chunked storage first
+    const meta = localStorage.getItem(`${key}_meta`);
+    if (meta) {
+      const { chunkCount } = JSON.parse(meta);
+      const allItems: T[] = [];
+      for (let i = 0; i < chunkCount; i++) {
+        const chunk = localStorage.getItem(`${key}_${i}`);
+        if (chunk) {
+          allItems.push(...JSON.parse(chunk));
+        }
+      }
+      return allItems;
+    }
+    // Fall back to non-chunked for backward compatibility
     const stored = localStorage.getItem(key);
     return stored ? JSON.parse(stored) : [];
   } catch {
@@ -71,10 +87,39 @@ function loadFromStorage<T>(key: string): T[] {
 function saveToStorage<T>(key: string, data: T[]): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(key, JSON.stringify(data));
+    if (data.length <= CHUNK_SIZE) {
+      // Small dataset - store directly (clear any old chunks)
+      clearChunks(key);
+      localStorage.setItem(key, JSON.stringify(data));
+    } else {
+      // Large dataset - chunk it
+      // Remove non-chunked key if it exists
+      localStorage.removeItem(key);
+      const chunkCount = Math.ceil(data.length / CHUNK_SIZE);
+      // Save metadata
+      localStorage.setItem(`${key}_meta`, JSON.stringify({ chunkCount, totalItems: data.length }));
+      // Save chunks
+      for (let i = 0; i < chunkCount; i++) {
+        const chunk = data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        localStorage.setItem(`${key}_${i}`, JSON.stringify(chunk));
+      }
+    }
   } catch (e) {
     console.warn('Storage save failed:', e);
   }
+}
+
+function clearChunks(key: string): void {
+  try {
+    const meta = localStorage.getItem(`${key}_meta`);
+    if (meta) {
+      const { chunkCount } = JSON.parse(meta);
+      for (let i = 0; i < chunkCount; i++) {
+        localStorage.removeItem(`${key}_${i}`);
+      }
+      localStorage.removeItem(`${key}_meta`);
+    }
+  } catch { /* ignore */ }
 }
 
 // ============================================
@@ -333,6 +378,9 @@ export class ChequeImportService {
 
     keys.forEach(key => {
       if (typeof window !== 'undefined') {
+        // Clear chunked storage
+        clearChunks(key);
+        // Clear non-chunked storage
         localStorage.removeItem(key);
       }
     });
