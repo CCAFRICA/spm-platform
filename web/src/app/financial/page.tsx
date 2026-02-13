@@ -333,11 +333,13 @@ export default function NetworkPulseDashboard() {
             {isSpanish ? 'Pulso de Red' : 'Network Pulse'}
           </h1>
           <p className="text-muted-foreground">
-            {isSpanish ? 'Rendimiento de la franquicia en tiempo real' : 'Real-time franchise performance'}
+            {currentTenant?.displayName || currentTenant?.name || (isSpanish ? 'Rendimiento de la franquicia' : 'Franchise performance')}
+            {' - '}
+            {isSpanish ? 'rendimiento en tiempo real' : 'real-time performance'}
           </p>
         </div>
         <Badge variant="outline" className="text-xs">
-          {isSpanish ? 'Periodo actual' : 'Current period'}
+          {networkMetrics.activeLocations}/{networkMetrics.totalLocations} {isSpanish ? 'ubicaciones activas' : 'active locations'}
         </Badge>
       </div>
 
