@@ -1,16 +1,16 @@
 /**
  * Storage Key Migration
  *
- * Migrates localStorage keys from old clearcomp_ prefix to new vialuce_ prefix.
- * This ensures backward compatibility with existing data after the rebrand.
+ * Migrates localStorage keys from legacy prefix to ViaLuce prefix.
+ * Ensures backward compatibility with existing data after the rebrand.
  */
 
 const OLD_PREFIX = 'clearcomp_';
 const NEW_PREFIX = 'vialuce_';
 
 /**
- * Migrate all localStorage keys from clearcomp_ to vialuce_ prefix.
- * This is idempotent - safe to call multiple times.
+ * Migrate all localStorage keys from legacy prefix to vialuce_ prefix.
+ * This is idempotent -- safe to call multiple times.
  */
 export function migrateStorageKeys(): { migrated: number; skipped: number } {
   if (typeof window === 'undefined') {

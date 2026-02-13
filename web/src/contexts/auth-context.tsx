@@ -425,7 +425,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Migrate old clearcomp_ storage keys to vialuce_ prefix
+    // Migrate legacy storage keys to vialuce_ prefix
     if (typeof window !== 'undefined') {
       migrateStorageKeys();
     }
