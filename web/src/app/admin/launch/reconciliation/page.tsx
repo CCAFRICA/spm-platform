@@ -28,6 +28,14 @@ import {
   getPreviewRows,
   type ParsedFile,
 } from '@/lib/reconciliation/smart-file-parser';
+import {
+  mapColumns,
+  recordMappingFeedback,
+  getEmployeeIdMapping,
+  getTotalAmountMapping,
+  type ColumnMapping,
+  type MappingResult,
+} from '@/lib/reconciliation/ai-column-mapper';
 import type * as XLSX_TYPE from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -71,6 +79,8 @@ import {
   SortAsc,
   SortDesc,
   FileSpreadsheet,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -125,6 +135,13 @@ const labels = {
     format: 'Format',
     parseError: 'Failed to parse file. Check format and try again.',
     uploadAnother: 'Upload Another',
+    aiMapping: 'AI Column Mapping',
+    aiMappingRunning: 'AI is analyzing columns...',
+    aiMappingSuccess: 'AI mapped columns',
+    aiMappingFailed: 'AI unavailable -- using manual mapping',
+    mappedTo: 'Mapped to',
+    confidence: 'Confidence',
+    unmapped: 'Not mapped',
   },
   'es-MX': {
     title: 'Reconciliacion de Benchmark',
@@ -175,6 +192,13 @@ const labels = {
     format: 'Formato',
     parseError: 'Error al analizar el archivo. Verifique el formato e intente de nuevo.',
     uploadAnother: 'Subir Otro',
+    aiMapping: 'Mapeo de Columnas con IA',
+    aiMappingRunning: 'La IA esta analizando columnas...',
+    aiMappingSuccess: 'IA mapeo las columnas',
+    aiMappingFailed: 'IA no disponible -- usando mapeo manual',
+    mappedTo: 'Mapeado a',
+    confidence: 'Confianza',
+    unmapped: 'Sin mapear',
   },
 };
 
@@ -216,7 +240,12 @@ export default function ReconciliationPage() {
   const [parseError, setParseError] = useState<string | null>(null);
   const workbookRef = useRef<XLSX_TYPE.WorkBook | null>(null);
 
-  // Field mapping state (will be replaced by AI in Phase 2)
+  // HF-021 Phase 2: AI column mapping state
+  const [aiMappings, setAiMappings] = useState<ColumnMapping[]>([]);
+  const [aiMappingResult, setAiMappingResult] = useState<MappingResult | null>(null);
+  const [isMapping, setIsMapping] = useState(false);
+
+  // Field mapping state (derived from AI or manual)
   const [employeeIdField, setEmployeeIdField] = useState<string>('');
   const [amountField, setAmountField] = useState<string>('');
 
@@ -297,10 +326,12 @@ export default function ReconciliationPage() {
   }, []);
 
   /**
-   * Process uploaded file through smart parser
+   * Process uploaded file through smart parser, then run AI column mapping
    */
   const processUploadedFile = async (file: File) => {
     setParseError(null);
+    setAiMappings([]);
+    setAiMappingResult(null);
 
     try {
       const result = await parseFile(file);
@@ -318,7 +349,9 @@ export default function ReconciliationPage() {
       }
 
       setParsedFile(result);
-      autoDetectFields(result);
+
+      // Phase 2: Run AI column mapping
+      await runAIMapping(result);
     } catch (error) {
       console.error('[Reconciliation] File parse error:', error);
       setParseError(t.parseError);
@@ -326,9 +359,46 @@ export default function ReconciliationPage() {
   };
 
   /**
-   * Handle sheet change for multi-sheet XLSX files
+   * Run AI-powered column mapping on parsed file
+   * Falls back to heuristic detection if AI is unavailable
    */
-  const handleSheetChange = (sheetName: string) => {
+  const runAIMapping = async (parsed: ParsedFile) => {
+    if (!currentTenant || !user) {
+      autoDetectFields(parsed);
+      return;
+    }
+
+    setIsMapping(true);
+
+    try {
+      const result = await mapColumns(parsed, currentTenant.id, user.id);
+      setAiMappingResult(result);
+
+      if (result.aiAvailable && result.mappings.length > 0) {
+        setAiMappings(result.mappings);
+
+        // Apply AI suggestions to field mapping state
+        const empId = getEmployeeIdMapping(result.mappings);
+        const totalAmt = getTotalAmountMapping(result.mappings);
+        if (empId) setEmployeeIdField(empId);
+        if (totalAmt) setAmountField(totalAmt);
+      } else {
+        // AI unavailable - fall back to heuristic detection
+        autoDetectFields(parsed);
+      }
+    } catch (error) {
+      console.warn('[Reconciliation] AI mapping error, falling back:', error);
+      autoDetectFields(parsed);
+    } finally {
+      setIsMapping(false);
+    }
+  };
+
+  /**
+   * Handle sheet change for multi-sheet XLSX files
+   * Re-runs AI mapping on the new sheet
+   */
+  const handleSheetChange = async (sheetName: string) => {
     if (!workbookRef.current || !parsedFile) return;
 
     const updated = parseSheetFromWorkbook(
@@ -338,7 +408,11 @@ export default function ReconciliationPage() {
     );
 
     setParsedFile(updated);
-    autoDetectFields(updated);
+    setAiMappings([]);
+    setAiMappingResult(null);
+
+    // Re-run AI mapping on new sheet
+    await runAIMapping(updated);
   };
 
   /**
@@ -373,6 +447,9 @@ export default function ReconciliationPage() {
     workbookRef.current = null;
     setEmployeeIdField('');
     setAmountField('');
+    setAiMappings([]);
+    setAiMappingResult(null);
+    setIsMapping(false);
     setSession(null);
     setComparisonItems([]);
   };
@@ -636,14 +713,58 @@ export default function ReconciliationPage() {
               </div>
             )}
 
-            {/* Field Mapping (heuristic -- Phase 2 will use AI) */}
+            {/* Phase 2: AI Column Mapping Status + Field Mapping */}
             {parsedFile && parsedFile.headers.length > 0 && (
               <div className="mt-4 space-y-3">
+                {/* AI mapping status */}
+                {isMapping ? (
+                  <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-sm text-blue-700">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t.aiMappingRunning}
+                  </div>
+                ) : aiMappingResult ? (
+                  <div className={cn(
+                    'flex items-center gap-2 p-2 rounded text-sm',
+                    aiMappingResult.aiAvailable
+                      ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700'
+                      : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700'
+                  )}>
+                    {aiMappingResult.aiAvailable ? (
+                      <>
+                        <Sparkles className="h-4 w-4" />
+                        {t.aiMappingSuccess}
+                        <Badge variant="outline" className="text-xs ml-auto">
+                          {aiMappings.filter(m => m.mappedTo !== 'unmapped').length}/{parsedFile.headers.length}
+                        </Badge>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="h-4 w-4" />
+                        {t.aiMappingFailed}
+                      </>
+                    )}
+                  </div>
+                ) : null}
+
                 <p className="text-sm font-medium">{t.fieldMapping}</p>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-1">
                     <Label className="text-xs">{t.employeeIdField}</Label>
-                    <Select value={employeeIdField} onValueChange={setEmployeeIdField}>
+                    <Select value={employeeIdField} onValueChange={(val) => {
+                      setEmployeeIdField(val);
+                      // Record correction if AI suggested something different
+                      if (aiMappingResult?.signalId) {
+                        const aiSuggested = getEmployeeIdMapping(aiMappings);
+                        if (aiSuggested && aiSuggested !== val) {
+                          recordMappingFeedback(
+                            aiMappingResult.signalId,
+                            'corrected',
+                            { employee_id: val },
+                            currentTenant?.id,
+                          );
+                        }
+                      }
+                    }}>
                       <SelectTrigger className="h-8">
                         <SelectValue />
                       </SelectTrigger>
@@ -656,7 +777,21 @@ export default function ReconciliationPage() {
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">{t.amountField}</Label>
-                    <Select value={amountField} onValueChange={setAmountField}>
+                    <Select value={amountField} onValueChange={(val) => {
+                      setAmountField(val);
+                      // Record correction if AI suggested something different
+                      if (aiMappingResult?.signalId) {
+                        const aiSuggested = getTotalAmountMapping(aiMappings);
+                        if (aiSuggested && aiSuggested !== val) {
+                          recordMappingFeedback(
+                            aiMappingResult.signalId,
+                            'corrected',
+                            { total_amount: val },
+                            currentTenant?.id,
+                          );
+                        }
+                      }
+                    }}>
                       <SelectTrigger className="h-8">
                         <SelectValue />
                       </SelectTrigger>
