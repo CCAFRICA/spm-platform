@@ -43,6 +43,7 @@ export function detectFormat(fileName: string): FileFormat {
     case 'csv': return 'csv';
     case 'tsv':
     case 'tab': return 'tsv';
+    case 'txt': return 'csv';  // Auto-detect delimiter (tab-first via detectDelimiter)
     case 'xlsx': return 'xlsx';
     case 'xls': return 'xls';
     case 'json': return 'json';

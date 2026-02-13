@@ -99,7 +99,7 @@ const labels = {
     subtitle: 'Compare calculation results against benchmark data',
     uploadBenchmark: 'Upload Benchmark File',
     uploadDesc: 'Upload CSV, Excel, or JSON file with expected results',
-    supportedFormats: 'Supported: CSV, TSV, XLSX, XLS, JSON',
+    supportedFormats: 'Supported: CSV, TSV, TXT, XLSX, XLS, JSON',
     selectBatch: 'Select Calculation Batch',
     noBatches: 'No calculation batches available',
     runReconciliation: 'Run Reconciliation',
@@ -168,7 +168,7 @@ const labels = {
     subtitle: 'Comparar resultados de calculo contra datos de benchmark',
     uploadBenchmark: 'Subir Archivo de Benchmark',
     uploadDesc: 'Suba archivo CSV, Excel o JSON con resultados esperados',
-    supportedFormats: 'Soportados: CSV, TSV, XLSX, XLS, JSON',
+    supportedFormats: 'Soportados: CSV, TSV, TXT, XLSX, XLS, JSON',
     selectBatch: 'Seleccionar Lote de Calculo',
     noBatches: 'No hay lotes de calculo disponibles',
     runReconciliation: 'Ejecutar Reconciliacion',
@@ -728,7 +728,7 @@ export default function ReconciliationPage() {
               <input
                 id="benchmark-file"
                 type="file"
-                accept=".csv,.tsv,.xlsx,.xls,.json"
+                accept=".csv,.tsv,.txt,.xlsx,.xls,.json"
                 className="hidden"
                 onChange={handleFileSelect}
               />
