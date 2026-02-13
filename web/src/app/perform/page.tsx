@@ -3,8 +3,10 @@
 /**
  * Perform Workspace Landing Page
  *
- * OB-29 Phase 10: Wired to real calculation results
- * Shows personalized metrics, compensation summary, and quick actions.
+ * OB-38 Phase 7: Persona-aware rendering
+ *   VL Admin  -> "Performance Observatory" (aggregate view)
+ *   Manager   -> "Team Performance" (team-centric view)
+ *   Sales Rep -> "My Performance" (personal view)
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -31,12 +33,11 @@ import {
   Trophy,
   Target,
   AlertCircle,
+  BarChart3,
+  Eye,
 } from 'lucide-react';
 import type { CalculationResult } from '@/types/compensation-plan';
 
-/**
- * Extract employee ID from user email
- */
 function extractEmployeeId(email: string | undefined): string | null {
   if (!email) return null;
   const match = email.match(/^(\d+)@/);
@@ -45,9 +46,6 @@ function extractEmployeeId(email: string | undefined): string | null {
   return nameMatch ? nameMatch[1] : null;
 }
 
-/**
- * Get current period as YYYY-MM
- */
 function getCurrentPeriod(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -68,24 +66,23 @@ export default function PerformPage() {
   const displaySpanish = isSpanish;
   const currency = currentTenant?.currency || 'USD';
 
-  const isManager = userRole === 'manager' || userRole === 'admin' || userRole === 'vl_admin';
+  const isVLAdmin = userRole === 'vl_admin';
+  const isManager = userRole === 'manager' || userRole === 'admin';
+  const isSalesRep = userRole === 'sales_rep';
 
-  // OB-38: Fetch calculation results -- orchestrator is the primary producer
+  // Fetch calculation results
   useEffect(() => {
     if (!currentTenant) return;
 
     const period = getCurrentPeriod();
     let results: CalculationResult[] = [];
 
-    // Priority 1: Orchestrator storage (vialuce_calculations_chunk_N -- where calculate page writes)
     results = getPeriodResults(currentTenant.id, period);
 
-    // Priority 2: Orchestrator with any period (data may be from a different period)
     if (results.length === 0) {
       results = getPeriodResults(currentTenant.id, '');
     }
 
-    // Priority 3: Results storage (OB-29 chunked system -- alternate path)
     if (results.length === 0) {
       const run = getLatestRun(currentTenant.id, period);
       if (run) {
@@ -93,7 +90,6 @@ export default function PerformPage() {
       }
     }
 
-    // Priority 4: Results storage -- any period
     if (results.length === 0) {
       const allRuns = getCalculationRuns(currentTenant.id);
       if (allRuns.length > 0) {
@@ -107,7 +103,6 @@ export default function PerformPage() {
     setAllResults(results);
     setHasResults(results.length > 0);
 
-    // Find current user's result
     const employeeId = extractEmployeeId(user?.email);
     if (employeeId && results.length > 0) {
       const result = results.find((r) => r.employeeId === employeeId);
@@ -115,45 +110,72 @@ export default function PerformPage() {
     }
   }, [currentTenant, user]);
 
-  // Derive team stats from real results
-  const teamStats = useMemo(() => {
+  // Derive aggregate/team stats
+  const stats = useMemo(() => {
     if (allResults.length === 0) return null;
 
-    // Sort by total incentive to find top performer
     const sorted = [...allResults].sort((a, b) =>
       (b.totalIncentive || 0) - (a.totalIncentive || 0)
     );
 
-    const topPerformer = sorted[0];
     const totalPayout = allResults.reduce((sum, r) => sum + (r.totalIncentive || 0), 0);
     const avgPayout = totalPayout / allResults.length;
+
+    // Store distribution
+    const storeMap = new Map<string, { count: number; total: number }>();
+    for (const r of allResults) {
+      const storeId = r.storeId || 'unknown';
+      const existing = storeMap.get(storeId) || { count: 0, total: 0 };
+      existing.count++;
+      existing.total += r.totalIncentive || 0;
+      storeMap.set(storeId, existing);
+    }
 
     return {
       totalPayout,
       avgPayout,
       employeeCount: allResults.length,
-      topPerformer,
+      topPerformer: sorted[0],
+      bottomPerformer: sorted[sorted.length - 1],
+      storeCount: storeMap.size,
+      topStores: Array.from(storeMap.entries())
+        .sort((a, b) => b[1].total - a[1].total)
+        .slice(0, 5)
+        .map(([id, data]) => ({ storeId: id, ...data })),
     };
   }, [allResults]);
+
+  // Persona-specific title
+  const pageTitle = isVLAdmin
+    ? (displaySpanish ? 'Observatorio de Rendimiento' : 'Performance Observatory')
+    : isManager
+    ? (displaySpanish ? 'Rendimiento del Equipo' : 'Team Performance')
+    : (displaySpanish ? 'Mi Rendimiento' : 'My Performance');
+
+  const pageSubtitle = isVLAdmin
+    ? (displaySpanish ? 'Vista agregada de todas las operaciones' : 'Aggregate view across all operations')
+    : isManager
+    ? (displaySpanish
+        ? `Hola, ${user?.name?.split(' ')[0] || 'Gerente'}`
+        : `Welcome back, ${user?.name?.split(' ')[0] || 'Manager'}`)
+    : (displaySpanish
+        ? `Hola, ${user?.name?.split(' ')[0] || 'Usuario'}`
+        : `Welcome back, ${user?.name?.split(' ')[0] || 'User'}`);
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            {displaySpanish ? 'Mi Rendimiento' : 'My Performance'}
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {displaySpanish
-              ? `Hola, ${user?.name?.split(' ')[0] || 'Usuario'}`
-              : `Welcome back, ${user?.name?.split(' ')[0] || 'User'}`}
-          </p>
+          <h1 className="text-2xl font-bold text-slate-900">{pageTitle}</h1>
+          <p className="text-sm text-slate-500 mt-1">{pageSubtitle}</p>
         </div>
-        <Button onClick={() => router.push('/perform/compensation')}>
-          <Wallet className="h-4 w-4 mr-2" />
-          {displaySpanish ? 'Ver Compensación' : 'View Compensation'}
-        </Button>
+        {!isVLAdmin && (
+          <Button onClick={() => router.push('/perform/compensation')}>
+            <Wallet className="h-4 w-4 mr-2" />
+            {displaySpanish ? 'Ver Compensacion' : 'View Compensation'}
+          </Button>
+        )}
       </div>
 
       {/* Key Metrics */}
@@ -184,192 +206,320 @@ export default function PerformPage() {
         ))}
       </div>
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-3 gap-6">
-        {/* Compensation Summary */}
-        <Card className="col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Wallet className="h-5 w-5 text-green-600" />
-              {displaySpanish ? 'Resumen de Compensación' : 'Compensation Summary'}
-            </CardTitle>
-            <CardDescription>
-              {displaySpanish
-                ? 'Tu progreso hacia los objetivos de este período'
-                : 'Your progress toward this period\'s targets'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {/* OB-29: Show real data or empty state */}
-            {!hasResults ? (
-              <div className="text-center py-6">
-                <AlertCircle className="h-10 w-10 text-blue-500 mx-auto mb-3" />
-                <p className="text-sm text-blue-700 dark:text-blue-300">
+      {/* ============================================================ */}
+      {/* VL ADMIN: Performance Observatory */}
+      {/* ============================================================ */}
+      {isVLAdmin && (
+        <>
+          <div className="grid grid-cols-3 gap-6">
+            {/* Aggregate Summary */}
+            <Card className="col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-blue-600" />
+                  {displaySpanish ? 'Resumen Agregado' : 'Aggregate Summary'}
+                </CardTitle>
+                <CardDescription>
                   {displaySpanish
-                    ? 'Los resultados de compensación aún no están disponibles para este período.'
-                    : 'Compensation results are not yet available for this period.'}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {myResult ? (
+                    ? 'Vista consolidada de todos los resultados de calculo'
+                    : 'Consolidated view of all calculation results'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {!stats ? (
+                  <div className="text-center py-6">
+                    <AlertCircle className="h-10 w-10 text-blue-500 mx-auto mb-3" />
+                    <p className="text-sm text-blue-700">
+                      {displaySpanish
+                        ? 'Ejecute calculos para ver los resultados agregados.'
+                        : 'Run calculations to see aggregate results.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-4">
+                    <div className="p-3 bg-blue-50 rounded-lg">
+                      <p className="text-xs text-blue-600">
+                        {displaySpanish ? 'Empleados' : 'Employees'}
+                      </p>
+                      <p className="text-xl font-bold text-blue-800">{stats.employeeCount}</p>
+                    </div>
+                    <div className="p-3 bg-green-50 rounded-lg">
+                      <p className="text-xs text-green-600">
+                        {displaySpanish ? 'Pago Total' : 'Total Payout'}
+                      </p>
+                      <p className="text-xl font-bold text-green-800">{format(stats.totalPayout)}</p>
+                    </div>
+                    <div className="p-3 bg-purple-50 rounded-lg">
+                      <p className="text-xs text-purple-600">
+                        {displaySpanish ? 'Promedio' : 'Average'}
+                      </p>
+                      <p className="text-xl font-bold text-purple-800">{format(stats.avgPayout)}</p>
+                    </div>
+                    <div className="p-3 bg-amber-50 rounded-lg">
+                      <p className="text-xs text-amber-600">
+                        {displaySpanish ? 'Tiendas' : 'Stores'}
+                      </p>
+                      <p className="text-xl font-bold text-amber-800">{stats.storeCount}</p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card>
+              <CardHeader>
+                <CardTitle>{displaySpanish ? 'Acciones' : 'Actions'}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/operate/calculate')}>
+                  <BarChart3 className="h-4 w-4 mr-2" />
+                  {displaySpanish ? 'Ejecutar Calculos' : 'Run Calculations'}
+                </Button>
+                <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/operate/reconcile')}>
+                  <Eye className="h-4 w-4 mr-2" />
+                  {displaySpanish ? 'Reconciliar' : 'Reconcile'}
+                </Button>
+                <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/investigate/calculations')}>
+                  <TrendingUp className="h-4 w-4 mr-2" />
+                  {displaySpanish ? 'Investigar' : 'Investigate'}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Top Performers */}
+          {stats && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Trophy className="h-5 w-5 text-amber-500" />
+                  {displaySpanish ? 'Destacados' : 'Highlights'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 bg-emerald-50 rounded-lg">
+                    <p className="text-sm text-emerald-600 mb-1">
+                      {displaySpanish ? 'Mayor Rendimiento' : 'Top Performer'}
+                    </p>
+                    <p className="font-bold text-emerald-800">{stats.topPerformer?.employeeName || 'N/A'}</p>
+                    <p className="text-sm text-emerald-600">{format(stats.topPerformer?.totalIncentive || 0)}</p>
+                  </div>
+                  {stats.topStores.length > 0 && (
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-600 mb-1">
+                        {displaySpanish ? 'Tienda Principal' : 'Top Store'}
+                      </p>
+                      <p className="font-bold text-blue-800">{stats.topStores[0].storeId}</p>
+                      <p className="text-sm text-blue-600">
+                        {stats.topStores[0].count} {displaySpanish ? 'empleados' : 'employees'} | {format(stats.topStores[0].total)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* ============================================================ */}
+      {/* MANAGER: Team-centric view */}
+      {/* ============================================================ */}
+      {isManager && (
+        <>
+          <div className="grid grid-cols-3 gap-6">
+            {/* Team Summary */}
+            <Card className="col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  {displaySpanish ? 'Resumen del Equipo' : 'Team Summary'}
+                </CardTitle>
+                <CardDescription>
+                  {displaySpanish
+                    ? 'Resultados del equipo para este periodo'
+                    : 'Team results for this period'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {!stats ? (
+                  <div className="text-center py-6">
+                    <AlertCircle className="h-10 w-10 text-blue-500 mx-auto mb-3" />
+                    <p className="text-sm text-blue-700">
+                      {displaySpanish
+                        ? 'Los datos del equipo estaran disponibles despues de ejecutar los calculos.'
+                        : 'Team data will be available after running calculations.'}
+                    </p>
+                  </div>
+                ) : (
                   <>
-                    <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-green-800">
-                          {displaySpanish ? 'Ganancias Actuales' : 'Current Earnings'}
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="p-4 bg-blue-50 rounded-lg">
+                        <p className="text-sm text-blue-600">
+                          {displaySpanish ? 'Miembros del Equipo' : 'Team Members'}
                         </p>
-                        <p className="text-sm text-green-600">
-                          {myResult.planName || (displaySpanish ? 'Este período' : 'This period')}
-                        </p>
+                        <p className="text-2xl font-bold text-blue-800 mt-1">{stats.employeeCount}</p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-2xl font-bold text-green-800">
-                          {format(myResult.totalIncentive || 0)}
+                      <div className="p-4 bg-green-50 rounded-lg">
+                        <p className="text-sm text-green-600">
+                          {displaySpanish ? 'Mejor Rendimiento' : 'Top Performer'}
                         </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Trophy className="h-5 w-5 text-amber-500" />
+                          <p className="font-bold text-green-800 truncate">
+                            {stats.topPerformer?.employeeName?.split(' ')[0] || 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="p-4 bg-purple-50 rounded-lg">
+                        <p className="text-sm text-purple-600">
+                          {displaySpanish ? 'Pago Total' : 'Total Payout'}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Target className="h-5 w-5 text-purple-500" />
+                          <p className="font-bold text-purple-800">{format(stats.totalPayout)}</p>
+                        </div>
                       </div>
                     </div>
-                    {myResult.components && myResult.components.length > 0 && (
-                      <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <Button variant="outline" className="w-full mt-4" onClick={() => router.push('/perform/team')}>
+                      {displaySpanish ? 'Ver Detalles del Equipo' : 'View Team Details'}
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card>
+              <CardHeader>
+                <CardTitle>{displaySpanish ? 'Acciones Rapidas' : 'Quick Actions'}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/perform/team')}>
+                  <Users className="h-4 w-4 mr-2" />
+                  {displaySpanish ? 'Ver Equipo' : 'View Team'}
+                </Button>
+                <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/perform/trends')}>
+                  <TrendingUp className="h-4 w-4 mr-2" />
+                  {displaySpanish ? 'Ver Tendencias' : 'View Trends'}
+                </Button>
+                <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/perform/compensation')}>
+                  <Wallet className="h-4 w-4 mr-2" />
+                  {displaySpanish ? 'Mi Compensacion' : 'My Compensation'}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
+
+      {/* ============================================================ */}
+      {/* SALES REP: Personal view */}
+      {/* ============================================================ */}
+      {isSalesRep && (
+        <div className="grid grid-cols-3 gap-6">
+          {/* Compensation Summary */}
+          <Card className="col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-green-600" />
+                {displaySpanish ? 'Resumen de Compensacion' : 'Compensation Summary'}
+              </CardTitle>
+              <CardDescription>
+                {displaySpanish
+                  ? 'Tu progreso hacia los objetivos de este periodo'
+                  : 'Your progress toward this period\'s targets'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!hasResults ? (
+                <div className="text-center py-6">
+                  <AlertCircle className="h-10 w-10 text-blue-500 mx-auto mb-3" />
+                  <p className="text-sm text-blue-700">
+                    {displaySpanish
+                      ? 'Los resultados de compensacion aun no estan disponibles para este periodo.'
+                      : 'Compensation results are not yet available for this period.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {myResult ? (
+                    <>
+                      <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg">
                         <div>
-                          <p className="font-medium text-slate-800">
-                            {displaySpanish ? 'Componentes' : 'Components'}
+                          <p className="font-medium text-green-800">
+                            {displaySpanish ? 'Ganancias Actuales' : 'Current Earnings'}
                           </p>
-                          <p className="text-sm text-slate-600">
-                            {myResult.components.length} {displaySpanish ? 'activos' : 'active'}
+                          <p className="text-sm text-green-600">
+                            {myResult.planName || (displaySpanish ? 'Este periodo' : 'This period')}
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-lg font-bold text-slate-800">
-                            {myResult.components.length}
+                          <p className="text-2xl font-bold text-green-800">
+                            {format(myResult.totalIncentive || 0)}
                           </p>
                         </div>
                       </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="p-4 bg-slate-50 rounded-lg text-center">
-                    <p className="text-sm text-slate-600">
-                      {displaySpanish
-                        ? 'No se encontraron resultados para tu cuenta.'
-                        : 'No results found for your account.'}
-                    </p>
-                  </div>
-                )}
-                <Button variant="outline" className="w-full" onClick={() => router.push('/my-compensation')}>
-                  {displaySpanish ? 'Ver Detalles Completos' : 'View Full Details'}
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Quick Actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{displaySpanish ? 'Acciones Rápidas' : 'Quick Actions'}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => router.push('/perform/transactions')}
-            >
-              <Receipt className="h-4 w-4 mr-2" />
-              {displaySpanish ? 'Mis Transacciones' : 'My Transactions'}
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => router.push('/perform/trends')}
-            >
-              <TrendingUp className="h-4 w-4 mr-2" />
-              {displaySpanish ? 'Ver Tendencias' : 'View Trends'}
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => router.push('/perform/inquiries/new')}
-            >
-              <HelpCircle className="h-4 w-4 mr-2" />
-              {displaySpanish ? 'Enviar Consulta' : 'Submit Inquiry'}
-            </Button>
-            {isManager && (
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => router.push('/perform/team')}
-              >
-                <Users className="h-4 w-4 mr-2" />
-                {displaySpanish ? 'Ver Equipo' : 'View Team'}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Manager Team Section - OB-29: Wired to real data */}
-      {isManager && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-blue-600" />
-              {displaySpanish ? 'Rendimiento del Equipo' : 'Team Performance'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {!teamStats ? (
-              <div className="text-center py-6">
-                <AlertCircle className="h-10 w-10 text-blue-500 mx-auto mb-3" />
-                <p className="text-sm text-blue-700 dark:text-blue-300">
-                  {displaySpanish
-                    ? 'Los datos del equipo estarán disponibles después de ejecutar los cálculos.'
-                    : 'Team data will be available after running calculations.'}
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="p-4 bg-blue-50 rounded-lg">
-                    <p className="text-sm text-blue-600">
-                      {displaySpanish ? 'Miembros del Equipo' : 'Team Members'}
-                    </p>
-                    <p className="text-2xl font-bold text-blue-800 mt-1">{teamStats.employeeCount}</p>
-                  </div>
-                  <div className="p-4 bg-green-50 rounded-lg">
-                    <p className="text-sm text-green-600">
-                      {displaySpanish ? 'Mejor Rendimiento' : 'Top Performer'}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Trophy className="h-5 w-5 text-amber-500" />
-                      <p className="font-bold text-green-800 truncate">
-                        {teamStats.topPerformer?.employeeName?.split(' ')[0] || 'N/A'}
+                      {myResult.components && myResult.components.length > 0 && (
+                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                          <div>
+                            <p className="font-medium text-slate-800">
+                              {displaySpanish ? 'Componentes' : 'Components'}
+                            </p>
+                            <p className="text-sm text-slate-600">
+                              {myResult.components.length} {displaySpanish ? 'activos' : 'active'}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-slate-800">
+                              {myResult.components.length}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="p-4 bg-slate-50 rounded-lg text-center">
+                      <p className="text-sm text-slate-600">
+                        {displaySpanish
+                          ? 'No se encontraron resultados para tu cuenta.'
+                          : 'No results found for your account.'}
                       </p>
                     </div>
-                  </div>
-                  <div className="p-4 bg-purple-50 rounded-lg">
-                    <p className="text-sm text-purple-600">
-                      {displaySpanish ? 'Pago Total' : 'Total Payout'}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Target className="h-5 w-5 text-purple-500" />
-                      <p className="font-bold text-purple-800">{format(teamStats.totalPayout)}</p>
-                    </div>
-                  </div>
+                  )}
+                  <Button variant="outline" className="w-full" onClick={() => router.push('/my-compensation')}>
+                    {displaySpanish ? 'Ver Detalles Completos' : 'View Full Details'}
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  className="w-full mt-4"
-                  onClick={() => router.push('/perform/team')}
-                >
-                  {displaySpanish ? 'Ver Detalles del Equipo' : 'View Team Details'}
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              </>
-            )}
-          </CardContent>
-        </Card>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions */}
+          <Card>
+            <CardHeader>
+              <CardTitle>{displaySpanish ? 'Acciones Rapidas' : 'Quick Actions'}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/perform/transactions')}>
+                <Receipt className="h-4 w-4 mr-2" />
+                {displaySpanish ? 'Mis Transacciones' : 'My Transactions'}
+              </Button>
+              <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/perform/trends')}>
+                <TrendingUp className="h-4 w-4 mr-2" />
+                {displaySpanish ? 'Ver Tendencias' : 'View Trends'}
+              </Button>
+              <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/perform/inquiries/new')}>
+                <HelpCircle className="h-4 w-4 mr-2" />
+                {displaySpanish ? 'Enviar Consulta' : 'Submit Inquiry'}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );
