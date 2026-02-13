@@ -25,7 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Users, ChevronUp, Check, RotateCcw, FastForward, Info, ShieldAlert } from 'lucide-react';
+import { Users, ChevronUp, Check, RotateCcw, FastForward, ShieldAlert } from 'lucide-react';
 import {
   DEMO_STATES,
   DemoState,
@@ -399,12 +399,6 @@ export function DemoUserSwitcher() {
             <DropdownMenuSeparator />
 
             <div className="px-2 py-2 text-xs text-muted-foreground text-center">
-              <div className="flex items-center justify-center gap-1">
-                <Info className="h-3 w-3" />
-                {isSpanish
-                  ? 'Ctrl+Shift+R para reinicio rápido'
-                  : 'Ctrl+Shift+R for quick reset'}
-              </div>
               <div className="mt-1 opacity-70">
                 {currentTenant?.displayName || 'Demo'}{' '}
                 {isSpanish ? 'Entorno' : 'Environment'}
