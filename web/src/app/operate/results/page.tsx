@@ -450,7 +450,7 @@ export default function ResultsDashboardPage() {
                     <TableRow
                       key={trace.traceId}
                       className={`cursor-pointer hover:bg-slate-50 ${isOutlier ? 'bg-amber-50' : ''}`}
-                      onClick={() => router.push(`/investigate/trace/${trace.employeeId}`)}
+                      onClick={() => router.push(`/investigate/trace/${trace.employeeId}?from=results`)}
                     >
                       <TableCell>
                         <div>

@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,12 +17,22 @@ import { EmployeeTrace } from '@/components/forensics/EmployeeTrace';
 import { getTraceForEmployee } from '@/lib/forensics/forensics-service';
 import type { CalculationTrace } from '@/lib/forensics/types';
 
+const FROM_LABELS: Record<string, { label: string; route: string }> = {
+  results: { label: 'Results', route: '/operate/results' },
+  reconciliation: { label: 'Reconciliation', route: '/investigate/reconciliation' },
+  calculate: { label: 'Calculate', route: '/admin/launch/calculate' },
+  insights: { label: 'Insights', route: '/insights' },
+};
+
 export default function EmployeeTracePage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id || '';
   const employeeId = params?.employeeId as string;
+  const fromParam = searchParams.get('from') || '';
+  const fromConfig = FROM_LABELS[fromParam];
 
   const [trace, setTrace] = useState<CalculationTrace | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,9 +60,14 @@ export default function EmployeeTracePage() {
   if (!trace) {
     return (
       <div className="p-6">
-        <Button variant="ghost" size="sm" onClick={() => router.back()} className="mb-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => fromConfig ? router.push(fromConfig.route) : router.back()}
+          className="mb-4"
+        >
           <ArrowLeft className="h-4 w-4 mr-1" />
-          Back
+          {fromConfig ? `Back to ${fromConfig.label}` : 'Back'}
         </Button>
         <Card>
           <CardContent className="p-12 text-center">
@@ -72,13 +87,20 @@ export default function EmployeeTracePage() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => fromConfig ? router.push(fromConfig.route) : router.back()}
+        >
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Employee Trace</h1>
           <p className="text-sm text-slate-500">
             Full calculation forensics for {trace.employeeName}
+            {fromConfig && (
+              <span className="text-slate-400"> · from {fromConfig.label}</span>
+            )}
           </p>
         </div>
       </div>

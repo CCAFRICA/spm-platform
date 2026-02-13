@@ -88,7 +88,7 @@ export default function ReconciliationPage() {
   };
 
   const handleEmployeeClick = (employeeId: string) => {
-    router.push(`/investigate/trace/${employeeId}`);
+    router.push(`/investigate/trace/${employeeId}?from=reconciliation`);
   };
 
   if (loading) {
