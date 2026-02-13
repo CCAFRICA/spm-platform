@@ -8,7 +8,7 @@
  * All component references are dynamic from the plan -- zero hardcoded names.
  */
 
-import type { CalculationResult, CalculationStep, CompensationPlanConfig, AdditiveLookupConfig } from '@/types/compensation-plan';
+import type { CalculationResult, CalculationStep, CompensationPlanConfig, AdditiveLookupConfig, PlanComponent } from '@/types/compensation-plan';
 import type { CalculationTrace, ComponentTrace, VariantTrace, MetricTrace, LookupTrace, DataProvenance, ComponentFlag } from './types';
 
 /**
@@ -31,7 +31,13 @@ function buildTrace(
   plan?: CompensationPlanConfig | null
 ): CalculationTrace {
   const variant = extractVariant(result, plan);
-  const components = result.components.map(step => buildComponentTrace(step));
+
+  // OB-34: Resolve plan components for measurement period lookup
+  const config = plan?.configuration as AdditiveLookupConfig | undefined;
+  const matchedVariant = config?.variants?.find(v => v.variantId === result.variantId);
+  const planComponents = matchedVariant?.components || config?.variants?.[0]?.components || [];
+
+  const components = result.components.map(step => buildComponentTrace(step, planComponents));
   const flags = collectFlags(result);
 
   return {
@@ -48,6 +54,15 @@ function buildTrace(
     totalIncentive: result.totalIncentive,
     currency: result.currency,
     flags,
+    // OB-34: Carry Everything -- full engine output for observability
+    _rawResult: result,
+    _rawInputs: {
+      metrics: result.components.reduce((acc, step) => {
+        acc[step.componentId] = { ...step.inputs };
+        return acc;
+      }, {} as Record<string, unknown>),
+      planComponent: planComponents.length > 0 ? planComponents : undefined,
+    },
   };
 }
 
@@ -68,10 +83,12 @@ function extractVariant(
   };
 }
 
-function buildComponentTrace(step: CalculationStep): ComponentTrace {
+function buildComponentTrace(step: CalculationStep, planComponents: PlanComponent[]): ComponentTrace {
   const metrics = extractMetrics(step);
   const lookup = extractLookup(step);
-  const dataProvenance = extractProvenance(step);
+  // OB-34: Find matching plan component to derive measurementPeriod
+  const matchingPlan = planComponents.find(pc => pc.id === step.componentId);
+  const dataProvenance = extractProvenance(step, matchingPlan);
   const flags = extractComponentFlags(step);
   const sentence = buildCalculationSentence(step);
 
@@ -79,7 +96,7 @@ function buildComponentTrace(step: CalculationStep): ComponentTrace {
     componentId: step.componentId,
     componentName: step.componentName,
     calculationType: step.componentType,
-    measurementLevel: step.sourceData ? 'store' : 'individual', // Inferred from source
+    measurementLevel: step.sourceData ? 'store' : 'individual',
     enabled: true,
     metrics,
     lookup,
@@ -196,7 +213,11 @@ function extractLookup(step: CalculationStep): LookupTrace {
   return base;
 }
 
-function extractProvenance(step: CalculationStep): DataProvenance {
+function extractProvenance(step: CalculationStep, planComponent?: PlanComponent): DataProvenance {
+  // OB-34: Derive measurementPeriod from plan component instead of hardcoding
+  const mp = planComponent?.measurementPeriod || 'current';
+  const periodType = mp === 'cumulative' ? 'cumulative' : 'point_in_time';
+
   return {
     sourceSheet: step.sourceData?.sheetName || '',
     topology: step.sourceData?.sheetName ? 'mapped' : 'unknown',
@@ -204,7 +225,7 @@ function extractProvenance(step: CalculationStep): DataProvenance {
     periodResolution: {
       detectedPeriod: null,
       periodDetectionMethod: 'from_calculation',
-      measurementPeriod: 'point_in_time',
+      measurementPeriod: periodType,
       recordsInScope: 1,
       periodKey: '',
     },

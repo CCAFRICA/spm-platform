@@ -33,6 +33,13 @@ export interface CalculationTrace {
 
   /** Diagnostic flags collected during trace */
   flags: string[];
+
+  /** OB-34: Complete engine output for full observability (Carry Everything) */
+  _rawResult?: unknown;
+  _rawInputs?: {
+    metrics: Record<string, unknown>;
+    planComponent?: unknown;
+  };
 }
 
 export interface VariantTrace {
