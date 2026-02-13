@@ -23,7 +23,6 @@ import type {
   CompensationPlanConfig,
   AdditiveLookupConfig,
   PlanComponent,
-  CalculationResult,
 } from '@/types/compensation-plan';
 
 // =============================================================================
@@ -497,7 +496,7 @@ function checkComponentLayer(
   comparisonData?: { data: Record<string, unknown>[]; mapping: ColumnMapping }
 ): PipelineLayer & { coincidentalCount: number } {
   const flags: string[] = [];
-  let coincidentalCount = 0;
+  const coincidentalCount = 0;
 
   if (!traces || traces.length === 0) {
     flags.push('No calculation traces available');

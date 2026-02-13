@@ -30,6 +30,9 @@ import {
 } from './metric-resolver';
 import type { PlanComponent } from '@/types/compensation-plan';
 import { saveResultsToIndexedDB } from '@/lib/calculation/indexed-db-storage';
+import { buildTraces } from '@/lib/forensics/trace-builder';
+import { saveTraces } from '@/lib/forensics/forensics-service';
+import type { CalculationTrace } from '@/lib/forensics/types';
 
 // ============================================
 // STORAGE KEYS
@@ -132,6 +135,7 @@ export interface OrchestrationResult {
   success: boolean;
   run: CalculationRun;
   results: CalculationResult[];
+  traces?: CalculationTrace[];
   summary: {
     totalPayout: number;
     employeesProcessed: number;
@@ -285,10 +289,20 @@ export class CalculationOrchestrator {
       // Build summary
       const summary = this.buildSummary(results);
 
+      // OB-33: Build forensic traces from results (observability only -- no calc changes)
+      let traces: CalculationTrace[] | undefined;
+      try {
+        traces = buildTraces(results, run.id, config.tenantId, activePlan);
+        saveTraces(config.tenantId, run.id, traces);
+      } catch (traceError) {
+        console.warn('[Orchestrator] Trace emission failed (non-fatal):', traceError);
+      }
+
       return {
         success: true,
         run,
         results,
+        traces,
         summary,
       };
     } catch (error) {
