@@ -76,6 +76,11 @@ import {
   type CalculationCycle,
   type OfficialSnapshot,
 } from '@/lib/calculation/calculation-lifecycle-service';
+import {
+  detectAvailablePeriods,
+  assessDataCompleteness,
+  type DataCompleteness,
+} from '@/lib/data-architecture/data-package';
 
 // Bilingual labels
 const labels = {
@@ -201,6 +206,9 @@ export default function CalculatePage() {
   const [searchQuery, setSearchQuery] = useState('');
   // OB-34: Calculation lifecycle state
   const [cycle, setCycle] = useState<CalculationCycle | null>(null);
+  // OB-34: Data package -- detected periods and completeness
+  const [detectedPeriods, setDetectedPeriods] = useState<string[]>([]);
+  const [dataCompleteness, setDataCompleteness] = useState<DataCompleteness[]>([]);
 
   // VL Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
@@ -273,13 +281,24 @@ export default function CalculatePage() {
     // Load recent runs
     const runs = getPeriodRuns(currentTenant.id);
     setRecentRuns(runs.slice(0, 5));
+
+    // OB-34: Detect periods from committed data
+    const detected = detectAvailablePeriods(currentTenant.id);
+    setDetectedPeriods(detected);
   }, [currentTenant]);
 
-  // OB-34: Load lifecycle cycle when period changes
+  // OB-34: Load lifecycle cycle and completeness when period changes
   useEffect(() => {
     if (!currentTenant || !selectedPeriod) return;
     const existing = loadCycle(currentTenant.id, selectedPeriod);
     setCycle(existing);
+    // OB-34: Assess data completeness for selected period
+    const plans = getPlansWithStatus(currentTenant.id);
+    const active = plans.find(p => p.isActive);
+    if (active) {
+      const completeness = assessDataCompleteness(currentTenant.id, active.plan.id, selectedPeriod);
+      setDataCompleteness(completeness);
+    }
   }, [currentTenant, selectedPeriod]);
 
   // Run calculation
@@ -629,6 +648,46 @@ export default function CalculatePage() {
                 <span className="font-medium">{progress}%</span>
               </div>
               <Progress value={progress} className="h-2" />
+            </div>
+          )}
+          {/* OB-34: Detected periods from committed data */}
+          {detectedPeriods.length > 0 && (
+            <div className="mt-4 border-t pt-4">
+              <p className="text-sm font-medium text-slate-700 mb-2">
+                <Info className="h-4 w-4 inline mr-1" />
+                Detected Periods from Committed Data:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {detectedPeriods.map(p => (
+                  <Badge
+                    key={p}
+                    variant={p === selectedPeriod ? 'default' : 'outline'}
+                    className="cursor-pointer"
+                    onClick={() => setSelectedPeriod(p)}
+                  >
+                    {p}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* OB-34: Data completeness per component */}
+          {dataCompleteness.length > 0 && selectedPeriod && (
+            <div className="mt-4 border-t pt-4">
+              <p className="text-sm font-medium text-slate-700 mb-2">Data Completeness for {selectedPeriod}:</p>
+              <div className="grid gap-2 md:grid-cols-3">
+                {dataCompleteness.map(dc => (
+                  <div key={dc.componentId} className="flex items-center gap-2 text-sm">
+                    <div className={cn(
+                      'w-2 h-2 rounded-full',
+                      dc.coverage >= 0.8 ? 'bg-green-500' : dc.coverage > 0 ? 'bg-amber-500' : 'bg-red-400'
+                    )} />
+                    <span className="truncate" title={dc.componentName}>{dc.componentName}</span>
+                    <span className="text-slate-400 ml-auto">{Math.round(dc.coverage * 100)}%</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </CardContent>
