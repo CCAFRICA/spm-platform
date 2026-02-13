@@ -1392,7 +1392,10 @@ export class CalculationOrchestrator {
   }
 
   getResults(periodId: string): CalculationResult[] {
-    return this.getAllResults().filter(
+    const all = this.getAllResults();
+    // Empty periodId returns all results (used by perform page as fallback)
+    if (!periodId) return all;
+    return all.filter(
       (r) => r.period === periodId || r.period === periodId.substring(0, 7)
     );
   }
