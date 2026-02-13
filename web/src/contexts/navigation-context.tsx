@@ -87,8 +87,6 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const isSpanish = userIsCCAdmin ? false : currentTenant?.locale === 'es-MX';
   const userRole = user?.role || null;
   const tenantId = userIsCCAdmin ? 'platform' : (currentTenant?.id || 'default');
-  const currency = currentTenant?.currency || 'USD';
-
   // Core state
   const [activeWorkspace, setActiveWorkspaceState] = useState<WorkspaceId>('perform');
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);
@@ -162,9 +160,9 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     setQueueItems(queue);
 
     // Get pulse metrics
-    const pulse = getPulseMetrics(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', currency);
+    const pulse = getPulseMetrics(user.id, tenantId, userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
     setPulseMetrics(pulse);
-  }, [user, userRole, tenantId, currency]);
+  }, [user, userRole, tenantId]);
 
   // Initial data load
   useEffect(() => {

@@ -355,17 +355,20 @@
           log('    Input attainment (' + attKey + '): ' + att + '%');
 
           // Determine which reference table to use
+          // Strip accents for matching: "Óptica" -> "optica", "Captación" -> "captacion"
+          var compNameNorm = (comp.componentName || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
           let ref = null;
           let refName = '';
-          if (attKey.includes('store_sales') || comp.componentName.toLowerCase().includes('venta de tienda') || comp.componentName.toLowerCase().includes('store sale')) {
-            ref = refTables.storeSales;
-            refName = 'Store Sales';
-          } else if (attKey.includes('new_customer') || comp.componentName.toLowerCase().includes('cliente') || comp.componentName.toLowerCase().includes('customer')) {
-            ref = refTables.newCustomers;
-            refName = 'New Customers';
-          } else if (attKey.includes('collection') || comp.componentName.toLowerCase().includes('cobr') || comp.componentName.toLowerCase().includes('collection')) {
+          // Check collections BEFORE store to avoid "cobranza en tienda" matching 'tienda'
+          if (attKey.includes('collection') || compNameNorm.includes('cobr') || compNameNorm.includes('collection')) {
             ref = refTables.collections;
             refName = 'Collections';
+          } else if (attKey.includes('store_sales') || compNameNorm.includes('venta de tienda') || compNameNorm.includes('store sale')) {
+            ref = refTables.storeSales;
+            refName = 'Store Sales';
+          } else if (attKey.includes('new_customer') || compNameNorm.includes('cliente') || compNameNorm.includes('customer')) {
+            ref = refTables.newCustomers;
+            refName = 'New Customers';
           }
 
           if (ref) {

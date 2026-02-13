@@ -6,7 +6,6 @@ import { ConfigProvider } from "@/contexts/config-context";
 import { LocaleProvider } from "@/contexts/locale-context";
 import { TenantProvider } from "@/contexts/tenant-context";
 import { AuthShell } from "@/components/layout/auth-shell";
-import { DemoUserSwitcher } from "@/components/demo/DemoUserSwitcher";
 import { Toaster } from "sonner";
 
 const geistSans = localFont({
@@ -40,7 +39,6 @@ export default function RootLayout({
             <LocaleProvider>
               <ConfigProvider>
                 <AuthShell>{children}</AuthShell>
-                <DemoUserSwitcher />
                 <Toaster position="top-right" richColors closeButton />
               </ConfigProvider>
             </LocaleProvider>

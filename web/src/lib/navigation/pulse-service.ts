@@ -3,6 +3,9 @@
  *
  * Provides role-aware key metrics for the Pulse section of Mission Control.
  * Each role sees metrics relevant to their responsibilities.
+ *
+ * OB-32: All roles now read from real data (calculation results, cycle state).
+ * Falls back to "—" when no data is available.
  */
 
 import type { PulseMetric, PulseTrend } from '@/types/navigation';
@@ -19,15 +22,14 @@ export function getPulseMetrics(
   userId: string,
   tenantId: string,
   role: UserRole,
-  currency: string = 'USD'
 ): PulseMetric[] {
   switch (role) {
     case 'sales_rep':
-      return getRepMetrics(userId, tenantId, currency);
+      return getRepMetrics(userId, tenantId);
     case 'manager':
-      return getManagerMetrics(userId, tenantId, currency);
+      return getManagerMetrics(tenantId);
     case 'admin':
-      return getAdminMetrics(tenantId, currency);
+      return getAdminMetrics(tenantId);
     case 'vl_admin':
       return getCCAdminMetrics();
     default:
@@ -36,23 +38,146 @@ export function getPulseMetrics(
 }
 
 // =============================================================================
-// ROLE-SPECIFIC METRICS
+// SHARED HELPERS: READ REAL DATA
 // =============================================================================
 
-function getRepMetrics(userId: string, tenantId: string, currency: string): PulseMetric[] {
-  // In a real implementation, these would come from actual data sources
-  const currencySymbol = currency === 'MXN' ? '$' : '$';
+interface CalcResultSummary {
+  employeeId: string;
+  employeeName: string;
+  storeId?: string;
+  totalIncentive: number;
+  components: Array<{ attainment?: number; outputValue: number }>;
+}
+
+/**
+ * Load the latest calculation results for a tenant from localStorage
+ */
+function loadLatestResults(tenantId: string): CalcResultSummary[] {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    // Find latest completed run
+    const runsStr = localStorage.getItem('vialuce_calculation_runs');
+    if (!runsStr) return [];
+
+    const runs: Array<{ id: string; tenantId: string; status: string; startedAt: string }> = JSON.parse(runsStr);
+    const tenantRuns = runs
+      .filter(r => r.tenantId === tenantId && r.status === 'completed')
+      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+
+    if (tenantRuns.length === 0) return [];
+    const latestRunId = tenantRuns[0].id;
+
+    // Load chunked results
+    const results: CalcResultSummary[] = [];
+    for (let chunk = 0; chunk < 100; chunk++) {
+      const chunkKey = `calculation_results_${latestRunId}_${chunk}`;
+      const chunkData = localStorage.getItem(chunkKey);
+      if (!chunkData) break;
+      const parsed = JSON.parse(chunkData);
+      if (Array.isArray(parsed)) {
+        results.push(...parsed);
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Count pending approvals from localStorage
+ */
+function countPendingApprovals(tenantId: string): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const requestsData = localStorage.getItem('approval_requests');
+    if (requestsData) {
+      const requests: [string, { status: string; tenantId?: string }][] = JSON.parse(requestsData);
+      return requests.filter(([, req]) =>
+        req.status === 'pending' && (!req.tenantId || req.tenantId === tenantId)
+      ).length;
+    }
+    const approvalsKey = `${tenantId}_pending_approvals`;
+    const approvals = localStorage.getItem(approvalsKey);
+    if (approvals) {
+      const parsed = JSON.parse(approvals);
+      return Array.isArray(parsed) ? parsed.filter((a: { status: string }) => a.status === 'pending').length : 0;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Get data freshness from latest import batch
+ */
+function getDataFreshness(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const batchesData = localStorage.getItem('data_layer_batches');
+    if (!batchesData) return null;
+    const batches: [string, { status: string; createdAt: string }][] = JSON.parse(batchesData);
+    const committed = batches
+      .filter(([, b]) => b.status === 'committed' && b.createdAt)
+      .sort((a, b) => new Date(b[1].createdAt).getTime() - new Date(a[1].createdAt).getTime());
+    if (committed.length === 0) return null;
+
+    const lastDate = new Date(committed[0][1].createdAt);
+    const now = new Date();
+    const diffMs = now.getTime() - lastDate.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  } catch {
+    return null;
+  }
+}
+
+// =============================================================================
+// ROLE-SPECIFIC METRICS — ALL WIRED TO REAL DATA
+// =============================================================================
+
+function getRepMetrics(userId: string, tenantId: string): PulseMetric[] {
+  const results = loadLatestResults(tenantId);
+
+  // Try to find this user's result by matching userId patterns (email prefix = employeeId)
+  const emailPrefix = userId.replace(/-/g, '');
+  const myResult = results.find(r =>
+    r.employeeId === userId ||
+    r.employeeId === emailPrefix ||
+    userId.includes(r.employeeId)
+  );
+
+  // Calculate average attainment from components if available
+  let attainment: number | string = '—';
+  let earnings: number | string = '—';
+  let componentCount = 0;
+
+  if (myResult) {
+    earnings = myResult.totalIncentive;
+    const attainments = myResult.components
+      .map(c => c.attainment)
+      .filter((a): a is number => typeof a === 'number' && a > 0);
+    if (attainments.length > 0) {
+      attainment = Math.round(attainments.reduce((s, a) => s + a, 0) / attainments.length * 100);
+    }
+    componentCount = myResult.components.filter(c => c.outputValue > 0).length;
+  }
 
   return [
     {
       id: 'rep-attainment',
       label: 'Attainment',
       labelEs: 'Cumplimiento',
-      value: 78,
-      format: 'percentage',
-      trend: 'up',
-      trendValue: '+5% vs. last month',
-      trendValueEs: '+5% vs. mes anterior',
+      value: attainment,
+      format: typeof attainment === 'number' ? 'percentage' : 'text',
       roles: ['sales_rep'],
       route: '/perform/compensation',
     },
@@ -60,82 +185,68 @@ function getRepMetrics(userId: string, tenantId: string, currency: string): Puls
       id: 'rep-earnings',
       label: 'Current Earnings',
       labelEs: 'Ganancias Actuales',
-      value: currency === 'MXN' ? 45680 : 3240,
-      format: 'currency',
-      trend: 'up',
-      trendValue: currency === 'MXN' ? `+${currencySymbol}8,200 MTD` : `+${currencySymbol}580 MTD`,
-      trendValueEs: currency === 'MXN' ? `+${currencySymbol}8,200 este mes` : `+${currencySymbol}580 este mes`,
+      value: earnings,
+      format: typeof earnings === 'number' ? 'currency' : 'text',
       roles: ['sales_rep'],
       route: '/perform/compensation',
     },
     {
-      id: 'rep-goal-progress',
-      label: 'Goal Progress',
-      labelEs: 'Progreso de Meta',
-      value: '4 of 5',
-      format: 'text',
+      id: 'rep-components',
+      label: 'Active Components',
+      labelEs: 'Componentes Activos',
+      value: results.length > 0 ? componentCount : '—',
+      format: results.length > 0 ? 'number' : 'text',
       roles: ['sales_rep'],
       route: '/perform/dashboard',
-    },
-    {
-      id: 'rep-rank',
-      label: 'Team Rank',
-      labelEs: 'Posición en Equipo',
-      value: '#3',
-      format: 'text',
-      trend: 'up',
-      trendValue: 'Up 2 spots',
-      trendValueEs: 'Subió 2 posiciones',
-      roles: ['sales_rep'],
-      route: '/perform/team/rankings',
     },
   ];
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function getManagerMetrics(userId: string, tenantId: string, currency: string): PulseMetric[] {
+function getManagerMetrics(tenantId: string): PulseMetric[] {
+  const results = loadLatestResults(tenantId);
+
+  let teamPayout: number | string = '—';
+  let teamSize: number | string = '—';
+  let topPerformer: string = '—';
+
+  if (results.length > 0) {
+    // Calculate totals from all results
+    teamPayout = results.reduce((sum, r) => sum + r.totalIncentive, 0);
+    teamSize = results.length;
+
+    // Find top performer
+    const sorted = [...results].sort((a, b) => b.totalIncentive - a.totalIncentive);
+    if (sorted.length > 0 && sorted[0].totalIncentive > 0) {
+      const top = sorted[0];
+      const firstName = top.employeeName?.split(' ')[0] || top.employeeId;
+      topPerformer = firstName;
+    }
+  }
+
   return [
-    {
-      id: 'mgr-team-attainment',
-      label: 'Team Attainment',
-      labelEs: 'Cumplimiento del Equipo',
-      value: 82,
-      format: 'percentage',
-      trend: 'up',
-      trendValue: '+3% vs. last month',
-      trendValueEs: '+3% vs. mes anterior',
-      roles: ['manager'],
-      route: '/perform/team',
-    },
     {
       id: 'mgr-team-payout',
       label: 'Team Payout',
       labelEs: 'Pago del Equipo',
-      value: currency === 'MXN' ? 524000 : 124000,
-      format: 'currency',
-      trend: 'flat',
-      trendValue: 'On budget',
-      trendValueEs: 'En presupuesto',
+      value: teamPayout,
+      format: typeof teamPayout === 'number' ? 'currency' : 'text',
       roles: ['manager'],
       route: '/perform/team',
     },
     {
-      id: 'mgr-exceptions',
-      label: 'Exceptions',
-      labelEs: 'Excepciones',
-      value: 3,
-      format: 'number',
-      trend: 'down',
-      trendValue: '-2 from last week',
-      trendValueEs: '-2 desde la semana pasada',
+      id: 'mgr-team-size',
+      label: 'Team Size',
+      labelEs: 'Tamaño del Equipo',
+      value: teamSize,
+      format: typeof teamSize === 'number' ? 'number' : 'text',
       roles: ['manager'],
-      route: '/investigate/disputes',
+      route: '/perform/team',
     },
     {
       id: 'mgr-top-performer',
       label: 'Top Performer',
       labelEs: 'Mejor Rendimiento',
-      value: 'Sarah C. (142%)',
+      value: topPerformer,
       format: 'text',
       roles: ['manager'],
       route: '/perform/team/rankings',
@@ -143,15 +254,38 @@ function getManagerMetrics(userId: string, tenantId: string, currency: string): 
   ];
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function getAdminMetrics(tenantId: string, currency: string): PulseMetric[] {
+function getAdminMetrics(tenantId: string): PulseMetric[] {
+  // Read real cycle completion from localStorage
+  let cycleProgress: number | string = '—';
+  if (typeof window !== 'undefined') {
+    try {
+      const runsStr = localStorage.getItem('vialuce_calculation_runs');
+      const batchesStr = localStorage.getItem('data_layer_batches');
+      let completed = 0;
+      if (batchesStr) completed++; // Has import
+      if (runsStr) {
+        const runs = JSON.parse(runsStr);
+        if (runs.some((r: { tenantId: string; status: string }) => r.tenantId === tenantId && r.status === 'completed')) {
+          completed++; // Has calculations
+        }
+      }
+      cycleProgress = completed * 20; // 5 phases, each worth 20%
+    } catch { /* ignore */ }
+  }
+
+  const pendingApprovals = countPendingApprovals(tenantId);
+  const freshness = getDataFreshness();
+
+  const results = loadLatestResults(tenantId);
+  const employeeCount = results.length;
+
   return [
     {
       id: 'admin-cycle-progress',
       label: 'Cycle Progress',
       labelEs: 'Progreso del Ciclo',
-      value: 60,
-      format: 'percentage',
+      value: cycleProgress,
+      format: typeof cycleProgress === 'number' ? 'percentage' : 'text',
       roles: ['admin'],
       route: '/operate',
     },
@@ -159,11 +293,8 @@ function getAdminMetrics(tenantId: string, currency: string): PulseMetric[] {
       id: 'admin-pending-approvals',
       label: 'Pending Approvals',
       labelEs: 'Aprobaciones Pendientes',
-      value: 12,
+      value: pendingApprovals,
       format: 'number',
-      trend: 'down',
-      trendValue: '-3 from yesterday',
-      trendValueEs: '-3 desde ayer',
       roles: ['admin'],
       route: '/operate/approve',
     },
@@ -171,22 +302,19 @@ function getAdminMetrics(tenantId: string, currency: string): PulseMetric[] {
       id: 'admin-data-freshness',
       label: 'Data Freshness',
       labelEs: 'Frescura de Datos',
-      value: '2h ago',
+      value: freshness || '—',
       format: 'text',
       roles: ['admin'],
       route: '/operate/monitor/readiness',
     },
     {
-      id: 'admin-quality-score',
-      label: 'Data Quality',
-      labelEs: 'Calidad de Datos',
-      value: 94,
-      format: 'percentage',
-      trend: 'up',
-      trendValue: '+2% this period',
-      trendValueEs: '+2% este período',
+      id: 'admin-employees',
+      label: 'Employees',
+      labelEs: 'Empleados',
+      value: employeeCount > 0 ? employeeCount : '—',
+      format: employeeCount > 0 ? 'number' : 'text',
       roles: ['admin'],
-      route: '/operate/monitor/quality',
+      route: '/configure/people',
     },
   ];
 }

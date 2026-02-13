@@ -54,9 +54,10 @@ export default function LoginPage() {
   // Demo account emails (just emails, no tenant info exposed)
   const demoEmails = [
     'admin@entityb.com',
+    'admin@retailcgmx.com',
     'admin@techcorp.com',
-    'mike.chen@techcorp.com',
     'sarah.chen@techcorp.com',
+    'admin@restaurantmx.com',
   ];
 
   return (
@@ -78,7 +79,7 @@ export default function LoginPage() {
             <DollarSign className="h-8 w-8" />
           </div>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-50">
-            Entity B Platform
+            ViaLuce
           </h1>
           <p className="text-muted-foreground text-sm md:text-base">
             Sales Performance Management

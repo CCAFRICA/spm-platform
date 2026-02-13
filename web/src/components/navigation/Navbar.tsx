@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -28,6 +29,8 @@ import {
   MessageSquare,
   Mail,
   ExternalLink,
+  ChevronRight,
+  Home,
 } from "lucide-react";
 import { UserMenu } from "@/components/layout/user-menu";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
@@ -36,6 +39,8 @@ import { GlobalSearch } from "@/components/search/global-search";
 import { useTenant } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
+import { WORKSPACES } from "@/lib/navigation/workspace-config";
+import type { WorkspaceId } from "@/types/navigation";
 import { toast } from "sonner";
 import {
   getNotifications,
@@ -55,8 +60,8 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
+  const pathname = usePathname();
   const isSpanish = locale === 'es-MX';
-  const isHospitality = currentTenant?.industry === 'Hospitality';
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -77,46 +82,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
     return () => clearInterval(interval);
   }, [loadNotifications]);
 
-  // Fallback notifications when no real ones exist
-  const fallbackNotifications = isHospitality ? [
-    {
-      type: isSpanish ? 'Propina' : 'Tip',
-      color: 'text-emerald-600',
-      message: isSpanish ? 'Propina acumulada del turno: $697.50' : 'Shift accumulated tips: $697.50',
-      time: isSpanish ? 'Hoy' : 'Today',
-    },
-    {
-      type: isSpanish ? 'Logro' : 'Achievement',
-      color: 'text-amber-600',
-      message: isSpanish ? 'Mejor vendedor del turno matutino' : 'Top seller of the morning shift',
-      time: isSpanish ? 'Ayer' : 'Yesterday',
-    },
-    {
-      type: isSpanish ? 'Sistema' : 'System',
-      color: 'text-blue-600',
-      message: isSpanish ? 'Nuevos cheques importados' : 'New checks imported',
-      time: isSpanish ? 'Hace 2 días' : '2 days ago',
-    },
-  ] : [
-    {
-      type: 'Budget Alert',
-      color: 'text-amber-600',
-      message: 'West Region exceeded 90% of Q4 budget',
-      time: '2 hours ago',
-    },
-    {
-      type: 'Achievement',
-      color: 'text-emerald-600',
-      message: 'Sarah Chen hit 150% quota attainment',
-      time: '5 hours ago',
-    },
-    {
-      type: 'System',
-      color: 'text-blue-600',
-      message: 'Monthly data sync completed',
-      time: '1 day ago',
-    },
-  ];
+  // No fallback notifications - show empty state instead of mock data
 
   const handleMarkAllRead = () => {
     if (!user || !currentTenant) return;
@@ -150,6 +116,67 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
     return date.toLocaleDateString();
   };
 
+  // Build breadcrumb segments from current pathname
+  const breadcrumbs = useMemo(() => {
+    if (!pathname || pathname === '/') {
+      return [{ label: isSpanish ? 'Inicio' : 'Home', isHome: true }];
+    }
+
+    const segments: Array<{ label: string; isHome?: boolean }> = [];
+
+    // Check workspace config for matching route
+    for (const workspace of Object.values(WORKSPACES)) {
+      const wsId = workspace.id as WorkspaceId;
+      if (!pathname.startsWith(`/${wsId}`)) continue;
+
+      // Add workspace
+      segments.push({ label: isSpanish ? workspace.labelEs : workspace.label });
+
+      // Find matching section and route
+      for (const section of workspace.sections) {
+        for (const route of section.routes) {
+          if (pathname === route.path || pathname.startsWith(route.path + '/')) {
+            // Add section if different from workspace
+            if (section.label !== workspace.label) {
+              segments.push({ label: isSpanish ? section.labelEs : section.label });
+            }
+            // Add page
+            segments.push({ label: isSpanish ? route.labelEs : route.label });
+            return segments;
+          }
+        }
+      }
+
+      // Workspace root (e.g. /operate with no deeper match)
+      return segments;
+    }
+
+    // Financial module or other non-workspace routes
+    if (pathname.startsWith('/financial')) {
+      segments.push({ label: isSpanish ? 'Financiero' : 'Financial' });
+      const sub = pathname.split('/')[2];
+      if (sub) {
+        const labels: Record<string, { en: string; es: string }> = {
+          performance: { en: 'Location Benchmarks', es: 'Benchmarks de Ubicación' },
+          timeline: { en: 'Revenue Timeline', es: 'Línea de Tiempo de Ingresos' },
+          staff: { en: 'Staff Performance', es: 'Rendimiento del Personal' },
+          leakage: { en: 'Leakage Monitor', es: 'Monitor de Fugas' },
+        };
+        if (labels[sub]) {
+          segments.push({ label: isSpanish ? labels[sub].es : labels[sub].en });
+        }
+      }
+      return segments;
+    }
+
+    // Fallback: capitalize path segments
+    const parts = pathname.split('/').filter(Boolean);
+    for (const part of parts) {
+      segments.push({ label: part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ') });
+    }
+    return segments;
+  }, [pathname, isSpanish]);
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:border-slate-800 dark:bg-slate-950/95">
       <div className="flex h-16 items-center justify-between px-4 md:px-6">
@@ -168,12 +195,42 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
             )}
           </Button>
           <span className="text-lg font-semibold text-navy-900 dark:text-slate-50">
-            Entity B
+            ViaLuce
           </span>
         </div>
 
+        {/* Left Section - Breadcrumbs (desktop only) */}
+        <nav className="hidden md:flex items-center gap-1 text-sm min-w-0 shrink-0" aria-label="Breadcrumb">
+          {currentTenant && (
+            <>
+              <span className="text-slate-400 truncate max-w-[120px]" title={currentTenant.name}>
+                {currentTenant.name}
+              </span>
+              {breadcrumbs.length > 0 && (
+                <ChevronRight className="h-3.5 w-3.5 text-slate-300 shrink-0" />
+              )}
+            </>
+          )}
+          {breadcrumbs.map((crumb, i) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
+              {crumb.isHome && <Home className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
+              <span
+                className={
+                  i === breadcrumbs.length - 1
+                    ? 'text-slate-900 font-medium dark:text-slate-100 truncate max-w-[180px]'
+                    : 'text-slate-400 truncate max-w-[120px]'
+                }
+                title={crumb.label}
+              >
+                {crumb.label}
+              </span>
+            </span>
+          ))}
+        </nav>
+
         {/* Center - Search Bar */}
-        <div className="hidden flex-1 max-w-xl mx-auto md:flex">
+        <div className="hidden flex-1 max-w-xl mx-auto md:flex px-4">
           <GlobalSearch />
         </div>
 
@@ -231,15 +288,12 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
                   </DropdownMenuItem>
                 ))
               ) : (
-                fallbackNotifications.map((notification, index) => (
-                  <DropdownMenuItem key={index} className="flex flex-col items-start gap-1 py-3 cursor-pointer">
-                    <span className={`font-medium ${notification.color}`}>{notification.type}</span>
-                    <span className="text-xs text-slate-500">
-                      {notification.message}
-                    </span>
-                    <span className="text-xs text-slate-400">{notification.time}</span>
-                  </DropdownMenuItem>
-                ))
+                <div className="px-4 py-6 text-center">
+                  <Bell className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm text-slate-500">
+                    {isSpanish ? 'Sin notificaciones' : 'No notifications'}
+                  </p>
+                </div>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem className="justify-center text-sm text-sky-600 cursor-pointer">

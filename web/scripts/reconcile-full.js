@@ -26,26 +26,28 @@
   };
 
   // Component name mapping: VL component name patterns -> GT field
+  // IMPORTANT: collections MUST be checked before store to avoid
+  // "Cobranza en Tienda" matching 'tienda' in store patterns
   const COMPONENT_MAP = {
     // Optical Sales (C1) - Matrix lookup
     optical: [
       'optical', 'optica', 'venta individual', 'venta_individual',
       'individual sales', 'c1', 'ventas opticas'
     ],
+    // Collections (C4) - Tier lookup (CHECK BEFORE STORE - "cobranza en tienda" contains "tienda")
+    collections: [
+      'collection', 'cobranza', 'cobro', 'collections',
+      'c4', 'recaudacion'
+    ],
     // Store Sales (C2) - Tier lookup
     store: [
-      'store', 'tienda', 'venta de tienda', 'venta_tienda',
-      'store sales', 'c2', 'ventas tienda'
+      'store', 'venta de tienda', 'venta_tienda',
+      'store sales', 'c2', 'ventas tienda', 'ventas de tienda'
     ],
     // New Customers (C3) - Tier lookup
     newCustomers: [
       'new customer', 'cliente', 'clientes nuevos', 'new_customer',
       'nuevos', 'c3', 'captacion'
-    ],
-    // Collections (C4) - Tier lookup
-    collections: [
-      'collection', 'cobranza', 'cobro', 'collections',
-      'c4', 'recaudacion'
     ],
     // Insurance (C5) - Percentage
     insurance: [
@@ -63,8 +65,13 @@
     ]
   };
 
+  // Strip Unicode accents for matching (e.g., "Óptica" -> "optica", "Captación" -> "captacion")
+  function stripAccents(str) {
+    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
   function classifyComponent(componentName) {
-    const name = (componentName || '').toLowerCase();
+    const name = stripAccents((componentName || '').toLowerCase());
     for (const [gtField, patterns] of Object.entries(COMPONENT_MAP)) {
       if (patterns.some(p => name.includes(p))) {
         return gtField;
