@@ -8,8 +8,6 @@
 
 import { useState } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,11 +22,9 @@ import {
 
 export default function DataQualityPage() {
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
   const [isScanning, setIsScanning] = useState(false);
 
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
+  const isSpanish = currentTenant?.locale === 'es-MX';
 
   const qualityIssues = [
     {

@@ -29,8 +29,6 @@ import {
 } from "lucide-react";
 import { useTenant } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
-import { useAuth } from "@/contexts/auth-context";
-import { isVLAdmin } from "@/types/auth";
 import { getPlans } from "@/lib/compensation/plan-storage";
 import Link from "next/link";
 
@@ -53,9 +51,7 @@ interface DiagnosticCheck {
 export default function CalculationDiagnosticsPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
-  const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (locale === "es-MX" || currentTenant?.locale === "es-MX");
+  const isSpanish = locale === "es-MX" || currentTenant?.locale === "es-MX";
 
   const [checks, setChecks] = useState<DiagnosticCheck[]>([]);
   const [isRunning, setIsRunning] = useState(false);

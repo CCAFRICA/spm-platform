@@ -10,8 +10,6 @@
 import { useRouter } from 'next/navigation';
 import { useCycleState } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,10 +29,8 @@ export default function PayPage() {
   const router = useRouter();
   const { cycleState, isSpanish } = useCycleState();
   useTenant();
-  const { user } = useAuth();
 
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const displaySpanish = userIsVLAdmin ? false : isSpanish;
+  const displaySpanish = isSpanish;
 
   const payStatus = cycleState?.phaseStatuses.pay;
   const approveStatus = cycleState?.phaseStatuses.approve;

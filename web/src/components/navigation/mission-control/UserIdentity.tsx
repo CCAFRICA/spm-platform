@@ -38,7 +38,7 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
   if (!user) return null;
 
   const userIsVLAdmin = isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
+  const isSpanish = currentTenant?.locale === 'es-MX';
   const displayRole = getUserDisplayRole(user);
   const initials = user.name
     .split(' ')

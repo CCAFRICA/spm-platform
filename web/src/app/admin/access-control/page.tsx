@@ -55,14 +55,12 @@ import { PERMISSION_CATEGORIES } from '@/types/rbac';
 import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 
 export default function AccessControlPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
   const tenantId = currentTenant?.id || 'retailco';
   const userId = user?.id || 'admin';
 

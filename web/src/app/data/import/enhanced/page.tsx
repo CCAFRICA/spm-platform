@@ -65,7 +65,6 @@ import * as XLSX from 'xlsx';
 import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 import { cn } from '@/lib/utils';
 import { getPlans } from '@/lib/compensation/plan-storage';
 import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation-plan';
@@ -1082,8 +1081,7 @@ export default function DataPackageImportPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth(); // For authentication check
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
 
   const [currentStep, setCurrentStep] = useState<Step>('upload');
   const [isProcessing, setIsProcessing] = useState(false);

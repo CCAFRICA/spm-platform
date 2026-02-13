@@ -18,8 +18,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 
 interface AlertRule {
   id: string;
@@ -59,10 +57,8 @@ const metricLabels: Record<string, Record<string, string>> = {
 
 export default function AlertsPage() {
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
   const { format } = useCurrency();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (currentTenant?.locale === 'es-MX');
+  const isSpanish = currentTenant?.locale === 'es-MX';
   const lang = isSpanish ? 'es' : 'en';
 
   const [alerts, setAlerts] = useState<AlertRule[]>([

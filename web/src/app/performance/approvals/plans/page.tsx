@@ -8,7 +8,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -38,8 +37,7 @@ export default function PlanApprovalsPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
   const tenantId = currentTenant?.id || 'retailco';
 
   const [requests, setRequests] = useState<PlanApprovalRequest[]>([]);

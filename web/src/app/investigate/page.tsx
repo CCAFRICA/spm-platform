@@ -10,8 +10,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,11 +29,9 @@ import {
 export default function InvestigatePage() {
   const router = useRouter();
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
 
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
+  const isSpanish = currentTenant?.locale === 'es-MX';
 
   const handleSearch = () => {
     if (searchQuery.trim()) {

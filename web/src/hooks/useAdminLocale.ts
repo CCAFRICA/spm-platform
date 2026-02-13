@@ -1,8 +1,8 @@
 /**
- * useAdminLocale - Global hook for VL Admin language handling
+ * useAdminLocale - Global hook for locale handling
  *
- * VL Admin users always see English regardless of tenant locale.
- * This ensures consistent experience for platform administrators.
+ * Returns the effective locale based on tenant configuration.
+ * All users (including VL Admin) see the tenant's configured locale.
  */
 
 import { useMemo } from 'react';
@@ -17,7 +17,7 @@ interface AdminLocaleResult {
   locale: SupportedLocale;
   /** Whether the current user is a VL Admin */
   isVLAdminUser: boolean;
-  /** Whether Spanish should be used (always false for VL Admin) */
+  /** Whether Spanish should be used */
   isSpanish: boolean;
   /** Helper to get localized label from a labels object */
   getLabel: <T extends Record<SupportedLocale, Record<string, string>>>(
@@ -27,24 +27,17 @@ interface AdminLocaleResult {
 
 /**
  * Hook that returns the correct locale for the current user.
- * VL Admin users always get English ('en-US') regardless of tenant locale.
- * Regular tenant users get the tenant's configured locale.
+ * All users see the tenant's configured locale.
  */
 export function useAdminLocale(): AdminLocaleResult {
   const { user } = useAuth();
   const { currentTenant } = useTenant();
 
   return useMemo(() => {
-    // VL Admin always sees English
     const isVLAdminUser = user ? isVLAdmin(user) : false;
 
-    // Determine the effective locale
-    let locale: SupportedLocale = 'en-US';
-
-    if (!isVLAdminUser && currentTenant?.locale === 'es-MX') {
-      locale = 'es-MX';
-    }
-
+    // Determine the effective locale from tenant config
+    const locale: SupportedLocale = currentTenant?.locale === 'es-MX' ? 'es-MX' : 'en-US';
     const isSpanish = locale === 'es-MX';
 
     // Helper function to get the correct labels object

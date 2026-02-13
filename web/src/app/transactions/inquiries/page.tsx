@@ -20,8 +20,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useTerm, useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 import { pageVariants } from '@/lib/animations';
 import { TableSkeleton } from '@/components/ui/skeleton-loaders';
 
@@ -38,9 +36,7 @@ export default function InquiriesPage() {
   const transactionTerm = useTerm('transaction');
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
-  const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
   const [inquiries, setInquiries] = useState(mockInquiries);
   const [statusFilter, setStatusFilter] = useState('all');
   const [isLoading, setIsLoading] = useState(true);

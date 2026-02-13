@@ -30,8 +30,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useTenant } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 import { AccessControl, MANAGER_ROLES } from '@/components/access-control';
 
 interface LoginAudit {
@@ -79,9 +77,7 @@ export default function LoginAuditsPage() {
 
 function LoginAuditsPageContent() {
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (currentTenant?.locale === 'es-MX');
+  const isSpanish = currentTenant?.locale === 'es-MX';
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
   const audits = isHospitality ? mockLoginAudits : techCorpLoginAudits;

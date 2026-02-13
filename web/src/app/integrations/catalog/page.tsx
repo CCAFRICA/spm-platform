@@ -44,8 +44,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 
 interface Product {
   id: string;
@@ -91,9 +89,7 @@ const defaultSchema: SchemaColumn[] = [
 export default function ProductCatalogPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (currentTenant?.locale === 'es-MX');
+  const isSpanish = currentTenant?.locale === 'es-MX';
 
   const [products, setProducts] = useState<Product[]>(mockProducts);
   const [searchTerm, setSearchTerm] = useState('');

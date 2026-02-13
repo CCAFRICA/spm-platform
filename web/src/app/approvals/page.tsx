@@ -43,7 +43,6 @@ import type { ApprovalRequest, ApprovalDomain, ApprovalStatus } from '@/lib/appr
 import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 
 const DOMAIN_LABELS: Record<ApprovalDomain, { en: string; es: string }> = {
   import_batch: { en: 'Import Batch', es: 'Lote de Importación' },
@@ -60,8 +59,7 @@ export default function ApprovalCenterPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
 
   const [activeTab, setActiveTab] = useState('pending');
   const [domainFilter, setDomainFilter] = useState<string>('all');

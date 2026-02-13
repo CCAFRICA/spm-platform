@@ -42,8 +42,6 @@ import {
   Download,
 } from 'lucide-react';
 import { useLocale } from '@/contexts/locale-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 import { useTenant } from '@/contexts/tenant-context';
 
 // Enhanced mock data with more detail
@@ -102,9 +100,7 @@ function formatCurrency(amount: number): string {
 export default function TrendsPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
 
   const [timeRange, setTimeRange] = useState('ytd');
 

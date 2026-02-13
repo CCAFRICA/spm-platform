@@ -13,7 +13,6 @@ import { useRouter } from 'next/navigation';
 import { useCommandPalette, useNavigation } from '@/contexts/navigation-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { isVLAdmin } from '@/types/auth';
 import type { UserRole } from '@/types/auth';
 import type { CommandItem, CommandCategory } from '@/types/navigation';
 import {
@@ -151,8 +150,7 @@ export function CommandPalette() {
   const { user } = useAuth();
   const { currentTenant } = useTenant();
 
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
+  const isSpanish = currentTenant?.locale === 'es-MX';
   const tenantId = currentTenant?.id || 'default';
 
   const [query, setQuery] = useState('');

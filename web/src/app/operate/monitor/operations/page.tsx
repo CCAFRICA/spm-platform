@@ -7,8 +7,6 @@
  */
 
 import { useTenant } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Activity,
@@ -20,10 +18,8 @@ import {
 
 export default function DailyOperationsPage() {
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
 
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
+  const isSpanish = currentTenant?.locale === 'es-MX';
 
   return (
     <div className="p-6 space-y-6">

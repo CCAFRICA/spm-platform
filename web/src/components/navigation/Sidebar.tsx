@@ -68,7 +68,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   // Language follows the LOGGED-IN USER's context, not the tenant's setting
   // VL Admin always sees English; tenant users see their tenant's locale
-  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
+  const isSpanish = currentTenant?.locale === 'es-MX';
 
   // Get user's accessible modules
   const accessibleModules = accessControl.getAccessibleModules(user);

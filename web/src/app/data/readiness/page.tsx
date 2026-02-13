@@ -6,15 +6,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Database, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTenant } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 
 export default function DataReadinessRedirectPage() {
   const router = useRouter();
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (currentTenant?.locale === 'es-MX');
+  const isSpanish = currentTenant?.locale === 'es-MX';
 
   // Auto-redirect to full data readiness page
   useEffect(() => {

@@ -92,9 +92,9 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const { user } = useAuth();
   const { currentTenant } = useTenant();
 
-  // Determine if user is VL Admin (always English) or follows tenant locale
+  // Locale follows tenant configuration for all users
   const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : currentTenant?.locale === 'es-MX';
+  const isSpanish = currentTenant?.locale === 'es-MX';
   const userRole = user?.role || null;
   const tenantId = userIsVLAdmin ? 'platform' : (currentTenant?.id || 'default');
   // Core state

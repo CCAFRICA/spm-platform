@@ -50,8 +50,6 @@ import type {
 import { TIME_GRANULARITIES } from '@/types/analytics';
 import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { isVLAdmin } from '@/types/auth';
 
 type TimeRange = '7d' | '30d' | '90d' | 'ytd' | '1y';
 
@@ -94,9 +92,7 @@ function getDateRange(range: TimeRange): { start: string; end: string } {
 export default function AnalyticsDashboardPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
-  const userIsVLAdmin = user && isVLAdmin(user);
-  const isSpanish = userIsVLAdmin ? false : (locale === 'es-MX' || currentTenant?.locale === 'es-MX');
+  const isSpanish = locale === 'es-MX' || currentTenant?.locale === 'es-MX';
   const tenantId = currentTenant?.id || 'retailco';
 
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
