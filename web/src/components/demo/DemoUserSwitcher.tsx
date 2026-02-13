@@ -36,7 +36,6 @@ import {
   resetDemo,
   getCurrentDemoState,
   fastForwardDemo,
-  registerResetShortcut,
 } from '@/lib/demo/demo-reset';
 import { toast } from 'sonner';
 
@@ -203,14 +202,7 @@ export function DemoUserSwitcher() {
     setCurrentDemoState(getCurrentDemoState());
   }, []);
 
-  // Register keyboard shortcut
-  useEffect(() => {
-    const cleanup = registerResetShortcut(() => {
-      setSelectedResetState('initial');
-      setShowResetDialog(true);
-    });
-    return cleanup;
-  }, []);
+  // HF-021: CMD+SHIFT+R keyboard shortcut removed — it hijacked browser hard refresh
 
   // Only show for tenants with demo users configured
   if (!demoUsers) {

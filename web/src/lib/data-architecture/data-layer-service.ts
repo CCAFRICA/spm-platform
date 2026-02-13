@@ -1613,67 +1613,57 @@ export function cleanupStaleData(currentTenantId: string): void {
   if (_cleanupRanForTenant === currentTenantId) return;
   _cleanupRanForTenant = currentTenantId;
 
-  let removedKeys = 0;
-  let freedBytes = 0;
-  const keysToRemove: string[] = [];
+  // HF-021: This function previously REMOVED cross-tenant batch data and aggregated
+  // data on every page reload, permanently destroying data for other tenants.
+  // Now it only logs what it finds — no destructive operations.
 
-  // Collect keys to process
+  // Collect keys to audit
   const allKeys: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (key) allKeys.push(key);
   }
 
+  let orphanChunks = 0;
+  let otherTenantBatches = 0;
+  let otherTenantAggregated = 0;
+
   for (const key of allKeys) {
     const value = localStorage.getItem(key);
     if (!value) continue;
 
-    // Remove chunk orphans (chunks without metadata)
+    // Count chunk orphans (chunks without metadata) — log only
     if (key.includes('_chunk_')) {
       const baseKey = key.replace(/_chunk_\d+$/, '');
       if (!localStorage.getItem(`${baseKey}_meta`)) {
-        keysToRemove.push(key);
-        continue;
+        orphanChunks++;
       }
     }
 
-    // Clean old tenant data from batches
+    // Count other-tenant batches — log only, do NOT filter
     if (key === STORAGE_KEYS.BATCHES || key.includes('data_layer_batches')) {
       try {
         const parsed = JSON.parse(value);
         if (Array.isArray(parsed)) {
-          const filtered = parsed.filter((item: [string, { tenantId?: string }]) => {
+          const otherTenant = parsed.filter((item: [string, { tenantId?: string }]) => {
             const itemTenant = item[1]?.tenantId || '';
-            return itemTenant === currentTenantId || itemTenant === '';
+            return itemTenant !== currentTenantId && itemTenant !== '';
           });
-          if (filtered.length < parsed.length) {
-            console.log(`[DataLayer] Cleaned ${key}: ${parsed.length} -> ${filtered.length} batches`);
-            freedBytes += value.length - JSON.stringify(filtered).length;
-            localStorage.setItem(key, JSON.stringify(filtered));
-          }
+          otherTenantBatches += otherTenant.length;
         }
       } catch {
         // Not parseable, skip
       }
     }
 
-    // Remove aggregated data for other tenants
+    // Count aggregated data for other tenants — log only, do NOT remove
     if (key.includes('_aggregated_') && !key.includes(currentTenantId)) {
-      keysToRemove.push(key);
-      keysToRemove.push(`${key}_meta`);
+      otherTenantAggregated++;
     }
   }
 
-  // Remove identified keys
-  for (const key of keysToRemove) {
-    const size = localStorage.getItem(key)?.length || 0;
-    localStorage.removeItem(key);
-    removedKeys++;
-    freedBytes += size;
-  }
-
-  if (removedKeys > 0) {
-    console.log(`[DataLayer] Cleanup: removed ${removedKeys} keys, freed ~${Math.round(freedBytes / 1024)} KB`);
+  if (orphanChunks > 0 || otherTenantBatches > 0 || otherTenantAggregated > 0) {
+    console.log(`[DataLayer] Storage audit for tenant '${currentTenantId}': ${orphanChunks} orphan chunks, ${otherTenantBatches} other-tenant batches, ${otherTenantAggregated} other-tenant aggregated keys (all preserved)`);
   }
 }
 

@@ -8,6 +8,8 @@
 import { DEMO_STATES, DemoState, getDemoState } from './demo-states';
 
 // All localStorage keys that should be managed by the demo system
+// HF-021: compensation_plans and compensation_plan_history are NOT included here
+// because they are shared global keys — wiping them destroys ALL tenant plans
 const DEMO_STORAGE_KEYS = [
   // Disputes & Adjustments
   'retailco_disputes',
@@ -18,9 +20,6 @@ const DEMO_STORAGE_KEYS = [
   'retailco_quarantine',
   // Scenarios
   'retailco_scenarios',
-  // Plans (shared across tenants)
-  'compensation_plans',
-  'compensation_plan_history',
   // Audit
   'audit_log',
   // Demo state tracking
@@ -261,33 +260,9 @@ function logDemoReset(targetState: string): void {
   localStorage.setItem('audit_log', JSON.stringify(trimmedLog));
 }
 
-/**
- * Register keyboard shortcut for quick reset (Ctrl+Shift+R)
- */
-export function registerResetShortcut(callback?: () => void): () => void {
-  const handler = (event: KeyboardEvent) => {
-    // Ctrl+Shift+R (or Cmd+Shift+R on Mac)
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'R') {
-      event.preventDefault();
-      if (callback) {
-        callback();
-      } else {
-        resetDemo('initial');
-      }
-    }
-  };
-
-  if (typeof window !== 'undefined') {
-    window.addEventListener('keydown', handler);
-  }
-
-  // Return cleanup function
-  return () => {
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('keydown', handler);
-    }
-  };
-}
+// HF-021: registerResetShortcut REMOVED — it hijacked CMD+SHIFT+R (browser hard refresh)
+// for ALL tenants, silently blocking refresh for tenants without demo users and
+// risking accidental data destruction for tenants with demo users.
 
 /**
  * Fast-forward to next demo state
