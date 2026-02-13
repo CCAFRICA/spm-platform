@@ -118,8 +118,7 @@ export default function DashboardPage() {
   const { format } = useCurrency();
   const { stats, recentActivity, quickLinks } = dashboardData;
 
-  // Language follows the LOGGED-IN USER's context, not the tenant's setting
-  // VL Admin always sees English; tenant users see their tenant's locale
+  // Language follows the tenant's configured locale
   const isSpanish = currentTenant?.locale === 'es-MX';
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
@@ -199,10 +198,11 @@ export default function DashboardPage() {
       .slice(0, 4);
   }, [isHospitality, userMeseroId, cheques]);
 
-  // Filter quick links for hospitality - remove irrelevant options
+  // Filter quick links by industry and role
   const filteredQuickLinks = useMemo(() => {
+    const role = authUser?.role;
+
     if (isHospitality) {
-      // For hospitality users, show only relevant links
       return [
         {
           title: isSpanish ? "Mis Cheques" : "My Checks",
@@ -220,8 +220,26 @@ export default function DashboardPage() {
         },
       ];
     }
+
+    // Scope by role
+    if (role === 'sales_rep') {
+      return [
+        { title: isSpanish ? "Mi Compensacion" : "My Compensation", description: isSpanish ? "Ver tus resultados" : "View your results", href: "/perform", icon: BarChart3, color: "bg-indigo-500" },
+        { title: isSpanish ? "Transacciones" : "Transactions", description: isSpanish ? "Ver tus transacciones" : "View your transactions", href: "/transactions", icon: Receipt, color: "bg-emerald-500" },
+      ];
+    }
+
+    if (role === 'manager') {
+      return [
+        { title: isSpanish ? "Rendimiento del Equipo" : "Team Performance", description: isSpanish ? "Monitorear equipo" : "Monitor your team", href: "/perform", icon: Target, color: "bg-amber-500" },
+        { title: isSpanish ? "Aprobaciones" : "Approvals", description: isSpanish ? "Pendientes de revision" : "Pending review", href: "/govern/calculation-approvals", icon: Settings, color: "bg-slate-500" },
+        { title: isSpanish ? "Transacciones" : "Transactions", description: isSpanish ? "Ver transacciones" : "View transactions", href: "/transactions", icon: Receipt, color: "bg-emerald-500" },
+      ];
+    }
+
+    // Admin / VL Admin - full access
     return quickLinks;
-  }, [isHospitality, isSpanish, quickLinks]);
+  }, [isHospitality, isSpanish, quickLinks, authUser?.role]);
 
   // Use logged-in user info, fallback to demo data
   const userName = authUser?.name || "User";
