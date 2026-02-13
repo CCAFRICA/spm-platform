@@ -67,6 +67,15 @@ import {
   Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  loadCycle,
+  createCycle,
+  transitionCycle,
+  getStateLabel,
+  getStateColor,
+  type CalculationCycle,
+  type OfficialSnapshot,
+} from '@/lib/calculation/calculation-lifecycle-service';
 
 // Bilingual labels
 const labels = {
@@ -190,6 +199,8 @@ export default function CalculatePage() {
   const [isActivating, setIsActivating] = useState(false);
   // OB-20 Phase 10: Search functionality for results
   const [searchQuery, setSearchQuery] = useState('');
+  // OB-34: Calculation lifecycle state
+  const [cycle, setCycle] = useState<CalculationCycle | null>(null);
 
   // VL Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
@@ -264,6 +275,13 @@ export default function CalculatePage() {
     setRecentRuns(runs.slice(0, 5));
   }, [currentTenant]);
 
+  // OB-34: Load lifecycle cycle when period changes
+  useEffect(() => {
+    if (!currentTenant || !selectedPeriod) return;
+    const existing = loadCycle(currentTenant.id, selectedPeriod);
+    setCycle(existing);
+  }, [currentTenant, selectedPeriod]);
+
   // Run calculation
   const handleRunCalculation = async () => {
     if (!selectedPeriod || !currentTenant || !user) return;
@@ -297,6 +315,42 @@ export default function CalculatePage() {
       setProgress(100);
       setResult(orchestrationResult);
 
+      // OB-34: Update lifecycle state
+      try {
+        const planId = planStatus.activePlanName || 'active';
+        let currentCycle = loadCycle(currentTenant.id, selectedPeriod);
+        if (!currentCycle) {
+          currentCycle = createCycle(currentTenant.id, planId, selectedPeriod);
+        }
+        if (runType === 'preview') {
+          currentCycle = transitionCycle(currentCycle, 'PREVIEW', user.name, 'Preview calculation completed', {
+            runId: orchestrationResult.runId,
+          });
+        } else {
+          // Official run: transition to PREVIEW first if needed, then to OFFICIAL
+          if (currentCycle.state === 'DRAFT') {
+            currentCycle = transitionCycle(currentCycle, 'PREVIEW', user.name, 'Preview before official');
+          }
+          const snapshot: OfficialSnapshot = {
+            timestamp: new Date().toISOString(),
+            runId: orchestrationResult.runId,
+            totalPayout: orchestrationResult.summary.totalPayout,
+            employeeCount: orchestrationResult.summary.employeesProcessed,
+            componentTotals: orchestrationResult.summary.componentBreakdown?.reduce(
+              (acc: Record<string, number>, c: { componentName: string; total: number }) => {
+                acc[c.componentName] = c.total;
+                return acc;
+              }, {} as Record<string, number>
+            ) || {},
+            immutable: true,
+          };
+          currentCycle = transitionCycle(currentCycle, 'OFFICIAL', user.name, 'Official calculation completed', { snapshot });
+        }
+        setCycle(currentCycle);
+      } catch (lcError) {
+        console.warn('[Lifecycle] State transition failed (non-fatal):', lcError);
+      }
+
       // Refresh recent runs
       const runs = getPeriodRuns(currentTenant.id);
       setRecentRuns(runs.slice(0, 5));
@@ -305,6 +359,18 @@ export default function CalculatePage() {
     } finally {
       clearInterval(progressInterval);
       setIsRunning(false);
+    }
+  };
+
+  // OB-34: Handle Submit for Approval
+  const handleSubmitForApproval = () => {
+    if (!cycle || !user || !currentTenant) return;
+    try {
+      const updated = transitionCycle(cycle, 'PENDING_APPROVAL', user.name, 'Submitted for approval');
+      setCycle(updated);
+    } catch (e) {
+      console.error('Submit for approval failed:', e);
+      alert(e instanceof Error ? e.message : 'Failed to submit for approval');
     }
   };
 
@@ -570,6 +636,42 @@ export default function CalculatePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* OB-34: Lifecycle State Indicator */}
+      {cycle && selectedPeriod && (
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Scale className="h-5 w-5 text-slate-500" />
+                <span className="text-sm font-medium text-slate-700">Cycle Status:</span>
+                <Badge className={getStateColor(cycle.state)}>
+                  {getStateLabel(cycle.state)}
+                </Badge>
+                {cycle.officialSnapshot && (
+                  <span className="text-xs text-slate-500">
+                    Official: {formatCurrency(cycle.officialSnapshot.totalPayout)} ({cycle.officialSnapshot.employeeCount} employees)
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {cycle.state === 'OFFICIAL' && (
+                  <Button size="sm" onClick={handleSubmitForApproval}>
+                    <ArrowRight className="h-4 w-4 mr-1" />
+                    Submit for Approval
+                  </Button>
+                )}
+                {cycle.state === 'PENDING_APPROVAL' && (
+                  <Badge className="bg-yellow-100 text-yellow-700">Awaiting Approver Action</Badge>
+                )}
+                {cycle.state === 'APPROVED' && (
+                  <Badge className="bg-green-100 text-green-700">Results visible to all roles</Badge>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Results */}
       {result && (
