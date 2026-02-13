@@ -41,7 +41,7 @@ const PHASE_ICONS: Record<CyclePhase, React.ComponentType<{ className?: string }
 
 export default function OperatePage() {
   const router = useRouter();
-  const { cycleState, isSpanish } = useCycleState();
+  const { cycleState, nextAction, isSpanish } = useCycleState();
   const { items } = useQueue();
   const { currentTenant } = useTenant();
 
@@ -75,6 +75,11 @@ export default function OperatePage() {
           <Badge variant={cycleState?.completionPercentage === 100 ? 'default' : 'secondary'}>
             {cycleState?.completionPercentage || 0}% {displaySpanish ? 'completo' : 'complete'}
           </Badge>
+          {nextAction && (
+            <p className="text-xs text-blue-600 mt-1 font-medium">
+              {displaySpanish ? 'Siguiente' : 'Next'}: {nextAction}
+            </p>
+          )}
         </div>
       </div>
 
