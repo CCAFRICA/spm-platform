@@ -26,6 +26,15 @@
       "status": "active",
       "userCount": 15,
       "lastActivityAt": "2025-01-15T00:00:00Z"
+    },
+    {
+      "id": "frmx-demo",
+      "displayName": "FRMX Demo",
+      "industry": "Hospitality",
+      "country": "MX",
+      "status": "active",
+      "userCount": 50,
+      "lastActivityAt": "2025-01-15T00:00:00Z"
     }
   ],
   "defaultTenantId": null,
