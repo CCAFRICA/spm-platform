@@ -1,6 +1,17 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+/**
+ * Reconciliation Benchmark Page
+ *
+ * HF-021: Smart Upload -- AI-Powered File Comparison
+ * Phase 1: Smart file parser with preview table and multi-sheet XLSX support
+ *
+ * Accepts: CSV, TSV, XLSX, XLS, JSON
+ * Uses SheetJS for Excel formats.
+ * Shows preview of first 5 rows with ALL columns.
+ */
+
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
@@ -11,7 +22,13 @@ import {
   type ExtendedReconciliationSession,
 } from '@/lib/reconciliation/reconciliation-bridge';
 import { getOrchestrator, getPeriodRuns } from '@/lib/orchestration/calculation-orchestrator';
-// ReconciliationItem type used for session.items
+import {
+  parseFile,
+  parseSheetFromWorkbook,
+  getPreviewRows,
+  type ParsedFile,
+} from '@/lib/reconciliation/smart-file-parser';
+import type * as XLSX_TYPE from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +70,7 @@ import {
   Eye,
   SortAsc,
   SortDesc,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -63,7 +81,7 @@ const labels = {
     subtitle: 'Compare calculation results against benchmark data',
     uploadBenchmark: 'Upload Benchmark File',
     uploadDesc: 'Upload CSV, Excel, or JSON file with expected results',
-    supportedFormats: 'Supported: CSV, XLSX, JSON',
+    supportedFormats: 'Supported: CSV, TSV, XLSX, XLS, JSON',
     selectBatch: 'Select Calculation Batch',
     noBatches: 'No calculation batches available',
     runReconciliation: 'Run Reconciliation',
@@ -98,16 +116,25 @@ const labels = {
     employeeIdField: 'Employee ID Field',
     amountField: 'Amount Field',
     autoDetected: 'Auto-detected',
+    // HF-021 Phase 1 additions
+    preview: 'Preview',
+    previewDesc: 'First 5 rows from uploaded file',
+    selectSheet: 'Select Sheet',
+    rowsLoaded: 'rows loaded',
+    columns: 'columns',
+    format: 'Format',
+    parseError: 'Failed to parse file. Check format and try again.',
+    uploadAnother: 'Upload Another',
   },
   'es-MX': {
-    title: 'Reconciliación de Benchmark',
-    subtitle: 'Comparar resultados de cálculo contra datos de benchmark',
+    title: 'Reconciliacion de Benchmark',
+    subtitle: 'Comparar resultados de calculo contra datos de benchmark',
     uploadBenchmark: 'Subir Archivo de Benchmark',
     uploadDesc: 'Suba archivo CSV, Excel o JSON con resultados esperados',
-    supportedFormats: 'Soportados: CSV, XLSX, JSON',
-    selectBatch: 'Seleccionar Lote de Cálculo',
-    noBatches: 'No hay lotes de cálculo disponibles',
-    runReconciliation: 'Ejecutar Reconciliación',
+    supportedFormats: 'Soportados: CSV, TSV, XLSX, XLS, JSON',
+    selectBatch: 'Seleccionar Lote de Calculo',
+    noBatches: 'No hay lotes de calculo disponibles',
+    runReconciliation: 'Ejecutar Reconciliacion',
     running: 'Ejecutando...',
     results: 'Resultados',
     matchRate: 'Tasa de Coincidencia',
@@ -117,7 +144,7 @@ const labels = {
     sourceTotal: 'Total Benchmark',
     targetTotal: 'Total Calculado',
     difference: 'Diferencia',
-    employeeComparison: 'Comparación por Empleado',
+    employeeComparison: 'Comparacion por Empleado',
     employee: 'Empleado',
     expected: 'Esperado',
     calculated: 'Calculado',
@@ -131,14 +158,23 @@ const labels = {
     discrepanciesOnly: 'Solo Discrepancias',
     missingOnly: 'Solo Faltantes',
     componentDetail: 'Detalle de Componentes',
-    reasoning: 'Análisis de Varianza',
+    reasoning: 'Analisis de Varianza',
     back: 'Volver',
     accessDenied: 'Acceso Denegado',
-    accessDeniedDesc: 'Debe ser un VL Admin para acceder a esta página.',
+    accessDeniedDesc: 'Debe ser un VL Admin para acceder a esta pagina.',
     fieldMapping: 'Mapeo de Campos',
     employeeIdField: 'Campo de ID de Empleado',
     amountField: 'Campo de Monto',
     autoDetected: 'Auto-detectado',
+    // HF-021 Phase 1 additions
+    preview: 'Vista Previa',
+    previewDesc: 'Primeras 5 filas del archivo subido',
+    selectSheet: 'Seleccionar Hoja',
+    rowsLoaded: 'filas cargadas',
+    columns: 'columnas',
+    format: 'Formato',
+    parseError: 'Error al analizar el archivo. Verifique el formato e intente de nuevo.',
+    uploadAnother: 'Subir Otro',
   },
 };
 
@@ -173,11 +209,18 @@ export default function ReconciliationPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
+
+  // File upload state
   const [isDragging, setIsDragging] = useState(false);
-  const [benchmarkData, setBenchmarkData] = useState<BenchmarkRow[]>([]);
-  const [detectedFields, setDetectedFields] = useState<string[]>([]);
+  const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const workbookRef = useRef<XLSX_TYPE.WorkBook | null>(null);
+
+  // Field mapping state (will be replaced by AI in Phase 2)
   const [employeeIdField, setEmployeeIdField] = useState<string>('');
   const [amountField, setAmountField] = useState<string>('');
+
+  // Batch & reconciliation state
   const [batches, setBatches] = useState<CalculationBatch[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<string>('');
   const [isRunning, setIsRunning] = useState(false);
@@ -193,6 +236,15 @@ export default function ReconciliationPage() {
 
   // Check VL Admin access
   const hasAccess = user && isVLAdmin(user);
+
+  // Derive benchmark data from parsed file + field mapping
+  const benchmarkData: BenchmarkRow[] = parsedFile && employeeIdField && amountField
+    ? parsedFile.rows.map((row) => ({
+        employeeId: String(row[employeeIdField] ?? ''),
+        amount: Number(row[amountField] ?? 0),
+        ...row,
+      }))
+    : [];
 
   // Load calculation batches
   useEffect(() => {
@@ -212,7 +264,10 @@ export default function ReconciliationPage() {
     );
   }, [currentTenant]);
 
-  // File handlers
+  // ============================================
+  // HF-021 Phase 1: Smart File Processing
+  // ============================================
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -228,84 +283,104 @@ export default function ReconciliationPage() {
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      processFile(files[0]);
+      processUploadedFile(files[0]);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      processFile(files[0]);
+      processUploadedFile(files[0]);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Process benchmark file
-  const processFile = async (file: File) => {
-    const content = await readFileContent(file);
-    const extension = file.name.split('.').pop()?.toLowerCase();
-    let data: Record<string, unknown>[] = [];
+  /**
+   * Process uploaded file through smart parser
+   */
+  const processUploadedFile = async (file: File) => {
+    setParseError(null);
 
-    if (extension === 'json') {
-      try {
-        const parsed = JSON.parse(content);
-        data = Array.isArray(parsed) ? parsed : [parsed];
-      } catch {
-        data = [];
+    try {
+      const result = await parseFile(file);
+
+      if (result.rows.length === 0) {
+        setParseError(t.parseError);
+        return;
       }
-    } else if (extension === 'csv' || extension === 'tsv') {
-      const delimiter = extension === 'tsv' ? '\t' : ',';
-      const lines = content.split('\n').filter((l) => l.trim());
-      if (lines.length > 0) {
-        const headers = lines[0].split(delimiter).map((h) => h.trim().replace(/"/g, ''));
-        data = lines.slice(1).map((line) => {
-          const values = line.split(delimiter).map((v) => v.trim().replace(/"/g, ''));
-          const row: Record<string, unknown> = {};
-          headers.forEach((header, i) => {
-            const val = values[i];
-            row[header] = !isNaN(Number(val)) && val !== '' ? Number(val) : val;
-          });
-          return row;
-        });
+
+      // Store workbook reference for sheet switching (XLSX only)
+      if ('_workbook' in result && result._workbook) {
+        workbookRef.current = result._workbook as XLSX_TYPE.WorkBook;
+      } else {
+        workbookRef.current = null;
       }
-    }
 
-    // Detect fields
-    if (data.length > 0) {
-      const fields = Object.keys(data[0]);
-      setDetectedFields(fields);
-
-      // Auto-detect employee ID field
-      const idField = fields.find((f) =>
-        f.toLowerCase().includes('employee') && f.toLowerCase().includes('id')
-      ) || fields.find((f) => f.toLowerCase().includes('id')) || fields[0];
-      setEmployeeIdField(idField);
-
-      // Auto-detect amount field
-      const amtField = fields.find((f) =>
-        f.toLowerCase().includes('amount') || f.toLowerCase().includes('payout') || f.toLowerCase().includes('total')
-      ) || fields.find((f) => typeof data[0][f] === 'number') || fields[1];
-      setAmountField(amtField);
-
-      // Convert to benchmark rows
-      const benchmarkRows: BenchmarkRow[] = data.map((row) => ({
-        employeeId: String(row[idField] || ''),
-        amount: Number(row[amtField] || 0),
-        ...row,
-      }));
-      setBenchmarkData(benchmarkRows);
+      setParsedFile(result);
+      autoDetectFields(result);
+    } catch (error) {
+      console.error('[Reconciliation] File parse error:', error);
+      setParseError(t.parseError);
     }
   };
 
-  const readFileContent = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target?.result as string);
-      reader.onerror = reject;
-      reader.readAsText(file);
-    });
+  /**
+   * Handle sheet change for multi-sheet XLSX files
+   */
+  const handleSheetChange = (sheetName: string) => {
+    if (!workbookRef.current || !parsedFile) return;
+
+    const updated = parseSheetFromWorkbook(
+      workbookRef.current,
+      sheetName,
+      parsedFile.fileName,
+    );
+
+    setParsedFile(updated);
+    autoDetectFields(updated);
   };
 
-  // Run reconciliation
+  /**
+   * Auto-detect employee ID and amount fields from headers
+   * (Heuristic fallback -- Phase 2 will use AI for this)
+   */
+  const autoDetectFields = (parsed: ParsedFile) => {
+    const fields = parsed.headers;
+
+    // Auto-detect employee ID field
+    const idField = fields.find((f) =>
+      f.toLowerCase().includes('employee') && f.toLowerCase().includes('id')
+    ) || fields.find((f) => f.toLowerCase().includes('id')) || fields[0] || '';
+    setEmployeeIdField(idField);
+
+    // Auto-detect amount field
+    const amtField = fields.find((f) =>
+      f.toLowerCase().includes('amount') || f.toLowerCase().includes('payout') || f.toLowerCase().includes('total')
+    ) || fields.find((f) => {
+      const sample = parsed.rows[0]?.[f];
+      return typeof sample === 'number';
+    }) || fields[1] || '';
+    setAmountField(amtField);
+  };
+
+  /**
+   * Reset file upload state
+   */
+  const handleResetFile = () => {
+    setParsedFile(null);
+    setParseError(null);
+    workbookRef.current = null;
+    setEmployeeIdField('');
+    setAmountField('');
+    setSession(null);
+    setComparisonItems([]);
+  };
+
+  // ============================================
+  // RECONCILIATION (existing logic, will be enhanced in Phase 4)
+  // ============================================
+
   const handleRunReconciliation = async () => {
     if (!currentTenant || !selectedBatch || benchmarkData.length === 0 || !user) return;
 
@@ -317,17 +392,16 @@ export default function ReconciliationPage() {
       const bridge = getReconciliationBridge(currentTenant.id);
       const orchestrator = getOrchestrator(currentTenant.id);
 
-      // Get calculation results for the selected batch
       const batch = batches.find((b) => b.id === selectedBatch);
       if (!batch) throw new Error('Batch not found');
 
       const calculatedResults = orchestrator.getResults(batch.periodId);
 
-      // Create source data (benchmark) with proper field mapping
+      // Create source data (benchmark) with field mapping
       const sourceData = benchmarkData.map((row, index) => ({
         id: `benchmark-${index}`,
-        employeeId: row[employeeIdField] ? String(row[employeeIdField]) : row.employeeId,
-        amount: row[amountField] ? Number(row[amountField]) : row.amount,
+        employeeId: row.employeeId,
+        amount: row.amount,
         date: new Date().toISOString(),
         type: 'benchmark',
       }));
@@ -341,7 +415,6 @@ export default function ReconciliationPage() {
         type: 'calculated',
       }));
 
-      // Create session
       const newSession = bridge.createSession({
         tenantId: currentTenant.id,
         periodId: batch.periodId,
@@ -351,14 +424,12 @@ export default function ReconciliationPage() {
         createdBy: user.name,
       });
 
-      // Run reconciliation
       const result = await bridge.runReconciliation(newSession.id, sourceData, targetData);
       setSession(result);
 
       // Build comparison items
       const items: ComparisonItem[] = [];
 
-      // Process matched/discrepancy items
       for (const item of result.items || []) {
         if (item.sourceRecord && item.targetRecord) {
           const variance = item.sourceRecord.amount - item.targetRecord.amount;
@@ -427,7 +498,7 @@ export default function ReconciliationPage() {
       case 'missing_benchmark':
         return <Badge className="bg-red-100 text-red-800">{locale === 'es-MX' ? 'Sin Benchmark' : 'No Benchmark'}</Badge>;
       case 'missing_calculated':
-        return <Badge className="bg-red-100 text-red-800">{locale === 'es-MX' ? 'Sin Cálculo' : 'Not Calculated'}</Badge>;
+        return <Badge className="bg-red-100 text-red-800">{locale === 'es-MX' ? 'Sin Calculo' : 'Not Calculated'}</Badge>;
       default:
         return null;
     }
@@ -466,6 +537,9 @@ export default function ReconciliationPage() {
     );
   }
 
+  // Preview rows for display
+  const previewRows = parsedFile ? getPreviewRows(parsedFile, 5) : [];
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -493,12 +567,13 @@ export default function ReconciliationPage() {
             <CardDescription>{t.supportedFormats}</CardDescription>
           </CardHeader>
           <CardContent>
+            {/* Drop zone */}
             <div
               className={cn(
                 'border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer',
                 isDragging
                   ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                  : benchmarkData.length > 0
+                  : parsedFile
                   ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
                   : 'border-slate-300 hover:border-slate-400 dark:border-slate-700'
               )}
@@ -507,10 +582,24 @@ export default function ReconciliationPage() {
               onDrop={handleDrop}
               onClick={() => document.getElementById('benchmark-file')?.click()}
             >
-              {benchmarkData.length > 0 ? (
+              {parseError ? (
+                <>
+                  <XCircle className="h-10 w-10 text-red-500 mx-auto mb-2" />
+                  <p className="text-sm text-red-600">{parseError}</p>
+                </>
+              ) : parsedFile ? (
                 <>
                   <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2" />
-                  <p className="font-medium text-emerald-700">{benchmarkData.length} rows loaded</p>
+                  <p className="font-medium text-emerald-700">{parsedFile.fileName}</p>
+                  <div className="flex items-center justify-center gap-3 mt-1 text-sm text-emerald-600">
+                    <span>{parsedFile.totalRows} {t.rowsLoaded}</span>
+                    <span className="text-emerald-400">|</span>
+                    <span>{parsedFile.headers.length} {t.columns}</span>
+                    <span className="text-emerald-400">|</span>
+                    <Badge variant="outline" className="text-xs">
+                      {parsedFile.format.toUpperCase()}
+                    </Badge>
+                  </div>
                 </>
               ) : (
                 <>
@@ -521,14 +610,34 @@ export default function ReconciliationPage() {
               <input
                 id="benchmark-file"
                 type="file"
-                accept=".csv,.xlsx,.xls,.json"
+                accept=".csv,.tsv,.xlsx,.xls,.json"
                 className="hidden"
                 onChange={handleFileSelect}
               />
             </div>
 
-            {/* Field Mapping */}
-            {benchmarkData.length > 0 && (
+            {/* Sheet selector for multi-sheet XLSX */}
+            {parsedFile && parsedFile.sheetNames.length > 1 && (
+              <div className="mt-4 space-y-1">
+                <Label className="text-xs flex items-center gap-1">
+                  <FileSpreadsheet className="h-3 w-3" />
+                  {t.selectSheet}
+                </Label>
+                <Select value={parsedFile.activeSheet} onValueChange={handleSheetChange}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {parsedFile.sheetNames.map((name) => (
+                      <SelectItem key={name} value={name}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Field Mapping (heuristic -- Phase 2 will use AI) */}
+            {parsedFile && parsedFile.headers.length > 0 && (
               <div className="mt-4 space-y-3">
                 <p className="text-sm font-medium">{t.fieldMapping}</p>
                 <div className="grid gap-3 md:grid-cols-2">
@@ -539,7 +648,7 @@ export default function ReconciliationPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {detectedFields.map((field) => (
+                        {parsedFile.headers.map((field) => (
                           <SelectItem key={field} value={field}>{field}</SelectItem>
                         ))}
                       </SelectContent>
@@ -552,13 +661,27 @@ export default function ReconciliationPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {detectedFields.map((field) => (
+                        {parsedFile.headers.map((field) => (
                           <SelectItem key={field} value={field}>{field}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
+
+                {/* Upload another button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleResetFile();
+                  }}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  {t.uploadAnother}
+                </Button>
               </div>
             )}
           </CardContent>
@@ -612,6 +735,54 @@ export default function ReconciliationPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* HF-021 Phase 1: Preview Table */}
+      {parsedFile && previewRows.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5" />
+              {t.preview}
+            </CardTitle>
+            <CardDescription>
+              {t.previewDesc} ({parsedFile.headers.length} {t.columns}, {parsedFile.totalRows} {t.rowsLoaded})
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {parsedFile.headers.map((header) => (
+                      <TableHead key={header} className="whitespace-nowrap text-xs">
+                        {header}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {previewRows.map((row, rowIdx) => (
+                    <TableRow key={rowIdx}>
+                      {parsedFile.headers.map((header) => (
+                        <TableCell key={header} className="whitespace-nowrap text-xs">
+                          {row[header] != null ? String(row[header]) : ''}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {parsedFile.totalRows > 5 && (
+              <p className="text-center text-xs text-slate-400 mt-2">
+                {locale === 'es-MX'
+                  ? `Mostrando 5 de ${parsedFile.totalRows} filas`
+                  : `Showing 5 of ${parsedFile.totalRows} rows`}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Results */}
       {session && (
@@ -832,14 +1003,14 @@ export default function ReconciliationPage() {
                         : 'Values match within tolerance threshold.'
                       : selectedItem.status === 'discrepancy'
                       ? locale === 'es-MX'
-                        ? `Diferencia de $${Math.abs(selectedItem.variance).toLocaleString()} (${selectedItem.variancePercent.toFixed(1)}%). Verificar componentes de cálculo y datos de entrada.`
+                        ? `Diferencia de $${Math.abs(selectedItem.variance).toLocaleString()} (${selectedItem.variancePercent.toFixed(1)}%). Verificar componentes de calculo y datos de entrada.`
                         : `Difference of $${Math.abs(selectedItem.variance).toLocaleString()} (${selectedItem.variancePercent.toFixed(1)}%). Review calculation components and input data.`
                       : selectedItem.status === 'missing_calculated'
                       ? locale === 'es-MX'
-                        ? 'El empleado existe en el benchmark pero no tiene cálculo. Verificar que esté incluido en el período y tenga métricas.'
+                        ? 'El empleado existe en el benchmark pero no tiene calculo. Verificar que este incluido en el periodo y tenga metricas.'
                         : 'Employee exists in benchmark but has no calculation. Verify they are included in the period and have metrics.'
                       : locale === 'es-MX'
-                      ? 'El empleado tiene cálculo pero no aparece en el benchmark. Puede ser una nueva contratación o error en datos de referencia.'
+                      ? 'El empleado tiene calculo pero no aparece en el benchmark. Puede ser una nueva contratacion o error en datos de referencia.'
                       : 'Employee has calculation but is not in benchmark. May be a new hire or benchmark data issue.'}
                   </p>
                 </div>
