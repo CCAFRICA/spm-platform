@@ -1289,13 +1289,17 @@ function storeAggregatedData(
       // all-periods aggregation (e.g. Collections). Both keys coexist:
       //   "1008_1_2024" → January only (store sales, new customers)
       //   "1008"        → all periods cumulative (collections)
-      if (storePeriodKey !== storeId) {
-        if (!storeComponentMetrics.has(storeId)) {
-          storeComponentMetrics.set(storeId, new Map());
+      try {
+        if (storePeriodKey !== storeId) {
+          if (!storeComponentMetrics.has(storeId)) {
+            storeComponentMetrics.set(storeId, new Map());
+          }
+          const cumulativeSheets = storeComponentMetrics.get(storeId)!;
+          const cumulativeExisting = cumulativeSheets.get(sheetName) as MergedMetrics | undefined;
+          cumulativeSheets.set(sheetName, mergeMetrics(cumulativeExisting, resolvedMetrics));
         }
-        const cumulativeSheets = storeComponentMetrics.get(storeId)!;
-        const cumulativeExisting = cumulativeSheets.get(sheetName) as MergedMetrics | undefined;
-        cumulativeSheets.set(sheetName, mergeMetrics(cumulativeExisting, resolvedMetrics));
+      } catch (cumErr) {
+        console.warn('[DataLayer] Cumulative STEP 3 error (non-fatal):', cumErr);
       }
     }
   }
@@ -1448,25 +1452,33 @@ function storeAggregatedData(
     // OB-30-9: Also attach cumulative (all-periods) store metrics for components
     // that need cross-period aggregation (e.g. Collections/Cobranza).
     // Only add if we have period-specific AND cumulative keys (they differ).
-    if (storePeriodKey !== storeId && storeId) {
-      const cumulativeStoreMetrics = storeComponentMetrics.get(storeId);
-      if (cumulativeStoreMetrics) {
-        const cumulativeComponentMetrics: Record<string, {
-          attainment?: number;
-          attainmentSource?: 'source' | 'computed' | 'candidate';
-          amount?: number;
-          goal?: number;
-        }> = {};
-        for (const [sheetName, metrics] of Array.from(cumulativeStoreMetrics.entries())) {
-          const topo = sheetTopology.get(sheetName);
-          if (topo?.topology === 'store_component') {
-            cumulativeComponentMetrics[sheetName] = { ...metrics };
+    try {
+      if (storePeriodKey !== storeId && storeId) {
+        const cumulativeStoreMetrics = storeComponentMetrics.get(storeId);
+        if (cumulativeStoreMetrics) {
+          const cumulativeComponentMetrics: Record<string, {
+            attainment?: number;
+            amount?: number;
+            goal?: number;
+          }> = {};
+          for (const [sheetName, metrics] of Array.from(cumulativeStoreMetrics.entries())) {
+            const topo = sheetTopology.get(sheetName);
+            if (topo?.topology === 'store_component') {
+              // Strip _rawFields/_candidate* — only need attainment/amount/goal for cumulative
+              cumulativeComponentMetrics[sheetName] = {
+                attainment: metrics.attainment,
+                amount: metrics.amount,
+                goal: metrics.goal,
+              };
+            }
+          }
+          if (Object.keys(cumulativeComponentMetrics).length > 0) {
+            enriched.cumulativeComponentMetrics = cumulativeComponentMetrics;
           }
         }
-        if (Object.keys(cumulativeComponentMetrics).length > 0) {
-          enriched.cumulativeComponentMetrics = cumulativeComponentMetrics;
-        }
       }
+    } catch (cumErr) {
+      console.warn('[DataLayer] Cumulative STEP 4 error (non-fatal):', cumErr);
     }
 
     if (Object.keys(componentMetrics).length > 0) {
@@ -1492,9 +1504,10 @@ function storeAggregatedData(
   }
 
   // STEP 5: Store to localStorage (componentMetrics structure is already compact)
+  console.log(`[COMMIT-VERIFY] STEP 5 reached. Aggregated ${aggregated.length} records. Serializing...`);
   const serialized = JSON.stringify(aggregated);
   const sizeKB = Math.round(serialized.length / 1024);
-  console.log(`[DataLayer] Aggregated payload: ${sizeKB} KB (${aggregated.length} records)`);
+  console.log(`[COMMIT-VERIFY] Serialized OK: ${sizeKB} KB (${aggregated.length} records)`);
 
   // Log sample of first employee's componentMetrics for verification
   if (aggregated.length > 0 && aggregated[0].componentMetrics) {
@@ -1550,10 +1563,10 @@ function storeAggregatedData(
     // Verify storage succeeded
     const verify = localStorage.getItem(storageKey);
     if (verify && verify.length > 0) {
-      console.log(`[DataLayer] SUCCESS: Stored ${aggregated.length} employees, ${finalSizeKB} KB`);
+      console.log(`[COMMIT-VERIFY] SUCCESS: Key "${storageKey}" written, ${finalSizeKB} KB, ${aggregated.length} employees`);
       reportStorageUsage();
     } else {
-      console.error(`[DataLayer] FAILED: Verification failed - key not found after write`);
+      console.error(`[COMMIT-VERIFY] FAILED: Key "${storageKey}" not found after write!`);
     }
 
     return { employeeCount: aggregated.length, sizeKB: finalSizeKB };
