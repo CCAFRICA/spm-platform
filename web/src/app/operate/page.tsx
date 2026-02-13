@@ -26,6 +26,7 @@ import {
   Activity,
   Database,
   ShieldCheck,
+  TrendingUp,
 } from 'lucide-react';
 import type { CyclePhase } from '@/types/navigation';
 
@@ -42,9 +43,10 @@ export default function OperatePage() {
   const router = useRouter();
   const { cycleState, isSpanish } = useCycleState();
   const { items } = useQueue();
-  useTenant();
+  const { currentTenant } = useTenant();
 
   const displaySpanish = isSpanish;
+  const hasFinancial = currentTenant?.features?.financial === true;
 
   // Cycle phases to display
   const cyclePhases: CyclePhase[] = ['import', 'calculate', 'reconcile', 'approve', 'pay'];
@@ -175,7 +177,7 @@ export default function OperatePage() {
       )}
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className={`grid gap-4 ${hasFinancial ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
         <Card className="hover:border-slate-300 transition-colors cursor-pointer" onClick={() => router.push('/operate/monitor/operations')}>
           <CardContent className="p-6 flex items-center gap-4">
             <div className="p-3 bg-purple-100 rounded-lg">
@@ -199,7 +201,7 @@ export default function OperatePage() {
             </div>
             <div>
               <p className="font-medium text-slate-900">
-                {displaySpanish ? 'Preparación de Datos' : 'Data Readiness'}
+                {displaySpanish ? 'Preparacion de Datos' : 'Data Readiness'}
               </p>
               <p className="text-sm text-slate-500">
                 {displaySpanish ? 'Verificar datos' : 'Check data status'}
@@ -223,6 +225,24 @@ export default function OperatePage() {
             </div>
           </CardContent>
         </Card>
+
+        {hasFinancial && (
+          <Card className="hover:border-orange-300 border-orange-200 transition-colors cursor-pointer" onClick={() => router.push('/financial')}>
+            <CardContent className="p-6 flex items-center gap-4">
+              <div className="p-3 bg-orange-100 rounded-lg">
+                <TrendingUp className="h-6 w-6 text-orange-600" />
+              </div>
+              <div>
+                <p className="font-medium text-slate-900">
+                  {displaySpanish ? 'Modulo Financiero' : 'Financial Module'}
+                </p>
+                <p className="text-sm text-slate-500">
+                  {displaySpanish ? 'Datos POS y rendimiento' : 'POS data & performance'}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
