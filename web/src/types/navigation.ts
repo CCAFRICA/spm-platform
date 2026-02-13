@@ -15,7 +15,7 @@ import type { UserRole } from './auth';
 // WORKSPACE TYPES
 // =============================================================================
 
-export type WorkspaceId = 'operate' | 'perform' | 'investigate' | 'design' | 'configure' | 'govern';
+export type WorkspaceId = 'operate' | 'perform' | 'investigate' | 'design' | 'configure' | 'govern' | 'financial';
 
 export interface Workspace {
   id: WorkspaceId;
@@ -28,6 +28,7 @@ export interface Workspace {
   sections: WorkspaceSection[];
   roles: UserRole[]; // Which roles see this workspace
   accentColor: string; // HSL color for workspace theming
+  featureFlag?: string; // Tenant feature flag required to show this workspace
 }
 
 export interface WorkspaceSection {

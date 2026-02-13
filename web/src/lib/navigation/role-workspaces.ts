@@ -12,9 +12,9 @@ import type { WorkspaceId } from '@/types/navigation';
 // =============================================================================
 
 export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
-  vl_admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern'],
-  admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern'],
-  manager: ['perform', 'investigate', 'govern'],
+  vl_admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern', 'financial'],
+  admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern', 'financial'],
+  manager: ['perform', 'investigate', 'govern', 'financial'],
   sales_rep: ['perform'],
 };
 
@@ -72,6 +72,7 @@ export const WORKSPACE_FEATURE_ACCESS: Record<UserRole, Partial<Record<Workspace
     design: { canViewAll: true, canEdit: true },
     configure: { canViewAll: true, canEdit: true },
     govern: { canViewAll: true, canEdit: true },
+    financial: { canViewAll: true, canEdit: true },
   },
   admin: {
     operate: { canViewAll: true, canEdit: true },
@@ -80,11 +81,13 @@ export const WORKSPACE_FEATURE_ACCESS: Record<UserRole, Partial<Record<Workspace
     design: { canViewAll: true, canEdit: true },
     configure: { canViewAll: true, canEdit: true },
     govern: { canViewAll: true, canEdit: true },
+    financial: { canViewAll: true, canEdit: true },
   },
   manager: {
     perform: { canViewAll: true, canEdit: false },
     investigate: { canViewAll: false, canEdit: false, limitedSections: ['search', 'transactions', 'disputes'] },
     govern: { canViewAll: false, canEdit: false, limitedSections: ['approvals'] },
+    financial: { canViewAll: true, canEdit: false },
   },
   sales_rep: {
     perform: { canViewAll: false, canEdit: false, limitedSections: ['dashboard', 'compensation', 'transactions', 'inquiries'] },

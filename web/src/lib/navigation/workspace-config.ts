@@ -360,6 +360,47 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     ],
   },
 
+  financial: {
+    id: 'financial',
+    label: 'Financial',
+    labelEs: 'Finanzas',
+    icon: 'Activity',
+    description: 'POS analytics and financial intelligence',
+    descriptionEs: 'Analisis POS e inteligencia financiera',
+    defaultRoute: '/financial',
+    accentColor: 'hsl(45, 93%, 47%)', // Gold
+    roles: ['vl_admin', 'admin', 'manager'],
+    featureFlag: 'financial',
+    sections: [
+      {
+        id: 'network',
+        label: 'Network',
+        labelEs: 'Red',
+        routes: [
+          { path: '/financial', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['vl_admin', 'admin', 'manager'] },
+        ],
+      },
+      {
+        id: 'analysis',
+        label: 'Analysis',
+        labelEs: 'Analisis',
+        routes: [
+          { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronologia de Ingresos', icon: 'LineChart', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicacion', icon: 'BarChart3', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['vl_admin', 'admin', 'manager'] },
+        ],
+      },
+      {
+        id: 'controls',
+        label: 'Controls',
+        labelEs: 'Controles',
+        routes: [
+          { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['vl_admin', 'admin'] },
+        ],
+      },
+    ],
+  },
+
   govern: {
     id: 'govern',
     label: 'Govern',

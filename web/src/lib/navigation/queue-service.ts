@@ -479,6 +479,7 @@ export function getQueueItemsByWorkspace(items: QueueItem[]): Record<WorkspaceId
     configure: [],
     govern: [],
     operate: [],
+    financial: [],
   };
 
   for (const item of items) {

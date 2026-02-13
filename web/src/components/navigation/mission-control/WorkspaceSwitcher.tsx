@@ -10,8 +10,10 @@ import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/contexts/navigation-context';
 import { WORKSPACES } from '@/lib/navigation/workspace-config';
 import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
+import { useTenant } from '@/contexts/tenant-context';
 import type { WorkspaceId } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
+import type { TenantFeatures } from '@/types/tenant';
 import {
   Zap,
   TrendingUp,
@@ -19,6 +21,7 @@ import {
   Palette,
   Settings,
   Shield,
+  Activity,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -38,14 +41,21 @@ const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: str
   design: Palette,
   configure: Settings,
   govern: Shield,
+  financial: Activity,
 };
 
 export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps) {
   const { activeWorkspace, navigateToWorkspace, isSpanish, userRole } = useWorkspace();
+  const { currentTenant } = useTenant();
 
-  // Get accessible workspaces for current user
+  // Get accessible workspaces for current user, filtered by tenant feature flags
   const accessibleWorkspaces = userRole
-    ? getAccessibleWorkspaces(userRole as UserRole)
+    ? getAccessibleWorkspaces(userRole as UserRole).filter(wsId => {
+        const ws = WORKSPACES[wsId];
+        if (!ws?.featureFlag) return true;
+        const features = currentTenant?.features as TenantFeatures | undefined;
+        return features?.[ws.featureFlag as keyof TenantFeatures] === true;
+      })
     : [];
 
   return (
