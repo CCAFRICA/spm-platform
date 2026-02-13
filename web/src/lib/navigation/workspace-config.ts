@@ -32,6 +32,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/operate/import', label: 'Data Import', labelEs: 'Importar Datos', icon: 'Upload', roles: ['vl_admin', 'admin'] },
           { path: '/operate/import/enhanced', label: 'Enhanced Import', labelEs: 'Importación Avanzada', icon: 'Sparkles', roles: ['vl_admin', 'admin'] },
           { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial de Importación', icon: 'History', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/normalization', label: 'Product Normalization', labelEs: 'Normalización de Productos', icon: 'Layers', roles: ['vl_admin', 'admin'] },
         ],
       },
       {
