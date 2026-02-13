@@ -32,6 +32,11 @@ import { useTenant, useCurrency } from "@/contexts/tenant-context";
 import { isTenantUser } from "@/types/auth";
 import { getCheques } from "@/lib/restaurant-service";
 import { isStaticTenant } from "@/lib/tenant-data-service";
+import {
+  getLatestRun,
+  getCalculationResults,
+  getCurrentPeriod,
+} from "@/lib/calculation/results-storage";
 import type { Cheque } from "@/types/cheques";
 
 // Mock dashboard data
@@ -125,18 +130,54 @@ export default function DashboardPage() {
   // Only show mock data for static tenants
   const hasMockData = isStaticTenant(currentTenant?.id);
 
-  // Empty stats for dynamic tenants
-  const emptyStats = {
+  // Wire dynamic tenants to real calculation results
+  const dynamicStats = useMemo(() => {
+    if (hasMockData || isHospitality || !currentTenant?.id) return null;
+    const period = getCurrentPeriod();
+    const run = getLatestRun(currentTenant.id, period);
+    if (!run) return null;
+    const results = getCalculationResults(run.id);
+    if (!results.length) return null;
+
+    const userId = authUser?.email?.split('@')[0] || '';
+    const myResult = results.find(r => r.employeeId === userId);
+    const totalPayout = results.reduce((sum, r) => sum + (r.totalIncentive || 0), 0);
+
+    if (myResult) {
+      // Sales rep: show personal stats
+      const sorted = [...results].sort((a, b) => (b.totalIncentive || 0) - (a.totalIncentive || 0));
+      const rank = sorted.findIndex(r => r.employeeId === userId) + 1;
+      return {
+        ytdCompensation: myResult.totalIncentive || 0,
+        mtdCompensation: myResult.totalIncentive || 0,
+        quotaAttainment: 0,
+        ranking: rank,
+        rankingTotal: results.length,
+        pendingCommissions: 0,
+      };
+    }
+
+    // Manager/admin: show aggregate stats
+    const avgPayout = totalPayout / results.length;
+    return {
+      ytdCompensation: totalPayout,
+      mtdCompensation: avgPayout,
+      quotaAttainment: 0,
+      ranking: 0,
+      rankingTotal: results.length,
+      pendingCommissions: 0,
+    };
+  }, [hasMockData, isHospitality, currentTenant?.id, authUser?.email]);
+
+  // Use real data for dynamic tenants, mock for static
+  const displayStats = dynamicStats || (hasMockData ? stats : {
     ytdCompensation: 0,
     mtdCompensation: 0,
     quotaAttainment: 0,
     ranking: 0,
     rankingTotal: 0,
     pendingCommissions: 0,
-  };
-
-  // Use mock data only for static tenants
-  const displayStats = hasMockData ? stats : emptyStats;
+  });
   const displayActivity = hasMockData ? recentActivity : [];
 
   // Hospitality-specific data
