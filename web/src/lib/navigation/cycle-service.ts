@@ -67,8 +67,9 @@ function determinePhaseStatuses(tenantId: string, periodId: string): Record<Cycl
   // Check for import data
   const hasImportData = checkHasImportData(tenantId, periodId);
 
-  // Check for calculation results
-  const hasCalculations = checkHasCalculations(tenantId, periodId);
+  // Check for calculation results (with timestamps)
+  const calcInfo = checkHasCalculationsWithInfo(tenantId, periodId);
+  const hasCalculations = calcInfo.exists;
 
   // Check for reconciliation
   const hasReconciliation = checkHasReconciliation(tenantId, periodId);
@@ -79,17 +80,27 @@ function determinePhaseStatuses(tenantId: string, periodId: string): Record<Cycl
   // Check for payroll status
   const payrollStatus = checkPayrollStatus(tenantId, periodId);
 
+  // Import detail with count from import batches
+  const importDetail = hasImportData ? getImportDetails(tenantId) : null;
+  const importCountStr = importDetail?.count ? ` (${importDetail.count} records)` : '';
+  const importCountStrEs = importDetail?.count ? ` (${importDetail.count} registros)` : '';
+
+  // Calculate detail with timestamp and employee count
+  const calcDateStr = calcInfo.calculatedAt ? ` -- ${formatShortDate(calcInfo.calculatedAt)}` : '';
+  const calcCountStr = calcInfo.totalEmployees ? ` (${calcInfo.totalEmployees} employees)` : '';
+  const calcCountStrEs = calcInfo.totalEmployees ? ` (${calcInfo.totalEmployees} empleados)` : '';
+
   return {
     import: {
       state: hasImportData ? 'completed' : 'in_progress',
-      detail: hasImportData ? 'Data imported successfully' : 'Awaiting data import',
-      detailEs: hasImportData ? 'Datos importados correctamente' : 'Esperando importación de datos',
+      detail: hasImportData ? `Data imported${importCountStr}` : 'Awaiting data import',
+      detailEs: hasImportData ? `Datos importados${importCountStrEs}` : 'Esperando importacion de datos',
       actionCount: hasImportData ? 0 : 1,
     },
     calculate: {
       state: hasCalculations ? 'completed' : (hasImportData ? 'in_progress' : 'not_started'),
-      detail: hasCalculations ? 'Calculations complete' : (hasImportData ? 'Ready to calculate' : 'Waiting for import'),
-      detailEs: hasCalculations ? 'Cálculos completos' : (hasImportData ? 'Listo para calcular' : 'Esperando importación'),
+      detail: hasCalculations ? `Calculations complete${calcCountStr}${calcDateStr}` : (hasImportData ? 'Ready to calculate' : 'Waiting for import'),
+      detailEs: hasCalculations ? `Calculos completos${calcCountStrEs}${calcDateStr}` : (hasImportData ? 'Listo para calcular' : 'Esperando importacion'),
       actionCount: hasCalculations ? 0 : (hasImportData ? 1 : 0),
     },
     reconcile: {
@@ -218,6 +229,49 @@ function checkHasImportData(tenantId: string, periodId: string): boolean {
     return false;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Format a short date from ISO string (e.g., "Feb 12")
+ */
+function formatShortDate(isoDate: string): string {
+  try {
+    const d = new Date(isoDate);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[d.getMonth()]} ${d.getDate()}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Check for calculation results with metadata
+ */
+function checkHasCalculationsWithInfo(tenantId: string, periodId: string): {
+  exists: boolean;
+  calculatedAt?: string;
+  totalEmployees?: number;
+} {
+  try {
+    const runsData = localStorage.getItem('vialuce_calculation_runs');
+    if (runsData) {
+      const runs: Array<{ tenantId: string; periodId: string; status: string; calculatedAt?: string; totalEmployees?: number }> = JSON.parse(runsData);
+      const completedRun = runs.find(
+        (r) => r.tenantId === tenantId && r.periodId === periodId && r.status === 'completed'
+      );
+      if (completedRun) {
+        return {
+          exists: true,
+          calculatedAt: completedRun.calculatedAt,
+          totalEmployees: completedRun.totalEmployees,
+        };
+      }
+    }
+    // Fall back to legacy check
+    return { exists: checkHasCalculations(tenantId, periodId) };
+  } catch {
+    return { exists: false };
   }
 }
 
