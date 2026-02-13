@@ -25,7 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Users, ChevronUp, Check, RotateCcw, FastForward, Info } from 'lucide-react';
+import { Users, ChevronUp, Check, RotateCcw, FastForward, Info, ShieldAlert } from 'lucide-react';
 import {
   DEMO_STATES,
   DemoState,
@@ -261,6 +261,15 @@ export function DemoUserSwitcher() {
 
   const currentUserEmail = user?.email?.toLowerCase();
 
+  // Find the admin user for this tenant (for "Return to Admin" escape hatch)
+  const adminUser = demoUsers.find(
+    (u) => u.role === 'Administrator' || u.role === 'Platform Admin' || u.role === 'Finance Director'
+  );
+  const isAdminActive =
+    currentUserEmail === adminUser?.email.toLowerCase() ||
+    user?.role === 'admin' ||
+    user?.role === 'vl_admin';
+
   // State indicator colors
   const stateColors: Record<DemoState, string> = {
     initial: 'bg-blue-500',
@@ -272,7 +281,22 @@ export function DemoUserSwitcher() {
 
   return (
     <>
-      <div className="fixed bottom-4 left-4 z-50">
+      <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2">
+        {/* Return to Admin escape hatch — visible when non-admin persona active */}
+        {!isAdminActive && adminUser && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shadow-lg bg-white hover:bg-amber-50 border-amber-300 text-amber-700 rounded-full px-3 gap-1.5 animate-in fade-in slide-in-from-left-2"
+            onClick={() => handleUserSwitch(adminUser.email)}
+            disabled={isSwitching}
+          >
+            <ShieldAlert className="h-3.5 w-3.5" />
+            <span className="text-xs font-medium">
+              {isSpanish ? 'Volver a Admin' : 'Return to Admin'}
+            </span>
+          </Button>
+        )}
         <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
           <DropdownMenuTrigger asChild>
             <Button
