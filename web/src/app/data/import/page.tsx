@@ -37,7 +37,7 @@ import {
   ImportPreview as ChequesPreview,
   ImportResult as ChequesResult,
 } from '@/lib/cheques-import-service';
-import { useTenant, useTerm } from '@/contexts/tenant-context';
+import { useTenant, useTerm, useCurrency } from '@/contexts/tenant-context';
 import { pageVariants } from '@/lib/animations';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -62,6 +62,7 @@ const TSV_STEPS: { key: ImportStep; label: string; number: number }[] = [
 
 export default function ImportPage() {
   const { currentTenant } = useTenant();
+  const { format: formatCurrency } = useCurrency();
   const transactionTerm = useTerm('transaction', true);
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
@@ -537,8 +538,8 @@ export default function ImportPage() {
                               <td className="py-2 px-2 font-mono">{row.numero_cheque}</td>
                               <td className="py-2 px-2">{row.numero_franquicia}</td>
                               <td className="py-2 px-2">{row.fecha?.split(' ')[0]}</td>
-                              <td className="py-2 px-2 text-right">${row.total?.toFixed(2)}</td>
-                              <td className="py-2 px-2 text-right text-green-600">${row.propina?.toFixed(2)}</td>
+                              <td className="py-2 px-2 text-right">{formatCurrency(row.total ?? 0)}</td>
+                              <td className="py-2 px-2 text-right text-green-600">{formatCurrency(row.propina ?? 0)}</td>
                             </tr>
                           ))}
                         </tbody>

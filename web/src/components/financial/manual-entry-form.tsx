@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { useCurrency } from '@/contexts/tenant-context';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,7 @@ interface ManualEntryFormProps {
 }
 
 export function ManualEntryForm({ onSubmit, onCancel, salesReps }: ManualEntryFormProps) {
+  const { format: formatCurrency } = useCurrency();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const customers = getCustomers();
   const products = getProducts();
@@ -327,11 +329,11 @@ export function ManualEntryForm({ onSubmit, onCancel, salesReps }: ManualEntryFo
                   animate={{ scale: 1 }}
                   className="text-2xl font-bold text-slate-900 dark:text-slate-50"
                 >
-                  ${calculateTotal().toLocaleString()}
+                  {formatCurrency(calculateTotal())}
                 </motion.p>
                 {selectedProduct && (
                   <p className="text-xs text-slate-400 mt-1">
-                    Commission: ${(calculateTotal() * selectedProduct.commissionRate).toLocaleString()} ({(selectedProduct.commissionRate * 100).toFixed(0)}%)
+                    Commission: {formatCurrency(calculateTotal() * selectedProduct.commissionRate)} ({(selectedProduct.commissionRate * 100).toFixed(0)}%)
                   </p>
                 )}
               </div>

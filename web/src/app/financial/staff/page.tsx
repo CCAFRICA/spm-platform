@@ -336,7 +336,7 @@ export default function StaffPerformancePage() {
               </div>
               <div>
                 <p className="text-sm text-gray-600">Total Tips</p>
-                <p className="text-2xl font-bold">${(stats.totalTips / 1000).toFixed(1)}K</p>
+                <p className="text-2xl font-bold">{format(stats.totalTips)}</p>
               </div>
             </div>
           </CardContent>
@@ -502,7 +502,7 @@ export default function StaffPerformancePage() {
 
                     {/* Avg Check */}
                     <TableCell className="text-right text-gray-600">
-                      ${staff.avgCheck.toFixed(2)}
+                      {format(staff.avgCheck)}
                     </TableCell>
 
                     {/* Trend Sparkline */}

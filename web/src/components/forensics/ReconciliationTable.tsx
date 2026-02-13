@@ -8,6 +8,7 @@
  */
 
 import { useState, useMemo } from 'react';
+import { useCurrency } from '@/contexts/tenant-context';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ type SortField = 'employeeId' | 'vlTotal' | 'gtTotal' | 'difference';
 type FilterType = 'all' | 'true_match' | 'coincidental_match' | 'mismatch';
 
 export function ReconciliationTable({ session, onEmployeeClick }: ReconciliationTableProps) {
+  const { format: formatCurrency } = useCurrency();
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState<SortField>('difference');
   const [sortAsc, setSortAsc] = useState(false);
@@ -96,10 +98,10 @@ export function ReconciliationTable({ session, onEmployeeClick }: Reconciliation
     }
   };
 
-  const fmt = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const fmt = (n: number) => formatCurrency(n);
   const fmtDiff = (n: number) => {
     const prefix = n > 0 ? '+' : '';
-    return `${prefix}$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    return `${prefix}${formatCurrency(Math.abs(n))}`;
   };
 
   return (

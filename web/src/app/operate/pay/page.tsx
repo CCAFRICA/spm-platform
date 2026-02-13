@@ -9,7 +9,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useCycleState } from '@/contexts/navigation-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useCurrency } from '@/contexts/tenant-context';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,7 @@ import {
 export default function PayPage() {
   const router = useRouter();
   const { cycleState, isSpanish } = useCycleState();
-  useTenant();
+  const { format: formatCurrency } = useCurrency();
 
   const displaySpanish = isSpanish;
 
@@ -138,7 +138,7 @@ export default function PayPage() {
                 <div className="flex items-center gap-3">
                   <DollarSign className="h-8 w-8 text-green-600" />
                   <div>
-                    <p className="text-2xl font-bold">$127,450</p>
+                    <p className="text-2xl font-bold">{formatCurrency(127450)}</p>
                     <p className="text-sm text-slate-500">
                       {displaySpanish ? 'Total Nómina' : 'Total Payroll'}
                     </p>
