@@ -1394,6 +1394,23 @@ export class CalculationOrchestrator {
   private getEmployees(): EmployeeData[] {
     if (typeof window === 'undefined') return [];
 
+    // [EMP-DIAG] OB-30-9: Trace employee data loading
+    const aggKey = `data_layer_committed_aggregated_${this.tenantId}`;
+    const aggExists = localStorage.getItem(aggKey);
+    console.log(`[EMP-DIAG] Looking for key: "${aggKey}"`);
+    console.log(`[EMP-DIAG] Key exists: ${!!aggExists}, length: ${aggExists?.length || 0}`);
+    if (aggExists) {
+      try {
+        const parsed = JSON.parse(aggExists);
+        console.log(`[EMP-DIAG] Parsed records: ${Array.isArray(parsed) ? parsed.length : 'NOT_ARRAY'}`);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log(`[EMP-DIAG] First record keys: ${Object.keys(parsed[0]).join(', ')}`);
+        }
+      } catch (e) {
+        console.log(`[EMP-DIAG] Parse error: ${e}`);
+      }
+    }
+
     // OB-16C PRIORITY 0: Aggregated data (bypasses 5MB localStorage limit)
     const aggregatedEmployees = this.loadAggregatedEmployees();
     if (aggregatedEmployees.length > 0) {

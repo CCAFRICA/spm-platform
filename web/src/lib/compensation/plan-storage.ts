@@ -860,11 +860,12 @@ export function initializePlans(): void {
 export function resetToDefaultPlans(tenantId: string): number {
   if (typeof window === 'undefined') return 0;
 
-  const defaults = getDefaultPlans();
-  const tenantDefaults = defaults.filter((p) => p.tenantId === tenantId);
+  // OB-30-9 FIX: Default plans are keyed to their original tenantId (retailco, retailcgmx).
+  // Re-key ALL defaults to the CURRENT tenant so they're always found.
+  const defaults = getDefaultPlans().map(p => ({ ...p, tenantId }));
 
-  if (tenantDefaults.length === 0) {
-    console.warn(`[PlanStorage] No default plans found for tenant "${tenantId}"`);
+  if (defaults.length === 0) {
+    console.warn(`[PlanStorage] No default plans available`);
     return 0;
   }
 
@@ -873,7 +874,7 @@ export function resetToDefaultPlans(tenantId: string): number {
   const otherTenantPlans = allPlans.filter((p) => p.tenantId !== tenantId);
 
   // Activate the defaults
-  const activatedDefaults = tenantDefaults.map(p => ({
+  const activatedDefaults = defaults.map(p => ({
     ...p,
     status: 'active' as const,
     updatedAt: new Date().toISOString(),
