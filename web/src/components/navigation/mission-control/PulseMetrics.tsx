@@ -8,7 +8,7 @@
 
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { usePulse } from '@/contexts/navigation-context';
+import { usePulse, useCycleState } from '@/contexts/navigation-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { formatMetricValue, getTrendArrow, getTrendColor, getPrimaryMetric } from '@/lib/navigation/pulse-service';
@@ -20,7 +20,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react';
 
 interface PulseMetricsProps {
   collapsed?: boolean;
@@ -29,6 +29,7 @@ interface PulseMetricsProps {
 export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
   const router = useRouter();
   const { metrics, isSpanish } = usePulse();
+  const { cycleState } = useCycleState();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
   const currency = currentTenant?.currency || 'USD';
@@ -53,8 +54,30 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
     }
   };
 
-  // Loading state
+  // Empty state - no metrics available (clock service returned none)
   if (metrics.length === 0) {
+    // If we have cycle state, we know the system is loaded but no metrics exist yet
+    if (cycleState) {
+      return (
+        <div className="px-3 py-4">
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              {isSpanish ? 'El Pulso' : 'The Pulse'}
+            </h3>
+          </div>
+          <div className="text-center py-4">
+            <Activity className="h-6 w-6 mx-auto mb-2 text-slate-300" />
+            <p className="text-xs text-slate-400">
+              {isSpanish ? 'Sin metricas aun' : 'No metrics yet'}
+            </p>
+            <p className="text-[10px] text-slate-400 mt-1">
+              {isSpanish ? 'Ejecute calculos para ver metricas' : 'Run calculations to see metrics'}
+            </p>
+          </div>
+        </div>
+      );
+    }
+    // Still loading - show skeleton
     return (
       <div className="px-3 py-4">
         <div className="animate-pulse space-y-3">
