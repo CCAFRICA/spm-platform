@@ -729,20 +729,57 @@ export default function CalculatePage() {
         </CardContent>
       </Card>
 
-      {/* OB-34: Lifecycle State Indicator */}
+      {/* OB-39: Lifecycle Action Bar */}
       {cycle && selectedPeriod && (
         <Card>
-          <CardContent className="py-4">
+          <CardContent className="py-4 space-y-4">
+            {/* State progress indicator */}
+            <div className="flex items-center gap-1">
+              {(['DRAFT', 'PREVIEW', 'OFFICIAL', 'PENDING_APPROVAL', 'APPROVED', 'PAID'] as const).map((state, idx, arr) => {
+                const isCurrent = cycle.state === state;
+                const isRejected = cycle.state === 'REJECTED' && state === 'PENDING_APPROVAL';
+                const isPast = arr.indexOf(cycle.state === 'REJECTED' ? 'PREVIEW' : cycle.state) > idx;
+                return (
+                  <div key={state} className="flex items-center flex-1">
+                    <div className={cn(
+                      'flex items-center justify-center w-full py-1.5 px-2 text-[11px] font-medium rounded-md transition-colors',
+                      isCurrent ? getStateColor(cycle.state) + ' ring-2 ring-offset-1 ring-blue-300' :
+                      isRejected ? 'bg-red-100 text-red-700' :
+                      isPast ? 'bg-slate-200 text-slate-600' :
+                      'bg-slate-50 text-slate-400'
+                    )}>
+                      {getStateLabel(state)}
+                    </div>
+                    {idx < arr.length - 1 && (
+                      <ArrowRight className={cn('h-3 w-3 mx-0.5 flex-shrink-0',
+                        isPast ? 'text-slate-400' : 'text-slate-200'
+                      )} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Current state info + actions */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Scale className="h-5 w-5 text-slate-500" />
-                <span className="text-sm font-medium text-slate-700">Cycle Status:</span>
                 <Badge className={getStateColor(cycle.state)}>
                   {getStateLabel(cycle.state)}
                 </Badge>
                 {cycle.officialSnapshot && (
                   <span className="text-xs text-slate-500">
                     Official: {formatCurrency(cycle.officialSnapshot.totalPayout)} ({cycle.officialSnapshot.employeeCount} employees)
+                  </span>
+                )}
+                {cycle.state === 'REJECTED' && cycle.rejectionReason && (
+                  <span className="text-xs text-red-600">
+                    Rejected: {cycle.rejectionReason}
+                  </span>
+                )}
+                {cycle.state === 'APPROVED' && cycle.approvalComments && (
+                  <span className="text-xs text-green-600">
+                    {cycle.approvalComments}
                   </span>
                 )}
               </div>
@@ -761,6 +798,32 @@ export default function CalculatePage() {
                 )}
               </div>
             </div>
+
+            {/* Audit trail (collapsible) */}
+            {cycle.auditTrail.length > 1 && (
+              <Collapsible>
+                <CollapsibleTrigger className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700">
+                  <ChevronRight className="h-3 w-3" />
+                  {cycle.auditTrail.length} audit entries
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2">
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {[...cycle.auditTrail].reverse().map((entry, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs text-slate-500">
+                        <span className="text-slate-400 w-32 flex-shrink-0">
+                          {new Date(entry.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <Badge variant="outline" className="text-[10px] px-1">
+                          {entry.toState}
+                        </Badge>
+                        <span className="truncate">{entry.details}</span>
+                        <span className="text-slate-400 ml-auto flex-shrink-0">by {entry.actor}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
           </CardContent>
         </Card>
       )}

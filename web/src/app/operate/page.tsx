@@ -9,9 +9,14 @@
 
 import { useRouter } from 'next/navigation';
 import { useCycleState, useQueue } from '@/contexts/navigation-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { CYCLE_PHASE_LABELS } from '@/types/navigation';
 import { getRouteForPhase } from '@/lib/navigation/cycle-service';
+import {
+  listCycles,
+  getStateLabel,
+  getStateColor,
+} from '@/lib/calculation/calculation-lifecycle-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -27,6 +32,7 @@ import {
   Database,
   ShieldCheck,
   TrendingUp,
+  Scale,
 } from 'lucide-react';
 import type { CyclePhase } from '@/types/navigation';
 
@@ -47,6 +53,10 @@ export default function OperatePage() {
 
   const displaySpanish = isSpanish;
   const hasFinancial = currentTenant?.features?.financial === true;
+  const { format: formatCurrency } = useCurrency();
+
+  // OB-39: Get latest lifecycle cycle for display
+  const latestCycle = currentTenant ? listCycles(currentTenant.id)[0] : null;
 
   // Cycle phases to display
   const cyclePhases: CyclePhase[] = ['import', 'calculate', 'reconcile', 'approve', 'pay'];
@@ -82,6 +92,43 @@ export default function OperatePage() {
           )}
         </div>
       </div>
+
+      {/* OB-39: Lifecycle State */}
+      {latestCycle && (
+        <Card className="border-l-4 border-l-blue-500">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Scale className="h-5 w-5 text-slate-500" />
+                <span className="text-sm font-medium text-slate-700">
+                  {displaySpanish ? 'Estado del Ciclo' : 'Cycle State'}:
+                </span>
+                <Badge className={getStateColor(latestCycle.state)}>
+                  {getStateLabel(latestCycle.state)}
+                </Badge>
+                <span className="text-xs text-slate-500">{latestCycle.period}</span>
+                {latestCycle.officialSnapshot && (
+                  <span className="text-xs text-slate-400">
+                    {formatCurrency(latestCycle.officialSnapshot.totalPayout)} | {latestCycle.officialSnapshot.employeeCount} {displaySpanish ? 'empleados' : 'employees'}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => router.push('/operate/calculate')}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+              >
+                {displaySpanish ? 'Gestionar' : 'Manage'}
+                <ArrowRight className="h-3 w-3" />
+              </button>
+            </div>
+            {latestCycle.state === 'REJECTED' && latestCycle.rejectionReason && (
+              <p className="text-xs text-red-600 mt-2 pl-8">
+                {displaySpanish ? 'Razon de rechazo' : 'Rejection reason'}: {latestCycle.rejectionReason}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Cycle Progress */}
       <Card>
