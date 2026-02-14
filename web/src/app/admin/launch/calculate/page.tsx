@@ -923,10 +923,16 @@ export default function CalculatePage() {
                   </>
                 )}
                 {cycle.state === 'CLOSED' && (
-                  <Button size="sm" onClick={() => handleLifecycleAdvance('PAID', 'Mark as paid')}>
-                    <ArrowRight className="h-4 w-4 mr-1" />
-                    Mark as Paid
-                  </Button>
+                  <>
+                    <Button size="sm" onClick={() => handleLifecycleAdvance('PAID', 'Mark as paid')}>
+                      <ArrowRight className="h-4 w-4 mr-1" />
+                      Mark as Paid
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={handleExportPayroll}>
+                      <Download className="h-4 w-4 mr-1" />
+                      Export Payroll
+                    </Button>
+                  </>
                 )}
                 {cycle.state === 'PAID' && (
                   <Button size="sm" onClick={() => handleLifecycleAdvance('PUBLISHED', 'Publish period')}>
