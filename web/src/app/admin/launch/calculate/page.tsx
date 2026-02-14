@@ -558,7 +558,7 @@ export default function CalculatePage() {
         });
       }
     } catch (error) {
-      console.error('Error activating plan:', error);
+      alert(error instanceof Error ? error.message : 'Failed to activate plan');
     } finally {
       setIsActivating(false);
     }
