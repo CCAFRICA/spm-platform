@@ -334,6 +334,8 @@ export default function ReconciliationPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeComparison | null>(null);
   const [filter, setFilter] = useState<'all' | 'matched' | 'file_only' | 'vl_only' | 'flagged'>('all');
   const [sortDesc, setSortDesc] = useState(true);
+  // OB-41: Reconciliation feedback banner
+  const [reconFeedback, setReconFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
   // OB-39 Phase 6: Expandable rows for component breakdown
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
@@ -588,6 +590,7 @@ export default function ReconciliationPage() {
     setIsRunning(true);
     setComparisonResult(null);
     setAdaptiveResult(null);
+    setReconFeedback(null);
 
     // Use requestAnimationFrame so React renders loading spinner first
     requestAnimationFrame(() => {
@@ -628,8 +631,37 @@ export default function ReconciliationPage() {
           'fileOnly:', result.summary?.fileOnly ?? 0,
           'vlOnly:', result.summary?.vlOnly ?? 0,
           'falseGreens:', result.falseGreens.length);
+
+        // OB-41: Set user-visible feedback
+        if (vlResults.length === 0) {
+          setReconFeedback({
+            type: 'warning',
+            message: `No ViaLuce calculation results found for ${batch?.id ? `batch "${batch.id}"` : 'this tenant'}. Run calculations first, then reconcile.`,
+          });
+        } else if (result.employeeComparison && result.employeeComparison.summary.matched === 0) {
+          setReconFeedback({
+            type: 'warning',
+            message: `0 employee matches found. The file has ${parsedFile.rows.length} rows but none matched ${vlResults.length} VL results. Check that the Employee ID field mapping is correct.`,
+          });
+        } else if (result.falseGreens.length > 0) {
+          setReconFeedback({
+            type: 'warning',
+            message: `Reconciliation complete: ${result.employeeComparison?.summary.matched ?? 0} matched, but ${result.falseGreens.length} false green(s) detected — totals match but component-level discrepancies exist.`,
+          });
+        } else {
+          const matched = result.employeeComparison?.summary.matched ?? 0;
+          const exact = result.employeeComparison?.summary.exactMatches ?? 0;
+          setReconFeedback({
+            type: 'success',
+            message: `Reconciliation complete: ${matched} employee(s) matched, ${exact} exact. ${result.comparedLayers.length} layer(s) compared.`,
+          });
+        }
       } catch (error) {
         console.error('[Reconciliation] Comparison error:', error);
+        setReconFeedback({
+          type: 'error',
+          message: `Reconciliation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
       } finally {
         setIsRunning(false);
       }
@@ -1105,6 +1137,32 @@ export default function ReconciliationPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* OB-41: Reconciliation result feedback banner */}
+      {reconFeedback && (
+        <Card className={
+          reconFeedback.type === 'success' ? 'border-green-200 bg-green-50' :
+          reconFeedback.type === 'warning' ? 'border-amber-200 bg-amber-50' :
+          'border-red-200 bg-red-50'
+        }>
+          <CardContent className="py-4 flex items-start gap-3">
+            {reconFeedback.type === 'success' ? (
+              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+            ) : reconFeedback.type === 'warning' ? (
+              <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            ) : (
+              <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            )}
+            <p className={`text-sm ${
+              reconFeedback.type === 'success' ? 'text-green-800' :
+              reconFeedback.type === 'warning' ? 'text-amber-800' :
+              'text-red-800'
+            }`}>
+              {reconFeedback.message}
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* HF-021 Phase 1: Preview Table */}
       {parsedFile && previewRows.length > 0 && (
