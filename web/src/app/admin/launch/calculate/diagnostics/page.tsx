@@ -57,7 +57,7 @@ export default function CalculationDiagnosticsPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [allPassed, setAllPassed] = useState(false);
 
-  const tenantId = currentTenant?.id || "retailcgmx";
+  const tenantId = currentTenant?.id || "retail_conglomerate";
 
   const runDiagnostics = async () => {
     setIsRunning(true);

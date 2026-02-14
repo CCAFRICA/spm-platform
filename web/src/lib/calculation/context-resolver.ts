@@ -615,7 +615,7 @@ function getDefaultEmployees(tenantId: string): EmployeeContext[] {
     ];
   }
 
-  if (tenantId === 'retailcgmx') {
+  if (tenantId === 'retail_conglomerate' || tenantId === 'retailcgmx') {
     return [
       {
         id: 'ana-garcia',

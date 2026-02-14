@@ -347,7 +347,7 @@ export function createRetailCGMXCertifiedPlan(): CompensationPlanConfig {
   const now = new Date().toISOString();
   return {
     id: 'plan-retailcgmx-certified-2025',
-    tenantId: 'retailcgmx',
+    tenantId: 'retail_conglomerate',
     name: 'RetailCGMX Incentive Plan - Optometrista Certificado',
     description: 'Plan de incentivos para optometristas certificados con tablas de pago superiores',
     planType: 'additive_lookup',
@@ -382,7 +382,7 @@ export function createRetailCGMXNonCertifiedPlan(): CompensationPlanConfig {
   const now = new Date().toISOString();
   return {
     id: 'plan-retailcgmx-noncertified-2025',
-    tenantId: 'retailcgmx',
+    tenantId: 'retail_conglomerate',
     name: 'RetailCGMX Incentive Plan - Optometrista No Certificado',
     description: 'Plan de incentivos para optometristas no certificados con tablas de pago reducidas',
     planType: 'additive_lookup',
@@ -421,7 +421,7 @@ export function createRetailCGMXUnifiedPlan(): CompensationPlanConfig {
   const now = new Date().toISOString();
   return {
     id: 'plan-retailcgmx-unified-2025',
-    tenantId: 'retailcgmx',
+    tenantId: 'retail_conglomerate',
     name: 'RetailCGMX Incentive Plan',
     description: 'Plan de incentivos unificado para optometristas certificados y no certificados',
     planType: 'additive_lookup',
