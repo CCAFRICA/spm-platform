@@ -70,7 +70,7 @@ export default function CalculationApprovalPage() {
           }
         }
       } catch (lcErr) {
-        console.warn('[Approval] Lifecycle transition failed:', lcErr);
+        setError(`Approval saved but lifecycle transition failed: ${lcErr instanceof Error ? lcErr.message : 'Unknown error'}`);
       }
       setItems(listApprovalItems(tenantId));
       setSelectedItem(null);

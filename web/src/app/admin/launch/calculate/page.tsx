@@ -389,30 +389,36 @@ export default function CalculatePage() {
     }
   };
 
-  // OB-34: Handle Submit for Approval
+  // OB-41: Handle Submit for Approval -- always creates approval item
   const handleSubmitForApproval = () => {
     if (!cycle || !user || !currentTenant) return;
     try {
       const updated = transitionCycle(cycle, 'PENDING_APPROVAL', user.name, 'Submitted for approval');
       setCycle(updated);
 
-      // Create approval item from official snapshot
-      const snapshot = cycle.officialSnapshot;
-      if (snapshot) {
-        createApprovalItem(
-          currentTenant.id,
-          cycle.cycleId,
-          cycle.period,
-          user.name,
-          {
+      // Create approval item from official snapshot (use updated cycle which inherits snapshot)
+      const snapshot = updated.officialSnapshot || cycle.officialSnapshot;
+      const summary = snapshot
+        ? {
             totalPayout: snapshot.totalPayout,
             employeeCount: snapshot.employeeCount,
             componentTotals: snapshot.componentTotals,
           }
-        );
-      }
+        : {
+            // Fallback: use latest result if snapshot missing
+            totalPayout: result?.summary.totalPayout || 0,
+            employeeCount: result?.summary.employeesProcessed || 0,
+            componentTotals: {} as Record<string, number>,
+          };
+
+      createApprovalItem(
+        currentTenant.id,
+        updated.cycleId,
+        updated.period,
+        user.name,
+        summary
+      );
     } catch (e) {
-      console.error('Submit for approval failed:', e);
       alert(e instanceof Error ? e.message : 'Failed to submit for approval');
     }
   };
