@@ -95,8 +95,8 @@ import { getTraces } from '@/lib/forensics/forensics-service';
 // Bilingual labels
 const labels = {
   'en-US': {
-    title: 'Run Calculations',
-    subtitle: 'Run compensation calculations for a period',
+    title: 'Period Close',
+    subtitle: 'Close compensation period — calculate, reconcile, approve, post',
     selectPeriod: 'Select Period',
     noPeriods: 'No periods available',
     createPeriod: 'Create a period first to run calculations',
@@ -136,8 +136,8 @@ const labels = {
     failed: 'Failed',
   },
   'es-MX': {
-    title: 'Ejecutar Cálculos',
-    subtitle: 'Ejecutar cálculos de compensación para un período',
+    title: 'Cierre de Período',
+    subtitle: 'Cierre de período de compensación — calcular, conciliar, aprobar, publicar',
     selectPeriod: 'Seleccionar Período',
     noPeriods: 'No hay períodos disponibles',
     createPeriod: 'Cree un período primero para ejecutar cálculos',
@@ -639,19 +639,21 @@ export default function CalculatePage() {
       <nav className="flex items-center text-sm text-muted-foreground">
         <Link href="/" className="hover:text-foreground">Home</Link>
         <ChevronRight className="h-4 w-4 mx-1" />
-        <Link href="/admin/launch" className="hover:text-foreground">Launch</Link>
+        <Link href="/operate" className="hover:text-foreground">Operate</Link>
         <ChevronRight className="h-4 w-4 mx-1" />
-        <span className="text-foreground font-medium">{t.title}</span>
+        <span className="text-foreground font-medium">
+          {t.title}{selectedPeriod ? `: ${selectedPeriod}` : ''}
+        </span>
       </nav>
 
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/admin/launch')}>
+        <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
-            {t.title}
+            {t.title}{selectedPeriod ? `: ${selectedPeriod}` : ''}
           </h1>
           <p className="text-slate-600 dark:text-slate-400">{t.subtitle}</p>
         </div>
@@ -1146,6 +1148,137 @@ export default function CalculatePage() {
             );
           })()}
 
+          {/* OB-41 Phase 5: Thermostat Guidance — lifecycle-aware next steps (above table) */}
+          <Card className={cn(
+            'border-0 shadow-lg',
+            result.run.errorCount > 0 ? 'bg-amber-50' : 'bg-emerald-50'
+          )}>
+            <CardHeader>
+              <CardTitle className={cn(
+                'flex items-center gap-2',
+                result.run.errorCount > 0 ? 'text-amber-800' : 'text-emerald-800'
+              )}>
+                {result.run.errorCount > 0 ? (
+                  <AlertTriangle className="h-5 w-5" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5" />
+                )}
+                {result.run.errorCount > 0
+                  ? 'Action Required'
+                  : cycle?.state === 'PREVIEW' ? 'Preview Complete — What Next?'
+                  : cycle?.state === 'OFFICIAL' ? 'Official Results Ready'
+                  : cycle?.state === 'APPROVED' ? 'Approved — Ready to Post'
+                  : cycle?.state === 'POSTED' ? 'Posted — Visible to All'
+                  : cycle?.state === 'CLOSED' ? 'Period Closed — Awaiting Payment'
+                  : cycle?.state === 'PAID' ? 'Payment Recorded — Ready to Publish'
+                  : cycle?.state === 'PUBLISHED' ? 'Period Complete'
+                  : 'Calculation Complete'}
+              </CardTitle>
+              <CardDescription className={result.run.errorCount > 0 ? 'text-amber-700' : 'text-emerald-700'}>
+                {result.run.errorCount > 0
+                  ? `${result.run.errorCount} error(s) found. Review errors above, fix data issues, then re-run.`
+                  : cycle?.state === 'PREVIEW'
+                    ? `${result.summary.employeesProcessed} employees processed. Review results, reconcile, then run Official.`
+                  : cycle?.state === 'OFFICIAL'
+                    ? `Official run locked. Total payout: ${formatCurrency(result.summary.totalPayout)}. Submit for approval when ready.`
+                  : cycle?.state === 'APPROVED'
+                    ? `Approved by ${cycle.approvedBy}. Post results to make visible to all roles.`
+                  : cycle?.state === 'POSTED'
+                    ? `Results visible to all roles. Close the period when reconciliation is complete.`
+                  : cycle?.state === 'CLOSED'
+                    ? `Period closed. Record payment to proceed to publish.`
+                  : cycle?.state === 'PAID'
+                    ? `Payment recorded. Publish to finalize this period.`
+                  : cycle?.state === 'PUBLISHED'
+                    ? `Period is complete and published.`
+                  : `${result.summary.employeesProcessed} employees, ${formatCurrency(result.summary.totalPayout)} total.`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 md:grid-cols-2">
+                {cycle?.state === 'PREVIEW' && (
+                  <>
+                    <Button
+                      onClick={() => router.push('/operate/reconcile')}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Scale className="h-4 w-4" />
+                        Reconcile Results
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setRunType('official');
+                        handleRunCalculation();
+                      }}
+                      disabled={!selectedPeriod || isRunning}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Play className="h-4 w-4" />
+                        Run Official Calculation
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+                {cycle?.state === 'OFFICIAL' && (
+                  <>
+                    <Button
+                      onClick={handleSubmitForApproval}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <ArrowRight className="h-4 w-4" />
+                        Submit for Approval
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push('/investigate/calculations')}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Search className="h-4 w-4" />
+                        Investigate Details
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+                {(!cycle || cycle.state === 'DRAFT') && (
+                  <>
+                    <Button
+                      onClick={() => router.push('/operate/reconcile')}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Scale className="h-4 w-4" />
+                        Reconcile Results
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push('/investigate/calculations')}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Search className="h-4 w-4" />
+                        View Calculation Details
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Employee Breakdown */}
           <Card>
             <CardHeader>
@@ -1382,171 +1515,62 @@ export default function CalculatePage() {
             </Card>
           )}
 
-          {/* OB-40 Phase 8: Thermostat Guidance — lifecycle-aware next steps */}
-          <Card className={cn(
-            'border-0 shadow-lg',
-            result.run.errorCount > 0 ? 'bg-amber-50' : 'bg-emerald-50'
-          )}>
-            <CardHeader>
-              <CardTitle className={cn(
-                'flex items-center gap-2',
-                result.run.errorCount > 0 ? 'text-amber-800' : 'text-emerald-800'
-              )}>
-                {result.run.errorCount > 0 ? (
-                  <AlertTriangle className="h-5 w-5" />
-                ) : (
-                  <CheckCircle2 className="h-5 w-5" />
-                )}
-                {result.run.errorCount > 0
-                  ? 'Action Required'
-                  : cycle?.state === 'PREVIEW' ? 'Preview Complete — What Next?'
-                  : cycle?.state === 'OFFICIAL' ? 'Official Results Ready'
-                  : 'Calculation Complete'}
-              </CardTitle>
-              <CardDescription className={result.run.errorCount > 0 ? 'text-amber-700' : 'text-emerald-700'}>
-                {result.run.errorCount > 0
-                  ? `${result.run.errorCount} error(s) found. Review errors above, fix data issues, then re-run.`
-                  : cycle?.state === 'PREVIEW'
-                    ? `${result.summary.employeesProcessed} employees processed. Review results, reconcile, then run Official.`
-                  : cycle?.state === 'OFFICIAL'
-                    ? `Official run locked. Total payout: ${formatCurrency(result.summary.totalPayout)}. Submit for approval when ready.`
-                  : `${result.summary.employeesProcessed} employees, ${formatCurrency(result.summary.totalPayout)} total.`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-3 md:grid-cols-2">
-                {cycle?.state === 'PREVIEW' && (
-                  <>
-                    <Button
-                      onClick={() => router.push('/operate/reconcile')}
-                      className="w-full justify-between"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Scale className="h-4 w-4" />
-                        Reconcile Results
-                      </span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setRunType('official');
-                        handleRunCalculation();
-                      }}
-                      disabled={!selectedPeriod || isRunning}
-                      className="w-full justify-between"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Play className="h-4 w-4" />
-                        Run Official Calculation
-                      </span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </>
-                )}
-                {cycle?.state === 'OFFICIAL' && (
-                  <>
-                    <Button
-                      onClick={handleSubmitForApproval}
-                      className="w-full justify-between"
-                    >
-                      <span className="flex items-center gap-2">
-                        <ArrowRight className="h-4 w-4" />
-                        Submit for Approval
-                      </span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => router.push('/investigate/calculations')}
-                      className="w-full justify-between"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Search className="h-4 w-4" />
-                        Investigate Details
-                      </span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </>
-                )}
-                {(!cycle || cycle.state === 'DRAFT') && (
-                  <>
-                    <Button
-                      onClick={() => router.push('/operate/reconcile')}
-                      className="w-full justify-between"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Scale className="h-4 w-4" />
-                        Reconcile Results
-                      </span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => router.push('/investigate/calculations')}
-                      className="w-full justify-between"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Search className="h-4 w-4" />
-                        View Calculation Details
-                      </span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
         </>
       )}
 
-      {/* Recent Runs */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5" />
-            {t.recentRuns}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {recentRuns.length === 0 ? (
-            <p className="text-center text-slate-500 py-8">{t.noRuns}</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t.runType}</TableHead>
-                  <TableHead>{locale === 'es-MX' ? 'Período' : 'Period'}</TableHead>
-                  <TableHead>{t.status}</TableHead>
-                  <TableHead>{t.employeesProcessed}</TableHead>
-                  <TableHead className="text-right">{t.totalCompensation}</TableHead>
-                  <TableHead>{t.startedAt}</TableHead>
-                  <TableHead>{t.duration}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentRuns.map((run) => (
-                  <TableRow key={run.id}>
-                    <TableCell>{getRunTypeBadge(run.runType)}</TableCell>
-                    <TableCell>{run.periodId}</TableCell>
-                    <TableCell>{getStatusBadge(run)}</TableCell>
-                    <TableCell>{run.processedEmployees}/{run.totalEmployees}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(run.totalPayout || 0)}
-                    </TableCell>
-                    <TableCell className="text-sm text-slate-500">
-                      {new Date(run.startedAt).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-sm text-slate-500">
-                      {run.durationMs ? `${(run.durationMs / 1000).toFixed(1)}s` : '-'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {/* Recent Runs (collapsed by default — SG-6) */}
+      <Collapsible defaultOpen={false}>
+        <Card>
+          <CardHeader className="cursor-pointer">
+            <CollapsibleTrigger className="flex items-center gap-2 w-full">
+              <Clock className="h-5 w-5" />
+              <span className="font-semibold">{t.recentRuns}</span>
+              <Badge variant="outline" className="ml-2">{recentRuns.length}</Badge>
+              <ChevronDown className="h-4 w-4 ml-auto transition-transform" />
+            </CollapsibleTrigger>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent>
+              {recentRuns.length === 0 ? (
+                <p className="text-center text-slate-500 py-8">{t.noRuns}</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t.runType}</TableHead>
+                      <TableHead>{locale === 'es-MX' ? 'Período' : 'Period'}</TableHead>
+                      <TableHead>{t.status}</TableHead>
+                      <TableHead>{t.employeesProcessed}</TableHead>
+                      <TableHead className="text-right">{t.totalCompensation}</TableHead>
+                      <TableHead>{t.startedAt}</TableHead>
+                      <TableHead>{t.duration}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recentRuns.map((run) => (
+                      <TableRow key={run.id}>
+                        <TableCell>{getRunTypeBadge(run.runType)}</TableCell>
+                        <TableCell>{run.periodId}</TableCell>
+                        <TableCell>{getStatusBadge(run)}</TableCell>
+                        <TableCell>{run.processedEmployees}/{run.totalEmployees}</TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(run.totalPayout || 0)}
+                        </TableCell>
+                        <TableCell className="text-sm text-slate-500">
+                          {new Date(run.startedAt).toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-sm text-slate-500">
+                          {run.durationMs ? `${(run.durationMs / 1000).toFixed(1)}s` : '-'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {/* OB-40 Phase 10: localStorage Quota Management */}
       <Card className="border-slate-200">
