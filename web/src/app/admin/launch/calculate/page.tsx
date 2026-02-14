@@ -213,6 +213,9 @@ export default function CalculatePage() {
   const [isActivating, setIsActivating] = useState(false);
   // OB-20 Phase 10: Search functionality for results
   const [searchQuery, setSearchQuery] = useState('');
+  // OB-40 Phase 7: Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   // OB-34: Calculation lifecycle state
   const [cycle, setCycle] = useState<CalculationCycle | null>(null);
   // OB-34: Data package -- detected periods and completeness
@@ -1060,16 +1063,29 @@ export default function CalculatePage() {
                     {result.results.length} {locale === 'es-MX' ? 'resultados' : 'results'}
                   </CardDescription>
                 </div>
-                {/* OB-20 Phase 10: Search input */}
-                <div className="relative w-64">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder={locale === 'es-MX' ? 'Buscar empleado...' : 'Search employee...'}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
+                <div className="flex items-center gap-3">
+                  {/* OB-20 Phase 10: Search input */}
+                  <div className="relative w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder={locale === 'es-MX' ? 'Buscar empleado...' : 'Search employee...'}
+                      value={searchQuery}
+                      onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                      className="w-full pl-10 pr-4 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  {/* OB-40 Phase 7: Page size selector */}
+                  <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
+                    <SelectTrigger className="w-20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </CardHeader>
@@ -1087,9 +1103,9 @@ export default function CalculatePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {/* OB-20 Phase 10: Filter results based on search query */}
-                  {result.results
-                    .filter((r) => {
+                  {/* OB-40 Phase 7: Paginated + filtered results */}
+                  {(() => {
+                    const filtered = result.results.filter((r) => {
                       if (!searchQuery.trim()) return true;
                       const q = searchQuery.toLowerCase();
                       return (
@@ -1098,8 +1114,10 @@ export default function CalculatePage() {
                         r.employeeRole?.toLowerCase().includes(q) ||
                         r.storeName?.toLowerCase().includes(q)
                       );
-                    })
-                    .map((employeeResult) => (
+                    });
+                    const start = (currentPage - 1) * pageSize;
+                    return filtered.slice(start, start + pageSize);
+                  })().map((employeeResult) => (
                     <Collapsible
                       key={employeeResult.employeeId}
                       open={expandedEmployee === employeeResult.employeeId}
@@ -1198,6 +1216,52 @@ export default function CalculatePage() {
                   ))}
                 </TableBody>
               </Table>
+
+              {/* OB-40 Phase 7: Pagination controls */}
+              {(() => {
+                const filtered = result.results.filter((r) => {
+                  if (!searchQuery.trim()) return true;
+                  const q = searchQuery.toLowerCase();
+                  return (
+                    r.employeeName?.toLowerCase().includes(q) ||
+                    r.employeeId?.toLowerCase().includes(q) ||
+                    r.employeeRole?.toLowerCase().includes(q) ||
+                    r.storeName?.toLowerCase().includes(q)
+                  );
+                });
+                const totalPages = Math.ceil(filtered.length / pageSize);
+                if (totalPages <= 1) return null;
+                return (
+                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                    <p className="text-sm text-slate-500">
+                      {locale === 'es-MX'
+                        ? `Mostrando ${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)} de ${filtered.length}`
+                        : `Showing ${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)} of ${filtered.length}`}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage <= 1}
+                        onClick={() => setCurrentPage(p => p - 1)}
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="text-sm font-medium">
+                        {currentPage} / {totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage >= totalPages}
+                        onClick={() => setCurrentPage(p => p + 1)}
+                      >
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
