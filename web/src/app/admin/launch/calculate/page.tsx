@@ -126,7 +126,7 @@ const labels = {
     duration: 'Duration',
     back: 'Back',
     accessDenied: 'Access Denied',
-    accessDeniedDesc: 'You must be a VL Admin to access this page.',
+    accessDeniedDesc: 'You need administrator access to view this page.',
     preview: 'Preview',
     official: 'Official',
     adjustment: 'Adjustment',
@@ -167,7 +167,7 @@ const labels = {
     duration: 'Duración',
     back: 'Volver',
     accessDenied: 'Acceso Denegado',
-    accessDeniedDesc: 'Debe ser un VL Admin para acceder a esta página.',
+    accessDeniedDesc: 'Necesita acceso de administrador para ver esta pagina.',
     preview: 'Vista Previa',
     official: 'Oficial',
     adjustment: 'Ajuste',
@@ -228,8 +228,8 @@ export default function CalculatePage() {
   const { locale } = useAdminLocale();
   const t = labels[locale];
 
-  // Check VL Admin access
-  const hasAccess = user && isVLAdmin(user);
+  // OB-41: Access check -- VL Admin OR tenant admin
+  const hasAccess = user && (isVLAdmin(user) || user.role === 'admin');
 
   // Load periods and check plans
   useEffect(() => {
