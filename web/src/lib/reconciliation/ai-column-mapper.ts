@@ -18,6 +18,11 @@
 import { getAIService } from '@/lib/ai/ai-service';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
 import { getPlans } from '@/lib/compensation/plan-storage';
+import {
+  recordAIClassificationBatch,
+  recordUserConfirmation,
+  recordUserCorrection,
+} from '@/lib/intelligence/classification-signal-service';
 import type { ParsedFile } from './smart-file-parser';
 
 // ============================================
@@ -92,6 +97,21 @@ export async function mapColumns(
       targets,
     );
 
+    // OB-39: Record classification signals for closed-loop learning
+    const classifiedMappings = mappings
+      .filter(m => m.mappedTo !== 'unmapped' && m.confidence > 0)
+      .map(m => ({
+        fieldName: m.sourceColumn,
+        semanticType: m.mappedTo,
+        confidence: m.confidence,
+      }));
+    if (classifiedMappings.length > 0) {
+      recordAIClassificationBatch(tenantId, 'reconciliation', classifiedMappings, {
+        fileName: parsed.fileName,
+        sheetName: parsed.activeSheet,
+      });
+    }
+
     return {
       mappings,
       signalId: response.signalId,
@@ -125,6 +145,17 @@ export function recordMappingFeedback(
       correction ? { correctedMappings: correction } : undefined,
       tenantId,
     );
+
+    // OB-39: Record classification signals for closed-loop learning
+    if (tenantId && correction) {
+      for (const [fieldName, semanticType] of Object.entries(correction)) {
+        if (action === 'corrected') {
+          recordUserCorrection(tenantId, 'reconciliation', fieldName, semanticType);
+        } else if (action === 'accepted') {
+          recordUserConfirmation(tenantId, 'reconciliation', fieldName, semanticType);
+        }
+      }
+    }
   } catch (error) {
     console.warn('[AIColumnMapper] Failed to record feedback:', error);
   }

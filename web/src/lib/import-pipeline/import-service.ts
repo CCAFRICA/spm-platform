@@ -8,6 +8,7 @@
 import type { ParsedFile } from './file-parser';
 import type { FieldMapping } from './smart-mapper';
 import { saveMappingHistory } from './smart-mapper';
+import { recordUserConfirmation } from '@/lib/intelligence/classification-signal-service';
 import type {
   ImportBatch,
   ImportBatchSummary,
@@ -128,6 +129,15 @@ export async function initiateImport(
 
   // Save mapping history for learning
   saveMappingHistory(config.tenantId, config.sourceSystem, config.mappings);
+
+  // OB-39: Record classification signals from confirmed import mappings
+  for (const mapping of config.mappings) {
+    if (mapping.targetField) {
+      recordUserConfirmation(config.tenantId, 'import', mapping.sourceField, mapping.targetField, {
+        sourceSystem: config.sourceSystem,
+      });
+    }
+  }
 
   return {
     batch: getImportBatch(batch.id) || batch,
