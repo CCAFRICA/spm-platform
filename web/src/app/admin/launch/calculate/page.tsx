@@ -429,6 +429,25 @@ export default function CalculatePage() {
     }
   };
 
+  // OB-40 Phase 4: Inline approve/reject on the calculation page
+  const handleInlineApproval = (action: 'APPROVED' | 'REJECTED') => {
+    if (!cycle || !user) return;
+    try {
+      if (action === 'REJECTED') {
+        const reason = prompt('Rejection reason:');
+        if (!reason) return;
+        const updated = transitionCycle(cycle, 'REJECTED', user.name, reason, { rejectionReason: reason });
+        setCycle(updated);
+      } else {
+        const updated = transitionCycle(cycle, 'APPROVED', user.name, 'Approved inline');
+        setCycle(updated);
+      }
+    } catch (e) {
+      console.error(`Inline ${action} failed:`, e);
+      alert(e instanceof Error ? e.message : `Failed to ${action.toLowerCase()}`);
+    }
+  };
+
   // OB-40: Generic lifecycle advance handler (POSTED, CLOSED, PAID, PUBLISHED)
   const handleLifecycleAdvance = (toState: 'POSTED' | 'CLOSED' | 'PAID' | 'PUBLISHED', description: string) => {
     if (!cycle || !user) return;
@@ -861,7 +880,22 @@ export default function CalculatePage() {
                   </Button>
                 )}
                 {cycle.state === 'PENDING_APPROVAL' && (
-                  <Badge className="bg-yellow-100 text-yellow-700">Awaiting Approver Action</Badge>
+                  user?.name === cycle.submittedBy ? (
+                    <Badge className="bg-yellow-100 text-yellow-700">
+                      Awaiting approval by another admin
+                    </Badge>
+                  ) : (
+                    <>
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleInlineApproval('APPROVED')}>
+                        <CheckCircle2 className="h-4 w-4 mr-1" />
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => handleInlineApproval('REJECTED')}>
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Reject
+                      </Button>
+                    </>
+                  )
                 )}
                 {cycle.state === 'APPROVED' && (
                   <>
