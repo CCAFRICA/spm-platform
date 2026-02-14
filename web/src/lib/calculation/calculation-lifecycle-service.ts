@@ -2,13 +2,25 @@
  * Calculation Lifecycle State Machine
  *
  * Enforces state transitions for the calculation cycle:
- * DRAFT -> PREVIEW -> OFFICIAL -> PENDING_APPROVAL -> APPROVED -> PAID
+ * DRAFT -> PREVIEW -> RECONCILE -> OFFICIAL -> PENDING_APPROVAL -> APPROVED -> POSTED -> CLOSED -> PAID -> PUBLISHED
  *
  * OFFICIAL creates an immutable snapshot. Subsequent PREVIEW does not overwrite it.
- * APPROVED is required before results are visible to Sales Reps.
+ * POSTED is required before results are visible to Sales Reps.
+ * PUBLISHED is the terminal state -- period is complete.
  */
 
-export type CalculationState = 'DRAFT' | 'PREVIEW' | 'OFFICIAL' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'PAID';
+export type CalculationState =
+  | 'DRAFT'
+  | 'PREVIEW'
+  | 'RECONCILE'
+  | 'OFFICIAL'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'POSTED'
+  | 'CLOSED'
+  | 'PAID'
+  | 'PUBLISHED';
 
 export interface CalculationCycle {
   cycleId: string;
@@ -25,6 +37,14 @@ export interface CalculationCycle {
   approvedAt?: string;
   approvalComments?: string;
   rejectionReason?: string;
+  postedBy?: string;
+  postedAt?: string;
+  closedBy?: string;
+  closedAt?: string;
+  paidAt?: string;
+  paidBy?: string;
+  publishedAt?: string;
+  publishedBy?: string;
   auditTrail: AuditEntry[];
   createdAt: string;
   updatedAt: string;
@@ -48,16 +68,26 @@ export interface AuditEntry {
   details: string;
 }
 
-// Valid state transitions
+// Valid state transitions -- canonical 9-state lifecycle + REJECTED
 const VALID_TRANSITIONS: Record<CalculationState, CalculationState[]> = {
-  DRAFT: ['PREVIEW'],
-  PREVIEW: ['OFFICIAL', 'PREVIEW'], // Can re-run preview
-  OFFICIAL: ['PENDING_APPROVAL'],
-  PENDING_APPROVAL: ['APPROVED', 'REJECTED'],
-  APPROVED: ['PAID'],
-  REJECTED: ['PREVIEW'], // Must re-run from preview after rejection
-  PAID: [],
+  DRAFT:              ['PREVIEW'],
+  PREVIEW:            ['DRAFT', 'RECONCILE', 'OFFICIAL', 'PREVIEW'],
+  RECONCILE:          ['PREVIEW', 'OFFICIAL'],
+  OFFICIAL:           ['PREVIEW', 'PENDING_APPROVAL'],
+  PENDING_APPROVAL:   ['OFFICIAL', 'APPROVED', 'REJECTED'],
+  REJECTED:           ['OFFICIAL'],
+  APPROVED:           ['OFFICIAL', 'POSTED'],
+  POSTED:             ['APPROVED', 'CLOSED'],
+  CLOSED:             ['POSTED', 'PAID'],
+  PAID:               ['CLOSED', 'PUBLISHED'],
+  PUBLISHED:          [],
 };
+
+// Ordered states for subway visualization (excludes REJECTED branch)
+export const LIFECYCLE_STATES_ORDERED: CalculationState[] = [
+  'DRAFT', 'PREVIEW', 'RECONCILE', 'OFFICIAL', 'PENDING_APPROVAL',
+  'APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED',
+];
 
 type UserRole = 'vl_admin' | 'platform_admin' | 'manager' | 'sales_rep' | 'approver';
 
@@ -89,7 +119,11 @@ export function saveCycle(cycle: CalculationCycle): void {
   if (typeof window === 'undefined') return;
   const key = getCycleStorageKey(cycle.tenantId, cycle.period);
   cycle.updatedAt = new Date().toISOString();
-  localStorage.setItem(key, JSON.stringify(cycle));
+  try {
+    localStorage.setItem(key, JSON.stringify(cycle));
+  } catch (err) {
+    console.error('[Lifecycle] Failed to save cycle:', err);
+  }
 }
 
 /**
@@ -118,8 +152,15 @@ export function createCycle(tenantId: string, planId: string, period: string): C
 }
 
 /**
+ * Get allowed transitions from a given state.
+ */
+export function getAllowedTransitions(state: CalculationState): CalculationState[] {
+  return VALID_TRANSITIONS[state] || [];
+}
+
+/**
  * Transition a cycle to a new state with enforced rules.
- * Throws on invalid transitions.
+ * Throws on invalid transitions with clear error message.
  */
 export function transitionCycle(
   cycle: CalculationCycle,
@@ -136,10 +177,10 @@ export function transitionCycle(
   const fromState = cycle.state;
   const allowed = VALID_TRANSITIONS[fromState];
 
-  if (!allowed.includes(toState)) {
+  if (!allowed || !allowed.includes(toState)) {
     throw new Error(
       `Invalid state transition: ${fromState} -> ${toState}. ` +
-      `Allowed transitions from ${fromState}: ${allowed.join(', ') || 'none'}`
+      `Allowed transitions from ${fromState}: ${(allowed || []).join(', ') || 'none (terminal state)'}`
     );
   }
 
@@ -151,13 +192,14 @@ export function transitionCycle(
   }
 
   // Create updated cycle (immutable pattern)
+  const now = new Date().toISOString();
   const updated: CalculationCycle = {
     ...cycle,
     state: toState,
     auditTrail: [
       ...cycle.auditTrail,
       {
-        timestamp: new Date().toISOString(),
+        timestamp: now,
         action: `transition_${fromState}_to_${toState}`.toLowerCase(),
         actor,
         fromState,
@@ -183,17 +225,37 @@ export function transitionCycle(
 
     case 'PENDING_APPROVAL':
       updated.submittedBy = actor;
-      updated.submittedAt = new Date().toISOString();
+      updated.submittedAt = now;
       break;
 
     case 'APPROVED':
       updated.approvedBy = actor;
-      updated.approvedAt = new Date().toISOString();
+      updated.approvedAt = now;
       updated.approvalComments = extra?.approvalComments;
       break;
 
     case 'REJECTED':
       updated.rejectionReason = extra?.rejectionReason;
+      break;
+
+    case 'POSTED':
+      updated.postedBy = actor;
+      updated.postedAt = now;
+      break;
+
+    case 'CLOSED':
+      updated.closedBy = actor;
+      updated.closedAt = now;
+      break;
+
+    case 'PAID':
+      updated.paidBy = actor;
+      updated.paidAt = now;
+      break;
+
+    case 'PUBLISHED':
+      updated.publishedBy = actor;
+      updated.publishedAt = now;
       break;
   }
 
@@ -203,11 +265,14 @@ export function transitionCycle(
 
 /**
  * Check if calculation results are visible for a given role and state.
+ * POSTED and later states are visible to all roles.
+ * Pre-POSTED states are admin/approver only.
  */
 export function canViewResults(state: CalculationState, role: UserRole): boolean {
   switch (state) {
     case 'DRAFT':
     case 'PREVIEW':
+    case 'RECONCILE':
     case 'OFFICIAL':
       // Only admins can see pre-approval results
       return role === 'vl_admin' || role === 'platform_admin';
@@ -217,8 +282,14 @@ export function canViewResults(state: CalculationState, role: UserRole): boolean
       return role === 'vl_admin' || role === 'platform_admin' || role === 'approver';
 
     case 'APPROVED':
+      // Admins can see approved but not-yet-posted results
+      return role === 'vl_admin' || role === 'platform_admin' || role === 'approver';
+
+    case 'POSTED':
+    case 'CLOSED':
     case 'PAID':
-      // All roles can see approved results
+    case 'PUBLISHED':
+      // All roles can see posted results
       return true;
 
     case 'REJECTED':
@@ -231,19 +302,22 @@ export function canViewResults(state: CalculationState, role: UserRole): boolean
 }
 
 /**
- * Get the most recent approved cycle for a tenant.
+ * Get the most recent approved (or later) cycle for a tenant.
  */
 export function getApprovedCycle(tenantId: string): CalculationCycle | null {
   if (typeof window === 'undefined') return null;
 
-  // Scan localStorage for cycles matching this tenant
+  const postApprovalStates: CalculationState[] = [
+    'APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED',
+  ];
+
   const cycles: CalculationCycle[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (key && key.startsWith(`${STORAGE_PREFIX}${tenantId}_`)) {
       try {
         const cycle = JSON.parse(localStorage.getItem(key) || '') as CalculationCycle;
-        if (cycle.state === 'APPROVED' || cycle.state === 'PAID') {
+        if (postApprovalStates.includes(cycle.state)) {
           cycles.push(cycle);
         }
       } catch {
@@ -252,7 +326,6 @@ export function getApprovedCycle(tenantId: string): CalculationCycle | null {
     }
   }
 
-  // Return most recently approved
   if (cycles.length === 0) return null;
   cycles.sort((a, b) => (b.approvedAt || '').localeCompare(a.approvedAt || ''));
   return cycles[0];
@@ -288,11 +361,15 @@ export function getStateLabel(state: CalculationState): string {
   const labels: Record<CalculationState, string> = {
     DRAFT: 'Draft',
     PREVIEW: 'Preview',
+    RECONCILE: 'Reconcile',
     OFFICIAL: 'Official',
     PENDING_APPROVAL: 'Pending Approval',
     APPROVED: 'Approved',
     REJECTED: 'Rejected',
+    POSTED: 'Posted',
+    CLOSED: 'Closed',
     PAID: 'Paid',
+    PUBLISHED: 'Published',
   };
   return labels[state] || state;
 }
@@ -304,11 +381,15 @@ export function getStateColor(state: CalculationState): string {
   const colors: Record<CalculationState, string> = {
     DRAFT: 'bg-gray-100 text-gray-700',
     PREVIEW: 'bg-blue-100 text-blue-700',
+    RECONCILE: 'bg-cyan-100 text-cyan-700',
     OFFICIAL: 'bg-purple-100 text-purple-700',
     PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
     APPROVED: 'bg-green-100 text-green-700',
     REJECTED: 'bg-red-100 text-red-700',
+    POSTED: 'bg-teal-100 text-teal-700',
+    CLOSED: 'bg-indigo-100 text-indigo-700',
     PAID: 'bg-emerald-100 text-emerald-700',
+    PUBLISHED: 'bg-sky-100 text-sky-700',
   };
   return colors[state] || 'bg-gray-100 text-gray-700';
 }

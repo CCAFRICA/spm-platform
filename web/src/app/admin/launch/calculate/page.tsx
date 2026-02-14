@@ -74,6 +74,7 @@ import {
   transitionCycle,
   getStateLabel,
   getStateColor,
+  LIFECYCLE_STATES_ORDERED,
   type CalculationCycle,
   type OfficialSnapshot,
 } from '@/lib/calculation/calculation-lifecycle-service';
@@ -425,6 +426,18 @@ export default function CalculatePage() {
     } catch (e) {
       console.error('Submit for approval failed:', e);
       alert(e instanceof Error ? e.message : 'Failed to submit for approval');
+    }
+  };
+
+  // OB-40: Generic lifecycle advance handler (POSTED, CLOSED, PAID, PUBLISHED)
+  const handleLifecycleAdvance = (toState: 'POSTED' | 'CLOSED' | 'PAID' | 'PUBLISHED', description: string) => {
+    if (!cycle || !user) return;
+    try {
+      const updated = transitionCycle(cycle, toState, user.name, description);
+      setCycle(updated);
+    } catch (e) {
+      console.error(`Lifecycle transition to ${toState} failed:`, e);
+      alert(e instanceof Error ? e.message : `Failed to transition to ${toState}`);
     }
   };
 
@@ -787,16 +800,19 @@ export default function CalculatePage() {
       {cycle && selectedPeriod && (
         <Card>
           <CardContent className="py-4 space-y-4">
-            {/* State progress indicator */}
-            <div className="flex items-center gap-1">
-              {(['DRAFT', 'PREVIEW', 'OFFICIAL', 'PENDING_APPROVAL', 'APPROVED', 'PAID'] as const).map((state, idx, arr) => {
+            {/* State progress indicator -- 10-state subway */}
+            <div className="flex items-center gap-0.5 overflow-x-auto">
+              {LIFECYCLE_STATES_ORDERED.map((state, idx, arr) => {
                 const isCurrent = cycle.state === state;
                 const isRejected = cycle.state === 'REJECTED' && state === 'PENDING_APPROVAL';
-                const isPast = arr.indexOf(cycle.state === 'REJECTED' ? 'PREVIEW' : cycle.state) > idx;
+                const currentIdx = LIFECYCLE_STATES_ORDERED.indexOf(
+                  cycle.state === 'REJECTED' ? 'PENDING_APPROVAL' : cycle.state
+                );
+                const isPast = currentIdx > idx;
                 return (
-                  <div key={state} className="flex items-center flex-1">
+                  <div key={state} className="flex items-center flex-1 min-w-0">
                     <div className={cn(
-                      'flex items-center justify-center w-full py-1.5 px-2 text-[11px] font-medium rounded-md transition-colors',
+                      'flex items-center justify-center w-full py-1 px-1 text-[10px] font-medium rounded-md transition-colors truncate',
                       isCurrent ? getStateColor(cycle.state) + ' ring-2 ring-offset-1 ring-blue-300' :
                       isRejected ? 'bg-red-100 text-red-700' :
                       isPast ? 'bg-slate-200 text-slate-600' :
@@ -805,7 +821,7 @@ export default function CalculatePage() {
                       {getStateLabel(state)}
                     </div>
                     {idx < arr.length - 1 && (
-                      <ArrowRight className={cn('h-3 w-3 mx-0.5 flex-shrink-0',
+                      <ArrowRight className={cn('h-2.5 w-2.5 mx-0.5 flex-shrink-0',
                         isPast ? 'text-slate-400' : 'text-slate-200'
                       )} />
                     )}
@@ -837,7 +853,7 @@ export default function CalculatePage() {
                   </span>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {cycle.state === 'OFFICIAL' && (
                   <Button size="sm" onClick={handleSubmitForApproval}>
                     <ArrowRight className="h-4 w-4 mr-1" />
@@ -849,12 +865,43 @@ export default function CalculatePage() {
                 )}
                 {cycle.state === 'APPROVED' && (
                   <>
-                    <Badge className="bg-green-100 text-green-700">Results visible to all roles</Badge>
+                    <Button size="sm" onClick={() => handleLifecycleAdvance('POSTED', 'Post results to all roles')}>
+                      <ArrowRight className="h-4 w-4 mr-1" />
+                      Post Results
+                    </Button>
                     <Button size="sm" variant="outline" onClick={handleExportPayroll}>
                       <Download className="h-4 w-4 mr-1" />
                       Export Payroll
                     </Button>
                   </>
+                )}
+                {cycle.state === 'POSTED' && (
+                  <>
+                    <Badge className="bg-teal-100 text-teal-700">Results visible to all roles</Badge>
+                    <Button size="sm" onClick={() => handleLifecycleAdvance('CLOSED', 'Close period')}>
+                      <ArrowRight className="h-4 w-4 mr-1" />
+                      Close Period
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={handleExportPayroll}>
+                      <Download className="h-4 w-4 mr-1" />
+                      Export Payroll
+                    </Button>
+                  </>
+                )}
+                {cycle.state === 'CLOSED' && (
+                  <Button size="sm" onClick={() => handleLifecycleAdvance('PAID', 'Mark as paid')}>
+                    <ArrowRight className="h-4 w-4 mr-1" />
+                    Mark as Paid
+                  </Button>
+                )}
+                {cycle.state === 'PAID' && (
+                  <Button size="sm" onClick={() => handleLifecycleAdvance('PUBLISHED', 'Publish period')}>
+                    <ArrowRight className="h-4 w-4 mr-1" />
+                    Publish
+                  </Button>
+                )}
+                {cycle.state === 'PUBLISHED' && (
+                  <Badge className="bg-sky-100 text-sky-700">Period Complete</Badge>
                 )}
               </div>
             </div>

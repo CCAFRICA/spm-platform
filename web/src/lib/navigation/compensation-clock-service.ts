@@ -57,12 +57,16 @@ export interface ClockSnapshot {
 const STATE_TO_PHASE: Record<CalculationState | 'AWAITING_DATA', { phase: CyclePhase; progress: number }> = {
   AWAITING_DATA:     { phase: 'import',    progress: 0 },
   DRAFT:             { phase: 'import',    progress: 10 },
-  PREVIEW:           { phase: 'calculate', progress: 40 },
-  OFFICIAL:          { phase: 'reconcile', progress: 60 },
-  PENDING_APPROVAL:  { phase: 'approve',   progress: 80 },
-  APPROVED:          { phase: 'pay',       progress: 100 },
-  REJECTED:          { phase: 'calculate', progress: 30 },
-  PAID:              { phase: 'closed',    progress: 100 },
+  PREVIEW:           { phase: 'calculate', progress: 30 },
+  RECONCILE:         { phase: 'reconcile', progress: 45 },
+  OFFICIAL:          { phase: 'reconcile', progress: 55 },
+  PENDING_APPROVAL:  { phase: 'approve',   progress: 65 },
+  REJECTED:          { phase: 'calculate', progress: 25 },
+  APPROVED:          { phase: 'approve',   progress: 75 },
+  POSTED:            { phase: 'pay',       progress: 82 },
+  CLOSED:            { phase: 'pay',       progress: 90 },
+  PAID:              { phase: 'closed',    progress: 95 },
+  PUBLISHED:         { phase: 'closed',    progress: 100 },
 };
 
 // =============================================================================

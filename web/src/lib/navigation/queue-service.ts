@@ -383,13 +383,29 @@ function getLifecycleItems(tenantId: string, role: UserRole): QueueItem[] {
           id: `lifecycle-approved-${latest.cycleId}`,
           type: 'notification' as QueueItemType,
           urgency: 'medium' as QueueUrgency,
-          title: 'Payroll Ready for Export',
-          titleEs: 'Nomina Lista para Exportar',
-          description: `${latest.period} approved${latest.approvedBy ? ` by ${latest.approvedBy}` : ''} - export payroll CSV`,
-          descriptionEs: `${latest.period} aprobado${latest.approvedBy ? ` por ${latest.approvedBy}` : ''} - exportar nomina CSV`,
+          title: 'Post Results to All Roles',
+          titleEs: 'Publicar Resultados a Todos los Roles',
+          description: `${latest.period} approved${latest.approvedBy ? ` by ${latest.approvedBy}` : ''} - post results or export payroll`,
+          descriptionEs: `${latest.period} aprobado${latest.approvedBy ? ` por ${latest.approvedBy}` : ''} - publicar resultados o exportar nomina`,
           workspace: 'operate' as WorkspaceId,
           route: '/operate/calculate',
           timestamp: latest.approvedAt || latest.updatedAt,
+          read: false,
+        });
+        break;
+
+      case 'POSTED':
+        items.push({
+          id: `lifecycle-posted-${latest.cycleId}`,
+          type: 'notification' as QueueItemType,
+          urgency: 'low' as QueueUrgency,
+          title: 'Results Posted - Close Period',
+          titleEs: 'Resultados Publicados - Cerrar Periodo',
+          description: `${latest.period} results visible to all roles - close period when ready`,
+          descriptionEs: `${latest.period} resultados visibles a todos los roles - cerrar periodo cuando listo`,
+          workspace: 'operate' as WorkspaceId,
+          route: '/operate/calculate',
+          timestamp: latest.postedAt || latest.updatedAt,
           read: false,
         });
         break;

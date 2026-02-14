@@ -132,22 +132,22 @@ function determinePhaseStatuses(tenantId: string, periodId: string): Record<Cycl
       actionCount: hasReconciliation ? 0 : (hasCalculations ? 1 : 0), // OB-29: No fake mismatch counts
     },
     approve: {
-      state: lifecycleCycle?.state === 'APPROVED' || lifecycleCycle?.state === 'PAID'
+      state: (['APPROVED','POSTED','CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
         ? 'completed'
         : lifecycleCycle?.state === 'PENDING_APPROVAL'
         ? 'in_progress'
         : lifecycleCycle?.state === 'REJECTED'
         ? 'warning' as PhaseStatus['state']
         : (pendingApprovals === 0 && hasReconciliation ? 'completed' : (hasReconciliation ? 'in_progress' : 'not_started')),
-      detail: lifecycleCycle?.state === 'APPROVED' || lifecycleCycle?.state === 'PAID'
-        ? `Approved${lifecycleCycle.approvedBy ? ` by ${lifecycleCycle.approvedBy}` : ''}`
+      detail: (['APPROVED','POSTED','CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
+        ? `Approved${lifecycleCycle?.approvedBy ? ` by ${lifecycleCycle.approvedBy}` : ''}`
         : lifecycleCycle?.state === 'PENDING_APPROVAL'
         ? 'Awaiting approver action'
         : lifecycleCycle?.state === 'REJECTED'
         ? `Rejected: ${lifecycleCycle.rejectionReason || 'No reason given'}`
         : (pendingApprovals > 0 ? `${pendingApprovals} pending approvals` : 'All approved'),
-      detailEs: lifecycleCycle?.state === 'APPROVED' || lifecycleCycle?.state === 'PAID'
-        ? `Aprobado${lifecycleCycle.approvedBy ? ` por ${lifecycleCycle.approvedBy}` : ''}`
+      detailEs: (['APPROVED','POSTED','CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
+        ? `Aprobado${lifecycleCycle?.approvedBy ? ` por ${lifecycleCycle.approvedBy}` : ''}`
         : lifecycleCycle?.state === 'PENDING_APPROVAL'
         ? 'Esperando accion del aprobador'
         : lifecycleCycle?.state === 'REJECTED'
@@ -156,20 +156,26 @@ function determinePhaseStatuses(tenantId: string, periodId: string): Record<Cycl
       actionCount: lifecycleCycle?.state === 'PENDING_APPROVAL' ? 1 : pendingApprovals,
     },
     pay: {
-      state: lifecycleCycle?.state === 'PAID'
+      state: (['CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
         ? 'completed'
-        : (lifecycleCycle?.state === 'APPROVED' ? 'in_progress' : (payrollStatus === 'finalized' ? 'completed' : 'not_started')),
-      detail: lifecycleCycle?.state === 'PAID'
-        ? 'Payroll finalized'
+        : (['APPROVED','POSTED'] as string[]).includes(lifecycleCycle?.state || '')
+        ? 'in_progress'
+        : (payrollStatus === 'finalized' ? 'completed' : 'not_started'),
+      detail: (['CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
+        ? 'Period closed'
+        : lifecycleCycle?.state === 'POSTED'
+        ? 'Results posted - ready for payroll'
         : lifecycleCycle?.state === 'APPROVED'
-        ? 'Ready for payroll export'
+        ? 'Post results to make visible'
         : (payrollStatus === 'finalized' ? 'Payroll finalized' : 'Awaiting approval completion'),
-      detailEs: lifecycleCycle?.state === 'PAID'
-        ? 'Nómina finalizada'
+      detailEs: (['CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
+        ? 'Periodo cerrado'
+        : lifecycleCycle?.state === 'POSTED'
+        ? 'Resultados publicados - listo para nomina'
         : lifecycleCycle?.state === 'APPROVED'
-        ? 'Listo para exportar nómina'
-        : (payrollStatus === 'finalized' ? 'Nómina finalizada' : 'Esperando completar aprobaciones'),
-      actionCount: lifecycleCycle?.state === 'APPROVED' ? 1 : 0,
+        ? 'Publicar resultados para visibilidad'
+        : (payrollStatus === 'finalized' ? 'Nomina finalizada' : 'Esperando completar aprobaciones'),
+      actionCount: (['APPROVED','POSTED'] as string[]).includes(lifecycleCycle?.state || '') ? 1 : 0,
     },
     closed: {
       state: payrollStatus === 'finalized' ? 'completed' : 'not_started',
