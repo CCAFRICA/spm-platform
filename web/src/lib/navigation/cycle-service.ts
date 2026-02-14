@@ -12,6 +12,7 @@
  */
 
 import type { CycleState, CyclePhase, PhaseStatus } from '@/types/navigation';
+import { listCycles, getStateLabel, type CalculationCycle } from '@/lib/calculation/calculation-lifecycle-service';
 
 // =============================================================================
 // CYCLE STATE DETERMINATION
@@ -94,6 +95,9 @@ function determinePhaseStatuses(tenantId: string, periodId: string): Record<Cycl
   // Check for payroll status
   const payrollStatus = checkPayrollStatus(tenantId, periodId);
 
+  // OB-39 Phase 11: Check lifecycle state for meaningful cycle indicator
+  const lifecycleCycle = getLatestLifecycleCycle(tenantId);
+
   // Import detail with count from import batches
   const importDetail = hasImportData ? getImportDetails(tenantId) : null;
   const importCountStr = importDetail?.count ? ` (${importDetail.count} records)` : '';
@@ -113,8 +117,12 @@ function determinePhaseStatuses(tenantId: string, periodId: string): Record<Cycl
     },
     calculate: {
       state: hasCalculations ? 'completed' : (hasImportData ? 'in_progress' : 'not_started'),
-      detail: hasCalculations ? `Calculations complete${calcCountStr}${calcDateStr}` : (hasImportData ? 'Ready to calculate' : 'Waiting for import'),
-      detailEs: hasCalculations ? `Calculos completos${calcCountStrEs}${calcDateStr}` : (hasImportData ? 'Listo para calcular' : 'Esperando importacion'),
+      detail: hasCalculations
+        ? `Calculations complete${calcCountStr}${calcDateStr}${lifecycleCycle ? ` [${getStateLabel(lifecycleCycle.state)}]` : ''}`
+        : (hasImportData ? 'Ready to calculate' : 'Waiting for import'),
+      detailEs: hasCalculations
+        ? `Calculos completos${calcCountStrEs}${calcDateStr}${lifecycleCycle ? ` [${getStateLabel(lifecycleCycle.state)}]` : ''}`
+        : (hasImportData ? 'Listo para calcular' : 'Esperando importacion'),
       actionCount: hasCalculations ? 0 : (hasImportData ? 1 : 0),
     },
     reconcile: {
@@ -124,16 +132,44 @@ function determinePhaseStatuses(tenantId: string, periodId: string): Record<Cycl
       actionCount: hasReconciliation ? 0 : (hasCalculations ? 1 : 0), // OB-29: No fake mismatch counts
     },
     approve: {
-      state: pendingApprovals === 0 && hasReconciliation ? 'completed' : (hasReconciliation ? 'in_progress' : 'not_started'),
-      detail: pendingApprovals > 0 ? `${pendingApprovals} pending approvals` : 'All approved',
-      detailEs: pendingApprovals > 0 ? `${pendingApprovals} aprobaciones pendientes` : 'Todo aprobado',
-      actionCount: pendingApprovals,
+      state: lifecycleCycle?.state === 'APPROVED' || lifecycleCycle?.state === 'PAID'
+        ? 'completed'
+        : lifecycleCycle?.state === 'PENDING_APPROVAL'
+        ? 'in_progress'
+        : lifecycleCycle?.state === 'REJECTED'
+        ? 'warning' as PhaseStatus['state']
+        : (pendingApprovals === 0 && hasReconciliation ? 'completed' : (hasReconciliation ? 'in_progress' : 'not_started')),
+      detail: lifecycleCycle?.state === 'APPROVED' || lifecycleCycle?.state === 'PAID'
+        ? `Approved${lifecycleCycle.approvedBy ? ` by ${lifecycleCycle.approvedBy}` : ''}`
+        : lifecycleCycle?.state === 'PENDING_APPROVAL'
+        ? 'Awaiting approver action'
+        : lifecycleCycle?.state === 'REJECTED'
+        ? `Rejected: ${lifecycleCycle.rejectionReason || 'No reason given'}`
+        : (pendingApprovals > 0 ? `${pendingApprovals} pending approvals` : 'All approved'),
+      detailEs: lifecycleCycle?.state === 'APPROVED' || lifecycleCycle?.state === 'PAID'
+        ? `Aprobado${lifecycleCycle.approvedBy ? ` por ${lifecycleCycle.approvedBy}` : ''}`
+        : lifecycleCycle?.state === 'PENDING_APPROVAL'
+        ? 'Esperando accion del aprobador'
+        : lifecycleCycle?.state === 'REJECTED'
+        ? `Rechazado: ${lifecycleCycle.rejectionReason || 'Sin razon'}`
+        : (pendingApprovals > 0 ? `${pendingApprovals} aprobaciones pendientes` : 'Todo aprobado'),
+      actionCount: lifecycleCycle?.state === 'PENDING_APPROVAL' ? 1 : pendingApprovals,
     },
     pay: {
-      state: payrollStatus === 'finalized' ? 'completed' : (payrollStatus === 'processing' ? 'in_progress' : 'not_started'),
-      detail: payrollStatus === 'finalized' ? 'Payroll finalized' : 'Awaiting approval completion',
-      detailEs: payrollStatus === 'finalized' ? 'Nómina finalizada' : 'Esperando completar aprobaciones',
-      actionCount: 0,
+      state: lifecycleCycle?.state === 'PAID'
+        ? 'completed'
+        : (lifecycleCycle?.state === 'APPROVED' ? 'in_progress' : (payrollStatus === 'finalized' ? 'completed' : 'not_started')),
+      detail: lifecycleCycle?.state === 'PAID'
+        ? 'Payroll finalized'
+        : lifecycleCycle?.state === 'APPROVED'
+        ? 'Ready for payroll export'
+        : (payrollStatus === 'finalized' ? 'Payroll finalized' : 'Awaiting approval completion'),
+      detailEs: lifecycleCycle?.state === 'PAID'
+        ? 'Nómina finalizada'
+        : lifecycleCycle?.state === 'APPROVED'
+        ? 'Listo para exportar nómina'
+        : (payrollStatus === 'finalized' ? 'Nómina finalizada' : 'Esperando completar aprobaciones'),
+      actionCount: lifecycleCycle?.state === 'APPROVED' ? 1 : 0,
     },
     closed: {
       state: payrollStatus === 'finalized' ? 'completed' : 'not_started',
@@ -194,6 +230,22 @@ function calculateCompletionPercentage(statuses: Record<CyclePhase, PhaseStatus>
  */
 function countPendingActions(statuses: Record<CyclePhase, PhaseStatus>): number {
   return Object.values(statuses).reduce((sum, status) => sum + (status.actionCount || 0), 0);
+}
+
+// =============================================================================
+// LIFECYCLE INTEGRATION
+// =============================================================================
+
+/**
+ * OB-39 Phase 11: Get the latest lifecycle cycle for a tenant
+ */
+function getLatestLifecycleCycle(tenantId: string): CalculationCycle | null {
+  try {
+    const cycles = listCycles(tenantId);
+    return cycles.length > 0 ? cycles[0] : null;
+  } catch {
+    return null;
+  }
 }
 
 // =============================================================================
