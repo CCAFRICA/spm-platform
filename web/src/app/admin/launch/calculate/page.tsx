@@ -14,6 +14,10 @@ import {
   type CalculationRun,
   type OrchestrationResult,
 } from '@/lib/orchestration/calculation-orchestrator';
+import {
+  getStorageStats,
+  cleanupOldPreviews,
+} from '@/lib/calculation/results-storage';
 import { getPeriodProcessor } from '@/lib/payroll/period-processor';
 import {
   getPlansWithStatus,
@@ -1525,6 +1529,42 @@ export default function CalculatePage() {
               </TableBody>
             </Table>
           )}
+        </CardContent>
+      </Card>
+
+      {/* OB-40 Phase 10: localStorage Quota Management */}
+      <Card className="border-slate-200">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase">Storage</p>
+              {(() => {
+                const stats = getStorageStats();
+                return (
+                  <p className="text-sm text-slate-600 mt-1">
+                    {stats.totalRuns} run(s) | {stats.totalResults} result(s) | {stats.estimatedSizeKB} KB
+                  </p>
+                );
+              })()}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (!currentTenant) return;
+                const cleaned = cleanupOldPreviews(currentTenant.id);
+                if (cleaned > 0) {
+                  alert(`Cleaned up ${cleaned} old preview run(s).`);
+                  const runs = getPeriodRuns(currentTenant.id);
+                  setRecentRuns(runs.slice(0, 5));
+                } else {
+                  alert('No old previews to clean up.');
+                }
+              }}
+            >
+              Clean Up Old Previews
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
