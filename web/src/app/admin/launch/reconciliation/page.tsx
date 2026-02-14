@@ -31,6 +31,10 @@ import {
   type EmployeeComparison,
 } from '@/lib/reconciliation/comparison-engine';
 import {
+  assessComparisonDepth,
+  type DepthAssessment,
+} from '@/lib/reconciliation/comparison-depth-engine';
+import {
   parseFile,
   parseSheetFromWorkbook,
   getPreviewRows,
@@ -316,6 +320,8 @@ export default function ReconciliationPage() {
   const [batches, setBatches] = useState<CalculationBatch[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<string>('');
   const [isRunning, setIsRunning] = useState(false);
+  // OB-39: Comparison depth assessment
+  const [depthAssessment, setDepthAssessment] = useState<DepthAssessment | null>(null);
   // Phase 4: New comparison engine result
   const [comparisonResult, setComparisonResult] = useState<ComparisonResult | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeComparison | null>(null);
@@ -347,6 +353,37 @@ export default function ReconciliationPage() {
       }))
     );
   }, [currentTenant]);
+
+  // OB-39: Run depth assessment when file, mappings, and VL results are available
+  useEffect(() => {
+    if (!currentTenant || !parsedFile || !employeeIdField || !amountField) {
+      setDepthAssessment(null);
+      return;
+    }
+
+    // Load VL results for depth assessment
+    const batch = selectedBatch ? batches.find(b => b.id === selectedBatch) : null;
+    const traces = getTraces(currentTenant.id, batch?.id);
+    if (traces.length === 0) {
+      setDepthAssessment(null);
+      return;
+    }
+
+    const vlResults = traces as unknown as import('@/types/compensation-plan').CalculationResult[];
+
+    const assessment = assessComparisonDepth({
+      vlResults,
+      fileRows: parsedFile.rows,
+      mappings: aiMappings,
+      employeeIdField,
+      totalAmountField: amountField,
+    });
+
+    setDepthAssessment(assessment);
+    console.log('[Reconciliation] Depth assessment:', assessment.maxDepth,
+      'layers:', assessment.layers.map(l => `${l.layer}=${l.status}`).join(', '),
+      'falseGreenRisk:', assessment.falseGreenRisk);
+  }, [currentTenant, parsedFile, employeeIdField, amountField, selectedBatch, batches, aiMappings]);
 
   // ============================================
   // HF-021 Phase 1: Smart File Processing
@@ -964,6 +1001,41 @@ export default function ReconciliationPage() {
                 )}
               </SelectContent>
             </Select>
+
+            {/* OB-39: Comparison Depth Assessment */}
+            {depthAssessment && (
+              <div className="mt-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-600">
+                    {locale === 'es-MX' ? 'Profundidad de Comparacion' : 'Comparison Depth'}
+                  </span>
+                  <Badge variant="outline" className={cn('text-xs',
+                    depthAssessment.falseGreenRisk === 'high' ? 'border-red-300 text-red-700 bg-red-50' :
+                    depthAssessment.falseGreenRisk === 'medium' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                    'border-emerald-300 text-emerald-700 bg-emerald-50'
+                  )}>
+                    {locale === 'es-MX' ? 'Riesgo falso verde' : 'False green risk'}: {depthAssessment.falseGreenRisk}
+                  </Badge>
+                </div>
+                <div className="flex gap-1">
+                  {depthAssessment.layers.map((layer) => (
+                    <div key={layer.layer} className={cn(
+                      'flex-1 h-2 rounded-full',
+                      layer.status === 'available' ? 'bg-emerald-400' :
+                      layer.status === 'partial' ? 'bg-amber-400' :
+                      'bg-slate-200'
+                    )} title={`${layer.layer}: ${layer.status} (${layer.depth}%)`} />
+                  ))}
+                </div>
+                <div className="flex justify-between text-[10px] text-slate-400">
+                  <span>L0</span><span>L1</span><span>L2</span><span>L3</span><span>L4</span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  {locale === 'es-MX' ? 'Nivel maximo' : 'Max depth'}: <strong className="text-slate-700">{depthAssessment.maxDepth}</strong>
+                  {' | '}{depthAssessment.dataQuality.matchableRecords} {locale === 'es-MX' ? 'empleados coinciden' : 'employees matchable'}
+                </p>
+              </div>
+            )}
 
             <Button
               className="w-full mt-4"
