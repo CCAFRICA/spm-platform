@@ -24,7 +24,6 @@ import {
 import {
   loadCycle,
   canViewResults,
-  getStateLabel,
 } from '@/lib/calculation/calculation-lifecycle-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,6 +39,7 @@ import {
   AlertCircle,
   BarChart3,
   Eye,
+  Clock,
 } from 'lucide-react';
 import type { CalculationResult } from '@/types/compensation-plan';
 
@@ -69,7 +69,6 @@ export default function PerformPage() {
   const [hasResults, setHasResults] = useState(false);
   // OB-39 Phase 8: Lifecycle-gated visibility
   const [lifecycleGated, setLifecycleGated] = useState(false);
-  const [lifecycleStateLabel, setLifecycleStateLabel] = useState('');
 
   const displaySpanish = isSpanish;
   const currency = currentTenant?.currency || 'USD';
@@ -115,7 +114,6 @@ export default function PerformPage() {
     const cycle = loadCycle(currentTenant.id, period);
     if (cycle && !canViewResults(cycle.state, role)) {
       setLifecycleGated(true);
-      setLifecycleStateLabel(getStateLabel(cycle.state));
       setAllResults([]);
       setHasResults(false);
       setMyResult(null);
@@ -201,21 +199,21 @@ export default function PerformPage() {
         )}
       </div>
 
-      {/* OB-39 Phase 8: Lifecycle gate banner */}
+      {/* OB-39/OB-40: Lifecycle gate banner */}
       {lifecycleGated && (
         <Card className="border-blue-200 bg-blue-50">
           <CardContent className="py-4 flex items-center gap-3">
-            <AlertCircle className="h-5 w-5 text-blue-500 flex-shrink-0" />
+            <Clock className="h-5 w-5 text-blue-500 flex-shrink-0" />
             <div>
               <p className="text-sm font-medium text-blue-800">
                 {displaySpanish
-                  ? 'Resultados aun no publicados'
-                  : 'Results not yet published'}
+                  ? `Tu compensacion para ${getCurrentPeriod()} esta siendo procesada`
+                  : `Your compensation for ${getCurrentPeriod()} is being processed`}
               </p>
               <p className="text-xs text-blue-600">
                 {displaySpanish
-                  ? `El ciclo de calculo esta en estado "${lifecycleStateLabel}". Los resultados estaran visibles cuando sean aprobados.`
-                  : `The calculation cycle is in "${lifecycleStateLabel}" state. Results will be visible once approved.`}
+                  ? 'Los resultados estaran disponibles despues de su publicacion.'
+                  : 'Results will be available after posting.'}
               </p>
             </div>
           </CardContent>
