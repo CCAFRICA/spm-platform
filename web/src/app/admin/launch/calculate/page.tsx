@@ -65,6 +65,7 @@ import {
   Info,
   Scale,
   Search,
+  Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -86,6 +87,7 @@ import {
   buildCalculationSummary,
   saveSummary,
 } from '@/lib/calculation/calculation-summary-service';
+import { getTraces } from '@/lib/forensics/forensics-service';
 
 // Bilingual labels
 const labels = {
@@ -424,6 +426,58 @@ export default function CalculatePage() {
       console.error('Submit for approval failed:', e);
       alert(e instanceof Error ? e.message : 'Failed to submit for approval');
     }
+  };
+
+  // OB-39 Phase 9: Export payroll CSV from approved cycle
+  const handleExportPayroll = () => {
+    if (!cycle || !currentTenant) return;
+
+    const runId = cycle.officialRunId || cycle.previewRunId;
+    if (!runId) return;
+
+    const traces = getTraces(currentTenant.id, runId);
+    if (traces.length === 0) return;
+
+    const rows: string[][] = [];
+    rows.push(['Employee ID', 'Employee Name', 'Store ID', 'Variant', 'Total Incentive', 'Period', 'Currency']);
+
+    for (const trace of traces) {
+      rows.push([
+        trace.employeeId || '',
+        trace.employeeName || '',
+        trace.storeId || '',
+        trace.variant?.variantName || '',
+        String(trace.totalIncentive || 0),
+        cycle.period,
+        currentTenant.currency || 'USD',
+      ]);
+    }
+
+    // Summary
+    rows.push([]);
+    rows.push(['Payroll Summary']);
+    rows.push(['Total Employees', String(traces.length)]);
+    rows.push(['Total Payout', String(traces.reduce((sum, t) => sum + (t.totalIncentive || 0), 0))]);
+    rows.push(['Period', cycle.period]);
+    rows.push(['Cycle State', cycle.state]);
+    rows.push(['Exported At', new Date().toISOString()]);
+
+    const csvContent = rows.map(row =>
+      row.map(cell => {
+        if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
+          return `"${cell.replace(/"/g, '""')}"`;
+        }
+        return cell;
+      }).join(',')
+    ).join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `payroll_${cycle.period}_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   // Activate a draft plan
@@ -794,7 +848,13 @@ export default function CalculatePage() {
                   <Badge className="bg-yellow-100 text-yellow-700">Awaiting Approver Action</Badge>
                 )}
                 {cycle.state === 'APPROVED' && (
-                  <Badge className="bg-green-100 text-green-700">Results visible to all roles</Badge>
+                  <>
+                    <Badge className="bg-green-100 text-green-700">Results visible to all roles</Badge>
+                    <Button size="sm" variant="outline" onClick={handleExportPayroll}>
+                      <Download className="h-4 w-4 mr-1" />
+                      Export Payroll
+                    </Button>
+                  </>
                 )}
               </div>
             </div>

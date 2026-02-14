@@ -9,7 +9,12 @@
 
 import { useRouter } from 'next/navigation';
 import { useCycleState } from '@/contexts/navigation-context';
-import { useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import {
+  listCycles,
+  getStateLabel,
+  getStateColor,
+} from '@/lib/calculation/calculation-lifecycle-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,14 +28,20 @@ import {
   DollarSign,
   FileText,
   ArrowRight,
+  Scale,
 } from 'lucide-react';
 
 export default function PayPage() {
   const router = useRouter();
   const { cycleState, isSpanish } = useCycleState();
+  const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
 
   const displaySpanish = isSpanish;
+
+  // OB-39 Phase 9: Get latest lifecycle cycle for real data
+  const latestCycle = currentTenant ? listCycles(currentTenant.id)[0] : null;
+  const snapshot = latestCycle?.officialSnapshot;
 
   const payStatus = cycleState?.phaseStatuses.pay;
   const approveStatus = cycleState?.phaseStatuses.approve;
@@ -117,14 +128,28 @@ export default function PayPage() {
             </div>
           )}
 
-          {/* Payroll Summary */}
+          {/* OB-39: Lifecycle state indicator */}
+          {latestCycle && (
+            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+              <Scale className="h-4 w-4 text-slate-500" />
+              <span className="text-sm text-slate-600">
+                {displaySpanish ? 'Estado del Ciclo' : 'Cycle State'}:
+              </span>
+              <Badge className={getStateColor(latestCycle.state)}>
+                {getStateLabel(latestCycle.state)}
+              </Badge>
+              <span className="text-xs text-slate-400">{latestCycle.period}</span>
+            </div>
+          )}
+
+          {/* Payroll Summary - wired to real snapshot data */}
           <div className="grid grid-cols-3 gap-4">
             <Card className="bg-slate-50">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <Users className="h-8 w-8 text-blue-600" />
                   <div>
-                    <p className="text-2xl font-bold">24</p>
+                    <p className="text-2xl font-bold">{snapshot?.employeeCount || 0}</p>
                     <p className="text-sm text-slate-500">
                       {displaySpanish ? 'Empleados' : 'Employees'}
                     </p>
@@ -138,7 +163,7 @@ export default function PayPage() {
                 <div className="flex items-center gap-3">
                   <DollarSign className="h-8 w-8 text-green-600" />
                   <div>
-                    <p className="text-2xl font-bold">{formatCurrency(127450)}</p>
+                    <p className="text-2xl font-bold">{formatCurrency(snapshot?.totalPayout || 0)}</p>
                     <p className="text-sm text-slate-500">
                       {displaySpanish ? 'Total Nómina' : 'Total Payroll'}
                     </p>
@@ -152,9 +177,9 @@ export default function PayPage() {
                 <div className="flex items-center gap-3">
                   <FileText className="h-8 w-8 text-purple-600" />
                   <div>
-                    <p className="text-2xl font-bold">156</p>
+                    <p className="text-2xl font-bold">{snapshot ? Object.keys(snapshot.componentTotals).length : 0}</p>
                     <p className="text-sm text-slate-500">
-                      {displaySpanish ? 'Transacciones' : 'Transactions'}
+                      {displaySpanish ? 'Componentes' : 'Components'}
                     </p>
                   </div>
                 </div>
