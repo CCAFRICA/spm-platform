@@ -252,41 +252,70 @@ export default function CalculatePage() {
       draftPlans,
     });
 
-    // Get periods from period processor
+    // OB-41: Build canonical period list using YYYY-MM keys (deduplicated)
+    const canonicalPeriods = new Map<string, Period>();
+
+    // From period processor
     try {
       const processor = getPeriodProcessor(currentTenant.id);
       const allPeriods = processor.getPeriods();
-      setPeriods(
-        allPeriods.map((p) => ({
-          id: p.id,
-          name: p.name,
-          startDate: p.startDate,
-          endDate: p.endDate,
-          status: p.status,
-        }))
-      );
+      for (const p of allPeriods) {
+        // Derive YYYY-MM from startDate
+        const date = new Date(p.startDate);
+        const canonicalId = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (!canonicalPeriods.has(canonicalId)) {
+          canonicalPeriods.set(canonicalId, {
+            id: canonicalId,
+            name: p.name,
+            startDate: p.startDate,
+            endDate: p.endDate,
+            status: p.status,
+          });
+        }
+      }
     } catch {
-      // Create demo periods if none exist
-      const now = new Date();
-      const currentMonth = now.toLocaleString('default', { month: 'long', year: 'numeric' });
-      setPeriods([
-        {
-          id: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
-          name: currentMonth,
-          startDate: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(),
-          endDate: new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString(),
-          status: 'open',
-        },
-      ]);
+      // No periods from processor
     }
+
+    // From detected periods (committed data)
+    const detected = detectAvailablePeriods(currentTenant.id);
+    setDetectedPeriods(detected);
+    for (const dp of detected) {
+      if (!canonicalPeriods.has(dp)) {
+        const [year, month] = dp.split('-').map(Number);
+        const startDate = new Date(year, month - 1, 1);
+        const endDate = new Date(year, month, 0);
+        canonicalPeriods.set(dp, {
+          id: dp,
+          name: startDate.toLocaleString('default', { month: 'long', year: 'numeric' }),
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          status: 'open',
+        });
+      }
+    }
+
+    // Ensure at least current month
+    if (canonicalPeriods.size === 0) {
+      const now = new Date();
+      const currentId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      canonicalPeriods.set(currentId, {
+        id: currentId,
+        name: now.toLocaleString('default', { month: 'long', year: 'numeric' }),
+        startDate: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(),
+        endDate: new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString(),
+        status: 'open',
+      });
+    }
+
+    // Sort by date descending
+    const sortedPeriods = Array.from(canonicalPeriods.values())
+      .sort((a, b) => b.id.localeCompare(a.id));
+    setPeriods(sortedPeriods);
 
     // Load recent runs
     const runs = getPeriodRuns(currentTenant.id);
     setRecentRuns(runs.slice(0, 5));
-
-    // OB-34: Detect periods from committed data
-    const detected = detectAvailablePeriods(currentTenant.id);
-    setDetectedPeriods(detected);
   }, [currentTenant]);
 
   // OB-34: Load lifecycle cycle and completeness when period changes
