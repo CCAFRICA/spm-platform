@@ -11,7 +11,7 @@
  * Shows preview of first 5 rows with ALL columns.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
@@ -97,6 +97,8 @@ import {
   Sparkles,
   Loader2,
   Download,
+  ChevronRight,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -332,6 +334,8 @@ export default function ReconciliationPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeComparison | null>(null);
   const [filter, setFilter] = useState<'all' | 'matched' | 'file_only' | 'vl_only' | 'flagged'>('all');
   const [sortDesc, setSortDesc] = useState(true);
+  // OB-39 Phase 6: Expandable rows for component breakdown
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Locale and currency
   const { locale } = useAdminLocale();
@@ -650,6 +654,24 @@ export default function ReconciliationPage() {
         })
     : [];
 
+  // OB-39 Phase 6: Set of false green employee IDs for visual distinction
+  const falseGreenIds = new Set(
+    adaptiveResult?.falseGreens.map(fg => fg.employeeId) ?? []
+  );
+
+  // OB-39 Phase 6: Toggle expandable row
+  const toggleRow = (employeeId: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(employeeId)) {
+        next.delete(employeeId);
+      } else {
+        next.add(employeeId);
+      }
+      return next;
+    });
+  };
+
   // Get flag/population badge for an employee (Wayfinder Layer 2: attention patterns)
   const getFlagBadge = (emp: EmployeeComparison) => {
     if (emp.population === 'file_only') {
@@ -679,6 +701,7 @@ export default function ReconciliationPage() {
     const headers = [
       'Employee ID', 'Employee Name', 'Population',
       'File Total', 'VL Total', 'Delta', 'Delta %', 'Flag',
+      'False Green',
     ];
 
     // Add component columns if any employee has components
@@ -707,6 +730,7 @@ export default function ReconciliationPage() {
         emp.totalDelta.toString(),
         (emp.totalDeltaPercent * 100).toFixed(2) + '%',
         emp.totalFlag,
+        falseGreenIds.has(emp.employeeId) ? 'YES' : '',
       ];
 
       if (hasComponents) {
@@ -737,6 +761,13 @@ export default function ReconciliationPage() {
     rows.push(['File Total', comparisonResult.summary.fileTotalAmount.toString()]);
     rows.push(['VL Total', comparisonResult.summary.vlTotalAmount.toString()]);
     rows.push(['Total Delta', comparisonResult.summary.totalDelta.toString()]);
+    // OB-39: Include comparison depth and false green info
+    if (adaptiveResult) {
+      rows.push(['Comparison Depth', adaptiveResult.depth.maxDepth]);
+      rows.push(['Layers Compared', adaptiveResult.comparedLayers.join(', ')]);
+      rows.push(['False Green Risk', adaptiveResult.depth.falseGreenRisk]);
+      rows.push(['False Green Count', adaptiveResult.falseGreens.length.toString()]);
+    }
 
     // Convert to CSV string
     const csvContent = rows.map(row =>
@@ -1303,43 +1334,103 @@ export default function ReconciliationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEmployees.slice(0, 20).map((emp) => (
-                    <TableRow key={emp.employeeId}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{emp.employeeName}</p>
-                          <p className="text-xs text-slate-400">{emp.employeeId}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">{formatCurrency(emp.fileTotal)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(emp.vlTotal)}</TableCell>
-                      <TableCell className={cn('text-right font-medium', getFlagColor(emp.totalFlag))}>
-                        <div className="flex items-center justify-end gap-1">
-                          {emp.totalDelta > 0 ? (
-                            <TrendingUp className="h-4 w-4" />
-                          ) : emp.totalDelta < 0 ? (
-                            <TrendingDown className="h-4 w-4" />
-                          ) : (
-                            <Minus className="h-4 w-4 text-slate-400" />
-                          )}
-                          {formatCurrency(Math.abs(emp.totalDelta))}
-                          <span className="text-xs text-slate-400">
-                            ({(Math.abs(emp.totalDeltaPercent) * 100).toFixed(1)}%)
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>{getFlagBadge(emp)}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSelectedEmployee(emp)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredEmployees.slice(0, 20).map((emp) => {
+                    const isFalseGreen = falseGreenIds.has(emp.employeeId);
+                    const isExpanded = expandedRows.has(emp.employeeId);
+                    const hasComponents = emp.components.length > 0;
+                    return (
+                      <React.Fragment key={emp.employeeId}>
+                        <TableRow className={cn(
+                          isFalseGreen && 'bg-amber-50/50 dark:bg-amber-900/10'
+                        )}>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              {hasComponents && (
+                                <button
+                                  className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                                  onClick={() => toggleRow(emp.employeeId)}
+                                >
+                                  {isExpanded
+                                    ? <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                                    : <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                                  }
+                                </button>
+                              )}
+                              <div>
+                                <p className="font-medium">{emp.employeeName}</p>
+                                <p className="text-xs text-slate-400">{emp.employeeId}</p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">{formatCurrency(emp.fileTotal)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(emp.vlTotal)}</TableCell>
+                          <TableCell className={cn('text-right font-medium', getFlagColor(emp.totalFlag))}>
+                            <div className="flex items-center justify-end gap-1">
+                              {emp.totalDelta > 0 ? (
+                                <TrendingUp className="h-4 w-4" />
+                              ) : emp.totalDelta < 0 ? (
+                                <TrendingDown className="h-4 w-4" />
+                              ) : (
+                                <Minus className="h-4 w-4 text-slate-400" />
+                              )}
+                              {formatCurrency(Math.abs(emp.totalDelta))}
+                              <span className="text-xs text-slate-400">
+                                ({(Math.abs(emp.totalDeltaPercent) * 100).toFixed(1)}%)
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              {getFlagBadge(emp)}
+                              {isFalseGreen && (
+                                <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-700 bg-amber-50">
+                                  {locale === 'es-MX' ? 'Falso verde' : 'False green'}
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSelectedEmployee(emp)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                        {/* OB-39 Phase 6: Expandable component breakdown row */}
+                        {isExpanded && hasComponents && (
+                          <TableRow className="bg-slate-50/80 dark:bg-slate-900/40">
+                            <TableCell colSpan={6} className="py-2 px-8">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="text-xs h-7">{t.component}</TableHead>
+                                    <TableHead className="text-xs text-right h-7">{t.expected}</TableHead>
+                                    <TableHead className="text-xs text-right h-7">{t.calculated}</TableHead>
+                                    <TableHead className="text-xs text-right h-7">{t.variance}</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {emp.components.map((comp) => (
+                                    <TableRow key={comp.componentId}>
+                                      <TableCell className="text-xs py-1">{comp.componentName}</TableCell>
+                                      <TableCell className="text-xs text-right py-1">{formatCurrency(comp.fileValue)}</TableCell>
+                                      <TableCell className="text-xs text-right py-1">{formatCurrency(comp.vlValue)}</TableCell>
+                                      <TableCell className={cn('text-xs text-right py-1', getFlagColor(comp.flag))}>
+                                        {formatCurrency(Math.abs(comp.delta))} ({(Math.abs(comp.deltaPercent) * 100).toFixed(1)}%)
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
               {filteredEmployees.length > 20 && (
