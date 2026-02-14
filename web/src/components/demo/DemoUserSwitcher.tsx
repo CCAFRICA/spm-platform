@@ -51,6 +51,32 @@ const DEMO_USERS: Record<
     descriptionEs: string;
   }>
 > = {
+  techcorp: [
+    {
+      email: 'sarah.chen@techcorp.com',
+      name: 'Sarah Chen',
+      role: 'Sales Rep',
+      roleEs: 'Rep de Ventas',
+      description: 'View own compensation & performance',
+      descriptionEs: 'Ver compensación y rendimiento propio',
+    },
+    {
+      email: 'mike.chen@techcorp.com',
+      name: 'Mike Chen',
+      role: 'Manager',
+      roleEs: 'Gerente',
+      description: 'Review team performance & approvals',
+      descriptionEs: 'Revisar rendimiento del equipo y aprobaciones',
+    },
+    {
+      email: 'admin@techcorp.com',
+      name: 'TechCorp Admin',
+      role: 'Administrator',
+      roleEs: 'Administrador',
+      description: 'Full admin access & configuration',
+      descriptionEs: 'Acceso administrativo completo y configuración',
+    },
+  ],
   retailco: [
     {
       email: 'maria.rodriguez@retailco.com',
@@ -217,7 +243,8 @@ export function DemoUserSwitcher() {
 
     setIsSwitching(true);
     try {
-      await login(email);
+      // navigate: false keeps user on current page instead of bouncing to /
+      await login(email, { navigate: false });
       toast.success(isSpanish ? 'Usuario cambiado' : 'User switched');
     } finally {
       setIsSwitching(false);

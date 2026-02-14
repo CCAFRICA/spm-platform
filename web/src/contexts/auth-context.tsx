@@ -405,12 +405,17 @@ function findUserById(userId: string): User | undefined {
   return dynamicUsers.find(u => u.id === userId);
 }
 
+interface LoginOptions {
+  /** Skip router.push after login — used by DemoUserSwitcher to keep user on current page */
+  navigate?: boolean;
+}
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   isVLAdmin: boolean;
-  login: (email: string) => Promise<boolean>;
+  login: (email: string, options?: LoginOptions) => Promise<boolean>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
 }
@@ -449,7 +454,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string): Promise<boolean> => {
+  const login = async (email: string, options?: LoginOptions): Promise<boolean> => {
+    const shouldNavigate = options?.navigate !== false; // default: true
+
     // Check both static and dynamic users
     const foundUser = findUserByEmail(email);
 
@@ -480,11 +487,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     });
 
-    // Route based on user type
-    if (isVLAdmin(foundUser)) {
-      router.push('/select-tenant');
-    } else {
-      router.push('/');
+    // Route based on user type (skip for persona switches within the app)
+    if (shouldNavigate) {
+      if (isVLAdmin(foundUser)) {
+        router.push('/select-tenant');
+      } else {
+        router.push('/');
+      }
     }
 
     return true;
