@@ -25,7 +25,6 @@ import {
   recordUserCorrection,
 } from '@/lib/intelligence/classification-signal-service';
 import {
-  runComparison,
   getFlagColor,
   type ComparisonResult,
   type EmployeeComparison,
@@ -34,6 +33,10 @@ import {
   assessComparisonDepth,
   type DepthAssessment,
 } from '@/lib/reconciliation/comparison-depth-engine';
+import {
+  runAdaptiveComparison,
+  type AdaptiveComparisonResult,
+} from '@/lib/reconciliation/adaptive-comparison-engine';
 import {
   parseFile,
   parseSheetFromWorkbook,
@@ -322,7 +325,9 @@ export default function ReconciliationPage() {
   const [isRunning, setIsRunning] = useState(false);
   // OB-39: Comparison depth assessment
   const [depthAssessment, setDepthAssessment] = useState<DepthAssessment | null>(null);
-  // Phase 4: New comparison engine result
+  // OB-39: Adaptive multi-layer comparison result
+  const [adaptiveResult, setAdaptiveResult] = useState<AdaptiveComparisonResult | null>(null);
+  // Phase 4: New comparison engine result (derived from adaptive)
   const [comparisonResult, setComparisonResult] = useState<ComparisonResult | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeComparison | null>(null);
   const [filter, setFilter] = useState<'all' | 'matched' | 'file_only' | 'vl_only' | 'flagged'>('all');
@@ -578,26 +583,22 @@ export default function ReconciliationPage() {
 
     setIsRunning(true);
     setComparisonResult(null);
+    setAdaptiveResult(null);
 
-    // HF-022: Use requestAnimationFrame so React renders the loading spinner
-    // before the synchronous comparison (can take seconds for 2000+ rows)
+    // Use requestAnimationFrame so React renders loading spinner first
     requestAnimationFrame(() => {
       try {
-        // HF-022: Read from forensics traces — the ONLY storage path the
-        // orchestrator actually writes to (saveTraces at line 296).
-        // IndexedDB saveResults exists but is never called.
+        // Read from forensics traces (the only storage path the orchestrator writes to)
         const batch = selectedBatch ? batches.find(b => b.id === selectedBatch) : null;
         const traces = getTraces(currentTenant.id, batch?.id);
         console.log(`[Reconciliation] Forensics traces for tenant '${currentTenant.id}', run '${batch?.id || 'latest'}': ${traces.length} employees`);
 
-        // CalculationTrace has employeeId, employeeName, totalIncentive,
-        // and components[].componentId / outputValue — structurally compatible
-        // with CalculationResult for comparison purposes.
         const vlResults = traces as unknown as import('@/types/compensation-plan').CalculationResult[];
 
-        console.log(`[Reconciliation] Comparing ${parsedFile.rows.length} file rows vs ${vlResults.length} VL results (empId='${employeeIdField}', amt='${amountField}')`);
+        console.log(`[Reconciliation] Running adaptive multi-layer comparison: ${parsedFile.rows.length} file rows vs ${vlResults.length} VL results`);
 
-        const result = runComparison(
+        // OB-39: Use adaptive comparison engine for multi-layer depth
+        const result = runAdaptiveComparison(
           parsedFile.rows,
           vlResults,
           aiMappings,
@@ -605,8 +606,24 @@ export default function ReconciliationPage() {
           amountField,
         );
 
-        console.log(`[Reconciliation] Result: ${result.summary.matched} matched, ${result.summary.fileOnly} file-only, ${result.summary.vlOnly} vl-only`);
-        setComparisonResult(result);
+        setAdaptiveResult(result);
+
+        // Set the employee comparison for backward-compatible results display
+        if (result.employeeComparison) {
+          setComparisonResult(result.employeeComparison);
+        }
+
+        // Update depth assessment from the comparison
+        if (result.depth) {
+          setDepthAssessment(result.depth);
+        }
+
+        console.log('[Reconciliation] Adaptive result:',
+          'layers:', result.comparedLayers.join(', '),
+          'matched:', result.summary?.matched ?? 0,
+          'fileOnly:', result.summary?.fileOnly ?? 0,
+          'vlOnly:', result.summary?.vlOnly ?? 0,
+          'falseGreens:', result.falseGreens.length);
       } catch (error) {
         console.error('[Reconciliation] Comparison error:', error);
       } finally {
@@ -1111,6 +1128,25 @@ export default function ReconciliationPage() {
       {/* Phase 4-5: Comparison Results */}
       {comparisonResult && (
         <>
+          {/* OB-39: Comparison depth and false green summary */}
+          {adaptiveResult && (
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-3 text-sm">
+                <Badge variant="outline" className="text-xs border-blue-300 text-blue-700 bg-blue-50">
+                  {locale === 'es-MX' ? 'Profundidad' : 'Depth'}: {adaptiveResult.depth.maxDepth}
+                </Badge>
+                <span className="text-slate-500">
+                  {adaptiveResult.comparedLayers.length} {locale === 'es-MX' ? 'capas comparadas' : 'layers compared'}
+                </span>
+                {adaptiveResult.falseGreens.length > 0 && (
+                  <Badge variant="outline" className="text-xs border-red-300 text-red-700 bg-red-50">
+                    {adaptiveResult.falseGreens.length} {locale === 'es-MX' ? 'falsos verdes' : 'false greens'}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Export bar */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4 text-sm text-slate-500">
