@@ -1289,42 +1289,118 @@ export default function CalculatePage() {
             </Card>
           )}
 
-          {/* Next Steps */}
-          <Card className="border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30">
+          {/* OB-40 Phase 8: Thermostat Guidance — lifecycle-aware next steps */}
+          <Card className={cn(
+            'border-0 shadow-lg',
+            result.run.errorCount > 0 ? 'bg-amber-50' : 'bg-emerald-50'
+          )}>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-emerald-800 dark:text-emerald-200">
-                <CheckCircle2 className="h-5 w-5" />
-                {locale === 'es-MX' ? 'Próximos Pasos' : 'Next Steps'}
+              <CardTitle className={cn(
+                'flex items-center gap-2',
+                result.run.errorCount > 0 ? 'text-amber-800' : 'text-emerald-800'
+              )}>
+                {result.run.errorCount > 0 ? (
+                  <AlertTriangle className="h-5 w-5" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5" />
+                )}
+                {result.run.errorCount > 0
+                  ? 'Action Required'
+                  : cycle?.state === 'PREVIEW' ? 'Preview Complete — What Next?'
+                  : cycle?.state === 'OFFICIAL' ? 'Official Results Ready'
+                  : 'Calculation Complete'}
               </CardTitle>
-              <CardDescription className="text-emerald-700 dark:text-emerald-300">
-                {locale === 'es-MX'
-                  ? 'El cálculo se completó. Elija qué hacer a continuación.'
-                  : 'Calculation complete. Choose what to do next.'}
+              <CardDescription className={result.run.errorCount > 0 ? 'text-amber-700' : 'text-emerald-700'}>
+                {result.run.errorCount > 0
+                  ? `${result.run.errorCount} error(s) found. Review errors above, fix data issues, then re-run.`
+                  : cycle?.state === 'PREVIEW'
+                    ? `${result.summary.employeesProcessed} employees processed. Review results, reconcile, then run Official.`
+                  : cycle?.state === 'OFFICIAL'
+                    ? `Official run locked. Total payout: ${formatCurrency(result.summary.totalPayout)}. Submit for approval when ready.`
+                  : `${result.summary.employeesProcessed} employees, ${formatCurrency(result.summary.totalPayout)} total.`}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 md:grid-cols-2">
-                <Button
-                  onClick={() => router.push('/operate/reconcile')}
-                  className="w-full justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <Scale className="h-4 w-4" />
-                    {locale === 'es-MX' ? 'Conciliar Resultados' : 'Reconcile Results'}
-                  </span>
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => router.push('/investigate/calculations')}
-                  className="w-full justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <Search className="h-4 w-4" />
-                    {locale === 'es-MX' ? 'Ver Detalles de Cálculo' : 'View Calculation Details'}
-                  </span>
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
+                {cycle?.state === 'PREVIEW' && (
+                  <>
+                    <Button
+                      onClick={() => router.push('/operate/reconcile')}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Scale className="h-4 w-4" />
+                        Reconcile Results
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setRunType('official');
+                        handleRunCalculation();
+                      }}
+                      disabled={!selectedPeriod || isRunning}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Play className="h-4 w-4" />
+                        Run Official Calculation
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+                {cycle?.state === 'OFFICIAL' && (
+                  <>
+                    <Button
+                      onClick={handleSubmitForApproval}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <ArrowRight className="h-4 w-4" />
+                        Submit for Approval
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push('/investigate/calculations')}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Search className="h-4 w-4" />
+                        Investigate Details
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+                {(!cycle || cycle.state === 'DRAFT') && (
+                  <>
+                    <Button
+                      onClick={() => router.push('/operate/reconcile')}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Scale className="h-4 w-4" />
+                        Reconcile Results
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push('/investigate/calculations')}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Search className="h-4 w-4" />
+                        View Calculation Details
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
