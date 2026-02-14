@@ -15,6 +15,7 @@ import {
   getStateLabel,
   getStateColor,
 } from '@/lib/calculation/calculation-lifecycle-service';
+import { getLatestRun, getCalculationResults } from '@/lib/calculation/results-storage';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,9 +40,34 @@ export default function PayPage() {
 
   const displaySpanish = isSpanish;
 
-  // OB-39 Phase 9: Get latest lifecycle cycle for real data
-  const latestCycle = currentTenant ? listCycles(currentTenant.id)[0] : null;
+  // OB-41 Phase 7: Get latest APPROVED+ lifecycle cycle for payroll data
+  const approvedStates = ['APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED'];
+  const allCycles = currentTenant ? listCycles(currentTenant.id) : [];
+  const latestCycle = allCycles.find(c => approvedStates.includes(c.state)) || allCycles[0] || null;
   const snapshot = latestCycle?.officialSnapshot;
+
+  // Fallback: if no snapshot, try to derive from latest calculation run
+  const fallbackData = (() => {
+    if (snapshot) return null;
+    if (!currentTenant) return null;
+    const period = latestCycle?.period;
+    const run = period ? getLatestRun(currentTenant.id, period) : null;
+    if (!run) return null;
+    const results = getCalculationResults(run.id);
+    if (results.length === 0) return null;
+    const totalPayout = results.reduce((sum, r) => sum + (r.totalIncentive || 0), 0);
+    const componentSet = new Set<string>();
+    for (const r of results) {
+      for (const c of r.components || []) {
+        componentSet.add(c.componentName || c.componentId);
+      }
+    }
+    return { employeeCount: results.length, totalPayout, componentCount: componentSet.size };
+  })();
+
+  const employeeCount = snapshot?.employeeCount || fallbackData?.employeeCount || 0;
+  const totalPayout = snapshot?.totalPayout || fallbackData?.totalPayout || 0;
+  const componentCount = snapshot ? Object.keys(snapshot.componentTotals).length : fallbackData?.componentCount || 0;
 
   const payStatus = cycleState?.phaseStatuses.pay;
   const approveStatus = cycleState?.phaseStatuses.approve;
@@ -149,7 +175,7 @@ export default function PayPage() {
                 <div className="flex items-center gap-3">
                   <Users className="h-8 w-8 text-blue-600" />
                   <div>
-                    <p className="text-2xl font-bold">{snapshot?.employeeCount || 0}</p>
+                    <p className="text-2xl font-bold">{employeeCount}</p>
                     <p className="text-sm text-slate-500">
                       {displaySpanish ? 'Empleados' : 'Employees'}
                     </p>
@@ -163,7 +189,7 @@ export default function PayPage() {
                 <div className="flex items-center gap-3">
                   <DollarSign className="h-8 w-8 text-green-600" />
                   <div>
-                    <p className="text-2xl font-bold">{formatCurrency(snapshot?.totalPayout || 0)}</p>
+                    <p className="text-2xl font-bold">{formatCurrency(totalPayout)}</p>
                     <p className="text-sm text-slate-500">
                       {displaySpanish ? 'Total Nómina' : 'Total Payroll'}
                     </p>
@@ -177,7 +203,7 @@ export default function PayPage() {
                 <div className="flex items-center gap-3">
                   <FileText className="h-8 w-8 text-purple-600" />
                   <div>
-                    <p className="text-2xl font-bold">{snapshot ? Object.keys(snapshot.componentTotals).length : 0}</p>
+                    <p className="text-2xl font-bold">{componentCount}</p>
                     <p className="text-sm text-slate-500">
                       {displaySpanish ? 'Componentes' : 'Components'}
                     </p>
