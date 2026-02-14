@@ -24,6 +24,8 @@ import {
 import {
   loadCycle,
   canViewResults,
+  listCycles,
+  type CalculationState,
 } from '@/lib/calculation/calculation-lifecycle-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -77,11 +79,49 @@ export default function PerformPage() {
   const isManager = userRole === 'manager' || userRole === 'admin';
   const isSalesRep = userRole === 'sales_rep';
 
-  // Fetch calculation results
+  // Fetch calculation results — OB-41 Phase 6: search all periods, lifecycle-gate properly
   useEffect(() => {
     if (!currentTenant) return;
 
-    const period = getCurrentPeriod();
+    const role = isVLAdmin ? 'vl_admin' as const
+      : isManager ? 'manager' as const
+      : 'sales_rep' as const;
+
+    // For non-admin roles, find the latest POSTED+ cycle and use that period
+    const postVisibleStates: CalculationState[] = ['POSTED', 'CLOSED', 'PAID', 'PUBLISHED'];
+    const allCycles = listCycles(currentTenant.id);
+
+    let targetPeriod: string | null = null;
+
+    if (isSalesRep) {
+      // Sales reps can only see POSTED+ periods
+      const visibleCycle = allCycles.find(c => postVisibleStates.includes(c.state));
+      if (visibleCycle) {
+        targetPeriod = visibleCycle.period;
+      }
+    } else {
+      // Admins/managers: prefer the latest cycle they can view
+      const visibleCycle = allCycles.find(c => canViewResults(c.state, role));
+      if (visibleCycle) {
+        targetPeriod = visibleCycle.period;
+      }
+    }
+
+    // Fallback to current period if no cycle found
+    const period = targetPeriod || getCurrentPeriod();
+
+    // Check lifecycle gate for this period
+    const cycle = loadCycle(currentTenant.id, period);
+    if (cycle && !canViewResults(cycle.state, role)) {
+      setLifecycleGated(true);
+      setAllResults([]);
+      setHasResults(false);
+      setMyResult(null);
+      return;
+    }
+    setLifecycleGated(false);
+
+    // Load results — try multiple sources
     let results: CalculationResult[] = [];
 
     results = getPeriodResults(currentTenant.id, period);
@@ -107,20 +147,6 @@ export default function PerformPage() {
       }
     }
 
-    // OB-39 Phase 8: Check lifecycle state for visibility gating
-    const role = isVLAdmin ? 'vl_admin' as const
-      : isManager ? 'manager' as const
-      : 'sales_rep' as const;
-    const cycle = loadCycle(currentTenant.id, period);
-    if (cycle && !canViewResults(cycle.state, role)) {
-      setLifecycleGated(true);
-      setAllResults([]);
-      setHasResults(false);
-      setMyResult(null);
-      return;
-    }
-    setLifecycleGated(false);
-
     setAllResults(results);
     setHasResults(results.length > 0);
 
@@ -129,7 +155,7 @@ export default function PerformPage() {
       const result = results.find((r) => r.employeeId === employeeId);
       setMyResult(result || null);
     }
-  }, [currentTenant, user, isVLAdmin, isManager]);
+  }, [currentTenant, user, isVLAdmin, isManager, isSalesRep]);
 
   // Derive aggregate/team stats
   const stats = useMemo(() => {
