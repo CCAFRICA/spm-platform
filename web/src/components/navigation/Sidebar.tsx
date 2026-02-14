@@ -226,7 +226,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         { name: isSpanish ? "Lanzamiento de Cliente" : "Customer Launch", href: "/admin/launch", vlAdminOnly: true },
         { name: isSpanish ? "Importar Plan" : "Plan Import", href: "/admin/launch/plan-import", vlAdminOnly: true },
         { name: isSpanish ? "Ejecutar Cálculos" : "Run Calculations", href: "/admin/launch/calculate", vlAdminOnly: true },
-        { name: isSpanish ? "Reconciliación" : "Reconciliation", href: "/admin/launch/reconciliation", vlAdminOnly: true },
+        { name: isSpanish ? "Aprobaciones de Calculo" : "Calculation Approvals", href: "/govern/calculation-approvals", vlAdminOnly: true },
+        { name: isSpanish ? "Reconciliacion" : "Reconciliation", href: "/admin/launch/reconciliation", vlAdminOnly: true },
       ],
     },
   ];

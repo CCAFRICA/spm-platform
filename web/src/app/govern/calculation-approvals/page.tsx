@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
@@ -27,7 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import {
   CheckCircle, XCircle, AlertTriangle, Shield, DollarSign,
-  Users, Clock, ShieldAlert,
+  Users, Clock, ShieldAlert, ExternalLink,
 } from 'lucide-react';
 
 export default function CalculationApprovalPage() {
@@ -40,7 +41,7 @@ export default function CalculationApprovalPage() {
   const [error, setError] = useState<string | null>(null);
 
   const tenantId = currentTenant?.id || '';
-  const hasAccess = user && isVLAdmin(user);
+  const hasAccess = user && (isVLAdmin(user) || user.role === 'admin');
 
   useEffect(() => {
     if (!tenantId) return;
@@ -131,6 +132,14 @@ export default function CalculationApprovalPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-6 text-sm">
+                    <Link
+                      href="/admin/launch/calculate"
+                      className="flex items-center gap-1 text-blue-600 hover:text-blue-800"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      View Results
+                    </Link>
                     <div className="flex items-center gap-1">
                       <DollarSign className="h-4 w-4 text-emerald-500" />
                       {formatCurrency(item.summary.totalPayout)}
