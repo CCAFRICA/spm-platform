@@ -139,9 +139,9 @@ export default function PlansPage() {
             Configure and manage compensation plan structures
           </p>
         </div>
-        <Button onClick={() => router.push('/performance/plans/new')}>
+        <Button disabled className="opacity-60" title="Coming Soon">
           <Plus className="h-4 w-4 mr-2" />
-          Create Plan
+          Create Plan (Coming Soon)
         </Button>
       </div>
 
@@ -222,9 +222,9 @@ export default function PlansPage() {
                   : 'No plans match your search criteria.'}
               </div>
               {plans.length === 0 && (
-                <Button className="mt-4" onClick={() => router.push('/performance/plans/new')}>
+                <Button className="mt-4 opacity-60" disabled title="Coming Soon">
                   <Plus className="h-4 w-4 mr-2" />
-                  Create First Plan
+                  Create First Plan (Coming Soon)
                 </Button>
               )}
             </div>

@@ -228,7 +228,7 @@ export default function PayPage() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-2 gap-4">
-        <Card className="hover:border-slate-300 transition-colors cursor-pointer" onClick={() => router.push('/operations/payroll-calendar')}>
+        <Card className="opacity-60">
           <CardContent className="p-6 flex items-center gap-4">
             <div className="p-3 bg-blue-100 rounded-lg">
               <Calendar className="h-6 w-6 text-blue-600" />
@@ -237,14 +237,14 @@ export default function PayPage() {
               <p className="font-medium text-slate-900">
                 {displaySpanish ? 'Calendario de Nómina' : 'Payroll Calendar'}
               </p>
-              <p className="text-sm text-slate-500">
-                {displaySpanish ? 'Ver fechas del ciclo' : 'View cycle dates'}
+              <p className="text-sm text-slate-400">
+                {displaySpanish ? 'Próximamente' : 'Coming Soon'}
               </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="hover:border-slate-300 transition-colors cursor-pointer" onClick={() => router.push('/operations/payment-history')}>
+        <Card className="opacity-60">
           <CardContent className="p-6 flex items-center gap-4">
             <div className="p-3 bg-green-100 rounded-lg">
               <FileText className="h-6 w-6 text-green-600" />
@@ -253,8 +253,8 @@ export default function PayPage() {
               <p className="font-medium text-slate-900">
                 {displaySpanish ? 'Historial de Pagos' : 'Payment History'}
               </p>
-              <p className="text-sm text-slate-500">
-                {displaySpanish ? 'Ver períodos anteriores' : 'View previous periods'}
+              <p className="text-sm text-slate-400">
+                {displaySpanish ? 'Próximamente' : 'Coming Soon'}
               </p>
             </div>
           </CardContent>
