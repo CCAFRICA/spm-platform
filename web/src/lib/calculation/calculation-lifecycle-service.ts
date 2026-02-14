@@ -159,6 +159,14 @@ export function getAllowedTransitions(state: CalculationState): CalculationState
 }
 
 /**
+ * Check if a transition from the current state to the target state is valid.
+ */
+export function canTransition(currentState: CalculationState, targetState: CalculationState): boolean {
+  const allowed = VALID_TRANSITIONS[currentState] || [];
+  return allowed.includes(targetState);
+}
+
+/**
  * Transition a cycle to a new state with enforced rules.
  * Throws on invalid transitions with clear error message.
  */

@@ -74,13 +74,11 @@ import {
 import { cn } from '@/lib/utils';
 import {
   loadCycle,
-  createCycle,
   transitionCycle,
   getStateLabel,
   getStateColor,
   LIFECYCLE_STATES_ORDERED,
   type CalculationCycle,
-  type OfficialSnapshot,
 } from '@/lib/calculation/calculation-lifecycle-service';
 import {
   detectAvailablePeriods,
@@ -305,7 +303,7 @@ export default function CalculatePage() {
     }
   }, [currentTenant, selectedPeriod]);
 
-  // Run calculation
+  // Run calculation -- OB-41: lifecycle transitions now handled by orchestrator
   const handleRunCalculation = async () => {
     if (!selectedPeriod || !currentTenant || !user) return;
 
@@ -338,69 +336,52 @@ export default function CalculatePage() {
       setProgress(100);
       setResult(orchestrationResult);
 
-      // OB-34: Update lifecycle state
-      try {
-        const planId = planStatus.activePlanName || 'active';
-        let currentCycle = loadCycle(currentTenant.id, selectedPeriod);
-        if (!currentCycle) {
-          currentCycle = createCycle(currentTenant.id, planId, selectedPeriod);
-        }
-        if (runType === 'preview') {
-          currentCycle = transitionCycle(currentCycle, 'PREVIEW', user.name, 'Preview calculation completed', {
-            runId: orchestrationResult.run.id,
-          });
-        } else {
-          // Official run: transition to PREVIEW first if needed, then to OFFICIAL
-          if (currentCycle.state === 'DRAFT') {
-            currentCycle = transitionCycle(currentCycle, 'PREVIEW', user.name, 'Preview before official');
-          }
-          const snapshot: OfficialSnapshot = {
-            timestamp: new Date().toISOString(),
-            runId: orchestrationResult.run.id,
-            totalPayout: orchestrationResult.summary.totalPayout,
-            employeeCount: orchestrationResult.summary.employeesProcessed,
-            componentTotals: Object.fromEntries(
-              Object.entries(orchestrationResult.summary.byPlan || {}).map(([k, v]) => [k, v.total])
-            ),
-            immutable: true,
-          };
-          currentCycle = transitionCycle(currentCycle, 'OFFICIAL', user.name, 'Official calculation completed', { snapshot });
+      // OB-41: Re-read lifecycle state from storage (orchestrator already transitioned it)
+      const updatedCycle = loadCycle(currentTenant.id, selectedPeriod);
+      if (updatedCycle) {
+        setCycle(updatedCycle);
+      }
 
-          // Build and save calculation summary for Results Dashboard
-          try {
-            // Map CalculationResult[] to lightweight trace shape for summary builder
-            const tracelike = orchestrationResult.results.map(r => ({
-              employeeId: r.employeeId,
-              employeeName: r.employeeName,
-              storeId: r.storeId || '',
-              variant: { variantName: r.variantName || 'Default' },
-              totalIncentive: r.totalIncentive,
-              components: r.components.map(c => ({
-                componentId: c.componentId,
-                componentName: c.componentName,
-                outputValue: c.outputValue,
-              })),
-            }));
-            const summary = buildCalculationSummary(
-              tracelike as Parameters<typeof buildCalculationSummary>[0],
-              orchestrationResult.run.id,
-              currentTenant.id,
-              selectedPeriod
-            );
-            saveSummary(summary);
-          } catch (sumErr) {
-            console.warn('[Summary] Failed to build summary (non-fatal):', sumErr);
-          }
+      // Build and save calculation summary for Results Dashboard (official runs only)
+      if (runType === 'official' && orchestrationResult.success) {
+        try {
+          const tracelike = orchestrationResult.results.map(r => ({
+            employeeId: r.employeeId,
+            employeeName: r.employeeName,
+            storeId: r.storeId || '',
+            variant: { variantName: r.variantName || 'Default' },
+            totalIncentive: r.totalIncentive,
+            components: r.components.map(c => ({
+              componentId: c.componentId,
+              componentName: c.componentName,
+              outputValue: c.outputValue,
+            })),
+          }));
+          const summary = buildCalculationSummary(
+            tracelike as Parameters<typeof buildCalculationSummary>[0],
+            orchestrationResult.run.id,
+            currentTenant.id,
+            selectedPeriod
+          );
+          saveSummary(summary);
+        } catch (sumErr) {
+          console.warn('[Summary] Failed to build summary (non-fatal):', sumErr);
         }
-        setCycle(currentCycle);
-      } catch (lcError) {
-        console.warn('[Lifecycle] State transition failed (non-fatal):', lcError);
+      }
+
+      // Check for lifecycle error from orchestrator
+      const lcError = (orchestrationResult as OrchestrationResult & { lifecycleError?: string }).lifecycleError;
+      if (lcError) {
+        alert(`Calculation completed but lifecycle transition failed: ${lcError}`);
       }
 
       // Refresh recent runs
       const runs = getPeriodRuns(currentTenant.id);
       setRecentRuns(runs.slice(0, 5));
     } catch (error) {
+      // OB-41: Show lifecycle gate errors as user-visible alerts
+      const message = error instanceof Error ? error.message : 'Calculation failed';
+      alert(message);
       console.error('Calculation error:', error);
     } finally {
       clearInterval(progressInterval);

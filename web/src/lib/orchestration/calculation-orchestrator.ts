@@ -33,6 +33,15 @@ import { saveResultsToIndexedDB } from '@/lib/calculation/indexed-db-storage';
 import { buildTraces } from '@/lib/forensics/trace-builder';
 import { saveTraces } from '@/lib/forensics/forensics-service';
 import type { CalculationTrace } from '@/lib/forensics/types';
+import {
+  loadCycle,
+  createCycle,
+  transitionCycle,
+  canTransition,
+  getStateLabel,
+  type CalculationState,
+  type OfficialSnapshot,
+} from '@/lib/calculation/calculation-lifecycle-service';
 
 // ============================================
 // STORAGE KEYS
@@ -1790,7 +1799,8 @@ export function getOrchestrator(tenantId: string): CalculationOrchestrator {
 }
 
 /**
- * Execute a calculation run for a period
+ * Execute an official calculation run for a period.
+ * OB-41: Lifecycle-coupled -- validates transition before running, advances state after.
  */
 export async function runPeriodCalculation(
   tenantId: string,
@@ -1798,40 +1808,117 @@ export async function runPeriodCalculation(
   userId: string,
   options?: CalculationRunConfig['options']
 ): Promise<OrchestrationResult> {
-  const orchestrator = getOrchestrator(tenantId);
+  // OB-41: Lifecycle gate -- ensure we can transition to OFFICIAL
+  let cycle = loadCycle(tenantId, periodId);
+  if (!cycle) {
+    cycle = createCycle(tenantId, 'active', periodId);
+  }
 
-  return orchestrator.executeRun(
-    {
-      tenantId,
-      periodId,
-      runType: 'official',
-      scope: {},
-      options,
-    },
+  // Official needs to go through PREVIEW first if at DRAFT
+  const targetState: CalculationState = 'OFFICIAL';
+  let currentState = cycle.state;
+
+  // If at DRAFT, we need PREVIEW first -- auto-chain
+  if (currentState === 'DRAFT') {
+    if (!canTransition(currentState, 'PREVIEW')) {
+      throw new Error(
+        `Cannot run official calculation: period is at ${getStateLabel(currentState)}. ` +
+        `Run a Preview first.`
+      );
+    }
+    // Will transition to PREVIEW, then to OFFICIAL after calc
+    currentState = 'PREVIEW';
+  }
+
+  // Check PREVIEW/RECONCILE -> OFFICIAL is valid
+  if (currentState !== 'OFFICIAL' && !canTransition(currentState, targetState)) {
+    throw new Error(
+      `Cannot run official calculation: period is at ${getStateLabel(cycle.state)}. ` +
+      `Allowed next steps: ${getStateLabel(cycle.state)} can transition to: ` +
+      `${(['DRAFT','PREVIEW','RECONCILE','OFFICIAL','PENDING_APPROVAL','APPROVED','REJECTED','POSTED','CLOSED','PAID','PUBLISHED'] as CalculationState[]).filter(s => canTransition(cycle!.state, s)).map(s => getStateLabel(s)).join(', ') || 'none'}.`
+    );
+  }
+
+  const orchestrator = getOrchestrator(tenantId);
+  const result = await orchestrator.executeRun(
+    { tenantId, periodId, runType: 'official', scope: {}, options },
     userId
   );
+
+  // OB-41: Advance lifecycle on success
+  if (result.success) {
+    try {
+      // Ensure at PREVIEW first
+      if (cycle.state === 'DRAFT') {
+        cycle = transitionCycle(cycle, 'PREVIEW', userId, 'Auto-preview before official');
+      }
+
+      const snapshot: OfficialSnapshot = {
+        timestamp: new Date().toISOString(),
+        runId: result.run.id,
+        totalPayout: result.summary.totalPayout,
+        employeeCount: result.summary.employeesProcessed,
+        componentTotals: Object.fromEntries(
+          Object.entries(result.summary.byPlan || {}).map(([k, v]) => [k, v.total])
+        ),
+        immutable: true,
+      };
+      transitionCycle(cycle, 'OFFICIAL', userId, 'Official calculation completed', { snapshot });
+    } catch (lcErr) {
+      console.warn('[Orchestrator] Lifecycle transition failed:', lcErr);
+      // Attach lifecycle error to result for UI visibility
+      (result as OrchestrationResult & { lifecycleError?: string }).lifecycleError =
+        lcErr instanceof Error ? lcErr.message : 'Lifecycle transition failed';
+    }
+  }
+
+  return result;
 }
 
 /**
- * Preview calculation for a period without storing results
+ * Preview calculation for a period.
+ * OB-41: Lifecycle-coupled -- validates transition before running, advances state after.
  */
 export async function previewPeriodCalculation(
   tenantId: string,
   periodId: string,
   userId: string
 ): Promise<OrchestrationResult> {
-  const orchestrator = getOrchestrator(tenantId);
+  // OB-41: Lifecycle gate -- ensure we can transition to PREVIEW
+  let cycle = loadCycle(tenantId, periodId);
+  if (!cycle) {
+    cycle = createCycle(tenantId, 'active', periodId);
+  }
 
-  return orchestrator.executeRun(
-    {
-      tenantId,
-      periodId,
-      runType: 'preview',
-      scope: {},
-      options: { dryRun: true },
-    },
+  const targetState: CalculationState = 'PREVIEW';
+  if (!canTransition(cycle.state, targetState)) {
+    throw new Error(
+      `Cannot run preview: period is at ${getStateLabel(cycle.state)}. ` +
+      `Complete the current phase before re-running preview. ` +
+      `Allowed transitions: ${(['DRAFT','PREVIEW','RECONCILE','OFFICIAL','PENDING_APPROVAL','APPROVED','REJECTED','POSTED','CLOSED','PAID','PUBLISHED'] as CalculationState[]).filter(s => canTransition(cycle!.state, s)).map(s => getStateLabel(s)).join(', ') || 'none'}.`
+    );
+  }
+
+  const orchestrator = getOrchestrator(tenantId);
+  const result = await orchestrator.executeRun(
+    { tenantId, periodId, runType: 'preview', scope: {}, options: { dryRun: true } },
     userId
   );
+
+  // OB-41: Advance lifecycle on success
+  if (result.success) {
+    try {
+      transitionCycle(cycle, 'PREVIEW', userId, 'Preview calculation completed', {
+        runId: result.run.id,
+      });
+    } catch (lcErr) {
+      console.warn('[Orchestrator] Lifecycle transition failed:', lcErr);
+      (result as OrchestrationResult & { lifecycleError?: string }).lifecycleError =
+        lcErr instanceof Error ? lcErr.message : 'Lifecycle transition failed';
+    }
+  }
+
+  return result;
 }
 
 /**
