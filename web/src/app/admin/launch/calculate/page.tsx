@@ -1053,6 +1053,79 @@ export default function CalculatePage() {
             </Card>
           </div>
 
+          {/* OB-40 Phase 9: Signal-First Classification */}
+          {(() => {
+            const results = result.results;
+            if (results.length < 2) return null;
+            const payouts = results.map(r => r.totalIncentive || 0);
+            const avg = payouts.reduce((a, b) => a + b, 0) / payouts.length;
+            const stdDev = Math.sqrt(payouts.reduce((sum, p) => sum + Math.pow(p - avg, 2), 0) / payouts.length);
+            const signals: Array<{ type: 'warning' | 'info' | 'critical'; label: string }> = [];
+
+            // Zero-payout employees
+            const zeroPayout = results.filter(r => (r.totalIncentive || 0) === 0);
+            if (zeroPayout.length > 0) {
+              signals.push({
+                type: zeroPayout.length > results.length * 0.1 ? 'critical' : 'warning',
+                label: `${zeroPayout.length} employee(s) with zero payout`,
+              });
+            }
+
+            // Outliers (>2 std dev from mean)
+            if (stdDev > 0) {
+              const highOutliers = results.filter(r => (r.totalIncentive || 0) > avg + 2 * stdDev);
+              if (highOutliers.length > 0) {
+                signals.push({
+                  type: 'info',
+                  label: `${highOutliers.length} high outlier(s) above ${formatCurrency(avg + 2 * stdDev)}`,
+                });
+              }
+            }
+
+            // Max/min ratio
+            const max = Math.max(...payouts);
+            const minPositive = Math.min(...payouts.filter(p => p > 0));
+            if (minPositive > 0 && max / minPositive > 10) {
+              signals.push({
+                type: 'warning',
+                label: `High payout spread: top earner is ${Math.round(max / minPositive)}x the lowest`,
+              });
+            }
+
+            // Error rate
+            if (result.run.errorCount > 0) {
+              const errorRate = (result.run.errorCount / result.summary.employeesProcessed * 100).toFixed(1);
+              signals.push({
+                type: result.run.errorCount > 10 ? 'critical' : 'warning',
+                label: `${errorRate}% error rate (${result.run.errorCount} failures)`,
+              });
+            }
+
+            if (signals.length === 0) {
+              signals.push({ type: 'info', label: 'No anomalies detected — results look clean' });
+            }
+
+            return (
+              <Card className="border-0 shadow-md">
+                <CardContent className="py-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Signals</p>
+                  <div className="flex flex-wrap gap-2">
+                    {signals.map((s, i) => (
+                      <Badge key={i} className={cn(
+                        'text-xs',
+                        s.type === 'critical' ? 'bg-red-100 text-red-700' :
+                        s.type === 'warning' ? 'bg-amber-100 text-amber-700' :
+                        'bg-blue-100 text-blue-700'
+                      )}>
+                        {s.label}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           {/* Employee Breakdown */}
           <Card>
             <CardHeader>
