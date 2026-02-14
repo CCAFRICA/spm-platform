@@ -1,0 +1,1048 @@
+/**
+ * Supabase Database Types — ViaLuce Entity Model Schema
+ *
+ * 23 tables: 17 MDS v2 + 6 entity model (incl. 3 materializations)
+ * Domain-agnostic naming throughout: rule_sets NOT compensation_plans,
+ * entity_id NOT employee_id.
+ *
+ * Tables:
+ *  1. tenants                    - Multi-tenant container
+ *  2. profiles                   - User profiles with capabilities
+ *  3. entities                   - Domain-agnostic entity registry
+ *  4. entity_relationships       - Relationship graph
+ *  5. reassignment_events        - Entity reassignment tracking
+ *  6. rule_sets                  - 5-layer decomposition (was compensation_plans)
+ *  7. rule_set_assignments       - Entity-to-rule-set binding
+ *  8. periods                    - Temporal period management
+ *  9. import_batches             - File import metadata
+ * 10. committed_data             - Raw transaction data
+ * 11. calculation_batches        - Calculation batch with immutability (Rule 30)
+ * 12. calculation_results        - Per-entity calculation outcomes
+ * 13. calculation_traces         - Formula-level debug traces
+ * 14. disputes                   - Entity dispute records
+ * 15. reconciliation_sessions    - ADR reconciliation sessions
+ * 16. classification_signals     - AI classification feedback
+ * 17. audit_logs                 - Audit trail
+ * 18. ingestion_configs          - Data ingestion configuration
+ * 19. ingestion_events           - Ingestion audit trail
+ * 20. usage_metering             - Platform usage tracking
+ * 21. period_entity_state        - Materialization: temporal snapshot
+ * 22. profile_scope              - Materialization: graph-derived visibility
+ * 23. entity_period_outcomes     - Materialization: aggregated outcomes
+ */
+
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+export type EntityType = 'individual' | 'location' | 'team' | 'organization';
+export type EntityStatus = 'proposed' | 'active' | 'suspended' | 'terminated';
+export type RelationshipType =
+  | 'contains'
+  | 'manages'
+  | 'works_at'
+  | 'assigned_to'
+  | 'member_of'
+  | 'participates_in'
+  | 'oversees'
+  | 'assists';
+export type RelationshipSource =
+  | 'ai_inferred'
+  | 'human_confirmed'
+  | 'human_created'
+  | 'imported_explicit';
+export type RuleSetStatus = 'draft' | 'pending_approval' | 'active' | 'archived';
+export type PeriodType = 'monthly' | 'quarterly' | 'biweekly' | 'weekly' | 'annual';
+export type PeriodStatus = 'open' | 'calculating' | 'review' | 'closed' | 'paid';
+export type BatchType = 'standard' | 'superseding' | 'adjustment' | 'reversal';
+export type LifecycleState =
+  | 'DRAFT'
+  | 'PREVIEW'
+  | 'RECONCILE'
+  | 'OFFICIAL'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'POSTED'
+  | 'CLOSED'
+  | 'PAID'
+  | 'PUBLISHED';
+export type ScopeType = 'graph_derived' | 'admin_override' | 'platform';
+export type Capability =
+  | 'view_outcomes'
+  | 'approve_outcomes'
+  | 'export_results'
+  | 'manage_rule_sets'
+  | 'manage_assignments'
+  | 'design_scenarios'
+  | 'manage_tenants'
+  | 'manage_profiles'
+  | 'import_data'
+  | 'view_audit';
+
+export interface Database {
+  public: {
+    Tables: {
+      // ──────────────────────────────────────────────
+      // TABLE 1: tenants
+      // ──────────────────────────────────────────────
+      tenants: {
+        Row: {
+          id: string;
+          name: string;
+          slug: string;
+          settings: Json;
+          hierarchy_labels: Json;
+          entity_type_labels: Json;
+          currency: string;
+          locale: string;
+          features: Json;
+          status: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          slug: string;
+          settings?: Json;
+          hierarchy_labels?: Json;
+          entity_type_labels?: Json;
+          currency?: string;
+          locale?: string;
+          features?: Json;
+          status?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          slug?: string;
+          settings?: Json;
+          hierarchy_labels?: Json;
+          entity_type_labels?: Json;
+          currency?: string;
+          locale?: string;
+          features?: Json;
+          status?: string;
+          updated_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 2: profiles
+      // ──────────────────────────────────────────────
+      profiles: {
+        Row: {
+          id: string;
+          auth_user_id: string;
+          tenant_id: string;
+          entity_id: string | null;
+          display_name: string;
+          email: string;
+          role: string;
+          capabilities: Capability[];
+          scope_override: string | null;
+          scope_level: string | null;
+          settings: Json;
+          status: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          auth_user_id: string;
+          tenant_id: string;
+          entity_id?: string | null;
+          display_name: string;
+          email: string;
+          role: string;
+          capabilities?: Capability[];
+          scope_override?: string | null;
+          scope_level?: string | null;
+          settings?: Json;
+          status?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          entity_id?: string | null;
+          display_name?: string;
+          email?: string;
+          role?: string;
+          capabilities?: Capability[];
+          scope_override?: string | null;
+          scope_level?: string | null;
+          settings?: Json;
+          status?: string;
+          updated_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 3: entities
+      // ──────────────────────────────────────────────
+      entities: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          external_id: string;
+          entity_type: EntityType;
+          display_name: string | null;
+          attributes: Json;
+          profile_id: string | null;
+          status: EntityStatus;
+          effective_start: string | null;
+          effective_end: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          external_id: string;
+          entity_type: EntityType;
+          display_name?: string | null;
+          attributes?: Json;
+          profile_id?: string | null;
+          status?: EntityStatus;
+          effective_start?: string | null;
+          effective_end?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          external_id?: string;
+          entity_type?: EntityType;
+          display_name?: string | null;
+          attributes?: Json;
+          profile_id?: string | null;
+          status?: EntityStatus;
+          effective_start?: string | null;
+          effective_end?: string | null;
+          updated_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 4: entity_relationships
+      // ──────────────────────────────────────────────
+      entity_relationships: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          source_entity_id: string;
+          target_entity_id: string;
+          relationship_type: RelationshipType;
+          confidence: number;
+          evidence: Json;
+          source: RelationshipSource;
+          context: Json;
+          effective_start: string;
+          effective_end: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          source_entity_id: string;
+          target_entity_id: string;
+          relationship_type: RelationshipType;
+          confidence?: number;
+          evidence?: Json;
+          source?: RelationshipSource;
+          context?: Json;
+          effective_start?: string;
+          effective_end?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          relationship_type?: RelationshipType;
+          confidence?: number;
+          evidence?: Json;
+          source?: RelationshipSource;
+          context?: Json;
+          effective_end?: string | null;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 5: reassignment_events
+      // ──────────────────────────────────────────────
+      reassignment_events: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          entity_id: string;
+          from_entity_id: string | null;
+          to_entity_id: string | null;
+          relationship_type: RelationshipType;
+          credit_model: Json;
+          transition_window: Json;
+          impact_preview: Json;
+          effective_date: string;
+          initiated_by: string;
+          status: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          entity_id: string;
+          from_entity_id?: string | null;
+          to_entity_id?: string | null;
+          relationship_type: RelationshipType;
+          credit_model?: Json;
+          transition_window?: Json;
+          impact_preview?: Json;
+          effective_date: string;
+          initiated_by: string;
+          status?: string;
+          created_at?: string;
+        };
+        Update: {
+          credit_model?: Json;
+          transition_window?: Json;
+          impact_preview?: Json;
+          status?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 6: rule_sets (was compensation_plans)
+      // ──────────────────────────────────────────────
+      rule_sets: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          name: string;
+          domain: string;
+          version: number;
+          parent_version_id: string | null;
+          status: RuleSetStatus;
+          population_config: Json;
+          input_bindings: Json;
+          components: Json;
+          cadence_config: Json;
+          outcome_config: Json;
+          interpretation_confidence: number;
+          metadata: Json;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          name: string;
+          domain?: string;
+          version?: number;
+          parent_version_id?: string | null;
+          status?: RuleSetStatus;
+          population_config?: Json;
+          input_bindings?: Json;
+          components?: Json;
+          cadence_config?: Json;
+          outcome_config?: Json;
+          interpretation_confidence?: number;
+          metadata?: Json;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          name?: string;
+          domain?: string;
+          version?: number;
+          parent_version_id?: string | null;
+          status?: RuleSetStatus;
+          population_config?: Json;
+          input_bindings?: Json;
+          components?: Json;
+          cadence_config?: Json;
+          outcome_config?: Json;
+          interpretation_confidence?: number;
+          metadata?: Json;
+          updated_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 7: rule_set_assignments
+      // ──────────────────────────────────────────────
+      rule_set_assignments: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          entity_id: string;
+          entity_type: EntityType;
+          rule_set_id: string;
+          variant_key: string | null;
+          entity_overrides: Json;
+          effective_start: string;
+          effective_end: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          entity_id: string;
+          entity_type: EntityType;
+          rule_set_id: string;
+          variant_key?: string | null;
+          entity_overrides?: Json;
+          effective_start: string;
+          effective_end?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          variant_key?: string | null;
+          entity_overrides?: Json;
+          effective_end?: string | null;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 8: periods
+      // ──────────────────────────────────────────────
+      periods: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          period_key: string;
+          period_type: PeriodType;
+          start_date: string;
+          end_date: string;
+          parent_period_id: string | null;
+          payment_date: string | null;
+          status: PeriodStatus;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          period_key: string;
+          period_type: PeriodType;
+          start_date: string;
+          end_date: string;
+          parent_period_id?: string | null;
+          payment_date?: string | null;
+          status?: PeriodStatus;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          period_key?: string;
+          period_type?: PeriodType;
+          start_date?: string;
+          end_date?: string;
+          parent_period_id?: string | null;
+          payment_date?: string | null;
+          status?: PeriodStatus;
+          updated_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 9: import_batches
+      // ──────────────────────────────────────────────
+      import_batches: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          file_name: string;
+          file_type: string;
+          file_size: number;
+          row_count: number;
+          classification: Json;
+          ai_mappings: Json;
+          status: string;
+          imported_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          file_name: string;
+          file_type?: string;
+          file_size?: number;
+          row_count?: number;
+          classification?: Json;
+          ai_mappings?: Json;
+          status?: string;
+          imported_by: string;
+          created_at?: string;
+        };
+        Update: {
+          classification?: Json;
+          ai_mappings?: Json;
+          status?: string;
+          row_count?: number;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 10: committed_data
+      // ──────────────────────────────────────────────
+      committed_data: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          import_batch_id: string;
+          entity_id: string;
+          entity_type: EntityType;
+          period_key: string;
+          data_type: string;
+          values: Json;
+          source_row_index: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          import_batch_id: string;
+          entity_id: string;
+          entity_type: EntityType;
+          period_key: string;
+          data_type: string;
+          values: Json;
+          source_row_index?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          values?: Json;
+          data_type?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 11: calculation_batches (Rule 30 compliant)
+      // ──────────────────────────────────────────────
+      calculation_batches: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          period_id: string;
+          rule_set_id: string;
+          batch_type: BatchType;
+          lifecycle_state: LifecycleState;
+          entity_count: number;
+          total_payout: number;
+          component_totals: Json;
+          superseded_by: string | null;
+          supersedes: string | null;
+          submitted_by: string | null;
+          submitted_at: string | null;
+          approved_by: string | null;
+          approved_at: string | null;
+          metadata: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          period_id: string;
+          rule_set_id: string;
+          batch_type?: BatchType;
+          lifecycle_state?: LifecycleState;
+          entity_count?: number;
+          total_payout?: number;
+          component_totals?: Json;
+          superseded_by?: string | null;
+          supersedes?: string | null;
+          submitted_by?: string | null;
+          submitted_at?: string | null;
+          approved_by?: string | null;
+          approved_at?: string | null;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          lifecycle_state?: LifecycleState;
+          entity_count?: number;
+          total_payout?: number;
+          component_totals?: Json;
+          superseded_by?: string | null;
+          supersedes?: string | null;
+          submitted_by?: string | null;
+          submitted_at?: string | null;
+          approved_by?: string | null;
+          approved_at?: string | null;
+          metadata?: Json;
+          updated_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 12: calculation_results
+      // ──────────────────────────────────────────────
+      calculation_results: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          batch_id: string;
+          entity_id: string;
+          entity_type: EntityType | null;
+          assignment_id: string | null;
+          variant_key: string | null;
+          rule_set_id: string;
+          total_outcome: number;
+          components: Json;
+          metrics: Json;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          batch_id: string;
+          entity_id: string;
+          entity_type?: EntityType | null;
+          assignment_id?: string | null;
+          variant_key?: string | null;
+          rule_set_id: string;
+          total_outcome?: number;
+          components?: Json;
+          metrics?: Json;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          total_outcome?: number;
+          components?: Json;
+          metrics?: Json;
+          metadata?: Json;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 13: calculation_traces
+      // ──────────────────────────────────────────────
+      calculation_traces: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          batch_id: string;
+          entity_id: string;
+          component_id: string;
+          trace_data: Json;
+          formula: string | null;
+          inputs: Json;
+          output: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          batch_id: string;
+          entity_id: string;
+          component_id: string;
+          trace_data?: Json;
+          formula?: string | null;
+          inputs?: Json;
+          output?: number;
+          created_at?: string;
+        };
+        Update: {
+          trace_data?: Json;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 14: disputes
+      // ──────────────────────────────────────────────
+      disputes: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          entity_id: string;
+          batch_id: string | null;
+          period_key: string;
+          dispute_type: string;
+          description: string;
+          amount_disputed: number | null;
+          status: string;
+          resolution: Json | null;
+          submitted_by: string;
+          resolved_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          entity_id: string;
+          batch_id?: string | null;
+          period_key: string;
+          dispute_type: string;
+          description: string;
+          amount_disputed?: number | null;
+          status?: string;
+          resolution?: Json | null;
+          submitted_by: string;
+          resolved_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          status?: string;
+          resolution?: Json | null;
+          resolved_by?: string | null;
+          updated_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 15: reconciliation_sessions
+      // ──────────────────────────────────────────────
+      reconciliation_sessions: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          batch_id: string;
+          period_key: string;
+          comparison_file: string | null;
+          result_summary: Json;
+          depth_assessment: Json;
+          false_greens: Json;
+          status: string;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          batch_id: string;
+          period_key: string;
+          comparison_file?: string | null;
+          result_summary?: Json;
+          depth_assessment?: Json;
+          false_greens?: Json;
+          status?: string;
+          created_by: string;
+          created_at?: string;
+        };
+        Update: {
+          result_summary?: Json;
+          depth_assessment?: Json;
+          false_greens?: Json;
+          status?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 16: classification_signals
+      // ──────────────────────────────────────────────
+      classification_signals: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          import_batch_id: string | null;
+          field_name: string;
+          semantic_type: string;
+          confidence: number;
+          source: string;
+          context: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          import_batch_id?: string | null;
+          field_name: string;
+          semantic_type: string;
+          confidence?: number;
+          source?: string;
+          context?: Json;
+          created_at?: string;
+        };
+        Update: {
+          confidence?: number;
+          source?: string;
+          context?: Json;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 17: audit_logs
+      // ──────────────────────────────────────────────
+      audit_logs: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          actor_id: string;
+          action: string;
+          resource_type: string;
+          resource_id: string | null;
+          details: Json;
+          ip_address: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          actor_id: string;
+          action: string;
+          resource_type: string;
+          resource_id?: string | null;
+          details?: Json;
+          ip_address?: string | null;
+          created_at?: string;
+        };
+        Update: never;
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 18: ingestion_configs
+      // ──────────────────────────────────────────────
+      ingestion_configs: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          name: string;
+          source_type: string;
+          connection_config: Json;
+          mapping_config: Json;
+          schedule: Json | null;
+          status: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          name: string;
+          source_type: string;
+          connection_config?: Json;
+          mapping_config?: Json;
+          schedule?: Json | null;
+          status?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          name?: string;
+          source_type?: string;
+          connection_config?: Json;
+          mapping_config?: Json;
+          schedule?: Json | null;
+          status?: string;
+          updated_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 19: ingestion_events
+      // ──────────────────────────────────────────────
+      ingestion_events: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          config_id: string;
+          status: string;
+          rows_processed: number;
+          rows_failed: number;
+          error_details: Json | null;
+          started_at: string;
+          completed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          config_id: string;
+          status?: string;
+          rows_processed?: number;
+          rows_failed?: number;
+          error_details?: Json | null;
+          started_at?: string;
+          completed_at?: string | null;
+        };
+        Update: {
+          status?: string;
+          rows_processed?: number;
+          rows_failed?: number;
+          error_details?: Json | null;
+          completed_at?: string | null;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 20: usage_metering
+      // ──────────────────────────────────────────────
+      usage_metering: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          metric_name: string;
+          metric_value: number;
+          period_key: string;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          metric_name: string;
+          metric_value: number;
+          period_key: string;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          metric_value?: number;
+          metadata?: Json;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 21: period_entity_state (Materialization D5)
+      // ──────────────────────────────────────────────
+      period_entity_state: {
+        Row: {
+          tenant_id: string;
+          period_key: string;
+          entity_id: string;
+          entity_type: EntityType;
+          resolved_attributes: Json;
+          relationships: Json;
+          materialized_at: string;
+        };
+        Insert: {
+          tenant_id: string;
+          period_key: string;
+          entity_id: string;
+          entity_type: EntityType;
+          resolved_attributes?: Json;
+          relationships?: Json;
+          materialized_at?: string;
+        };
+        Update: {
+          resolved_attributes?: Json;
+          relationships?: Json;
+          materialized_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 22: profile_scope (Materialization D6/D7)
+      // ──────────────────────────────────────────────
+      profile_scope: {
+        Row: {
+          profile_id: string;
+          tenant_id: string;
+          full_visibility_entity_ids: string[];
+          rule_set_visibility: Json;
+          aggregate_visibility: Json;
+          scope_type: ScopeType;
+          materialized_at: string;
+        };
+        Insert: {
+          profile_id: string;
+          tenant_id: string;
+          full_visibility_entity_ids?: string[];
+          rule_set_visibility?: Json;
+          aggregate_visibility?: Json;
+          scope_type?: ScopeType;
+          materialized_at?: string;
+        };
+        Update: {
+          full_visibility_entity_ids?: string[];
+          rule_set_visibility?: Json;
+          aggregate_visibility?: Json;
+          scope_type?: ScopeType;
+          materialized_at?: string;
+        };
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE 23: entity_period_outcomes (Materialization D7)
+      // ──────────────────────────────────────────────
+      entity_period_outcomes: {
+        Row: {
+          tenant_id: string;
+          period_key: string;
+          entity_id: string;
+          entity_type: EntityType;
+          rule_set_outcomes: Json;
+          total_payout: number;
+          total_by_currency: Json;
+          rule_set_count: number;
+          lowest_lifecycle_state: LifecycleState | null;
+          all_official: boolean;
+          all_approved: boolean;
+          post_aggregation: Json;
+          materialized_at: string;
+        };
+        Insert: {
+          tenant_id: string;
+          period_key: string;
+          entity_id: string;
+          entity_type: EntityType;
+          rule_set_outcomes?: Json;
+          total_payout?: number;
+          total_by_currency?: Json;
+          rule_set_count?: number;
+          lowest_lifecycle_state?: LifecycleState | null;
+          all_official?: boolean;
+          all_approved?: boolean;
+          post_aggregation?: Json;
+          materialized_at?: string;
+        };
+        Update: {
+          rule_set_outcomes?: Json;
+          total_payout?: number;
+          total_by_currency?: Json;
+          rule_set_count?: number;
+          lowest_lifecycle_state?: LifecycleState | null;
+          all_official?: boolean;
+          all_approved?: boolean;
+          post_aggregation?: Json;
+          materialized_at?: string;
+        };
+      };
+    };
+  };
+}
+
+// ──────────────────────────────────────────────
+// Convenience row type helpers
+// ──────────────────────────────────────────────
+export type Tables<T extends keyof Database['public']['Tables']> =
+  Database['public']['Tables'][T]['Row'];
+export type InsertTables<T extends keyof Database['public']['Tables']> =
+  Database['public']['Tables'][T]['Insert'];
+export type UpdateTables<T extends keyof Database['public']['Tables']> =
+  Database['public']['Tables'][T]['Update'];
+
+// Named exports for common types
+export type Tenant = Tables<'tenants'>;
+export type Profile = Tables<'profiles'>;
+export type Entity = Tables<'entities'>;
+export type EntityRelationship = Tables<'entity_relationships'>;
+export type ReassignmentEvent = Tables<'reassignment_events'>;
+export type RuleSet = Tables<'rule_sets'>;
+export type RuleSetAssignment = Tables<'rule_set_assignments'>;
+export type Period = Tables<'periods'>;
+export type ImportBatch = Tables<'import_batches'>;
+export type CommittedData = Tables<'committed_data'>;
+export type CalculationBatch = Tables<'calculation_batches'>;
+export type CalculationResult = Tables<'calculation_results'>;
+export type CalculationTrace = Tables<'calculation_traces'>;
+export type Dispute = Tables<'disputes'>;
+export type ReconciliationSession = Tables<'reconciliation_sessions'>;
+export type ClassificationSignal = Tables<'classification_signals'>;
+export type AuditLog = Tables<'audit_logs'>;
+export type IngestionConfig = Tables<'ingestion_configs'>;
+export type IngestionEvent = Tables<'ingestion_events'>;
+export type UsageMeter = Tables<'usage_metering'>;
+export type PeriodEntityState = Tables<'period_entity_state'>;
+export type ProfileScope = Tables<'profile_scope'>;
+export type EntityPeriodOutcome = Tables<'entity_period_outcomes'>;
