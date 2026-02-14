@@ -21,6 +21,11 @@ import {
   getCalculationResults,
   getCalculationRuns,
 } from '@/lib/calculation/results-storage';
+import {
+  loadCycle,
+  canViewResults,
+  getStateLabel,
+} from '@/lib/calculation/calculation-lifecycle-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -62,6 +67,9 @@ export default function PerformPage() {
   const [myResult, setMyResult] = useState<CalculationResult | null>(null);
   const [allResults, setAllResults] = useState<CalculationResult[]>([]);
   const [hasResults, setHasResults] = useState(false);
+  // OB-39 Phase 8: Lifecycle-gated visibility
+  const [lifecycleGated, setLifecycleGated] = useState(false);
+  const [lifecycleStateLabel, setLifecycleStateLabel] = useState('');
 
   const displaySpanish = isSpanish;
   const currency = currentTenant?.currency || 'USD';
@@ -100,6 +108,21 @@ export default function PerformPage() {
       }
     }
 
+    // OB-39 Phase 8: Check lifecycle state for visibility gating
+    const role = isVLAdmin ? 'vl_admin' as const
+      : isManager ? 'manager' as const
+      : 'sales_rep' as const;
+    const cycle = loadCycle(currentTenant.id, period);
+    if (cycle && !canViewResults(cycle.state, role)) {
+      setLifecycleGated(true);
+      setLifecycleStateLabel(getStateLabel(cycle.state));
+      setAllResults([]);
+      setHasResults(false);
+      setMyResult(null);
+      return;
+    }
+    setLifecycleGated(false);
+
     setAllResults(results);
     setHasResults(results.length > 0);
 
@@ -108,7 +131,7 @@ export default function PerformPage() {
       const result = results.find((r) => r.employeeId === employeeId);
       setMyResult(result || null);
     }
-  }, [currentTenant, user]);
+  }, [currentTenant, user, isVLAdmin, isManager]);
 
   // Derive aggregate/team stats
   const stats = useMemo(() => {
@@ -177,6 +200,27 @@ export default function PerformPage() {
           </Button>
         )}
       </div>
+
+      {/* OB-39 Phase 8: Lifecycle gate banner */}
+      {lifecycleGated && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="py-4 flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 text-blue-500 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-blue-800">
+                {displaySpanish
+                  ? 'Resultados aun no publicados'
+                  : 'Results not yet published'}
+              </p>
+              <p className="text-xs text-blue-600">
+                {displaySpanish
+                  ? `El ciclo de calculo esta en estado "${lifecycleStateLabel}". Los resultados estaran visibles cuando sean aprobados.`
+                  : `The calculation cycle is in "${lifecycleStateLabel}" state. Results will be visible once approved.`}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Key Metrics */}
       <div className="grid grid-cols-4 gap-4">
