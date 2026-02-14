@@ -1,5 +1,5 @@
 /**
- * Multi-Tenant Types - Entity B SPM Platform
+ * Multi-Tenant Types - ViaLuce SPM Platform
  */
 
 // Tenant Configuration

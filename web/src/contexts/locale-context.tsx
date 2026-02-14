@@ -22,7 +22,7 @@ import { audit } from '@/lib/audit-service';
 // Get tenant locale from localStorage (set by tenant-context)
 function getTenantLocale(): Locale | null {
   if (typeof window === 'undefined') return null;
-  const tenantId = localStorage.getItem('entityb_tenant');
+  const tenantId = localStorage.getItem('vialuce_tenant');
   if (!tenantId) return null;
 
   // Map tenant to locale

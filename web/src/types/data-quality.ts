@@ -1,5 +1,5 @@
 /**
- * Data Quality Types - Entity B SPM Platform
+ * Data Quality Types - ViaLuce SPM Platform
  *
  * Types for the data quality management system including
  * quarantine, quality scoring, and anomaly detection.

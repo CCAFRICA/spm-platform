@@ -1,5 +1,5 @@
 /**
- * Permission Types - Entity B SPM Platform
+ * Permission Types - ViaLuce SPM Platform
  *
  * Granular permission system with role-based access control
  * and scope-based data filtering.

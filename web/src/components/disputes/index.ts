@@ -1,5 +1,5 @@
 /**
- * Disputes Components - Entity B SPM Platform
+ * Disputes Components - ViaLuce SPM Platform
  */
 
 export * from './GuidedDisputeFlow';

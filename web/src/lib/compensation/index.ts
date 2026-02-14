@@ -1,5 +1,5 @@
 /**
- * Compensation Module - Entity B SPM Platform
+ * Compensation Module - ViaLuce SPM Platform
  *
  * Exports all compensation-related types, services, and utilities
  */

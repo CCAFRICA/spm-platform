@@ -1,5 +1,5 @@
 /**
- * Compensation Plan Types - Entity B SPM Platform
+ * Compensation Plan Types - ViaLuce SPM Platform
  *
  * Supports two plan types:
  * 1. additive_lookup - RetailCo style (matrix + tier lookups)

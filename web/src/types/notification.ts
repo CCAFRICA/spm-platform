@@ -1,5 +1,5 @@
 /**
- * Notification Types - Entity B SPM Platform
+ * Notification Types - ViaLuce SPM Platform
  *
  * Types for the notification system
  */

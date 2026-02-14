@@ -172,10 +172,10 @@ export default function SelectTenantPage() {
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-slate-700 to-sky-500 flex items-center justify-center">
-              <span className="text-xl font-bold text-white">E</span>
+              <span className="text-xl font-bold text-white">V</span>
             </div>
             <div>
-              <h1 className="font-semibold">Entity B Platform</h1>
+              <h1 className="font-semibold">ViaLuce Platform</h1>
               <p className="text-xs text-muted-foreground">Administration Console</p>
             </div>
           </div>

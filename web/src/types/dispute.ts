@@ -1,5 +1,5 @@
 /**
- * Dispute Types - Entity B SPM Platform
+ * Dispute Types - ViaLuce SPM Platform
  *
  * Data models for the dispute/inquiry system
  */

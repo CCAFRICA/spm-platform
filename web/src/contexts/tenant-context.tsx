@@ -19,8 +19,8 @@ interface TenantContextState {
 
 const TenantContext = createContext<TenantContextState | undefined>(undefined);
 
-const STORAGE_KEY_TENANT = 'entityb_current_tenant';
-const STORAGE_KEY_USER_ROLE = 'entityb_user_role';
+const STORAGE_KEY_TENANT = 'vialuce_current_tenant';
+const STORAGE_KEY_USER_ROLE = 'vialuce_user_role';
 
 // Storage keys for dynamic tenants (matches provisioning-engine.ts)
 const DYNAMIC_TENANTS_KEY = 'vialuce_tenants';

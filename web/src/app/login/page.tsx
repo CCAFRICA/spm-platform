@@ -53,7 +53,7 @@ export default function LoginPage() {
 
   // Demo account emails (just emails, no tenant info exposed)
   const demoEmails = [
-    'admin@entityb.com',
+    'admin@vialuce.com',
     'admin@retailcgmx.com',
     'admin@techcorp.com',
     'sarah.chen@techcorp.com',

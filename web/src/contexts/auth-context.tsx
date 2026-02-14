@@ -12,7 +12,7 @@ import { migrateStorageKeys } from '@/lib/storage/storage-migration';
 const VL_ADMIN_USERS: VLAdminUser[] = [
   {
     id: 'cc-admin-001',
-    email: 'admin@entityb.com',
+    email: 'admin@vialuce.com',
     name: 'Platform Admin',
     role: 'vl_admin',
     tenantId: null,
@@ -23,7 +23,7 @@ const VL_ADMIN_USERS: VLAdminUser[] = [
   },
   {
     id: 'cc-admin-002',
-    email: 'support@entityb.com',
+    email: 'support@vialuce.com',
     name: 'Support Admin',
     role: 'vl_admin',
     tenantId: null,
@@ -417,7 +417,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const STORAGE_KEY_USER = 'entityb_current_user';
+const STORAGE_KEY_USER = 'vialuce_current_user';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
