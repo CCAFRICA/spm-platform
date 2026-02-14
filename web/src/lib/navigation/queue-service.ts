@@ -9,6 +9,7 @@
 
 import type { QueueItem, QueueUrgency, QueueItemType, WorkspaceId } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
+import { listCycles, getStateLabel } from '@/lib/calculation/calculation-lifecycle-service';
 
 // Storage keys for checking real system state
 const STORAGE_KEYS = {
@@ -39,6 +40,7 @@ export function getQueueItems(userId: string, tenantId: string, role: UserRole):
   allItems.push(...getDataQualityItems(tenantId, role));
   allItems.push(...getDisputeItems(userId, tenantId, role));
   allItems.push(...getCalculationItems(tenantId, role));
+  allItems.push(...getLifecycleItems(tenantId, role));
 
   // Sort by urgency and timestamp
   return sortQueueItems(allItems);
@@ -339,6 +341,81 @@ function getCalculationItems(tenantId: string, role: UserRole): QueueItem[] {
     }
   } catch {
     // No calculation runs
+  }
+
+  return items;
+}
+
+/**
+ * OB-39 Phase 12: Generate queue items from calculation lifecycle state
+ */
+function getLifecycleItems(tenantId: string, role: UserRole): QueueItem[] {
+  if (typeof window === 'undefined') return [];
+  if (role !== 'vl_admin' && role !== 'admin') return [];
+
+  const items: QueueItem[] = [];
+
+  try {
+    const cycles = listCycles(tenantId);
+    if (cycles.length === 0) return [];
+
+    const latest = cycles[0];
+
+    switch (latest.state) {
+      case 'PENDING_APPROVAL':
+        items.push({
+          id: `lifecycle-pending-${latest.cycleId}`,
+          type: 'approval' as QueueItemType,
+          urgency: 'high' as QueueUrgency,
+          title: 'Calculation Awaiting Approval',
+          titleEs: 'Calculo Pendiente de Aprobacion',
+          description: `${latest.period} submitted by ${latest.submittedBy || 'admin'} [${getStateLabel(latest.state)}]`,
+          descriptionEs: `${latest.period} enviado por ${latest.submittedBy || 'admin'} [${getStateLabel(latest.state)}]`,
+          workspace: 'operate' as WorkspaceId,
+          route: '/operate/calculate',
+          timestamp: latest.submittedAt || latest.updatedAt,
+          read: false,
+        });
+        break;
+
+      case 'APPROVED':
+        items.push({
+          id: `lifecycle-approved-${latest.cycleId}`,
+          type: 'notification' as QueueItemType,
+          urgency: 'medium' as QueueUrgency,
+          title: 'Payroll Ready for Export',
+          titleEs: 'Nomina Lista para Exportar',
+          description: `${latest.period} approved${latest.approvedBy ? ` by ${latest.approvedBy}` : ''} - export payroll CSV`,
+          descriptionEs: `${latest.period} aprobado${latest.approvedBy ? ` por ${latest.approvedBy}` : ''} - exportar nomina CSV`,
+          workspace: 'operate' as WorkspaceId,
+          route: '/operate/calculate',
+          timestamp: latest.approvedAt || latest.updatedAt,
+          read: false,
+        });
+        break;
+
+      case 'REJECTED':
+        items.push({
+          id: `lifecycle-rejected-${latest.cycleId}`,
+          type: 'alert' as QueueItemType,
+          urgency: 'critical' as QueueUrgency,
+          title: 'Calculation Rejected',
+          titleEs: 'Calculo Rechazado',
+          description: latest.rejectionReason
+            ? `${latest.period}: ${latest.rejectionReason}`
+            : `${latest.period} - re-run preview required`,
+          descriptionEs: latest.rejectionReason
+            ? `${latest.period}: ${latest.rejectionReason}`
+            : `${latest.period} - se requiere re-ejecutar vista previa`,
+          workspace: 'operate' as WorkspaceId,
+          route: '/operate/calculate',
+          timestamp: latest.updatedAt,
+          read: false,
+        });
+        break;
+    }
+  } catch {
+    // Lifecycle service unavailable
   }
 
   return items;
