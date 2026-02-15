@@ -1,12 +1,17 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { audit } from '@/lib/audit-service';
 import type { User, TenantUser, VLAdminUser } from '@/types/auth';
 import { isVLAdmin } from '@/types/auth';
 import { STORAGE_KEY_USER_ROLE, STORAGE_KEY_TENANT } from '@/contexts/tenant-context';
 import { migrateStorageKeys } from '@/lib/storage/storage-migration';
+import { isSupabaseConfigured } from '@/lib/supabase/client';
+
+// ──────────────────────────────────────────────
+// Demo Users (used when Supabase is NOT configured)
+// ──────────────────────────────────────────────
 
 // VL Admin Users
 const VL_ADMIN_USERS: VLAdminUser[] = [
@@ -142,17 +147,17 @@ const RESTAURANTMX_USERS: TenantUser[] = [
     tenantId: 'restaurantmx',
     regionId: 'cdmx',
     teamId: 'polanco',
-    storeId: 'MX-CDMX-001', // Franquicia
+    storeId: 'MX-CDMX-001',
     managerId: 'rmx-manager-001',
     status: 'active',
     createdAt: '2024-02-01T00:00:00Z',
     permissions: ['view_own_compensation', 'view_reports', 'submit_inquiry'],
     dataAccessLevel: 'own',
-    meseroId: 5001, // Links to mesero record for cheques
+    meseroId: 5001,
   },
 ];
 
-// RetailCo Tenant Users (Demo Environment)
+// RetailCo Tenant Users
 const RETAILCO_USERS: TenantUser[] = [
   {
     id: 'rc-admin-001',
@@ -226,7 +231,7 @@ const RETAILCO_USERS: TenantUser[] = [
   },
 ];
 
-// OB-29: RetailCGMX demo users - real identities from 719-employee roster
+// OB-29: RetailCGMX demo users
 const RETAILCGMX_USERS: TenantUser[] = [
   {
     id: 'rcgmx-admin-001',
@@ -295,7 +300,7 @@ const RETAILCGMX_USERS: TenantUser[] = [
   },
 ];
 
-// All static users combined
+// All static demo users
 export const ALL_USERS: User[] = [
   ...VL_ADMIN_USERS,
   ...TECHCORP_USERS,
@@ -323,13 +328,11 @@ function loadDynamicUsers(): TenantUser[] {
   const dynamicUsers: TenantUser[] = [];
 
   try {
-    // Get all dynamic tenants
     const tenantsJson = localStorage.getItem(DYNAMIC_TENANTS_KEY);
     if (!tenantsJson) return [];
 
     const tenants = JSON.parse(tenantsJson) as Array<{ id: string }>;
 
-    // Load users from each tenant's data store
     for (const tenant of tenants) {
       const usersKey = `${TENANT_DATA_PREFIX}${tenant.id}_users`;
       const usersJson = localStorage.getItem(usersKey);
@@ -343,7 +346,6 @@ function loadDynamicUsers(): TenantUser[] {
           createdAt: string;
         }>;
 
-        // Convert to TenantUser format
         for (const u of users) {
           dynamicUsers.push({
             id: u.id,
@@ -377,36 +379,26 @@ function loadDynamicUsers(): TenantUser[] {
   return dynamicUsers;
 }
 
-/**
- * Find a user by email, checking both static and dynamic users
- */
 function findUserByEmail(email: string): User | undefined {
   const normalizedEmail = email.toLowerCase().trim();
-
-  // Check static users first
   const staticUser = USER_BY_EMAIL[normalizedEmail];
   if (staticUser) return staticUser;
-
-  // Check dynamic users from localStorage
   const dynamicUsers = loadDynamicUsers();
   return dynamicUsers.find(u => u.email.toLowerCase() === normalizedEmail);
 }
 
-/**
- * Find a user by ID, checking both static and dynamic users
- */
 function findUserById(userId: string): User | undefined {
-  // Check static users first
   const staticUser = ALL_USERS.find(u => u.id === userId);
   if (staticUser) return staticUser;
-
-  // Check dynamic users from localStorage
   const dynamicUsers = loadDynamicUsers();
   return dynamicUsers.find(u => u.id === userId);
 }
 
+// ──────────────────────────────────────────────
+// Auth Context
+// ──────────────────────────────────────────────
+
 interface LoginOptions {
-  /** Skip router.push after login — used by DemoUserSwitcher to keep user on current page */
   navigate?: boolean;
 }
 
@@ -415,7 +407,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isVLAdmin: boolean;
-  login: (email: string, options?: LoginOptions) => Promise<boolean>;
+  /** True when using Supabase Auth (not demo mode) */
+  isSupabaseAuth: boolean;
+  login: (email: string, password?: string, options?: LoginOptions) => Promise<boolean>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
 }
@@ -428,23 +422,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const supabaseEnabled = isSupabaseConfigured();
 
+  // ──────────────────────────────────────────
+  // Initialize: Supabase auth listener or demo restore
+  // ──────────────────────────────────────────
   useEffect(() => {
-    // Migrate legacy storage keys to vialuce_ prefix
     if (typeof window !== 'undefined') {
       migrateStorageKeys();
     }
 
-    // Check for existing session
+    if (supabaseEnabled) {
+      // Supabase Auth mode
+      initSupabaseAuth();
+    } else {
+      // Demo mode: restore from localStorage
+      initDemoAuth();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function initSupabaseAuth() {
+    try {
+      const { fetchCurrentProfile, onAuthStateChange } = await import('@/lib/supabase/auth-service');
+
+      // Check current session
+      const profile = await fetchCurrentProfile();
+      if (profile) {
+        setUser(mapProfileToUser(profile));
+      }
+
+      // Listen for auth changes
+      onAuthStateChange(async (event) => {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          const p = await fetchCurrentProfile();
+          if (p) setUser(mapProfileToUser(p));
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+        }
+      });
+    } catch (e) {
+      console.warn('Supabase auth init failed, falling back to demo:', e);
+      initDemoAuth();
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function initDemoAuth() {
     const stored = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_USER) : null;
     if (stored) {
       try {
         const userData = JSON.parse(stored);
-        // Check both static and dynamic users
         const fullUser = findUserById(userData.id);
         if (fullUser) {
           setUser(fullUser);
-          // Ensure role is stored for tenant context
           localStorage.setItem(STORAGE_KEY_USER_ROLE, fullUser.role);
         }
       } catch {
@@ -452,27 +484,108 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     setIsLoading(false);
-  }, []);
+  }
 
-  const login = async (email: string, options?: LoginOptions): Promise<boolean> => {
-    const shouldNavigate = options?.navigate !== false; // default: true
+  /**
+   * Map a Supabase profile to the User type used throughout the app.
+   */
+  function mapProfileToUser(profile: { id: string; tenantId: string; displayName: string; email: string; role: string; capabilities: string[]; locale: string | null; avatarUrl: string | null }): User {
+    const capabilities = profile.capabilities || [];
 
-    // Check both static and dynamic users
-    const foundUser = findUserByEmail(email);
-
-    if (!foundUser) {
-      return false;
+    if (profile.role === 'vl_admin') {
+      return {
+        id: profile.id,
+        email: profile.email,
+        name: profile.displayName,
+        role: 'vl_admin',
+        tenantId: null,
+        accessLevel: capabilities.includes('manage_tenants') ? 'full' : 'readonly',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        avatar: profile.avatarUrl || undefined,
+      };
     }
+
+    // Map capabilities to legacy permissions
+    const permissionMap: Record<string, string[]> = {
+      view_outcomes: ['view_own_compensation', 'view_all_compensation'],
+      approve_outcomes: ['approve_adjustment_tier2'],
+      export_results: ['export_data'],
+      manage_rule_sets: ['view_configuration', 'edit_terminology'],
+      manage_assignments: ['manage_users'],
+      import_data: ['import_transactions'],
+      view_audit: ['view_audit_log'],
+    };
+
+    const permissions = new Set<string>(['view_reports']);
+    for (const cap of capabilities) {
+      const mapped = permissionMap[cap];
+      if (mapped) mapped.forEach(p => permissions.add(p));
+    }
+
+    return {
+      id: profile.id,
+      email: profile.email,
+      name: profile.displayName,
+      role: profile.role as 'admin' | 'manager' | 'sales_rep',
+      tenantId: profile.tenantId,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      permissions: Array.from(permissions),
+      dataAccessLevel: profile.role === 'admin' ? 'all' : profile.role === 'manager' ? 'team' : 'own',
+      avatar: profile.avatarUrl || undefined,
+    };
+  }
+
+  // ──────────────────────────────────────────
+  // Login
+  // ──────────────────────────────────────────
+  const login = useCallback(async (email: string, password?: string, options?: LoginOptions): Promise<boolean> => {
+    const shouldNavigate = options?.navigate !== false;
+
+    if (supabaseEnabled && password) {
+      // Supabase Auth mode with password
+      try {
+        const { signInWithEmail, fetchCurrentProfile } = await import('@/lib/supabase/auth-service');
+        await signInWithEmail(email, password);
+        const profile = await fetchCurrentProfile();
+        if (!profile) return false;
+
+        const mappedUser = mapProfileToUser(profile);
+        setUser(mappedUser);
+
+        audit.log({
+          action: 'login',
+          entityType: 'user',
+          entityId: mappedUser.id,
+          entityName: mappedUser.name,
+          metadata: { role: mappedUser.role, supabase: true },
+        });
+
+        if (shouldNavigate) {
+          if (isVLAdmin(mappedUser)) {
+            router.push('/select-tenant');
+          } else {
+            router.push('/');
+          }
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    // Demo mode: email-only login
+    const foundUser = findUserByEmail(email);
+    if (!foundUser) return false;
 
     setUser(foundUser);
     localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(foundUser));
     localStorage.setItem(STORAGE_KEY_USER_ROLE, foundUser.role);
 
-    // Set tenant for non-VL Admin users
     if (!isVLAdmin(foundUser)) {
       localStorage.setItem(STORAGE_KEY_TENANT, foundUser.tenantId);
     } else {
-      // Clear tenant selection for VL Admin
       localStorage.removeItem(STORAGE_KEY_TENANT);
     }
 
@@ -487,7 +600,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     });
 
-    // Route based on user type (skip for persona switches within the app)
     if (shouldNavigate) {
       if (isVLAdmin(foundUser)) {
         router.push('/select-tenant');
@@ -497,9 +609,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     return true;
-  };
+  }, [supabaseEnabled, router]);
 
-  const logout = () => {
+  // ──────────────────────────────────────────
+  // Logout
+  // ──────────────────────────────────────────
+  const logout = useCallback(async () => {
     if (user) {
       audit.log({
         action: 'logout',
@@ -508,19 +623,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         entityName: user.name,
       });
     }
+
+    if (supabaseEnabled) {
+      try {
+        const { signOut } = await import('@/lib/supabase/auth-service');
+        await signOut();
+      } catch {
+        // Continue with local cleanup
+      }
+    }
+
     setUser(null);
     localStorage.removeItem(STORAGE_KEY_USER);
     localStorage.removeItem(STORAGE_KEY_USER_ROLE);
     localStorage.removeItem(STORAGE_KEY_TENANT);
     router.push('/login');
-  };
+  }, [user, supabaseEnabled, router]);
 
-  const hasPermission = (permission: string): boolean => {
+  // ──────────────────────────────────────────
+  // Permissions
+  // ──────────────────────────────────────────
+  const hasPermission = useCallback((permission: string): boolean => {
     if (!user) return false;
-    // VL Admins have all permissions
     if (isVLAdmin(user)) return true;
     return user.permissions.includes(permission);
-  };
+  }, [user]);
 
   const isUserVLAdmin = user ? isVLAdmin(user) : false;
 
@@ -531,6 +658,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         isLoading,
         isVLAdmin: isUserVLAdmin,
+        isSupabaseAuth: supabaseEnabled,
         login,
         logout,
         hasPermission,

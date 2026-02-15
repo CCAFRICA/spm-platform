@@ -147,6 +147,8 @@ export interface Database {
           email: string;
           role: string;
           capabilities: Capability[];
+          locale: string | null;
+          avatar_url: string | null;
           scope_override: string | null;
           scope_level: string | null;
           settings: Json;
@@ -163,6 +165,8 @@ export interface Database {
           email: string;
           role: string;
           capabilities?: Capability[];
+          locale?: string | null;
+          avatar_url?: string | null;
           scope_override?: string | null;
           scope_level?: string | null;
           settings?: Json;
@@ -176,6 +180,8 @@ export interface Database {
           email?: string;
           role?: string;
           capabilities?: Capability[];
+          locale?: string | null;
+          avatar_url?: string | null;
           scope_override?: string | null;
           scope_level?: string | null;
           settings?: Json;

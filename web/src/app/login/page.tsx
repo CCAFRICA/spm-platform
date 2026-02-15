@@ -14,9 +14,10 @@ import { isVLAdmin } from '@/types/auth';
 import { Button } from '@/components/ui/button';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, isSupabaseAuth } = useAuth();
   const { t } = useLocale();
   const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [showDemoHint, setShowDemoHint] = useState(false);
@@ -26,17 +27,28 @@ export default function LoginPage() {
 
     setIsLoading(true);
     setLoginError(null);
-    await new Promise(r => setTimeout(r, 800));
 
-    const success = await login(emailInput);
+    if (!isSupabaseAuth) {
+      // Demo mode: artificial delay for UX
+      await new Promise(r => setTimeout(r, 800));
+    }
+
+    const success = await login(
+      emailInput,
+      isSupabaseAuth ? passwordInput : undefined,
+    );
 
     if (success) {
       const user = ALL_USERS.find(u => u.email.toLowerCase() === emailInput.toLowerCase());
-      toast.success(t('auth.welcomeBack', { name: user?.name || '' }), {
-        description: isVLAdmin(user!) ? 'Platform Administrator' : `Logged in as ${user?.role}`,
+      toast.success(t('auth.welcomeBack', { name: user?.name || emailInput }), {
+        description: user && isVLAdmin(user) ? 'Platform Administrator' : `Signed in`,
       });
     } else {
-      setLoginError('Invalid credentials. Please check your email address.');
+      setLoginError(
+        isSupabaseAuth
+          ? 'Invalid email or password. Please try again.'
+          : 'Invalid credentials. Please check your email address.'
+      );
       setIsLoading(false);
     }
   };
@@ -51,7 +63,7 @@ export default function LoginPage() {
     setLoginError(null);
   };
 
-  // Demo account emails (just emails, no tenant info exposed)
+  // Demo account emails
   const demoEmails = [
     'admin@vialuce.com',
     'admin@retailcgmx.com',
@@ -90,11 +102,13 @@ export default function LoginPage() {
           <CardHeader className="px-4 md:px-6">
             <CardTitle className="text-lg md:text-xl">{t('auth.signIn')}</CardTitle>
             <CardDescription>
-              Enter your email address to sign in
+              {isSupabaseAuth
+                ? 'Enter your email and password to sign in'
+                : 'Enter your email address to sign in'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-4 md:px-6">
-            {/* Email Input Form */}
+            {/* Login Form */}
             <form onSubmit={handleEmailSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email Address</Label>
@@ -111,17 +125,37 @@ export default function LoginPage() {
                   autoComplete="email"
                   autoFocus
                 />
-                {loginError && (
-                  <p className="text-sm text-destructive">{loginError}</p>
-                )}
               </div>
+
+              {/* Password field: only shown when Supabase is configured */}
+              {isSupabaseAuth && (
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter your password"
+                    value={passwordInput}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      setLoginError(null);
+                    }}
+                    disabled={isLoading}
+                    autoComplete="current-password"
+                  />
+                </div>
+              )}
+
+              {loginError && (
+                <p className="text-sm text-destructive">{loginError}</p>
+              )}
 
               {/* Login Button */}
               <LoadingButton
                 type="submit"
                 className="w-full"
                 size="lg"
-                disabled={!emailInput}
+                disabled={!emailInput || (isSupabaseAuth && !passwordInput)}
                 loading={isLoading}
                 loadingText="Signing in..."
               >
@@ -129,48 +163,50 @@ export default function LoginPage() {
               </LoadingButton>
             </form>
 
-            {/* Demo Accounts Hint (collapsible) */}
-            <div className="pt-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full text-muted-foreground text-xs"
-                onClick={() => setShowDemoHint(!showDemoHint)}
-              >
-                Demo accounts
-                {showDemoHint ? (
-                  <ChevronUp className="h-3 w-3 ml-1" />
-                ) : (
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                )}
-              </Button>
-
-              {showDemoHint && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="mt-2 p-3 bg-muted/50 rounded-lg"
+            {/* Demo Accounts Hint (collapsible) — only in demo mode */}
+            {!isSupabaseAuth && (
+              <div className="pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-muted-foreground text-xs"
+                  onClick={() => setShowDemoHint(!showDemoHint)}
                 >
-                  <p className="text-xs text-muted-foreground mb-2">
-                    Click to use a demo account:
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {demoEmails.map((email) => (
-                      <button
-                        key={email}
-                        type="button"
-                        onClick={() => handleDemoSelect(email)}
-                        className="text-xs px-2 py-1 rounded bg-background hover:bg-primary/10 border transition-colors"
-                        disabled={isLoading}
-                      >
-                        {email}
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </div>
+                  Demo accounts
+                  {showDemoHint ? (
+                    <ChevronUp className="h-3 w-3 ml-1" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  )}
+                </Button>
+
+                {showDemoHint && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mt-2 p-3 bg-muted/50 rounded-lg"
+                  >
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Click to use a demo account:
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {demoEmails.map((email) => (
+                        <button
+                          key={email}
+                          type="button"
+                          onClick={() => handleDemoSelect(email)}
+                          className="text-xs px-2 py-1 rounded bg-background hover:bg-primary/10 border transition-colors"
+                          disabled={isLoading}
+                        >
+                          {email}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+            )}
 
             <motion.p
               initial={{ opacity: 0 }}
@@ -178,7 +214,9 @@ export default function LoginPage() {
               transition={{ delay: 0.4 }}
               className="text-xs text-center text-muted-foreground pt-2"
             >
-              Demo environment • Azure AD B2C in production
+              {isSupabaseAuth
+                ? 'Secured by Supabase Auth'
+                : 'Demo environment • Azure AD B2C in production'}
             </motion.p>
           </CardContent>
         </Card>

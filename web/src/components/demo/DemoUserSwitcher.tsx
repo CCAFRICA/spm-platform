@@ -244,7 +244,7 @@ export function DemoUserSwitcher() {
     setIsSwitching(true);
     try {
       // navigate: false keeps user on current page instead of bouncing to /
-      await login(email, { navigate: false });
+      await login(email, undefined, { navigate: false });
       toast.success(isSpanish ? 'Usuario cambiado' : 'User switched');
     } finally {
       setIsSwitching(false);
