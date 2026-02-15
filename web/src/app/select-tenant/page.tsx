@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Users, ChevronRight, LogOut, Loader2, Plus, Rocket, Trash2 } from 'lucide-react';
+import { Users, ChevronRight, LogOut, Loader2, Plus, Rocket, Trash2, Activity, Scale } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { getStateLabel, getStateColor } from '@/lib/calculation/lifecycle-utils';
+import { createClient } from '@/lib/supabase/client';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +41,11 @@ export default function SelectTenantPage() {
   const [deletingTenant, setDeletingTenant] = useState<TenantSummary | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [forceLocalTenants, setForceLocalTenants] = useState(false);
+  const [tenantStats, setTenantStats] = useState<Record<string, {
+    entityCount: number;
+    lifecycleState: string | null;
+    lastActivity: string | null;
+  }>>({});
 
   const handleDeleteTenant = async (tenant: TenantSummary, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
@@ -110,6 +117,66 @@ export default function SelectTenantPage() {
   // Use context tenants if available, otherwise use locally loaded ones
   // Use localTenants if we just deleted something (forceLocalTenants) or if contextTenants is empty
   const availableTenants = forceLocalTenants || contextTenants.length === 0 ? localTenants : contextTenants;
+
+  // Load Supabase stats for each tenant (entity count, lifecycle state, last activity)
+  useEffect(() => {
+    if (availableTenants.length === 0) return;
+
+    const loadStats = async () => {
+      try {
+        const supabase = createClient();
+        const stats: typeof tenantStats = {};
+
+        for (const tenant of availableTenants) {
+          try {
+            // Entity count
+            const { count: entityCount } = await supabase
+              .from('entities')
+              .select('*', { count: 'exact', head: true })
+              .eq('tenant_id', tenant.id);
+
+            // Latest batch lifecycle state
+            const { data: batches } = await supabase
+              .from('calculation_batches')
+              .select('lifecycle_state, created_at')
+              .eq('tenant_id', tenant.id)
+              .order('created_at', { ascending: false })
+              .limit(1);
+
+            // Last activity (most recent audit_log or batch)
+            const { data: audits } = await supabase
+              .from('audit_logs')
+              .select('created_at')
+              .eq('tenant_id', tenant.id)
+              .order('created_at', { ascending: false })
+              .limit(1);
+
+            const batchDate = batches?.[0]?.created_at || null;
+            const auditDate = audits?.[0]?.created_at || null;
+            const lastActivity = [batchDate, auditDate]
+              .filter(Boolean)
+              .sort()
+              .reverse()[0] || null;
+
+            stats[tenant.id] = {
+              entityCount: entityCount || 0,
+              lifecycleState: batches?.[0]?.lifecycle_state || null,
+              lastActivity,
+            };
+          } catch {
+            stats[tenant.id] = { entityCount: 0, lifecycleState: null, lastActivity: null };
+          }
+        }
+
+        setTenantStats(stats);
+      } catch (err) {
+        console.warn('[SelectTenant] Failed to load stats:', err);
+      }
+    };
+
+    loadStats();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableTenants.length]);
 
   useEffect(() => {
     // Redirect non-VL Admin users to home
@@ -277,27 +344,43 @@ export default function SelectTenantPage() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground flex items-center gap-1">
-                        <Users className="h-4 w-4" /> {tenant.userCount} users
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {isDynamicTenant(tenant.id) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                            onClick={(e) => handleDeleteTenant(tenant, e)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {selectingTenant === tenant.id ? (
-                          <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                        ) : (
-                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                        )}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Users className="h-3.5 w-3.5" /> {tenantStats[tenant.id]?.entityCount || tenant.userCount} entities
+                          </span>
+                          {tenantStats[tenant.id]?.lifecycleState && (
+                            <Badge className={`text-[10px] px-1.5 py-0 ${getStateColor(tenantStats[tenant.id].lifecycleState!)}`}>
+                              <Scale className="h-2.5 w-2.5 mr-0.5" />
+                              {getStateLabel(tenantStats[tenant.id].lifecycleState!)}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isDynamicTenant(tenant.id) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              onClick={(e) => handleDeleteTenant(tenant, e)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {selectingTenant === tenant.id ? (
+                            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                          ) : (
+                            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                          )}
+                        </div>
                       </div>
+                      {tenantStats[tenant.id]?.lastActivity && (
+                        <div className="flex items-center gap-1 text-[11px] text-muted-foreground/70">
+                          <Activity className="h-3 w-3" />
+                          Last activity: {new Date(tenantStats[tenant.id].lastActivity!).toLocaleDateString()}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
