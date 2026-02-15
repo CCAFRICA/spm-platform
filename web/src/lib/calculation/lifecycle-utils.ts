@@ -13,6 +13,7 @@ export type CalculationState =
   | 'PENDING_APPROVAL'
   | 'APPROVED'
   | 'REJECTED'
+  | 'SUPERSEDED'
   | 'POSTED'
   | 'CLOSED'
   | 'PAID'
@@ -29,10 +30,11 @@ const VALID_TRANSITIONS: Record<CalculationState, CalculationState[]> = {
   DRAFT: ['PREVIEW'],
   PREVIEW: ['DRAFT', 'RECONCILE', 'OFFICIAL'],
   RECONCILE: ['PREVIEW', 'OFFICIAL'],
-  OFFICIAL: ['PENDING_APPROVAL'],
+  OFFICIAL: ['PENDING_APPROVAL', 'SUPERSEDED'],
   PENDING_APPROVAL: ['APPROVED', 'REJECTED'],
   APPROVED: ['POSTED'],
   REJECTED: ['OFFICIAL'],
+  SUPERSEDED: [],  // Terminal: old batch superseded by new one
   POSTED: ['CLOSED'],
   CLOSED: ['PAID'],
   PAID: ['PUBLISHED'],
@@ -53,6 +55,7 @@ export function getStateLabel(state: CalculationState | string): string {
     PENDING_APPROVAL: 'Pending Approval',
     APPROVED: 'Approved',
     REJECTED: 'Rejected',
+    SUPERSEDED: 'Superseded',
     POSTED: 'Posted',
     CLOSED: 'Closed',
     PAID: 'Paid',
@@ -73,6 +76,7 @@ export function getStateColor(state: CalculationState | string): string {
     PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
     APPROVED: 'bg-green-100 text-green-700',
     REJECTED: 'bg-red-100 text-red-700',
+    SUPERSEDED: 'bg-stone-100 text-stone-700',
     POSTED: 'bg-teal-100 text-teal-700',
     CLOSED: 'bg-indigo-100 text-indigo-700',
     PAID: 'bg-emerald-100 text-emerald-700',
@@ -115,6 +119,7 @@ export function canViewResults(state: CalculationState | string, role: string): 
     case 'PUBLISHED':
       return true;
     case 'REJECTED':
+    case 'SUPERSEDED':
       return r === 'vl_admin' || r === 'platform_admin' || r === 'admin';
     default:
       return false;

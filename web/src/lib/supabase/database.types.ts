@@ -67,6 +67,7 @@ export type LifecycleState =
   | 'PENDING_APPROVAL'
   | 'APPROVED'
   | 'REJECTED'
+  | 'SUPERSEDED'
   | 'POSTED'
   | 'CLOSED'
   | 'PAID'

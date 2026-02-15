@@ -13,10 +13,11 @@ export function useLabels() {
   const { currentTenant } = useTenant();
 
   return useMemo(() => {
-    const config: TenantLabelConfig | null = currentTenant ? {
-      hierarchy_labels: (currentTenant as Record<string, unknown>).hierarchy_labels as Record<string, string> | undefined,
-      entity_type_labels: (currentTenant as Record<string, unknown>).entity_type_labels as Record<string, string> | undefined,
-      settings: (currentTenant as Record<string, unknown>).settings as TenantLabelConfig['settings'] | undefined,
+    const tenant = currentTenant as unknown as Record<string, unknown> | null;
+    const config: TenantLabelConfig | null = tenant ? {
+      hierarchy_labels: tenant.hierarchy_labels as Record<string, string> | undefined,
+      entity_type_labels: tenant.entity_type_labels as Record<string, string> | undefined,
+      settings: tenant.settings as TenantLabelConfig['settings'] | undefined,
     } : null;
 
     return createLabels(config);
