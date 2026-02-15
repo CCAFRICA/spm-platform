@@ -19,7 +19,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Play,
   Eye,
   FileCheck,
   Send,
@@ -42,7 +41,8 @@ import {
 
 interface LifecycleActionBarProps {
   cycle: CalculationCycle;
-  currentUserId: string;
+  /** Reserved for future separation-of-duties enforcement in the UI */
+  currentUserId?: string;
   onTransition: (toState: CalculationState, details?: string) => void;
   onExport?: () => void;
   isSubmitter?: boolean;
@@ -115,7 +115,6 @@ function getActionsForState(
 
 export function LifecycleActionBar({
   cycle,
-  currentUserId,
   onTransition,
   onExport,
   isSubmitter = false,

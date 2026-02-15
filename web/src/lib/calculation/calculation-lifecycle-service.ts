@@ -31,7 +31,7 @@ export {
 } from './lifecycle-utils';
 
 import type { CalculationState } from './lifecycle-utils';
-import { canTransition, getAllowedTransitions } from './lifecycle-utils';
+import { canTransition } from './lifecycle-utils';
 
 // ──────────────────────────────────────────────
 // Types

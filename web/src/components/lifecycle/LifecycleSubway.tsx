@@ -10,7 +10,7 @@
  */
 
 import { memo } from 'react';
-import { Check, Circle, Clock, AlertTriangle } from 'lucide-react';
+import { Check, Circle, AlertTriangle } from 'lucide-react';
 import {
   type CalculationState,
   type CalculationCycle,
@@ -41,8 +41,6 @@ function LifecycleSubwayComponent({ cycle, onStateClick, compact = false }: Life
           const isCompleted = index < currentIndex;
           const isCurrent = state === cycle.state;
           const isNext = nextStates.includes(state);
-          const isReachable = index <= currentIndex + 2;
-
           // Find audit entry for this state
           const audit = cycle.auditTrail.find(a => a.toState === state && a.fromState !== state);
 
