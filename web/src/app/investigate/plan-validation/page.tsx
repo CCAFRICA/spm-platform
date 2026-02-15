@@ -15,7 +15,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { PlanValidation } from '@/components/forensics/PlanValidation';
-import { loadActivePlan } from '@/lib/forensics/forensics-service';
+import { getActiveRuleSet } from '@/lib/supabase/rule-set-service';
 import type { RuleSetConfig } from '@/types/compensation-plan';
 
 export default function PlanValidationPage() {
@@ -28,9 +28,10 @@ export default function PlanValidationPage() {
 
   useEffect(() => {
     if (!tenantId) return;
-    const p = loadActivePlan(tenantId);
-    setPlan(p);
-    setLoading(false);
+    getActiveRuleSet(tenantId)
+      .then((p) => setPlan(p))
+      .catch((err) => console.error('Error loading active rule set:', err))
+      .finally(() => setLoading(false));
   }, [tenantId]);
 
   if (loading) {

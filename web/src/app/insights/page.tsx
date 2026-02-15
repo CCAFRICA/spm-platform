@@ -32,16 +32,11 @@ import {
   BarChart3,
 } from "lucide-react";
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
+import {
+  listCalculationBatches,
+  getCalculationResults,
+} from '@/lib/supabase/calculation-service';
 import type { CalculationResult } from '@/types/compensation-plan';
-
-/**
- * OB-29: Get current period as YYYY-MM
- */
-function getCurrentPeriod(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
 
 const chartConfig = {
   commissions: {
@@ -59,13 +54,42 @@ export default function InsightsPage() {
   useEffect(() => {
     if (!currentTenant) return;
 
-    // OB-29 Phase 9: Get real calculation results
-    const period = getCurrentPeriod();
-    const allResults = getPeriodResults(currentTenant.id, period);
-    setResults(allResults);
-    setIsLoading(false);
-
-    console.log(`[Insights] Found ${allResults.length} results for ${currentTenant.id}/${period}`);
+    const loadResults = async () => {
+      try {
+        const batches = await listCalculationBatches(currentTenant.id);
+        if (batches.length === 0) { setIsLoading(false); return; }
+        const batch = batches[0];
+        const calcResults = await getCalculationResults(currentTenant.id, batch.id);
+        const mapped = calcResults.map(r => {
+          const meta = (r.metadata as Record<string, unknown>) || {};
+          const comps = Array.isArray(r.components) ? r.components : [];
+          return {
+            entityId: r.entity_id,
+            entityName: (meta.entityName as string) || r.entity_id,
+            entityRole: (meta.entityRole as string) || '',
+            ruleSetId: '', ruleSetName: '', ruleSetVersion: 1, ruleSetType: 'standard' as const,
+            period: batch.period_id, periodStart: '', periodEnd: '',
+            totalIncentive: r.total_payout || 0,
+            currency: currentTenant.currency || 'USD',
+            calculatedAt: r.created_at,
+            storeId: (meta.storeId as string) || '',
+            components: comps.map((c: unknown) => {
+              const comp = c as Record<string, unknown>;
+              return {
+                componentId: String(comp.componentId || ''),
+                componentName: String(comp.componentName || ''),
+                outputValue: Number(comp.outputValue || 0),
+              } as CalculationResult['components'][0];
+            }),
+          };
+        });
+        setResults(mapped as unknown as CalculationResult[]);
+      } catch (err) {
+        console.warn('[Insights] Failed to load:', err);
+      }
+      setIsLoading(false);
+    };
+    loadResults();
   }, [currentTenant]);
 
   // Derive insights from real data

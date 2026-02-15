@@ -11,7 +11,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
-import { getPlans, getPlanChanges } from '@/lib/compensation/plan-storage';
+import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -56,32 +56,34 @@ export default function DesignPage() {
       return `${diffDays} days ago`;
     }
 
-    const plans = getPlans(currentTenant.id);
-    const activeCount = plans.filter(p => p.status === 'active').length;
-    setActivePlanCount(activeCount);
+    const loadPlans = async () => {
+      try {
+        const plans = await getRuleSets(currentTenant.id);
+        const activeCount = plans.filter(p => p.status === 'active').length;
+        setActivePlanCount(activeCount);
 
-    // Get recent changes for this tenant's plans
-    const planIds = plans.map(p => p.id);
-    const allChanges = planIds.flatMap(id => getPlanChanges(id));
-    const sortedChanges = allChanges
-      .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime())
-      .slice(0, 5);
+        // Build recent activity from rule sets updated_at
+        const sorted = [...plans]
+          .filter(p => p.updatedAt)
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+          .slice(0, 5);
 
-    const activity = sortedChanges.map(change => {
-      const plan = plans.find(p => p.id === change.ruleSetId);
-      const timeAgo = formatTimeAgo(new Date(change.changedAt));
-      return {
-        action: change.changeType === 'status_changed' ? 'Status changed' :
-                change.changeType === 'modified' ? 'Plan modified' :
-                change.changeType === 'approved' ? 'Plan approved' :
-                'Plan updated',
-        plan: plan?.name || 'Unknown Plan',
-        time: timeAgo,
-        user: change.changedBy || 'System',
+        const activity = sorted.map(p => {
+          const timeAgo = formatTimeAgo(new Date(p.updatedAt));
+          return {
+            action: p.status === 'active' ? 'Plan activated' : 'Plan updated',
+            plan: p.name || 'Unknown Plan',
+            time: timeAgo,
+            user: 'System',
       };
     });
 
-    setRecentActivity(activity);
+        setRecentActivity(activity);
+      } catch (err) {
+        console.warn('[Design] Failed to load rule sets:', err);
+      }
+    };
+    loadPlans();
   }, [currentTenant?.id]);
 
   const { locale } = useLocale();

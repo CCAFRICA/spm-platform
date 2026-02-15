@@ -32,13 +32,16 @@ import { useTenant, useCurrency } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { isTenantUser } from "@/types/auth";
 import { getCheques } from "@/lib/restaurant-service";
-import { isStaticTenant } from "@/lib/tenant-data-service";
 import {
-  getLatestRun,
-  getCalculationResults,
-  getCurrentPeriod,
-} from "@/lib/calculation/results-storage";
+  listCalculationBatches,
+  getCalculationResults as getSupabaseResults,
+} from "@/lib/supabase/calculation-service";
 import type { Cheque } from "@/types/cheques";
+
+const STATIC_TENANT_IDS = ['retailco', 'restaurantmx', 'techcorp'];
+function isStaticTenant(tenantId: string | undefined | null): boolean {
+  return !!tenantId && STATIC_TENANT_IDS.includes(tenantId);
+}
 
 // Mock dashboard data
 const dashboardData = {
@@ -132,43 +135,49 @@ export default function DashboardPage() {
   // Only show mock data for static tenants
   const hasMockData = isStaticTenant(currentTenant?.id);
 
-  // Wire dynamic tenants to real calculation results
-  const dynamicStats = useMemo(() => {
-    if (hasMockData || isHospitality || !currentTenant?.id) return null;
-    const period = getCurrentPeriod();
-    const run = getLatestRun(currentTenant.id, period);
-    if (!run) return null;
-    const results = getCalculationResults(run.id);
-    if (!results.length) return null;
+  // Wire dynamic tenants to real calculation results from Supabase
+  const [dynamicStats, setDynamicStats] = useState<typeof stats | null>(null);
+  useEffect(() => {
+    if (hasMockData || isHospitality || !currentTenant?.id) return;
+    const loadResults = async () => {
+      try {
+        const batches = await listCalculationBatches(currentTenant.id);
+        if (batches.length === 0) return;
+        const batch = batches[0];
+        const results = await getSupabaseResults(currentTenant.id, batch.id);
+        if (!results.length) return;
 
-    const userId = authUser?.email?.split('@')[0] || '';
-    const myResult = results.find(r => r.entityId === userId);
-    const totalPayout = results.reduce((sum, r) => sum + (r.totalIncentive || 0), 0);
+        const userId = authUser?.email?.split('@')[0] || '';
+        const myResult = results.find(r => r.entity_id === userId);
+        const totalPayout = results.reduce((sum, r) => sum + (r.total_payout || 0), 0);
 
-    if (myResult) {
-      // Sales rep: show personal stats
-      const sorted = [...results].sort((a, b) => (b.totalIncentive || 0) - (a.totalIncentive || 0));
-      const rank = sorted.findIndex(r => r.entityId === userId) + 1;
-      return {
-        ytdCompensation: myResult.totalIncentive || 0,
-        mtdCompensation: myResult.totalIncentive || 0,
-        quotaAttainment: 0,
-        ranking: rank,
-        rankingTotal: results.length,
-        pendingCommissions: 0,
-      };
-    }
-
-    // Manager/admin: show aggregate stats
-    const avgPayout = totalPayout / results.length;
-    return {
-      ytdCompensation: totalPayout,
-      mtdCompensation: avgPayout,
-      quotaAttainment: 0,
-      ranking: 0,
-      rankingTotal: results.length,
-      pendingCommissions: 0,
+        if (myResult) {
+          const sorted = [...results].sort((a, b) => (b.total_payout || 0) - (a.total_payout || 0));
+          const rank = sorted.findIndex(r => r.entity_id === userId) + 1;
+          setDynamicStats({
+            ytdCompensation: myResult.total_payout || 0,
+            mtdCompensation: myResult.total_payout || 0,
+            quotaAttainment: 0,
+            ranking: rank,
+            rankingTotal: results.length,
+            pendingCommissions: 0,
+          });
+        } else {
+          const avgPayout = totalPayout / results.length;
+          setDynamicStats({
+            ytdCompensation: totalPayout,
+            mtdCompensation: avgPayout,
+            quotaAttainment: 0,
+            ranking: 0,
+            rankingTotal: results.length,
+            pendingCommissions: 0,
+          });
+        }
+      } catch (err) {
+        console.warn('[Home] Failed to load results:', err);
+      }
     };
+    loadResults();
   }, [hasMockData, isHospitality, currentTenant?.id, authUser?.email]);
 
   // Use real data for dynamic tenants, mock for static

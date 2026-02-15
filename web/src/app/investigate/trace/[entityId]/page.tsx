@@ -14,7 +14,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { EmployeeTrace } from '@/components/forensics/EmployeeTrace';
-import { getTraceForEmployee } from '@/lib/forensics/forensics-service';
+import { getEntityResults, getCalculationTraces } from '@/lib/supabase/calculation-service';
 import type { CalculationTrace } from '@/lib/forensics/types';
 
 const FROM_LABELS: Record<string, { label: string; route: string }> = {
@@ -40,9 +40,52 @@ export default function EmployeeTracePage() {
   useEffect(() => {
     if (!tenantId || !entityId) return;
 
-    const t = getTraceForEmployee(tenantId, entityId);
-    setTrace(t);
-    setLoading(false);
+    const loadTrace = async () => {
+      try {
+        // Get entity results, then traces for the most recent result
+        const results = await getEntityResults(tenantId, entityId);
+        if (results.length > 0) {
+          const latestResult = results[0];
+          const traces = await getCalculationTraces(tenantId, latestResult.id);
+          // Adapt Supabase trace rows to the CalculationTrace shape
+          const adapted = {
+            traceId: latestResult.id,
+            calculationRunId: latestResult.batch_id,
+            entityId,
+            entityName: entityId,
+            entityRole: '',
+            tenantId: latestResult.tenant_id,
+            timestamp: latestResult.created_at,
+            variant: { variantId: 'default', variantName: 'Default', reason: '' },
+            totalIncentive: latestResult.total_payout || 0,
+            currency: 'MXN',
+            components: traces.map((t) => ({
+              componentId: t.id,
+              componentName: t.component_name,
+              componentType: 'tier_lookup' as const,
+              measurementLevel: 'individual' as const,
+              enabled: true,
+              order: 0,
+              description: '',
+              formula: t.formula || '',
+              inputs: t.inputs as Record<string, unknown>,
+              output: t.output as Record<string, unknown>,
+              outputValue: 0,
+              steps: (t.steps || []) as unknown[],
+              calculation: '',
+            })),
+            flags: [],
+          } as unknown as CalculationTrace;
+          setTrace(adapted);
+        }
+      } catch (err) {
+        console.error('Error loading trace:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadTrace();
   }, [tenantId, entityId]);
 
   if (loading) {

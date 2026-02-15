@@ -48,12 +48,12 @@ import { ComponentBreakdownCard } from '@/components/compensation/ComponentBreak
 import { RecentTransactionsCard } from '@/components/compensation/RecentTransactionsCard';
 import { QuickActionsCard } from '@/components/compensation/QuickActionsCard';
 import type { CalculationResult } from '@/types/compensation-plan';
-import { getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
 import {
-  loadCycle,
-  canViewResults,
-  type CalculationState,
-} from '@/lib/calculation/calculation-lifecycle-service';
+  listCalculationBatches,
+  getCalculationResults,
+} from '@/lib/supabase/calculation-service';
+import { canViewResults } from '@/lib/calculation/lifecycle-utils';
+import type { CalculationState } from '@/lib/calculation/lifecycle-utils';
 import { getAIService } from '@/lib/ai/ai-service';
 
 type Period = 'current' | 'previous' | 'ytd';
@@ -73,10 +73,6 @@ function extractEmployeeId(email: string | undefined): string | null {
 /**
  * Get current period as YYYY-MM.
  */
-function getCurrentPeriod(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
 
 /**
  * Map auth role to lifecycle role for visibility check.
@@ -121,52 +117,86 @@ export default function MyCompensationPage() {
     if (!currentTenant || !user) return;
 
     const entityId = extractEmployeeId(user.email);
-    const currentPeriodId = getCurrentPeriod();
 
-    // OB-34: Check lifecycle visibility gate
-    const cycle = loadCycle(currentTenant.id, currentPeriodId);
-    if (cycle) {
-      setCycleState(cycle.state);
-      const userRole = mapRole(user.role);
-      const visible = canViewResults(cycle.state, userRole);
-      setResultsVisible(visible);
+    const loadData = async () => {
+      try {
+        const userRole = mapRole(user.role);
+        const batches = await listCalculationBatches(currentTenant.id);
 
-      if (!visible) {
-        setIsLoading(false);
-        return;
-      }
-    } else {
-      // No cycle means admin hasn't run calculations yet -- for admins, show results if they exist
-      const userRole = mapRole(user.role);
-      if (userRole === 'vl_admin' || userRole === 'platform_admin') {
+        // Find first batch visible to this role
+        const visibleBatch = batches.find(b => canViewResults(b.lifecycle_state, userRole));
+
+        if (!visibleBatch) {
+          if (batches.length > 0) {
+            // Batches exist but not visible to this role
+            setCycleState(batches[0].lifecycle_state as CalculationState);
+            setResultsVisible(false);
+          } else {
+            setResultsVisible(true); // No batches = show empty state
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        setCycleState(visibleBatch.lifecycle_state as CalculationState);
         setResultsVisible(true);
-      } else {
-        // For non-admins without a cycle, no results visible
-        setResultsVisible(true); // Allow fallback to "no results" state
+
+        // Get results from Supabase
+        const calcResults = await getCalculationResults(currentTenant.id, visibleBatch.id);
+
+        // Map to CalculationResult format and find this employee
+        let result: CalculationResult | null = null;
+        if (entityId && calcResults.length > 0) {
+          const match = calcResults.find((r) => r.entity_id === entityId);
+          if (match) {
+            const meta = (match.metadata as Record<string, unknown>) || {};
+            const comps = Array.isArray(match.components) ? match.components : [];
+            result = {
+              entityId: match.entity_id,
+              entityName: (meta.entityName as string) || match.entity_id,
+              entityRole: (meta.entityRole as string) || '',
+              ruleSetId: (meta.ruleSetId as string) || '',
+              ruleSetName: (meta.ruleSetName as string) || '',
+              ruleSetVersion: 1,
+              ruleSetType: 'weighted_kpi' as const,
+              period: visibleBatch.period_id,
+              periodStart: '',
+              periodEnd: '',
+              totalIncentive: match.total_payout || 0,
+              currency: currentTenant.currency || 'USD',
+              calculatedAt: match.created_at,
+              storeId: (meta.storeId as string) || '',
+              components: comps.map((c: unknown) => {
+                const comp = c as Record<string, unknown>;
+                return {
+                  componentId: String(comp.componentId || comp.component_id || ''),
+                  componentName: String(comp.componentName || comp.component_name || ''),
+                  outputValue: Number(comp.outputValue || comp.output_value || 0),
+                  attainment: typeof comp.attainment === 'number' ? comp.attainment : undefined,
+                  metrics: comp.metrics as Record<string, unknown> || {},
+                } as unknown as CalculationResult['components'][0];
+              }),
+            };
+          }
+        }
+
+        if (result) {
+          setCalculationResult(result);
+          setHasResults(true);
+        } else {
+          setCalculationResult(null);
+          setHasResults(false);
+        }
+      } catch (err) {
+        console.warn('[MyCompensation] Failed to load:', err);
+        setResultsVisible(true);
+        setHasResults(false);
       }
-    }
 
-    // Get all results for this period
-    const allResults = getPeriodResults(currentTenant.id, currentPeriodId);
+      setIsLoading(false);
+    };
 
-    // Find this employee's result
-    let result: CalculationResult | null = null;
-    if (entityId && allResults.length > 0) {
-      result = allResults.find((r) => r.entityId === entityId) || null;
-      if (!result) {
-        result = allResults.find((r) =>
-          r.entityName?.toLowerCase() === user.name?.toLowerCase()
-        ) || null;
-      }
-    }
-
-    if (result) {
-      setCalculationResult(result);
-      setHasResults(true);
-    } else {
-      setCalculationResult(null);
-      setHasResults(false);
-    }
+    loadData();
 
     // Load pending disputes
     if (entityId) {

@@ -11,7 +11,6 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { createPlan, initializePlans } from '@/lib/compensation/plan-storage';
 
 export default function NewPlanPage() {
   const router = useRouter();
@@ -22,37 +21,9 @@ export default function NewPlanPage() {
   useEffect(() => {
     if (!currentTenant?.id || !user?.id) return;
 
-    // Initialize plans first
-    initializePlans();
-
-    // Create a new draft plan
-    const newPlan = createPlan({
-      name: 'New Compensation Plan',
-      description: 'Draft plan - configure components and settings',
-      tenantId: currentTenant.id,
-      effectiveDate: new Date().toISOString().split('T')[0],
-      endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      createdBy: user.id,
-      configuration: {
-        type: 'additive_lookup',
-        variants: [
-          {
-            variantId: 'default',
-            variantName: 'Default',
-            description: 'Default plan variant',
-            eligibilityCriteria: {},
-            components: [],
-          },
-        ],
-      },
-    });
-
-    if (newPlan) {
-      // Redirect to the plan editor
-      router.replace(`/performance/plans/${newPlan.id}?tab=components`);
-    } else {
-      setError('Failed to create plan');
-    }
+    // Plan creation via Supabase is coming soon.
+    // For now, redirect to the plan import page.
+    setError('Plan creation is coming soon. Use Plan Import to add new plans.');
   }, [currentTenant?.id, currentTenant?.currency, currentTenant?.locale, user?.id, router]);
 
   if (error) {

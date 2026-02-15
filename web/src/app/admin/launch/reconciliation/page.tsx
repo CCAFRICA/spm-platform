@@ -17,8 +17,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
-import { getPeriodRuns } from '@/lib/orchestration/calculation-orchestrator';
-import { getTraces } from '@/lib/forensics/forensics-service';
+import { listCalculationBatches, getCalculationResults } from '@/lib/supabase/calculation-service';
 import {
   getConfidentMappings,
   boostConfidence,
@@ -351,18 +350,25 @@ export default function ReconciliationPage() {
   useEffect(() => {
     if (!currentTenant) return;
 
-    const runs = getPeriodRuns(currentTenant.id);
-    const completedRuns = runs.filter((r) => r.status === 'completed' && r.totalPayout);
-    setBatches(
-      completedRuns.map((r) => ({
-        id: r.id,
-        periodId: r.periodId,
-        runType: r.runType,
-        completedAt: r.completedAt || r.startedAt,
-        totalPayout: r.totalPayout || 0,
-        entitiesProcessed: r.processedEmployees,
-      }))
-    );
+    const loadBatches = async () => {
+      try {
+        const supabaseBatches = await listCalculationBatches(currentTenant.id);
+        setBatches(
+          supabaseBatches.map((b) => ({
+            id: b.id,
+            periodId: b.period_id,
+            runType: b.batch_type || 'standard',
+            completedAt: b.completed_at || b.created_at,
+            totalPayout: ((b.summary as Record<string, unknown>)?.totalPayout as number) || 0,
+            entitiesProcessed: b.entity_count || 0,
+          }))
+        );
+      } catch (err) {
+        console.error('Error loading calculation batches:', err);
+      }
+    };
+
+    loadBatches();
   }, [currentTenant]);
 
   // OB-39: Run depth assessment when file, mappings, and VL results are available
@@ -372,28 +378,36 @@ export default function ReconciliationPage() {
       return;
     }
 
-    // Load VL results for depth assessment
-    const batch = selectedBatch ? batches.find(b => b.id === selectedBatch) : null;
-    const traces = getTraces(currentTenant.id, batch?.id);
-    if (traces.length === 0) {
-      setDepthAssessment(null);
-      return;
-    }
+    const runDepthAssessment = async () => {
+      // Load VL results for depth assessment
+      const batchId = selectedBatch || (batches.length > 0 ? batches[0].id : null);
+      if (!batchId) {
+        setDepthAssessment(null);
+        return;
+      }
+      const results = await getCalculationResults(currentTenant.id, batchId);
+      if (results.length === 0) {
+        setDepthAssessment(null);
+        return;
+      }
 
-    const vlResults = traces as unknown as import('@/types/compensation-plan').CalculationResult[];
+      const vlResults = results as unknown as import('@/types/compensation-plan').CalculationResult[];
 
-    const assessment = assessComparisonDepth({
-      vlResults,
-      fileRows: parsedFile.rows,
-      mappings: aiMappings,
-      entityIdField,
-      totalAmountField: amountField,
-    });
+      const assessment = assessComparisonDepth({
+        vlResults,
+        fileRows: parsedFile.rows,
+        mappings: aiMappings,
+        entityIdField,
+        totalAmountField: amountField,
+      });
 
-    setDepthAssessment(assessment);
-    console.log('[Reconciliation] Depth assessment:', assessment.maxDepth,
-      'layers:', assessment.layers.map(l => `${l.layer}=${l.status}`).join(', '),
-      'falseGreenRisk:', assessment.falseGreenRisk);
+      setDepthAssessment(assessment);
+      console.log('[Reconciliation] Depth assessment:', assessment.maxDepth,
+        'layers:', assessment.layers.map(l => `${l.layer}=${l.status}`).join(', '),
+        'falseGreenRisk:', assessment.falseGreenRisk);
+    };
+
+    runDepthAssessment().catch((err) => console.error('Error in depth assessment:', err));
   }, [currentTenant, parsedFile, entityIdField, amountField, selectedBatch, batches, aiMappings]);
 
   // ============================================
@@ -581,7 +595,7 @@ export default function ReconciliationPage() {
   // Phase 4: Comparison Engine
   // ============================================
 
-  const handleRunComparison = () => {
+  const handleRunComparison = async () => {
     if (!currentTenant || !parsedFile || !entityIdField || !amountField) {
       console.warn('[Reconciliation] Guard failed:', { currentTenant: !!currentTenant, parsedFile: !!parsedFile, entityIdField, amountField });
       return;
@@ -592,13 +606,11 @@ export default function ReconciliationPage() {
     setAdaptiveResult(null);
     setReconFeedback(null);
 
-    // Use requestAnimationFrame so React renders loading spinner first
-    requestAnimationFrame(() => {
-      try {
-        // Read from forensics traces (the only storage path the orchestrator writes to)
-        const batch = selectedBatch ? batches.find(b => b.id === selectedBatch) : null;
-        const traces = getTraces(currentTenant.id, batch?.id);
-        console.log(`[Reconciliation] Forensics traces for tenant '${currentTenant.id}', run '${batch?.id || 'latest'}': ${traces.length} employees`);
+    try {
+      // Read from Supabase calculation results
+      const batchId = selectedBatch || (batches.length > 0 ? batches[0].id : null);
+      const traces = batchId ? await getCalculationResults(currentTenant.id, batchId) : [];
+      console.log(`[Reconciliation] Calculation results for tenant '${currentTenant.id}', batch '${batchId || 'none'}': ${traces.length} employees`);
 
         const vlResults = traces as unknown as import('@/types/compensation-plan').CalculationResult[];
 
@@ -636,7 +648,7 @@ export default function ReconciliationPage() {
         if (vlResults.length === 0) {
           setReconFeedback({
             type: 'warning',
-            message: `No ViaLuce calculation results found for ${batch?.id ? `batch "${batch.id}"` : 'this tenant'}. Run calculations first, then reconcile.`,
+            message: `No ViaLuce calculation results found for ${batchId ? `batch "${batchId}"` : 'this tenant'}. Run calculations first, then reconcile.`,
           });
         } else if (result.employeeComparison && result.employeeComparison.summary.matched === 0) {
           setReconFeedback({
@@ -656,16 +668,15 @@ export default function ReconciliationPage() {
             message: `Reconciliation complete: ${matched} employee(s) matched, ${exact} exact. ${result.comparedLayers.length} layer(s) compared.`,
           });
         }
-      } catch (error) {
-        console.error('[Reconciliation] Comparison error:', error);
-        setReconFeedback({
-          type: 'error',
-          message: `Reconciliation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        });
-      } finally {
-        setIsRunning(false);
-      }
-    });
+    } catch (error) {
+      console.error('[Reconciliation] Comparison error:', error);
+      setReconFeedback({
+        type: 'error',
+        message: `Reconciliation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   // Filter and sort employees from comparison result

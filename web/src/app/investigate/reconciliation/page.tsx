@@ -24,12 +24,12 @@ import { ComparisonUpload } from '@/components/forensics/ComparisonUpload';
 import { AggregateBar } from '@/components/forensics/AggregateBar';
 import { PipelineHealth } from '@/components/forensics/PipelineHealth';
 import { ReconciliationTable } from '@/components/forensics/ReconciliationTable';
+import { getActiveRuleSet } from '@/lib/supabase/rule-set-service';
+import { listCalculationBatches, getCalculationResults } from '@/lib/supabase/calculation-service';
 import {
-  getTraces,
   saveComparisonData,
   runReconciliation,
   getSession,
-  loadActivePlan,
 } from '@/lib/forensics/forensics-service';
 import type { ReconciliationSession } from '@/lib/forensics/types';
 import type { AdditiveLookupConfig, PlanComponent, RuleSetConfig } from '@/types/compensation-plan';
@@ -49,16 +49,24 @@ export default function ReconciliationPage() {
   useEffect(() => {
     if (!tenantId) return;
 
-    const activePlan = loadActivePlan(tenantId);
-    setPlan(activePlan);
+    const loadData = async () => {
+      try {
+        const activePlan = await getActiveRuleSet(tenantId);
+        setPlan(activePlan);
 
-    const traces = getTraces(tenantId);
-    setHasTraces(traces.length > 0);
+        const batches = await listCalculationBatches(tenantId);
+        setHasTraces(batches.length > 0);
 
-    const existing = getSession(tenantId);
-    if (existing) setSession(existing);
+        const existing = getSession(tenantId);
+        if (existing) setSession(existing);
+      } catch (err) {
+        console.error('Error loading reconciliation data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    setLoading(false);
+    loadData();
   }, [tenantId]);
 
   // Extract components from plan
@@ -68,19 +76,41 @@ export default function ReconciliationPage() {
     return config.variants?.[0]?.components || [];
   }, [plan]);
 
-  const handleUploadComplete = (data: Record<string, unknown>[], mapping: ColumnMapping) => {
+  const handleUploadComplete = async (data: Record<string, unknown>[], mapping: ColumnMapping) => {
     if (!tenantId || !plan) return;
 
     // Save comparison data
     saveComparisonData(tenantId, data, mapping);
 
-    // Load traces
-    const traces = getTraces(tenantId);
-    if (traces.length === 0) return;
+    // Load calculation results from latest batch
+    try {
+      const batches = await listCalculationBatches(tenantId);
+      if (batches.length === 0) return;
+      const results = await getCalculationResults(tenantId, batches[0].id);
+      if (results.length === 0) return;
 
-    // Run reconciliation
-    const result = runReconciliation(traces, data, mapping, plan);
-    setSession(result);
+      // Adapt results to traces format for reconciliation
+      const traces = results.map((r) => ({
+        traceId: r.id,
+        calculationRunId: r.batch_id,
+        entityId: r.entity_id,
+        entityName: r.entity_id,
+        entityRole: '',
+        tenantId: r.tenant_id,
+        timestamp: r.created_at,
+        variant: { variantId: 'default', variantName: 'Default', reason: '' },
+        totalIncentive: r.total_payout || 0,
+        currency: 'MXN',
+        components: Array.isArray(r.components) ? r.components : [],
+        flags: [],
+      })) as unknown as import('@/lib/forensics/types').CalculationTrace[];
+
+      // Run reconciliation
+      const result = runReconciliation(traces, data, mapping, plan);
+      setSession(result);
+    } catch (err) {
+      console.error('Error loading calculation results for reconciliation:', err);
+    }
   };
 
   const handleRerun = () => {

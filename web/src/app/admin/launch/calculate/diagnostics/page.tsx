@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useTenant } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
-import { getPlans } from "@/lib/compensation/plan-storage";
+import { getRuleSets } from "@/lib/supabase/rule-set-service";
 import Link from "next/link";
 
 interface DiagnosticCheck {
@@ -113,7 +113,7 @@ export default function CalculationDiagnosticsPage() {
 
     // Check 1: Active Plan
     await new Promise((r) => setTimeout(r, 300));
-    const plans = getPlans(tenantId);
+    const plans = await getRuleSets(tenantId);
     const activePlan = plans.find((p) => p.status === "active");
     updatedChecks[0] = {
       ...updatedChecks[0],

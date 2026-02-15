@@ -31,7 +31,7 @@ import {
 import { Plus, MoreHorizontal, Search, Eye, Edit, Copy, History, FileText } from 'lucide-react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { getPlans, clonePlan, initializePlans } from '@/lib/compensation/plan-storage';
+import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import type { RuleSetConfig, RuleSetStatus } from '@/types/compensation-plan';
 
 const STATUS_BADGES: Record<RuleSetStatus, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
@@ -56,31 +56,15 @@ export default function PlansPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Initialize plans on mount
-    initializePlans();
-  }, []);
-
-  useEffect(() => {
     if (currentTenant?.id) {
       setIsLoading(true);
-      try {
-        const tenantPlans = getPlans(currentTenant.id);
-        setPlans(tenantPlans);
-      } finally {
-        setIsLoading(false);
-      }
+      getRuleSets(currentTenant.id)
+        .then((tenantPlans) => setPlans(tenantPlans))
+        .catch((err) => console.error('Error loading rule sets:', err))
+        .finally(() => setIsLoading(false));
     }
   }, [currentTenant?.id]);
 
-  const loadPlans = () => {
-    setIsLoading(true);
-    try {
-      const tenantPlans = getPlans(currentTenant?.id || '');
-      setPlans(tenantPlans);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const filteredPlans = plans.filter((plan) => {
     const matchesSearch =
@@ -93,13 +77,9 @@ export default function PlansPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const handleClone = async (ruleSetId: string, ruleSetName: string) => {
-    const newName = `${ruleSetName} (Copy)`;
-    const cloned = clonePlan(ruleSetId, newName, user?.id || 'system');
-    if (cloned) {
-      loadPlans();
-      router.push(`/performance/plans/${cloned.id}`);
-    }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleClone = async (id: string, name: string) => {
+    console.warn('Clone not yet implemented for Supabase rule sets:', id, name);
   };
 
   const formatDate = (dateString: string) => {

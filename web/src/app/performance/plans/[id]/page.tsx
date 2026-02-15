@@ -39,16 +39,14 @@ import {
   Eye,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
+import { useTenant } from '@/contexts/tenant-context';
 import {
-  getPlan,
-  savePlan,
-  submitForApproval,
-  approvePlan,
-  rejectPlan,
-  archivePlan,
-  getPlanHistory,
-  initializePlans,
-} from '@/lib/compensation/plan-storage';
+  getRuleSet,
+  saveRuleSet,
+  submitRuleSetForApproval,
+  approveRuleSet,
+  archiveRuleSet,
+} from '@/lib/supabase/rule-set-service';
 import {
   MatrixEditor,
   TierEditor,
@@ -75,6 +73,7 @@ export default function PlanDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const { currentTenant } = useTenant();
 
   const ruleSetId = params.id as string;
   const initialTab = searchParams.get('tab') || 'general';
@@ -87,47 +86,48 @@ export default function PlanDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
-  const [planHistory, setPlanHistory] = useState<RuleSetConfig[]>([]);
+  const [planHistory] = useState<RuleSetConfig[]>([]);
 
   useEffect(() => {
-    initializePlans();
+    if (!currentTenant?.id) return;
 
     setIsLoading(true);
-    const loadedPlan = getPlan(ruleSetId);
-    if (loadedPlan) {
-      setPlan(loadedPlan);
-      setOriginalPlan(JSON.parse(JSON.stringify(loadedPlan)));
-      setPlanHistory(getPlanHistory(ruleSetId));
+    getRuleSet(currentTenant.id, ruleSetId)
+      .then((loadedPlan) => {
+        if (loadedPlan) {
+          setPlan(loadedPlan);
+          setOriginalPlan(JSON.parse(JSON.stringify(loadedPlan)));
 
-      // Expand first component by default
-      const config = loadedPlan.configuration;
-      if (config.type === 'additive_lookup' && config.variants[0]?.components.length > 0) {
-        setExpandedComponents([config.variants[0].components[0].id]);
-      }
-    }
-    setIsLoading(false);
-  }, [ruleSetId]);
+          // Expand first component by default
+          const config = loadedPlan.configuration;
+          if (config.type === 'additive_lookup' && config.variants[0]?.components.length > 0) {
+            setExpandedComponents([config.variants[0].components[0].id]);
+          }
+        }
+      })
+      .catch((err) => console.error('Error loading rule set:', err))
+      .finally(() => setIsLoading(false));
+  }, [ruleSetId, currentTenant?.id]);
 
-  const handleSave = () => {
-    if (!plan) return;
-    const updated = savePlan(plan);
-    setPlan(updated);
-    setOriginalPlan(JSON.parse(JSON.stringify(updated)));
+  const handleSave = async () => {
+    if (!plan || !currentTenant?.id) return;
+    await saveRuleSet(currentTenant.id, plan);
+    setOriginalPlan(JSON.parse(JSON.stringify(plan)));
     setHasChanges(false);
   };
 
-  const handleSubmitForApproval = () => {
-    if (!plan || !user) return;
-    const updated = submitForApproval(plan.id, user.id);
+  const handleSubmitForApproval = async () => {
+    if (!plan || !user || !currentTenant?.id) return;
+    const updated = await submitRuleSetForApproval(currentTenant.id, plan.id);
     if (updated) {
       setPlan(updated);
       setOriginalPlan(JSON.parse(JSON.stringify(updated)));
     }
   };
 
-  const handleApprove = () => {
-    if (!plan || !user) return;
-    const updated = approvePlan(plan.id, user.id);
+  const handleApprove = async () => {
+    if (!plan || !user || !currentTenant?.id) return;
+    const updated = await approveRuleSet(currentTenant.id, plan.id, user.id);
     if (updated) {
       setPlan(updated);
       setOriginalPlan(JSON.parse(JSON.stringify(updated)));
@@ -136,18 +136,14 @@ export default function PlanDetailPage() {
   };
 
   const handleReject = () => {
-    if (!plan || !user) return;
-    const updated = rejectPlan(plan.id, user.id);
-    if (updated) {
-      setPlan(updated);
-      setOriginalPlan(JSON.parse(JSON.stringify(updated)));
-    }
+    // Reject not yet implemented in Supabase rule-set-service
+    // For now, just close the dialog
     setShowRejectDialog(false);
   };
 
-  const handleArchive = () => {
-    if (!plan || !user) return;
-    const updated = archivePlan(plan.id, user.id);
+  const handleArchive = async () => {
+    if (!plan || !user || !currentTenant?.id) return;
+    const updated = await archiveRuleSet(currentTenant.id, plan.id);
     if (updated) {
       setPlan(updated);
       setOriginalPlan(JSON.parse(JSON.stringify(updated)));

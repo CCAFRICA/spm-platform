@@ -32,7 +32,7 @@ import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
 import { toast } from 'sonner';
-import { getActivePlan } from '@/lib/compensation/plan-storage';
+import { getActiveRuleSet } from '@/lib/supabase/rule-set-service';
 import {
   calculateIncentive,
   calculateIncentiveWithConfig,
@@ -91,28 +91,32 @@ export default function ScenarioModelingPage() {
   useEffect(() => {
     if (!currentTenant) return;
 
-    initializeScenarios();
-    const plan = getActivePlan(currentTenant.id, 'sales_associate');
-    setActivePlan(plan);
+    const loadData = async () => {
+      initializeScenarios();
+      const plan = await getActiveRuleSet(currentTenant.id);
+      setActivePlan(plan);
 
-    // Load saved scenarios
-    const scenarios = getScenarios(currentTenant.id);
-    setSavedScenarios(scenarios);
+      // Load saved scenarios
+      const scenarios = getScenarios(currentTenant.id);
+      setSavedScenarios(scenarios);
 
-    // Calculate baseline for all employees
-    if (plan) {
-      const baselines = new Map<string, CalculationResult>();
-      DEMO_EMPLOYEES.forEach((emp) => {
-        const metrics = emp.getMetrics();
-        const result = calculateIncentive(metrics, currentTenant.id);
-        if (result) {
-          baselines.set(emp.id, result);
-        }
-      });
-      setBaselineResults(baselines);
-    }
+      // Calculate baseline for all employees
+      if (plan) {
+        const baselines = new Map<string, CalculationResult>();
+        DEMO_EMPLOYEES.forEach((emp) => {
+          const metrics = emp.getMetrics();
+          const result = calculateIncentive(metrics, currentTenant.id);
+          if (result) {
+            baselines.set(emp.id, result);
+          }
+        });
+        setBaselineResults(baselines);
+      }
 
-    setIsLoading(false);
+      setIsLoading(false);
+    };
+
+    loadData();
   }, [currentTenant]);
 
   const loadSavedScenarios = useCallback(() => {

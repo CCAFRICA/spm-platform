@@ -9,7 +9,6 @@
 
 import { useState } from 'react';
 import { calculateIncentive } from '@/lib/compensation/calculation-engine';
-import { savePlan } from '@/lib/compensation/plan-storage';
 import { createRetailCGMXUnifiedPlan } from '@/lib/compensation/retailcgmx-plan';
 import { ALL_TEST_CASES } from '@/lib/test/ob-15-calculation-test-cases';
 
@@ -96,9 +95,8 @@ function runAllTests(ruleSetId: string): TestResult[] {
 function runProofGate(): { results: ProofGateResult[]; testResults: TestResult[] } {
   const results: ProofGateResult[] = [];
 
-  // Initialize plan
+  // Initialize plan (in-memory only for test page)
   const plan = createRetailCGMXUnifiedPlan();
-  savePlan(plan);
 
   // Run tests
   const testResults = runAllTests(plan.id);

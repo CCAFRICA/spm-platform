@@ -66,7 +66,7 @@ import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
-import { getPlans } from '@/lib/compensation/plan-storage';
+import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import type { RuleSetConfig, PlanComponent } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 import {
@@ -1139,10 +1139,13 @@ export default function DataPackageImportPage() {
   // Load tenant's active plan on mount
   useEffect(() => {
     if (!tenantId) return; // Guard for when tenant not selected
-    const plans = getPlans(tenantId);
-    const active = plans.find(p => p.status === 'active');
-    setActivePlan(active || null);
-    setTargetFields(extractTargetFieldsFromPlan(active || null));
+    getRuleSets(tenantId)
+      .then((plans) => {
+        const active = plans.find(p => p.status === 'active');
+        setActivePlan(active || null);
+        setTargetFields(extractTargetFieldsFromPlan(active || null));
+      })
+      .catch((err) => console.error('Error loading rule sets:', err));
   }, [tenantId]);
 
   // CLT-08: Validate critical fields whenever mappings change
@@ -2000,17 +2003,7 @@ export default function DataPackageImportPage() {
       console.log(`[Import] Committed ${result.recordCount} records, batch: ${result.batchId}`);
       console.log(`[Import] TenantId used: ${tenantId}`);
 
-      // Verify persistence to localStorage
-      const batchesInStorage = localStorage.getItem('data_layer_batches');
-      const committedInStorage = localStorage.getItem('data_layer_committed');
-      console.log(`[Import] Verification - batches in storage: ${batchesInStorage ? 'YES' : 'NO'}`);
-      console.log(`[Import] Verification - committed in storage: ${committedInStorage ? 'YES' : 'NO'}`);
-      if (batchesInStorage) {
-        const batches = JSON.parse(batchesInStorage);
-        console.log(`[Import] Batches count: ${batches.length}`);
-        const thisBatch = batches.find(([id]: [string, unknown]) => id === result.batchId);
-        console.log(`[Import] This batch found: ${thisBatch ? 'YES' : 'NO'}`);
-      }
+      console.log(`[Import] Data committed successfully`);
 
       // OB-13A: Auto-detect and create period from imported data
       try {

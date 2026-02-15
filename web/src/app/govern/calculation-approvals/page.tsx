@@ -19,9 +19,9 @@ import {
   type ApprovalItem,
 } from '@/lib/governance/approval-service';
 import {
-  transitionCycle,
-  loadCycle,
-} from '@/lib/calculation/calculation-lifecycle-service';
+  transitionBatchLifecycle,
+  listCalculationBatches,
+} from '@/lib/supabase/calculation-service';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -51,7 +51,7 @@ export default function CalculationApprovalPage() {
   const pendingItems = items.filter(i => i.status === 'pending');
   const resolvedItems = items.filter(i => i.status !== 'pending');
 
-  const handleResolve = (action: 'approved' | 'rejected') => {
+  const handleResolve = async (action: 'approved' | 'rejected') => {
     if (!selectedItem || !user || !comments.trim()) {
       setError('Comments are required.');
       return;
@@ -59,15 +59,17 @@ export default function CalculationApprovalPage() {
     setError(null);
     try {
       resolveApproval(selectedItem, user.name, action, comments);
-      // Update lifecycle state
+      // Update lifecycle state via Supabase
       try {
-        const cycle = loadCycle(tenantId, selectedItem.period);
-        if (cycle) {
-          if (action === 'approved') {
-            transitionCycle(cycle, 'APPROVED', user.name, comments, { approvalComments: comments });
-          } else {
-            transitionCycle(cycle, 'REJECTED', user.name, comments, { rejectionReason: comments });
-          }
+        const batches = await listCalculationBatches(tenantId, { periodId: selectedItem.period });
+        const batch = batches[0];
+        if (batch) {
+          const targetState = action === 'approved' ? 'APPROVED' : 'REJECTED';
+          await transitionBatchLifecycle(tenantId, batch.id, targetState as import('@/lib/supabase/database.types').LifecycleState, {
+            summary: action === 'approved'
+              ? { approvalComments: comments }
+              : { rejectionReason: comments },
+          });
         }
       } catch (lcErr) {
         setError(`Approval saved but lifecycle transition failed: ${lcErr instanceof Error ? lcErr.message : 'Unknown error'}`);

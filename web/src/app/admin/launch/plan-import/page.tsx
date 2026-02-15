@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
-import { savePlan, activatePlan } from '@/lib/compensation/plan-storage';
+import { saveRuleSet, activateRuleSet } from '@/lib/supabase/rule-set-service';
 import { parseFile } from '@/lib/import-pipeline/file-parser';
 import {
   interpretPlanDocument,
@@ -672,24 +672,18 @@ export default function PlanImportPage() {
         };
       }
 
-      // Save the plan (as draft first)
+      // Save the plan (as draft first) via Supabase
       console.log('[handleImport] Saving plan:', planConfig.id, planConfig.name);
-      console.log('[handleImport] Plan config:', JSON.stringify(planConfig, null, 2).substring(0, 1000));
-      savePlan(planConfig);
-      console.log('[handleImport] Plan saved to localStorage');
+      await saveRuleSet(currentTenant.id, planConfig);
+      console.log('[handleImport] Plan saved to Supabase');
 
-      // OB-23: Activate the plan immediately so calculation engine can use it
-      // This also archives any existing active plans for the same roles
-      const activatedPlan = activatePlan(planConfig.id, user?.name || 'system');
+      // Activate the plan immediately so calculation engine can use it
+      const activatedPlan = await activateRuleSet(currentTenant.id, planConfig.id);
       if (!activatedPlan) {
         console.warn('[handleImport] Failed to activate plan, but plan was saved as draft');
       } else {
         console.log('[handleImport] Plan activated successfully:', activatedPlan.id);
       }
-
-      // Verify save
-      const verifyPlans = localStorage.getItem('compensation_plans');
-      console.log('[handleImport] Verification - Plans in storage:', verifyPlans ? JSON.parse(verifyPlans).length : 0);
 
       setImportResult({ success: true, ruleSetId: planConfig.id });
       console.log('[handleImport] SUCCESS - Import complete');
