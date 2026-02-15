@@ -31,8 +31,12 @@ import {
   getFranquicias,
   getChequesMetadata,
 } from '@/lib/restaurant-service';
-import { isStaticTenant } from '@/lib/tenant-data-service';
 import type { Cheque, Mesero, Turno, Franquicia } from '@/types/cheques';
+
+const STATIC_TENANT_IDS = ['retailco', 'restaurantmx', 'techcorp'];
+function isStaticTenant(tenantId: string | undefined | null): boolean {
+  return !!tenantId && STATIC_TENANT_IDS.includes(tenantId);
+}
 
 // Mock transaction data for TechCorp (Deals)
 const mockTechCorpTransactions = [

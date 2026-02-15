@@ -3,10 +3,12 @@
 /**
  * Perform Workspace Landing Page
  *
- * OB-38 Phase 7: Persona-aware rendering
+ * Persona-aware rendering:
  *   VL Admin  -> "Performance Observatory" (aggregate view)
  *   Manager   -> "Team Performance" (team-centric view)
  *   Sales Rep -> "My Performance" (personal view)
+ *
+ * All data from Supabase calculation_batches + calculation_results.
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -15,18 +17,12 @@ import { usePulse, useNavigation } from '@/contexts/navigation-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { formatMetricValue, getTrendArrow, getTrendColor } from '@/lib/navigation/pulse-service';
-import { getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
 import {
-  getLatestRun,
+  listCalculationBatches,
   getCalculationResults,
-  getCalculationRuns,
-} from '@/lib/calculation/results-storage';
-import {
-  loadCycle,
-  canViewResults,
-  listCycles,
-  type CalculationState,
-} from '@/lib/calculation/calculation-lifecycle-service';
+} from '@/lib/supabase/calculation-service';
+import { canViewResults } from '@/lib/calculation/lifecycle-utils';
+import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -43,7 +39,37 @@ import {
   Eye,
   Clock,
 } from 'lucide-react';
-import type { CalculationResult } from '@/types/compensation-plan';
+
+type CalcResultRow = Database['public']['Tables']['calculation_results']['Row'];
+
+interface DisplayResult {
+  entityId: string;
+  entityName: string;
+  storeId: string;
+  totalIncentive: number;
+  ruleSetName: string;
+  components: Array<{ attainment?: number; outputValue: number; componentName: string }>;
+}
+
+function mapResultRow(r: CalcResultRow): DisplayResult {
+  const meta = (r.metadata as Record<string, unknown>) || {};
+  const comps = Array.isArray(r.components) ? r.components : [];
+  return {
+    entityId: r.entity_id,
+    entityName: (meta.entityName as string) || r.entity_id,
+    storeId: (meta.storeId as string) || '',
+    totalIncentive: r.total_payout || 0,
+    ruleSetName: (meta.ruleSetName as string) || '',
+    components: comps.map((c: unknown) => {
+      const comp = c as Record<string, unknown>;
+      return {
+        attainment: typeof comp.attainment === 'number' ? comp.attainment : undefined,
+        outputValue: Number(comp.outputValue || comp.output_value || 0),
+        componentName: String(comp.componentName || comp.component_name || ''),
+      };
+    }),
+  };
+}
 
 function extractEmployeeId(email: string | undefined): string | null {
   if (!email) return null;
@@ -66,10 +92,9 @@ export default function PerformPage() {
   const { user } = useAuth();
   const { format } = useCurrency();
 
-  const [myResult, setMyResult] = useState<CalculationResult | null>(null);
-  const [allResults, setAllResults] = useState<CalculationResult[]>([]);
+  const [myResult, setMyResult] = useState<DisplayResult | null>(null);
+  const [allResults, setAllResults] = useState<DisplayResult[]>([]);
   const [hasResults, setHasResults] = useState(false);
-  // OB-39 Phase 8: Lifecycle-gated visibility
   const [lifecycleGated, setLifecycleGated] = useState(false);
 
   const displaySpanish = isSpanish;
@@ -79,7 +104,7 @@ export default function PerformPage() {
   const isManager = userRole === 'manager' || userRole === 'admin';
   const isSalesRep = userRole === 'sales_rep';
 
-  // Fetch calculation results — OB-41 Phase 6: search all periods, lifecycle-gate properly
+  // Fetch calculation results from Supabase
   useEffect(() => {
     if (!currentTenant) return;
 
@@ -87,74 +112,49 @@ export default function PerformPage() {
       : isManager ? 'manager' as const
       : 'sales_rep' as const;
 
-    // For non-admin roles, find the latest POSTED+ cycle and use that period
-    const postVisibleStates: CalculationState[] = ['POSTED', 'CLOSED', 'PAID', 'PUBLISHED'];
-    const allCycles = listCycles(currentTenant.id);
+    const loadResults = async () => {
+      try {
+        const batches = await listCalculationBatches(currentTenant.id);
+        if (batches.length === 0) {
+          setAllResults([]);
+          setHasResults(false);
+          setMyResult(null);
+          return;
+        }
 
-    let targetPeriod: string | null = null;
+        // Find the first batch this role can view
+        const visibleBatch = batches.find(b => canViewResults(b.lifecycle_state, role));
+        if (!visibleBatch) {
+          // There are batches but none visible to this role
+          setLifecycleGated(true);
+          setAllResults([]);
+          setHasResults(false);
+          setMyResult(null);
+          return;
+        }
 
-    if (isSalesRep) {
-      // Sales reps can only see POSTED+ periods
-      const visibleCycle = allCycles.find(c => postVisibleStates.includes(c.state));
-      if (visibleCycle) {
-        targetPeriod = visibleCycle.period;
+        setLifecycleGated(false);
+
+        // Load results from Supabase
+        const calcResults = await getCalculationResults(currentTenant.id, visibleBatch.id);
+        const results = calcResults.map(mapResultRow);
+
+        setAllResults(results);
+        setHasResults(results.length > 0);
+
+        const entityId = extractEmployeeId(user?.email);
+        if (entityId && results.length > 0) {
+          const result = results.find((r) => r.entityId === entityId);
+          setMyResult(result || null);
+        }
+      } catch (err) {
+        console.warn('[Perform] Failed to load results:', err);
+        setAllResults([]);
+        setHasResults(false);
       }
-    } else {
-      // Admins/managers: prefer the latest cycle they can view
-      const visibleCycle = allCycles.find(c => canViewResults(c.state, role));
-      if (visibleCycle) {
-        targetPeriod = visibleCycle.period;
-      }
-    }
+    };
 
-    // Fallback to current period if no cycle found
-    const period = targetPeriod || getCurrentPeriod();
-
-    // Check lifecycle gate for this period
-    const cycle = loadCycle(currentTenant.id, period);
-    if (cycle && !canViewResults(cycle.state, role)) {
-      setLifecycleGated(true);
-      setAllResults([]);
-      setHasResults(false);
-      setMyResult(null);
-      return;
-    }
-    setLifecycleGated(false);
-
-    // Load results — try multiple sources
-    let results: CalculationResult[] = [];
-
-    results = getPeriodResults(currentTenant.id, period);
-
-    if (results.length === 0) {
-      results = getPeriodResults(currentTenant.id, '');
-    }
-
-    if (results.length === 0) {
-      const run = getLatestRun(currentTenant.id, period);
-      if (run) {
-        results = getCalculationResults(run.id);
-      }
-    }
-
-    if (results.length === 0) {
-      const allRuns = getCalculationRuns(currentTenant.id);
-      if (allRuns.length > 0) {
-        const latestRun = allRuns.sort(
-          (a, b) => new Date(b.calculatedAt).getTime() - new Date(a.calculatedAt).getTime()
-        )[0];
-        results = getCalculationResults(latestRun.id);
-      }
-    }
-
-    setAllResults(results);
-    setHasResults(results.length > 0);
-
-    const entityId = extractEmployeeId(user?.email);
-    if (entityId && results.length > 0) {
-      const result = results.find((r) => r.entityId === entityId);
-      setMyResult(result || null);
-    }
+    loadResults();
   }, [currentTenant, user, isVLAdmin, isManager, isSalesRep]);
 
   // Derive aggregate/team stats
@@ -225,7 +225,7 @@ export default function PerformPage() {
         )}
       </div>
 
-      {/* OB-39/OB-40: Lifecycle gate banner */}
+      {/* Lifecycle gate banner */}
       {lifecycleGated && (
         <Card className="border-blue-200 bg-blue-50">
           <CardContent className="py-4 flex items-center gap-3">
