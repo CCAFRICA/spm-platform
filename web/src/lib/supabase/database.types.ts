@@ -132,6 +132,7 @@ export interface Database {
           status?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -188,6 +189,7 @@ export interface Database {
           status?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -197,42 +199,40 @@ export interface Database {
         Row: {
           id: string;
           tenant_id: string;
-          external_id: string;
           entity_type: EntityType;
-          display_name: string | null;
-          attributes: Json;
-          profile_id: string | null;
           status: EntityStatus;
-          effective_start: string | null;
-          effective_end: string | null;
+          external_id: string | null;
+          display_name: string;
+          profile_id: string | null;
+          temporal_attributes: Json;
+          metadata: Json;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           tenant_id: string;
-          external_id: string;
           entity_type: EntityType;
-          display_name?: string | null;
-          attributes?: Json;
-          profile_id?: string | null;
           status?: EntityStatus;
-          effective_start?: string | null;
-          effective_end?: string | null;
+          external_id?: string | null;
+          display_name: string;
+          profile_id?: string | null;
+          temporal_attributes?: Json;
+          metadata?: Json;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
-          external_id?: string;
           entity_type?: EntityType;
-          display_name?: string | null;
-          attributes?: Json;
-          profile_id?: string | null;
           status?: EntityStatus;
-          effective_start?: string | null;
-          effective_end?: string | null;
+          external_id?: string | null;
+          display_name?: string;
+          profile_id?: string | null;
+          temporal_attributes?: Json;
+          metadata?: Json;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -245,13 +245,14 @@ export interface Database {
           source_entity_id: string;
           target_entity_id: string;
           relationship_type: RelationshipType;
+          source: RelationshipSource;
           confidence: number;
           evidence: Json;
-          source: RelationshipSource;
           context: Json;
-          effective_start: string;
-          effective_end: string | null;
+          effective_from: string | null;
+          effective_to: string | null;
           created_at: string;
+          updated_at: string;
         };
         Insert: {
           id?: string;
@@ -259,22 +260,26 @@ export interface Database {
           source_entity_id: string;
           target_entity_id: string;
           relationship_type: RelationshipType;
+          source?: RelationshipSource;
           confidence?: number;
           evidence?: Json;
-          source?: RelationshipSource;
           context?: Json;
-          effective_start?: string;
-          effective_end?: string | null;
+          effective_from?: string | null;
+          effective_to?: string | null;
           created_at?: string;
+          updated_at?: string;
         };
         Update: {
           relationship_type?: RelationshipType;
+          source?: RelationshipSource;
           confidence?: number;
           evidence?: Json;
-          source?: RelationshipSource;
           context?: Json;
-          effective_end?: string | null;
+          effective_from?: string | null;
+          effective_to?: string | null;
+          updated_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -287,13 +292,12 @@ export interface Database {
           entity_id: string;
           from_entity_id: string | null;
           to_entity_id: string | null;
-          relationship_type: RelationshipType;
+          effective_date: string;
           credit_model: Json;
           transition_window: Json;
           impact_preview: Json;
-          effective_date: string;
-          initiated_by: string;
-          status: string;
+          reason: string | null;
+          created_by: string | null;
           created_at: string;
         };
         Insert: {
@@ -302,21 +306,21 @@ export interface Database {
           entity_id: string;
           from_entity_id?: string | null;
           to_entity_id?: string | null;
-          relationship_type: RelationshipType;
+          effective_date: string;
           credit_model?: Json;
           transition_window?: Json;
           impact_preview?: Json;
-          effective_date: string;
-          initiated_by: string;
-          status?: string;
+          reason?: string | null;
+          created_by?: string | null;
           created_at?: string;
         };
         Update: {
           credit_model?: Json;
           transition_window?: Json;
           impact_preview?: Json;
-          status?: string;
+          reason?: string | null;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -376,6 +380,7 @@ export interface Database {
           metadata?: Json;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -411,6 +416,7 @@ export interface Database {
           entity_overrides?: Json;
           effective_end?: string | null;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -453,6 +459,7 @@ export interface Database {
           status?: PeriodStatus;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -491,6 +498,7 @@ export interface Database {
           status?: string;
           row_count?: number;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -525,6 +533,7 @@ export interface Database {
           values?: Json;
           data_type?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -585,6 +594,7 @@ export interface Database {
           metadata?: Json;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -627,6 +637,7 @@ export interface Database {
           metrics?: Json;
           metadata?: Json;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -660,6 +671,7 @@ export interface Database {
         Update: {
           trace_data?: Json;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -704,6 +716,7 @@ export interface Database {
           resolved_by?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -742,6 +755,7 @@ export interface Database {
           false_greens?: Json;
           status?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -775,6 +789,7 @@ export interface Database {
           source?: string;
           context?: Json;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -804,6 +819,7 @@ export interface Database {
           created_at?: string;
         };
         Update: never;
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -843,6 +859,7 @@ export interface Database {
           status?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -878,6 +895,7 @@ export interface Database {
           error_details?: Json | null;
           completed_at?: string | null;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -906,6 +924,7 @@ export interface Database {
           metric_value?: number;
           metadata?: Json;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -913,28 +932,35 @@ export interface Database {
       // ──────────────────────────────────────────────
       period_entity_state: {
         Row: {
+          id: string;
           tenant_id: string;
-          period_key: string;
           entity_id: string;
-          entity_type: EntityType;
+          period_id: string;
           resolved_attributes: Json;
-          relationships: Json;
+          resolved_relationships: Json;
+          entity_type: string;
+          status: string;
           materialized_at: string;
         };
         Insert: {
+          id?: string;
           tenant_id: string;
-          period_key: string;
           entity_id: string;
-          entity_type: EntityType;
+          period_id: string;
           resolved_attributes?: Json;
-          relationships?: Json;
+          resolved_relationships?: Json;
+          entity_type: string;
+          status: string;
           materialized_at?: string;
         };
         Update: {
           resolved_attributes?: Json;
-          relationships?: Json;
+          resolved_relationships?: Json;
+          entity_type?: string;
+          status?: string;
           materialized_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -942,30 +968,36 @@ export interface Database {
       // ──────────────────────────────────────────────
       profile_scope: {
         Row: {
-          profile_id: string;
+          id: string;
           tenant_id: string;
-          full_visibility_entity_ids: string[];
-          rule_set_visibility: Json;
-          aggregate_visibility: Json;
+          profile_id: string;
           scope_type: ScopeType;
+          visible_entity_ids: string[];
+          visible_rule_set_ids: string[];
+          visible_period_ids: string[];
+          metadata: Json;
           materialized_at: string;
         };
         Insert: {
-          profile_id: string;
+          id?: string;
           tenant_id: string;
-          full_visibility_entity_ids?: string[];
-          rule_set_visibility?: Json;
-          aggregate_visibility?: Json;
+          profile_id: string;
           scope_type?: ScopeType;
+          visible_entity_ids?: string[];
+          visible_rule_set_ids?: string[];
+          visible_period_ids?: string[];
+          metadata?: Json;
           materialized_at?: string;
         };
         Update: {
-          full_visibility_entity_ids?: string[];
-          rule_set_visibility?: Json;
-          aggregate_visibility?: Json;
           scope_type?: ScopeType;
+          visible_entity_ids?: string[];
+          visible_rule_set_ids?: string[];
+          visible_period_ids?: string[];
+          metadata?: Json;
           materialized_at?: string;
         };
+        Relationships: [];
       };
 
       // ──────────────────────────────────────────────
@@ -973,47 +1005,54 @@ export interface Database {
       // ──────────────────────────────────────────────
       entity_period_outcomes: {
         Row: {
+          id: string;
           tenant_id: string;
-          period_key: string;
           entity_id: string;
-          entity_type: EntityType;
-          rule_set_outcomes: Json;
+          period_id: string;
           total_payout: number;
-          total_by_currency: Json;
-          rule_set_count: number;
-          lowest_lifecycle_state: LifecycleState | null;
-          all_official: boolean;
-          all_approved: boolean;
-          post_aggregation: Json;
+          rule_set_breakdown: Json;
+          component_breakdown: Json;
+          lowest_lifecycle_state: string;
+          attainment_summary: Json;
+          metadata: Json;
           materialized_at: string;
         };
         Insert: {
+          id?: string;
           tenant_id: string;
-          period_key: string;
           entity_id: string;
-          entity_type: EntityType;
-          rule_set_outcomes?: Json;
+          period_id: string;
           total_payout?: number;
-          total_by_currency?: Json;
-          rule_set_count?: number;
-          lowest_lifecycle_state?: LifecycleState | null;
-          all_official?: boolean;
-          all_approved?: boolean;
-          post_aggregation?: Json;
+          rule_set_breakdown?: Json;
+          component_breakdown?: Json;
+          lowest_lifecycle_state?: string;
+          attainment_summary?: Json;
+          metadata?: Json;
           materialized_at?: string;
         };
         Update: {
-          rule_set_outcomes?: Json;
           total_payout?: number;
-          total_by_currency?: Json;
-          rule_set_count?: number;
-          lowest_lifecycle_state?: LifecycleState | null;
-          all_official?: boolean;
-          all_approved?: boolean;
-          post_aggregation?: Json;
+          rule_set_breakdown?: Json;
+          component_breakdown?: Json;
+          lowest_lifecycle_state?: string;
+          attainment_summary?: Json;
+          metadata?: Json;
           materialized_at?: string;
         };
+        Relationships: [];
       };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
     };
   };
 }
