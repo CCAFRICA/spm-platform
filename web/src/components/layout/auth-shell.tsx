@@ -20,22 +20,24 @@ interface AuthShellProps {
 }
 
 /**
- * Inner shell component that uses navigation context
+ * Inner shell component that uses navigation context.
+ * Applies data-workspace attribute for Wayfinder ambient identity.
  */
 function AuthShellInner({ children }: AuthShellProps) {
-  const { isRailCollapsed } = useNavigation();
+  const { isRailCollapsed, activeWorkspace } = useNavigation();
 
   return (
     <>
       <MissionControlRail />
       <div
+        data-workspace={activeWorkspace}
         className={cn(
           'transition-all duration-300 ease-in-out',
           isRailCollapsed ? 'md:pl-16' : 'md:pl-[280px]'
         )}
       >
         <Navbar />
-        <main>{children}</main>
+        <main className="workspace-content min-h-screen">{children}</main>
       </div>
       <CommandPalette />
     </>

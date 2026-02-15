@@ -61,6 +61,13 @@
   --workspace-density: 1;
 }
 
+/* Financial — Network performance: warm, operational */
+[data-workspace="financial"] {
+  --workspace-accent: 30 90% 50%;    /* Orange-amber */
+  --workspace-bg-tint: 30 15% 98%;
+  --workspace-density: 1;
+}
+
 /* Apply ambient tint to main content area */
 [data-workspace] .workspace-content {
   background-color: hsl(var(--workspace-bg-tint));
