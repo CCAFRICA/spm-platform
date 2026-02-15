@@ -84,22 +84,59 @@ export default function SelectTenantPage() {
     }
   };
 
-  // Load tenants directly if context doesn't have them (timing issue after login)
+  // Load tenants from static registry + Supabase tenants table
   useEffect(() => {
     async function loadTenants() {
       if (isVLAdmin && contextTenants.length === 0 && !loadingTenants) {
         setLoadingTenants(true);
         try {
           // Load static tenants from registry file
-          const registry = await import('@/data/tenants/index.json');
-          const staticTenants = (registry.tenants || []) as TenantSummary[];
+          let staticTenants: TenantSummary[] = [];
+          try {
+            const registry = await import('@/data/tenants/index.json');
+            staticTenants = (registry.tenants || []) as TenantSummary[];
+          } catch {
+            // No static registry
+          }
 
-          // Merge static and dynamic tenants using service
-          const mergedTenants = await getMergedTenants(staticTenants);
-          setLocalTenants(mergedTenants);
+          // Also load tenants from Supabase
+          try {
+            const supabase = createClient();
+            const { data: dbTenants } = await supabase
+              .from('tenants')
+              .select('id, name, slug, locale, currency, created_at')
+              .order('name');
+
+            if (dbTenants && dbTenants.length > 0) {
+              const supabaseTenants: TenantSummary[] = dbTenants.map(t => ({
+                id: t.id,
+                displayName: t.name,
+                industry: 'Retail' as const,
+                country: 'MX',
+                status: 'active' as const,
+                userCount: 0,
+                lastActivityAt: t.created_at,
+              }));
+
+              // Merge: static + Supabase (dedup by id)
+              const staticIds = new Set(staticTenants.map(t => t.id));
+              const merged = [
+                ...staticTenants,
+                ...supabaseTenants.filter(t => !staticIds.has(t.id)),
+              ];
+              const mergedWithDynamic = await getMergedTenants(merged);
+              setLocalTenants(mergedWithDynamic);
+            } else {
+              const mergedTenants = await getMergedTenants(staticTenants);
+              setLocalTenants(mergedTenants);
+            }
+          } catch {
+            // Supabase failed — use static only
+            const mergedTenants = await getMergedTenants(staticTenants);
+            setLocalTenants(mergedTenants);
+          }
         } catch (e) {
-          console.error('Failed to load tenant registry:', e);
-          // Still try to load dynamic tenants if static fails
+          console.error('Failed to load tenants:', e);
           try {
             const dynamicTenants = await getDynamicTenants();
             setLocalTenants(dynamicTenants);

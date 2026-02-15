@@ -10,8 +10,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from './auth-context';
+import { createClient } from '@/lib/supabase/client';
 import type { TenantConfig, TenantSummary, TenantTerminology, Currency } from '@/types/tenant';
-import { DEFAULT_TERMINOLOGY, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
+import { DEFAULT_TERMINOLOGY, DEFAULT_FEATURES, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
 
 interface TenantContextState {
   currentTenant: TenantConfig | null;
@@ -47,15 +48,63 @@ async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
     return tenantConfigCache[normalizedId];
   }
 
-  // Load tenant config from static JSON files
+  // Try static JSON first
   try {
     const config = await import(`@/data/tenants/${normalizedId}/config.json`);
     const tenantConfig = { ...(config.default || config), id: normalizedId };
     tenantConfigCache[normalizedId] = tenantConfig;
     return tenantConfig;
   } catch {
-    throw new Error(`Failed to load tenant config: ${normalizedId}`);
+    // Static config not found — fall back to Supabase tenants table
   }
+
+  // Load from Supabase: try by ID first, then by slug
+  try {
+    const supabase = createClient();
+    let row: Record<string, unknown> | null = null;
+
+    const { data: byId } = await supabase
+      .from('tenants')
+      .select('*')
+      .eq('id', normalizedId)
+      .single();
+    if (byId) row = byId as Record<string, unknown>;
+
+    if (!row) {
+      const { data: bySlug } = await supabase
+        .from('tenants')
+        .select('*')
+        .eq('slug', normalizedId)
+        .single();
+      if (bySlug) row = bySlug as Record<string, unknown>;
+    }
+
+    if (row) {
+      const settings = (row.settings || {}) as Record<string, unknown>;
+      const features = (row.features || {}) as Record<string, boolean>;
+      const tenantConfig: TenantConfig = {
+        id: row.id as string,
+        name: row.name as string,
+        displayName: row.name as string,
+        industry: 'Retail' as TenantConfig['industry'],
+        country: (settings.country_code as string) || 'MX',
+        currency: (row.currency as TenantConfig['currency']) || 'MXN',
+        locale: (row.locale as TenantConfig['locale']) || 'es-MX',
+        timezone: (settings.timezone as string) || 'America/Mexico_City',
+        features: { ...DEFAULT_FEATURES, ...features },
+        terminology: DEFAULT_TERMINOLOGY,
+        createdAt: (row.created_at as string) || new Date().toISOString(),
+        updatedAt: (row.updated_at as string) || new Date().toISOString(),
+        status: 'active',
+      };
+      tenantConfigCache[tenantConfig.id] = tenantConfig;
+      return tenantConfig;
+    }
+  } catch (err) {
+    console.warn('[TenantContext] Supabase fallback failed:', err);
+  }
+
+  throw new Error(`Failed to load tenant config: ${normalizedId}`);
 }
 
 export function TenantProvider({ children }: { children: ReactNode }) {
@@ -103,11 +152,15 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         if (user && !isAdmin && 'tenantId' in user && user.tenantId) {
           await loadTenant(user.tenantId);
         } else if (isAdmin) {
-          // VL Admin without selected tenant — check if we had one selected
-          // Use sessionStorage for admin's tenant selection (survives refresh, not tabs)
-          const selectedTenant = typeof window !== 'undefined'
-            ? sessionStorage.getItem('vialuce_admin_tenant')
-            : null;
+          // VL Admin without selected tenant — check sessionStorage then cookie
+          let selectedTenant: string | null = null;
+          if (typeof window !== 'undefined') {
+            selectedTenant = sessionStorage.getItem('vialuce_admin_tenant');
+            if (!selectedTenant) {
+              const match = document.cookie.match(/vialuce-tenant-id=([^;]+)/);
+              selectedTenant = match ? match[1] : null;
+            }
+          }
           if (selectedTenant) {
             await loadTenant(selectedTenant);
           } else {
@@ -131,9 +184,10 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       await loadTenant(tenantId);
-      // Store admin's tenant selection in sessionStorage
+      // Store admin's tenant selection in sessionStorage + cookie
       if (isAdmin && typeof window !== 'undefined') {
         sessionStorage.setItem('vialuce_admin_tenant', tenantId);
+        document.cookie = `vialuce-tenant-id=${tenantId}; path=/; max-age=${60 * 60 * 24}; SameSite=Lax`;
       }
       router.push('/');
     } catch (err) {
@@ -148,6 +202,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     setCurrentTenant(null);
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem('vialuce_admin_tenant');
+      document.cookie = 'vialuce-tenant-id=; path=/; max-age=0';
     }
     if (isAdmin) {
       router.push('/select-tenant');
