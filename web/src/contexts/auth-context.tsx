@@ -7,7 +7,7 @@ import type { User, TenantUser, VLAdminUser } from '@/types/auth';
 import { isVLAdmin } from '@/types/auth';
 import { STORAGE_KEY_USER_ROLE, STORAGE_KEY_TENANT } from '@/contexts/tenant-context';
 import { migrateStorageKeys } from '@/lib/storage/storage-migration';
-import { isSupabaseConfigured } from '@/lib/supabase/client';
+// Supabase is always configured — no fallback mode
 
 // ──────────────────────────────────────────────
 // Demo Users (used when Supabase is NOT configured)
@@ -422,7 +422,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const supabaseEnabled = isSupabaseConfigured();
+  const supabaseEnabled = true;
 
   // ──────────────────────────────────────────
   // Initialize: Supabase auth listener or demo restore

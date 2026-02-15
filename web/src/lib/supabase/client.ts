@@ -3,6 +3,8 @@
  *
  * Creates a Supabase client for use in client components.
  * Uses @supabase/ssr for cookie-based session management.
+ *
+ * Supabase IS the only data source. No fallback.
  */
 
 import { createBrowserClient } from '@supabase/ssr';
@@ -13,21 +15,15 @@ let client: ReturnType<typeof createBrowserClient<Database>> | null = null;
 export function createClient() {
   if (client) return client;
 
-  client = createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+  if (!url || !key) {
+    throw new Error(
+      'Missing Supabase environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set.'
+    );
+  }
+
+  client = createBrowserClient<Database>(url, key);
   return client;
-}
-
-/**
- * Check if Supabase is configured.
- * Returns false when env vars are missing (localStorage fallback mode).
- */
-export function isSupabaseConfigured(): boolean {
-  return !!(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
 }

@@ -1,15 +1,10 @@
 /**
- * RuleSet Service — Replaces PlanService (plan-storage.ts)
+ * RuleSet Service — CRUD for rule sets (5-layer JSONB decomposition)
  *
- * HG-12: RuleSetService replaces PlanService. All async. Zero references to PlanService remain.
- *
- * Maps between the 5-layer JSONB decomposition (rule_sets table)
- * and the existing CompensationPlanConfig type for backwards compatibility.
- *
- * Dual-mode: Supabase when configured, delegates to plan-storage for demo.
+ * Supabase-only. No localStorage fallback.
  */
 
-import { isSupabaseConfigured, createClient } from './client';
+import { createClient } from './client';
 import type { Database, RuleSet, Json } from './database.types';
 import type { CompensationPlanConfig, PlanStatus } from '@/types/compensation-plan';
 
@@ -19,7 +14,7 @@ import type { CompensationPlanConfig, PlanStatus } from '@/types/compensation-pl
 
 /**
  * Convert a Supabase rule_set row to CompensationPlanConfig.
- * The 5-layer JSONB is recombined into the legacy configuration shape.
+ * The 5-layer JSONB is recombined into the configuration shape.
  */
 function ruleSetToPlanConfig(rs: RuleSet): CompensationPlanConfig {
   const components = rs.components as unknown;
@@ -95,60 +90,44 @@ function planConfigToRuleSetInsert(
  * Get all rule sets for a tenant.
  */
 export async function getRuleSets(tenantId: string): Promise<CompensationPlanConfig[]> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('rule_sets')
-      .select('*')
-      .eq('tenant_id', tenantId);
-    if (error) throw error;
-    return ((data || []) as RuleSet[]).map(ruleSetToPlanConfig);
-  }
-
-  // Demo fallback: delegate to existing plan-storage
-  const { getPlans } = await import('@/lib/compensation/plan-storage');
-  return getPlans(tenantId);
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .select('*')
+    .eq('tenant_id', tenantId);
+  if (error) throw error;
+  return ((data || []) as RuleSet[]).map(ruleSetToPlanConfig);
 }
 
 /**
  * Get a single rule set by ID.
  */
 export async function getRuleSet(tenantId: string, ruleSetId: string): Promise<CompensationPlanConfig | null> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('rule_sets')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('id', ruleSetId)
-      .single();
-    if (error) return null;
-    return ruleSetToPlanConfig(data as RuleSet);
-  }
-
-  const { getPlan } = await import('@/lib/compensation/plan-storage');
-  return getPlan(ruleSetId);
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('id', ruleSetId)
+    .single();
+  if (error) return null;
+  return ruleSetToPlanConfig(data as RuleSet);
 }
 
 /**
  * Get the active rule set for a tenant.
  */
-export async function getActiveRuleSet(tenantId: string, role?: string): Promise<CompensationPlanConfig | null> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('rule_sets')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'active')
-      .limit(1)
-      .single();
-    if (error) return null;
-    return ruleSetToPlanConfig(data as RuleSet);
-  }
-
-  const { getActivePlan } = await import('@/lib/compensation/plan-storage');
-  return getActivePlan(tenantId, role || 'admin');
+export async function getActiveRuleSet(tenantId: string): Promise<CompensationPlanConfig | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active')
+    .limit(1)
+    .single();
+  if (error) return null;
+  return ruleSetToPlanConfig(data as RuleSet);
 }
 
 /**
@@ -158,57 +137,41 @@ export async function getRuleSetsByStatus(
   tenantId: string,
   status: PlanStatus
 ): Promise<CompensationPlanConfig[]> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('rule_sets')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('status', status);
-    if (error) throw error;
-    return ((data || []) as RuleSet[]).map(ruleSetToPlanConfig);
-  }
-
-  const { getPlansByStatus } = await import('@/lib/compensation/plan-storage');
-  return getPlansByStatus(tenantId, status);
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('status', status);
+  if (error) throw error;
+  return ((data || []) as RuleSet[]).map(ruleSetToPlanConfig);
 }
 
 /**
  * Save (upsert) a rule set.
  */
 export async function saveRuleSet(tenantId: string, plan: CompensationPlanConfig): Promise<void> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const row = planConfigToRuleSetInsert(plan);
-    const { error } = await supabase
-      .from('rule_sets')
-      .upsert(row);
-    if (error) throw error;
-    return;
-  }
-
-  const { savePlan } = await import('@/lib/compensation/plan-storage');
-  savePlan(plan);
+  const supabase = createClient();
+  const row = planConfigToRuleSetInsert(plan);
+  const { error } = await supabase
+    .from('rule_sets')
+    .upsert(row);
+  if (error) throw error;
 }
 
 /**
  * Delete a rule set (only if draft).
  */
 export async function deleteRuleSet(tenantId: string, ruleSetId: string): Promise<boolean> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('rule_sets')
-      .delete()
-      .eq('tenant_id', tenantId)
-      .eq('id', ruleSetId)
-      .eq('status', 'draft');
-    if (error) return false;
-    return true;
-  }
-
-  const { deletePlan } = await import('@/lib/compensation/plan-storage');
-  return deletePlan(ruleSetId);
+  const supabase = createClient();
+  const { error } = await supabase
+    .from('rule_sets')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('id', ruleSetId)
+    .eq('status', 'draft');
+  if (error) return false;
+  return true;
 }
 
 /**
@@ -218,24 +181,19 @@ export async function submitRuleSetForApproval(
   tenantId: string,
   ruleSetId: string
 ): Promise<CompensationPlanConfig | null> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
-      status: 'pending_approval',
-    };
-    const { data, error } = await supabase
-      .from('rule_sets')
-      .update(updateRow)
-      .eq('tenant_id', tenantId)
-      .eq('id', ruleSetId)
-      .select()
-      .single();
-    if (error) return null;
-    return ruleSetToPlanConfig(data as RuleSet);
-  }
-
-  const { submitForApproval } = await import('@/lib/compensation/plan-storage');
-  return submitForApproval(ruleSetId, 'system');
+  const supabase = createClient();
+  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+    status: 'pending_approval',
+  };
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .update(updateRow)
+    .eq('tenant_id', tenantId)
+    .eq('id', ruleSetId)
+    .select()
+    .single();
+  if (error) return null;
+  return ruleSetToPlanConfig(data as RuleSet);
 }
 
 /**
@@ -246,25 +204,20 @@ export async function approveRuleSet(
   ruleSetId: string,
   approvedBy: string
 ): Promise<CompensationPlanConfig | null> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
-      status: 'active',
-      metadata: { approved_at: new Date().toISOString() } as unknown as Json,
-    };
-    const { data, error } = await supabase
-      .from('rule_sets')
-      .update(updateRow)
-      .eq('tenant_id', tenantId)
-      .eq('id', ruleSetId)
-      .select()
-      .single();
-    if (error) return null;
-    return ruleSetToPlanConfig(data as RuleSet);
-  }
-
-  const { approvePlan } = await import('@/lib/compensation/plan-storage');
-  return approvePlan(ruleSetId, approvedBy);
+  const supabase = createClient();
+  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+    status: 'active',
+    metadata: { approved_at: new Date().toISOString() } as unknown as Json,
+  };
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .update(updateRow)
+    .eq('tenant_id', tenantId)
+    .eq('id', ruleSetId)
+    .select()
+    .single();
+  if (error) return null;
+  return ruleSetToPlanConfig(data as RuleSet);
 }
 
 /**
@@ -274,24 +227,19 @@ export async function archiveRuleSet(
   tenantId: string,
   ruleSetId: string
 ): Promise<CompensationPlanConfig | null> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
-      status: 'archived',
-    };
-    const { data, error } = await supabase
-      .from('rule_sets')
-      .update(updateRow)
-      .eq('tenant_id', tenantId)
-      .eq('id', ruleSetId)
-      .select()
-      .single();
-    if (error) return null;
-    return ruleSetToPlanConfig(data as RuleSet);
-  }
-
-  const { archivePlan } = await import('@/lib/compensation/plan-storage');
-  return archivePlan(ruleSetId, 'system');
+  const supabase = createClient();
+  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+    status: 'archived',
+  };
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .update(updateRow)
+    .eq('tenant_id', tenantId)
+    .eq('id', ruleSetId)
+    .select()
+    .single();
+  if (error) return null;
+  return ruleSetToPlanConfig(data as RuleSet);
 }
 
 /**
@@ -301,31 +249,26 @@ export async function activateRuleSet(
   tenantId: string,
   ruleSetId: string
 ): Promise<CompensationPlanConfig | null> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    // Deactivate all other active rule sets
-    await supabase
-      .from('rule_sets')
-      .update({ status: 'archived' } as Database['public']['Tables']['rule_sets']['Update'])
-      .eq('tenant_id', tenantId)
-      .eq('status', 'active');
-    // Activate this one
-    const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
-      status: 'active',
-    };
-    const { data, error } = await supabase
-      .from('rule_sets')
-      .update(updateRow)
-      .eq('tenant_id', tenantId)
-      .eq('id', ruleSetId)
-      .select()
-      .single();
-    if (error) return null;
-    return ruleSetToPlanConfig(data as RuleSet);
-  }
-
-  const { activatePlan } = await import('@/lib/compensation/plan-storage');
-  return activatePlan(ruleSetId, 'system');
+  const supabase = createClient();
+  // Deactivate all other active rule sets
+  await supabase
+    .from('rule_sets')
+    .update({ status: 'archived' } as Database['public']['Tables']['rule_sets']['Update'])
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active');
+  // Activate this one
+  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+    status: 'active',
+  };
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .update(updateRow)
+    .eq('tenant_id', tenantId)
+    .eq('id', ruleSetId)
+    .select()
+    .single();
+  if (error) return null;
+  return ruleSetToPlanConfig(data as RuleSet);
 }
 
 // ──────────────────────────────────────────────
@@ -341,20 +284,17 @@ export async function assignRuleSet(
   entityId: string,
   effectiveFrom?: string
 ): Promise<void> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const insertRow: Database['public']['Tables']['rule_set_assignments']['Insert'] = {
-      tenant_id: tenantId,
-      rule_set_id: ruleSetId,
-      entity_id: entityId,
-      effective_from: effectiveFrom || new Date().toISOString().split('T')[0],
-    };
-    const { error } = await supabase
-      .from('rule_set_assignments')
-      .insert(insertRow);
-    if (error) throw error;
-  }
-  // Demo mode: assignments are implicit from plan storage
+  const supabase = createClient();
+  const insertRow: Database['public']['Tables']['rule_set_assignments']['Insert'] = {
+    tenant_id: tenantId,
+    rule_set_id: ruleSetId,
+    entity_id: entityId,
+    effective_from: effectiveFrom || new Date().toISOString().split('T')[0],
+  };
+  const { error } = await supabase
+    .from('rule_set_assignments')
+    .insert(insertRow);
+  if (error) throw error;
 }
 
 /**
@@ -364,17 +304,14 @@ export async function getRuleSetAssignments(
   tenantId: string,
   ruleSetId: string
 ): Promise<Array<{ entity_id: string; effective_from: string | null }>> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('rule_set_assignments')
-      .select('entity_id, effective_from')
-      .eq('tenant_id', tenantId)
-      .eq('rule_set_id', ruleSetId);
-    if (error) throw error;
-    return (data || []) as Array<{ entity_id: string; effective_from: string | null }>;
-  }
-  return [];
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('rule_set_assignments')
+    .select('entity_id, effective_from')
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId);
+  if (error) throw error;
+  return (data || []) as Array<{ entity_id: string; effective_from: string | null }>;
 }
 
 /**
@@ -384,15 +321,12 @@ export async function getEntityRuleSetAssignments(
   tenantId: string,
   entityId: string
 ): Promise<Array<{ rule_set_id: string; effective_from: string | null }>> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('rule_set_assignments')
-      .select('rule_set_id, effective_from')
-      .eq('tenant_id', tenantId)
-      .eq('entity_id', entityId);
-    if (error) throw error;
-    return (data || []) as Array<{ rule_set_id: string; effective_from: string | null }>;
-  }
-  return [];
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('rule_set_assignments')
+    .select('rule_set_id, effective_from')
+    .eq('tenant_id', tenantId)
+    .eq('entity_id', entityId);
+  if (error) throw error;
+  return (data || []) as Array<{ rule_set_id: string; effective_from: string | null }>;
 }

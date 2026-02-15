@@ -2,11 +2,10 @@
  * Supabase Auth Service
  *
  * Handles authentication operations via Supabase Auth.
- * Used when Supabase is configured (env vars present).
- * Falls back to demo auth when not configured.
+ * Supabase-only. No fallback.
  */
 
-import { createClient, isSupabaseConfigured } from './client';
+import { createClient } from './client';
 import type { Profile } from './database.types';
 
 export interface AuthProfile {
@@ -26,10 +25,6 @@ export interface AuthProfile {
  * Returns the auth user on success, throws on failure.
  */
 export async function signInWithEmail(email: string, password: string) {
-  if (!isSupabaseConfigured()) {
-    throw new Error('Supabase is not configured');
-  }
-
   const supabase = createClient();
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
@@ -44,10 +39,6 @@ export async function signInWithEmail(email: string, password: string) {
  * Sign up with email and password via Supabase Auth.
  */
 export async function signUpWithEmail(email: string, password: string) {
-  if (!isSupabaseConfigured()) {
-    throw new Error('Supabase is not configured');
-  }
-
   const supabase = createClient();
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -62,8 +53,6 @@ export async function signUpWithEmail(email: string, password: string) {
  * Sign out via Supabase Auth.
  */
 export async function signOut() {
-  if (!isSupabaseConfigured()) return;
-
   const supabase = createClient();
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
@@ -73,8 +62,6 @@ export async function signOut() {
  * Get the current Supabase auth session.
  */
 export async function getSession() {
-  if (!isSupabaseConfigured()) return null;
-
   const supabase = createClient();
   const { data: { session } } = await supabase.auth.getSession();
   return session;
@@ -85,8 +72,6 @@ export async function getSession() {
  * Returns null if no profile exists.
  */
 export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
-  if (!isSupabaseConfigured()) return null;
-
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -120,8 +105,6 @@ export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
 export function onAuthStateChange(
   callback: (event: string, session: unknown) => void
 ): () => void {
-  if (!isSupabaseConfigured()) return () => {};
-
   const supabase = createClient();
   const { data: { subscription } } = supabase.auth.onAuthStateChange(callback);
   return () => subscription.unsubscribe();

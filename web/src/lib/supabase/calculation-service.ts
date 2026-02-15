@@ -1,21 +1,11 @@
 /**
- * Calculation Service — Supabase-first calculation batches, results, traces
+ * Calculation Service — Calculation batches, results, traces, lifecycle
  *
- * HG-14: CalculationOrchestrator reads from period_entity_state, writes to
- *        calculation_results with entity_id UUID FK.
- * HG-15: LifecycleService enforces Rule 30: OFFICIAL→PREVIEW transition blocked.
- *        Supersession creates new batch.
- * HG-16: entity_period_outcomes materializes on lifecycle transition with
- *        per-rule-set breakdown and lowest_lifecycle_state.
- *
- * Phase 10A: Calculation CRUD (batches, results, traces)
- * Phase 10B: Lifecycle management with Rule 30 immutability
- * Phase 10C: Entity period outcomes materialization
- *
- * Dual-mode: Supabase when configured, delegates to existing services for demo.
+ * Supabase-only. No localStorage fallback.
+ * Rule 30: OFFICIAL+ states cannot be overwritten, only superseded.
  */
 
-import { isSupabaseConfigured, createClient } from './client';
+import { createClient } from './client';
 import type { Database, Json, LifecycleState, BatchType } from './database.types';
 
 // ──────────────────────────────────────────────
@@ -70,47 +60,24 @@ export async function createCalculationBatch(
     createdBy?: string;
   }
 ): Promise<CalcBatchRow> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const insertRow: CalcBatchInsert = {
-      tenant_id: tenantId,
-      period_id: params.periodId,
-      rule_set_id: params.ruleSetId || null,
-      batch_type: params.batchType || 'standard',
-      lifecycle_state: 'DRAFT',
-      entity_count: params.entityCount || 0,
-      config: (params.config || {}) as unknown as Json,
-      created_by: params.createdBy || null,
-    };
-    const { data, error } = await supabase
-      .from('calculation_batches')
-      .insert(insertRow)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as CalcBatchRow;
-  }
-
-  // Demo fallback: return a mock batch row
-  const now = new Date().toISOString();
-  return {
-    id: crypto.randomUUID(),
+  const supabase = createClient();
+  const insertRow: CalcBatchInsert = {
     tenant_id: tenantId,
     period_id: params.periodId,
     rule_set_id: params.ruleSetId || null,
-    batch_type: (params.batchType || 'standard') as BatchType,
-    lifecycle_state: 'DRAFT' as LifecycleState,
-    superseded_by: null,
-    supersedes: null,
+    batch_type: params.batchType || 'standard',
+    lifecycle_state: 'DRAFT',
     entity_count: params.entityCount || 0,
-    summary: {} as Json,
     config: (params.config || {}) as unknown as Json,
-    started_at: null,
-    completed_at: null,
     created_by: params.createdBy || null,
-    created_at: now,
-    updated_at: now,
   };
+  const { data, error } = await supabase
+    .from('calculation_batches')
+    .insert(insertRow)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as CalcBatchRow;
 }
 
 /**
@@ -120,19 +87,15 @@ export async function getCalculationBatch(
   tenantId: string,
   batchId: string
 ): Promise<CalcBatchRow | null> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('calculation_batches')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('id', batchId)
-      .single();
-    if (error) return null;
-    return data as CalcBatchRow;
-  }
-
-  return null;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('calculation_batches')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('id', batchId)
+    .single();
+  if (error) return null;
+  return data as CalcBatchRow;
 }
 
 /**
@@ -142,22 +105,18 @@ export async function listCalculationBatches(
   tenantId: string,
   options?: { periodId?: string; ruleSetId?: string; lifecycleState?: LifecycleState }
 ): Promise<CalcBatchRow[]> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    let query = supabase
-      .from('calculation_batches')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-    if (options?.periodId) query = query.eq('period_id', options.periodId);
-    if (options?.ruleSetId) query = query.eq('rule_set_id', options.ruleSetId);
-    if (options?.lifecycleState) query = query.eq('lifecycle_state', options.lifecycleState);
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data || []) as CalcBatchRow[];
-  }
-
-  return [];
+  const supabase = createClient();
+  let query = supabase
+    .from('calculation_batches')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false });
+  if (options?.periodId) query = query.eq('period_id', options.periodId);
+  if (options?.ruleSetId) query = query.eq('rule_set_id', options.ruleSetId);
+  if (options?.lifecycleState) query = query.eq('lifecycle_state', options.lifecycleState);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []) as CalcBatchRow[];
 }
 
 /**
@@ -168,27 +127,23 @@ export async function getActiveBatch(
   periodId: string,
   ruleSetId?: string
 ): Promise<CalcBatchRow | null> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    let query = supabase
-      .from('calculation_batches')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('period_id', periodId)
-      .is('superseded_by', null)
-      .order('created_at', { ascending: false })
-      .limit(1);
-    if (ruleSetId) query = query.eq('rule_set_id', ruleSetId);
-    const { data, error } = await query.single();
-    if (error) return null;
-    return data as CalcBatchRow;
-  }
-
-  return null;
+  const supabase = createClient();
+  let query = supabase
+    .from('calculation_batches')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('period_id', periodId)
+    .is('superseded_by', null)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (ruleSetId) query = query.eq('rule_set_id', ruleSetId);
+  const { data, error } = await query.single();
+  if (error) return null;
+  return data as CalcBatchRow;
 }
 
 // ──────────────────────────────────────────────
-// Phase 10B: Lifecycle Management with Rule 30
+// Lifecycle Management with Rule 30
 // ──────────────────────────────────────────────
 
 /**
@@ -228,50 +183,37 @@ export async function transitionBatchLifecycle(
   // Rule 30: Validate transition
   if (!isValidTransition(currentState, targetState)) {
     console.warn(
-      `[CalculationService] Invalid transition: ${currentState} → ${targetState} for batch ${batchId}`
+      `[CalculationService] Invalid transition: ${currentState} -> ${targetState} for batch ${batchId}`
     );
     return null;
   }
 
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const updateRow: CalcBatchUpdate = {
-      lifecycle_state: targetState,
-      ...(params?.summary ? { summary: params.summary as unknown as Json } : {}),
-      ...(params?.completedAt ? { completed_at: params.completedAt } : {}),
-      ...(targetState === 'PREVIEW' ? { started_at: new Date().toISOString() } : {}),
-    };
-    const { data, error } = await supabase
-      .from('calculation_batches')
-      .update(updateRow)
-      .eq('tenant_id', tenantId)
-      .eq('id', batchId)
-      .select()
-      .single();
-    if (error) return null;
+  const supabase = createClient();
+  const updateRow: CalcBatchUpdate = {
+    lifecycle_state: targetState,
+    ...(params?.summary ? { summary: params.summary as unknown as Json } : {}),
+    ...(params?.completedAt ? { completed_at: params.completedAt } : {}),
+    ...(targetState === 'PREVIEW' ? { started_at: new Date().toISOString() } : {}),
+  };
+  const { data, error } = await supabase
+    .from('calculation_batches')
+    .update(updateRow)
+    .eq('tenant_id', tenantId)
+    .eq('id', batchId)
+    .select()
+    .single();
+  if (error) return null;
 
-    // Trigger materialization on key transitions
-    if (['OFFICIAL', 'APPROVED', 'POSTED', 'PUBLISHED'].includes(targetState)) {
-      try {
-        await materializeEntityPeriodOutcomes(tenantId, batch.period_id, batchId);
-      } catch (matErr) {
-        console.warn('[CalculationService] Outcomes materialization failed:', matErr);
-      }
+  // Trigger materialization on key transitions
+  if (['OFFICIAL', 'APPROVED', 'POSTED', 'PUBLISHED'].includes(targetState)) {
+    try {
+      await materializeEntityPeriodOutcomes(tenantId, batch.period_id, batchId);
+    } catch (matErr) {
+      console.warn('[CalculationService] Outcomes materialization failed:', matErr);
     }
-
-    return data as CalcBatchRow;
   }
 
-  // Demo fallback: delegate to existing lifecycle service
-  const { loadCycle, transitionCycle } = await import(
-    '@/lib/calculation/calculation-lifecycle-service'
-  );
-  const cycle = loadCycle(tenantId, batch.period_id);
-  if (cycle) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    transitionCycle(cycle, targetState as any, 'system', `Transition to ${targetState}`);
-  }
-  return { ...batch, lifecycle_state: targetState } as CalcBatchRow;
+  return data as CalcBatchRow;
 }
 
 /**
@@ -306,19 +248,17 @@ export async function supersedeBatch(
     createdBy: params.createdBy,
   });
 
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    // Link the supersession chain
-    await supabase
-      .from('calculation_batches')
-      .update({ supersedes: existingBatchId } as CalcBatchUpdate)
-      .eq('id', newBatch.id);
+  const supabase = createClient();
+  // Link the supersession chain
+  await supabase
+    .from('calculation_batches')
+    .update({ supersedes: existingBatchId } as CalcBatchUpdate)
+    .eq('id', newBatch.id);
 
-    await supabase
-      .from('calculation_batches')
-      .update({ superseded_by: newBatch.id } as CalcBatchUpdate)
-      .eq('id', existingBatchId);
-  }
+  await supabase
+    .from('calculation_batches')
+    .update({ superseded_by: newBatch.id } as CalcBatchUpdate)
+    .eq('id', existingBatchId);
 
   return { ...newBatch, supersedes: existingBatchId };
 }
@@ -345,41 +285,37 @@ export async function writeCalculationResults(
     metadata?: Json;
   }>
 ): Promise<{ count: number }> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const insertRows: CalcResultInsert[] = results.map(r => ({
-      tenant_id: tenantId,
-      batch_id: batchId,
-      entity_id: r.entityId,
-      rule_set_id: r.ruleSetId || null,
-      period_id: r.periodId || null,
-      total_payout: r.totalPayout,
-      components: r.components,
-      metrics: r.metrics,
-      attainment: r.attainment || ({} as Json),
-      metadata: r.metadata || ({} as Json),
-    }));
+  const supabase = createClient();
+  const insertRows: CalcResultInsert[] = results.map(r => ({
+    tenant_id: tenantId,
+    batch_id: batchId,
+    entity_id: r.entityId,
+    rule_set_id: r.ruleSetId || null,
+    period_id: r.periodId || null,
+    total_payout: r.totalPayout,
+    components: r.components,
+    metrics: r.metrics,
+    attainment: r.attainment || ({} as Json),
+    metadata: r.metadata || ({} as Json),
+  }));
 
-    // Batch insert in chunks of 500
-    const CHUNK_SIZE = 500;
-    let inserted = 0;
-    for (let i = 0; i < insertRows.length; i += CHUNK_SIZE) {
-      const chunk = insertRows.slice(i, i + CHUNK_SIZE);
-      const { error } = await supabase.from('calculation_results').insert(chunk);
-      if (error) throw error;
-      inserted += chunk.length;
-    }
-
-    // Update batch entity count
-    await supabase
-      .from('calculation_batches')
-      .update({ entity_count: inserted } as CalcBatchUpdate)
-      .eq('id', batchId);
-
-    return { count: inserted };
+  // Batch insert in chunks of 500
+  const CHUNK_SIZE = 500;
+  let inserted = 0;
+  for (let i = 0; i < insertRows.length; i += CHUNK_SIZE) {
+    const chunk = insertRows.slice(i, i + CHUNK_SIZE);
+    const { error } = await supabase.from('calculation_results').insert(chunk);
+    if (error) throw error;
+    inserted += chunk.length;
   }
 
-  return { count: results.length };
+  // Update batch entity count
+  await supabase
+    .from('calculation_batches')
+    .update({ entity_count: inserted } as CalcBatchUpdate)
+    .eq('id', batchId);
+
+  return { count: inserted };
 }
 
 /**
@@ -389,18 +325,14 @@ export async function getCalculationResults(
   tenantId: string,
   batchId: string
 ): Promise<CalcResultRow[]> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('calculation_results')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('batch_id', batchId);
-    if (error) throw error;
-    return (data || []) as CalcResultRow[];
-  }
-
-  return [];
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('calculation_results')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('batch_id', batchId);
+  if (error) throw error;
+  return (data || []) as CalcResultRow[];
 }
 
 /**
@@ -411,21 +343,17 @@ export async function getEntityResults(
   entityId: string,
   options?: { periodId?: string }
 ): Promise<CalcResultRow[]> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    let query = supabase
-      .from('calculation_results')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('entity_id', entityId)
-      .order('created_at', { ascending: false });
-    if (options?.periodId) query = query.eq('period_id', options.periodId);
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data || []) as CalcResultRow[];
-  }
-
-  return [];
+  const supabase = createClient();
+  let query = supabase
+    .from('calculation_results')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('entity_id', entityId)
+    .order('created_at', { ascending: false });
+  if (options?.periodId) query = query.eq('period_id', options.periodId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []) as CalcResultRow[];
 }
 
 // ──────────────────────────────────────────────
@@ -446,8 +374,6 @@ export async function writeCalculationTraces(
     steps?: Json;
   }>
 ): Promise<void> {
-  if (!isSupabaseConfigured()) return;
-
   const supabase = createClient();
   const insertRows: CalcTraceInsert[] = traces.map(t => ({
     tenant_id: tenantId,
@@ -475,22 +401,18 @@ export async function getCalculationTraces(
   tenantId: string,
   resultId: string
 ): Promise<Array<Database['public']['Tables']['calculation_traces']['Row']>> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('calculation_traces')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('result_id', resultId);
-    if (error) throw error;
-    return (data || []) as Array<Database['public']['Tables']['calculation_traces']['Row']>;
-  }
-
-  return [];
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('calculation_traces')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('result_id', resultId);
+  if (error) throw error;
+  return (data || []) as Array<Database['public']['Tables']['calculation_traces']['Row']>;
 }
 
 // ──────────────────────────────────────────────
-// Phase 10C: Entity Period Outcomes Materialization
+// Entity Period Outcomes Materialization
 // ──────────────────────────────────────────────
 
 /**
@@ -507,11 +429,6 @@ export async function materializeEntityPeriodOutcomes(
   periodId: string,
   batchId: string
 ): Promise<EntityPeriodOutcomeRow[]> {
-  if (!isSupabaseConfigured()) {
-    // Demo mode: outcomes are computed on-the-fly from results storage
-    return [];
-  }
-
   const supabase = createClient();
 
   // Read all results for this batch
@@ -564,8 +481,6 @@ export async function materializeEntityPeriodOutcomes(
       return Array.isArray(comps) ? comps : [];
     });
 
-    // Determine lowest lifecycle state
-    // If this batch is APPROVED but there's an older batch at POSTED, lowest is APPROVED
     const lowestLifecycleState = batchLifecycleState;
 
     const outcome: Omit<EntityPeriodOutcomeRow, 'id'> & { id?: string } = {
@@ -623,20 +538,16 @@ export async function getEntityPeriodOutcomes(
   periodId: string,
   options?: { entityId?: string }
 ): Promise<EntityPeriodOutcomeRow[]> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    let query = supabase
-      .from('entity_period_outcomes')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('period_id', periodId);
-    if (options?.entityId) query = query.eq('entity_id', options.entityId);
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data || []) as EntityPeriodOutcomeRow[];
-  }
-
-  return [];
+  const supabase = createClient();
+  let query = supabase
+    .from('entity_period_outcomes')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('period_id', periodId);
+  if (options?.entityId) query = query.eq('entity_id', options.entityId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []) as EntityPeriodOutcomeRow[];
 }
 
 /**
@@ -647,18 +558,14 @@ export async function getEntityOutcome(
   entityId: string,
   periodId: string
 ): Promise<EntityPeriodOutcomeRow | null> {
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('entity_period_outcomes')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('entity_id', entityId)
-      .eq('period_id', periodId)
-      .single();
-    if (error) return null;
-    return data as EntityPeriodOutcomeRow;
-  }
-
-  return null;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('entity_period_outcomes')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('entity_id', entityId)
+    .eq('period_id', periodId)
+    .single();
+  if (error) return null;
+  return data as EntityPeriodOutcomeRow;
 }
