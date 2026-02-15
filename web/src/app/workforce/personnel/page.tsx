@@ -82,16 +82,16 @@ const mockPersonnel: Personnel[] = [
 
 // RetailCo personnel - IDs match auth-context.tsx
 const retailCoPersonnel: Personnel[] = [
-  { id: 'R1', userId: 'rc-rep-001', name: 'Maria Rodriguez', email: 'maria.rodriguez@retailco.com', role: 'Sales Associate', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2023-03-15' },
-  { id: 'R2', userId: 'rc-rep-002', name: 'James Wilson', email: 'james.wilson@retailco.com', role: 'Sales Associate', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2022-06-10' },
+  { id: 'R1', userId: 'rc-rep-001', name: 'Maria Rodriguez', email: 'maria.rodriguez@retailco.com', role: 'Associate', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2023-03-15' },
+  { id: 'R2', userId: 'rc-rep-002', name: 'James Wilson', email: 'james.wilson@retailco.com', role: 'Associate', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2022-06-10' },
   { id: 'R3', userId: 'rc-manager-001', name: 'Carlos Mendez', email: 'carlos.mendez@retailco.com', role: 'Store Manager', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2019-08-01' },
-  { id: 'R4', userId: 'rc-rep-003', name: 'Emily Johnson', email: 'emily.johnson@retailco.com', role: 'Sales Associate', channel: 'Optical', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2023-09-01' },
-  { id: 'R5', userId: 'rc-rep-004', name: 'Michael Brown', email: 'michael.brown@retailco.com', role: 'Sales Associate', channel: 'Optical', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2022-11-15' },
+  { id: 'R4', userId: 'rc-rep-003', name: 'Emily Johnson', email: 'emily.johnson@retailco.com', role: 'Associate', channel: 'Optical', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2023-09-01' },
+  { id: 'R5', userId: 'rc-rep-004', name: 'Michael Brown', email: 'michael.brown@retailco.com', role: 'Associate', channel: 'Optical', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2022-11-15' },
   { id: 'R6', userId: 'rc-admin-001', name: 'Sofia Chen', email: 'sofia.chen@retailco.com', role: 'Regional Manager', channel: 'Optical', location: 'Regional HQ', territory: 'West Region', status: 'active', hireDate: '2018-01-15' },
 ];
 
 const roles = ['Mesero', 'Supervisor', 'Gerente de Franquicia', 'Gerente Regional', 'Director'];
-const retailRoles = ['Sales Associate', 'Store Manager', 'Regional Manager', 'Director'];
+const retailRoles = ['Associate', 'Store Manager', 'Regional Manager', 'Director'];
 const channels = ['Dine-in', 'Delivery', 'Takeout'];
 const retailChannels = ['Optical', 'Insurance', 'Services'];
 const locations = ['Centro Histórico', 'Polanco', 'Santa Fe', 'Condesa', 'CDMX Norte', 'Guadalajara Centro', 'Monterrey Centro', 'Puebla Centro'];

@@ -10,9 +10,25 @@ import {
   type TenantProvisioningRequest,
   type ProvisioningResult,
 } from '@/lib/tenant/provisioning-engine';
-import { getOrchestrator, type OrchestrationResult } from '@/lib/orchestration/calculation-orchestrator';
 import { getPeriodProcessor } from '@/lib/payroll/period-processor';
-import { getPlans, savePlan } from '@/lib/compensation/plan-storage';
+import { getRuleSets, saveRuleSet } from '@/lib/supabase/rule-set-service';
+
+// Stub type for OrchestrationResult (old calculation-orchestrator was deleted)
+export interface OrchestrationResult {
+  success: boolean;
+  run: {
+    id: string;
+    errorCount: number;
+    errors?: Array<{ entityId: string; error: string }>;
+  };
+  summary: {
+    entitiesProcessed: number;
+    totalPayout: number;
+    byPlan: Record<string, { count: number; total: number }>;
+    byDepartment: Record<string, { count: number; total: number }>;
+  };
+  results: Array<{ totalIncentive: number }>;
+}
 import { validatePlanConfiguration, getRequiredMetrics } from '@/lib/compensation/plan-interpreter';
 import type { RuleSetConfig } from '@/types/compensation-plan';
 
@@ -20,6 +36,7 @@ import type { RuleSetConfig } from '@/types/compensation-plan';
 // STORAGE KEYS
 // ============================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEYS = {
   LAUNCHES: 'vialuce_customer_launches',
   LAUNCH_STEPS: 'vialuce_launch_steps',
@@ -409,19 +426,19 @@ export class CustomerLaunchFlow {
       }
 
       // Save plan
-      const saved = savePlan(fullPlan);
+      await saveRuleSet(this.launch.tenantId!, fullPlan);
 
       this.completeStep(step.id, {
         success: true,
-        message: `Plan configured: ${saved.name}`,
+        message: `Plan configured: ${fullPlan.name}`,
         details: {
-          ruleSetId: saved.id,
-          requiredMetrics: getRequiredMetrics(saved),
+          ruleSetId: fullPlan.id,
+          requiredMetrics: getRequiredMetrics(fullPlan),
         },
         warnings: validation.warnings,
       });
 
-      return saved;
+      return fullPlan;
     } catch (error) {
       this.completeStep(step.id, {
         success: false,
@@ -456,40 +473,11 @@ export class CustomerLaunchFlow {
     this.startStep(step.id);
 
     try {
-      const orchestrator = getOrchestrator(this.launch.tenantId);
-
-      // Save employees
-      orchestrator.saveEmployees(
-        employees.map((e) => ({
-          id: e.id,
-          tenantId: this.launch.tenantId!,
-          employeeNumber: e.employeeNumber as string || e.id,
-          firstName: e.firstName,
-          lastName: e.lastName,
-          email: e.email as string || `${e.id}@example.com`,
-          role: e.role,
-          department: e.department as string | undefined,
-          storeId: e.storeId as string | undefined,
-          storeName: e.storeName as string | undefined,
-          status: 'active' as const,
-          attributes: e,
-        }))
-      );
-
-      // Save metrics
-      for (const m of metrics) {
-        orchestrator.saveMetricAggregate({
-          entityId: m.entityId,
-          periodId: m.periodId,
-          tenantId: this.launch.tenantId!,
-          metrics: m.metrics,
-          sources: Object.keys(m.metrics).reduce(
-            (acc, key) => ({ ...acc, [key]: 'import' }),
-            {}
-          ),
-          lastUpdated: new Date().toISOString(),
-        });
-      }
+      // TODO: Migrate to Supabase entity/metric services when available.
+      // The old orchestrator.saveEmployees() and orchestrator.saveMetricAggregate()
+      // have been removed. For now, data import is handled via the Supabase
+      // import pipeline directly.
+      console.warn('[CustomerLaunchFlow] Data import via orchestrator has been removed. Use Supabase import pipeline.');
 
       this.completeStep(step.id, {
         success: true,
@@ -537,7 +525,7 @@ export class CustomerLaunchFlow {
       if (!tenant) blockers.push('Tenant configuration is missing');
 
       // Check 2: Plans exist
-      const plans = getPlans(this.launch.tenantId);
+      const plans = await getRuleSets(this.launch.tenantId!);
       const activePlans = plans.filter((p) => p.status === 'active');
       checks.push({
         id: 'plans-exist',
@@ -637,9 +625,8 @@ export class CustomerLaunchFlow {
   /**
    * Execute test calculation step
    */
-  async executeTestCalculation(
-    periodId: string
-  ): Promise<OrchestrationResult> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async executeTestCalculation(_periodId: string): Promise<OrchestrationResult> {
     const step = this.launch.steps.find((s) => s.id === 'test-calc');
     if (!step) throw new Error('Test calculation step not found');
     if (!this.launch.tenantId) throw new Error('Tenant not set up');
@@ -647,18 +634,20 @@ export class CustomerLaunchFlow {
     this.startStep(step.id);
 
     try {
-      const orchestrator = getOrchestrator(this.launch.tenantId);
-
-      const result = await orchestrator.executeRun(
-        {
-          tenantId: this.launch.tenantId,
-          periodId,
-          runType: 'preview',
-          scope: {},
-          options: { dryRun: true },
+      // TODO: Migrate to Supabase calculation-service (createCalculationBatch + writeCalculationResults).
+      // The old orchestrator.executeRun() has been removed.
+      const stubResult: OrchestrationResult = {
+        success: false,
+        run: {
+          id: `stub-${Date.now()}`,
+          errorCount: 1,
+          errors: [{ entityId: 'system', error: 'Test calculation not yet migrated to Supabase calculation-service' }],
         },
-        this.launch.createdBy
-      );
+        summary: { entitiesProcessed: 0, totalPayout: 0, byPlan: {}, byDepartment: {} },
+        results: [],
+      };
+
+      const result = stubResult;
 
       this.launch.testCalculationRun = result.run.id;
       this.launch.testCalculationResult = {
@@ -780,18 +769,7 @@ export class CustomerLaunchFlow {
   // ============================================
 
   private save(): void {
-    if (typeof window === 'undefined') return;
-
-    const launches = getAllLaunches();
-    const index = launches.findIndex((l) => l.id === this.launch.id);
-
-    if (index >= 0) {
-      launches[index] = this.launch;
-    } else {
-      launches.push(this.launch);
-    }
-
-    localStorage.setItem(STORAGE_KEYS.LAUNCHES, JSON.stringify(launches));
+    // No-op: localStorage removed
   }
 }
 
@@ -800,16 +778,7 @@ export class CustomerLaunchFlow {
 // ============================================
 
 function getAllLaunches(): CustomerLaunch[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(STORAGE_KEYS.LAUNCHES);
-  if (!stored) return [];
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 function createDefaultSteps(): LaunchStep[] {

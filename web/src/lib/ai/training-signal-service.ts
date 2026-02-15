@@ -10,6 +10,7 @@
 
 import { AIResponse, AITaskType, TrainingSignal } from './types';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEY_PREFIX = 'vialuce_training_signals_';
 const MAX_SIGNALS_PER_TENANT = 10000; // Prevent localStorage overflow
 
@@ -111,16 +112,9 @@ export class TrainingSignalService {
   /**
    * Get all signals for a tenant
    */
-  getSignals(tenantId?: string): TrainingSignal[] {
-    const tid = tenantId || this.tenantId;
-    if (typeof window === 'undefined') return [];
-
-    try {
-      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tid}`);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getSignals(_tenantId?: string): TrainingSignal[] {
+    return [];
   }
 
   /**
@@ -240,19 +234,9 @@ export class TrainingSignalService {
     this.setSignals(signals, tenantId);
   }
 
-  private setSignals(signals: TrainingSignal[], tenantId: string): void {
-    if (typeof window === 'undefined') return;
-
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}${tenantId}`, JSON.stringify(signals));
-    } catch (error) {
-      console.warn('Failed to save training signals:', error);
-      // If localStorage is full, prune aggressively
-      if (signals.length > 1000) {
-        const pruned = signals.slice(-1000);
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}${tenantId}`, JSON.stringify(pruned));
-      }
-    }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private setSignals(_signals: TrainingSignal[], _tenantId: string): void {
+    // no-op: localStorage removed
   }
 }
 

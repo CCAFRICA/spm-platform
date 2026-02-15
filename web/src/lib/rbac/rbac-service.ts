@@ -2,6 +2,8 @@
  * RBAC Service
  *
  * Manages roles, permissions, and audit logging.
+ *
+ * NOTE: localStorage removed (OB-43A). Returns in-memory defaults.
  */
 
 import type {
@@ -14,10 +16,6 @@ import type {
   PermissionCategory,
   PermissionAction,
 } from '@/types/rbac';
-
-const ROLES_STORAGE_KEY = 'rbac_roles';
-const ASSIGNMENTS_STORAGE_KEY = 'rbac_assignments';
-const AUDIT_STORAGE_KEY = 'rbac_audit_log';
 
 // ============================================
 // PERMISSIONS
@@ -52,20 +50,7 @@ export function getPermission(permissionId: string): Permission | null {
  * Get all roles
  */
 export function getAllRoles(): Role[] {
-  if (typeof window === 'undefined') return getDefaultRoles();
-
-  const stored = localStorage.getItem(ROLES_STORAGE_KEY);
-  if (!stored) {
-    const defaults = getDefaultRoles();
-    localStorage.setItem(ROLES_STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return getDefaultRoles();
 }
 
 /**
@@ -111,6 +96,7 @@ export function createRole(
     updatedAt: now,
   };
 
+  // localStorage removed -- role only exists in memory for this call
   const roles = getAllRoles();
   roles.push(role);
   saveRoles(roles);
@@ -190,20 +176,7 @@ export function deleteRole(roleId: string, deletedBy: string): boolean {
  * Get all user role assignments
  */
 export function getAllAssignments(): UserRoleAssignment[] {
-  if (typeof window === 'undefined') return getDefaultAssignments();
-
-  const stored = localStorage.getItem(ASSIGNMENTS_STORAGE_KEY);
-  if (!stored) {
-    const defaults = getDefaultAssignments();
-    localStorage.setItem(ASSIGNMENTS_STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return getDefaultAssignments();
 }
 
 /**
@@ -373,6 +346,7 @@ export function logAuditEvent(
     details,
   };
 
+  // localStorage removed -- audit log save is a no-op
   const logs = getAllAuditLogs();
   logs.push(entry);
 
@@ -384,20 +358,7 @@ export function logAuditEvent(
 }
 
 function getAllAuditLogs(): AuditLogEntry[] {
-  if (typeof window === 'undefined') return getDefaultAuditLogs();
-
-  const stored = localStorage.getItem(AUDIT_STORAGE_KEY);
-  if (!stored) {
-    const defaults = getDefaultAuditLogs();
-    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return getDefaultAuditLogs();
 }
 
 // ============================================
@@ -438,25 +399,22 @@ export function hasPermission(
 }
 
 // ============================================
-// HELPERS
+// HELPERS (no-ops, localStorage removed)
 // ============================================
 
-function saveRoles(roles: Role[]): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(ROLES_STORAGE_KEY, JSON.stringify(roles));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveRoles(_roles: Role[]): void {
+  // localStorage removed -- no-op
 }
 
-function saveAssignments(assignments: UserRoleAssignment[]): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(ASSIGNMENTS_STORAGE_KEY, JSON.stringify(assignments));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveAssignments(_assignments: UserRoleAssignment[]): void {
+  // localStorage removed -- no-op
 }
 
-function saveAuditLogs(logs: AuditLogEntry[]): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(logs));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveAuditLogs(_logs: AuditLogEntry[]): void {
+  // localStorage removed -- no-op
 }
 
 // ============================================
@@ -721,29 +679,15 @@ function getDefaultAuditLogs(): AuditLogEntry[] {
 }
 
 /**
- * Initialize RBAC data
+ * Initialize RBAC data (no-op, localStorage removed)
  */
 export function initializeRBAC(): void {
-  if (typeof window === 'undefined') return;
-
-  if (!localStorage.getItem(ROLES_STORAGE_KEY)) {
-    localStorage.setItem(ROLES_STORAGE_KEY, JSON.stringify(getDefaultRoles()));
-  }
-  if (!localStorage.getItem(ASSIGNMENTS_STORAGE_KEY)) {
-    localStorage.setItem(ASSIGNMENTS_STORAGE_KEY, JSON.stringify(getDefaultAssignments()));
-  }
-  if (!localStorage.getItem(AUDIT_STORAGE_KEY)) {
-    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(getDefaultAuditLogs()));
-  }
+  // localStorage removed -- no-op
 }
 
 /**
- * Reset RBAC data to defaults
+ * Reset RBAC data to defaults (no-op, localStorage removed)
  */
 export function resetRBAC(): void {
-  if (typeof window === 'undefined') return;
-
-  localStorage.setItem(ROLES_STORAGE_KEY, JSON.stringify(getDefaultRoles()));
-  localStorage.setItem(ASSIGNMENTS_STORAGE_KEY, JSON.stringify(getDefaultAssignments()));
-  localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(getDefaultAuditLogs()));
+  // localStorage removed -- no-op
 }

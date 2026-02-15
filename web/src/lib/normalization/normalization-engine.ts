@@ -69,32 +69,27 @@ export interface CategoryDefinition {
 // DICTIONARY
 // =============================================================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const DICT_PREFIX = 'vialuce_norm_dict_';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ENTRY_PREFIX = 'vialuce_norm_entries_';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const CATEGORY_PREFIX = 'vialuce_norm_categories_';
 
 /**
  * Load the normalization dictionary for a tenant.
  */
-export function loadDictionary(tenantId: string): DictionaryEntry[] {
-  if (typeof window === 'undefined') return [];
-  const key = `${DICT_PREFIX}${tenantId}`;
-  const stored = localStorage.getItem(key);
-  if (!stored) return [];
-  try {
-    return JSON.parse(stored) as DictionaryEntry[];
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function loadDictionary(_tenantId: string): DictionaryEntry[] {
+  return [];
 }
 
 /**
  * Save the normalization dictionary.
  */
-export function saveDictionary(tenantId: string, entries: DictionaryEntry[]): void {
-  if (typeof window === 'undefined') return;
-  const key = `${DICT_PREFIX}${tenantId}`;
-  localStorage.setItem(key, JSON.stringify(entries));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function saveDictionary(_tenantId: string, _entries: DictionaryEntry[]): void {
+  // no-op: localStorage removed
 }
 
 /**
@@ -170,25 +165,17 @@ export function dictionaryLookup(
 /**
  * Load category definitions for a tenant.
  */
-export function loadCategories(tenantId: string): CategoryDefinition[] {
-  if (typeof window === 'undefined') return [];
-  const key = `${CATEGORY_PREFIX}${tenantId}`;
-  const stored = localStorage.getItem(key);
-  if (!stored) return [];
-  try {
-    return JSON.parse(stored) as CategoryDefinition[];
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function loadCategories(_tenantId: string): CategoryDefinition[] {
+  return [];
 }
 
 /**
  * Save category definitions.
  */
-export function saveCategories(tenantId: string, categories: CategoryDefinition[]): void {
-  if (typeof window === 'undefined') return;
-  const key = `${CATEGORY_PREFIX}${tenantId}`;
-  localStorage.setItem(key, JSON.stringify(categories));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function saveCategories(_tenantId: string, _categories: CategoryDefinition[]): void {
+  // no-op: localStorage removed
 }
 
 /**
@@ -464,25 +451,17 @@ export function rejectSuggestion(
 /**
  * Save normalization entries for a batch/import session.
  */
-export function saveNormalizationEntries(tenantId: string, sessionId: string, entries: NormalizationEntry[]): void {
-  if (typeof window === 'undefined') return;
-  const key = `${ENTRY_PREFIX}${tenantId}_${sessionId}`;
-  localStorage.setItem(key, JSON.stringify(entries));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function saveNormalizationEntries(_tenantId: string, _sessionId: string, _entries: NormalizationEntry[]): void {
+  // no-op: localStorage removed
 }
 
 /**
  * Load normalization entries for a batch/import session.
  */
-export function loadNormalizationEntries(tenantId: string, sessionId: string): NormalizationEntry[] {
-  if (typeof window === 'undefined') return [];
-  const key = `${ENTRY_PREFIX}${tenantId}_${sessionId}`;
-  const stored = localStorage.getItem(key);
-  if (!stored) return [];
-  try {
-    return JSON.parse(stored) as NormalizationEntry[];
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function loadNormalizationEntries(_tenantId: string, _sessionId: string): NormalizationEntry[] {
+  return [];
 }
 
 /**

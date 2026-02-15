@@ -61,7 +61,7 @@ export default function NewTransactionPage() {
             New Transaction
           </h1>
           <p className="text-slate-500 mt-1">
-            Manually enter a new sales transaction
+            Manually enter a new transaction
           </p>
         </div>
 

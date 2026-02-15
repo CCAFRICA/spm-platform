@@ -196,10 +196,10 @@ export default function CompensationPage() {
           <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-                Compensation Overview
+                Outcome Overview
               </h1>
               <p className="mt-2 text-slate-600 dark:text-slate-400">
-                Track compensation payouts, trends, and budget utilization
+                Track outcomes, trends, and budget utilization
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -275,11 +275,11 @@ export default function CompensationPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Average per Rep</p>
+                    <p className="text-sm font-medium text-slate-500">Average per Entity</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                       {format(techCorpStatsData.avgPerRep)}
                     </p>
-                    <p className="text-sm text-slate-500 mt-2">40 active reps</p>
+                    <p className="text-sm text-slate-500 mt-2">40 active entities</p>
                   </div>
                   <div className="p-3 bg-purple-100 rounded-full dark:bg-purple-900/30">
                     <Users className="h-5 w-5 text-purple-600" />
@@ -315,8 +315,8 @@ export default function CompensationPage() {
           <div className="grid gap-6 lg:grid-cols-2 mb-8">
             <Card className="border-0 shadow-lg">
               <CardHeader>
-                <CardTitle>Commission by Plan Type</CardTitle>
-                <CardDescription>Distribution of commissions across compensation plans</CardDescription>
+                <CardTitle>Outcome by Rule Set</CardTitle>
+                <CardDescription>Distribution of outcomes across rule sets</CardDescription>
               </CardHeader>
               <CardContent>
                 <CompensationPieChart data={techCorpPieChartData} />
@@ -325,8 +325,8 @@ export default function CompensationPage() {
 
             <Card className="border-0 shadow-lg">
               <CardHeader>
-                <CardTitle>Monthly Compensation Trend</CardTitle>
-                <CardDescription>Actual payouts vs budget over the last 12 months</CardDescription>
+                <CardTitle>Monthly Outcome Trend</CardTitle>
+                <CardDescription>Actual outcomes vs budget over the last 12 months</CardDescription>
               </CardHeader>
               <CardContent>
                 <CompensationTrendChart data={techCorpTrendData} />
@@ -340,7 +340,7 @@ export default function CompensationPage() {
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <CardTitle>Payment History</CardTitle>
-                  <CardDescription>Recent compensation payments and their status</CardDescription>
+                  <CardDescription>Recent outcome payments and their status</CardDescription>
                 </div>
                 <Button variant="outline" size="sm" className="gap-2">
                   <Download className="h-4 w-4" />
@@ -354,7 +354,7 @@ export default function CompensationPage() {
                   <TableHeader>
                     <TableRow className="bg-slate-50 dark:bg-slate-800/50">
                       <TableHead className="font-semibold">Date</TableHead>
-                      <TableHead className="font-semibold">Employee</TableHead>
+                      <TableHead className="font-semibold">Entity</TableHead>
                       <TableHead className="font-semibold">Plan Type</TableHead>
                       <TableHead className="text-right font-semibold">Amount</TableHead>
                       <TableHead className="font-semibold">Status</TableHead>

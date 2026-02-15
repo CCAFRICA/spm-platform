@@ -35,7 +35,7 @@ export default function DataReadinessPage() {
       expected: 1250,
     },
     {
-      name: isSpanish ? 'Empleados' : 'Employees',
+      name: isSpanish ? 'Empleados' : 'Entities',
       icon: Users,
       status: 'ready',
       count: 24,
@@ -85,7 +85,7 @@ export default function DataReadinessPage() {
           <p className="text-sm text-slate-500 mt-1">
             {isSpanish
               ? 'Estado de datos requeridos para el ciclo de compensación'
-              : 'Status of data required for compensation cycle'}
+              : 'Status of data required for the outcome cycle'}
           </p>
         </div>
         <Badge variant={overallReadiness === 100 ? 'default' : 'secondary'} className="text-lg px-4 py-2">

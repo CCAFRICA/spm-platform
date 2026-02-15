@@ -15,6 +15,7 @@ import type {
   ExportConfig,
 } from '@/types/analytics';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const REPORTS_STORAGE_KEY = 'saved_reports';
 
 // ============================================
@@ -105,21 +106,7 @@ export function getDimensionBreakdown(
  * Get all saved reports
  */
 export function getSavedReports(tenantId: string): SavedReport[] {
-  if (typeof window === 'undefined') return getDefaultReports(tenantId);
-
-  const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
-  if (!stored) {
-    const defaults = getDefaultReports(tenantId);
-    localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    const all: SavedReport[] = JSON.parse(stored);
-    return all.filter(r => r.tenantId === tenantId);
-  } catch {
-    return [];
-  }
+  return getDefaultReports(tenantId);
 }
 
 /**
@@ -145,23 +132,16 @@ export function saveReport(
     updatedAt: new Date().toISOString(),
   };
 
-  const all = getAllReports();
-  all.push(report);
-  localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(all));
-
+  // no-op: localStorage removed
   return report;
 }
 
 /**
  * Delete a saved report
  */
-export function deleteReport(reportId: string): boolean {
-  const all = getAllReports();
-  const filtered = all.filter(r => r.id !== reportId);
-
-  if (filtered.length === all.length) return false;
-
-  localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(filtered));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function deleteReport(_reportId: string): boolean {
+  // no-op: localStorage removed
   return true;
 }
 
@@ -209,17 +189,9 @@ export function exportAnalytics(
 // HELPERS
 // ============================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getAllReports(): SavedReport[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
-  if (!stored) return [];
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 function generateKPIs(): KPIMetric[] {
@@ -566,12 +538,7 @@ function getDefaultReports(tenantId: string): SavedReport[] {
 /**
  * Initialize analytics
  */
-export function initializeAnalytics(tenantId: string): void {
-  if (typeof window === 'undefined') return;
-
-  const existing = localStorage.getItem(REPORTS_STORAGE_KEY);
-  if (!existing) {
-    const defaults = getDefaultReports(tenantId);
-    localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(defaults));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function initializeAnalytics(_tenantId: string): void {
+  // no-op: localStorage removed
 }

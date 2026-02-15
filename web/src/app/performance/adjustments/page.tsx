@@ -99,7 +99,7 @@ const adjustments = [
 const adjustmentTypes = {
   manual_credit: { label: "Manual Credit", color: "bg-emerald-100 text-emerald-700" },
   correction: { label: "Correction", color: "bg-amber-100 text-amber-700" },
-  quota_adjustment: { label: "Quota Adjustment", color: "bg-blue-100 text-blue-700" },
+  quota_adjustment: { label: "Target Adjustment", color: "bg-blue-100 text-blue-700" },
   spiff: { label: "SPIFF", color: "bg-purple-100 text-purple-700" },
   clawback: { label: "Clawback", color: "bg-red-100 text-red-700" },
 };
@@ -148,7 +148,7 @@ export default function AdjustmentsPage() {
               Adjustments
             </h1>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
-              Manage compensation adjustments, credits, and corrections
+              Manage outcome adjustments, credits, and corrections
             </p>
           </div>
           <Button className="gap-2">
@@ -223,7 +223,7 @@ export default function AdjustmentsPage() {
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
-              placeholder="Search by employee, reason, or ID..."
+              placeholder="Search by entity, reason, or ID..."
               className="pl-9"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -253,7 +253,7 @@ export default function AdjustmentsPage() {
               Adjustment Requests
             </CardTitle>
             <CardDescription>
-              Review and manage compensation adjustments
+              Review and manage outcome adjustments
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -299,7 +299,7 @@ export default function AdjustmentsPage() {
                         </p>
                         {adj.quotaChange && (
                           <p className="text-sm text-slate-500">
-                            Quota: {adj.quotaChange > 0 ? "+" : ""}{adj.quotaChange.toLocaleString()}
+                            Target: {adj.quotaChange > 0 ? "+" : ""}{adj.quotaChange.toLocaleString()}
                           </p>
                         )}
                         <Badge

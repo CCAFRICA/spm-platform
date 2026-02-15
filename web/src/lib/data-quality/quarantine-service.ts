@@ -2,6 +2,8 @@
  * Quarantine Service
  *
  * Manages data quality quarantine items and their resolution.
+ *
+ * NOTE: localStorage removed (OB-43A). Returns in-memory defaults.
  */
 
 import type {
@@ -14,8 +16,6 @@ import type {
   Severity,
 } from '@/types/data-quality';
 
-const STORAGE_KEY = 'retailco_quarantine';
-
 // ============================================
 // QUARANTINE CRUD
 // ============================================
@@ -24,29 +24,16 @@ const STORAGE_KEY = 'retailco_quarantine';
  * Get all quarantine items for a tenant
  */
 export function getQuarantineItems(tenantId: string): QuarantineItem[] {
-  if (typeof window === 'undefined') return getDefaultQuarantineItems();
-
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) {
-    const defaults = getDefaultQuarantineItems();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
-    return defaults.filter((q) => q.tenantId === tenantId);
-  }
-
-  try {
-    const items: QuarantineItem[] = JSON.parse(stored);
-    return items
-      .filter((q) => q.tenantId === tenantId)
-      .sort((a, b) => {
-        // Sort by severity (critical first) then by date
-        const severityOrder = { critical: 0, warning: 1, info: 2 };
-        const severityDiff = severityOrder[a.severity] - severityOrder[b.severity];
-        if (severityDiff !== 0) return severityDiff;
-        return new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime();
-      });
-  } catch {
-    return [];
-  }
+  const defaults = getDefaultQuarantineItems();
+  return defaults
+    .filter((q) => q.tenantId === tenantId)
+    .sort((a, b) => {
+      // Sort by severity (critical first) then by date
+      const severityOrder = { critical: 0, warning: 1, info: 2 };
+      const severityDiff = severityOrder[a.severity] - severityOrder[b.severity];
+      if (severityDiff !== 0) return severityDiff;
+      return new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime();
+    });
 }
 
 /**
@@ -134,11 +121,7 @@ export function resolveItem(
     correctedData: resolution.correctedData,
   };
 
-  allItems[index] = resolvedItem;
-
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(allItems));
-  }
+  // localStorage removed -- save is a no-op
 
   return resolvedItem;
 }
@@ -260,7 +243,7 @@ function getDefaultQuarantineItems(): QuarantineItem[] {
       errorType: 'missing_field',
       errorField: 'store_id',
       errorMessage: 'Transaction missing store identifier',
-      errorMessageEs: 'Transacción sin identificador de tienda',
+      errorMessageEs: 'Transacci\u00f3n sin identificador de tienda',
       errorDetails:
         '3 transactions from Store 105 are missing the store_id field',
       errorDetailsEs:
@@ -291,7 +274,7 @@ function getDefaultQuarantineItems(): QuarantineItem[] {
       recordData: { amount: 320, date: '2025-01-22', store_id: '101' },
       errorType: 'duplicate',
       errorMessage: 'Duplicate transaction detected',
-      errorMessageEs: 'Transacción duplicada detectada',
+      errorMessageEs: 'Transacci\u00f3n duplicada detectada',
       errorDetails:
         'TXN-2025-0201 appears 2 times with same amount and date',
       errorDetailsEs:
@@ -331,12 +314,12 @@ function getDefaultQuarantineItems(): QuarantineItem[] {
       errorDetails:
         '$15,000 transaction when average is $500. Possible corporate sale or error.',
       errorDetailsEs:
-        'Transacción de $15,000 cuando el promedio es $500. Posible venta corporativa o error.',
+        'Transacci\u00f3n de $15,000 cuando el promedio es $500. Posible venta corporativa o error.',
       severity: 'warning',
       suggestedFix: {
         description: 'Verify with store - possible legitimate corporate sale',
         descriptionEs:
-          'Verificar con tienda - posible venta corporativa legítima',
+          'Verificar con tienda - posible venta corporativa leg\u00edtima',
         field: 'verified',
         currentValue: false,
         suggestedValue: true,
@@ -360,15 +343,15 @@ function getDefaultQuarantineItems(): QuarantineItem[] {
       errorType: 'invalid_format',
       errorField: 'date',
       errorMessage: 'Invalid date format',
-      errorMessageEs: 'Fecha inválida',
+      errorMessageEs: 'Fecha inv\u00e1lida',
       errorDetails:
         '2025-02-30 is not a valid date (February only has 28 days)',
       errorDetailsEs:
-        '2025-02-30 no es una fecha válida (febrero solo tiene 28 días)',
+        '2025-02-30 no es una fecha v\u00e1lida (febrero solo tiene 28 d\u00edas)',
       severity: 'warning',
       suggestedFix: {
         description: 'Correct to last valid date of month',
-        descriptionEs: 'Corregir a última fecha válida del mes',
+        descriptionEs: 'Corregir a \u00faltima fecha v\u00e1lida del mes',
         field: 'date',
         currentValue: '2025-02-30',
         suggestedValue: '2025-02-28',
@@ -389,14 +372,14 @@ function getDefaultQuarantineItems(): QuarantineItem[] {
       recordType: 'employee',
       recordId: 'emp-new-001',
       recordData: {
-        name: 'Juan Pérez',
+        name: 'Juan P\u00e9rez',
         email: 'juan.perez@retailco.com',
         hire_date: '2025-01-15',
       },
       errorType: 'missing_field',
       errorField: 'certification_status',
       errorMessage: 'Employee missing certification status',
-      errorMessageEs: 'Empleado sin estatus de certificación',
+      errorMessageEs: 'Empleado sin estatus de certificaci\u00f3n',
       errorDetails:
         'New employee added without certification status (optometrist)',
       errorDetailsEs:
@@ -404,7 +387,7 @@ function getDefaultQuarantineItems(): QuarantineItem[] {
       severity: 'info',
       suggestedFix: {
         description: 'Confirm certification status with HR',
-        descriptionEs: 'Confirmar estatus de certificación con HR',
+        descriptionEs: 'Confirmar estatus de certificaci\u00f3n con HR',
         field: 'certification_status',
         currentValue: null,
         suggestedValue: 'pending_verification',
@@ -426,41 +409,19 @@ function getDefaultQuarantineItems(): QuarantineItem[] {
 // ============================================
 
 function getAllItemsInternal(): QuarantineItem[] {
-  if (typeof window === 'undefined') return getDefaultQuarantineItems();
-
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) {
-    const defaults = getDefaultQuarantineItems();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return getDefaultQuarantineItems();
-  }
+  return getDefaultQuarantineItems();
 }
 
 /**
- * Initialize quarantine items
+ * Initialize quarantine items (no-op, localStorage removed)
  */
 export function initializeQuarantine(): void {
-  if (typeof window === 'undefined') return;
-
-  const existing = localStorage.getItem(STORAGE_KEY);
-  if (!existing) {
-    const defaults = getDefaultQuarantineItems();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
-  }
+  // localStorage removed -- no-op
 }
 
 /**
- * Reset quarantine to default state
+ * Reset quarantine to default state (no-op, localStorage removed)
  */
 export function resetQuarantine(): void {
-  if (typeof window === 'undefined') return;
-
-  const defaults = getDefaultQuarantineItems();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
+  // localStorage removed -- no-op
 }

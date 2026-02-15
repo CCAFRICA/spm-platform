@@ -282,47 +282,25 @@ export function searchCommands(
 // RECENT COMMANDS
 // =============================================================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const RECENT_COMMANDS_KEY = 'vialuce_recent_commands';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MAX_RECENT_COMMANDS = 5;
 
 /**
- * Get recent commands for a user
+ * Get recent commands for a user (returns empty, localStorage removed)
  */
-export function getRecentCommands(userId: string): string[] {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const key = `${RECENT_COMMANDS_KEY}_${userId}`;
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function getRecentCommands(_userId: string): string[] {
+  return [];
 }
 
 /**
- * Add a command to recent history
+ * Add a command to recent history (no-op, localStorage removed)
  */
-export function addRecentCommand(userId: string, commandId: string): void {
-  if (typeof window === 'undefined') return;
-
-  try {
-    const key = `${RECENT_COMMANDS_KEY}_${userId}`;
-    const recent = getRecentCommands(userId);
-
-    // Remove if already exists
-    const filtered = recent.filter(id => id !== commandId);
-
-    // Add to front
-    filtered.unshift(commandId);
-
-    // Keep only max
-    const trimmed = filtered.slice(0, MAX_RECENT_COMMANDS);
-
-    localStorage.setItem(key, JSON.stringify(trimmed));
-  } catch {
-    // Ignore storage errors
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function addRecentCommand(_userId: string, _commandId: string): void {
+  // No-op: localStorage removed
 }
 
 /**

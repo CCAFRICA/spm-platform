@@ -6,7 +6,11 @@
  */
 
 import type { CascadeAffectedItem } from '../data-architecture/types';
-import { getCommittedRecordsByBatch, getImportBatch } from '../data-architecture/data-layer-service';
+// Stubs for deleted data-layer-service -- Supabase migration pending
+/* eslint-disable @typescript-eslint/no-unused-vars */
+function getImportBatch(_batchId: string): { id: string; fileName: string; tenantId: string; status: string; recordCount: number; createdAt: string; mappings?: Record<string, string>; sourceSystem?: string; summary?: { financialImpact?: { affectedPeriods?: string[] } } } | null { return null; }
+function getCommittedRecordsByBatch(_batchId: string): unknown[] { return []; }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 export interface CascadeAnalysis {
   batchId: string;
@@ -209,7 +213,7 @@ function generateWarnings(
   const warnings: CascadeWarning[] = [];
 
   // Check for paid period warning
-  if (batch.summary.financialImpact?.affectedPeriods?.some((p) => p.includes('Q'))) {
+  if (batch.summary?.financialImpact?.affectedPeriods?.some((p) => p.includes('Q'))) {
     warnings.push({
       type: 'paid_period',
       severity: 'critical',

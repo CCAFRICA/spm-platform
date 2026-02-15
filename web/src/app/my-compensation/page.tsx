@@ -293,7 +293,7 @@ export default function MyCompensationPage() {
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading your compensation...</p>
+          <p className="text-muted-foreground">Loading your outcomes...</p>
         </div>
       </div>
     );
@@ -306,7 +306,7 @@ export default function MyCompensationPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Wallet className="h-6 w-6 text-primary" />
-            My Compensation
+            My Outcome
           </h1>
           <p className="text-muted-foreground">Track your earnings, incentives, and transactions</p>
         </div>
@@ -318,7 +318,7 @@ export default function MyCompensationPage() {
                 Results Pending Approval
               </h3>
               <p className="text-amber-700 max-w-md mx-auto">
-                Your compensation results for this period are being reviewed.
+                Your outcome results for this period are being reviewed.
                 They will be available once the approval process is complete.
               </p>
               <Badge className="mt-4 bg-amber-100 text-amber-700">
@@ -332,10 +332,10 @@ export default function MyCompensationPage() {
     );
   }
 
-  const entityName = calculationResult?.entityName || user?.name || 'Employee';
-  const entityRole = calculationResult?.entityRole || user?.role || 'Sales Rep';
+  const entityName = calculationResult?.entityName || user?.name || 'Entity';
+  const entityRole = calculationResult?.entityRole || user?.role || 'Rep';
   const storeName = calculationResult?.storeName || 'Store';
-  const ruleSetName = calculationResult?.ruleSetName || 'Compensation Plan';
+  const ruleSetName = calculationResult?.ruleSetName || 'Rule Set';
   const initials = entityName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   const now = new Date();
@@ -362,7 +362,7 @@ export default function MyCompensationPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Wallet className="h-6 w-6 text-primary" />
-            My Compensation
+            My Outcome
           </h1>
           <p className="text-muted-foreground">
             Track your earnings, incentives, and transactions
@@ -429,10 +429,10 @@ export default function MyCompensationPage() {
             <div className="text-center">
               <AlertCircle className="h-12 w-12 text-blue-500 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                No Compensation Results Yet
+                No Outcome Results Yet
               </h3>
               <p className="text-blue-700 dark:text-blue-300 max-w-md mx-auto">
-                Your compensation for this period has not been calculated yet.
+                Your outcome for this period has not been calculated yet.
                 Results will appear here once your administrator runs the calculation.
               </p>
             </div>
@@ -451,7 +451,7 @@ export default function MyCompensationPage() {
               <Sparkles className="h-5 w-5 text-purple-500" />
               Performance Insights
             </CardTitle>
-            <CardDescription>AI-powered analysis of your compensation</CardDescription>
+            <CardDescription>AI-powered analysis of your outcome</CardDescription>
           </CardHeader>
           <CardContent>
             {narrative ? (

@@ -59,7 +59,7 @@ export interface FlywheelResult {
 /**
  * Run the full ML Flywheel verification.
  *
- * IMPORTANT: This modifies localStorage (seeds dictionary, accepts suggestions).
+ * IMPORTANT: This seeds dictionary and accepts suggestions.
  * Run on a tenant that can be reset (e.g., 'flywheel-test').
  */
 export async function runFlywheelVerification(

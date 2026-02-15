@@ -22,15 +22,21 @@ import {
   listCalculationBatches,
   getActiveBatch,
   getCalculationResults,
-  transitionBatchLifecycle,
 } from '@/lib/supabase/calculation-service';
 import {
   getStateLabel,
   getStateColor,
-  LIFECYCLE_STATES_ORDERED,
   type CalculationState,
 } from '@/lib/calculation/lifecycle-utils';
-import type { Database, LifecycleState } from '@/lib/supabase/database.types';
+import {
+  type CalculationCycle,
+  performLifecycleTransition,
+  batchToCycle,
+  generatePayrollCSV,
+} from '@/lib/calculation/calculation-lifecycle-service';
+import { LifecycleSubway } from '@/components/lifecycle/LifecycleSubway';
+import { LifecycleActionBar } from '@/components/lifecycle/LifecycleActionBar';
+import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -44,11 +50,10 @@ import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import {
-  Calculator, Play, CheckCircle2, AlertTriangle, XCircle,
+  Calculator, Play, CheckCircle2, AlertTriangle,
   ChevronDown, ChevronRight, Clock, Users, DollarSign, TrendingUp,
-  ArrowLeft, ArrowRight, Scale, Search, Download,
+  ArrowLeft, ArrowRight, Search,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 type CalcBatchRow = Database['public']['Tables']['calculation_batches']['Row'];
 type CalcResultRow = Database['public']['Tables']['calculation_results']['Row'];
@@ -109,6 +114,7 @@ export default function CalculatePage() {
   const [isActivating, setIsActivating] = useState(false);
   const [recentBatches, setRecentBatches] = useState<CalcBatchRow[]>([]);
   const [activeBatch, setActiveBatch] = useState<CalcBatchRow | null>(null);
+  const [activeCycle, setActiveCycle] = useState<CalculationCycle | null>(null);
   const [batchResults, setBatchResults] = useState<CalcResultRow[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -166,10 +172,15 @@ export default function CalculatePage() {
         setActiveBatch(batch);
 
         if (batch) {
-          const results = await getCalculationResults(currentTenant.id, batch.id);
+          const [results, cycle] = await Promise.all([
+            getCalculationResults(currentTenant.id, batch.id),
+            batchToCycle(batch, currentTenant.id),
+          ]);
           setBatchResults(results);
+          setActiveCycle(cycle);
         } else {
           setBatchResults([]);
+          setActiveCycle(null);
         }
       } catch (err) {
         console.warn('[Calculate] Failed to load batch:', err);
@@ -179,18 +190,22 @@ export default function CalculatePage() {
     loadBatch();
   }, [currentTenant, selectedPeriod]);
 
-  // Lifecycle transition
-  const handleLifecycleTransition = async (targetState: CalculationState) => {
+  // Lifecycle transition with full audit trail
+  const handleLifecycleTransition = async (targetState: CalculationState, details?: string) => {
     if (!activeBatch || !currentTenant || !user) return;
     try {
-      const updated = await transitionBatchLifecycle(
+      const updatedCycle = await performLifecycleTransition(
         currentTenant.id,
         activeBatch.id,
-        targetState as LifecycleState,
+        targetState,
+        { profileId: user.id, name: user.name },
+        { details, rejectionReason: details },
       );
-      if (updated) {
-        setActiveBatch(updated);
-        // Refresh batches list
+      if (updatedCycle) {
+        setActiveCycle(updatedCycle);
+        // Refresh batch and batches list
+        const batch = await getActiveBatch(currentTenant.id, selectedPeriod);
+        setActiveBatch(batch);
         const batches = await listCalculationBatches(currentTenant.id);
         setRecentBatches(batches.slice(0, 10));
       } else {
@@ -224,44 +239,41 @@ export default function CalculatePage() {
     }
   };
 
-  // Export payroll CSV from batch results
+  // Export payroll CSV using lifecycle service
   const handleExportPayroll = () => {
     if (!activeBatch || batchResults.length === 0) return;
 
-    const rows: string[][] = [];
-    rows.push(['Entity ID', 'Total Payout', 'Period', 'Batch ID']);
+    const resultsForExport = batchResults.map(r => {
+      const comps = Array.isArray(r.components) ? r.components : [];
+      const meta = r.metadata as Record<string, unknown> | null;
+      return {
+        entityId: r.entity_id,
+        entityName: (meta?.entityName as string) || r.entity_id,
+        totalPayout: r.total_payout || 0,
+        components: comps.map((c: unknown) => {
+          const comp = c as Record<string, unknown>;
+          return {
+            componentName: String(comp.componentName || comp.component_name || ''),
+            outputValue: Number(comp.outputValue || comp.output_value || 0),
+          };
+        }),
+      };
+    });
 
-    for (const r of batchResults) {
-      rows.push([
-        r.entity_id,
-        String(r.total_payout || 0),
-        activeBatch.period_id,
-        activeBatch.id,
-      ]);
-    }
-
-    rows.push([]);
-    rows.push(['Summary']);
-    rows.push(['Total Entities', String(batchResults.length)]);
-    rows.push(['Total Payout', String(batchResults.reduce((sum, r) => sum + (r.total_payout || 0), 0))]);
-    rows.push(['Period', activeBatch.period_id]);
-    rows.push(['State', activeBatch.lifecycle_state]);
-    rows.push(['Exported At', new Date().toISOString()]);
-
-    const csvContent = rows.map(row =>
-      row.map(cell => {
-        if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
-          return `"${cell.replace(/"/g, '""')}"`;
-        }
-        return cell;
-      }).join(',')
-    ).join('\n');
+    const csvContent = generatePayrollCSV(resultsForExport, {
+      tenantName: currentTenant?.name || currentTenant?.displayName || 'Tenant',
+      periodId: activeBatch.period_id,
+      batchState: activeBatch.lifecycle_state,
+      currency: currentTenant?.currency || 'USD',
+      locale: currentTenant?.locale || 'en-US',
+    });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `payroll_${activeBatch.period_id}_${new Date().toISOString().slice(0, 10)}.csv`;
+    const tenantName = (currentTenant?.name || 'Tenant').replace(/\s+/g, '_');
+    link.download = `${tenantName}_${activeBatch.period_id}_Results.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -304,8 +316,6 @@ export default function CalculatePage() {
       </div>
     );
   }
-
-  const batchState = (activeBatch?.lifecycle_state || 'DRAFT') as CalculationState;
 
   return (
     <div className="space-y-6 p-6">
@@ -402,111 +412,23 @@ export default function CalculatePage() {
         </CardContent>
       </Card>
 
-      {/* Lifecycle Action Bar */}
-      {activeBatch && selectedPeriod && (
+      {/* Lifecycle Subway + Action Bar */}
+      {activeCycle && selectedPeriod && (
         <Card>
           <CardContent className="py-4 space-y-4">
-            {/* State subway */}
-            <div className="flex items-center gap-0.5 overflow-x-auto">
-              {LIFECYCLE_STATES_ORDERED.map((state, idx, arr) => {
-                const isCurrent = batchState === state;
-                const isRejected = batchState === 'REJECTED' && state === 'PENDING_APPROVAL';
-                const currentIdx = LIFECYCLE_STATES_ORDERED.indexOf(
-                  batchState === 'REJECTED' ? 'PENDING_APPROVAL' : batchState
-                );
-                const isPast = currentIdx > idx;
-                return (
-                  <div key={state} className="flex items-center flex-1 min-w-0">
-                    <div className={cn(
-                      'flex items-center justify-center w-full py-1 px-1 text-[10px] font-medium rounded-md transition-colors truncate',
-                      isCurrent ? getStateColor(batchState) + ' ring-2 ring-offset-1 ring-blue-300' :
-                      isRejected ? 'bg-red-100 text-red-700' :
-                      isPast ? 'bg-slate-200 text-slate-600' :
-                      'bg-slate-50 text-slate-400'
-                    )}>
-                      {getStateLabel(state)}
-                    </div>
-                    {idx < arr.length - 1 && (
-                      <ArrowRight className={cn('h-2.5 w-2.5 mx-0.5 flex-shrink-0',
-                        isPast ? 'text-slate-400' : 'text-slate-200'
-                      )} />
-                    )}
-                  </div>
-                );
-              })}
+            <LifecycleSubway cycle={activeCycle} />
+            <div className="flex items-center gap-3 text-xs text-slate-500">
+              <span>{entityCount} entities</span>
+              <span>|</span>
+              <span>{formatCurrency(totalPayout)}</span>
             </div>
-
-            {/* Current state + actions */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Scale className="h-5 w-5 text-slate-500" />
-                <Badge className={getStateColor(batchState)}>
-                  {getStateLabel(batchState)}
-                </Badge>
-                <span className="text-xs text-slate-500">
-                  {entityCount} entities | {formatCurrency(totalPayout)}
-                </span>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                {batchState === 'OFFICIAL' && (
-                  <Button size="sm" onClick={() => handleLifecycleTransition('PENDING_APPROVAL')}>
-                    <ArrowRight className="h-4 w-4 mr-1" />
-                    Submit for Approval
-                  </Button>
-                )}
-                {batchState === 'PENDING_APPROVAL' && (
-                  <>
-                    <Button size="sm" className="bg-green-600 hover:bg-green-700"
-                      onClick={() => handleLifecycleTransition('APPROVED')}>
-                      <CheckCircle2 className="h-4 w-4 mr-1" />
-                      Approve
-                    </Button>
-                    <Button size="sm" variant="destructive"
-                      onClick={() => handleLifecycleTransition('REJECTED')}>
-                      <XCircle className="h-4 w-4 mr-1" />
-                      Reject
-                    </Button>
-                  </>
-                )}
-                {batchState === 'APPROVED' && (
-                  <>
-                    <Button size="sm" onClick={() => handleLifecycleTransition('POSTED')}>
-                      <ArrowRight className="h-4 w-4 mr-1" />
-                      Post Results
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={handleExportPayroll}>
-                      <Download className="h-4 w-4 mr-1" />
-                      Export
-                    </Button>
-                  </>
-                )}
-                {batchState === 'POSTED' && (
-                  <>
-                    <Badge className="bg-teal-100 text-teal-700">Results visible to all roles</Badge>
-                    <Button size="sm" onClick={() => handleLifecycleTransition('CLOSED')}>
-                      Close Period
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={handleExportPayroll}>
-                      <Download className="h-4 w-4 mr-1" />
-                      Export
-                    </Button>
-                  </>
-                )}
-                {batchState === 'CLOSED' && (
-                  <Button size="sm" onClick={() => handleLifecycleTransition('PAID')}>
-                    Mark as Paid
-                  </Button>
-                )}
-                {batchState === 'PAID' && (
-                  <Button size="sm" onClick={() => handleLifecycleTransition('PUBLISHED')}>
-                    Publish
-                  </Button>
-                )}
-                {batchState === 'PUBLISHED' && (
-                  <Badge className="bg-sky-100 text-sky-700">Period Complete</Badge>
-                )}
-              </div>
-            </div>
+            <LifecycleActionBar
+              cycle={activeCycle}
+              currentUserId={user?.id || ''}
+              onTransition={handleLifecycleTransition}
+              onExport={handleExportPayroll}
+              isSubmitter={activeCycle.submittedBy === user?.name}
+            />
           </CardContent>
         </Card>
       )}

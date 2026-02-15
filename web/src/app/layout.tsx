@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import "@/styles/wayfinder.css";
 import { AuthProvider } from "@/contexts/auth-context";
 import { ConfigProvider } from "@/contexts/config-context";
 import { LocaleProvider } from "@/contexts/locale-context";
@@ -20,8 +21,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "ViaLuce - Sales Performance Management",
-  description: "Enterprise Sales Performance Management Platform",
+  title: "ViaLuce - Performance Management",
+  description: "Enterprise Performance Management Platform",
 };
 
 export default function RootLayout({

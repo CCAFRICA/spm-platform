@@ -156,24 +156,11 @@ class PayoutService {
   }
 
   initialize(): void {
-    const existing = this.getAllBatches();
-    if (existing.length === 0) {
-      localStorage.setItem(this.getStorageKey(), JSON.stringify(DEMO_BATCHES));
-    }
+    // no-op: localStorage removed
   }
 
   getAllBatches(): PayoutBatch[] {
-    try {
-      const stored = localStorage.getItem(this.getStorageKey());
-      if (!stored) {
-        // Initialize with demo data
-        localStorage.setItem(this.getStorageKey(), JSON.stringify(DEMO_BATCHES));
-        return DEMO_BATCHES;
-      }
-      return JSON.parse(stored);
-    } catch {
-      return DEMO_BATCHES;
-    }
+    return DEMO_BATCHES;
   }
 
   getBatchById(id: string): PayoutBatch | null {
@@ -214,8 +201,6 @@ class PayoutService {
       reason: comment || `Approved payout batch for ${batch.periodLabel}`,
     });
 
-    localStorage.setItem(this.getStorageKey(), JSON.stringify(batches));
-
     // Simulate processing and completion after approval
     setTimeout(() => {
       this.completeBatch(batchId);
@@ -237,18 +222,12 @@ class PayoutService {
     batch.rejectedBy = rejectorName;
     batch.rejectionReason = reason;
 
-    localStorage.setItem(this.getStorageKey(), JSON.stringify(batches));
     return batch;
   }
 
-  private completeBatch(batchId: string): void {
-    const batches = this.getAllBatches();
-    const batch = batches.find(b => b.id === batchId);
-
-    if (batch && batch.status === 'approved') {
-      batch.status = 'completed';
-      localStorage.setItem(this.getStorageKey(), JSON.stringify(batches));
-    }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private completeBatch(_batchId: string): void {
+    // no-op: localStorage removed
   }
 
   getStats(): {
@@ -285,7 +264,6 @@ class PayoutService {
       batch.totalAmount = batch.employees.reduce((sum, e) => sum + e.total, 0);
     }
 
-    localStorage.setItem(this.getStorageKey(), JSON.stringify(batches));
     return batch;
   }
 }

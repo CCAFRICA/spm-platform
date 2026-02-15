@@ -120,7 +120,7 @@ export default function TransactionsPage() {
               Transaction Repository
             </h1>
             <p className="text-slate-500 mt-1">
-              Manage and track all sales transactions
+              Manage and track all transactions
             </p>
           </div>
           <div className="flex gap-2">

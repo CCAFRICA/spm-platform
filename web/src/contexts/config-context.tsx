@@ -81,14 +81,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const stored = localStorage.getItem('terminology_config');
-    if (stored) {
-      try {
-        setTerminology(JSON.parse(stored));
-      } catch {
-        // Ignore parse errors
-      }
-    }
+    // Use default terminology (no localStorage)
     setIsLoading(false);
   }, []);
 
@@ -110,7 +103,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       },
     };
     setTerminology(newTerminology);
-    localStorage.setItem('terminology_config', JSON.stringify(newTerminology));
     audit.log({
       action: 'update',
       entityType: 'config',
@@ -121,7 +113,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const resetToDefaults = () => {
     setTerminology(DEFAULT_TERMINOLOGY);
-    localStorage.removeItem('terminology_config');
     audit.log({ action: 'update', entityType: 'config', entityId: 'terminology', reason: 'Reset to defaults' });
   };
 

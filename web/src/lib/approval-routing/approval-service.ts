@@ -36,28 +36,14 @@ const rulesCache = new Map<string, ApprovalRule>();
 // INITIALIZATION
 // ============================================
 
-function loadFromStorage<T>(key: string): Map<string, T> {
-  if (typeof window === 'undefined') return new Map();
-
-  try {
-    const stored = localStorage.getItem(key);
-    if (!stored) return new Map();
-    const entries: [string, T][] = JSON.parse(stored);
-    return new Map(entries);
-  } catch {
-    return new Map();
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function loadFromStorage<T>(_key: string): Map<string, T> {
+  return new Map();
 }
 
-function saveToStorage<T>(key: string, map: Map<string, T>): void {
-  if (typeof window === 'undefined') return;
-
-  try {
-    const entries = Array.from(map.entries());
-    localStorage.setItem(key, JSON.stringify(entries));
-  } catch {
-    console.warn('Failed to save to storage');
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveToStorage<T>(_key: string, _map: Map<string, T>): void {
+  // No-op: localStorage removed
 }
 
 export function initializeApprovalService(): void {

@@ -47,6 +47,7 @@ export interface RiskObservation {
   recommendation: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const APPROVAL_PREFIX = 'vialuce_approvals_';
 
 /**
@@ -181,42 +182,19 @@ export async function generateRiskAssessment(
 }
 
 /**
- * List pending approval items for a tenant.
+ * List pending approval items for a tenant (returns empty, localStorage removed).
  */
-export function listApprovalItems(tenantId: string, status?: string): ApprovalItem[] {
-  if (typeof window === 'undefined') return [];
-  const key = `${APPROVAL_PREFIX}${tenantId}`;
-  const stored = localStorage.getItem(key);
-  if (!stored) return [];
-  try {
-    const items: ApprovalItem[] = JSON.parse(stored);
-    if (status) return items.filter(i => i.status === status);
-    return items;
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function listApprovalItems(_tenantId: string, _status?: string): ApprovalItem[] {
+  return [];
 }
 
 /**
- * Save an approval item.
+ * Save an approval item (no-op, localStorage removed).
  */
-function saveApprovalItem(item: ApprovalItem): void {
-  if (typeof window === 'undefined') return;
-  const key = `${APPROVAL_PREFIX}${item.tenantId}`;
-  const stored = localStorage.getItem(key);
-  let items: ApprovalItem[] = [];
-  if (stored) {
-    try {
-      items = JSON.parse(stored);
-    } catch { /* reset */ }
-  }
-  const idx = items.findIndex(i => i.itemId === item.itemId);
-  if (idx >= 0) {
-    items[idx] = item;
-  } else {
-    items.push(item);
-  }
-  localStorage.setItem(key, JSON.stringify(items));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveApprovalItem(_item: ApprovalItem): void {
+  // No-op: localStorage removed
 }
 
 /**

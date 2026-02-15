@@ -114,9 +114,9 @@ export default function PlansPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Compensation Plans</h1>
+          <h1 className="text-2xl font-bold">Rule Sets</h1>
           <p className="text-muted-foreground">
-            Configure and manage compensation plan structures
+            Configure and manage rule set structures
           </p>
         </div>
         <Button disabled className="opacity-60" title="Coming Soon">
@@ -129,7 +129,7 @@ export default function PlansPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
-            <div className="text-sm text-muted-foreground">Total Plans</div>
+            <div className="text-sm text-muted-foreground">Total Rule Sets</div>
             <div className="text-2xl font-bold">{plans.length}</div>
           </CardContent>
         </Card>
@@ -198,7 +198,7 @@ export default function PlansPage() {
               <FileText className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
               <div className="text-muted-foreground">
                 {plans.length === 0
-                  ? 'No compensation plans configured yet.'
+                  ? 'No rule sets configured yet.'
                   : 'No plans match your search criteria.'}
               </div>
               {plans.length === 0 && (

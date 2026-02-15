@@ -14,7 +14,7 @@ import type {
   Band,
   Tier,
 } from '@/types/compensation-plan';
-import { getActivePlan, getPlan } from './plan-storage';
+import { getActiveRuleSet, getRuleSet } from '@/lib/supabase/rule-set-service';
 
 // ============================================
 // METRICS INTERFACE
@@ -107,15 +107,15 @@ export function endCalculationRun(totalEmployees: number): void {
 // MAIN CALCULATION FUNCTION
 // ============================================
 
-export function calculateIncentive(
+export async function calculateIncentive(
   employeeMetrics: EntityMetrics,
   tenantId: string,
   planIdOverride?: string
-): CalculationResult | null {
+): Promise<CalculationResult | null> {
   // Get plan - either by override or active for role
   const plan = planIdOverride
-    ? getPlan(planIdOverride)
-    : getActivePlan(tenantId, employeeMetrics.entityRole);
+    ? await getRuleSet(tenantId, planIdOverride)
+    : await getActiveRuleSet(tenantId);
 
   if (!plan) {
     console.warn('No active plan found for', employeeMetrics.entityRole);
@@ -200,7 +200,7 @@ function findMatchingVariant(config: AdditiveLookupConfig, metrics: EntityMetric
   const employeeIsCertified = metrics.isCertified ?? false;
 
   // OB-30 FIX: Handle plans with empty/missing eligibilityCriteria by deriving from variantId.
-  // This fixes stale localStorage plans that were saved before criteria were added.
+  // This fixes stale plans that were saved before criteria were added.
 
   for (const variant of config.variants) {
     const criteria = variant.eligibilityCriteria;
@@ -727,13 +727,14 @@ export function calculateIncentiveWithConfig(
 // BATCH CALCULATION
 // ============================================
 
-export function calculateBatch(
+export async function calculateBatch(
   employees: EntityMetrics[],
   tenantId: string
-): CalculationResult[] {
-  return employees
-    .map((emp) => calculateIncentive(emp, tenantId))
-    .filter((result): result is CalculationResult => result !== null);
+): Promise<CalculationResult[]> {
+  const results = await Promise.all(
+    employees.map((emp) => calculateIncentive(emp, tenantId))
+  );
+  return results.filter((result): result is CalculationResult => result !== null);
 }
 
 // ============================================

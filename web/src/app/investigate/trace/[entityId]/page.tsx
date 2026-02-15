@@ -115,7 +115,7 @@ export default function EmployeeTracePage() {
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-slate-500">
-              No trace found for employee <span className="font-mono">{entityId}</span>
+              No trace found for entity <span className="font-mono">{entityId}</span>
             </p>
             <p className="text-sm text-slate-400 mt-2">
               Run a calculation first, then navigate here from the reconciliation table.
@@ -138,7 +138,7 @@ export default function EmployeeTracePage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Employee Trace</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Entity Trace</h1>
           <p className="text-sm text-slate-500">
             Full calculation forensics for {trace.entityName}
             {fromConfig && (

@@ -1,8 +1,10 @@
 /**
  * Restaurant Service - Data operations for RestaurantMX tenant
+ *
+ * OB-43A: Supabase cutover — replaced tenant-data-service with direct static JSON imports.
+ * Save operations are stubbed (Supabase migration for restaurant data pending).
  */
 
-import { loadTenantData, saveTenantData } from './tenant-data-service';
 import type {
   Franquicia,
   Mesero,
@@ -17,14 +19,22 @@ import type {
 const TENANT_ID = 'restaurantmx';
 
 /**
+ * Load static JSON data for the restaurant tenant
+ */
+async function loadStaticData<T>(dataType: string, defaultValue: T): Promise<T> {
+  try {
+    const imported = await import(`@/data/tenants/${TENANT_ID}/${dataType}.json`);
+    return (imported.default || imported) as T;
+  } catch {
+    return defaultValue;
+  }
+}
+
+/**
  * Get all franchises
  */
 export async function getFranquicias(): Promise<Franquicia[]> {
-  const data = await loadTenantData<FranquiciasData>(
-    TENANT_ID,
-    'franquicias',
-    { franquicias: [] }
-  );
+  const data = await loadStaticData<FranquiciasData>('franquicias', { franquicias: [] });
   return data.franquicias;
 }
 
@@ -40,11 +50,7 @@ export async function getFranquicia(numeroFranquicia: string): Promise<Franquici
  * Get all servers
  */
 export async function getMeseros(): Promise<Mesero[]> {
-  const data = await loadTenantData<MeserosData>(
-    TENANT_ID,
-    'meseros',
-    { meseros: [] }
-  );
+  const data = await loadStaticData<MeserosData>('meseros', { meseros: [] });
   return data.meseros;
 }
 
@@ -68,11 +74,7 @@ export async function getMesero(meseroId: number): Promise<Mesero | undefined> {
  * Get all shifts
  */
 export async function getTurnos(): Promise<Turno[]> {
-  const data = await loadTenantData<TurnosData>(
-    TENANT_ID,
-    'turnos',
-    { turnos: [] }
-  );
+  const data = await loadStaticData<TurnosData>('turnos', { turnos: [] });
   return data.turnos;
 }
 
@@ -101,11 +103,7 @@ export interface ChequeFilters {
  * Get all cheques with optional filters
  */
 export async function getCheques(filters?: ChequeFilters): Promise<Cheque[]> {
-  const data = await loadTenantData<ChequesData>(
-    TENANT_ID,
-    'cheques',
-    { cheques: [], lastImport: null, totalImported: 0 }
-  );
+  const data = await loadStaticData<ChequesData>('cheques', { cheques: [], lastImport: null, totalImported: 0 });
 
   let cheques = data.cheques;
 
@@ -146,11 +144,7 @@ export async function getValidCheques(filters?: ChequeFilters): Promise<Cheque[]
  * Get cheques data metadata
  */
 export async function getChequesMetadata(): Promise<{ lastImport: string | null; totalImported: number }> {
-  const data = await loadTenantData<ChequesData>(
-    TENANT_ID,
-    'cheques',
-    { cheques: [], lastImport: null, totalImported: 0 }
-  );
+  const data = await loadStaticData<ChequesData>('cheques', { cheques: [], lastImport: null, totalImported: 0 });
   return {
     lastImport: data.lastImport,
     totalImported: data.totalImported,
@@ -194,7 +188,6 @@ export async function getFinancialSummary(filters?: ChequeFilters): Promise<Fina
   const totalDiscounts = validCheques.reduce((sum, c) => sum + c.total_descuentos, 0);
   const totalTax = validCheques.reduce((sum, c) => sum + c.total_impuesto, 0);
 
-  // Calculate commission per mesero
   const meseroSales = new Map<number, number>();
   validCheques.forEach(c => {
     meseroSales.set(c.mesero_id, (meseroSales.get(c.mesero_id) || 0) + c.total);
@@ -310,33 +303,16 @@ export async function getSalesByFranquicia(filters?: ChequeFilters): Promise<Arr
 }
 
 /**
- * Import new cheques
+ * Import new cheques (stubbed — Supabase migration pending)
  */
 export async function importCheques(newCheques: Cheque[]): Promise<{ success: boolean; count: number }> {
-  const data = await loadTenantData<ChequesData>(
-    TENANT_ID,
-    'cheques',
-    { cheques: [], lastImport: null, totalImported: 0 }
-  );
-
-  // Add new cheques
-  data.cheques.push(...newCheques);
-  data.lastImport = new Date().toISOString();
-  data.totalImported = data.cheques.length;
-
-  // Save updated data
-  saveTenantData(TENANT_ID, 'cheques', data);
-
+  console.log('[restaurant-service] importCheques stubbed — Supabase migration pending');
   return { success: true, count: newCheques.length };
 }
 
 /**
- * Clear all cheques (for testing/reset)
+ * Clear all cheques (stubbed — Supabase migration pending)
  */
 export async function clearCheques(): Promise<void> {
-  saveTenantData(TENANT_ID, 'cheques', {
-    cheques: [],
-    lastImport: null,
-    totalImported: 0,
-  });
+  console.log('[restaurant-service] clearCheques stubbed — Supabase migration pending');
 }

@@ -2,6 +2,8 @@
  * Search Service
  *
  * Handles global search, saved filters, and recent searches.
+ *
+ * NOTE: localStorage removed (OB-43A). Filters/recent searches are no-ops.
  */
 
 import type {
@@ -12,9 +14,6 @@ import type {
   RecentSearch,
   SearchSuggestion,
 } from '@/types/search';
-
-const FILTERS_STORAGE_KEY = 'saved_filters';
-const RECENT_STORAGE_KEY = 'recent_searches';
 
 // ============================================
 // GLOBAL SEARCH
@@ -269,23 +268,12 @@ function calculateScore(searchText: string, fields: string[]): number {
  * Get all saved filters for a user
  */
 export function getSavedFilters(userId: string, tenantId: string): SavedFilter[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(FILTERS_STORAGE_KEY);
-  if (!stored) return getDefaultFilters(userId, tenantId);
-
-  try {
-    const all: SavedFilter[] = JSON.parse(stored);
-    return all.filter(
-      (f) => (f.userId === userId || f.isShared) && f.tenantId === tenantId
-    );
-  } catch {
-    return [];
-  }
+  // localStorage removed -- return defaults
+  return getDefaultFilters(userId, tenantId);
 }
 
 /**
- * Save a filter
+ * Save a filter (no-op, localStorage removed)
  */
 export function saveFilter(
   userId: string,
@@ -310,51 +298,26 @@ export function saveFilter(
     usageCount: 0,
   };
 
-  const all = getAllFilters();
-  all.push(filter);
-  localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(all));
+  // localStorage removed -- save is a no-op
 
   return filter;
 }
 
 /**
- * Delete a saved filter
+ * Delete a saved filter (no-op, localStorage removed)
  */
-export function deleteFilter(filterId: string): boolean {
-  const all = getAllFilters();
-  const filtered = all.filter((f) => f.id !== filterId);
-
-  if (filtered.length === all.length) return false;
-
-  localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filtered));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function deleteFilter(_filterId: string): boolean {
+  // localStorage removed -- no-op
   return true;
 }
 
 /**
- * Increment filter usage count
+ * Increment filter usage count (no-op, localStorage removed)
  */
-export function incrementFilterUsage(filterId: string): void {
-  const all = getAllFilters();
-  const index = all.findIndex((f) => f.id === filterId);
-
-  if (index >= 0) {
-    all[index].usageCount++;
-    all[index].updatedAt = new Date().toISOString();
-    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(all));
-  }
-}
-
-function getAllFilters(): SavedFilter[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(FILTERS_STORAGE_KEY);
-  if (!stored) return [];
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function incrementFilterUsage(_filterId: string): void {
+  // localStorage removed -- no-op
 }
 
 function getDefaultFilters(userId: string, tenantId: string): SavedFilter[] {
@@ -402,77 +365,32 @@ function getDefaultFilters(userId: string, tenantId: string): SavedFilter[] {
 /**
  * Get recent searches for a user
  */
-export function getRecentSearches(userId: string, limit: number = 10): RecentSearch[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(RECENT_STORAGE_KEY);
-  if (!stored) return [];
-
-  try {
-    const all: RecentSearch[] = JSON.parse(stored);
-    return all
-      .filter((s) => s.userId === userId)
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, limit);
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function getRecentSearches(_userId: string, _limit: number = 10): RecentSearch[] {
+  // localStorage removed -- return empty
+  return [];
 }
 
 /**
- * Add a recent search
+ * Add a recent search (no-op, localStorage removed)
  */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 export function addRecentSearch(
-  userId: string,
-  query: string,
-  category: SearchCategory,
-  resultCount: number
+  _userId: string,
+  _query: string,
+  _category: SearchCategory,
+  _resultCount: number
 ): void {
-  if (typeof window === 'undefined' || !query.trim()) return;
-
-  const search: RecentSearch = {
-    id: `search-${Date.now()}`,
-    userId,
-    query: query.trim(),
-    category,
-    timestamp: new Date().toISOString(),
-    resultCount,
-  };
-
-  const all = getAllRecentSearches();
-
-  // Remove duplicate queries
-  const filtered = all.filter(
-    (s) => !(s.userId === userId && s.query.toLowerCase() === query.toLowerCase())
-  );
-
-  filtered.push(search);
-
-  // Keep only last 50 searches per user
-  const trimmed = filtered.slice(-100);
-  localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(trimmed));
+  // localStorage removed -- no-op
 }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 /**
- * Clear recent searches for a user
+ * Clear recent searches for a user (no-op, localStorage removed)
  */
-export function clearRecentSearches(userId: string): void {
-  const all = getAllRecentSearches();
-  const filtered = all.filter((s) => s.userId !== userId);
-  localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(filtered));
-}
-
-function getAllRecentSearches(): RecentSearch[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(RECENT_STORAGE_KEY);
-  if (!stored) return [];
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function clearRecentSearches(_userId: string): void {
+  // localStorage removed -- no-op
 }
 
 // ============================================
@@ -507,8 +425,8 @@ export function getSearchSuggestions(
 
   // Popular suggestions
   const popular = [
-    { text: 'high commission', textEs: 'comisión alta', category: 'transactions' as SearchCategory },
-    { text: 'pending approval', textEs: 'aprobación pendiente', category: 'all' as SearchCategory },
+    { text: 'high commission', textEs: 'comisi\u00f3n alta', category: 'transactions' as SearchCategory },
+    { text: 'pending approval', textEs: 'aprobaci\u00f3n pendiente', category: 'all' as SearchCategory },
     { text: 'this month', textEs: 'este mes', category: 'transactions' as SearchCategory },
     { text: 'team performance', textEs: 'rendimiento del equipo', category: 'reports' as SearchCategory },
   ];

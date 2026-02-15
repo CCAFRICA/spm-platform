@@ -7,8 +7,13 @@
 
 import type { EntityMetrics } from './calculation-engine';
 import { calculateIncentive } from './calculation-engine';
-import { savePlan, getPlan } from './plan-storage';
 import { createRetailCGMXUnifiedPlan } from './retailcgmx-plan';
+
+// Stubs for deleted plan-storage -- plans now in Supabase rule_sets table
+/* eslint-disable @typescript-eslint/no-unused-vars */
+function savePlan(_plan: unknown): void {}
+function getPlan(_id: string): ReturnType<typeof createRetailCGMXUnifiedPlan> | null { return null; }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 // ============================================
 // WORKED EXAMPLE TEST DATA
@@ -134,7 +139,7 @@ export interface ValidationResult {
   }[];
 }
 
-export function validateCertifiedExample(): ValidationResult {
+export async function validateCertifiedExample(): Promise<ValidationResult> {
   // Ensure plan is saved
   const ruleSetId = 'plan-retailcgmx-unified-2025';
   let plan = getPlan(ruleSetId);
@@ -144,7 +149,7 @@ export function validateCertifiedExample(): ValidationResult {
   }
 
   const metrics = getCertifiedWorkedExample();
-  const result = calculateIncentive(metrics, 'retailcgmx', ruleSetId);
+  const result = await calculateIncentive(metrics, 'retailcgmx', ruleSetId);
 
   const expectedComponents = [
     { name: 'Venta Óptica', expected: 1500 },
@@ -178,7 +183,7 @@ export function validateCertifiedExample(): ValidationResult {
   };
 }
 
-export function validateNonCertifiedExample(): ValidationResult {
+export async function validateNonCertifiedExample(): Promise<ValidationResult> {
   // Ensure plan is saved
   const ruleSetId = 'plan-retailcgmx-unified-2025';
   let plan = getPlan(ruleSetId);
@@ -188,7 +193,7 @@ export function validateNonCertifiedExample(): ValidationResult {
   }
 
   const metrics = getNonCertifiedWorkedExample();
-  const result = calculateIncentive(metrics, 'retailcgmx', ruleSetId);
+  const result = await calculateIncentive(metrics, 'retailcgmx', ruleSetId);
 
   const expectedComponents = [
     { name: 'Venta Óptica', expected: 750 },
@@ -222,10 +227,10 @@ export function validateNonCertifiedExample(): ValidationResult {
   };
 }
 
-export function runAllValidations(): { certified: ValidationResult; nonCertified: ValidationResult } {
+export async function runAllValidations(): Promise<{ certified: ValidationResult; nonCertified: ValidationResult }> {
   return {
-    certified: validateCertifiedExample(),
-    nonCertified: validateNonCertifiedExample(),
+    certified: await validateCertifiedExample(),
+    nonCertified: await validateNonCertifiedExample(),
   };
 }
 
@@ -233,8 +238,8 @@ export function runAllValidations(): { certified: ValidationResult; nonCertified
 // CONSOLE TEST RUNNER
 // ============================================
 
-export function printValidationReport(): void {
-  const results = runAllValidations();
+export async function printValidationReport(): Promise<void> {
+  const results = await runAllValidations();
 
   console.log('='.repeat(60));
   console.log('RetailCGMX Plan Validation Report');

@@ -6,7 +6,10 @@
  */
 
 import { calculateIncentive, type EntityMetrics } from '@/lib/compensation/calculation-engine';
-import { savePlan } from '@/lib/compensation/plan-storage';
+// Stub for deleted plan-storage -- Supabase migration pending
+/* eslint-disable @typescript-eslint/no-unused-vars */
+function savePlan(_plan: unknown): void { console.log('[ob-15-test] savePlan stubbed -- Supabase migration pending'); }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 import { createRetailCGMXUnifiedPlan } from '@/lib/compensation/retailcgmx-plan';
 
 // ============================================
@@ -380,7 +383,7 @@ export interface TestResult {
   warnings?: string[];
 }
 
-export function runCalculationTests(tenantId: string = 'retailcgmx'): TestResult[] {
+export async function runCalculationTests(tenantId: string = 'retailcgmx'): Promise<TestResult[]> {
   // Initialize plan
   const plan = createRetailCGMXUnifiedPlan();
   savePlan(plan);
@@ -393,7 +396,7 @@ export function runCalculationTests(tenantId: string = 'retailcgmx'): TestResult
     console.log(`Testing: ${testCase.employee.entityId} - ${testCase.description}`);
     console.log('='.repeat(60));
 
-    const calcResult = calculateIncentive(testCase.employee, tenantId, plan.id);
+    const calcResult = await calculateIncentive(testCase.employee, tenantId, plan.id);
 
     if (!calcResult) {
       results.push({
@@ -470,16 +473,5 @@ export function runCalculationTests(tenantId: string = 'retailcgmx'): TestResult
 
 // Export for direct execution
 if (typeof window === 'undefined' && typeof process !== 'undefined') {
-  // Running in Node.js
-  const storage: Record<string, string> = {};
-  (global as unknown as { localStorage: Storage }).localStorage = {
-    getItem: (key: string) => storage[key] ?? null,
-    setItem: (key: string, value: string) => { storage[key] = value; },
-    removeItem: (key: string) => { delete storage[key]; },
-    clear: () => { Object.keys(storage).forEach(k => delete storage[k]); },
-    key: (index: number) => Object.keys(storage)[index] ?? null,
-    length: 0,
-  };
-
-  runCalculationTests();
+  runCalculationTests().catch(console.error);
 }

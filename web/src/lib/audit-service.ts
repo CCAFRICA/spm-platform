@@ -2,13 +2,11 @@ import { AuditLogEntry, AuditAction, EntityType, AuditChange } from '@/types/aud
 
 class AuditService {
   private queue: AuditLogEntry[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private flushTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    // Start auto-flush in browser
-    if (typeof window !== 'undefined') {
-      this.flushTimer = setInterval(() => this.flush(), 1000);
-    }
+    // no-op: localStorage removed, auto-flush disabled
   }
 
   /**
@@ -95,16 +93,8 @@ class AuditService {
     endDate?: string;
     limit?: number;
   }): AuditLogEntry[] {
-    // Flush pending entries first
-    this.flush();
-
-    // Get from storage
-    let logs: AuditLogEntry[] = [];
-    try {
-      logs = JSON.parse(localStorage.getItem('audit_log') || '[]');
-    } catch {
-      logs = [];
-    }
+    // Return queued entries as the log source (localStorage removed)
+    let logs: AuditLogEntry[] = [...this.queue];
 
     // Apply filters
     if (filters?.userId) {
@@ -140,7 +130,6 @@ class AuditService {
    * Clear all audit logs (admin only)
    */
   clearLogs(): void {
-    localStorage.removeItem('audit_log');
     this.queue = [];
   }
 
@@ -168,15 +157,7 @@ class AuditService {
   // Private methods
 
   private flush(): void {
-    if (this.queue.length === 0) return;
-
-    try {
-      const existing = JSON.parse(localStorage.getItem('audit_log') || '[]');
-      const batch = this.queue.splice(0, this.queue.length);
-      localStorage.setItem('audit_log', JSON.stringify([...existing, ...batch]));
-    } catch (error) {
-      console.error('[AUDIT] Flush failed:', error);
-    }
+    // no-op: localStorage removed
   }
 
   private generateId(): string {
@@ -184,40 +165,15 @@ class AuditService {
   }
 
   private getCurrentUserId(): string {
-    if (typeof window === 'undefined') return 'system';
-
-    try {
-      const user = localStorage.getItem('currentUser');
-      if (user) return JSON.parse(user).id;
-    } catch {
-      // Ignore parse errors
-    }
-
     return 'anonymous';
   }
 
   private getCurrentUserName(): string {
-    if (typeof window === 'undefined') return 'System';
-
-    try {
-      const user = localStorage.getItem('currentUser');
-      if (user) return JSON.parse(user).name;
-    } catch {
-      // Ignore parse errors
-    }
-
     return 'Anonymous';
   }
 
   private getSessionId(): string {
-    if (typeof window === 'undefined') return 'server';
-
-    let sessionId = sessionStorage.getItem('sessionId');
-    if (!sessionId) {
-      sessionId = crypto.randomUUID();
-      sessionStorage.setItem('sessionId', sessionId);
-    }
-    return sessionId;
+    return 'server';
   }
 }
 

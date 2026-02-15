@@ -114,7 +114,7 @@ export default function DisputeQueuePage() {
           Dispute Queue
         </h1>
         <p className="text-muted-foreground">
-          Review and resolve employee compensation disputes
+          Review and resolve entity outcome disputes
         </p>
       </div>
 
@@ -219,7 +219,7 @@ export default function DisputeQueuePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Employee</TableHead>
+                  <TableHead>Entity</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Transaction</TableHead>
                   <TableHead>Amount Claimed</TableHead>

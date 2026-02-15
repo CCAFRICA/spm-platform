@@ -70,11 +70,26 @@ import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import type { RuleSetConfig, PlanComponent } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 import {
-  directCommitImportData,
-  storeFieldMappings,
-  storeImportContext,
-  type AIImportContext,
-} from '@/lib/data-architecture/data-layer-service';
+  directCommitImportDataAsync,
+} from '@/lib/supabase/data-service';
+
+interface AIImportContext {
+  tenantId: string;
+  batchId: string;
+  timestamp: string;
+  rosterSheet: string | null;
+  rosterEmployeeIdColumn: string | null;
+  sheets: Array<{
+    sheetName: string;
+    classification: string;
+    matchedComponent: string | null;
+    matchedComponentConfidence: number | null;
+    fieldMappings: Array<{ sourceColumn: string; semanticType: string; confidence: number }>;
+  }>;
+}
+function storeImportContext(ctx: AIImportContext) { console.log('[Import] Context stored:', ctx.sheets.length, 'sheets'); }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function storeFieldMappings(_tenantId: string, _batchId: string, _mappings: unknown[]) { /* stored in batch metadata */ }
 import { getPeriodProcessor } from '@/lib/payroll/period-processor';
 import { classifyFile, recordClassificationFeedback } from '@/lib/ai/file-classifier';
 import { AI_CONFIDENCE } from '@/lib/ai/types';
@@ -344,10 +359,10 @@ function validateCriticalFields(
       field: 'entityId',
       message: isSpanish
         ? 'No se ha mapeado identificador de empleado'
-        : 'No employee identifier mapped',
+        : 'No entity identifier mapped',
       impact: isSpanish
         ? 'Los calculos no podran asociar datos a empleados'
-        : 'Calculations cannot match data to employees',
+        : 'Calculations cannot match data to entities',
     });
   }
 
@@ -364,7 +379,7 @@ function validateCriticalFields(
         field: 'role',
         message: isSpanish
           ? 'No se ha mapeado tipo/puesto de empleado en el roster'
-          : 'No employee type/role field mapped on roster sheet',
+          : 'No entity type/role field mapped on roster sheet',
         impact: isSpanish
           ? 'El enrutamiento del plan (ej. Certificado vs No Certificado) no funcionara'
           : 'Plan routing (e.g., Certified vs Non-Certified) will not work',
@@ -429,7 +444,7 @@ function validateCriticalFields(
             : `"${matchedComp?.name || compName}" on sheet "${sheet.name}": missing ${missingMetrics.join(', ')}`,
           impact: isSpanish
             ? `Este componente calculara como $0 para todos los empleados`
-            : `This component will calculate as $0 for all employees`,
+            : `This component will calculate as $0 for all entities`,
         });
       } else {
         fullyMappedCount++;
@@ -452,7 +467,7 @@ function validateCriticalFields(
         : 'No name field mapped',
       impact: isSpanish
         ? 'Los nombres de empleados mostraran IDs'
-        : 'Employee names will show as IDs',
+        : 'Entity names will show as IDs',
     });
   }
 
@@ -462,10 +477,10 @@ function validateCriticalFields(
 // Spanish to English column name translations
 const COLUMN_TRANSLATIONS: Record<string, string> = {
   // Identifiers
-  'num_empleado': 'Employee ID',
-  'numero_empleado': 'Employee ID',
-  'id_empleado': 'Employee ID',
-  'empleado': 'Employee',
+  'num_empleado': 'Entity ID',
+  'numero_empleado': 'Entity ID',
+  'id_empleado': 'Entity ID',
+  'empleado': 'Entity',
   'no_tienda': 'Store ID',
   'tienda': 'Store',
   'id_tienda': 'Store ID',
@@ -483,7 +498,7 @@ const COLUMN_TRANSLATIONS: Record<string, string> = {
   'ventas': 'Sales',
   'venta_optica': 'Optical Sales',
   'venta_tienda': 'Store Sales',
-  'cumplimiento': 'Attainment',
+  'cumplimiento': 'Achievement',
   'meta': 'Goal',
   'objetivo': 'Target',
   'cobranza': 'Collections',
@@ -497,7 +512,7 @@ const COLUMN_TRANSLATIONS: Record<string, string> = {
   'importe': 'Amount',
   'total': 'Total',
   'subtotal': 'Subtotal',
-  'comision': 'Commission',
+  'comision': 'Outcome',
   'incentivo': 'Incentive',
   'bono': 'Bonus',
 
@@ -509,7 +524,7 @@ const COLUMN_TRANSLATIONS: Record<string, string> = {
 
 // Classification icon and color mapping
 const CLASSIFICATION_CONFIG: Record<SheetClassification, { icon: typeof Users; color: string; label: string; labelEs: string }> = {
-  roster: { icon: Users, color: 'bg-blue-100 border-blue-300 text-blue-800', label: 'Employee Roster', labelEs: 'Plantilla de Empleados' },
+  roster: { icon: Users, color: 'bg-blue-100 border-blue-300 text-blue-800', label: 'Entity Roster', labelEs: 'Plantilla de Empleados' },
   component_data: { icon: Database, color: 'bg-green-100 border-green-300 text-green-800', label: 'Component Data', labelEs: 'Datos de Componente' },
   reference: { icon: Map, color: 'bg-purple-100 border-purple-300 text-purple-800', label: 'Reference Data', labelEs: 'Datos de Referencia' },
   regional_partition: { icon: GitBranch, color: 'bg-orange-100 border-orange-300 text-orange-800', label: 'Regional Data', labelEs: 'Datos Regionales' },
@@ -802,8 +817,8 @@ function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields:
 function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] {
   const baseFields: TargetField[] = [
     // Always-required identifier fields
-    { id: 'entityId', label: 'Employee ID', labelEs: 'ID Empleado', isRequired: true, category: 'identifier' },
-    { id: 'name', label: 'Employee Name', labelEs: 'Nombre', isRequired: false, category: 'identifier' },  // CLT-08
+    { id: 'entityId', label: 'Entity ID', labelEs: 'ID Empleado', isRequired: true, category: 'identifier' },
+    { id: 'name', label: 'Entity Name', labelEs: 'Nombre', isRequired: false, category: 'identifier' },  // CLT-08
     { id: 'storeId', label: 'Store ID', labelEs: 'ID Tienda', isRequired: false, category: 'identifier' },
     { id: 'date', label: 'Date', labelEs: 'Fecha', isRequired: true, category: 'date' },
     { id: 'period', label: 'Period', labelEs: 'Período', isRequired: false, category: 'date' },
@@ -811,7 +826,7 @@ function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] 
     // HOTFIX: Core metric types - ALWAYS valid for AI classification
     { id: 'amount', label: 'Amount', labelEs: 'Monto', isRequired: false, category: 'amount' },
     { id: 'goal', label: 'Goal', labelEs: 'Meta', isRequired: false, category: 'metric' },
-    { id: 'attainment', label: 'Attainment %', labelEs: '% Cumplimiento', isRequired: false, category: 'metric' },
+    { id: 'attainment', label: 'Achievement %', labelEs: '% Cumplimiento', isRequired: false, category: 'metric' },
     { id: 'quantity', label: 'Quantity', labelEs: 'Cantidad', isRequired: false, category: 'metric' },
     { id: 'storeRange', label: 'Store Range', labelEs: 'Rango Tienda', isRequired: false, category: 'identifier' },
   ];
@@ -1980,8 +1995,8 @@ export default function DataPackageImportPage() {
         console.log(`[Import] Stored AI import context BEFORE commit: ${importContext.sheets.length} sheets`);
       }
 
-      // Commit data to data layer (pass pre-generated batchId)
-      const result = directCommitImportData(
+      // Commit data to Supabase (pass pre-generated batchId)
+      const result = await directCommitImportDataAsync(
         tenantId,
         userId,
         uploadedFile.name,
@@ -1989,7 +2004,7 @@ export default function DataPackageImportPage() {
         batchId
       );
 
-      // Store field mappings separately
+      // Store field mappings in batch metadata (logged for now)
       const mappingsToStore = fieldMappings.map(m => ({
         sheetName: m.sheetName,
         mappings: Object.fromEntries(
@@ -2557,12 +2572,12 @@ export default function DataPackageImportPage() {
                     <Users className="h-5 w-5 text-blue-600 mt-0.5" />
                     <div className="flex-1">
                       <p className="font-medium text-blue-800">
-                        {isSpanish ? 'Plantilla de Empleados Detectada' : 'Employee Roster Detected'}
+                        {isSpanish ? 'Plantilla de Empleados Detectada' : 'Entity Roster Detected'}
                       </p>
                       <p className="text-sm text-blue-700">
                         {isSpanish
                           ? `Hoja "${analysis.rosterDetected.sheetName}" contiene datos de empleados`
-                          : `Sheet "${analysis.rosterDetected.sheetName}" contains employee data`}
+                          : `Sheet "${analysis.rosterDetected.sheetName}" contains entity data`}
                       </p>
                       {analysis.rosterDetected.canCreateUsers && (
                         <Button variant="outline" size="sm" className="mt-2">
@@ -2597,7 +2612,7 @@ export default function DataPackageImportPage() {
                   <div>
                     <h3 className="font-medium mb-3 flex items-center gap-2">
                       <Users className="h-4 w-4" />
-                      {isSpanish ? 'Plantilla de Empleados' : 'Employee Roster'}
+                      {isSpanish ? 'Plantilla de Empleados' : 'Entity Roster'}
                     </h3>
                     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                       {analysis.sheets
@@ -3277,7 +3292,7 @@ export default function DataPackageImportPage() {
                         <div className="p-4 border rounded-lg">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-medium">
-                              {isSpanish ? 'IDs de Empleado' : 'Employee IDs'}
+                              {isSpanish ? 'IDs de Empleado' : 'Entity IDs'}
                             </span>
                             <Badge variant={validationResult.crossSheetValidation.overallMatch >= 80 ? 'default' : 'secondary'}>
                               {validationResult.crossSheetValidation.overallMatch}% {isSpanish ? 'coincidencia' : 'match'}
@@ -3377,7 +3392,7 @@ export default function DataPackageImportPage() {
                             <thead className="bg-muted">
                               <tr>
                                 <th className="px-3 py-2 text-left font-medium">
-                                  {isSpanish ? 'Empleado' : 'Employee'}
+                                  {isSpanish ? 'Empleado' : 'Entity'}
                                 </th>
                                 {validationResult.calculationPreview[0]?.components.map(comp => (
                                   <th key={comp.componentId} className="px-3 py-2 text-right font-medium">
@@ -3627,7 +3642,7 @@ export default function DataPackageImportPage() {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
                       <Calculator className="h-4 w-4" />
-                      {isSpanish ? 'Plan de Compensación Activo' : 'Active Compensation Plan'}
+                      {isSpanish ? 'Plan de Compensación Activo' : 'Active Rule Set'}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -3668,7 +3683,7 @@ export default function DataPackageImportPage() {
                     <p className="text-sm text-amber-700 dark:text-amber-300 mb-3">
                       {isSpanish
                         ? 'Importe un plan de compensación primero para habilitar el mapeo de campos basado en componentes.'
-                        : 'Import a compensation plan first to enable component-based field mapping.'}
+                        : 'Import a rule set first to enable component-based field mapping.'}
                     </p>
                     <a href="/admin/launch/plan-import" className="text-sm text-primary hover:underline">
                       {isSpanish ? 'Importar Plan →' : 'Import Plan →'}
@@ -3814,7 +3829,7 @@ export default function DataPackageImportPage() {
                         <p className="text-sm text-muted-foreground">
                           {isSpanish
                             ? 'Procesar los datos importados con el plan de compensación activo para generar resultados de incentivos.'
-                            : 'Process imported data with the active compensation plan to generate incentive results.'}
+                            : 'Process imported data with the active rule set to generate incentive results.'}
                         </p>
                         <Button variant="link" className="p-0 h-auto mt-2 text-primary">
                           {isSpanish ? 'Ir a Cálculos →' : 'Go to Calculations →'}

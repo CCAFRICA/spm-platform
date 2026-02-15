@@ -35,12 +35,12 @@ interface TestResult {
   componentResults: ComponentResult[];
 }
 
-function runAllTests(ruleSetId: string): TestResult[] {
+async function runAllTests(ruleSetId: string): Promise<TestResult[]> {
   const results: TestResult[] = [];
   const tenantId = 'retailcgmx';
 
   for (const testCase of ALL_TEST_CASES) {
-    const calcResult = calculateIncentive(testCase.employee, tenantId, ruleSetId);
+    const calcResult = await calculateIncentive(testCase.employee, tenantId, ruleSetId);
 
     if (!calcResult) {
       results.push({
@@ -92,14 +92,14 @@ function runAllTests(ruleSetId: string): TestResult[] {
   return results;
 }
 
-function runProofGate(): { results: ProofGateResult[]; testResults: TestResult[] } {
+async function runProofGate(): Promise<{ results: ProofGateResult[]; testResults: TestResult[] }> {
   const results: ProofGateResult[] = [];
 
   // Initialize plan (in-memory only for test page)
   const plan = createRetailCGMXUnifiedPlan();
 
   // Run tests
-  const testResults = runAllTests(plan.id);
+  const testResults = await runAllTests(plan.id);
 
   // Criterion 1-6: Check each calculation type
   results.push({
@@ -236,8 +236,8 @@ export default function OB15ProofGatePage() {
 
   const runTests = () => {
     setIsRunning(true);
-    setTimeout(() => {
-      const { results, testResults: tr } = runProofGate();
+    setTimeout(async () => {
+      const { results, testResults: tr } = await runProofGate();
       setProofResults(results);
       setTestResults(tr);
       setIsRunning(false);

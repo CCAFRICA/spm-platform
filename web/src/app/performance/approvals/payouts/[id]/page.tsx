@@ -84,8 +84,8 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
     const updated = payoutService.approveBatch(id, 'Mike Chen', approvalComment);
 
     if (updated) {
-      toast.success('Payout Approved', {
-        description: `${updated.periodLabel} payout has been approved and is now processing`,
+      toast.success('Outcome Approved', {
+        description: `${updated.periodLabel} outcome has been approved and is now processing`,
       });
       setShowApproveDialog(false);
       setBatch(updated);
@@ -116,8 +116,8 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
     const updated = payoutService.rejectBatch(id, 'Mike Chen', rejectionReason);
 
     if (updated) {
-      toast.error('Payout Rejected', {
-        description: `${updated.periodLabel} payout has been rejected`,
+      toast.error('Outcome Rejected', {
+        description: `${updated.periodLabel} outcome has been rejected`,
       });
       setShowRejectDialog(false);
       setBatch(updated);
@@ -150,7 +150,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
             <Button asChild>
               <Link href="/performance/approvals/payouts">
                 <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Payouts
+                Back to Outcomes
               </Link>
             </Button>
           </CardContent>
@@ -176,7 +176,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-2xl font-bold flex items-center gap-2">
                 <Wallet className="h-6 w-6 text-primary" />
-                {batch.periodLabel} Payout
+                {batch.periodLabel} Outcome
               </h1>
               {getStatusBadge(batch.status)}
             </div>
@@ -210,7 +210,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
                 <div className="text-2xl font-bold text-green-600">
                   {formatCurrency(batch.totalAmount)}
                 </div>
-                <div className="text-sm text-muted-foreground">Total Payout</div>
+                <div className="text-sm text-muted-foreground">Total Outcome</div>
               </div>
             </div>
           </CardContent>
@@ -224,7 +224,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
               </div>
               <div>
                 <div className="text-2xl font-bold">{batch.entityCount}</div>
-                <div className="text-sm text-muted-foreground">Employees</div>
+                <div className="text-sm text-muted-foreground">Entities</div>
               </div>
             </div>
           </CardContent>
@@ -240,7 +240,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
                 <div className="text-2xl font-bold">
                   {formatCurrency(batch.totalAmount / batch.entityCount)}
                 </div>
-                <div className="text-sm text-muted-foreground">Avg. Payout</div>
+                <div className="text-sm text-muted-foreground">Avg. Outcome</div>
               </div>
             </div>
           </CardContent>
@@ -276,7 +276,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
                   {totalDisputes} Pending Dispute{totalDisputes > 1 ? 's' : ''}
                 </h4>
                 <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                  Some employees have pending disputes that may affect their payout amounts.
+                  Some entities have pending disputes that may affect their outcome amounts.
                   Consider reviewing disputes before approving this batch.
                 </p>
                 <Button variant="outline" size="sm" className="mt-3" asChild>
@@ -316,10 +316,10 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
               <CheckCircle className="h-5 w-5 text-green-600" />
               <div>
                 <span className="font-medium text-green-800 dark:text-green-200">
-                  Payout Completed
+                  Outcome Completed
                 </span>
                 <span className="text-green-700 dark:text-green-300 text-sm ml-2">
-                  All {batch.entityCount} employees have been paid
+                  All {batch.entityCount} entities have been paid
                 </span>
               </div>
             </div>
@@ -348,9 +348,9 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
       {/* Employee Breakdown */}
       <Card>
         <CardHeader>
-          <CardTitle>Employee Breakdown</CardTitle>
+          <CardTitle>Entity Breakdown</CardTitle>
           <CardDescription>
-            Individual payout details for all {batch.entityCount} employees
+            Individual outcome details for all {batch.entityCount} entities
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -376,9 +376,9 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="font-medium">Ready to process this payout?</h4>
+                <h4 className="font-medium">Ready to process this outcome?</h4>
                 <p className="text-sm text-muted-foreground">
-                  Approving will initiate payment processing for all {batch.entityCount} employees
+                  Approving will initiate payment processing for all {batch.entityCount} entities
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -395,7 +395,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
                   disabled={isProcessing}
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Approve Payout
+                  Approve Outcome
                 </Button>
               </div>
             </div>
@@ -409,10 +409,10 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-green-600" />
-              Approve Payout Batch
+              Approve Outcome Batch
             </DialogTitle>
             <DialogDescription>
-              You are about to approve the {batch.periodLabel} payout for {batch.entityCount} employees
+              You are about to approve the {batch.periodLabel} outcome for {batch.entityCount} entities
               totaling {formatCurrency(batch.totalAmount)}.
             </DialogDescription>
           </DialogHeader>
@@ -427,7 +427,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
                   </div>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Employees:</span>
+                  <span className="text-muted-foreground">Entities:</span>
                   <div className="font-bold text-lg">{batch.entityCount}</div>
                 </div>
               </div>
@@ -462,7 +462,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
               ) : (
                 <>
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Approve Payout
+                  Approve Outcome
                 </>
               )}
             </Button>
@@ -476,10 +476,10 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              Reject Payout Batch
+              Reject Outcome Batch
             </DialogTitle>
             <DialogDescription>
-              Rejecting will prevent all {batch.entityCount} employees from receiving their incentive payouts.
+              Rejecting will prevent all {batch.entityCount} entities from receiving their incentive outcomes.
             </DialogDescription>
           </DialogHeader>
 

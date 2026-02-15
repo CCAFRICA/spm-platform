@@ -37,7 +37,7 @@ export default function ConfigurePage() {
         {
           icon: Users,
           label: isSpanish ? 'Personal' : 'Personnel',
-          description: isSpanish ? 'Gestionar empleados y asignaciones' : 'Manage employees and assignments',
+          description: isSpanish ? 'Gestionar empleados y asignaciones' : 'Manage entities and assignments',
           route: '/configure/people',
           badge: '156 Active',
         },
@@ -55,7 +55,7 @@ export default function ConfigurePage() {
         {
           icon: Users,
           label: isSpanish ? 'Equipos' : 'Teams',
-          description: isSpanish ? 'Estructuras de equipo de ventas' : 'Sales team structures',
+          description: isSpanish ? 'Estructuras de equipo de ventas' : 'Team structures',
           route: '/configure/organization/teams',
         },
         {
@@ -124,7 +124,7 @@ export default function ConfigurePage() {
         <p className="text-sm text-slate-500 mt-1">
           {isSpanish
             ? 'Configurar y mantener el sistema de compensación'
-            : 'Set up and maintain the compensation system'}
+            : 'Set up and maintain the outcome system'}
         </p>
       </div>
 

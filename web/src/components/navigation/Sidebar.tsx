@@ -66,7 +66,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   // Check if user is VL Admin
   const userIsVLAdmin = user && isVLAdmin(user);
 
-  // Language follows the user's language selector preference (localStorage)
+  // Language follows the user's language selector preference
   const isSpanish = locale === 'es-MX';
 
   // Get user's accessible modules

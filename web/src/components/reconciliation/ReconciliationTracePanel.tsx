@@ -35,11 +35,11 @@ export function ReconciliationTracePanel({
   const [error, setError] = useState<string | null>(null);
   const [expandedComponents, setExpandedComponents] = useState<Set<string>>(new Set());
 
-  const loadTrace = () => {
+  const loadTrace = async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = generateEmployeeTrace(tenantId, entityId);
+      const result = await generateEmployeeTrace(tenantId, entityId);
       setTrace(result);
       // Auto-expand all components
       if (result) {

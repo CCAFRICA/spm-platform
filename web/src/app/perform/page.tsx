@@ -220,7 +220,7 @@ export default function PerformPage() {
         {!isVLAdmin && (
           <Button onClick={() => router.push('/perform/compensation')}>
             <Wallet className="h-4 w-4 mr-2" />
-            {displaySpanish ? 'Ver Compensacion' : 'View Compensation'}
+            {displaySpanish ? 'Ver Compensacion' : 'View Outcomes'}
           </Button>
         )}
       </div>
@@ -234,7 +234,7 @@ export default function PerformPage() {
               <p className="text-sm font-medium text-blue-800">
                 {displaySpanish
                   ? `Tu compensacion para ${getCurrentPeriod()} esta siendo procesada`
-                  : `Your compensation for ${getCurrentPeriod()} is being processed`}
+                  : `Your outcome for ${getCurrentPeriod()} is being processed`}
               </p>
               <p className="text-xs text-blue-600">
                 {displaySpanish
@@ -307,13 +307,13 @@ export default function PerformPage() {
                   <div className="grid grid-cols-4 gap-4">
                     <div className="p-3 bg-blue-50 rounded-lg">
                       <p className="text-xs text-blue-600">
-                        {displaySpanish ? 'Empleados' : 'Employees'}
+                        {displaySpanish ? 'Empleados' : 'Entities'}
                       </p>
                       <p className="text-xl font-bold text-blue-800">{stats.entityCount}</p>
                     </div>
                     <div className="p-3 bg-green-50 rounded-lg">
                       <p className="text-xs text-green-600">
-                        {displaySpanish ? 'Pago Total' : 'Total Payout'}
+                        {displaySpanish ? 'Pago Total' : 'Total Outcome'}
                       </p>
                       <p className="text-xl font-bold text-green-800">{format(stats.totalPayout)}</p>
                     </div>
@@ -381,7 +381,7 @@ export default function PerformPage() {
                       </p>
                       <p className="font-bold text-blue-800">{stats.topStores[0].storeId}</p>
                       <p className="text-sm text-blue-600">
-                        {stats.topStores[0].count} {displaySpanish ? 'empleados' : 'employees'} | {format(stats.topStores[0].total)}
+                        {stats.topStores[0].count} {displaySpanish ? 'empleados' : 'entities'} | {format(stats.topStores[0].total)}
                       </p>
                     </div>
                   )}
@@ -443,7 +443,7 @@ export default function PerformPage() {
                       </div>
                       <div className="p-4 bg-purple-50 rounded-lg">
                         <p className="text-sm text-purple-600">
-                          {displaySpanish ? 'Pago Total' : 'Total Payout'}
+                          {displaySpanish ? 'Pago Total' : 'Total Outcome'}
                         </p>
                         <div className="flex items-center gap-2 mt-1">
                           <Target className="h-5 w-5 text-purple-500" />
@@ -476,7 +476,7 @@ export default function PerformPage() {
                 </Button>
                 <Button variant="outline" className="w-full justify-start" onClick={() => router.push('/perform/compensation')}>
                   <Wallet className="h-4 w-4 mr-2" />
-                  {displaySpanish ? 'Mi Compensacion' : 'My Compensation'}
+                  {displaySpanish ? 'Mi Compensacion' : 'My Outcomes'}
                 </Button>
               </CardContent>
             </Card>
@@ -494,7 +494,7 @@ export default function PerformPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Wallet className="h-5 w-5 text-green-600" />
-                {displaySpanish ? 'Resumen de Compensacion' : 'Compensation Summary'}
+                {displaySpanish ? 'Resumen de Compensacion' : 'Outcome Summary'}
               </CardTitle>
               <CardDescription>
                 {displaySpanish
@@ -509,7 +509,7 @@ export default function PerformPage() {
                   <p className="text-sm text-blue-700">
                     {displaySpanish
                       ? 'Los resultados de compensacion aun no estan disponibles para este periodo.'
-                      : 'Compensation results are not yet available for this period.'}
+                      : 'Results are not yet available for this period.'}
                   </p>
                 </div>
               ) : (

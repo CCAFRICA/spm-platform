@@ -236,7 +236,7 @@ export default function PeriodsPage() {
           <p className="text-sm text-slate-500 mt-1">
             {isSpanish
               ? 'Crear y gestionar períodos para cálculos de compensación'
-              : 'Create and manage periods for compensation calculations'}
+              : 'Create and manage periods for outcome calculations'}
           </p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)}>

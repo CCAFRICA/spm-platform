@@ -1,403 +1,489 @@
 /**
- * Calculation Lifecycle State Machine
+ * Calculation Lifecycle Service
  *
- * Enforces state transitions for the calculation cycle:
- * DRAFT -> PREVIEW -> RECONCILE -> OFFICIAL -> PENDING_APPROVAL -> APPROVED -> POSTED -> CLOSED -> PAID -> PUBLISHED
+ * Bridge between lifecycle-utils (pure functions) and Supabase calculation-service.
+ * Defines the CalculationCycle type, transition side effects, required capabilities,
+ * and audit trail recording.
  *
- * OFFICIAL creates an immutable snapshot. Subsequent PREVIEW does not overwrite it.
- * POSTED is required before results are visible to Sales Reps.
- * PUBLISHED is the terminal state -- period is complete.
+ * This file is imported by LifecycleSubway and LifecycleActionBar components.
  */
 
-export type CalculationState =
-  | 'DRAFT'
-  | 'PREVIEW'
-  | 'RECONCILE'
-  | 'OFFICIAL'
-  | 'PENDING_APPROVAL'
-  | 'APPROVED'
-  | 'REJECTED'
-  | 'POSTED'
-  | 'CLOSED'
-  | 'PAID'
-  | 'PUBLISHED';
+import { createClient } from '@/lib/supabase/client';
+import type { Database, Json, LifecycleState } from '@/lib/supabase/database.types';
+import {
+  transitionBatchLifecycle,
+  getCalculationBatch,
+  supersedeBatch,
+  listCalculationBatches,
+} from '@/lib/supabase/calculation-service';
 
-export interface CalculationCycle {
-  cycleId: string;
-  tenantId: string;
-  ruleSetId: string;
-  period: string;
-  state: CalculationState;
-  previewRunId?: string;
-  officialRunId?: string;
-  officialSnapshot?: OfficialSnapshot;
-  submittedBy?: string;
-  submittedAt?: string;
-  approvedBy?: string;
-  approvedAt?: string;
-  approvalComments?: string;
-  rejectionReason?: string;
-  postedBy?: string;
-  postedAt?: string;
-  closedBy?: string;
-  closedAt?: string;
-  paidAt?: string;
-  paidBy?: string;
-  publishedAt?: string;
-  publishedBy?: string;
-  auditTrail: AuditEntry[];
-  createdAt: string;
-  updatedAt: string;
-}
+// ──────────────────────────────────────────────
+// Re-exports from lifecycle-utils
+// ──────────────────────────────────────────────
+export {
+  type CalculationState,
+  LIFECYCLE_STATES_ORDERED,
+  getStateLabel,
+  getStateColor,
+  getAllowedTransitions,
+  canTransition,
+  canViewResults,
+} from './lifecycle-utils';
 
-export interface OfficialSnapshot {
-  timestamp: string;
-  runId: string;
-  totalPayout: number;
-  entityCount: number;
-  componentTotals: Record<string, number>;
-  immutable: true;
-}
+import type { CalculationState } from './lifecycle-utils';
+import { canTransition } from './lifecycle-utils';
+
+// ──────────────────────────────────────────────
+// Types
+// ──────────────────────────────────────────────
+
+type CalcBatchRow = Database['public']['Tables']['calculation_batches']['Row'];
 
 export interface AuditEntry {
-  timestamp: string;
-  action: string;
-  actor: string;
   fromState: CalculationState;
   toState: CalculationState;
-  details: string;
+  actor: string;
+  timestamp: string;
+  details?: string;
 }
 
-// Valid state transitions -- canonical 9-state lifecycle + REJECTED
-const VALID_TRANSITIONS: Record<CalculationState, CalculationState[]> = {
-  DRAFT:              ['PREVIEW'],
-  PREVIEW:            ['DRAFT', 'RECONCILE', 'OFFICIAL', 'PREVIEW'],
-  RECONCILE:          ['PREVIEW', 'OFFICIAL'],
-  OFFICIAL:           ['PREVIEW', 'PENDING_APPROVAL'],
-  PENDING_APPROVAL:   ['OFFICIAL', 'APPROVED', 'REJECTED'],
-  REJECTED:           ['OFFICIAL'],
-  APPROVED:           ['OFFICIAL', 'POSTED'],
-  POSTED:             ['APPROVED', 'CLOSED'],
-  CLOSED:             ['POSTED', 'PAID'],
-  PAID:               ['CLOSED', 'PUBLISHED'],
-  PUBLISHED:          [],
+export interface CalculationCycle {
+  id: string;
+  tenantId: string;
+  periodId: string;
+  ruleSetId: string | null;
+  state: CalculationState;
+  entityCount: number;
+  totalPayout: number;
+  auditTrail: AuditEntry[];
+  rejectionReason?: string;
+  approvedBy?: string;
+  submittedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+  supersededBy?: string;
+  supersedes?: string;
+}
+
+// ──────────────────────────────────────────────
+// Required capabilities per transition
+// ──────────────────────────────────────────────
+
+const TRANSITION_CAPABILITIES: Record<string, string[]> = {
+  'DRAFT->PREVIEW': ['manage_rule_sets'],
+  'PREVIEW->OFFICIAL': ['manage_rule_sets'],
+  'PREVIEW->DRAFT': ['manage_rule_sets'],
+  'PREVIEW->RECONCILE': ['manage_rule_sets'],
+  'RECONCILE->OFFICIAL': ['manage_rule_sets'],
+  'RECONCILE->PREVIEW': ['manage_rule_sets'],
+  'OFFICIAL->PENDING_APPROVAL': ['manage_rule_sets'],
+  'OFFICIAL->SUPERSEDED': ['manage_rule_sets'],
+  'PENDING_APPROVAL->APPROVED': ['approve_outcomes'],
+  'PENDING_APPROVAL->REJECTED': ['approve_outcomes'],
+  'REJECTED->OFFICIAL': ['manage_rule_sets'],
+  'APPROVED->POSTED': ['manage_rule_sets'],
+  'POSTED->CLOSED': ['manage_rule_sets'],
+  'CLOSED->PAID': ['manage_rule_sets'],
+  'PAID->PUBLISHED': ['manage_rule_sets'],
 };
 
-// Ordered states for subway visualization (excludes REJECTED branch)
-export const LIFECYCLE_STATES_ORDERED: CalculationState[] = [
-  'DRAFT', 'PREVIEW', 'RECONCILE', 'OFFICIAL', 'PENDING_APPROVAL',
-  'APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED',
-];
-
-type UserRole = 'vl_admin' | 'platform_admin' | 'manager' | 'sales_rep' | 'approver';
-
-const STORAGE_PREFIX = 'vialuce_cycle_';
-
-export function getCycleStorageKey(tenantId: string, period: string): string {
-  return `${STORAGE_PREFIX}${tenantId}_${period}`;
-}
-
 /**
- * Load the calculation cycle for a tenant/period.
+ * Check if a user has the required capabilities for a transition.
  */
-export function loadCycle(tenantId: string, period: string): CalculationCycle | null {
-  if (typeof window === 'undefined') return null;
-  const key = getCycleStorageKey(tenantId, period);
-  const stored = localStorage.getItem(key);
-  if (!stored) return null;
-  try {
-    return JSON.parse(stored) as CalculationCycle;
-  } catch {
-    return null;
+export function canPerformTransition(
+  from: CalculationState,
+  to: CalculationState,
+  userCapabilities: string[],
+  options?: { userId?: string; submittedBy?: string }
+): { allowed: boolean; reason?: string } {
+  if (!canTransition(from, to)) {
+    return { allowed: false, reason: `Invalid transition: ${from} -> ${to}` };
   }
-}
 
-/**
- * Save a calculation cycle.
- */
-export function saveCycle(cycle: CalculationCycle): void {
-  if (typeof window === 'undefined') return;
-  const key = getCycleStorageKey(cycle.tenantId, cycle.period);
-  cycle.updatedAt = new Date().toISOString();
-  try {
-    localStorage.setItem(key, JSON.stringify(cycle));
-  } catch (err) {
-    console.error('[Lifecycle] Failed to save cycle:', err);
+  // Separation of duties: submitter cannot approve
+  if (to === 'APPROVED' && options?.userId && options?.submittedBy) {
+    if (options.userId === options.submittedBy) {
+      return { allowed: false, reason: 'Submitter cannot approve (separation of duties)' };
+    }
   }
+
+  const key = `${from}->${to}`;
+  const required = TRANSITION_CAPABILITIES[key];
+  if (!required) return { allowed: true };
+
+  // VL Admin can always perform transitions
+  if (userCapabilities.includes('manage_tenants')) return { allowed: true };
+
+  const hasAll = required.every(cap => userCapabilities.includes(cap));
+  if (!hasAll) {
+    return { allowed: false, reason: `Missing capabilities: ${required.filter(c => !userCapabilities.includes(c)).join(', ')}` };
+  }
+
+  return { allowed: true };
 }
 
-/**
- * Create a new calculation cycle in DRAFT state.
- */
-export function createCycle(tenantId: string, ruleSetId: string, period: string): CalculationCycle {
-  const cycle: CalculationCycle = {
-    cycleId: `cycle-${tenantId}-${period}-${Date.now()}`,
-    tenantId,
-    ruleSetId,
-    period,
-    state: 'DRAFT',
-    auditTrail: [{
-      timestamp: new Date().toISOString(),
-      action: 'created',
-      actor: 'system',
-      fromState: 'DRAFT',
-      toState: 'DRAFT',
-      details: 'Calculation cycle created',
-    }],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  saveCycle(cycle);
-  return cycle;
-}
+// ──────────────────────────────────────────────
+// Side effects per transition
+// ──────────────────────────────────────────────
+
+type SideEffectDescription = {
+  description: string;
+  details: string;
+};
+
+const TRANSITION_SIDE_EFFECTS: Record<string, SideEffectDescription> = {
+  'PREVIEW->OFFICIAL': {
+    description: 'Lock calculation results',
+    details: 'Results become immutable from this point. Any changes require a new superseding batch.',
+  },
+  'OFFICIAL->PENDING_APPROVAL': {
+    description: 'Create approval request',
+    details: 'An approval request is queued. Users with approve_outcomes capability will see it.',
+  },
+  'PENDING_APPROVAL->APPROVED': {
+    description: 'Record approval',
+    details: 'Approval recorded. Results can now be posted to make visible to all roles.',
+  },
+  'PENDING_APPROVAL->REJECTED': {
+    description: 'Record rejection',
+    details: 'Rejection recorded with reason. Batch returns to OFFICIAL for re-work.',
+  },
+  'APPROVED->POSTED': {
+    description: 'Make results visible',
+    details: 'Results become visible to all roles in Perform workspace.',
+  },
+  'POSTED->CLOSED': {
+    description: 'Prevent further changes',
+    details: 'Period data is locked. No further modifications to this period.',
+  },
+  'CLOSED->PAID': {
+    description: 'Record payment',
+    details: 'Payment reference and date recorded.',
+  },
+  'PAID->PUBLISHED': {
+    description: 'Seal audit trail',
+    details: 'Terminal state. Full audit trail sealed. Period is complete.',
+  },
+  'OFFICIAL->SUPERSEDED': {
+    description: 'Create superseding batch',
+    details: 'Old batch marked as superseded. New batch created for re-calculation.',
+  },
+};
 
 /**
- * Get allowed transitions from a given state.
+ * Get side effect description for a transition.
  */
-export function getAllowedTransitions(state: CalculationState): CalculationState[] {
-  return VALID_TRANSITIONS[state] || [];
+export function getTransitionSideEffect(
+  from: CalculationState,
+  to: CalculationState
+): SideEffectDescription | null {
+  return TRANSITION_SIDE_EFFECTS[`${from}->${to}`] || null;
 }
 
-/**
- * Check if a transition from the current state to the target state is valid.
- */
-export function canTransition(currentState: CalculationState, targetState: CalculationState): boolean {
-  const allowed = VALID_TRANSITIONS[currentState] || [];
-  return allowed.includes(targetState);
-}
+// ──────────────────────────────────────────────
+// Audit trail
+// ──────────────────────────────────────────────
 
 /**
- * Transition a cycle to a new state with enforced rules.
- * Throws on invalid transitions with clear error message.
+ * Write an audit log entry for a lifecycle transition.
  */
-export function transitionCycle(
-  cycle: CalculationCycle,
+export async function writeLifecycleAuditLog(
+  tenantId: string,
+  batchId: string,
+  fromState: CalculationState,
   toState: CalculationState,
-  actor: string,
-  details: string,
-  extra?: {
-    runId?: string;
-    snapshot?: OfficialSnapshot;
-    approvalComments?: string;
+  actor: { profileId: string; name: string },
+  details?: string
+): Promise<void> {
+  try {
+    const supabase = createClient();
+    await supabase.from('audit_logs').insert({
+      tenant_id: tenantId,
+      profile_id: actor.profileId,
+      action: `lifecycle_transition:${fromState}->${toState}`,
+      resource_type: 'calculation_batch',
+      resource_id: batchId,
+      changes: {
+        from_state: fromState,
+        to_state: toState,
+        details: details || null,
+      } as unknown as Json,
+      metadata: {
+        actor_name: actor.name,
+        transition_key: `${fromState}->${toState}`,
+      } as unknown as Json,
+    });
+  } catch (err) {
+    console.warn('[LifecycleService] Failed to write audit log:', err);
+  }
+}
+
+/**
+ * Read audit trail entries for a batch from audit_logs.
+ */
+export async function getLifecycleAuditTrail(
+  tenantId: string,
+  batchId: string
+): Promise<AuditEntry[]> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('resource_type', 'calculation_batch')
+      .eq('resource_id', batchId)
+      .like('action', 'lifecycle_transition:%')
+      .order('created_at', { ascending: true });
+
+    if (error || !data) return [];
+
+    return data.map(log => {
+      const changes = log.changes as Record<string, unknown> | null;
+      const metadata = log.metadata as Record<string, unknown> | null;
+      return {
+        fromState: (changes?.from_state as CalculationState) || 'DRAFT',
+        toState: (changes?.to_state as CalculationState) || 'DRAFT',
+        actor: (metadata?.actor_name as string) || 'System',
+        timestamp: log.created_at,
+        details: (changes?.details as string) || undefined,
+      };
+    });
+  } catch (err) {
+    console.warn('[LifecycleService] Failed to read audit trail:', err);
+    return [];
+  }
+}
+
+// ──────────────────────────────────────────────
+// Batch -> CalculationCycle conversion
+// ──────────────────────────────────────────────
+
+/**
+ * Convert a Supabase calculation_batches row into a CalculationCycle.
+ */
+export async function batchToCycle(
+  batch: CalcBatchRow,
+  tenantId: string
+): Promise<CalculationCycle> {
+  const auditTrail = await getLifecycleAuditTrail(tenantId, batch.id);
+  const summary = batch.summary as Record<string, unknown> | null;
+
+  return {
+    id: batch.id,
+    tenantId: batch.tenant_id,
+    periodId: batch.period_id,
+    ruleSetId: batch.rule_set_id,
+    state: batch.lifecycle_state as CalculationState,
+    entityCount: batch.entity_count || 0,
+    totalPayout: (summary?.totalPayout as number) || 0,
+    auditTrail,
+    rejectionReason: (summary?.rejectionReason as string) || undefined,
+    approvedBy: (summary?.approvedBy as string) || undefined,
+    submittedBy: (summary?.submittedBy as string) || undefined,
+    createdAt: batch.created_at,
+    updatedAt: batch.updated_at || batch.created_at,
+    supersededBy: batch.superseded_by || undefined,
+    supersedes: batch.supersedes || undefined,
+  };
+}
+
+/**
+ * Get the active cycle for a tenant/period.
+ */
+export async function getActiveCycle(
+  tenantId: string,
+  periodId: string
+): Promise<CalculationCycle | null> {
+  const batches = await listCalculationBatches(tenantId, { periodId });
+  const active = batches.find(b => !b.superseded_by);
+  if (!active) return null;
+  return batchToCycle(active, tenantId);
+}
+
+// ──────────────────────────────────────────────
+// Full lifecycle transition with side effects + audit
+// ──────────────────────────────────────────────
+
+/**
+ * Perform a lifecycle transition with full side effects and audit logging.
+ *
+ * This is the primary entry point for UI components to advance lifecycle state.
+ */
+export async function performLifecycleTransition(
+  tenantId: string,
+  batchId: string,
+  targetState: CalculationState,
+  actor: { profileId: string; name: string },
+  options?: {
+    details?: string;
     rejectionReason?: string;
+    paymentReference?: string;
   }
-): CalculationCycle {
-  const fromState = cycle.state;
-  const allowed = VALID_TRANSITIONS[fromState];
+): Promise<CalculationCycle | null> {
+  const batch = await getCalculationBatch(tenantId, batchId);
+  if (!batch) return null;
 
-  if (!allowed || !allowed.includes(toState)) {
-    throw new Error(
-      `Invalid state transition: ${fromState} -> ${toState}. ` +
-      `Allowed transitions from ${fromState}: ${(allowed || []).join(', ') || 'none (terminal state)'}`
-    );
-  }
+  const currentState = batch.lifecycle_state as CalculationState;
 
-  // Separation of duties: approver must differ from submitter
-  if (toState === 'APPROVED' && actor === cycle.submittedBy) {
-    throw new Error(
-      'Approval requires a different user than the submitter (separation of duties).'
-    );
-  }
-
-  // Create updated cycle (immutable pattern)
-  const now = new Date().toISOString();
-  const updated: CalculationCycle = {
-    ...cycle,
-    state: toState,
-    auditTrail: [
-      ...cycle.auditTrail,
-      {
-        timestamp: now,
-        action: `transition_${fromState}_to_${toState}`.toLowerCase(),
-        actor,
-        fromState,
-        toState,
-        details,
-      },
-    ],
+  // Build summary updates based on transition
+  const summaryUpdates: Record<string, unknown> = {
+    ...(batch.summary as Record<string, unknown> || {}),
   };
 
-  // State-specific updates
-  switch (toState) {
-    case 'PREVIEW':
-      updated.previewRunId = extra?.runId || updated.previewRunId;
-      break;
-
-    case 'OFFICIAL':
-      // Create immutable snapshot -- subsequent Preview does NOT overwrite this
-      if (extra?.snapshot) {
-        updated.officialSnapshot = { ...extra.snapshot, immutable: true };
-        updated.officialRunId = extra.snapshot.runId;
-      }
-      break;
-
-    case 'PENDING_APPROVAL':
-      updated.submittedBy = actor;
-      updated.submittedAt = now;
-      break;
-
-    case 'APPROVED':
-      updated.approvedBy = actor;
-      updated.approvedAt = now;
-      updated.approvalComments = extra?.approvalComments;
-      break;
-
-    case 'REJECTED':
-      updated.rejectionReason = extra?.rejectionReason;
-      break;
-
-    case 'POSTED':
-      updated.postedBy = actor;
-      updated.postedAt = now;
-      break;
-
-    case 'CLOSED':
-      updated.closedBy = actor;
-      updated.closedAt = now;
-      break;
-
-    case 'PAID':
-      updated.paidBy = actor;
-      updated.paidAt = now;
-      break;
-
-    case 'PUBLISHED':
-      updated.publishedBy = actor;
-      updated.publishedAt = now;
-      break;
+  if (targetState === 'PENDING_APPROVAL') {
+    summaryUpdates.submittedBy = actor.name;
+    summaryUpdates.submittedAt = new Date().toISOString();
   }
 
-  saveCycle(updated);
-  return updated;
-}
-
-/**
- * Check if calculation results are visible for a given role and state.
- * POSTED and later states are visible to all roles.
- * Pre-POSTED states are admin/approver only.
- */
-export function canViewResults(state: CalculationState, role: UserRole): boolean {
-  switch (state) {
-    case 'DRAFT':
-    case 'PREVIEW':
-    case 'RECONCILE':
-    case 'OFFICIAL':
-      // Only admins can see pre-approval results
-      return role === 'vl_admin' || role === 'platform_admin';
-
-    case 'PENDING_APPROVAL':
-      // Admins and approvers can see during approval
-      return role === 'vl_admin' || role === 'platform_admin' || role === 'approver';
-
-    case 'APPROVED':
-      // Admins can see approved but not-yet-posted results
-      return role === 'vl_admin' || role === 'platform_admin' || role === 'approver';
-
-    case 'POSTED':
-    case 'CLOSED':
-    case 'PAID':
-    case 'PUBLISHED':
-      // All roles can see posted results
-      return true;
-
-    case 'REJECTED':
-      // Only admins see rejected results
-      return role === 'vl_admin' || role === 'platform_admin';
-
-    default:
-      return false;
+  if (targetState === 'APPROVED') {
+    summaryUpdates.approvedBy = actor.name;
+    summaryUpdates.approvedAt = new Date().toISOString();
+    summaryUpdates.approvalComments = options?.details || '';
   }
+
+  if (targetState === 'REJECTED') {
+    summaryUpdates.rejectionReason = options?.rejectionReason || options?.details || '';
+    summaryUpdates.rejectedBy = actor.name;
+    summaryUpdates.rejectedAt = new Date().toISOString();
+  }
+
+  if (targetState === 'PAID') {
+    summaryUpdates.paymentReference = options?.paymentReference || '';
+    summaryUpdates.paidAt = new Date().toISOString();
+    summaryUpdates.paidBy = actor.name;
+  }
+
+  if (targetState === 'PUBLISHED') {
+    summaryUpdates.publishedAt = new Date().toISOString();
+    summaryUpdates.publishedBy = actor.name;
+  }
+
+  if (targetState === 'POSTED') {
+    summaryUpdates.postedAt = new Date().toISOString();
+    summaryUpdates.postedBy = actor.name;
+  }
+
+  if (targetState === 'CLOSED') {
+    summaryUpdates.closedAt = new Date().toISOString();
+    summaryUpdates.closedBy = actor.name;
+  }
+
+  // Handle supersession separately
+  if (targetState === 'SUPERSEDED') {
+    try {
+      const newBatch = await supersedeBatch(tenantId, batchId, {
+        createdBy: actor.profileId,
+      });
+      // Write audit log for supersession
+      await writeLifecycleAuditLog(
+        tenantId,
+        batchId,
+        currentState,
+        'SUPERSEDED',
+        actor,
+        `Superseded by batch ${newBatch.id}`
+      );
+      return batchToCycle(newBatch, tenantId);
+    } catch (err) {
+      console.error('[LifecycleService] Supersession failed:', err);
+      return null;
+    }
+  }
+
+  // Normal transition via calculation-service
+  const updated = await transitionBatchLifecycle(
+    tenantId,
+    batchId,
+    targetState as LifecycleState,
+    {
+      summary: summaryUpdates,
+      completedAt: ['PUBLISHED', 'CLOSED'].includes(targetState)
+        ? new Date().toISOString()
+        : undefined,
+    }
+  );
+
+  if (!updated) return null;
+
+  // Write audit log
+  await writeLifecycleAuditLog(
+    tenantId,
+    batchId,
+    currentState,
+    targetState,
+    actor,
+    options?.details || options?.rejectionReason || undefined
+  );
+
+  return batchToCycle(updated, tenantId);
 }
 
-/**
- * Get the most recent approved (or later) cycle for a tenant.
- */
-export function getApprovedCycle(tenantId: string): CalculationCycle | null {
-  if (typeof window === 'undefined') return null;
+// ──────────────────────────────────────────────
+// Export payroll CSV
+// ──────────────────────────────────────────────
 
-  const postApprovalStates: CalculationState[] = [
-    'APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED',
+/**
+ * Generate payroll CSV content from calculation results.
+ */
+export function generatePayrollCSV(
+  results: Array<{
+    entityId: string;
+    entityName: string;
+    totalPayout: number;
+    components: Array<{ componentName: string; outputValue: number }>;
+  }>,
+  metadata: {
+    tenantName: string;
+    periodId: string;
+    batchState: string;
+    currency: string;
+    locale: string;
+  }
+): string {
+  if (results.length === 0) return '';
+
+  // Collect unique component names
+  const componentNames = Array.from(
+    new Set(results.flatMap(r => r.components.map(c => c.componentName)))
+  ).sort();
+
+  // Header row
+  const headers = ['Entity ID', 'Entity Name', ...componentNames, 'Total Outcome'];
+
+  // Data rows
+  const dataRows = results.map(r => {
+    const componentValues = componentNames.map(name => {
+      const comp = r.components.find(c => c.componentName === name);
+      return comp ? String(comp.outputValue) : '0';
+    });
+    return [r.entityId, r.entityName, ...componentValues, String(r.totalPayout)];
+  });
+
+  // Summary rows
+  const summaryRows = [
+    [],
+    ['Summary'],
+    ['Tenant', metadata.tenantName],
+    ['Period', metadata.periodId],
+    ['State', metadata.batchState],
+    ['Total Entities', String(results.length)],
+    ['Total Outcome', String(results.reduce((sum, r) => sum + r.totalPayout, 0))],
+    ['Currency', metadata.currency],
+    ['Exported At', new Date().toISOString()],
   ];
 
-  const cycles: CalculationCycle[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith(`${STORAGE_PREFIX}${tenantId}_`)) {
-      try {
-        const cycle = JSON.parse(localStorage.getItem(key) || '') as CalculationCycle;
-        if (postApprovalStates.includes(cycle.state)) {
-          cycles.push(cycle);
+  const allRows = [headers, ...dataRows, ...summaryRows];
+
+  return allRows
+    .map(row =>
+      row.map(cell => {
+        const s = String(cell);
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+          return `"${s.replace(/"/g, '""')}"`;
         }
-      } catch {
-        // Skip invalid entries
-      }
-    }
-  }
-
-  if (cycles.length === 0) return null;
-  cycles.sort((a, b) => (b.approvedAt || '').localeCompare(a.approvedAt || ''));
-  return cycles[0];
-}
-
-/**
- * List all cycles for a tenant, sorted by most recent first.
- */
-export function listCycles(tenantId: string): CalculationCycle[] {
-  if (typeof window === 'undefined') return [];
-
-  const cycles: CalculationCycle[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith(`${STORAGE_PREFIX}${tenantId}_`)) {
-      try {
-        const cycle = JSON.parse(localStorage.getItem(key) || '') as CalculationCycle;
-        cycles.push(cycle);
-      } catch {
-        // Skip invalid entries
-      }
-    }
-  }
-
-  cycles.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return cycles;
-}
-
-/**
- * Get display label for a state.
- */
-export function getStateLabel(state: CalculationState): string {
-  const labels: Record<CalculationState, string> = {
-    DRAFT: 'Draft',
-    PREVIEW: 'Preview',
-    RECONCILE: 'Reconcile',
-    OFFICIAL: 'Official',
-    PENDING_APPROVAL: 'Pending Approval',
-    APPROVED: 'Approved',
-    REJECTED: 'Rejected',
-    POSTED: 'Posted',
-    CLOSED: 'Closed',
-    PAID: 'Paid',
-    PUBLISHED: 'Published',
-  };
-  return labels[state] || state;
-}
-
-/**
- * Get status color for a state.
- */
-export function getStateColor(state: CalculationState): string {
-  const colors: Record<CalculationState, string> = {
-    DRAFT: 'bg-gray-100 text-gray-700',
-    PREVIEW: 'bg-blue-100 text-blue-700',
-    RECONCILE: 'bg-cyan-100 text-cyan-700',
-    OFFICIAL: 'bg-purple-100 text-purple-700',
-    PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
-    APPROVED: 'bg-green-100 text-green-700',
-    REJECTED: 'bg-red-100 text-red-700',
-    POSTED: 'bg-teal-100 text-teal-700',
-    CLOSED: 'bg-indigo-100 text-indigo-700',
-    PAID: 'bg-emerald-100 text-emerald-700',
-    PUBLISHED: 'bg-sky-100 text-sky-700',
-  };
-  return colors[state] || 'bg-gray-100 text-gray-700';
+        return s;
+      }).join(',')
+    )
+    .join('\n');
 }

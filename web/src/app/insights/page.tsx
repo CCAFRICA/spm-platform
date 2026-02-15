@@ -141,7 +141,7 @@ export default function InsightsPage() {
               Insights Dashboard
             </h1>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
-              Compensation and performance analytics
+              Performance analytics
             </p>
           </div>
 
@@ -153,7 +153,7 @@ export default function InsightsPage() {
                   No Calculation Data Available
                 </h3>
                 <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto mb-6">
-                  Insights will appear here once compensation calculations have been run.
+                  Insights will appear here once calculations have been run.
                   Run a calculation to see performance metrics, top performers, and trends.
                 </p>
                 <Link
@@ -180,7 +180,7 @@ export default function InsightsPage() {
             Insights Dashboard
           </h1>
           <p className="mt-2 text-slate-600 dark:text-slate-400">
-            Compensation and performance analytics • {insights.entityCount} employees
+            Performance analytics • {insights.entityCount} entities
           </p>
         </div>
 
@@ -190,7 +190,7 @@ export default function InsightsPage() {
           <Card className="lg:col-span-1 border-0 shadow-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
             <CardHeader className="pb-2">
               <CardDescription className="text-indigo-100">
-                Total Period Payout
+                Total Period Outcome
               </CardDescription>
               <CardTitle className="text-4xl font-bold">
                 {format(insights.totalPayout)}
@@ -200,12 +200,12 @@ export default function InsightsPage() {
               <div className="flex items-center gap-2 mb-6">
                 <TrendingUp className="h-4 w-4 text-emerald-300" />
                 <span className="text-sm text-indigo-100">
-                  Based on {insights.entityCount} employees
+                  Based on {insights.entityCount} entities
                 </span>
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-indigo-200">Average Payout</span>
+                  <span className="text-indigo-200">Average Outcome</span>
                   <span className="font-medium">
                     {format(insights.avgPayout)}
                   </span>
@@ -227,7 +227,7 @@ export default function InsightsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                      Employees Paid
+                      Entities Paid
                     </p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                       {insights.entityCount}
@@ -353,7 +353,7 @@ export default function InsightsPage() {
                           {performer.entityName || performer.entityId}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          {performer.storeName || performer.entityRole || 'Employee'}
+                          {performer.storeName || performer.entityRole || 'Entity'}
                         </p>
                       </div>
                       <div className="text-right">

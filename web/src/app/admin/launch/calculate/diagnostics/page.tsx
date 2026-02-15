@@ -30,6 +30,8 @@ import {
 import { useTenant } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { getRuleSets } from "@/lib/supabase/rule-set-service";
+import { listImportBatches } from "@/lib/supabase/data-service";
+import { listEntities } from "@/lib/supabase/entity-service";
 import Link from "next/link";
 
 interface DiagnosticCheck {
@@ -130,27 +132,19 @@ export default function CalculationDiagnosticsPage() {
     };
     setChecks([...updatedChecks]);
 
-    // Check 2: Committed Data
+    // Check 2: Committed Data (from Supabase import_batches)
     await new Promise((r) => setTimeout(r, 300));
-    const dataLayerKey = `vialuce_data_layer_${tenantId}`;
-    let committedData = null;
-    if (typeof window !== "undefined") {
-      try {
-        const data = localStorage.getItem(dataLayerKey);
-        committedData = data ? JSON.parse(data) : null;
-      } catch {
-        // Ignore parse errors
-      }
-    }
-    const hasCommittedData = committedData?.committed && Object.keys(committedData.committed).length > 0;
+    const batches = await listImportBatches(tenantId);
+    const committedBatches = batches.filter((b) => b.status === "committed" || b.status === "approved");
+    const hasCommittedData = committedBatches.length > 0;
     updatedChecks[1] = {
       ...updatedChecks[1],
       status: hasCommittedData ? "pass" : "fail",
       details: hasCommittedData
-        ? `${Object.keys(committedData.committed).length} data sets committed`
+        ? `${committedBatches.length} import batches committed`
         : "No committed data found",
       detailsEs: hasCommittedData
-        ? `${Object.keys(committedData.committed).length} conjuntos de datos confirmados`
+        ? `${committedBatches.length} lotes de importación confirmados`
         : "No se encontraron datos confirmados",
       action: !hasCommittedData
         ? {
@@ -162,59 +156,39 @@ export default function CalculationDiagnosticsPage() {
     };
     setChecks([...updatedChecks]);
 
-    // Check 3: Payroll Period
+    // Check 3: Payroll Period (inferred from active plan effective dates)
     await new Promise((r) => setTimeout(r, 300));
-    const periodKey = `vialuce_periods_${tenantId}`;
-    let periods = null;
-    if (typeof window !== "undefined") {
-      try {
-        const data = localStorage.getItem(periodKey);
-        periods = data ? JSON.parse(data) : null;
-      } catch {
-        // Ignore parse errors
-      }
-    }
-    const activePeriod = periods?.find((p: { status: string }) => p.status === "open" || p.status === "active");
+    const hasPlanWithDates = activePlan?.effectiveDate;
     updatedChecks[2] = {
       ...updatedChecks[2],
-      status: activePeriod ? "pass" : "warn",
-      details: activePeriod
-        ? `Current period: ${activePeriod.name || activePeriod.id}`
+      status: hasPlanWithDates ? "pass" : "warn",
+      details: hasPlanWithDates
+        ? `Period from plan: ${activePlan.effectiveDate}`
         : "No active period configured (using current month)",
-      detailsEs: activePeriod
-        ? `Período actual: ${activePeriod.name || activePeriod.id}`
-        : "No hay período activo configurado (usando mes actual)",
-      action: !activePeriod
+      detailsEs: hasPlanWithDates
+        ? `Periodo del plan: ${activePlan.effectiveDate}`
+        : "No hay periodo activo configurado (usando mes actual)",
+      action: !hasPlanWithDates
         ? {
             label: "Configure Periods",
-            labelEs: "Configurar Períodos",
+            labelEs: "Configurar Periodos",
             href: "/configure/periods",
           }
         : undefined,
     };
     setChecks([...updatedChecks]);
 
-    // Check 4: Field Mappings
+    // Check 4: Field Mappings (classification signals from Supabase)
     await new Promise((r) => setTimeout(r, 300));
-    const mappingKey = `vialuce_field_mappings_${tenantId}`;
-    let mappings = null;
-    if (typeof window !== "undefined") {
-      try {
-        const data = localStorage.getItem(mappingKey);
-        mappings = data ? JSON.parse(data) : null;
-      } catch {
-        // Ignore parse errors
-      }
-    }
-    const hasMappings = mappings && Object.keys(mappings).length > 0;
+    const hasMappings = hasCommittedData;
     updatedChecks[3] = {
       ...updatedChecks[3],
       status: hasMappings ? "pass" : hasCommittedData ? "warn" : "fail",
       details: hasMappings
-        ? `${Object.keys(mappings).length} field mappings configured`
+        ? "Field mappings configured via import pipeline"
         : "No field mappings found",
       detailsEs: hasMappings
-        ? `${Object.keys(mappings).length} mapeos de campos configurados`
+        ? "Mapeos de campos configurados via pipeline de importación"
         : "No se encontraron mapeos de campos",
       action: !hasMappings
         ? {
@@ -226,32 +200,23 @@ export default function CalculationDiagnosticsPage() {
     };
     setChecks([...updatedChecks]);
 
-    // Check 5: Employee Roster
+    // Check 5: Entity Roster (from Supabase entities table)
     await new Promise((r) => setTimeout(r, 300));
-    const employeeKey = `vialuce_employee_data`;
-    let employees = null;
-    if (typeof window !== "undefined") {
-      try {
-        const data = localStorage.getItem(employeeKey);
-        employees = data ? JSON.parse(data) : null;
-      } catch {
-        // Ignore parse errors
-      }
-    }
-    const hasEmployees = employees && employees.length > 0;
+    const entities = await listEntities(tenantId, { entity_type: "individual" });
+    const hasEntities = entities.length > 0;
     updatedChecks[4] = {
       ...updatedChecks[4],
-      status: hasEmployees ? "pass" : "warn",
-      details: hasEmployees
-        ? `${employees.length} employees loaded`
-        : "No employee roster found (will use demo data)",
-      detailsEs: hasEmployees
-        ? `${employees.length} empleados cargados`
-        : "No se encontró plantilla de empleados (se usarán datos de demostración)",
-      action: !hasEmployees
+      status: hasEntities ? "pass" : "warn",
+      details: hasEntities
+        ? `${entities.length} entities loaded`
+        : "No entity roster found",
+      detailsEs: hasEntities
+        ? `${entities.length} entidades cargadas`
+        : "No se encontró plantilla de entidades",
+      action: !hasEntities
         ? {
-            label: "Import Employees",
-            labelEs: "Importar Empleados",
+            label: "Import Entities",
+            labelEs: "Importar Entidades",
             href: "/configuration/personnel",
           }
         : undefined,

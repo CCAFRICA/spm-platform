@@ -95,7 +95,7 @@ export default function DesignPage() {
       label: isSpanish ? 'Gestión de Planes' : 'Plan Management',
       description: isSpanish
         ? 'Ver y editar planes de compensación existentes'
-        : 'View and edit existing compensation plans',
+        : 'View and edit existing rule sets',
       route: '/design/plans',
       color: 'purple',
       badge: activePlanCount > 0 ? `${activePlanCount} ${isSpanish ? 'Activos' : 'Active'}` : undefined,
@@ -105,7 +105,7 @@ export default function DesignPage() {
       label: isSpanish ? 'Crear Nuevo Plan' : 'Create New Plan',
       description: isSpanish
         ? 'Diseñar un nuevo plan de compensación'
-        : 'Design a new compensation plan',
+        : 'Design a new rule set',
       route: '/design/plans/new',
       color: 'green',
     },
@@ -123,7 +123,7 @@ export default function DesignPage() {
       label: isSpanish ? 'Establecer Metas' : 'Goal Setting',
       description: isSpanish
         ? 'Definir cuotas y objetivos'
-        : 'Define quotas and targets',
+        : 'Define targets and goals',
       route: '/design/goals',
       color: 'blue',
     },
@@ -141,7 +141,7 @@ export default function DesignPage() {
       label: isSpanish ? 'Planificación de Presupuesto' : 'Budget Planning',
       description: isSpanish
         ? 'Gestionar presupuestos de compensación'
-        : 'Manage compensation budgets',
+        : 'Manage outcome budgets',
       route: '/design/budget',
       color: 'slate',
     },
@@ -158,7 +158,7 @@ export default function DesignPage() {
           <p className="text-sm text-slate-500 mt-1">
             {isSpanish
               ? 'Crear y gestionar planes de compensación'
-              : 'Create and manage compensation plans'}
+              : 'Create and manage rule sets'}
           </p>
         </div>
         <Button onClick={() => router.push('/design/plans/new')}>

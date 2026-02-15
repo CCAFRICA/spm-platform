@@ -106,12 +106,12 @@ export default function PayPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
-            {displaySpanish ? 'Nomina' : 'Payroll'}
+            {displaySpanish ? 'Nomina' : 'Outcomes'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             {displaySpanish
               ? 'Finalizar y procesar la nomina del periodo'
-              : 'Finalize and process period payroll'}
+              : 'Finalize and process period outcomes'}
           </p>
         </div>
         <Badge variant={payStatus?.state === 'completed' ? 'default' : 'secondary'}>
@@ -126,7 +126,7 @@ export default function PayPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Wallet className="h-5 w-5 text-purple-600" />
-            {displaySpanish ? 'Estado de Nomina' : 'Payroll Status'}
+            {displaySpanish ? 'Estado de Nomina' : 'Outcome Status'}
           </CardTitle>
           <CardDescription>
             {cycleState?.periodLabel}
@@ -145,7 +145,7 @@ export default function PayPage() {
                   <p className="text-sm text-amber-600">
                     {displaySpanish
                       ? `${pendingApprovals} aprobaciones deben completarse antes de procesar la nomina`
-                      : `${pendingApprovals} approvals must be completed before processing payroll`}
+                      : `${pendingApprovals} approvals must be completed before processing outcomes`}
                   </p>
                 </div>
               </div>
@@ -173,7 +173,7 @@ export default function PayPage() {
                   <p className="text-sm text-green-600">
                     {displaySpanish
                       ? 'Todas las aprobaciones completadas. Puede finalizar la nomina.'
-                      : 'All approvals completed. You can finalize payroll.'}
+                      : 'All approvals completed. You can finalize outcomes.'}
                   </p>
                 </div>
               </div>
@@ -217,7 +217,7 @@ export default function PayPage() {
                   <div>
                     <p className="text-2xl font-bold">{formatCurrency(totalPayout)}</p>
                     <p className="text-sm text-slate-500">
-                      {displaySpanish ? 'Total Nomina' : 'Total Payroll'}
+                      {displaySpanish ? 'Total Nomina' : 'Total Outcome'}
                     </p>
                   </div>
                 </div>
@@ -261,7 +261,7 @@ export default function PayPage() {
             </div>
             <div>
               <p className="font-medium text-slate-900">
-                {displaySpanish ? 'Calendario de Nomina' : 'Payroll Calendar'}
+                {displaySpanish ? 'Calendario de Nomina' : 'Outcome Calendar'}
               </p>
               <p className="text-sm text-slate-400">
                 {displaySpanish ? 'Proximamente' : 'Coming Soon'}

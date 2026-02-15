@@ -169,7 +169,7 @@ export default function MyTeamPage() {
                 No Team Data Available
               </h3>
               <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">
-                Team performance data will appear here once compensation calculations have been run
+                Team performance data will appear here once calculations have been run
                 and you have team members assigned.
               </p>
             </div>

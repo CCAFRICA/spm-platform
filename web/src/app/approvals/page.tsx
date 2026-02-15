@@ -47,7 +47,7 @@ import { useAuth } from '@/contexts/auth-context';
 const DOMAIN_LABELS: Record<ApprovalDomain, { en: string; es: string }> = {
   import_batch: { en: 'Import Batch', es: 'Lote de Importación' },
   rollback: { en: 'Rollback', es: 'Reversión' },
-  compensation_plan: { en: 'Compensation Plan', es: 'Plan de Compensación' },
+  compensation_plan: { en: 'Rule Set', es: 'Plan de Compensación' },
   period_operation: { en: 'Period Operation', es: 'Operación de Período' },
   hierarchy_change: { en: 'Hierarchy Change', es: 'Cambio de Jerarquía' },
   manual_adjustment: { en: 'Manual Adjustment', es: 'Ajuste Manual' },

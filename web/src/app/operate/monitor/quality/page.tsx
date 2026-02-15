@@ -33,7 +33,7 @@ export default function DataQualityPage() {
       category: isSpanish ? 'Datos Faltantes' : 'Missing Data',
       description: isSpanish
         ? 'Región no asignada para 2 empleados'
-        : 'Region not assigned for 2 employees',
+        : 'Region not assigned for 2 entities',
       affectedRecords: 2,
       severity: 'medium',
     },

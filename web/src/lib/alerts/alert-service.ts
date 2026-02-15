@@ -2,6 +2,8 @@
  * Alert Service
  *
  * Manages alert rules and user preferences.
+ *
+ * NOTE: localStorage removed (OB-43A). Returns in-memory defaults.
  */
 
 import type {
@@ -12,9 +14,6 @@ import type {
   AlertFrequency,
 } from '@/types/alert';
 
-const RULES_STORAGE_KEY = 'alert_rules';
-const PREFS_STORAGE_KEY = 'alert_preferences';
-
 // ============================================
 // ALERT RULES CRUD
 // ============================================
@@ -23,20 +22,7 @@ const PREFS_STORAGE_KEY = 'alert_preferences';
  * Get all alert rules
  */
 export function getAllAlertRules(): AlertRule[] {
-  if (typeof window === 'undefined') return getDefaultAlertRules();
-
-  const stored = localStorage.getItem(RULES_STORAGE_KEY);
-  if (!stored) {
-    const defaults = getDefaultAlertRules();
-    localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return getDefaultAlertRules();
 }
 
 /**
@@ -74,6 +60,7 @@ export function createAlertRule(
     triggerCount: 0,
   };
 
+  // localStorage removed -- save is a no-op
   const rules = getAllAlertRules();
   rules.push(rule);
   saveRules(rules);
@@ -136,18 +123,7 @@ export function toggleAlertRule(ruleId: string): AlertRule | null {
  * Get user preferences
  */
 export function getUserPreferences(userId: string, tenantId: string): UserAlertPreferences {
-  if (typeof window === 'undefined') return getDefaultPreferences(userId, tenantId);
-
-  const stored = localStorage.getItem(PREFS_STORAGE_KEY);
-  if (!stored) return getDefaultPreferences(userId, tenantId);
-
-  try {
-    const all: UserAlertPreferences[] = JSON.parse(stored);
-    const prefs = all.find((p) => p.userId === userId && p.tenantId === tenantId);
-    return prefs || getDefaultPreferences(userId, tenantId);
-  } catch {
-    return getDefaultPreferences(userId, tenantId);
-  }
+  return getDefaultPreferences(userId, tenantId);
 }
 
 /**
@@ -166,16 +142,8 @@ export function updateUserPreferences(
     updatedAt: new Date().toISOString(),
   };
 
-  const all = getAllPreferencesInternal();
-  const index = all.findIndex((p) => p.userId === userId && p.tenantId === tenantId);
-
-  if (index >= 0) {
-    all[index] = updated;
-  } else {
-    all.push(updated);
-  }
-
-  savePreferences(all);
+  // localStorage removed -- save is a no-op
+  savePreferences([updated]);
   return updated;
 }
 
@@ -247,32 +215,17 @@ export function getAlertStats(tenantId: string): {
 }
 
 // ============================================
-// HELPERS
+// HELPERS (no-ops, localStorage removed)
 // ============================================
 
-function saveRules(rules: AlertRule[]): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(rules));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveRules(_rules: AlertRule[]): void {
+  // localStorage removed -- no-op
 }
 
-function savePreferences(prefs: UserAlertPreferences[]): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
-  }
-}
-
-function getAllPreferencesInternal(): UserAlertPreferences[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(PREFS_STORAGE_KEY);
-  if (!stored) return [];
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function savePreferences(_prefs: UserAlertPreferences[]): void {
+  // localStorage removed -- no-op
 }
 
 function getDefaultPreferences(userId: string, tenantId: string): UserAlertPreferences {
@@ -398,25 +351,15 @@ function getDefaultAlertRules(): AlertRule[] {
 }
 
 /**
- * Initialize alert rules
+ * Initialize alert rules (no-op, localStorage removed)
  */
 export function initializeAlerts(): void {
-  if (typeof window === 'undefined') return;
-
-  const existing = localStorage.getItem(RULES_STORAGE_KEY);
-  if (!existing) {
-    const defaults = getDefaultAlertRules();
-    localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(defaults));
-  }
+  // localStorage removed -- no-op
 }
 
 /**
- * Reset to defaults
+ * Reset to defaults (no-op, localStorage removed)
  */
 export function resetAlerts(): void {
-  if (typeof window === 'undefined') return;
-
-  const defaults = getDefaultAlertRules();
-  localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(defaults));
-  localStorage.removeItem(PREFS_STORAGE_KEY);
+  // localStorage removed -- no-op
 }

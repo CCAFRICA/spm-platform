@@ -39,7 +39,7 @@ export default function GoalsPage() {
               </h3>
               <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">
                 Goal tracking and management will be available in a future release.
-                For now, goals are managed through compensation plan configurations.
+                For now, goals are managed through rule set configurations.
               </p>
             </div>
           </CardContent>

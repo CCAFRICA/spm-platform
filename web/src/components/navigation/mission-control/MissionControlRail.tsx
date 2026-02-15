@@ -7,9 +7,11 @@
  * Contains: Tenant identity, Cycle indicator, Queue, Pulse, Workspaces, User identity.
  */
 
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useNavigation, useCommandPalette } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
 import { CycleIndicator } from './CycleIndicator';
 import { QueuePanel } from './QueuePanel';
@@ -18,7 +20,7 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { UserIdentity } from './UserIdentity';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { DollarSign, Command, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { DollarSign, Command, PanelLeftClose, PanelLeft, ArrowLeftRight } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -32,9 +34,11 @@ interface MissionControlRailProps {
 }
 
 export function MissionControlRail({ isOpen = true, onClose }: MissionControlRailProps) {
+  const router = useRouter();
   const { isRailCollapsed, toggleRailCollapsed, userRole } = useNavigation();
   const { setOpen: setCommandPaletteOpen } = useCommandPalette();
   const { currentTenant } = useTenant();
+  const { isVLAdmin: isUserVLAdmin } = useAuth();
   const { locale } = useLocale();
 
   const isSpanish = locale === 'es-MX';
@@ -60,21 +64,27 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
           isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         )}
       >
-        {/* Header - Tenant Logo */}
-        <div className={cn(
-          'flex items-center border-b border-slate-200 dark:border-slate-800 shrink-0',
-          isRailCollapsed ? 'h-16 justify-center px-2' : 'h-16 gap-2 px-4'
-        )}>
+        {/* Header - Tenant Logo (clickable for VL Admin -> tenant picker) */}
+        <div
+          className={cn(
+            'flex items-center border-b border-slate-200 dark:border-slate-800 shrink-0',
+            isRailCollapsed ? 'h-16 justify-center px-2' : 'h-16 gap-2 px-4',
+            isUserVLAdmin && 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors'
+          )}
+          onClick={isUserVLAdmin ? () => router.push('/select-tenant') : undefined}
+          title={isUserVLAdmin ? 'Switch organization' : undefined}
+        >
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-blue-500">
             <DollarSign className="h-5 w-5 text-white" />
           </div>
           {!isRailCollapsed && (
-            <div className="flex flex-col min-w-0">
+            <div className="flex flex-col min-w-0 flex-1">
               <span className="text-lg font-bold text-slate-900 dark:text-slate-50 truncate">
                 ViaLuce
               </span>
-              <span className="text-[10px] text-slate-500 truncate -mt-0.5">
-                {currentTenant?.displayName || 'Sales Performance'}
+              <span className="text-[10px] text-slate-500 truncate -mt-0.5 flex items-center gap-1">
+                {currentTenant?.displayName || 'Platform'}
+                {isUserVLAdmin && <ArrowLeftRight className="h-2.5 w-2.5 text-slate-400" />}
               </span>
             </div>
           )}

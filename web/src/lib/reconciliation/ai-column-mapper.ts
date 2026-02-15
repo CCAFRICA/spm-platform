@@ -17,7 +17,7 @@
 
 import { getAIService } from '@/lib/ai/ai-service';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
-import { getPlans } from '@/lib/compensation/plan-storage';
+import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import {
   recordAIClassificationBatch,
   recordUserConfirmation,
@@ -67,12 +67,12 @@ export async function mapColumns(
   userId: string,
 ): Promise<MappingResult> {
   // Build plan context for AI
-  const targets = buildMappingTargets(tenantId);
+  const targets = await buildMappingTargets(tenantId);
   const targetFieldNames = targets.map(t => `${t.id} (${t.label})`);
   const sampleRows = parsed.rows.slice(0, 5);
 
   // Build plan context description for AI
-  const planContext = buildPlanContext(tenantId);
+  const planContext = await buildPlanContext(tenantId);
 
   try {
     const aiService = getAIService();
@@ -168,7 +168,7 @@ export function recordMappingFeedback(
 /**
  * Build the list of valid mapping targets from active plans
  */
-export function buildMappingTargets(tenantId: string): MappingTarget[] {
+export async function buildMappingTargets(tenantId: string): Promise<MappingTarget[]> {
   const targets: MappingTarget[] = [
     { id: 'entity_id', label: 'Employee ID', category: 'identifier' },
     { id: 'employee_name', label: 'Employee Name', category: 'identifier' },
@@ -176,7 +176,7 @@ export function buildMappingTargets(tenantId: string): MappingTarget[] {
   ];
 
   // Add plan component targets
-  const plans = getPlans(tenantId);
+  const plans = await getRuleSets(tenantId);
   const activePlans = plans.filter(p => p.status === 'active');
 
   for (const plan of activePlans) {
@@ -205,12 +205,12 @@ export function buildMappingTargets(tenantId: string): MappingTarget[] {
 /**
  * Build plan context description for AI
  */
-function buildPlanContext(tenantId: string): {
+async function buildPlanContext(tenantId: string): Promise<{
   components: Array<{ id: string; name: string; type: string }>;
-} {
+}> {
   const components: Array<{ id: string; name: string; type: string }> = [];
 
-  const plans = getPlans(tenantId);
+  const plans = await getRuleSets(tenantId);
   const activePlans = plans.filter(p => p.status === 'active');
 
   for (const plan of activePlans) {

@@ -11,7 +11,7 @@ export default function PerformancePage() {
             Performance
           </h1>
           <p className="mt-2 text-slate-600 dark:text-slate-400">
-            Track your sales performance and quota attainment
+            Track your performance and goal achievement
           </p>
         </div>
         <Card className="border-0 shadow-lg">

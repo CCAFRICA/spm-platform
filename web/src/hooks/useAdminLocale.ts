@@ -2,7 +2,7 @@
  * useAdminLocale - Global hook for locale handling
  *
  * OB-37 Phase 5: User's language selector preference takes priority.
- * Priority: user preference (localStorage) > tenant config > en-US default.
+ * Priority: user preference > tenant config > en-US default.
  * VL Admin language lock REMOVED -- all users select preferred language.
  */
 
@@ -39,7 +39,7 @@ export function useAdminLocale(): AdminLocaleResult {
   return useMemo(() => {
     const isVLAdminUser = user ? isVLAdmin(user) : false;
 
-    // User preference (from language selector / localStorage) takes priority
+    // User preference (from language selector) takes priority
     // Falls back to tenant config, then to en-US
     const locale: SupportedLocale =
       (userLocale === 'es-MX' || userLocale === 'en-US') ? userLocale

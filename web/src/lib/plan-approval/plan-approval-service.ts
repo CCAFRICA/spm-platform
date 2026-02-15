@@ -13,6 +13,7 @@ import type {
   PlanApprovalSummary,
 } from '@/types/plan-approval';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEY = 'plan_approval_requests';
 
 // ============================================
@@ -23,20 +24,7 @@ const STORAGE_KEY = 'plan_approval_requests';
  * Get all approval requests
  */
 export function getAllApprovalRequests(): PlanApprovalRequest[] {
-  if (typeof window === 'undefined') return getDefaultApprovalRequests();
-
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) {
-    const defaults = getDefaultApprovalRequests();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return getDefaultApprovalRequests();
 }
 
 /**
@@ -358,10 +346,9 @@ function canReviewStage(stage: ApprovalStage, role: ReviewerRole): boolean {
   return stageReviewers[stage].includes(role);
 }
 
-function saveRequests(requests: PlanApprovalRequest[]): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveRequests(_requests: PlanApprovalRequest[]): void {
+  // no-op: localStorage removed
 }
 
 // ============================================
@@ -517,21 +504,12 @@ function getDefaultApprovalRequests(): PlanApprovalRequest[] {
  * Initialize approval requests
  */
 export function initializePlanApprovals(): void {
-  if (typeof window === 'undefined') return;
-
-  const existing = localStorage.getItem(STORAGE_KEY);
-  if (!existing) {
-    const defaults = getDefaultApprovalRequests();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
-  }
+  // no-op: localStorage removed
 }
 
 /**
  * Reset to default state
  */
 export function resetPlanApprovals(): void {
-  if (typeof window === 'undefined') return;
-
-  const defaults = getDefaultApprovalRequests();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
+  // no-op: localStorage removed
 }

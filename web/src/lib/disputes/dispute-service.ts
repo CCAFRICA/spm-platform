@@ -1,7 +1,9 @@
 /**
  * Dispute Service
  *
- * Manages dispute CRUD operations using localStorage
+ * Manages dispute CRUD operations.
+ *
+ * NOTE: localStorage removed (OB-43A). Returns in-memory defaults.
  */
 
 import type {
@@ -16,29 +18,13 @@ import {
   notifyDisputeSubmitted,
 } from '@/lib/notifications/notification-service';
 
-const STORAGE_KEY_DISPUTES = 'retailco_disputes';
-const STORAGE_KEY_ADJUSTMENTS = 'retailco_adjustments';
-
 // ============================================
 // DISPUTE CRUD
 // ============================================
 
 export function getAllDisputes(tenantId: string): Dispute[] {
-  if (typeof window === 'undefined') return getDefaultDisputes();
-
-  const stored = localStorage.getItem(STORAGE_KEY_DISPUTES);
-  if (!stored) {
-    const defaults = getDefaultDisputes();
-    localStorage.setItem(STORAGE_KEY_DISPUTES, JSON.stringify(defaults));
-    return defaults.filter((d) => d.tenantId === tenantId);
-  }
-
-  try {
-    const disputes: Dispute[] = JSON.parse(stored);
-    return disputes.filter((d) => d.tenantId === tenantId);
-  } catch {
-    return [];
-  }
+  const defaults = getDefaultDisputes();
+  return defaults.filter((d) => d.tenantId === tenantId);
 }
 
 export function getDispute(disputeId: string): Dispute | null {
@@ -67,38 +53,19 @@ export function getPendingForManager(tenantId: string): Dispute[] {
 }
 
 export function saveDispute(dispute: Dispute): Dispute {
-  const allDisputes = getAllDisputesInternal();
-  const existingIndex = allDisputes.findIndex((d) => d.id === dispute.id);
-
   const updated = {
     ...dispute,
     updatedAt: new Date().toISOString(),
   };
 
-  if (existingIndex >= 0) {
-    allDisputes[existingIndex] = updated;
-  } else {
-    allDisputes.push(updated);
-  }
-
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY_DISPUTES, JSON.stringify(allDisputes));
-  }
+  // localStorage removed -- save is a no-op
 
   return updated;
 }
 
-export function deleteDispute(disputeId: string): boolean {
-  const allDisputes = getAllDisputesInternal();
-  const filtered = allDisputes.filter((d) => d.id !== disputeId);
-
-  if (filtered.length === allDisputes.length) {
-    return false;
-  }
-
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY_DISPUTES, JSON.stringify(filtered));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function deleteDispute(_disputeId: string): boolean {
+  // localStorage removed -- no-op
   return true;
 }
 
@@ -315,12 +282,7 @@ export function createAdjustment(
     appliedAt: null,
   };
 
-  const allAdjustments = getAllAdjustments();
-  allAdjustments.push(adjustment);
-
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY_ADJUSTMENTS, JSON.stringify(allAdjustments));
-  }
+  // localStorage removed -- adjustment save is a no-op
 
   return adjustment;
 }
@@ -330,16 +292,8 @@ export function getAdjustmentsByEmployee(entityId: string): CompensationAdjustme
 }
 
 export function getAllAdjustments(): CompensationAdjustment[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(STORAGE_KEY_ADJUSTMENTS);
-  if (!stored) return [];
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  // localStorage removed -- return empty
+  return [];
 }
 
 // ============================================
@@ -398,20 +352,7 @@ export function getDisputeStats(tenantId: string): {
 // ============================================
 
 function getAllDisputesInternal(): Dispute[] {
-  if (typeof window === 'undefined') return getDefaultDisputes();
-
-  const stored = localStorage.getItem(STORAGE_KEY_DISPUTES);
-  if (!stored) {
-    const defaults = getDefaultDisputes();
-    localStorage.setItem(STORAGE_KEY_DISPUTES, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return getDefaultDisputes();
-  }
+  return getDefaultDisputes();
 }
 
 // Pre-populated disputes for demo
@@ -500,23 +441,13 @@ function getDefaultDisputes(): Dispute[] {
 }
 
 // ============================================
-// INITIALIZATION
+// INITIALIZATION (no-ops, localStorage removed)
 // ============================================
 
 export function initializeDisputes(): void {
-  if (typeof window === 'undefined') return;
-
-  const existing = localStorage.getItem(STORAGE_KEY_DISPUTES);
-  if (!existing) {
-    const defaults = getDefaultDisputes();
-    localStorage.setItem(STORAGE_KEY_DISPUTES, JSON.stringify(defaults));
-  }
+  // localStorage removed -- no-op
 }
 
 export function resetDisputes(): void {
-  if (typeof window === 'undefined') return;
-
-  const defaults = getDefaultDisputes();
-  localStorage.setItem(STORAGE_KEY_DISPUTES, JSON.stringify(defaults));
-  localStorage.removeItem(STORAGE_KEY_ADJUSTMENTS);
+  // localStorage removed -- no-op
 }

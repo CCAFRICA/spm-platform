@@ -234,7 +234,7 @@ export default function ResultsDashboardPage() {
                 <DollarSign className="h-6 w-6 text-emerald-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-500">Total Payout</p>
+                <p className="text-sm text-slate-500">Total Outcome</p>
                 <p className="text-2xl font-bold">{formatCurrency(totalPayout)}</p>
               </div>
             </div>
@@ -260,7 +260,7 @@ export default function ResultsDashboardPage() {
                 <TrendingUp className="h-6 w-6 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-500">Average Payout</p>
+                <p className="text-sm text-slate-500">Average Outcome</p>
                 <p className="text-2xl font-bold">{formatCurrency(avgPayout)}</p>
               </div>
             </div>

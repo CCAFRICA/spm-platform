@@ -2,7 +2,9 @@
  * Smart Mapper
  *
  * Progressive learning field mapper for import files.
- * Suggests source→platform field mappings with confidence scores.
+ * Suggests source->platform field mappings with confidence scores.
+ *
+ * NOTE: localStorage removed (OB-43A). Mapping history/templates are no-ops.
  */
 
 export interface FieldMapping {
@@ -22,14 +24,10 @@ export interface MappingTemplate {
   usageCount: number;
 }
 
-// Storage key for mapping history
-const MAPPING_HISTORY_KEY = 'import_mapping_history';
-const MAPPING_TEMPLATES_KEY = 'import_mapping_templates';
-
 // Platform fields that can be mapped to
 const PLATFORM_FIELDS = [
   { name: 'orderId', label: 'Order ID', labelEs: 'ID de Pedido', required: false },
-  { name: 'transactionId', label: 'Transaction ID', labelEs: 'ID de Transacción', required: false },
+  { name: 'transactionId', label: 'Transaction ID', labelEs: 'ID de Transacci\u00f3n', required: false },
   { name: 'externalId', label: 'External ID', labelEs: 'ID Externo', required: false },
   { name: 'repId', label: 'Rep ID', labelEs: 'ID del Rep', required: true },
   { name: 'repName', label: 'Rep Name', labelEs: 'Nombre del Rep', required: false },
@@ -40,12 +38,12 @@ const PLATFORM_FIELDS = [
   { name: 'productName', label: 'Product Name', labelEs: 'Nombre del Producto', required: false },
   { name: 'customerId', label: 'Customer ID', labelEs: 'ID del Cliente', required: false },
   { name: 'customerName', label: 'Customer Name', labelEs: 'Nombre del Cliente', required: false },
-  { name: 'region', label: 'Region', labelEs: 'Región', required: false },
+  { name: 'region', label: 'Region', labelEs: 'Regi\u00f3n', required: false },
   { name: 'territory', label: 'Territory', labelEs: 'Territorio', required: false },
   { name: 'channel', label: 'Channel', labelEs: 'Canal', required: false },
   { name: 'status', label: 'Status', labelEs: 'Estado', required: false },
   { name: 'currency', label: 'Currency', labelEs: 'Moneda', required: false },
-  { name: 'commissionRate', label: 'Commission Rate', labelEs: 'Tasa de Comisión', required: false },
+  { name: 'commissionRate', label: 'Commission Rate', labelEs: 'Tasa de Comisi\u00f3n', required: false },
   { name: 'notes', label: 'Notes', labelEs: 'Notas', required: false },
 ];
 
@@ -63,7 +61,7 @@ const FIELD_SYNONYMS: Record<string, string[]> = {
   productName: ['product_name', 'item_name', 'product', 'producto', 'description'],
   customerId: ['customer_id', 'client_id', 'account_id', 'cust_id', 'buyer_id'],
   customerName: ['customer_name', 'client_name', 'account_name', 'cliente', 'buyer'],
-  region: ['region_name', 'area', 'zone', 'región'],
+  region: ['region_name', 'area', 'zone', 'regi\u00f3n'],
   territory: ['territory_name', 'terr', 'territorio'],
   channel: ['sales_channel', 'canal', 'source'],
   status: ['order_status', 'estado', 'state'],
@@ -240,7 +238,7 @@ function levenshteinDistance(a: string, b: string): number {
 }
 
 // ============================================
-// MAPPING HISTORY
+// MAPPING HISTORY (no-ops, localStorage removed)
 // ============================================
 
 interface HistoricalMapping {
@@ -252,98 +250,40 @@ interface HistoricalMapping {
   lastUsed: string;
 }
 
-function getMappingHistory(tenantId: string, sourceSystem?: string): HistoricalMapping[] {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const stored = localStorage.getItem(MAPPING_HISTORY_KEY);
-    if (!stored) return [];
-
-    const all: HistoricalMapping[] = JSON.parse(stored);
-    return all.filter(
-      (m) => m.tenantId === tenantId && (!sourceSystem || m.sourceSystem === sourceSystem)
-    );
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function getMappingHistory(_tenantId: string, _sourceSystem?: string): HistoricalMapping[] {
+  // localStorage removed -- return empty
+  return [];
 }
 
 /**
- * Save confirmed mappings to history for learning
+ * Save confirmed mappings to history for learning (no-op, localStorage removed)
  */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 export function saveMappingHistory(
-  tenantId: string,
-  sourceSystem: string,
-  mappings: FieldMapping[]
+  _tenantId: string,
+  _sourceSystem: string,
+  _mappings: FieldMapping[]
 ): void {
-  if (typeof window === 'undefined') return;
-
-  try {
-    const stored = localStorage.getItem(MAPPING_HISTORY_KEY);
-    const all: HistoricalMapping[] = stored ? JSON.parse(stored) : [];
-    const now = new Date().toISOString();
-
-    for (const mapping of mappings) {
-      if (!mapping.targetField) continue;
-
-      const existing = all.find(
-        (m) =>
-          m.tenantId === tenantId &&
-          m.sourceSystem === sourceSystem &&
-          normalizeField(m.sourceField) === normalizeField(mapping.sourceField)
-      );
-
-      if (existing) {
-        existing.targetField = mapping.targetField;
-        existing.usageCount++;
-        existing.lastUsed = now;
-      } else {
-        all.push({
-          sourceField: mapping.sourceField,
-          targetField: mapping.targetField,
-          sourceSystem,
-          tenantId,
-          usageCount: 1,
-          lastUsed: now,
-        });
-      }
-    }
-
-    // Keep only last 500 mappings
-    const sorted = all.sort(
-      (a, b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
-    );
-    localStorage.setItem(MAPPING_HISTORY_KEY, JSON.stringify(sorted.slice(0, 500)));
-  } catch {
-    // Storage error, ignore
-  }
+/* eslint-enable @typescript-eslint/no-unused-vars */
+  // localStorage removed -- no-op
 }
 
 // ============================================
-// MAPPING TEMPLATES
+// MAPPING TEMPLATES (no-ops, localStorage removed)
 // ============================================
 
 /**
  * Get saved mapping templates
  */
-export function getMappingTemplates(tenantId: string): MappingTemplate[] {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const stored = localStorage.getItem(MAPPING_TEMPLATES_KEY);
-    if (!stored) return [];
-
-    const all: MappingTemplate[] = JSON.parse(stored);
-    return all
-      .filter((t) => t.tenantId === tenantId)
-      .sort((a, b) => b.usageCount - a.usageCount);
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function getMappingTemplates(_tenantId: string): MappingTemplate[] {
+  // localStorage removed -- return empty
+  return [];
 }
 
 /**
- * Save a mapping template
+ * Save a mapping template (no-op, localStorage removed)
  */
 export function saveMappingTemplate(
   tenantId: string,
@@ -361,16 +301,7 @@ export function saveMappingTemplate(
     usageCount: 0,
   };
 
-  if (typeof window !== 'undefined') {
-    try {
-      const stored = localStorage.getItem(MAPPING_TEMPLATES_KEY);
-      const all: MappingTemplate[] = stored ? JSON.parse(stored) : [];
-      all.push(template);
-      localStorage.setItem(MAPPING_TEMPLATES_KEY, JSON.stringify(all));
-    } catch {
-      // Storage error
-    }
-  }
+  // localStorage removed -- save is a no-op
 
   return template;
 }
@@ -406,25 +337,11 @@ export function applyTemplate(
 }
 
 /**
- * Increment template usage count
+ * Increment template usage count (no-op, localStorage removed)
  */
-export function incrementTemplateUsage(templateId: string): void {
-  if (typeof window === 'undefined') return;
-
-  try {
-    const stored = localStorage.getItem(MAPPING_TEMPLATES_KEY);
-    if (!stored) return;
-
-    const all: MappingTemplate[] = JSON.parse(stored);
-    const template = all.find((t) => t.id === templateId);
-
-    if (template) {
-      template.usageCount++;
-      localStorage.setItem(MAPPING_TEMPLATES_KEY, JSON.stringify(all));
-    }
-  } catch {
-    // Storage error
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function incrementTemplateUsage(_templateId: string): void {
+  // localStorage removed -- no-op
 }
 
 // ============================================

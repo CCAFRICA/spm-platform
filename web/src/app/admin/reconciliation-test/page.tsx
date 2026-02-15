@@ -16,26 +16,16 @@ export default function ReconciliationTestPage() {
   const [error, setError] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState<string>('');
 
-  // Determine tenantId on mount
+  // Determine tenantId on mount (no localStorage)
   useEffect(() => {
-    const keys = Object.keys(localStorage);
-    const aggKey = keys.find(k => k.includes('committed_aggregated'));
-    if (aggKey) {
-      // Extract tenant from key pattern: data_layer_committed_aggregated_{tenantId}
-      const match = aggKey.match(/committed_aggregated_(.+?)(_meta)?$/);
-      if (match) {
-        setTenantId(match[1]);
-        return;
-      }
-    }
-    setTenantId('retail_conglomerate');  // fallback
+    setTenantId('retail_conglomerate');  // default
   }, []);
 
-  const runTraces = () => {
+  const runTraces = async () => {
     try {
       console.log('Using tenantId:', tenantId);
 
-      const traces = generateBatchTraces(tenantId, TARGET_EMPLOYEES);
+      const traces = await generateBatchTraces(tenantId, TARGET_EMPLOYEES);
       const summary = summarizeTraces(traces);
 
       // Log EVERYTHING to console

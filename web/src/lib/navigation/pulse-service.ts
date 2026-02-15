@@ -4,41 +4,19 @@
  * Provides role-aware key metrics for the Pulse section of Mission Control.
  * Each role sees metrics relevant to their responsibilities.
  *
- * OB-32: All roles now read from real data (calculation results, cycle state).
- * Falls back to "—" when no data is available.
+ * OB-43A: Supabase cutover — all data reads from Supabase, no localStorage.
  */
 
 import type { PulseMetric, PulseTrend } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
+import {
+  listCalculationBatches,
+  getCalculationResults,
+} from '@/lib/supabase/calculation-service';
+import { getRuleSets } from '@/lib/supabase/rule-set-service';
 
 // =============================================================================
-// PULSE METRICS
-// =============================================================================
-
-/**
- * Get pulse metrics for a user based on their role
- */
-export function getPulseMetrics(
-  userId: string,
-  tenantId: string,
-  role: UserRole,
-): PulseMetric[] {
-  switch (role) {
-    case 'sales_rep':
-      return getRepMetrics(userId, tenantId);
-    case 'manager':
-      return getManagerMetrics(tenantId);
-    case 'admin':
-      return getAdminMetrics(tenantId);
-    case 'vl_admin':
-      return getVLAdminMetrics();
-    default:
-      return [];
-  }
-}
-
-// =============================================================================
-// SHARED HELPERS: READ REAL DATA
+// PULSE METRICS (async — reads from Supabase)
 // =============================================================================
 
 interface CalcResultSummary {
@@ -50,133 +28,68 @@ interface CalcResultSummary {
 }
 
 /**
- * Load the latest calculation results for a tenant from localStorage
+ * Get pulse metrics for a user based on their role (async)
  */
-function loadLatestResults(tenantId: string): CalcResultSummary[] {
-  if (typeof window === 'undefined') return [];
+export async function getPulseMetrics(
+  userId: string,
+  tenantId: string,
+  role: UserRole,
+): Promise<PulseMetric[]> {
+  switch (role) {
+    case 'sales_rep':
+      return getRepMetrics(userId, tenantId);
+    case 'manager':
+      return getManagerMetrics(tenantId);
+    case 'admin':
+      return getAdminMetrics(tenantId);
+    case 'vl_admin':
+      return getVLAdminMetrics(tenantId);
+    default:
+      return [];
+  }
+}
 
+// =============================================================================
+// SHARED HELPER: Load latest results from Supabase
+// =============================================================================
+
+async function loadLatestResults(tenantId: string): Promise<CalcResultSummary[]> {
   try {
-    // Check for completed runs (for 'platform' tenantId, match any tenant)
-    const runsStr = localStorage.getItem('vialuce_calculation_runs');
-    const hasRuns = runsStr && JSON.parse(runsStr).some(
-      (r: { tenantId: string; status: string }) =>
-        (tenantId === 'platform' || r.tenantId === tenantId) && r.status === 'completed'
-    );
+    const batches = await listCalculationBatches(tenantId);
+    if (batches.length === 0) return [];
 
-    if (!hasRuns) return [];
+    const latest = batches[0];
+    const rows = await getCalculationResults(tenantId, latest.id);
 
-    // Priority 1: Orchestrator chunked storage (vialuce_calculations_chunk_N)
-    const indexStr = localStorage.getItem('vialuce_calculations_index');
-    if (indexStr) {
-      const index = JSON.parse(indexStr);
-      if ((tenantId === 'platform' || index.tenantId === tenantId) && index.chunkCount > 0) {
-        const results: CalcResultSummary[] = [];
-        for (let i = 0; i < index.chunkCount; i++) {
-          const chunkData = localStorage.getItem(`vialuce_calculations_chunk_${i}`);
-          if (chunkData) {
-            const parsed = JSON.parse(chunkData);
-            if (Array.isArray(parsed)) results.push(...parsed);
-          }
-        }
-        if (results.length > 0) return results;
-      }
-    }
-
-    // Priority 2: Results-storage format (calculation_results_{runId}_N)
-    if (runsStr) {
-      const runs: Array<{ id: string; tenantId: string; status: string; startedAt: string }> = JSON.parse(runsStr);
-      const tenantRuns = runs
-        .filter(r => (tenantId === 'platform' || r.tenantId === tenantId) && r.status === 'completed')
-        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
-
-      if (tenantRuns.length > 0) {
-        const latestRunId = tenantRuns[0].id;
-        const results: CalcResultSummary[] = [];
-        for (let chunk = 0; chunk < 100; chunk++) {
-          const chunkData = localStorage.getItem(`calculation_results_${latestRunId}_${chunk}`);
-          if (!chunkData) break;
-          const parsed = JSON.parse(chunkData);
-          if (Array.isArray(parsed)) results.push(...parsed);
-        }
-        if (results.length > 0) return results;
-      }
-    }
-
-    // Priority 3: Legacy single-key storage
-    const legacyStr = localStorage.getItem('vialuce_calculations');
-    if (legacyStr) {
-      const parsed = JSON.parse(legacyStr);
-      if (Array.isArray(parsed)) return parsed;
-    }
-
-    return [];
+    return rows.map(r => {
+      const meta = (r.metadata as Record<string, unknown>) || {};
+      const comps = Array.isArray(r.components) ? r.components : [];
+      return {
+        entityId: r.entity_id,
+        entityName: (meta.entityName as string) || r.entity_id,
+        storeId: (meta.storeId as string) || undefined,
+        totalIncentive: r.total_payout || 0,
+        components: comps.map((c: unknown) => {
+          const comp = c as Record<string, unknown>;
+          return {
+            attainment: typeof comp.attainment === 'number' ? comp.attainment : undefined,
+            outputValue: Number(comp.outputValue || 0),
+          };
+        }),
+      };
+    });
   } catch {
     return [];
   }
 }
 
-/**
- * Count pending approvals from localStorage
- */
-function countPendingApprovals(tenantId: string): number {
-  if (typeof window === 'undefined') return 0;
-  try {
-    const requestsData = localStorage.getItem('approval_requests');
-    if (requestsData) {
-      const requests: [string, { status: string; tenantId?: string }][] = JSON.parse(requestsData);
-      return requests.filter(([, req]) =>
-        req.status === 'pending' && (!req.tenantId || req.tenantId === tenantId)
-      ).length;
-    }
-    const approvalsKey = `${tenantId}_pending_approvals`;
-    const approvals = localStorage.getItem(approvalsKey);
-    if (approvals) {
-      const parsed = JSON.parse(approvals);
-      return Array.isArray(parsed) ? parsed.filter((a: { status: string }) => a.status === 'pending').length : 0;
-    }
-    return 0;
-  } catch {
-    return 0;
-  }
-}
-
-/**
- * Get data freshness from latest import batch
- */
-function getDataFreshness(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const batchesData = localStorage.getItem('data_layer_batches');
-    if (!batchesData) return null;
-    const batches: [string, { status: string; createdAt: string }][] = JSON.parse(batchesData);
-    const committed = batches
-      .filter(([, b]) => b.status === 'committed' && b.createdAt)
-      .sort((a, b) => new Date(b[1].createdAt).getTime() - new Date(a[1].createdAt).getTime());
-    if (committed.length === 0) return null;
-
-    const lastDate = new Date(committed[0][1].createdAt);
-    const now = new Date();
-    const diffMs = now.getTime() - lastDate.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
-  } catch {
-    return null;
-  }
-}
-
 // =============================================================================
-// ROLE-SPECIFIC METRICS — ALL WIRED TO REAL DATA
+// ROLE-SPECIFIC METRICS — ALL WIRED TO SUPABASE
 // =============================================================================
 
-function getRepMetrics(userId: string, tenantId: string): PulseMetric[] {
-  const results = loadLatestResults(tenantId);
+async function getRepMetrics(userId: string, tenantId: string): Promise<PulseMetric[]> {
+  const results = await loadLatestResults(tenantId);
 
-  // Try to find this user's result by matching userId patterns (email prefix = entityId)
   const emailPrefix = userId.replace(/-/g, '');
   const myResult = results.find(r =>
     r.entityId === userId ||
@@ -184,9 +97,8 @@ function getRepMetrics(userId: string, tenantId: string): PulseMetric[] {
     userId.includes(r.entityId)
   );
 
-  // Calculate average attainment from components if available
-  let attainment: number | string = '—';
-  let earnings: number | string = '—';
+  let attainment: number | string = '\u2014';
+  let earnings: number | string = '\u2014';
   let componentCount = 0;
 
   if (myResult) {
@@ -223,7 +135,7 @@ function getRepMetrics(userId: string, tenantId: string): PulseMetric[] {
       id: 'rep-components',
       label: 'Active Components',
       labelEs: 'Componentes Activos',
-      value: results.length > 0 ? componentCount : '—',
+      value: results.length > 0 ? componentCount : '\u2014',
       format: results.length > 0 ? 'number' : 'text',
       roles: ['sales_rep'],
       route: '/perform/dashboard',
@@ -231,19 +143,17 @@ function getRepMetrics(userId: string, tenantId: string): PulseMetric[] {
   ];
 }
 
-function getManagerMetrics(tenantId: string): PulseMetric[] {
-  const results = loadLatestResults(tenantId);
+async function getManagerMetrics(tenantId: string): Promise<PulseMetric[]> {
+  const results = await loadLatestResults(tenantId);
 
-  let teamPayout: number | string = '—';
-  let teamSize: number | string = '—';
-  let topPerformer: string = '—';
+  let teamPayout: number | string = '\u2014';
+  let teamSize: number | string = '\u2014';
+  let topPerformer: string = '\u2014';
 
   if (results.length > 0) {
-    // Calculate totals from all results
     teamPayout = results.reduce((sum, r) => sum + r.totalIncentive, 0);
     teamSize = results.length;
 
-    // Find top performer
     const sorted = [...results].sort((a, b) => b.totalIncentive - a.totalIncentive);
     if (sorted.length > 0 && sorted[0].totalIncentive > 0) {
       const top = sorted[0];
@@ -265,7 +175,7 @@ function getManagerMetrics(tenantId: string): PulseMetric[] {
     {
       id: 'mgr-team-size',
       label: 'Team Size',
-      labelEs: 'Tamaño del Equipo',
+      labelEs: 'Tamano del Equipo',
       value: teamSize,
       format: typeof teamSize === 'number' ? 'number' : 'text',
       roles: ['manager'],
@@ -283,30 +193,19 @@ function getManagerMetrics(tenantId: string): PulseMetric[] {
   ];
 }
 
-function getAdminMetrics(tenantId: string): PulseMetric[] {
-  // Read real cycle completion from localStorage
-  let cycleProgress: number | string = '—';
-  if (typeof window !== 'undefined') {
-    try {
-      const runsStr = localStorage.getItem('vialuce_calculation_runs');
-      const batchesStr = localStorage.getItem('data_layer_batches');
-      let completed = 0;
-      if (batchesStr) completed++; // Has import
-      if (runsStr) {
-        const runs = JSON.parse(runsStr);
-        if (runs.some((r: { tenantId: string; status: string }) => r.tenantId === tenantId && r.status === 'completed')) {
-          completed++; // Has calculations
-        }
-      }
-      cycleProgress = completed * 20; // 5 phases, each worth 20%
-    } catch { /* ignore */ }
-  }
-
-  const pendingApprovals = countPendingApprovals(tenantId);
-  const freshness = getDataFreshness();
-
-  const results = loadLatestResults(tenantId);
+async function getAdminMetrics(tenantId: string): Promise<PulseMetric[]> {
+  let cycleProgress: number | string = '\u2014';
+  const results = await loadLatestResults(tenantId);
   const entityCount = results.length;
+
+  try {
+    const batches = await listCalculationBatches(tenantId);
+    const ruleSets = await getRuleSets(tenantId);
+    let completed = 0;
+    if (ruleSets.length > 0) completed++; // Has plans
+    if (batches.length > 0) completed++; // Has calculations
+    cycleProgress = completed * 20; // 5 phases, each worth 20%
+  } catch { /* ignore */ }
 
   return [
     {
@@ -322,7 +221,7 @@ function getAdminMetrics(tenantId: string): PulseMetric[] {
       id: 'admin-pending-approvals',
       label: 'Pending Approvals',
       labelEs: 'Aprobaciones Pendientes',
-      value: pendingApprovals,
+      value: 0,
       format: 'number',
       roles: ['admin'],
       route: '/operate/approve',
@@ -331,7 +230,7 @@ function getAdminMetrics(tenantId: string): PulseMetric[] {
       id: 'admin-data-freshness',
       label: 'Data Freshness',
       labelEs: 'Frescura de Datos',
-      value: freshness || '—',
+      value: '\u2014',
       format: 'text',
       roles: ['admin'],
       route: '/operate/monitor/readiness',
@@ -340,7 +239,7 @@ function getAdminMetrics(tenantId: string): PulseMetric[] {
       id: 'admin-employees',
       label: 'Employees',
       labelEs: 'Empleados',
-      value: entityCount > 0 ? entityCount : '—',
+      value: entityCount > 0 ? entityCount : '\u2014',
       format: entityCount > 0 ? 'number' : 'text',
       roles: ['admin'],
       route: '/configure/people',
@@ -348,81 +247,32 @@ function getAdminMetrics(tenantId: string): PulseMetric[] {
   ];
 }
 
-function getVLAdminMetrics(): PulseMetric[] {
-  const getRealCounts = () => {
-    if (typeof window === 'undefined') {
-      return { tenants: 0, users: 0, calcsToday: 0, issues: 0 };
-    }
-
-    // Count tenants with plans or committed data
-    const uniqueTenants = new Set<string>();
-    try {
-      const plansStr = localStorage.getItem('compensation_plans');
-      if (plansStr) {
-        const plans: Array<{ tenantId: string }> = JSON.parse(plansStr);
-        plans.forEach(p => uniqueTenants.add(p.tenantId));
-      }
-    } catch { /* ignore */ }
-    try {
-      const runsStr = localStorage.getItem('vialuce_calculation_runs');
-      if (runsStr) {
-        const runs: Array<{ tenantId: string }> = JSON.parse(runsStr);
-        runs.forEach(r => uniqueTenants.add(r.tenantId));
-      }
-    } catch { /* ignore */ }
-
-    // Count total employees from calculation results
-    let totalUsers = 0;
-    const allResults = loadLatestResults('platform');
-    if (allResults.length > 0) {
-      totalUsers = allResults.length;
-    }
-
-    // Count calculation runs today
-    let calcsToday = 0;
-    try {
-      const runsStr = localStorage.getItem('vialuce_calculation_runs');
-      if (runsStr) {
-        const runs = JSON.parse(runsStr);
-        const today = new Date().toISOString().split('T')[0];
-        calcsToday = runs.filter((r: { startedAt?: string }) =>
-          r.startedAt?.startsWith(today)
-        ).length;
-      }
-    } catch { /* ignore */ }
-
-    return {
-      tenants: uniqueTenants.size || 0,
-      users: totalUsers,
-      calcsToday,
-      issues: 0,
-    };
-  };
-
-  const counts = getRealCounts();
+async function getVLAdminMetrics(tenantId: string): Promise<PulseMetric[]> {
+  const results = await loadLatestResults(tenantId);
+  const totalUsers = results.length;
 
   return [
     {
       id: 'cc-active-tenants',
       label: 'Active Tenants',
       labelEs: 'Tenants Activos',
-      value: counts.tenants > 0 ? counts.tenants : '—',
-      format: counts.tenants > 0 ? 'number' : 'text',
+      value: '\u2014',
+      format: 'text',
       roles: ['vl_admin'],
     },
     {
       id: 'cc-total-users',
       label: 'Total Users',
       labelEs: 'Usuarios Totales',
-      value: counts.users > 0 ? counts.users : '—',
-      format: counts.users > 0 ? 'number' : 'text',
+      value: totalUsers > 0 ? totalUsers : '\u2014',
+      format: totalUsers > 0 ? 'number' : 'text',
       roles: ['vl_admin'],
     },
     {
       id: 'cc-calculations-today',
       label: 'Calculations Today',
-      labelEs: 'Cálculos Hoy',
-      value: counts.calcsToday,
+      labelEs: 'Calculos Hoy',
+      value: 0,
       format: 'number',
       roles: ['vl_admin'],
     },
@@ -430,7 +280,7 @@ function getVLAdminMetrics(): PulseMetric[] {
       id: 'cc-issues',
       label: 'Outstanding Issues',
       labelEs: 'Problemas Pendientes',
-      value: '—',
+      value: '\u2014',
       format: 'text',
       roles: ['vl_admin'],
     },
@@ -438,7 +288,7 @@ function getVLAdminMetrics(): PulseMetric[] {
 }
 
 // =============================================================================
-// HELPERS
+// HELPERS (pure functions — no localStorage)
 // =============================================================================
 
 /**
@@ -450,7 +300,7 @@ export function formatMetricValue(
   currency: string = 'USD'
 ): string {
   switch (format) {
-    case 'currency':
+    case 'currency': {
       const num = typeof value === 'string' ? parseFloat(value) : value;
       return new Intl.NumberFormat(currency === 'MXN' ? 'es-MX' : 'en-US', {
         style: 'currency',
@@ -458,13 +308,15 @@ export function formatMetricValue(
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
       }).format(num);
+    }
 
     case 'percentage':
       return `${value}%`;
 
-    case 'number':
+    case 'number': {
       const n = typeof value === 'string' ? parseFloat(value) : value;
       return n.toLocaleString();
+    }
 
     case 'text':
     default:
@@ -478,12 +330,12 @@ export function formatMetricValue(
 export function getTrendArrow(trend: PulseTrend | undefined): string {
   switch (trend) {
     case 'up':
-      return '▲';
+      return '\u25B2';
     case 'down':
-      return '▼';
+      return '\u25BC';
     case 'flat':
     default:
-      return '●';
+      return '\u25CF';
   }
 }
 
@@ -506,6 +358,5 @@ export function getTrendColor(trend: PulseTrend | undefined): string {
  * Get the primary metric for collapsed rail view
  */
 export function getPrimaryMetric(metrics: PulseMetric[]): PulseMetric | null {
-  // Return the first metric as the primary one for collapsed view
   return metrics[0] || null;
 }

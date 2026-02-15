@@ -46,6 +46,7 @@ export interface ConfidentMapping {
 // STORAGE
 // ============================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEY = (tenantId: string) => `vialuce_classification_signals_${tenantId}`;
 const MAX_SIGNALS_PER_TENANT = 5000;
 
@@ -251,11 +252,11 @@ export function boostConfidence(
 }
 
 /**
- * Clear all signals for a tenant (for testing/reset).
+ * Clear all signals for a tenant (no-op, localStorage removed).
  */
-export function clearSignals(tenantId: string): void {
-  if (typeof window === 'undefined') return;
-  localStorage.removeItem(STORAGE_KEY(tenantId));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function clearSignals(_tenantId: string): void {
+  // No-op: localStorage removed
 }
 
 // ============================================
@@ -266,25 +267,12 @@ function normalizeFieldName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F\u1100-\u11FF\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/g, '').trim();
 }
 
-function loadSignals(tenantId: string): ClassificationSignal[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY(tenantId));
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function loadSignals(_tenantId: string): ClassificationSignal[] {
+  return [];
 }
 
-function saveSignals(tenantId: string, signals: ClassificationSignal[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY(tenantId), JSON.stringify(signals));
-  } catch (error) {
-    console.warn('[ClassificationSignals] Storage error, pruning:', error);
-    if (signals.length > 1000) {
-      const pruned = signals.slice(-1000);
-      localStorage.setItem(STORAGE_KEY(tenantId), JSON.stringify(pruned));
-    }
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveSignals(_tenantId: string, _signals: ClassificationSignal[]): void {
+  // No-op: localStorage removed
 }

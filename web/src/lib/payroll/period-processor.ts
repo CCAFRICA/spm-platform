@@ -5,16 +5,59 @@
  * Implements state machine for period statuses with validation at each transition.
  */
 
-import {
-  runPeriodCalculation,
-  previewPeriodCalculation,
-  type OrchestrationResult,
-} from '@/lib/orchestration/calculation-orchestrator';
+// Stub type for OrchestrationResult (old calculation-orchestrator was deleted)
+// TODO: Replace with Supabase calculation-service pipeline
+export interface OrchestrationResult {
+  success: boolean;
+  run: {
+    id: string;
+    errorCount: number;
+    errors?: Array<{ entityId: string; error: string }>;
+  };
+  summary: {
+    entitiesProcessed: number;
+    totalPayout: number;
+    byPlan: Record<string, { count: number; total: number }>;
+    byDepartment: Record<string, { count: number; total: number }>;
+  };
+  results: Array<{ totalIncentive: number }>;
+}
+
+/**
+ * Stub: Run period calculation.
+ * TODO: Migrate to Supabase calculation-service (createCalculationBatch + writeCalculationResults).
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function runPeriodCalculation(_tenantId: string, _periodId: string, _userId: string, _options?: { forceRecalculate?: boolean }): Promise<OrchestrationResult> {
+  console.warn('[PeriodProcessor] runPeriodCalculation stub — not yet migrated to Supabase');
+  return {
+    success: false,
+    run: { id: `stub-${Date.now()}`, errorCount: 1, errors: [{ entityId: 'system', error: 'Not yet migrated to Supabase calculation-service' }] },
+    summary: { entitiesProcessed: 0, totalPayout: 0, byPlan: {}, byDepartment: {} },
+    results: [],
+  };
+}
+
+/**
+ * Stub: Preview period calculation.
+ * TODO: Migrate to Supabase calculation-service.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function previewPeriodCalculation(_tenantId: string, _periodId: string, _userId: string): Promise<OrchestrationResult> {
+  console.warn('[PeriodProcessor] previewPeriodCalculation stub — not yet migrated to Supabase');
+  return {
+    success: false,
+    run: { id: `stub-${Date.now()}`, errorCount: 1, errors: [{ entityId: 'system', error: 'Not yet migrated to Supabase calculation-service' }] },
+    summary: { entitiesProcessed: 0, totalPayout: 0, byPlan: {}, byDepartment: {} },
+    results: [],
+  };
+}
 
 // ============================================
 // STORAGE KEYS
 // ============================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEYS = {
   PERIODS: 'vialuce_payroll_periods',
   PERIOD_HISTORY: 'vialuce_period_history',
@@ -475,20 +518,9 @@ export class PeriodProcessor {
     );
   }
 
-  getPeriodHistory(periodId: string): PeriodTransition[] {
-    if (typeof window === 'undefined') return [];
-
-    const stored = localStorage.getItem(STORAGE_KEYS.PERIOD_HISTORY);
-    if (!stored) return [];
-
-    try {
-      const transitions: PeriodTransition[] = JSON.parse(stored);
-      return transitions
-        .filter((t) => t.periodId === periodId)
-        .sort((a, b) => new Date(b.triggeredAt).getTime() - new Date(a.triggeredAt).getTime());
-    } catch {
-      return [];
-    }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getPeriodHistory(_periodId: string): PeriodTransition[] {
+    return [];
   }
 
   // ============================================
@@ -496,42 +528,17 @@ export class PeriodProcessor {
   // ============================================
 
   private getAllPeriods(): PayrollPeriod[] {
-    if (typeof window === 'undefined') return [];
-
-    const stored = localStorage.getItem(STORAGE_KEYS.PERIODS);
-    if (!stored) return [];
-
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return [];
-    }
+    return [];
   }
 
-  private savePeriod(period: PayrollPeriod): void {
-    if (typeof window === 'undefined') return;
-
-    const periods = this.getAllPeriods();
-    const index = periods.findIndex((p) => p.id === period.id);
-
-    if (index >= 0) {
-      periods[index] = period;
-    } else {
-      periods.push(period);
-    }
-
-    localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(periods));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private savePeriod(_period: PayrollPeriod): void {
+    // no-op: localStorage removed
   }
 
-  private saveTransition(transition: PeriodTransition): void {
-    if (typeof window === 'undefined') return;
-
-    const stored = localStorage.getItem(STORAGE_KEYS.PERIOD_HISTORY);
-    const transitions: PeriodTransition[] = stored ? JSON.parse(stored) : [];
-
-    transitions.push(transition);
-
-    localStorage.setItem(STORAGE_KEYS.PERIOD_HISTORY, JSON.stringify(transitions));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private saveTransition(_transition: PeriodTransition): void {
+    // no-op: localStorage removed
   }
 
   deletePeriod(periodId: string): boolean {
@@ -541,9 +548,7 @@ export class PeriodProcessor {
       return false;
     }
 
-    const periods = this.getAllPeriods().filter((p) => p.id !== periodId);
-    localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(periods));
-
+    // no-op: localStorage removed
     return true;
   }
 

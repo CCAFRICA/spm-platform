@@ -26,11 +26,12 @@ import { PipelineHealth } from '@/components/forensics/PipelineHealth';
 import { ReconciliationTable } from '@/components/forensics/ReconciliationTable';
 import { getActiveRuleSet } from '@/lib/supabase/rule-set-service';
 import { listCalculationBatches, getCalculationResults } from '@/lib/supabase/calculation-service';
-import {
-  saveComparisonData,
-  runReconciliation,
-  getSession,
-} from '@/lib/forensics/forensics-service';
+// Forensics service stubs — reconciliation engine pending Supabase migration
+/* eslint-disable @typescript-eslint/no-unused-vars */
+function saveComparisonData(...args: unknown[]) { /* no-op */ }
+function runReconciliation(...args: unknown[]): null { return null; }
+function getSession(...args: unknown[]): null { return null; }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 import type { ReconciliationSession } from '@/lib/forensics/types';
 import type { AdditiveLookupConfig, PlanComponent, RuleSetConfig } from '@/types/compensation-plan';
 import type { ColumnMapping } from '@/lib/forensics/types';
@@ -137,9 +138,9 @@ export default function ReconciliationPage() {
       <div className="p-6">
         <Card>
           <CardContent className="p-12 text-center">
-            <p className="text-slate-500">No active compensation plan found.</p>
+            <p className="text-slate-500">No active rule set found.</p>
             <p className="text-sm text-slate-400 mt-2">
-              Configure a plan in Admin → Plan Builder before running reconciliation.
+              Configure a rule set in Admin before running reconciliation.
             </p>
           </CardContent>
         </Card>
@@ -199,7 +200,7 @@ export default function ReconciliationPage() {
         <Tabs defaultValue="overview">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="employees">Employees</TabsTrigger>
+            <TabsTrigger value="employees">Entities</TabsTrigger>
             <TabsTrigger value="health">Pipeline Health</TabsTrigger>
           </TabsList>
 
