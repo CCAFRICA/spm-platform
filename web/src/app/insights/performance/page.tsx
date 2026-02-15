@@ -46,17 +46,17 @@ import type { Cheque, Franquicia } from '@/types/cheques';
 // TechCorp mock data
 const techCorpSummaryStats = {
   teamScore: 94.2,
-  goalAttainment: 108.5,
-  avgSalesPerRep: 215000,
+  goalAchievement: 108.5,
+  avgPerEntity: 215000,
   growthRate: 12.3,
 };
 
 const techCorpTopPerformers = [
-  { rank: 1, name: 'Sarah Chen', role: 'Senior AE', sales: 700000, attainment: 140, trend: 'up', trendValue: 15 },
-  { rank: 2, name: 'Marcus Johnson', role: 'Enterprise AE', sales: 650000, attainment: 130, trend: 'up', trendValue: 8 },
-  { rank: 3, name: 'David Kim', role: 'Senior AE', sales: 620000, attainment: 124, trend: 'up', trendValue: 12 },
-  { rank: 4, name: 'Amanda Foster', role: 'Enterprise AE', sales: 580000, attainment: 116, trend: 'stable', trendValue: 2 },
-  { rank: 5, name: 'Lisa Thompson', role: 'Mid-Market AE', sales: 545000, attainment: 109, trend: 'up', trendValue: 5 },
+  { rank: 1, name: 'Sarah Chen', role: 'Senior AE', sales: 700000, achievement: 140, trend: 'up', trendValue: 15 },
+  { rank: 2, name: 'Marcus Johnson', role: 'Enterprise AE', sales: 650000, achievement: 130, trend: 'up', trendValue: 8 },
+  { rank: 3, name: 'David Kim', role: 'Senior AE', sales: 620000, achievement: 124, trend: 'up', trendValue: 12 },
+  { rank: 4, name: 'Amanda Foster', role: 'Enterprise AE', sales: 580000, achievement: 116, trend: 'stable', trendValue: 2 },
+  { rank: 5, name: 'Lisa Thompson', role: 'Mid-Market AE', sales: 545000, achievement: 109, trend: 'up', trendValue: 5 },
 ];
 
 const techCorpPerformanceDistribution = [
@@ -242,9 +242,9 @@ export default function InsightsPerformancePage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Goal Attainment Rate</p>
+                    <p className="text-sm font-medium text-slate-500">Goal Achievement Rate</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {techCorpSummaryStats.goalAttainment}%
+                      {techCorpSummaryStats.goalAchievement}%
                     </p>
                     <div className="flex items-center gap-1 mt-2">
                       <ArrowUpRight className="h-4 w-4 text-emerald-500" />
@@ -262,9 +262,9 @@ export default function InsightsPerformancePage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Avg Sales per Rep</p>
+                    <p className="text-sm font-medium text-slate-500">Average per Entity</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {format(techCorpSummaryStats.avgSalesPerRep)}
+                      {format(techCorpSummaryStats.avgPerEntity)}
                     </p>
                     <p className="text-sm text-slate-500 mt-2">This quarter</p>
                   </div>
@@ -304,7 +304,7 @@ export default function InsightsPerformancePage() {
                   <Medal className="h-5 w-5 text-amber-500" />
                   Top Performers
                 </CardTitle>
-                <CardDescription>Q4 2024 Sales Leaderboard</CardDescription>
+                <CardDescription>Q4 2024 Leaderboard</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -353,7 +353,7 @@ export default function InsightsPerformancePage() {
                             performer.trend === 'up' ? 'text-emerald-600' :
                             performer.trend === 'down' ? 'text-red-600' : 'text-slate-500'
                           }`}>
-                            {performer.attainment}%
+                            {performer.achievement}%
                           </span>
                         </div>
                       </div>
@@ -368,7 +368,7 @@ export default function InsightsPerformancePage() {
               <Card className="border-0 shadow-lg">
                 <CardHeader>
                   <CardTitle>Performance Distribution</CardTitle>
-                  <CardDescription>Number of reps in each tier</CardDescription>
+                  <CardDescription>Number of entities in each tier</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={200}>
@@ -377,7 +377,7 @@ export default function InsightsPerformancePage() {
                       <XAxis type="number" tickLine={false} axisLine={false} />
                       <YAxis type="category" dataKey="tier" tickLine={false} axisLine={false} width={90} />
                       <Tooltip
-                        formatter={(value: number) => [`${value} reps`, 'Count']}
+                        formatter={(value: number) => [`${value} entities`, 'Count']}
                         contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
                       />
                       <Bar dataKey="count" radius={[0, 4, 4, 0]}>
@@ -394,7 +394,7 @@ export default function InsightsPerformancePage() {
               <Card className="border-0 shadow-lg">
                 <CardHeader>
                   <CardTitle>Regional Performance</CardTitle>
-                  <CardDescription>Total sales by region</CardDescription>
+                  <CardDescription>Total volume by region</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={200}>
@@ -403,7 +403,7 @@ export default function InsightsPerformancePage() {
                       <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(value) => `${symbol}${(value / 1000000).toFixed(1)}M`} />
                       <YAxis type="category" dataKey="region" tickLine={false} axisLine={false} width={60} />
                       <Tooltip
-                        formatter={(value: number) => [format(value), 'Sales']}
+                        formatter={(value: number) => [format(value), 'Volume']}
                         contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
                       />
                       <Bar dataKey="sales" radius={[0, 4, 4, 0]}>

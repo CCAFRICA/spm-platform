@@ -271,7 +271,7 @@ export default function ScenarioModelingPage() {
             Scenario Modeling
           </h1>
           <p className="text-muted-foreground">
-            Model compensation plan changes before implementing
+            Model rule set changes before implementing
           </p>
         </div>
 
@@ -280,7 +280,7 @@ export default function ScenarioModelingPage() {
             <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
             <h3 className="font-medium mb-2">No Active Plan Found</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Create and activate a compensation plan to use scenario modeling.
+              Create and activate a rule set to use scenario modeling.
             </p>
             <Button asChild>
               <a href="/performance/plans">Go to Plans</a>
@@ -303,7 +303,7 @@ export default function ScenarioModelingPage() {
           <p className="text-muted-foreground">
             {isSpanish
               ? 'Modela cambios en el plan de compensaci\u00f3n antes de implementar'
-              : 'Model compensation plan changes before implementing'}
+              : 'Model rule set changes before implementing'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -330,7 +330,7 @@ export default function ScenarioModelingPage() {
                 What-If Analysis Mode
               </h3>
               <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                Adjust plan parameters on the left to see how compensation would change for your team.
+                Adjust plan parameters on the left to see how outcomes would change for your team.
                 Changes here are not applied until you explicitly save and activate them.
               </p>
             </div>
@@ -396,7 +396,7 @@ export default function ScenarioModelingPage() {
                     <Card>
                       <CardContent className="py-12 text-center">
                         <p className="text-muted-foreground">
-                          No data available for this employee.
+                          No data available for this entity.
                         </p>
                       </CardContent>
                     </Card>

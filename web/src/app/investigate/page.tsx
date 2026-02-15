@@ -49,7 +49,7 @@ export default function InvestigatePage() {
     },
     {
       icon: User,
-      label: isSpanish ? 'Empleados' : 'Employees',
+      label: isSpanish ? 'Empleados' : 'Entities',
       description: isSpanish ? 'Buscar por nombre o ID' : 'Search by name or ID',
       route: '/investigate/entities',
       color: 'green',
@@ -108,7 +108,7 @@ export default function InvestigatePage() {
         <p className="text-sm text-slate-500 mt-1">
           {isSpanish
             ? 'Buscar y rastrear datos de compensación'
-            : 'Search and trace compensation data'}
+            : 'Search and trace outcome data'}
         </p>
       </div>
 
@@ -121,7 +121,7 @@ export default function InvestigatePage() {
               <Input
                 placeholder={isSpanish
                   ? 'Buscar transacciones, empleados, o IDs...'
-                  : 'Search transactions, employees, or IDs...'}
+                  : 'Search transactions, entities, or IDs...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}

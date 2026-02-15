@@ -99,7 +99,7 @@ export default function CalculationApprovalPage() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Calculation Approvals</h1>
-        <p className="text-slate-500 text-sm">Review and approve compensation calculations</p>
+        <p className="text-slate-500 text-sm">Review and approve outcome calculations</p>
       </div>
 
       {/* Pending Items */}

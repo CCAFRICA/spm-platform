@@ -70,7 +70,7 @@ export default function ImportPage() {
         <p className="text-sm text-slate-500 mt-1">
           {isSpanish
             ? 'Cargar datos de transacciones y empleados'
-            : 'Upload transaction and employee data'}
+            : 'Upload transaction and entity data'}
         </p>
       </div>
 

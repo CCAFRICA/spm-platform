@@ -61,7 +61,7 @@ const yoyData = [
 ];
 
 const componentBreakdown = [
-  { name: 'Base Sales', nameEs: 'Ventas Base', value: 2400000, change: 12 },
+  { name: 'Base', nameEs: 'Ventas Base', value: 2400000, change: 12 },
   { name: 'Optical', nameEs: '\u00d3ptica', value: 1800000, change: 8 },
   { name: 'Services', nameEs: 'Servicios', value: 950000, change: 15 },
   { name: 'Insurance', nameEs: 'Seguros', value: 520000, change: -3 },
@@ -235,7 +235,7 @@ export default function TrendsPage() {
                     <CardDescription>
                       {isSpanish
                         ? 'Compensaci\u00f3n mensual 2024 vs 2023'
-                        : '2024 vs 2023 monthly compensation'}
+                        : '2024 vs 2023 monthly outcomes'}
                     </CardDescription>
                   </div>
                   <div className="flex gap-4">
@@ -321,7 +321,7 @@ export default function TrendsPage() {
                     {isSpanish ? 'Desglose por Componente' : 'Component Breakdown'}
                   </CardTitle>
                   <CardDescription>
-                    {isSpanish ? 'Contribuci\u00f3n por tipo de compensaci\u00f3n' : 'Contribution by compensation type'}
+                    {isSpanish ? 'Contribuci\u00f3n por tipo de compensaci\u00f3n' : 'Contribution by outcome type'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -406,7 +406,7 @@ export default function TrendsPage() {
                   {isSpanish ? 'Rendimiento Regional' : 'Regional Performance'}
                 </CardTitle>
                 <CardDescription>
-                  {isSpanish ? 'Comparaci\u00f3n de compensaci\u00f3n por regi\u00f3n' : 'Compensation comparison by region'}
+                  {isSpanish ? 'Comparaci\u00f3n de compensaci\u00f3n por regi\u00f3n' : 'Outcome comparison by region'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -573,7 +573,7 @@ export default function TrendsPage() {
                       <strong>{isSpanish ? 'Proyecci\u00f3n:' : 'Projection:'}</strong>{' '}
                       {isSpanish
                         ? 'Basado en tendencias actuales, Q1 2025 se estima en $1.67M en compensaci\u00f3n total, representando 11% de crecimiento.'
-                        : 'Based on current trends, Q1 2025 is estimated to reach $1.67M in total compensation, representing 11% growth.'}
+                        : 'Based on current trends, Q1 2025 is estimated to reach $1.67M in total outcomes, representing 11% growth.'}
                     </p>
                   </div>
                 </CardContent>

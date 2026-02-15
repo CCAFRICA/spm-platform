@@ -39,16 +39,16 @@ import {
 
 // Mock personnel data
 const personnel = [
-  { id: "U001", name: "Sarah Chen", email: "sarah.chen@vialuce.com", role: "Sales Rep", region: "West", team: "West-Enterprise", manager: "Catherine Morris", status: "active", tier: "top" },
-  { id: "U002", name: "Marcus Johnson", email: "marcus.johnson@vialuce.com", role: "Sales Rep", region: "East", team: "East-Enterprise", manager: "William Rogers", status: "active", tier: "top" },
-  { id: "U003", name: "Emily Rodriguez", email: "emily.rodriguez@vialuce.com", role: "Sales Rep", region: "North", team: "North-SMB", manager: "Rebecca Reed", status: "active", tier: "top" },
-  { id: "U004", name: "David Kim", email: "david.kim@vialuce.com", role: "Sales Rep", region: "South", team: "South-Enterprise", manager: "Thomas Cook", status: "active", tier: "top" },
-  { id: "U005", name: "Lisa Thompson", email: "lisa.thompson@vialuce.com", role: "Sales Rep", region: "West", team: "West-Mid-Market", manager: "Maria Morgan", status: "active", tier: "top" },
-  { id: "U006", name: "James Wilson", email: "james.wilson@vialuce.com", role: "Sales Rep", region: "East", team: "East-SMB", manager: "Charles Bell", status: "active", tier: "top" },
-  { id: "U007", name: "Amanda Foster", email: "amanda.foster@vialuce.com", role: "Sales Rep", region: "North", team: "North-Enterprise", manager: "Patricia Murphy", status: "active", tier: "top" },
-  { id: "U008", name: "Michael Brown", email: "michael.brown@vialuce.com", role: "Sales Rep", region: "South", team: "South-Mid-Market", manager: "Steven Bailey", status: "active", tier: "top" },
-  { id: "U011", name: "Jennifer Davis", email: "jennifer.davis@vialuce.com", role: "Sales Rep", region: "North", team: "North-Mid-Market", manager: "Rebecca Reed", status: "active", tier: "high" },
-  { id: "U012", name: "Robert Taylor", email: "robert.taylor@vialuce.com", role: "Sales Rep", region: "South", team: "South-SMB", manager: "Thomas Cook", status: "active", tier: "high" },
+  { id: "U001", name: "Sarah Chen", email: "sarah.chen@vialuce.com", role: "Rep", region: "West", team: "West-Enterprise", manager: "Catherine Morris", status: "active", tier: "top" },
+  { id: "U002", name: "Marcus Johnson", email: "marcus.johnson@vialuce.com", role: "Rep", region: "East", team: "East-Enterprise", manager: "William Rogers", status: "active", tier: "top" },
+  { id: "U003", name: "Emily Rodriguez", email: "emily.rodriguez@vialuce.com", role: "Rep", region: "North", team: "North-SMB", manager: "Rebecca Reed", status: "active", tier: "top" },
+  { id: "U004", name: "David Kim", email: "david.kim@vialuce.com", role: "Rep", region: "South", team: "South-Enterprise", manager: "Thomas Cook", status: "active", tier: "top" },
+  { id: "U005", name: "Lisa Thompson", email: "lisa.thompson@vialuce.com", role: "Rep", region: "West", team: "West-Mid-Market", manager: "Maria Morgan", status: "active", tier: "top" },
+  { id: "U006", name: "James Wilson", email: "james.wilson@vialuce.com", role: "Rep", region: "East", team: "East-SMB", manager: "Charles Bell", status: "active", tier: "top" },
+  { id: "U007", name: "Amanda Foster", email: "amanda.foster@vialuce.com", role: "Rep", region: "North", team: "North-Enterprise", manager: "Patricia Murphy", status: "active", tier: "top" },
+  { id: "U008", name: "Michael Brown", email: "michael.brown@vialuce.com", role: "Rep", region: "South", team: "South-Mid-Market", manager: "Steven Bailey", status: "active", tier: "top" },
+  { id: "U011", name: "Jennifer Davis", email: "jennifer.davis@vialuce.com", role: "Rep", region: "North", team: "North-Mid-Market", manager: "Rebecca Reed", status: "active", tier: "high" },
+  { id: "U012", name: "Robert Taylor", email: "robert.taylor@vialuce.com", role: "Rep", region: "South", team: "South-SMB", manager: "Thomas Cook", status: "active", tier: "high" },
   { id: "U041", name: "Catherine Morris", email: "catherine.morris@vialuce.com", role: "Manager", region: "West", team: "West-Enterprise", manager: "Sandra Richardson", status: "active", tier: "high" },
   { id: "U042", name: "William Rogers", email: "william.rogers@vialuce.com", role: "Manager", region: "East", team: "East-Enterprise", manager: "Paul Cox", status: "active", tier: "high" },
   { id: "U051", name: "Sandra Richardson", email: "sandra.richardson@vialuce.com", role: "VP", region: "West", team: "West-Region", manager: "Margaret Torres", status: "active", tier: "top" },
@@ -98,7 +98,7 @@ export default function ConfigurationPage() {
             Configuration
           </h1>
           <p className="mt-2 text-slate-600 dark:text-slate-400">
-            Personnel management and system settings
+            Entity management and system settings
           </p>
         </div>
 
@@ -108,7 +108,7 @@ export default function ConfigurationPage() {
           <div>
             <p className="font-medium text-amber-800">View Only Mode</p>
             <p className="text-sm text-amber-700">
-              Editing personnel records requires administrator permissions. Contact your system admin for changes.
+              Editing entity records requires administrator permissions. Contact your system admin for changes.
             </p>
           </div>
         </div>
@@ -130,7 +130,7 @@ export default function ConfigurationPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Sales Reps</p>
+                  <p className="text-sm text-slate-500">Entities</p>
                   <p className="text-2xl font-bold">40</p>
                 </div>
                 <Building2 className="h-8 w-8 text-slate-300" />
@@ -166,8 +166,8 @@ export default function ConfigurationPage() {
           <CardHeader>
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Personnel Directory</CardTitle>
-                <CardDescription>All employees in the compensation system</CardDescription>
+                <CardTitle>Entity Directory</CardTitle>
+                <CardDescription>All entities in the outcome system</CardDescription>
               </div>
             </div>
 
@@ -189,7 +189,7 @@ export default function ConfigurationPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
-                  <SelectItem value="Sales Rep">Sales Rep</SelectItem>
+                  <SelectItem value="Rep">Rep</SelectItem>
                   <SelectItem value="Manager">Manager</SelectItem>
                   <SelectItem value="VP">VP</SelectItem>
                   <SelectItem value="Director">Director</SelectItem>
@@ -215,7 +215,7 @@ export default function ConfigurationPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50 dark:bg-slate-800/50">
-                    <TableHead className="font-semibold">Employee</TableHead>
+                    <TableHead className="font-semibold">Entity</TableHead>
                     <TableHead className="font-semibold">Role</TableHead>
                     <TableHead className="font-semibold">Region</TableHead>
                     <TableHead className="font-semibold">Team</TableHead>
@@ -267,7 +267,7 @@ export default function ConfigurationPage() {
               </Table>
             </div>
             <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
-              <p>Showing {filteredPersonnel.length} of {personnel.length} employees</p>
+              <p>Showing {filteredPersonnel.length} of {personnel.length} entities</p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled>Previous</Button>
                 <Button variant="outline" size="sm">Next</Button>

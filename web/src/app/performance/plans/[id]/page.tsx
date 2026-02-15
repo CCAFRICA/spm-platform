@@ -302,7 +302,7 @@ export default function PlanDetailPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Plan Information</CardTitle>
+                <CardTitle className="text-lg">Rule Set Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
@@ -522,7 +522,7 @@ export default function PlanDetailPage() {
             <CardHeader>
               <CardTitle>Sample Calculation Preview</CardTitle>
               <CardDescription>
-                See how a typical employee would be calculated under this plan
+                See how a typical entity would be calculated under this plan
               </CardDescription>
             </CardHeader>
             <CardContent>

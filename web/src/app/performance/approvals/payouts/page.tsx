@@ -59,8 +59,8 @@ export default function PayoutApprovalsPage() {
     const batch = payoutService.approveBatch(batchId, 'Mike Chen');
 
     if (batch) {
-      toast.success('Payout Approved', {
-        description: `${batch.periodLabel} payout for ${batch.entityCount} employees has been approved`,
+      toast.success('Outcome Approved', {
+        description: `${batch.periodLabel} outcome for ${batch.entityCount} entities has been approved`,
       });
     }
 
@@ -76,8 +76,8 @@ export default function PayoutApprovalsPage() {
     const batch = payoutService.rejectBatch(batchId, 'Mike Chen', reason);
 
     if (batch) {
-      toast.error('Payout Rejected', {
-        description: `${batch.periodLabel} payout has been rejected`,
+      toast.error('Outcome Rejected', {
+        description: `${batch.periodLabel} outcome has been rejected`,
       });
     }
 
@@ -90,7 +90,7 @@ export default function PayoutApprovalsPage() {
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading payout batches...</p>
+          <p className="text-muted-foreground">Loading outcome batches...</p>
         </div>
       </div>
     );
@@ -109,10 +109,10 @@ export default function PayoutApprovalsPage() {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Wallet className="h-6 w-6 text-primary" />
-              Payout Approvals
+              Outcome Approvals
             </h1>
             <p className="text-muted-foreground">
-              Review and approve incentive payout batches
+              Review and approve incentive outcome batches
             </p>
           </div>
         </div>
@@ -143,12 +143,12 @@ export default function PayoutApprovalsPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Users className="h-4 w-4 text-blue-500" />
-              Employees Pending
+              Entities Pending
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalEmployees}</div>
-            <p className="text-xs text-muted-foreground">awaiting payout</p>
+            <p className="text-xs text-muted-foreground">awaiting outcome</p>
           </CardContent>
         </Card>
 
@@ -200,7 +200,7 @@ export default function PayoutApprovalsPage() {
                 <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
                 <h3 className="text-lg font-medium mb-2">All caught up!</h3>
                 <p className="text-muted-foreground">
-                  No payout batches pending approval
+                  No outcome batches pending approval
                 </p>
               </CardContent>
             </Card>
@@ -226,7 +226,7 @@ export default function PayoutApprovalsPage() {
                 <Wallet className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-medium mb-2">No completed batches</h3>
                 <p className="text-muted-foreground">
-                  Completed payout batches will appear here
+                  Completed outcome batches will appear here
                 </p>
               </CardContent>
             </Card>

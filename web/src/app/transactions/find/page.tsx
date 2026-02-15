@@ -178,7 +178,7 @@ export default function FindOrderPage() {
                             <p className="font-medium">{format(result.amount)}</p>
                           </div>
                           <div>
-                            <p className="text-xs text-muted-foreground">Commission</p>
+                            <p className="text-xs text-muted-foreground">Outcome</p>
                             <p className="font-medium text-green-600">{format(result.commission || 0)}</p>
                           </div>
                         </>

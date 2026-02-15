@@ -64,7 +64,7 @@ export default function LoginPage() {
             ViaLuce
           </h1>
           <p className="text-muted-foreground text-sm md:text-base">
-            Sales Performance Management
+            Performance Management
           </p>
         </motion.div>
 

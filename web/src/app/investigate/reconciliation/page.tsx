@@ -138,9 +138,9 @@ export default function ReconciliationPage() {
       <div className="p-6">
         <Card>
           <CardContent className="p-12 text-center">
-            <p className="text-slate-500">No active compensation plan found.</p>
+            <p className="text-slate-500">No active rule set found.</p>
             <p className="text-sm text-slate-400 mt-2">
-              Configure a plan in Admin → Plan Builder before running reconciliation.
+              Configure a rule set in Admin before running reconciliation.
             </p>
           </CardContent>
         </Card>
@@ -200,7 +200,7 @@ export default function ReconciliationPage() {
         <Tabs defaultValue="overview">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="employees">Employees</TabsTrigger>
+            <TabsTrigger value="employees">Entities</TabsTrigger>
             <TabsTrigger value="health">Pipeline Health</TabsTrigger>
           </TabsList>
 

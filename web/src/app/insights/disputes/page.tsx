@@ -243,7 +243,7 @@ export default function DisputeAnalyticsPage() {
               <h4 className="font-medium mb-2">Top Resolution Driver</h4>
               <p className="text-sm text-muted-foreground">
                 <strong>Step 1 explanations</strong> resolve 37% of inquiries.
-                Employees often misunderstand tier calculations.
+                Entities often misunderstand tier calculations.
               </p>
             </div>
             <div className="p-4 rounded-lg border bg-muted/30">

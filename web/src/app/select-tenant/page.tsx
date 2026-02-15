@@ -200,8 +200,8 @@ export default function SelectTenantPage() {
             animate={{ opacity: 1, y: 0 }}
             className="text-center mb-10"
           >
-            <h2 className="text-3xl font-bold mb-2">Select Tenant</h2>
-            <p className="text-muted-foreground">Choose a tenant to manage or start a new customer launch</p>
+            <h2 className="text-3xl font-bold mb-2">Select Organization</h2>
+            <p className="text-muted-foreground">Choose an organization to manage or start a new customer launch</p>
           </motion.div>
 
           {/* VL Admin Quick Actions */}

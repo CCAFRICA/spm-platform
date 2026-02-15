@@ -29,7 +29,7 @@ export default function SalesFinancePage() {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center text-muted-foreground">
-          <p>Sales Finance is not enabled for this tenant.</p>
+          <p>Finance module is not enabled for this tenant.</p>
         </div>
       </div>
     );
@@ -72,7 +72,7 @@ export default function SalesFinancePage() {
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <BarChart3 className="h-6 w-6 text-primary" />
-          Sales Finance
+          Finance
         </h1>
         <p className="text-muted-foreground">
           Revenue, cost, and margin analysis from transactional data
@@ -152,7 +152,7 @@ export default function SalesFinancePage() {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                       <Target className="h-4 w-4" />
-                      Compensation
+                      Outcome
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -275,7 +275,7 @@ export default function SalesFinancePage() {
           <Card>
             <CardHeader>
               <CardTitle>Cost Analysis</CardTitle>
-              <CardDescription>Commission expense and operational costs</CardDescription>
+              <CardDescription>Outcome expense and operational costs</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="h-[400px] flex items-center justify-center text-muted-foreground border-2 border-dashed rounded-lg">

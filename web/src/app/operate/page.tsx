@@ -89,7 +89,7 @@ export default function OperatePage() {
           <p className="text-sm text-slate-500 mt-1">
             {displaySpanish
               ? 'Gestionar el ciclo de compensación actual'
-              : 'Manage the current compensation cycle'}
+              : 'Manage the current outcome cycle'}
           </p>
         </div>
         <div className="text-right">
@@ -146,7 +146,7 @@ export default function OperatePage() {
           <CardDescription>
             {displaySpanish
               ? 'Progreso a través de las fases del ciclo de compensación'
-              : 'Progress through the compensation cycle phases'}
+              : 'Progress through the outcome cycle phases'}
           </CardDescription>
         </CardHeader>
         <CardContent>

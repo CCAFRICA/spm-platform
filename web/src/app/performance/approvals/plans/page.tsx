@@ -149,7 +149,7 @@ export default function PlanApprovalsPage() {
             <p className="text-muted-foreground">
               {isSpanish
                 ? 'Revisa y aprueba planes de compensaci\u00f3n'
-                : 'Review and approve compensation plans'}
+                : 'Review and approve rule sets'}
             </p>
           </div>
         </div>

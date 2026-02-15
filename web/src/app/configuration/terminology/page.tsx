@@ -21,7 +21,7 @@ const CATEGORIES = [
   { key: 'roles', label: 'Roles', icon: Users },
   { key: 'transactions', label: 'Transactions', icon: ShoppingCart },
   { key: 'performance', label: 'Performance', icon: Target },
-  { key: 'compensation', label: 'Compensation', icon: DollarSign },
+  { key: 'compensation', label: 'Outcome', icon: DollarSign },
 ];
 
 export default function TerminologyPage() {

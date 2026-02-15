@@ -56,7 +56,7 @@ export default function ApprovalsPage() {
         adjustmentAmount: 2500,
         reason: 'Q4 performance bonus',
       },
-      reason: 'Exceptional performance in Q4 - exceeded quota by 150%',
+      reason: 'Exceptional performance in Q4 - exceeded target by 150%',
     });
 
     setIsCreating(false);
@@ -175,9 +175,9 @@ export default function ApprovalsPage() {
                         <Wallet className="h-6 w-6 text-green-600" />
                       </div>
                       <div>
-                        <h3 className="font-semibold text-green-900 dark:text-green-100">Payout Approvals</h3>
+                        <h3 className="font-semibold text-green-900 dark:text-green-100">Outcome Approvals</h3>
                         <p className="text-sm text-green-700 dark:text-green-300">
-                          Review and approve incentive payout batches
+                          Review and approve incentive outcome batches
                         </p>
                       </div>
                     </div>
@@ -204,7 +204,7 @@ export default function ApprovalsPage() {
                       <div>
                         <h3 className="font-semibold text-blue-900 dark:text-blue-100">Plan Approvals</h3>
                         <p className="text-sm text-blue-700 dark:text-blue-300">
-                          Review compensation plan changes
+                          Review rule set changes
                         </p>
                       </div>
                     </div>

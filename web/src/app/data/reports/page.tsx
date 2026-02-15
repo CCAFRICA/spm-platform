@@ -82,7 +82,7 @@ export default function ReportsPage() {
               Financial Reports
             </h1>
             <p className="text-slate-500 mt-1">
-              Analyze revenue, commissions, and performance
+              Analyze revenue, outcomes, and performance
             </p>
           </div>
           <div className="flex gap-2">
@@ -130,7 +130,7 @@ export default function ReportsPage() {
             <motion.div variants={itemVariants}>
               <Card className="border-0 shadow-md bg-gradient-to-br from-purple-500 to-purple-600 text-white">
                 <CardContent className="p-5">
-                  <p className="text-purple-100 text-sm">Total Commission</p>
+                  <p className="text-purple-100 text-sm">Total Outcome</p>
                   <p className="text-2xl font-bold mt-1">{formatCurrency(commissionSummary.totalCommission)}</p>
                   <p className="text-purple-200 text-xs mt-1">{commissionSummary.averageRate.toFixed(1)}% avg rate</p>
                 </CardContent>
@@ -161,10 +161,10 @@ export default function ReportsPage() {
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="flex-wrap">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="sales-rep">By Sales Rep</TabsTrigger>
+            <TabsTrigger value="sales-rep">By Entity</TabsTrigger>
             <TabsTrigger value="product">By Product</TabsTrigger>
             <TabsTrigger value="region">By Region</TabsTrigger>
-            <TabsTrigger value="commission">Commission</TabsTrigger>
+            <TabsTrigger value="commission">Outcome</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}

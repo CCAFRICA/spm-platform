@@ -57,7 +57,7 @@ const dashboardData = {
     {
       id: 1,
       type: "commission",
-      description: "Commission earned - Acme Corp deal",
+      description: "Outcome earned - Acme Corp deal",
       amount: 7500,
       date: "2024-12-15",
       status: "completed",
@@ -73,7 +73,7 @@ const dashboardData = {
     {
       id: 3,
       type: "commission",
-      description: "Commission - TechGiant Industries",
+      description: "Outcome - TechGiant Industries",
       amount: 2700,
       date: "2024-12-14",
       status: "processing",
@@ -90,7 +90,7 @@ const dashboardData = {
   quickLinks: [
     {
       title: "View Insights",
-      description: "Compensation & performance analytics",
+      description: "Outcome & performance analytics",
       href: "/insights",
       icon: BarChart3,
       color: "bg-indigo-500",
@@ -276,7 +276,7 @@ export default function DashboardPage() {
     // Scope by role
     if (role === 'sales_rep') {
       return [
-        { title: isSpanish ? "Mi Compensacion" : "My Compensation", description: isSpanish ? "Ver tus resultados" : "View your results", href: "/perform", icon: BarChart3, color: "bg-indigo-500" },
+        { title: isSpanish ? "Mi Compensacion" : "My Outcome", description: isSpanish ? "Ver tus resultados" : "View your results", href: "/perform", icon: BarChart3, color: "bg-indigo-500" },
         { title: isSpanish ? "Transacciones" : "Transactions", description: isSpanish ? "Ver tus transacciones" : "View your transactions", href: "/transactions", icon: Receipt, color: "bg-emerald-500" },
       ];
     }
@@ -298,8 +298,8 @@ export default function DashboardPage() {
   const userRole = authUser?.role === 'admin'
     ? (isSpanish ? 'Administrador' : 'Administrator')
     : authUser?.role === 'manager'
-      ? (isSpanish ? 'Gerente' : 'Sales Manager')
-      : (isSpanish ? 'Mesero' : 'Sales Associate');
+      ? (isSpanish ? 'Gerente' : 'Manager')
+      : (isSpanish ? 'Mesero' : 'Associate');
   const userInitials = userName.split(' ').map(n => n[0]).join('').toUpperCase();
 
   return (
@@ -424,7 +424,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-indigo-100">
-                        YTD Compensation
+                        YTD Outcome
                       </p>
                       <p className="text-3xl font-bold mt-1">
                         {format(displayStats.ytdCompensation)}
@@ -449,7 +449,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-slate-500">
-                        Quota Attainment
+                        Target Achievement
                       </p>
                       <p className="text-3xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                         {displayStats.quotaAttainment}%
@@ -477,7 +477,7 @@ export default function DashboardPage() {
                         #{displayStats.ranking}
                       </p>
                       <p className="text-sm text-slate-500 mt-2">
-                        of {displayStats.rankingTotal} reps
+                        of {displayStats.rankingTotal} entities
                       </p>
                     </div>
                     <div className="p-3 bg-amber-100 rounded-full dark:bg-amber-900/30">
@@ -493,7 +493,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-slate-500">
-                        Pending Commissions
+                        Pending Outcomes
                       </p>
                       <p className="text-3xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                         {format(displayStats.pendingCommissions)}
@@ -520,7 +520,7 @@ export default function DashboardPage() {
                 <CardDescription>
                   {isHospitality
                     ? (isSpanish ? 'Tus últimos cheques atendidos' : 'Your latest served checks')
-                    : 'Your latest compensation events'}
+                    : 'Your latest outcome events'}
                 </CardDescription>
               </div>
               <Link href="/transactions">
@@ -741,7 +741,7 @@ export default function DashboardPage() {
                   <p className="text-3xl font-bold text-slate-900 dark:text-slate-50">
                     {format(520000)}
                   </p>
-                  <p className="text-sm text-slate-500 mt-1">Total Sales</p>
+                  <p className="text-sm text-slate-500 mt-1">Total Revenue</p>
                 </div>
                 <div className="text-center p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50">
                   <p className="text-3xl font-bold text-slate-900 dark:text-slate-50">18</p>

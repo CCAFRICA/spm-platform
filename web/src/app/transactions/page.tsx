@@ -497,7 +497,7 @@ export default function TransactionsPage() {
                     <TableHead>Product</TableHead>
                     <TableHead>{repTerm}</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Commission</TableHead>
+                    <TableHead className="text-right">Outcome</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>

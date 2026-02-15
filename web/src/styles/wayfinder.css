@@ -1,0 +1,150 @@
+/**
+ * Wayfinder Foundation — Workspace Ambient Identity
+ *
+ * Layer 1: Each workspace has subtle ambient differences via CSS custom properties.
+ * Layer 2: State communication vocabulary (confidence, completeness, AI states).
+ *
+ * NEVER use stoplight red/yellow/green for status.
+ */
+
+/* ──────────────────────────────────────────────
+   LAYER 1: WORKSPACE AMBIENT IDENTITY
+   Subtle enough to feel, not dramatic enough to jar.
+   ────────────────────────────────────────────── */
+
+/* Operate — Control room: structured, sequential */
+[data-workspace="operate"] {
+  --workspace-accent: 262 83% 58%;   /* Purple */
+  --workspace-bg-tint: 262 20% 98%;
+  --workspace-density: 1;
+}
+
+/* Perform — Motivational: warm, encouraging */
+[data-workspace="perform"] {
+  --workspace-accent: 25 95% 53%;    /* Warm orange */
+  --workspace-bg-tint: 25 20% 98%;
+  --workspace-density: 0.9;
+}
+
+/* Investigate — Forensic lab: precise, evidence-based */
+[data-workspace="investigate"] {
+  --workspace-accent: 200 95% 40%;   /* Cool cyan */
+  --workspace-bg-tint: 200 15% 97%;
+  --workspace-density: 1.1;
+}
+
+/* Design — Creative: open, sandbox-like */
+[data-workspace="design"] {
+  --workspace-accent: 160 60% 45%;   /* Teal */
+  --workspace-bg-tint: 160 15% 98%;
+  --workspace-density: 0.85;
+}
+
+/* Configure — Organizational: spatial, structural */
+[data-workspace="configure"] {
+  --workspace-accent: 217 91% 60%;   /* Blue */
+  --workspace-bg-tint: 217 15% 98%;
+  --workspace-density: 0.95;
+}
+
+/* Govern — Compliance: formal, audit-oriented */
+[data-workspace="govern"] {
+  --workspace-accent: 240 20% 50%;   /* Slate-blue */
+  --workspace-bg-tint: 240 10% 97%;
+  --workspace-density: 1.05;
+}
+
+/* Insights — Analytical: data-driven */
+[data-workspace="insights"] {
+  --workspace-accent: 280 60% 55%;   /* Violet */
+  --workspace-bg-tint: 280 15% 98%;
+  --workspace-density: 1;
+}
+
+/* Apply ambient tint to main content area */
+[data-workspace] .workspace-content {
+  background-color: hsl(var(--workspace-bg-tint));
+  transition: background-color 200ms ease;
+}
+
+/* Workspace accent for active elements */
+[data-workspace] .workspace-accent {
+  color: hsl(var(--workspace-accent));
+}
+
+[data-workspace] .workspace-accent-bg {
+  background-color: hsl(var(--workspace-accent) / 0.1);
+}
+
+/* ──────────────────────────────────────────────
+   LAYER 2: STATE COMMUNICATION VOCABULARY
+   NEVER use stoplight red/yellow/green.
+   ────────────────────────────────────────────── */
+
+/* Confidence/match states */
+.state-confirmed {
+  opacity: 1;
+  border-style: solid;
+}
+
+.state-proposed {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
+.state-attention {
+  opacity: 1;
+  box-shadow: 0 0 0 2px hsl(38 92% 50% / 0.3);
+}
+
+.state-neutral {
+  opacity: 0.5;
+}
+
+/* Completeness pattern */
+.completeness-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background-color: hsl(var(--muted));
+  overflow: hidden;
+}
+
+.completeness-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: var(--completeness, 0%);
+  background-color: hsl(var(--workspace-accent, 217 91% 60%));
+  border-radius: 2px;
+  transition: width 300ms ease;
+}
+
+/* AI confidence indicators */
+.confidence-high {
+  border-color: hsl(217 91% 60%);
+  background-color: hsl(217 91% 60% / 0.1);
+}
+
+.confidence-medium {
+  border-color: hsl(217 91% 60% / 0.5);
+  background-color: hsl(217 91% 60% / 0.05);
+}
+
+.confidence-low {
+  border-color: hsl(217 91% 60% / 0.3);
+  border-style: dashed;
+  background-color: transparent;
+}
+
+/* ──────────────────────────────────────────────
+   WORKSPACE TRANSITION ANIMATION
+   200ms fade when switching workspaces.
+   ────────────────────────────────────────────── */
+
+[data-workspace] {
+  transition: --workspace-accent 200ms ease,
+              --workspace-bg-tint 200ms ease;
+}

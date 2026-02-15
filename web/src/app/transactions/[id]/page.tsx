@@ -508,7 +508,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
                 <span className="font-medium">{techCorpTransaction.contractLength}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Sales Rep</span>
+                <span className="text-muted-foreground">Representative</span>
                 <span className="font-medium">{techCorpTransaction.rep}</span>
               </div>
               <div className="flex justify-between">
@@ -528,7 +528,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
                 <span className="font-bold text-lg">{format(techCorpTransaction.amount)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Commission</span>
+                <span className="text-muted-foreground">Outcome</span>
                 <span className="font-medium text-green-600">{format(techCorpTransaction.commission)}</span>
               </div>
               <div className="flex justify-between">

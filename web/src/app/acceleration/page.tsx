@@ -39,7 +39,7 @@ const alerts = [
     type: "budget",
     severity: "warning",
     title: "Budget Threshold Alert",
-    message: "West Region has exceeded 90% of Q4 commission budget. Consider reviewing upcoming payouts.",
+    message: "West Region has exceeded 90% of Q4 outcome budget. Consider reviewing upcoming outcomes.",
     timestamp: "2024-12-15T10:30:00Z",
     read: false,
     actionUrl: "/insights/compensation",
@@ -49,7 +49,7 @@ const alerts = [
     type: "performance",
     severity: "success",
     title: "Top Performer Achievement",
-    message: "Sarah Chen has achieved 150% quota attainment this quarter - eligible for accelerator bonus.",
+    message: "Sarah Chen has achieved 150% target achievement this quarter - eligible for accelerator bonus.",
     timestamp: "2024-12-14T15:45:00Z",
     read: false,
   },
@@ -67,7 +67,7 @@ const alerts = [
     type: "performance",
     severity: "critical",
     title: "Underperformance Alert",
-    message: "5 sales reps are below 60% quota attainment with 2 weeks remaining in the quarter.",
+    message: "5 entities are below 60% target achievement with 2 weeks remaining in the quarter.",
     timestamp: "2024-12-11T14:20:00Z",
     read: false,
     actionUrl: "/performance",
@@ -86,15 +86,15 @@ const recommendations = [
   {
     id: "REC-002",
     title: "Review Tiered Plan Effectiveness",
-    description: "Tiered commission plan shows 15% higher attainment vs basic plan. Consider expanding eligibility.",
+    description: "Tiered outcome plan shows 15% higher achievement vs basic plan. Consider expanding eligibility.",
     impact: "Medium",
-    category: "Compensation",
+    category: "Outcome",
     icon: TrendingUp,
   },
   {
     id: "REC-003",
     title: "Q1 Planning Preparation",
-    description: "Begin quota planning for Q1 2025. Historical data suggests 8% YoY growth target is achievable.",
+    description: "Begin target planning for Q1 2025. Historical data suggests 8% YoY growth target is achievable.",
     impact: "High",
     category: "Planning",
     icon: Lightbulb,
@@ -116,7 +116,7 @@ const activeSpifs = [
   {
     id: "SPIF-002",
     name: "New Product Launch",
-    description: "2x commission on new Analytics module sales",
+    description: "2x outcome on new Analytics module",
     startDate: "2024-11-15",
     endDate: "2024-12-31",
     status: "active",
@@ -206,8 +206,8 @@ const badges = [
   {
     id: "BADGE-001",
     type: "quota-crusher" as const,
-    name: "Quota Crusher",
-    description: "Exceeded quota by 25% or more",
+    name: "Target Crusher",
+    description: "Exceeded target by 25% or more",
     earnedDate: "2024-11-30",
     level: "gold" as const,
   },
@@ -238,7 +238,7 @@ const badges = [
     id: "BADGE-005",
     type: "champion" as const,
     name: "Team Champion",
-    description: "Helped 3+ teammates hit quota",
+    description: "Helped 3+ teammates hit target",
     earnedDate: "",
     progress: 67,
   },
@@ -394,7 +394,7 @@ export default function AccelerationPage() {
                         <p className="font-medium text-emerald-600">{spif.dealsWon}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Total Payout</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Total Outcome</p>
                         <p className="font-medium text-emerald-600">
                           {fmt(spif.totalPayout)}
                         </p>
