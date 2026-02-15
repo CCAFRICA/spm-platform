@@ -221,6 +221,15 @@ export interface CalculationStep {
 }
 
 export interface CalculationResult {
+  // Entity model fields (canonical)
+  entityId?: string;
+  entityName?: string;
+  entityRole?: string;
+  ruleSetId?: string;
+  ruleSetName?: string;
+  totalOutcome?: number;
+
+  // Legacy fields (backward-compatible — will be removed in future)
   employeeId: string;
   employeeName: string;
   employeeRole: string;
@@ -293,3 +302,20 @@ export function isAdditiveLookupConfig(config: AdditiveLookupConfig | WeightedKP
 export function isWeightedKPIConfig(config: AdditiveLookupConfig | WeightedKPIConfig): config is WeightedKPIConfig {
   return config.type === 'weighted_kpi';
 }
+
+// ============================================
+// ENTITY MODEL ALIASES (OB-42 Phase 11)
+// Backward-compatible: old names still work
+// ============================================
+
+/** @alias CompensationPlanConfig — Entity model canonical name */
+export type RuleSetConfig = CompensationPlanConfig;
+
+/** @alias PlanStatus — Entity model canonical name */
+export type RuleSetStatus = PlanStatus;
+
+/** @alias PlanType — Entity model canonical name */
+export type RuleSetType = PlanType;
+
+/** @alias PlanSummary — Entity model canonical name */
+export type RuleSetSummary = PlanSummary;

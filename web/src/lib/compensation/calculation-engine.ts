@@ -21,6 +21,13 @@ import { getActivePlan, getPlan } from './plan-storage';
 // ============================================
 
 export interface EmployeeMetrics {
+  // Entity model fields (canonical)
+  entityId?: string;
+  entityName?: string;
+  entityRole?: string;
+  ruleSetId?: string;
+
+  // Legacy fields (backward-compatible)
   employeeId: string;
   employeeName: string;
   employeeRole: string;
@@ -32,6 +39,9 @@ export interface EmployeeMetrics {
   periodEnd: string;
   metrics: Record<string, number>;
 }
+
+/** @alias EmployeeMetrics — Entity model canonical name */
+export type EntityMetrics = EmployeeMetrics;
 
 // ============================================
 // OB-27B: WARNING SUMMARY SYSTEM
@@ -171,6 +181,14 @@ function calculateAdditiveLookup(
     });
 
   return {
+    // Entity model fields (canonical)
+    entityId: employeeMetrics.entityId || employeeMetrics.employeeId,
+    entityName: employeeMetrics.entityName || employeeMetrics.employeeName,
+    entityRole: employeeMetrics.entityRole || employeeMetrics.employeeRole,
+    ruleSetId: employeeMetrics.ruleSetId || plan.id,
+    ruleSetName: plan.name,
+    totalOutcome: totalIncentive,
+    // Legacy fields (backward-compatible)
     employeeId: employeeMetrics.employeeId,
     employeeName: employeeMetrics.employeeName,
     employeeRole: employeeMetrics.employeeRole,
@@ -605,6 +623,14 @@ function calculateWeightedKPI(
   });
 
   return {
+    // Entity model fields (canonical)
+    entityId: employeeMetrics.entityId || employeeMetrics.employeeId,
+    entityName: employeeMetrics.entityName || employeeMetrics.employeeName,
+    entityRole: employeeMetrics.entityRole || employeeMetrics.employeeRole,
+    ruleSetId: employeeMetrics.ruleSetId || plan.id,
+    ruleSetName: plan.name,
+    totalOutcome: totalIncentive,
+    // Legacy fields (backward-compatible)
     employeeId: employeeMetrics.employeeId,
     employeeName: employeeMetrics.employeeName,
     employeeRole: employeeMetrics.employeeRole,

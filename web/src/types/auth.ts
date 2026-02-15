@@ -22,6 +22,8 @@ export interface TenantUser extends BaseUser {
   storeId?: string;
   managerId?: string;
   permissions: string[];
+  /** OB-42: Entity model capabilities from profile */
+  capabilities?: string[];
   dataAccessLevel: 'own' | 'team' | 'region' | 'all';
   meseroId?: number; // Links to mesero record for hospitality tenants
 }
