@@ -1,21 +1,24 @@
 'use client';
 
+/**
+ * Results Dashboard — Reads from Supabase calculation_results.
+ *
+ * Shows calculation results summary, component breakdown, and entity table.
+ * All data comes from Supabase calculation_batches + calculation_results.
+ */
+
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import {
-  getLatestSummary,
-  buildCalculationSummary,
-  saveSummary,
-  generateAIBriefing,
-  type CalculationSummary,
-} from '@/lib/calculation/calculation-summary-service';
-import { getTraces } from '@/lib/forensics/forensics-service';
+  listCalculationBatches,
+  getCalculationResults,
+} from '@/lib/supabase/calculation-service';
+import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -25,89 +28,129 @@ import {
 } from '@/components/ui/select';
 import {
   BarChart3, Users, DollarSign, TrendingUp, AlertTriangle,
-  Search, Sparkles, ArrowLeft, Scale,
+  Search, ArrowLeft, Scale,
 } from 'lucide-react';
+
+type CalcResultRow = Database['public']['Tables']['calculation_results']['Row'];
+
+interface ComponentTotal {
+  componentId: string;
+  componentName: string;
+  total: number;
+  entityCount: number;
+}
+
+interface ResultRow {
+  entityId: string;
+  entityName: string;
+  storeId: string;
+  totalPayout: number;
+  components: Array<{ componentId: string; componentName: string; outputValue: number }>;
+}
 
 export default function ResultsDashboardPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
-  const [summary, setSummary] = useState<CalculationSummary | null>(null);
-  const [briefing, setBriefing] = useState<string | null>(null);
-  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [results, setResults] = useState<ResultRow[]>([]);
+  const [totalPayout, setTotalPayout] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [storeFilter, setStoreFilter] = useState<string>('all');
   const [sortField, setSortField] = useState<string>('total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [batchId, setBatchId] = useState<string>('');
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const hasAccess = user && isVLAdmin(user);
   const tenantId = currentTenant?.id || '';
 
-  // Load or build summary
+  // Load results from Supabase
   useEffect(() => {
     if (!tenantId) return;
 
-    let loaded = getLatestSummary(tenantId);
-    if (!loaded) {
-      // Try building from traces
-      const traces = getTraces(tenantId);
-      if (traces.length > 0) {
-        const runId = traces[0]?.calculationRunId || 'unknown';
-        loaded = buildCalculationSummary(traces, runId, tenantId, 'current');
-        saveSummary(loaded);
+    const loadData = async () => {
+      try {
+        // Get latest batch
+        const batches = await listCalculationBatches(tenantId);
+        if (batches.length === 0) {
+          setIsLoaded(true);
+          return;
+        }
+
+        const batch = batches[0];
+        setBatchId(batch.id);
+
+        // Get results for this batch
+        const calcResults = await getCalculationResults(tenantId, batch.id);
+
+        // Map to display format
+        const rows: ResultRow[] = calcResults.map((r: CalcResultRow) => {
+          const comps = Array.isArray(r.components) ? r.components : [];
+          return {
+            entityId: r.entity_id,
+            entityName: (r.metadata as Record<string, unknown>)?.entityName as string || r.entity_id,
+            storeId: (r.metadata as Record<string, unknown>)?.storeId as string || '',
+            totalPayout: r.total_payout || 0,
+            components: comps.map((c: unknown) => {
+              const comp = c as Record<string, unknown>;
+              return {
+                componentId: String(comp.componentId || comp.component_id || ''),
+                componentName: String(comp.componentName || comp.component_name || ''),
+                outputValue: Number(comp.outputValue || comp.output_value || 0),
+              };
+            }),
+          };
+        });
+
+        setResults(rows);
+        setTotalPayout(rows.reduce((sum, r) => sum + r.totalPayout, 0));
+        setIsLoaded(true);
+      } catch (err) {
+        console.warn('[Results] Failed to load results:', err);
+        setIsLoaded(true);
       }
-    }
-    if (loaded) {
-      setSummary(loaded);
-      if (loaded.aiBriefing) {
-        setBriefing(loaded.aiBriefing);
-      }
-    }
+    };
+
+    loadData();
   }, [tenantId]);
 
-  // Generate AI briefing on demand
-  const handleGenerateBriefing = async () => {
-    if (!summary || !tenantId) return;
-    setBriefingLoading(true);
-    try {
-      const text = await generateAIBriefing(summary, tenantId);
-      setBriefing(text);
-      if (text) {
-        const updated = { ...summary, aiBriefing: text, aiBriefingAvailable: true };
-        setSummary(updated);
-        saveSummary(updated);
+  // Component totals
+  const componentTotals = useMemo((): ComponentTotal[] => {
+    const map = new Map<string, { name: string; total: number; count: number }>();
+    for (const r of results) {
+      for (const c of r.components) {
+        const existing = map.get(c.componentId) || { name: c.componentName, total: 0, count: 0 };
+        existing.total += c.outputValue;
+        existing.count += 1;
+        map.set(c.componentId, existing);
       }
-    } catch {
-      // Graceful degradation
-    } finally {
-      setBriefingLoading(false);
     }
-  };
+    return Array.from(map.entries()).map(([id, data]) => ({
+      componentId: id,
+      componentName: data.name,
+      total: data.total,
+      entityCount: data.count,
+    }));
+  }, [results]);
 
-  // Build employee rows from traces for the table (dynamic columns from summary)
-  const traces = useMemo(() => {
-    if (!tenantId) return [];
-    return getTraces(tenantId);
-  }, [tenantId]);
-
-  const filteredTraces = useMemo(() => {
-    let filtered = traces;
+  // Filtered and sorted results
+  const filteredResults = useMemo(() => {
+    let filtered = results;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(t =>
-        t.entityId.toLowerCase().includes(q) ||
-        t.entityName.toLowerCase().includes(q) ||
-        (t.storeId || '').toLowerCase().includes(q)
+      filtered = filtered.filter(r =>
+        r.entityId.toLowerCase().includes(q) ||
+        r.entityName.toLowerCase().includes(q) ||
+        r.storeId.toLowerCase().includes(q)
       );
     }
     if (storeFilter !== 'all') {
-      filtered = filtered.filter(t => t.storeId === storeFilter);
+      filtered = filtered.filter(r => r.storeId === storeFilter);
     }
-    // Sort
-    filtered = [...filtered].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       if (sortField === 'total') {
-        return sortDir === 'desc' ? b.totalIncentive - a.totalIncentive : a.totalIncentive - b.totalIncentive;
+        return sortDir === 'desc' ? b.totalPayout - a.totalPayout : a.totalPayout - b.totalPayout;
       }
       if (sortField === 'name') {
         return sortDir === 'desc'
@@ -116,23 +159,13 @@ export default function ResultsDashboardPage() {
       }
       return 0;
     });
-    return filtered;
-  }, [traces, searchQuery, storeFilter, sortField, sortDir]);
+  }, [results, searchQuery, storeFilter, sortField, sortDir]);
 
   // Unique stores for filter
   const storeIds = useMemo(() => {
-    const ids = Array.from(new Set(traces.map(t => t.storeId || 'unknown')));
+    const ids = Array.from(new Set(results.map(r => r.storeId || 'unknown')));
     return ids.sort();
-  }, [traces]);
-
-  // Component columns (dynamic from summary)
-  const componentColumns = summary?.componentTotals || [];
-
-  // Outlier IDs for highlighting
-  const outlierIds = useMemo(() => {
-    if (!summary) return new Set<string>();
-    return new Set(summary.outliers.map(o => o.entityId));
-  }, [summary]);
+  }, [results]);
 
   if (!hasAccess) {
     return (
@@ -151,7 +184,7 @@ export default function ResultsDashboardPage() {
     );
   }
 
-  if (!summary) {
+  if (isLoaded && results.length === 0) {
     return (
       <div className="p-6 space-y-6">
         <div className="flex items-center gap-4">
@@ -174,6 +207,9 @@ export default function ResultsDashboardPage() {
     );
   }
 
+  const entityCount = results.length;
+  const avgPayout = entityCount > 0 ? totalPayout / entityCount : 0;
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -184,39 +220,12 @@ export default function ResultsDashboardPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Results Dashboard</h1>
           <p className="text-slate-500 text-sm">
-            {summary.entityCount} employees | Run: {summary.runId.slice(0, 8)}
+            {entityCount} entities | Batch: {batchId.slice(0, 8)}
           </p>
         </div>
       </div>
 
-      {/* Section 1: AI Briefing Card */}
-      <Card className="border-blue-200 bg-blue-50/50">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-blue-800">
-            <Sparkles className="h-5 w-5" />
-            AI Briefing
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {briefing ? (
-            <p className="text-sm text-blue-900 whitespace-pre-line">{briefing}</p>
-          ) : (
-            <div className="flex items-center gap-3">
-              <p className="text-sm text-blue-700">
-                {briefingLoading ? 'Generating analysis...' : 'AI analysis unavailable.'}
-              </p>
-              {!briefingLoading && (
-                <Button size="sm" variant="outline" onClick={handleGenerateBriefing}>
-                  <Sparkles className="h-3 w-3 mr-1" />
-                  Generate
-                </Button>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Section 2: Summary Cards */}
+      {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-6">
@@ -226,7 +235,7 @@ export default function ResultsDashboardPage() {
               </div>
               <div>
                 <p className="text-sm text-slate-500">Total Payout</p>
-                <p className="text-2xl font-bold">{formatCurrency(summary.totalPayout)}</p>
+                <p className="text-2xl font-bold">{formatCurrency(totalPayout)}</p>
               </div>
             </div>
           </CardContent>
@@ -238,8 +247,8 @@ export default function ResultsDashboardPage() {
                 <Users className="h-6 w-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-500">Employees</p>
-                <p className="text-2xl font-bold">{summary.entityCount}</p>
+                <p className="text-sm text-slate-500">Entities</p>
+                <p className="text-2xl font-bold">{entityCount}</p>
               </div>
             </div>
           </CardContent>
@@ -252,7 +261,7 @@ export default function ResultsDashboardPage() {
               </div>
               <div>
                 <p className="text-sm text-slate-500">Average Payout</p>
-                <p className="text-2xl font-bold">{formatCurrency(summary.averagePayout)}</p>
+                <p className="text-2xl font-bold">{formatCurrency(avgPayout)}</p>
               </div>
             </div>
           </CardContent>
@@ -265,139 +274,61 @@ export default function ResultsDashboardPage() {
               </div>
               <div>
                 <p className="text-sm text-slate-500">Components</p>
-                <p className="text-2xl font-bold">{componentColumns.length}</p>
+                <p className="text-2xl font-bold">{componentTotals.length}</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Section 3: Component Breakdown */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
-            Component Breakdown
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {componentColumns.map(comp => {
-              const maxTotal = Math.max(...componentColumns.map(c => c.total), 1);
-              const widthPct = (comp.total / maxTotal) * 100;
-              return (
-                <div key={comp.componentId} className="flex items-center gap-3">
-                  <span className="text-sm font-medium w-40 truncate" title={comp.componentName}>
-                    {comp.componentName}
-                  </span>
-                  <div className="flex-1 bg-slate-100 rounded-full h-6 relative overflow-hidden">
-                    <div
-                      className="bg-blue-500 h-6 rounded-full transition-all"
-                      style={{ width: `${widthPct}%` }}
-                    />
-                    <span className="absolute inset-0 flex items-center justify-end pr-2 text-xs font-medium">
-                      {formatCurrency(comp.total)}
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-400 w-16 text-right">
-                    {comp.entityCount} emp
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Section 4: Store Breakdown (top 20) */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Store Breakdown (Top 20)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {summary.storeTotals.slice(0, 20).map(store => {
-              const maxStore = Math.max(...summary.storeTotals.slice(0, 20).map(s => s.total), 1);
-              const widthPct = (store.total / maxStore) * 100;
-              return (
-                <div
-                  key={store.storeId}
-                  className="flex items-center gap-3 cursor-pointer hover:bg-slate-50 rounded p-1"
-                  onClick={() => setStoreFilter(store.storeId)}
-                >
-                  <span className="text-sm font-mono w-20">{store.storeId}</span>
-                  <div className="flex-1 bg-slate-100 rounded-full h-5 relative overflow-hidden">
-                    <div
-                      className="bg-purple-500 h-5 rounded-full"
-                      style={{ width: `${widthPct}%` }}
-                    />
-                    <span className="absolute inset-0 flex items-center justify-end pr-2 text-xs font-medium">
-                      {formatCurrency(store.total)}
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-400 w-12 text-right">{store.entityCount}</span>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Section 5: Variant Distribution */}
-      {summary.variantDistribution.length > 1 && (
+      {/* Component Breakdown */}
+      {componentTotals.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Variant Distribution</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Component Breakdown
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-2">
-              {summary.variantDistribution.map(v => (
-                <div key={v.variant} className="border rounded-lg p-4">
-                  <p className="font-medium">{v.variant}</p>
-                  <div className="grid grid-cols-3 gap-2 mt-2 text-sm">
-                    <div>
-                      <p className="text-slate-500">Count</p>
-                      <p className="font-bold">{v.count}</p>
+            <div className="space-y-3">
+              {componentTotals.map(comp => {
+                const maxTotal = Math.max(...componentTotals.map(c => c.total), 1);
+                const widthPct = (comp.total / maxTotal) * 100;
+                return (
+                  <div key={comp.componentId} className="flex items-center gap-3">
+                    <span className="text-sm font-medium w-40 truncate" title={comp.componentName}>
+                      {comp.componentName}
+                    </span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-6 relative overflow-hidden">
+                      <div
+                        className="bg-blue-500 h-6 rounded-full transition-all"
+                        style={{ width: `${widthPct}%` }}
+                      />
+                      <span className="absolute inset-0 flex items-center justify-end pr-2 text-xs font-medium">
+                        {formatCurrency(comp.total)}
+                      </span>
                     </div>
-                    <div>
-                      <p className="text-slate-500">Total</p>
-                      <p className="font-bold">{formatCurrency(v.totalPayout)}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500">Avg</p>
-                      <p className="font-bold">{formatCurrency(v.avgPayout)}</p>
-                    </div>
+                    <span className="text-xs text-slate-400 w-16 text-right">
+                      {comp.entityCount} ent
+                    </span>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Section 7: Outlier Alert */}
-      {summary.outliers.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50/50">
-          <CardContent className="py-4">
-            <div className="flex items-center gap-2 text-amber-800">
-              <AlertTriangle className="h-5 w-5" />
-              <span className="font-medium">
-                {summary.outliers.length} employee{summary.outliers.length > 1 ? 's' : ''} with payouts more than 3 standard deviations from the mean. Review before approval.
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Section 6: Employee Table */}
+      {/* Entity Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Employee Results</CardTitle>
+          <CardTitle>Entity Results</CardTitle>
           <div className="flex gap-3 mt-2">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
-                placeholder="Search employee..."
+                placeholder="Search entity..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -425,12 +356,10 @@ export default function ResultsDashboardPage() {
                     className="cursor-pointer hover:bg-slate-50"
                     onClick={() => { setSortField('name'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}
                   >
-                    Employee
+                    Entity
                   </TableHead>
                   <TableHead>Store</TableHead>
-                  <TableHead>Variant</TableHead>
-                  {/* Dynamic component columns */}
-                  {componentColumns.map(cc => (
+                  {componentTotals.map(cc => (
                     <TableHead key={cc.componentId} className="text-right">
                       <span className="text-xs">{cc.componentName}</span>
                     </TableHead>
@@ -444,42 +373,37 @@ export default function ResultsDashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTraces.slice(0, 100).map(trace => {
-                  const isOutlier = outlierIds.has(trace.entityId);
-                  return (
-                    <TableRow
-                      key={trace.traceId}
-                      className={`cursor-pointer hover:bg-slate-50 ${isOutlier ? 'bg-amber-50' : ''}`}
-                      onClick={() => router.push(`/investigate/trace/${trace.entityId}?from=results`)}
-                    >
-                      <TableCell>
-                        <div>
-                          <span className="font-medium">{trace.entityName}</span>
-                          {isOutlier && <Badge className="ml-2 bg-amber-100 text-amber-700 text-xs">Outlier</Badge>}
-                          <p className="text-xs text-slate-400">{trace.entityId}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{trace.storeId || '-'}</TableCell>
-                      <TableCell className="text-sm">{trace.variant?.variantName || '-'}</TableCell>
-                      {componentColumns.map(cc => {
-                        const comp = trace.components.find(c => c.componentId === cc.componentId);
-                        return (
-                          <TableCell key={cc.componentId} className="text-right text-sm">
-                            {comp ? formatCurrency(comp.outputValue) : '-'}
-                          </TableCell>
-                        );
-                      })}
-                      <TableCell className="text-right font-bold">
-                        {formatCurrency(trace.totalIncentive)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {filteredResults.slice(0, 100).map(row => (
+                  <TableRow
+                    key={row.entityId}
+                    className="cursor-pointer hover:bg-slate-50"
+                    onClick={() => router.push(`/investigate/trace/${row.entityId}?from=results`)}
+                  >
+                    <TableCell>
+                      <div>
+                        <span className="font-medium">{row.entityName}</span>
+                        <p className="text-xs text-slate-400">{row.entityId}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{row.storeId || '-'}</TableCell>
+                    {componentTotals.map(cc => {
+                      const comp = row.components.find(c => c.componentId === cc.componentId);
+                      return (
+                        <TableCell key={cc.componentId} className="text-right text-sm">
+                          {comp ? formatCurrency(comp.outputValue) : '-'}
+                        </TableCell>
+                      );
+                    })}
+                    <TableCell className="text-right font-bold">
+                      {formatCurrency(row.totalPayout)}
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
-            {filteredTraces.length > 100 && (
+            {filteredResults.length > 100 && (
               <p className="text-sm text-slate-400 mt-2 text-center">
-                Showing 100 of {filteredTraces.length} employees
+                Showing 100 of {filteredResults.length} entities
               </p>
             )}
           </div>

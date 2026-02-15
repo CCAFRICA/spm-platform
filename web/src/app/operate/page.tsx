@@ -5,34 +5,25 @@
  *
  * The operations center for running the compensation cycle.
  * Shows current cycle status, pending actions, and quick access to cycle phases.
+ *
+ * Reads lifecycle state from Supabase calculation_batches.
  */
 
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCycleState, useQueue } from '@/contexts/navigation-context';
-import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useTenant } from '@/contexts/tenant-context';
 import { CYCLE_PHASE_LABELS } from '@/types/navigation';
 import { getRouteForPhase } from '@/lib/navigation/cycle-service';
-import {
-  listCycles,
-  getStateLabel,
-  getStateColor,
-} from '@/lib/calculation/calculation-lifecycle-service';
+import { getStateLabel, getStateColor } from '@/lib/calculation/lifecycle-utils';
+import { listCalculationBatches } from '@/lib/supabase/calculation-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import {
-  Upload,
-  Calculator,
-  GitCompare,
-  CheckCircle,
-  Wallet,
-  AlertTriangle,
-  ArrowRight,
-  Activity,
-  Database,
-  ShieldCheck,
-  TrendingUp,
-  Scale,
+  Upload, Calculator, GitCompare, CheckCircle, Wallet,
+  AlertTriangle, ArrowRight, Activity, Database, ShieldCheck,
+  TrendingUp, Scale,
 } from 'lucide-react';
 import type { CyclePhase } from '@/types/navigation';
 
@@ -45,23 +36,46 @@ const PHASE_ICONS: Record<CyclePhase, React.ComponentType<{ className?: string }
   closed: CheckCircle,
 };
 
+interface BatchInfo {
+  id: string;
+  lifecycle_state: string;
+  period_id: string;
+  entity_count: number;
+  summary: Record<string, unknown> | null;
+  created_at: string;
+}
+
 export default function OperatePage() {
   const router = useRouter();
   const { cycleState, nextAction, isSpanish } = useCycleState();
   const { items } = useQueue();
   const { currentTenant } = useTenant();
-
   const displaySpanish = isSpanish;
   const hasFinancial = currentTenant?.features?.financial === true;
-  const { format: formatCurrency } = useCurrency();
 
-  // OB-39: Get latest lifecycle cycle for display
-  const latestCycle = currentTenant ? listCycles(currentTenant.id)[0] : null;
+  const [latestBatch, setLatestBatch] = useState<BatchInfo | null>(null);
 
-  // Cycle phases to display
+  // Load latest batch from Supabase
+  useEffect(() => {
+    if (!currentTenant) return;
+    listCalculationBatches(currentTenant.id)
+      .then(batches => {
+        if (batches.length > 0) {
+          const b = batches[0];
+          setLatestBatch({
+            id: b.id,
+            lifecycle_state: b.lifecycle_state,
+            period_id: b.period_id,
+            entity_count: b.entity_count || 0,
+            summary: b.summary as Record<string, unknown> | null,
+            created_at: b.created_at,
+          });
+        }
+      })
+      .catch(err => console.warn('[Operate] Failed to load batches:', err));
+  }, [currentTenant]);
+
   const cyclePhases: CyclePhase[] = ['import', 'calculate', 'reconcile', 'approve', 'pay'];
-
-  // Critical/high urgency items
   const urgentItems = items.filter(i => i.urgency === 'critical' || i.urgency === 'high');
 
   return (
@@ -93,8 +107,8 @@ export default function OperatePage() {
         </div>
       </div>
 
-      {/* OB-39: Lifecycle State */}
-      {latestCycle && (
+      {/* Lifecycle State from Supabase */}
+      {latestBatch && (
         <Card className="border-l-4 border-l-blue-500">
           <CardContent className="py-4">
             <div className="flex items-center justify-between">
@@ -103,13 +117,13 @@ export default function OperatePage() {
                 <span className="text-sm font-medium text-slate-700">
                   {displaySpanish ? 'Estado del Ciclo' : 'Cycle State'}:
                 </span>
-                <Badge className={getStateColor(latestCycle.state)}>
-                  {getStateLabel(latestCycle.state)}
+                <Badge className={getStateColor(latestBatch.lifecycle_state)}>
+                  {getStateLabel(latestBatch.lifecycle_state)}
                 </Badge>
-                <span className="text-xs text-slate-500">{latestCycle.period}</span>
-                {latestCycle.officialSnapshot && (
+                <span className="text-xs text-slate-500">{latestBatch.period_id}</span>
+                {latestBatch.entity_count > 0 && (
                   <span className="text-xs text-slate-400">
-                    {formatCurrency(latestCycle.officialSnapshot.totalPayout)} | {latestCycle.officialSnapshot.entityCount} {displaySpanish ? 'empleados' : 'employees'}
+                    {latestBatch.entity_count} {displaySpanish ? 'entidades' : 'entities'}
                   </span>
                 )}
               </div>
@@ -121,11 +135,6 @@ export default function OperatePage() {
                 <ArrowRight className="h-3 w-3" />
               </button>
             </div>
-            {latestCycle.state === 'REJECTED' && latestCycle.rejectionReason && (
-              <p className="text-xs text-red-600 mt-2 pl-8">
-                {displaySpanish ? 'Razon de rechazo' : 'Rejection reason'}: {latestCycle.rejectionReason}
-              </p>
-            )}
           </CardContent>
         </Card>
       )}
@@ -142,10 +151,7 @@ export default function OperatePage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Progress bar */}
             <Progress value={cycleState?.completionPercentage || 0} className="h-2" />
-
-            {/* Phase cards */}
             <div className="grid grid-cols-5 gap-4">
               {cyclePhases.map((phase) => {
                 const Icon = PHASE_ICONS[phase];
