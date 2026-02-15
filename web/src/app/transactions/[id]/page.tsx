@@ -215,8 +215,9 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
       const txn = retailCoTransactions[id];
       if (txn) {
         const metrics = txn.repId === 'maria-rodriguez' ? getMariaMetrics() : getJamesMetrics();
-        const result = calculateIncentive(metrics, currentTenant.id);
-        setCalculationResult(result);
+        calculateIncentive(metrics, currentTenant.id).then((result) => {
+          setCalculationResult(result);
+        });
       }
       setIsLoading(false);
     }

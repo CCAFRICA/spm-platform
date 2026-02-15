@@ -26,7 +26,7 @@ export function AccessControl({
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
 
-  // Get role from auth context (no direct localStorage access)
+  // Get role from auth context
   const currentRole = (user?.role as UserRole) || 'sales_rep';
   const hasAccess = allowedRoles.includes(currentRole) || currentRole === 'vl_admin';
 

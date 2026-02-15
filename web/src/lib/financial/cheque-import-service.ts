@@ -5,6 +5,8 @@
  * - Raw: Original parsed records (immutable)
  * - Transformed: Validated and normalized records
  * - Committed: Approved records for calculations
+ *
+ * NOTE: localStorage removed (OB-43A). All storage helpers return empty / no-op.
  */
 
 import type { Cheque, ChequeImportResult, ChequeImportError } from './types';
@@ -55,71 +57,23 @@ interface ImportBatch {
 }
 
 // ============================================
-// CHUNKED STORAGE HELPERS
+// STORAGE HELPERS (no-ops, localStorage removed)
 // ============================================
 
-const CHUNK_SIZE = 2000; // Items per chunk to stay within localStorage limits
-
-function loadFromStorage<T>(key: string): T[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    // Check for chunked storage first
-    const meta = localStorage.getItem(`${key}_meta`);
-    if (meta) {
-      const { chunkCount } = JSON.parse(meta);
-      const allItems: T[] = [];
-      for (let i = 0; i < chunkCount; i++) {
-        const chunk = localStorage.getItem(`${key}_${i}`);
-        if (chunk) {
-          allItems.push(...JSON.parse(chunk));
-        }
-      }
-      return allItems;
-    }
-    // Fall back to non-chunked for backward compatibility
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function loadFromStorage<T>(_key: string): T[] {
+  // localStorage removed -- always return empty
+  return [];
 }
 
-function saveToStorage<T>(key: string, data: T[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (data.length <= CHUNK_SIZE) {
-      // Small dataset - store directly (clear any old chunks)
-      clearChunks(key);
-      localStorage.setItem(key, JSON.stringify(data));
-    } else {
-      // Large dataset - chunk it
-      // Remove non-chunked key if it exists
-      localStorage.removeItem(key);
-      const chunkCount = Math.ceil(data.length / CHUNK_SIZE);
-      // Save metadata
-      localStorage.setItem(`${key}_meta`, JSON.stringify({ chunkCount, totalItems: data.length }));
-      // Save chunks
-      for (let i = 0; i < chunkCount; i++) {
-        const chunk = data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-        localStorage.setItem(`${key}_${i}`, JSON.stringify(chunk));
-      }
-    }
-  } catch (e) {
-    console.warn('Storage save failed:', e);
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveToStorage<T>(_key: string, _data: T[]): void {
+  // localStorage removed -- no-op
 }
 
-function clearChunks(key: string): void {
-  try {
-    const meta = localStorage.getItem(`${key}_meta`);
-    if (meta) {
-      const { chunkCount } = JSON.parse(meta);
-      for (let i = 0; i < chunkCount; i++) {
-        localStorage.removeItem(`${key}_${i}`);
-      }
-      localStorage.removeItem(`${key}_meta`);
-    }
-  } catch { /* ignore */ }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function clearChunks(_key: string): void {
+  // localStorage removed -- no-op
 }
 
 // ============================================
@@ -366,7 +320,7 @@ export class ChequeImportService {
   }
 
   /**
-   * Clear all data for tenant (for testing)
+   * Clear all data for tenant (no-op, localStorage removed)
    */
   clearAllData(): void {
     const keys = [
@@ -377,12 +331,7 @@ export class ChequeImportService {
     ];
 
     keys.forEach(key => {
-      if (typeof window !== 'undefined') {
-        // Clear chunked storage
-        clearChunks(key);
-        // Clear non-chunked storage
-        localStorage.removeItem(key);
-      }
+      clearChunks(key);
     });
   }
 }

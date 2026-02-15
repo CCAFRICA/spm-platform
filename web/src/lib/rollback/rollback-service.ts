@@ -9,14 +9,15 @@ import type {
   Checkpoint,
   RollbackResult,
 } from '../data-architecture/types';
-import {
-  rollbackBatch,
-  getCheckpoints,
-  createCheckpoint as createDataCheckpoint,
-  getImportBatches,
-  resetTenantData,
-  getImportBatch,
-} from '../data-architecture/data-layer-service';
+// Stubs for deleted data-layer-service -- Supabase migration pending
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
+function rollbackBatch(_batchId: string, _reason?: string, _userId?: string): RollbackResult { return { success: false, message: 'Supabase migration pending', recordsAffected: 0, batchId: _batchId, cascadeAffected: [], rollbackTimestamp: new Date().toISOString() }; }
+function getCheckpoints(_tenantId: string): any[] { return []; }
+function createDataCheckpoint(_tenantId: string, _label: string, _description?: string, _userId?: string): any { return { id: '', tenantId: _tenantId, label: _label, createdAt: new Date().toISOString() }; }
+function getImportBatches(_tenantId: string): any[] { return []; }
+function resetTenantData(_tenantId: string): void { /* no-op */ }
+function getImportBatch(_batchId: string): any { return null; }
+/* eslint-enable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { analyzeCascade, getRollbackRecommendation, type CascadeAnalysis } from './cascade-analyzer';
 import { createApprovalRequest } from '../approval-routing/approval-service';
 import type { ApprovalContext } from '../approval-routing/types';

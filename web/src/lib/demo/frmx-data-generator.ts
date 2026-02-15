@@ -4,6 +4,7 @@
  * Generates importable cheques + articulos TSV files for weeks 6-7.
  * Uses the product variant generator to create messy product descriptions
  * that feed into the normalization engine.
+ * localStorage removed -- accessor functions return empty defaults.
  *
  * Data Flow:
  *   Week 1-5: Auto-provisioned baseline (frmx-demo-provisioner.ts)
@@ -21,6 +22,7 @@ import { getLocationDescriptions, CANONICAL_PRODUCTS } from '@/lib/normalization
 // =============================================================================
 
 const FRMX_TENANT_ID = 'frmx-demo';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEY_PREFIX = 'frmx_demo_';
 
 // Week 6: Dec 30, 2024 - Jan 5, 2025
@@ -37,14 +39,8 @@ function getLocations(): Array<{
   brand: string;
   pattern: string;
 }> {
-  if (typeof window === 'undefined') return [];
-  const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}locations`);
-  if (!stored) return [];
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  // No localStorage -- return empty (provisioner data not available)
+  return [];
 }
 
 function getServers(): Array<{
@@ -53,14 +49,8 @@ function getServers(): Array<{
   location: string;
   pattern: string;
 }> {
-  if (typeof window === 'undefined') return [];
-  const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}servers`);
-  if (!stored) return [];
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  // No localStorage -- return empty
+  return [];
 }
 
 function getBrandConfigs(): Record<string, {
@@ -69,20 +59,12 @@ function getBrandConfigs(): Record<string, {
   tipRateBase: number;
   foodRatio: number;
 }> {
-  if (typeof window === 'undefined') return {};
-  const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}brand_configs`);
-  if (!stored) {
-    return {
-      'cocina-dorada': { avgCheckBase: 420, dailyChecks: 20, tipRateBase: 0.16, foodRatio: 0.70 },
-      'taco-veloz':    { avgCheckBase: 280, dailyChecks: 25, tipRateBase: 0.13, foodRatio: 0.75 },
-      'mar-y-brasa':   { avgCheckBase: 380, dailyChecks: 18, tipRateBase: 0.15, foodRatio: 0.60 },
-    };
-  }
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return {};
-  }
+  // Return static defaults (no localStorage)
+  return {
+    'cocina-dorada': { avgCheckBase: 420, dailyChecks: 20, tipRateBase: 0.16, foodRatio: 0.70 },
+    'taco-veloz':    { avgCheckBase: 280, dailyChecks: 25, tipRateBase: 0.13, foodRatio: 0.75 },
+    'mar-y-brasa':   { avgCheckBase: 380, dailyChecks: 18, tipRateBase: 0.15, foodRatio: 0.60 },
+  };
 }
 
 // =============================================================================
@@ -338,40 +320,21 @@ export function generateWeekData(weekNumber: 6 | 7): WeekDataResult {
 /**
  * Store generated week data for later import.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function storeWeekData(weekNumber: 6 | 7, data: WeekDataResult): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(
-    `${STORAGE_KEY_PREFIX}week${weekNumber}_cheques_tsv`,
-    data.chequesTSV
-  );
-  localStorage.setItem(
-    `${STORAGE_KEY_PREFIX}week${weekNumber}_articulos_tsv`,
-    data.articulosTSV
-  );
-  localStorage.setItem(
-    `${STORAGE_KEY_PREFIX}week${weekNumber}_stats`,
-    JSON.stringify(data.stats)
-  );
+  // No-op: localStorage removed
 }
 
 /**
  * Load previously generated week data.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function loadWeekData(weekNumber: 6 | 7): {
   chequesTSV: string | null;
   articulosTSV: string | null;
   stats: WeekDataResult['stats'] | null;
 } {
-  if (typeof window === 'undefined') return { chequesTSV: null, articulosTSV: null, stats: null };
-  const chequesTSV = localStorage.getItem(`${STORAGE_KEY_PREFIX}week${weekNumber}_cheques_tsv`);
-  const articulosTSV = localStorage.getItem(`${STORAGE_KEY_PREFIX}week${weekNumber}_articulos_tsv`);
-  const statsStr = localStorage.getItem(`${STORAGE_KEY_PREFIX}week${weekNumber}_stats`);
-
-  return {
-    chequesTSV,
-    articulosTSV,
-    stats: statsStr ? JSON.parse(statsStr) : null,
-  };
+  return { chequesTSV: null, articulosTSV: null, stats: null };
 }
 
 /**

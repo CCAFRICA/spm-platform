@@ -8,6 +8,7 @@
  * - ~12,000+ cheques (5 weeks: Dec 2-30, 2024)
  *
  * Data flows through ChequeImportService (real pipeline).
+ * localStorage removed -- accessor functions return static constants.
  *
  * 7 Location Patterns:
  *   strong      - Consistently above-average revenue and volume
@@ -49,6 +50,7 @@ interface PatternBehavior {
 // =============================================================================
 
 const FRMX_TENANT_ID = 'frmx-demo';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEY_PREFIX = 'frmx_demo_';
 
 // Fixed data range: 5 weeks
@@ -469,8 +471,7 @@ function chequesToTSV(cheques: Cheque[]): string {
 // =============================================================================
 
 export function isProvisioned(): boolean {
-  if (typeof window === 'undefined') return false;
-  return localStorage.getItem(`${STORAGE_KEY_PREFIX}provisioned`) === 'true';
+  return false;
 }
 
 export function provisionFRMXDemo(): {
@@ -483,29 +484,7 @@ export function provisionFRMXDemo(): {
     const cheques = generateCheques();
     console.log(`Generated ${cheques.length} cheques`);
 
-    // Store brands, locations, and servers
-    localStorage.setItem(
-      `${STORAGE_KEY_PREFIX}brands`,
-      JSON.stringify(BRANDS)
-    );
-    localStorage.setItem(
-      `${STORAGE_KEY_PREFIX}locations`,
-      JSON.stringify(LOCATIONS)
-    );
-    localStorage.setItem(
-      `${STORAGE_KEY_PREFIX}servers`,
-      JSON.stringify(SERVERS)
-    );
-
-    // Store pattern behaviors and brand configs for downstream use
-    localStorage.setItem(
-      `${STORAGE_KEY_PREFIX}pattern_behaviors`,
-      JSON.stringify(PATTERN_BEHAVIORS)
-    );
-    localStorage.setItem(
-      `${STORAGE_KEY_PREFIX}brand_configs`,
-      JSON.stringify(BRAND_CONFIGS)
-    );
+    // No-op: localStorage removed for brands, locations, servers, etc.
 
     // Convert cheques to TSV and import through real pipeline
     const tsvContent = chequesToTSV(cheques);
@@ -525,10 +504,7 @@ export function provisionFRMXDemo(): {
       };
     }
 
-    // Mark as provisioned
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}provisioned`, 'true');
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}provisionedAt`, new Date().toISOString());
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}chequeCount`, String(cheques.length));
+    // No-op: localStorage removed for provisioned flag
 
     console.log('FRMX demo provisioned successfully');
     return { success: true, chequeCount: cheques.length };
@@ -547,21 +523,15 @@ export function provisionFRMXDemo(): {
 // =============================================================================
 
 export function getFRMXBrands() {
-  if (typeof window === 'undefined') return BRANDS;
-  const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}brands`);
-  return stored ? JSON.parse(stored) : BRANDS;
+  return BRANDS;
 }
 
 export function getFRMXLocations() {
-  if (typeof window === 'undefined') return LOCATIONS;
-  const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}locations`);
-  return stored ? JSON.parse(stored) : LOCATIONS;
+  return LOCATIONS;
 }
 
 export function getFRMXServers() {
-  if (typeof window === 'undefined') return SERVERS;
-  const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}servers`);
-  return stored ? JSON.parse(stored) : SERVERS;
+  return SERVERS;
 }
 
 export function getFRMXPatternBehaviors() {
@@ -573,17 +543,6 @@ export function getFRMXBrandConfigs() {
 }
 
 export function resetFRMXDemo(): void {
-  if (typeof window === 'undefined') return;
-
-  // Clear all FRMX storage
-  const keysToRemove: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key?.startsWith(STORAGE_KEY_PREFIX) || key?.startsWith('frmx-demo')) {
-      keysToRemove.push(key);
-    }
-  }
-  keysToRemove.forEach((key) => localStorage.removeItem(key));
-
+  // No-op: localStorage removed
   console.log('FRMX demo reset');
 }

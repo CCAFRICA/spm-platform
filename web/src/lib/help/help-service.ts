@@ -12,7 +12,9 @@ import type {
   WhatsNew,
 } from '@/types/help';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const DISMISSED_TIPS_KEY = 'dismissed_tips';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const WHATS_NEW_SEEN_KEY = 'whats_new_seen';
 
 // ============================================
@@ -267,36 +269,20 @@ export function getContextualTips(route: string): ContextualTip[] {
 /**
  * Dismiss a tip
  */
-export function dismissTip(tipId: string): void {
-  if (typeof window === 'undefined') return;
-
-  const dismissed = getDismissedTips();
-  if (!dismissed.includes(tipId)) {
-    dismissed.push(tipId);
-    localStorage.setItem(DISMISSED_TIPS_KEY, JSON.stringify(dismissed));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function dismissTip(_tipId: string): void {
+  // no-op: localStorage removed
 }
 
 /**
  * Reset dismissed tips
  */
 export function resetDismissedTips(): void {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(DISMISSED_TIPS_KEY);
-  }
+  // no-op: localStorage removed
 }
 
 function getDismissedTips(): string[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(DISMISSED_TIPS_KEY);
-  if (!stored) return [];
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 function getAllContextualTips(): ContextualTip[] {
@@ -500,37 +486,15 @@ export function getWhatsNew(): WhatsNew[] {
 /**
  * Check if user has seen what's new
  */
-export function hasSeenWhatsNew(version: string): boolean {
-  if (typeof window === 'undefined') return true;
-
-  const seen = localStorage.getItem(WHATS_NEW_SEEN_KEY);
-  if (!seen) return false;
-
-  try {
-    const versions: string[] = JSON.parse(seen);
-    return versions.includes(version);
-  } catch {
-    return false;
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function hasSeenWhatsNew(_version: string): boolean {
+  return false;
 }
 
 /**
  * Mark what's new as seen
  */
-export function markWhatsNewSeen(version: string): void {
-  if (typeof window === 'undefined') return;
-
-  const seen = localStorage.getItem(WHATS_NEW_SEEN_KEY);
-  let versions: string[] = [];
-
-  try {
-    versions = seen ? JSON.parse(seen) : [];
-  } catch {
-    versions = [];
-  }
-
-  if (!versions.includes(version)) {
-    versions.push(version);
-    localStorage.setItem(WHATS_NEW_SEEN_KEY, JSON.stringify(versions));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function markWhatsNewSeen(_version: string): void {
+  // no-op: localStorage removed
 }

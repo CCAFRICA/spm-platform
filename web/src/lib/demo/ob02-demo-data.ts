@@ -2,6 +2,7 @@
  * OB-02 Demo Data
  *
  * Demo data for OB-02 features: User Import, Hierarchy, Payroll, Calculation, Reconciliation, Shadow Payroll.
+ * localStorage removed -- functions return static constants directly.
  */
 
 import type { PayrollPeriod } from '@/types/payroll-period';
@@ -622,6 +623,7 @@ export const DEMO_CALCULATION_SCENARIOS: CalculationScenario[] = [
 // DEMO INITIALIZATION
 // ============================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEYS = {
   employees: 'ob02_demo_employees',
   payrollPeriods: 'ob02_demo_payroll_periods',
@@ -635,14 +637,7 @@ const STORAGE_KEYS = {
  * Initialize OB-02 demo data in localStorage
  */
 export function initializeOB02DemoData(): void {
-  if (typeof window === 'undefined') return;
-
-  localStorage.setItem(STORAGE_KEYS.employees, JSON.stringify(DEMO_EMPLOYEES));
-  localStorage.setItem(STORAGE_KEYS.payrollPeriods, JSON.stringify(DEMO_PAYROLL_PERIODS));
-  localStorage.setItem(STORAGE_KEYS.reconciliationSessions, JSON.stringify(DEMO_RECONCILIATION_SESSIONS));
-  localStorage.setItem(STORAGE_KEYS.reconciliationRules, JSON.stringify(DEMO_RECONCILIATION_RULES));
-  localStorage.setItem(STORAGE_KEYS.shadowPayrollRuns, JSON.stringify(DEMO_SHADOW_PAYROLL_RUNS));
-  localStorage.setItem(STORAGE_KEYS.calculationScenarios, JSON.stringify(DEMO_CALCULATION_SCENARIOS));
+  // No-op: localStorage removed
 }
 
 /**
@@ -656,24 +651,13 @@ export function getOB02DemoData(): {
   shadowPayrollRuns: ShadowPayrollRun[];
   calculationScenarios: CalculationScenario[];
 } {
-  if (typeof window === 'undefined') {
-    return {
-      employees: DEMO_EMPLOYEES,
-      payrollPeriods: DEMO_PAYROLL_PERIODS,
-      reconciliationSessions: DEMO_RECONCILIATION_SESSIONS,
-      reconciliationRules: DEMO_RECONCILIATION_RULES,
-      shadowPayrollRuns: DEMO_SHADOW_PAYROLL_RUNS,
-      calculationScenarios: DEMO_CALCULATION_SCENARIOS,
-    };
-  }
-
   return {
-    employees: JSON.parse(localStorage.getItem(STORAGE_KEYS.employees) || JSON.stringify(DEMO_EMPLOYEES)),
-    payrollPeriods: JSON.parse(localStorage.getItem(STORAGE_KEYS.payrollPeriods) || JSON.stringify(DEMO_PAYROLL_PERIODS)),
-    reconciliationSessions: JSON.parse(localStorage.getItem(STORAGE_KEYS.reconciliationSessions) || JSON.stringify(DEMO_RECONCILIATION_SESSIONS)),
-    reconciliationRules: JSON.parse(localStorage.getItem(STORAGE_KEYS.reconciliationRules) || JSON.stringify(DEMO_RECONCILIATION_RULES)),
-    shadowPayrollRuns: JSON.parse(localStorage.getItem(STORAGE_KEYS.shadowPayrollRuns) || JSON.stringify(DEMO_SHADOW_PAYROLL_RUNS)),
-    calculationScenarios: JSON.parse(localStorage.getItem(STORAGE_KEYS.calculationScenarios) || JSON.stringify(DEMO_CALCULATION_SCENARIOS)),
+    employees: DEMO_EMPLOYEES,
+    payrollPeriods: DEMO_PAYROLL_PERIODS,
+    reconciliationSessions: DEMO_RECONCILIATION_SESSIONS,
+    reconciliationRules: DEMO_RECONCILIATION_RULES,
+    shadowPayrollRuns: DEMO_SHADOW_PAYROLL_RUNS,
+    calculationScenarios: DEMO_CALCULATION_SCENARIOS,
   };
 }
 
@@ -681,11 +665,5 @@ export function getOB02DemoData(): {
  * Reset OB-02 demo data to defaults
  */
 export function resetOB02DemoData(): void {
-  if (typeof window === 'undefined') return;
-
-  Object.values(STORAGE_KEYS).forEach((key) => {
-    localStorage.removeItem(key);
-  });
-
-  initializeOB02DemoData();
+  // No-op: localStorage removed
 }

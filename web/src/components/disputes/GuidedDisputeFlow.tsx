@@ -91,8 +91,9 @@ export function GuidedDisputeFlow({
 
     // Load calculation
     const metrics = getMariaMetrics();
-    const result = calculateIncentive(metrics, tenantId);
-    setCalculationResult(result);
+    calculateIncentive(metrics, tenantId).then((result) => {
+      setCalculationResult(result);
+    });
   }, [disputeId, tenantId]);
 
   const handleUnderstood = () => {

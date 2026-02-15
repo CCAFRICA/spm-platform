@@ -103,13 +103,13 @@ export default function ScenarioModelingPage() {
       // Calculate baseline for all employees
       if (plan) {
         const baselines = new Map<string, CalculationResult>();
-        DEMO_EMPLOYEES.forEach((emp) => {
+        for (const emp of DEMO_EMPLOYEES) {
           const metrics = emp.getMetrics();
-          const result = calculateIncentive(metrics, currentTenant.id);
+          const result = await calculateIncentive(metrics, currentTenant.id);
           if (result) {
             baselines.set(emp.id, result);
           }
-        });
+        }
         setBaselineResults(baselines);
       }
 

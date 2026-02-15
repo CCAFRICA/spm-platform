@@ -2,26 +2,15 @@
  * CompensationClockService -- The Circadian Clock
  *
  * ONE unified service that powers Cycle, Queue, and Pulse.
- * Modeled on the mammalian circadian clock:
  *
- *   THE CYCLE  = central pacemaker (SCN) -- drives the compensation rhythm
- *   THE QUEUE  = peripheral oscillators -- persona-specific action items
- *   THE PULSE  = feedback loops -- detect deviation, amplify health signals
- *
- * All three read from the same source of truth and update atomically:
- *   - Calculation Lifecycle State Machine (OB-34)
- *   - Data Layer (localStorage)
- *   - Calculation Results
- *
- * When the lifecycle transitions, ALL THREE reflect the new state.
+ * OB-43A: Supabase cutover — all data reads from Supabase, no localStorage.
+ * All three sub-services are now async.
  */
 
 import type { CycleState, CyclePhase, QueueItem, PulseMetric } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
-import {
-  listCycles,
-  type CalculationState,
-} from '@/lib/calculation/calculation-lifecycle-service';
+import { listCalculationBatches } from '@/lib/supabase/calculation-service';
+import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import { getCycleState as getBaseCycleState } from '@/lib/navigation/cycle-service';
 import { getQueueItems as getBaseQueueItems } from '@/lib/navigation/queue-service';
 import { getPulseMetrics as getBasePulseMetrics } from '@/lib/navigation/pulse-service';
@@ -33,12 +22,12 @@ import { getPulseMetrics as getBasePulseMetrics } from '@/lib/navigation/pulse-s
 export type PersonaType = 'vl_admin' | 'platform_admin' | 'manager' | 'sales_rep';
 
 export interface PeriodState {
-  period: string;           // 'YYYY-MM'
-  periodLabel: string;      // 'Jan 2025'
-  lifecycleState: CalculationState | 'AWAITING_DATA';
+  period: string;
+  periodLabel: string;
+  lifecycleState: string;
   phase: CyclePhase;
-  progress: number;         // 0-100
-  isActive: boolean;        // Is this the current working period?
+  progress: number;
+  isActive: boolean;
 }
 
 export interface ClockSnapshot {
@@ -54,7 +43,7 @@ export interface ClockSnapshot {
 // LIFECYCLE STATE -> CYCLE PHASE MAPPING
 // =============================================================================
 
-const STATE_TO_PHASE: Record<CalculationState | 'AWAITING_DATA', { phase: CyclePhase; progress: number }> = {
+const STATE_TO_PHASE: Record<string, { phase: CyclePhase; progress: number }> = {
   AWAITING_DATA:     { phase: 'import',    progress: 0 },
   DRAFT:             { phase: 'import',    progress: 10 },
   PREVIEW:           { phase: 'calculate', progress: 30 },
@@ -64,9 +53,7 @@ const STATE_TO_PHASE: Record<CalculationState | 'AWAITING_DATA', { phase: CycleP
   REJECTED:          { phase: 'calculate', progress: 25 },
   APPROVED:          { phase: 'approve',   progress: 75 },
   POSTED:            { phase: 'pay',       progress: 82 },
-  CLOSED:            { phase: 'pay',       progress: 90 },
-  PAID:              { phase: 'closed',    progress: 95 },
-  PUBLISHED:         { phase: 'closed',    progress: 100 },
+  CLOSED:            { phase: 'closed',    progress: 100 },
 };
 
 // =============================================================================
@@ -83,89 +70,65 @@ function personaToRole(persona: PersonaType): UserRole {
 }
 
 // =============================================================================
-// THE COMPENSATION CLOCK SERVICE
+// THE COMPENSATION CLOCK SERVICE (async — Supabase)
 // =============================================================================
 
 /**
  * Get the current cycle state for the active period.
- * Reads from the lifecycle state machine when available, falls back to
- * the base cycle-service heuristics.
  */
-export function getCycleState(tenantId: string, isSpanish: boolean = false): CycleState {
-  // Try lifecycle state machine first (OB-34)
-  const cycles = listCycles(tenantId);
-  if (cycles.length > 0) {
-    const activeCycle = cycles[0]; // Most recent
-    const mapping = STATE_TO_PHASE[activeCycle.state];
-    const baseCycle = getBaseCycleState(tenantId, isSpanish);
+export async function getCycleState(tenantId: string, isSpanish: boolean = false): Promise<CycleState> {
+  try {
+    const batches = await listCalculationBatches(tenantId);
+    const activeBatch = batches.find(b => !b.superseded_by) || batches[0] || null;
+    if (activeBatch) {
+      const mapping = STATE_TO_PHASE[activeBatch.lifecycle_state] || STATE_TO_PHASE['DRAFT'];
+      const baseCycle = await getBaseCycleState(tenantId, isSpanish);
 
-    // Overlay lifecycle state onto the base cycle for richer phase details
-    return {
-      ...baseCycle,
-      currentPhase: mapping.phase,
-      completionPercentage: mapping.progress,
-    };
+      return {
+        ...baseCycle,
+        currentPhase: mapping.phase,
+        completionPercentage: mapping.progress,
+      };
+    }
+  } catch {
+    // Fall through to base cycle state
   }
 
-  // Fall back to existing heuristic-based cycle state
   return getBaseCycleState(tenantId, isSpanish);
 }
 
 /**
  * Get all periods with calculation data, sorted most recent first.
- * Scans localStorage for lifecycle cycles and calculation runs.
  */
-export function getAllPeriods(tenantId: string, isSpanish: boolean = false): PeriodState[] {
+export async function getAllPeriods(tenantId: string, isSpanish: boolean = false): Promise<PeriodState[]> {
   const periods: PeriodState[] = [];
   const seenPeriods = new Set<string>();
 
-  // Source 1: Lifecycle cycles (OB-34)
-  const cycles = listCycles(tenantId);
-  for (const cycle of cycles) {
-    if (seenPeriods.has(cycle.period)) continue;
-    seenPeriods.add(cycle.period);
+  try {
+    const batches = await listCalculationBatches(tenantId);
+    for (const batch of batches) {
+      const period = batch.period_id;
+      if (!period || seenPeriods.has(period)) continue;
+      seenPeriods.add(period);
 
-    const mapping = STATE_TO_PHASE[cycle.state];
-    periods.push({
-      period: cycle.period,
-      periodLabel: formatPeriodLabel(cycle.period, isSpanish),
-      lifecycleState: cycle.state,
-      phase: mapping.phase,
-      progress: mapping.progress,
-      isActive: false, // Will set the first one as active below
-    });
+      const state = batch.lifecycle_state || 'DRAFT';
+      const mapping = STATE_TO_PHASE[state] || STATE_TO_PHASE['DRAFT'];
+
+      periods.push({
+        period,
+        periodLabel: formatPeriodLabel(period, isSpanish),
+        lifecycleState: state,
+        phase: mapping.phase,
+        progress: mapping.progress,
+        isActive: false,
+      });
+    }
+  } catch {
+    // Supabase unavailable
   }
 
-  // Source 2: Calculation runs (for periods without lifecycle entries)
-  if (typeof window !== 'undefined') {
-    try {
-      const runsStr = localStorage.getItem('vialuce_calculation_runs');
-      if (runsStr) {
-        const runs: Array<{ tenantId: string; periodId: string; status: string }> = JSON.parse(runsStr);
-        const tenantRuns = runs.filter(r => r.tenantId === tenantId);
-        for (const run of tenantRuns) {
-          if (seenPeriods.has(run.periodId)) continue;
-          seenPeriods.add(run.periodId);
-
-          const state: CalculationState = run.status === 'completed' ? 'PREVIEW' : 'DRAFT';
-          const mapping = STATE_TO_PHASE[state];
-          periods.push({
-            period: run.periodId,
-            periodLabel: formatPeriodLabel(run.periodId, isSpanish),
-            lifecycleState: state,
-            phase: mapping.phase,
-            progress: mapping.progress,
-            isActive: false,
-          });
-        }
-      }
-    } catch { /* ignore */ }
-  }
-
-  // Sort by period descending (most recent first)
   periods.sort((a, b) => b.period.localeCompare(a.period));
 
-  // Mark the first one as active
   if (periods.length > 0) {
     periods[0].isActive = true;
   }
@@ -175,16 +138,15 @@ export function getAllPeriods(tenantId: string, isSpanish: boolean = false): Per
 
 /**
  * Get the next recommended action for a persona in the current cycle.
- * Returns a verb phrase that describes what the user should do next.
  */
-export function getNextAction(tenantId: string, persona: PersonaType, isSpanish: boolean = false): string {
-  const cycle = getCycleState(tenantId, isSpanish);
+export async function getNextAction(tenantId: string, persona: PersonaType, isSpanish: boolean = false): Promise<string> {
+  const cycle = await getCycleState(tenantId, isSpanish);
   const phase = cycle.currentPhase;
 
   switch (persona) {
     case 'vl_admin':
     case 'platform_admin':
-      return getAdminNextAction(phase, tenantId, isSpanish);
+      return await getAdminNextAction(phase, tenantId, isSpanish);
     case 'manager':
       return getManagerNextAction(phase, isSpanish);
     case 'sales_rep':
@@ -194,37 +156,42 @@ export function getNextAction(tenantId: string, persona: PersonaType, isSpanish:
 
 /**
  * Get queue items filtered by persona.
- * Wraps the base queue service with persona-type mapping.
  */
-export function getQueueItems(tenantId: string, persona: PersonaType, userId: string = 'system'): QueueItem[] {
+export async function getQueueItems(tenantId: string, persona: PersonaType, userId: string = 'system'): Promise<QueueItem[]> {
   const role = personaToRole(persona);
   return getBaseQueueItems(userId, tenantId, role);
 }
 
 /**
  * Get pulse metrics filtered by persona.
- * Wraps the base pulse service with persona-type mapping.
  */
-export function getPulseMetrics(tenantId: string, persona: PersonaType, userId: string = 'system'): PulseMetric[] {
+export async function getPulseMetrics(tenantId: string, persona: PersonaType, userId: string = 'system'): Promise<PulseMetric[]> {
   const role = personaToRole(persona);
   return getBasePulseMetrics(userId, tenantId, role);
 }
 
 /**
  * Get a full atomic snapshot of all three expressions.
- * Guarantees Cycle, Queue, and Pulse are consistent.
  */
-export function getClockSnapshot(
+export async function getClockSnapshot(
   tenantId: string,
   persona: PersonaType,
   userId: string = 'system'
-): ClockSnapshot {
+): Promise<ClockSnapshot> {
+  const [cycle, periods, nextAction, queue, pulse] = await Promise.all([
+    getCycleState(tenantId),
+    getAllPeriods(tenantId),
+    getNextAction(tenantId, persona),
+    getQueueItems(tenantId, persona, userId),
+    getPulseMetrics(tenantId, persona, userId),
+  ]);
+
   return {
-    cycle: getCycleState(tenantId),
-    periods: getAllPeriods(tenantId),
-    nextAction: getNextAction(tenantId, persona),
-    queue: getQueueItems(tenantId, persona, userId),
-    pulse: getPulseMetrics(tenantId, persona, userId),
+    cycle,
+    periods,
+    nextAction,
+    queue,
+    pulse,
     timestamp: new Date().toISOString(),
   };
 }
@@ -233,14 +200,15 @@ export function getClockSnapshot(
 // NEXT ACTION HELPERS
 // =============================================================================
 
-function getAdminNextAction(phase: CyclePhase, tenantId: string, isSpanish: boolean): string {
-  // Check actual system state for more specific actions
-  if (typeof window !== 'undefined') {
-    const hasPlans = checkHasPlans(tenantId);
-    if (!hasPlans) return isSpanish ? 'Importar Plan de Comisiones' : 'Import Commission Plan';
+async function getAdminNextAction(phase: CyclePhase, tenantId: string, isSpanish: boolean): Promise<string> {
+  try {
+    const ruleSets = await getRuleSets(tenantId);
+    if (ruleSets.length === 0) return isSpanish ? 'Importar Plan de Comisiones' : 'Import Commission Plan';
 
-    const hasData = checkHasData(tenantId);
-    if (!hasData) return isSpanish ? 'Importar Datos de Rendimiento' : 'Import Performance Data';
+    const batches = await listCalculationBatches(tenantId);
+    if (batches.length === 0) return isSpanish ? 'Importar Datos de Rendimiento' : 'Import Performance Data';
+  } catch {
+    // Fall through to phase-based action
   }
 
   switch (phase) {
@@ -272,11 +240,10 @@ function getRepNextAction(phase: CyclePhase, isSpanish: boolean): string {
 }
 
 // =============================================================================
-// INTERNAL HELPERS
+// INTERNAL HELPERS (pure functions — no localStorage)
 // =============================================================================
 
 function formatPeriodLabel(period: string, isSpanish: boolean = false): string {
-  // 'YYYY-MM' -> 'Jan 2025' or 'Ene 2025'
   const parts = period.split('-');
   if (parts.length !== 2) return period;
 
@@ -291,34 +258,4 @@ function formatPeriodLabel(period: string, isSpanish: boolean = false): string {
     return `${names[monthIndex]} ${parts[0]}`;
   }
   return period;
-}
-
-function checkHasPlans(tenantId: string): boolean {
-  try {
-    const stored = localStorage.getItem('compensation_plans');
-    if (!stored) return false;
-    const plans = JSON.parse(stored);
-    // For VL Admin (tenantId='platform'), check if ANY non-archived plans exist
-    if (tenantId === 'platform') {
-      return Array.isArray(plans) && plans.some((p: { status?: string }) => p.status !== 'archived');
-    }
-    return Array.isArray(plans) && plans.some((p: { tenantId: string; status?: string }) =>
-      p.tenantId === tenantId && p.status !== 'archived'
-    );
-  } catch {
-    return false;
-  }
-}
-
-function checkHasData(tenantId: string): boolean {
-  try {
-    const batchesData = localStorage.getItem('data_layer_batches');
-    if (!batchesData) return false;
-    const batches: [string, { tenantId?: string; status: string }][] = JSON.parse(batchesData);
-    // For VL Admin (tenantId='platform'), check any committed batch
-    if (tenantId === 'platform') return batches.some(([, b]) => b.status === 'committed');
-    return batches.some(([, b]) => b.status === 'committed' && (!b.tenantId || b.tenantId === tenantId));
-  } catch {
-    return false;
-  }
 }

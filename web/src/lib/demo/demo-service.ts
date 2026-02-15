@@ -2,6 +2,7 @@
  * Demo Service
  *
  * Manages demo reset, snapshots, validation, and guided tours.
+ * localStorage removed -- all operations return defaults / no-ops.
  */
 
 import type {
@@ -14,10 +15,14 @@ import type {
   DemoScript,
   RehearsalSession,
 } from '@/types/demo';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { DEMO_STORAGE_KEYS } from '@/types/demo';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STATE_KEY = 'demo_state';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const SNAPSHOTS_KEY = 'demo_snapshots';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const REHEARSAL_KEY = 'demo_rehearsal';
 
 // ============================================
@@ -28,20 +33,7 @@ const REHEARSAL_KEY = 'demo_rehearsal';
  * Get current demo state
  */
 export function getDemoState(): DemoState {
-  if (typeof window === 'undefined') return getDefaultState();
-
-  const stored = localStorage.getItem(STATE_KEY);
-  if (!stored) {
-    const state = getDefaultState();
-    localStorage.setItem(STATE_KEY, JSON.stringify(state));
-    return state;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return getDefaultState();
-  }
+  return getDefaultState();
 }
 
 /**
@@ -50,7 +42,7 @@ export function getDemoState(): DemoState {
 export function updateDemoState(updates: Partial<DemoState>): DemoState {
   const current = getDemoState();
   const updated = { ...current, ...updates };
-  localStorage.setItem(STATE_KEY, JSON.stringify(updated));
+  // No-op: localStorage removed
   return updated;
 }
 
@@ -72,41 +64,15 @@ function getDefaultState(): DemoState {
  * Reset all demo data to defaults
  */
 export function resetDemoData(): { success: boolean; keysReset: string[] } {
-  if (typeof window === 'undefined') {
-    return { success: false, keysReset: [] };
-  }
-
-  const keysReset: string[] = [];
-
-  // Clear all demo-related localStorage keys
-  DEMO_STORAGE_KEYS.forEach((key) => {
-    if (key !== 'demo_snapshots') {
-      localStorage.removeItem(key);
-      keysReset.push(key);
-    }
-  });
-
-  // Update state
-  updateDemoState({
-    isInitialized: true,
-    lastReset: new Date().toISOString(),
-    activeSnapshot: null,
-  });
-
-  return { success: true, keysReset };
+  // No-op: localStorage removed
+  return { success: true, keysReset: [] };
 }
 
 /**
  * Initialize demo with fresh data
  */
 export function initializeDemo(): void {
-  if (typeof window === 'undefined') return;
-
-  const state = getDemoState();
-  if (state.isInitialized) return;
-
-  // Reset to get fresh data
-  resetDemoData();
+  // No-op: localStorage removed
 }
 
 // ============================================
@@ -117,16 +83,7 @@ export function initializeDemo(): void {
  * Get all snapshots
  */
 export function getSnapshots(): DemoSnapshot[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(SNAPSHOTS_KEY);
-  if (!stored) return [];
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 /**
@@ -138,20 +95,6 @@ export function createSnapshot(
   createdBy: string,
   tags: string[] = []
 ): DemoSnapshot {
-  const data: Record<string, string> = {};
-  let size = 0;
-
-  // Capture all demo-related localStorage data
-  DEMO_STORAGE_KEYS.forEach((key) => {
-    if (key !== 'demo_snapshots') {
-      const value = localStorage.getItem(key);
-      if (value) {
-        data[key] = value;
-        size += value.length;
-      }
-    }
-  });
-
   const snapshot: DemoSnapshot = {
     id: `snapshot-${Date.now()}`,
     name,
@@ -160,15 +103,12 @@ export function createSnapshot(
     descriptionEs: description,
     createdAt: new Date().toISOString(),
     createdBy,
-    size,
-    data,
+    size: 0,
+    data: {},
     tags,
   };
 
-  const snapshots = getSnapshots();
-  snapshots.push(snapshot);
-  localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(snapshots));
-
+  // No-op: localStorage removed
   return snapshot;
 }
 
@@ -181,38 +121,17 @@ export function restoreSnapshot(snapshotId: string): boolean {
 
   if (!snapshot) return false;
 
-  // Clear existing data first
-  DEMO_STORAGE_KEYS.forEach((key) => {
-    if (key !== 'demo_snapshots') {
-      localStorage.removeItem(key);
-    }
-  });
-
-  // Restore snapshot data
-  Object.entries(snapshot.data).forEach(([key, value]) => {
-    localStorage.setItem(key, value);
-  });
-
-  // Update state
-  updateDemoState({
-    activeSnapshot: snapshotId,
-    lastReset: new Date().toISOString(),
-  });
-
+  // No-op: localStorage removed
   return true;
 }
 
 /**
  * Delete a snapshot
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function deleteSnapshot(snapshotId: string): boolean {
-  const snapshots = getSnapshots();
-  const filtered = snapshots.filter((s) => s.id !== snapshotId);
-
-  if (filtered.length === snapshots.length) return false;
-
-  localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(filtered));
-  return true;
+  // No-op: localStorage removed
+  return false;
 }
 
 /**
@@ -263,21 +182,15 @@ function runDataExistenceChecks(): ValidationCheck[] {
   const requiredKeys = ['alert_rules', 'rbac_roles', 'saved_scenarios'];
 
   requiredKeys.forEach((key) => {
-    const value = localStorage.getItem(key);
-    const hasData = value && value !== '[]' && value !== '{}';
-
+    // No localStorage -- data is never found
     checks.push({
       id: `data-${key}`,
       name: `${key} data exists`,
       nameEs: `Datos de ${key} existen`,
       category: 'data',
-      status: hasData ? 'passed' : 'warning',
-      message: hasData
-        ? `${key} contains valid data`
-        : `${key} is empty or missing`,
-      messageEs: hasData
-        ? `${key} contiene datos válidos`
-        : `${key} está vacío o falta`,
+      status: 'warning',
+      message: `${key} is empty or missing`,
+      messageEs: `${key} está vacío o falta`,
     });
   });
 
@@ -287,86 +200,28 @@ function runDataExistenceChecks(): ValidationCheck[] {
 function runRelationshipChecks(): ValidationCheck[] {
   const checks: ValidationCheck[] = [];
 
-  // Check RBAC role-assignment relationships
-  try {
-    const roles = JSON.parse(localStorage.getItem('rbac_roles') || '[]');
-    const assignments = JSON.parse(localStorage.getItem('rbac_assignments') || '[]');
-
-    const roleIds = new Set(roles.map((r: { id: string }) => r.id));
-    const orphanedAssignments = assignments.filter(
-      (a: { roleId: string }) => !roleIds.has(a.roleId)
-    );
-
-    checks.push({
-      id: 'rel-role-assignments',
-      name: 'Role-Assignment relationship',
-      nameEs: 'Relación Rol-Asignación',
-      category: 'relationship',
-      status: orphanedAssignments.length === 0 ? 'passed' : 'failed',
-      message:
-        orphanedAssignments.length === 0
-          ? 'All assignments reference valid roles'
-          : `${orphanedAssignments.length} assignments reference non-existent roles`,
-      messageEs:
-        orphanedAssignments.length === 0
-          ? 'Todas las asignaciones referencian roles válidos'
-          : `${orphanedAssignments.length} asignaciones referencian roles inexistentes`,
-      details: { orphanedCount: orphanedAssignments.length },
-    });
-  } catch {
-    checks.push({
-      id: 'rel-role-assignments',
-      name: 'Role-Assignment relationship',
-      nameEs: 'Relación Rol-Asignación',
-      category: 'relationship',
-      status: 'warning',
-      message: 'Could not parse RBAC data',
-      messageEs: 'No se pudo analizar datos de RBAC',
-    });
-  }
-
-  return checks;
-}
-
-function runIntegrityChecks(): ValidationCheck[] {
-  const checks: ValidationCheck[] = [];
-
-  // Check JSON validity of stored data
-  DEMO_STORAGE_KEYS.forEach((key) => {
-    const value = localStorage.getItem(key);
-    if (value) {
-      try {
-        JSON.parse(value);
-        checks.push({
-          id: `integrity-${key}`,
-          name: `${key} JSON integrity`,
-          nameEs: `Integridad JSON de ${key}`,
-          category: 'integrity',
-          status: 'passed',
-          message: 'Valid JSON structure',
-          messageEs: 'Estructura JSON válida',
-        });
-      } catch {
-        checks.push({
-          id: `integrity-${key}`,
-          name: `${key} JSON integrity`,
-          nameEs: `Integridad JSON de ${key}`,
-          category: 'integrity',
-          status: 'failed',
-          message: 'Invalid JSON structure',
-          messageEs: 'Estructura JSON inválida',
-        });
-      }
-    }
+  // No localStorage -- return empty relationship check
+  checks.push({
+    id: 'rel-role-assignments',
+    name: 'Role-Assignment relationship',
+    nameEs: 'Relación Rol-Asignación',
+    category: 'relationship',
+    status: 'warning',
+    message: 'Could not parse RBAC data',
+    messageEs: 'No se pudo analizar datos de RBAC',
   });
 
   return checks;
 }
 
+function runIntegrityChecks(): ValidationCheck[] {
+  // No localStorage -- nothing to check
+  return [];
+}
+
 function runConsistencyChecks(): ValidationCheck[] {
   const checks: ValidationCheck[] = [];
 
-  // Check demo state consistency
   try {
     const state = getDemoState();
 
@@ -814,7 +669,7 @@ export function startRehearsal(scriptId: string): RehearsalSession | null {
     status: 'active',
   };
 
-  localStorage.setItem(REHEARSAL_KEY, JSON.stringify(session));
+  // No-op: localStorage removed
   return session;
 }
 
@@ -822,17 +677,7 @@ export function startRehearsal(scriptId: string): RehearsalSession | null {
  * Get active rehearsal session
  */
 export function getActiveRehearsal(): RehearsalSession | null {
-  if (typeof window === 'undefined') return null;
-
-  const stored = localStorage.getItem(REHEARSAL_KEY);
-  if (!stored) return null;
-
-  try {
-    const session = JSON.parse(stored);
-    return session.status === 'active' ? session : null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 /**
@@ -843,7 +688,7 @@ export function updateRehearsal(updates: Partial<RehearsalSession>): RehearsalSe
   if (!current) return null;
 
   const updated = { ...current, ...updates };
-  localStorage.setItem(REHEARSAL_KEY, JSON.stringify(updated));
+  // No-op: localStorage removed
   return updated;
 }
 

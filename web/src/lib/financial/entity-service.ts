@@ -18,23 +18,14 @@ import { getStorageKey } from './financial-constants';
 // STORAGE HELPERS
 // ============================================
 
-function loadFromStorage<T>(key: string): T[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function loadFromStorage<T>(_key: string): T[] {
+  return [];
 }
 
-function saveToStorage<T>(key: string, data: T[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    console.warn('Storage save failed:', e);
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveToStorage<T>(_key: string, _data: T[]): void {
+  // No-op: localStorage removed
 }
 
 // ============================================
@@ -373,18 +364,7 @@ export class EntityService {
   // ============================================
 
   clearAllEntities(): void {
-    const keys = [
-      getStorageKey('BRANDS', this.tenantId),
-      getStorageKey('FRANCHISEES', this.tenantId),
-      getStorageKey('LOCATIONS', this.tenantId),
-      getStorageKey('STAFF', this.tenantId),
-    ];
-
-    keys.forEach(key => {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(key);
-      }
-    });
+    // No-op: localStorage removed
   }
 }
 

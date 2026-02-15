@@ -11,6 +11,7 @@ import type {
   ScenarioComparison,
 } from '@/types/scenario';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEY = 'saved_scenarios';
 
 // ============================================
@@ -21,20 +22,7 @@ const STORAGE_KEY = 'saved_scenarios';
  * Get all saved scenarios
  */
 export function getAllScenarios(): SavedScenario[] {
-  if (typeof window === 'undefined') return getDefaultScenarios();
-
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) {
-    const defaults = getDefaultScenarios();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  return getDefaultScenarios();
 }
 
 /**
@@ -299,10 +287,9 @@ export function getScenarioStats(tenantId: string): {
 // HELPERS
 // ============================================
 
-function saveScenarios(scenarios: SavedScenario[]): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveScenarios(_scenarios: SavedScenario[]): void {
+  // no-op: localStorage removed
 }
 
 // ============================================
@@ -442,21 +429,12 @@ function getDefaultScenarios(): SavedScenario[] {
  * Initialize scenarios
  */
 export function initializeScenarios(): void {
-  if (typeof window === 'undefined') return;
-
-  const existing = localStorage.getItem(STORAGE_KEY);
-  if (!existing) {
-    const defaults = getDefaultScenarios();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
-  }
+  // no-op: localStorage removed
 }
 
 /**
  * Reset to defaults
  */
 export function resetScenarios(): void {
-  if (typeof window === 'undefined') return;
-
-  const defaults = getDefaultScenarios();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
+  // no-op: localStorage removed
 }

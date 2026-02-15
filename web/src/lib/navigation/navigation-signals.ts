@@ -7,7 +7,9 @@
 
 import type { NavigationSignal, NavigationSignalType, WorkspaceId } from '@/types/navigation';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const SIGNALS_STORAGE_KEY = 'vialuce_nav_signals';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MAX_SIGNALS = 1000; // Keep last 1000 signals
 
 // =============================================================================
@@ -127,32 +129,18 @@ export function logPulseClick(
 // =============================================================================
 
 /**
- * Store a signal in localStorage
+ * Store a signal (no-op, localStorage removed)
  */
-function storeSignal(signal: NavigationSignal): void {
-  try {
-    const signals = getStoredSignals();
-    signals.push(signal);
-
-    // Trim to max size
-    const trimmed = signals.slice(-MAX_SIGNALS);
-
-    localStorage.setItem(SIGNALS_STORAGE_KEY, JSON.stringify(trimmed));
-  } catch {
-    // Storage full or other error - silently ignore
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function storeSignal(_signal: NavigationSignal): void {
+  // No-op: localStorage removed
 }
 
 /**
- * Get all stored signals
+ * Get all stored signals (returns empty, localStorage removed)
  */
 function getStoredSignals(): NavigationSignal[] {
-  try {
-    const stored = localStorage.getItem(SIGNALS_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 // =============================================================================
@@ -229,9 +217,8 @@ export function getWorkspaceAnalytics(userId: string, tenantId: string): {
 }
 
 /**
- * Clear all signals (for testing/privacy)
+ * Clear all signals (no-op, localStorage removed)
  */
 export function clearSignals(): void {
-  if (typeof window === 'undefined') return;
-  localStorage.removeItem(SIGNALS_STORAGE_KEY);
+  // No-op: localStorage removed
 }

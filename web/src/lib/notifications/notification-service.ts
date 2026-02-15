@@ -1,14 +1,14 @@
 /**
  * Notification Service
  *
- * Manages notification CRUD operations using localStorage.
+ * Manages notification CRUD operations.
  * Provides real-time notification management for the demo.
+ *
+ * NOTE: localStorage removed (OB-43A). Returns in-memory defaults.
  */
 
 import type { Notification, NotificationType, NotificationPriority } from '@/types/notification';
 import { NOTIFICATION_TEMPLATES } from '@/types/notification';
-
-const STORAGE_KEY = 'retailco_notifications';
 
 // ============================================
 // NOTIFICATION CRUD
@@ -18,19 +18,10 @@ const STORAGE_KEY = 'retailco_notifications';
  * Get all notifications for a specific user
  */
 export function getNotifications(userId: string, tenantId: string): Notification[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) return [];
-
-  try {
-    const notifications: Notification[] = JSON.parse(stored);
-    return notifications
-      .filter((n) => n.userId === userId && n.tenantId === tenantId)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  } catch {
-    return [];
-  }
+  // localStorage removed -- return empty
+  void userId;
+  void tenantId;
+  return [];
 }
 
 /**
@@ -80,12 +71,7 @@ export function createNotification(data: {
     metadata: data.metadata,
   };
 
-  const all = getAllNotificationsInternal();
-  all.push(notification);
-
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
-  }
+  // localStorage removed -- save is a no-op
 
   return notification;
 }
@@ -130,77 +116,37 @@ export function createFromTemplate(
 /**
  * Mark a notification as read
  */
-export function markAsRead(notificationId: string): boolean {
-  const all = getAllNotificationsInternal();
-  const index = all.findIndex((n) => n.id === notificationId);
-
-  if (index < 0) return false;
-
-  all[index] = {
-    ...all[index],
-    read: true,
-    readAt: new Date().toISOString(),
-  };
-
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
-  }
-
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function markAsRead(_notificationId: string): boolean {
+  // localStorage removed -- no-op
   return true;
 }
 
 /**
  * Mark all notifications as read for a user
  */
-export function markAllAsRead(userId: string, tenantId: string): number {
-  const all = getAllNotificationsInternal();
-  let count = 0;
-
-  const now = new Date().toISOString();
-  const updated = all.map((n) => {
-    if (n.userId === userId && n.tenantId === tenantId && !n.read) {
-      count++;
-      return { ...n, read: true, readAt: now };
-    }
-    return n;
-  });
-
-  if (count > 0 && typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  }
-
-  return count;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function markAllAsRead(_userId: string, _tenantId: string): number {
+  // localStorage removed -- no-op
+  return 0;
 }
 
 /**
  * Delete a notification
  */
-export function deleteNotification(notificationId: string): boolean {
-  const all = getAllNotificationsInternal();
-  const filtered = all.filter((n) => n.id !== notificationId);
-
-  if (filtered.length === all.length) return false;
-
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-  }
-
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function deleteNotification(_notificationId: string): boolean {
+  // localStorage removed -- no-op
   return true;
 }
 
 /**
  * Delete all notifications for a user
  */
-export function clearNotifications(userId: string, tenantId: string): number {
-  const all = getAllNotificationsInternal();
-  const filtered = all.filter((n) => !(n.userId === userId && n.tenantId === tenantId));
-  const count = all.length - filtered.length;
-
-  if (count > 0 && typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-  }
-
-  return count;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function clearNotifications(_userId: string, _tenantId: string): number {
+  // localStorage removed -- no-op
+  return 0;
 }
 
 // ============================================
@@ -237,7 +183,7 @@ export function notifyDisputeResolved(
 
   if (adjustmentAmount && adjustmentAmount > 0) {
     message += ` An adjustment of $${adjustmentAmount.toFixed(2)} will be applied.`;
-    messageEs += ` Se aplicará un ajuste de $${adjustmentAmount.toFixed(2)}.`;
+    messageEs += ` Se aplicar\u00e1 un ajuste de $${adjustmentAmount.toFixed(2)}.`;
   }
 
   return createNotification({
@@ -245,7 +191,7 @@ export function notifyDisputeResolved(
     userId,
     type: 'dispute_resolved',
     title: outcome === 'approved' ? 'Dispute Approved!' : outcome === 'partial' ? 'Dispute Partially Approved' : 'Dispute Denied',
-    titleEs: outcome === 'approved' ? '¡Disputa Aprobada!' : outcome === 'partial' ? 'Disputa Aprobada Parcialmente' : 'Disputa Denegada',
+    titleEs: outcome === 'approved' ? '\u00a1Disputa Aprobada!' : outcome === 'partial' ? 'Disputa Aprobada Parcialmente' : 'Disputa Denegada',
     message,
     messageEs,
     priority: 'high',
@@ -295,7 +241,7 @@ export function notifyManagerNewDispute(
     title: 'New Dispute to Review',
     titleEs: 'Nueva Disputa para Revisar',
     message: `${entityName} submitted a dispute for ${transactionId}.`,
-    messageEs: `${entityName} envió una disputa para ${transactionId}.`,
+    messageEs: `${entityName} envi\u00f3 una disputa para ${transactionId}.`,
     priority: 'normal',
     linkTo: `/transactions/disputes/${disputeId}`,
     metadata: {
@@ -335,34 +281,20 @@ export function notifyAdjustmentApplied(
 // ============================================
 
 function getAllNotificationsInternal(): Notification[] {
-  if (typeof window === 'undefined') return [];
-
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) return [];
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+  // localStorage removed -- return empty
+  return [];
 }
 
 /**
- * Initialize notifications (called on app load)
+ * Initialize notifications (no-op, localStorage removed)
  */
 export function initializeNotifications(): void {
-  if (typeof window === 'undefined') return;
-
-  const existing = localStorage.getItem(STORAGE_KEY);
-  if (!existing) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
-  }
+  // localStorage removed -- no-op
 }
 
 /**
- * Reset all notifications
+ * Reset all notifications (no-op, localStorage removed)
  */
 export function resetNotifications(): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+  // localStorage removed -- no-op
 }

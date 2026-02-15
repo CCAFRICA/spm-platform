@@ -1,36 +1,35 @@
 /**
  * Cycle Service
  *
- * Determines the current phase of the compensation cycle based on real system state.
+ * Determines the current phase of the compensation cycle based on real Supabase state.
  * Provides the data needed for the Cycle Indicator in Mission Control.
  *
- * Integrates with:
- * - Data Layer Service (import batches, transformed data)
- * - Approval Service (pending approvals)
- * - Calculation Orchestrator (calculation status)
- * - Reconciliation Bridge (reconciliation status)
+ * OB-43A: Supabase cutover — all data reads from Supabase, no localStorage.
  */
 
 import type { CycleState, CyclePhase, PhaseStatus } from '@/types/navigation';
-import { listCycles, getStateLabel, type CalculationCycle } from '@/lib/calculation/calculation-lifecycle-service';
+import {
+  listCalculationBatches,
+} from '@/lib/supabase/calculation-service';
+import { getRuleSets } from '@/lib/supabase/rule-set-service';
+import { getStateLabel } from '@/lib/calculation/lifecycle-utils';
 
 // =============================================================================
-// CYCLE STATE DETERMINATION
+// CYCLE STATE DETERMINATION (async — reads from Supabase)
 // =============================================================================
 
 /**
  * Get the current cycle state for a tenant
  */
-export function getCycleState(tenantId: string, isSpanish: boolean = false): CycleState {
+export async function getCycleState(tenantId: string, isSpanish: boolean = false): Promise<CycleState> {
   const monthNamesEn = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
   const monthNamesEs = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const names = isSpanish ? monthNamesEs : monthNamesEn;
 
-  // Detect the working period from actual data instead of calendar date.
-  // The real data may be for a past period (e.g. 2024-01) while today is 2026-02.
-  const detectedPeriod = detectWorkingPeriod(tenantId);
+  // Detect working period from Supabase batches
+  const detectedPeriod = await detectWorkingPeriod(tenantId);
 
   let periodId: string;
   let periodLabel: string;
@@ -43,22 +42,15 @@ export function getCycleState(tenantId: string, isSpanish: boolean = false): Cyc
       ? `${names[monthIndex]} ${parts[0]}`
       : detectedPeriod;
   } else {
-    // No data at all — fall back to current calendar date
     const now = new Date();
     periodId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     periodLabel = `${names[now.getMonth()]} ${now.getFullYear()}`;
   }
 
-  // Check system state from localStorage to determine phases
-  const phaseStatuses = determinePhaseStatuses(tenantId, periodId);
-
-  // Determine current phase
+  // Determine phase statuses from Supabase
+  const phaseStatuses = await determinePhaseStatuses(tenantId, periodId);
   const currentPhase = determineCurrentPhase(phaseStatuses);
-
-  // Calculate completion percentage
   const completionPercentage = calculateCompletionPercentage(phaseStatuses);
-
-  // Count pending actions
   const pendingActions = countPendingActions(phaseStatuses);
 
   return {
@@ -72,118 +64,88 @@ export function getCycleState(tenantId: string, isSpanish: boolean = false): Cyc
 }
 
 /**
- * Determine the status of each phase based on system data
+ * Determine the status of each phase based on Supabase data
  */
-function determinePhaseStatuses(tenantId: string, periodId: string): Record<CyclePhase, PhaseStatus> {
-  if (typeof window === 'undefined') {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function determinePhaseStatuses(tenantId: string, _periodId: string): Promise<Record<CyclePhase, PhaseStatus>> {
+  try {
+    const ruleSets = await getRuleSets(tenantId);
+    const hasPlans = ruleSets.length > 0;
+
+    const batches = await listCalculationBatches(tenantId);
+    const hasCalculations = batches.length > 0;
+
+    const activeBatch = batches.find(b => !b.superseded_by) || batches[0] || null;
+    const lifecycleState = activeBatch?.lifecycle_state || null;
+
+    const hasImportData = hasPlans; // If we have plans, import is done
+    const isApproved = lifecycleState && ['APPROVED', 'POSTED', 'CLOSED'].includes(lifecycleState);
+    const isPending = lifecycleState === 'PENDING_APPROVAL';
+    const isPosted = lifecycleState && ['POSTED', 'CLOSED'].includes(lifecycleState);
+    const isClosed = lifecycleState === 'CLOSED';
+
+    const stateLabel = lifecycleState ? getStateLabel(lifecycleState) : '';
+
+    return {
+      import: {
+        state: hasImportData ? 'completed' : 'in_progress',
+        detail: hasImportData ? 'Data imported' : 'Awaiting data import',
+        detailEs: hasImportData ? 'Datos importados' : 'Esperando importacion de datos',
+        actionCount: hasImportData ? 0 : 1,
+      },
+      calculate: {
+        state: hasCalculations ? 'completed' : (hasImportData ? 'in_progress' : 'not_started'),
+        detail: hasCalculations
+          ? `Calculations complete${stateLabel ? ` [${stateLabel}]` : ''}`
+          : (hasImportData ? 'Ready to calculate' : 'Waiting for import'),
+        detailEs: hasCalculations
+          ? `Calculos completos${stateLabel ? ` [${stateLabel}]` : ''}`
+          : (hasImportData ? 'Listo para calcular' : 'Esperando importacion'),
+        actionCount: hasCalculations ? 0 : (hasImportData ? 1 : 0),
+      },
+      reconcile: {
+        state: hasCalculations ? 'completed' : 'not_started',
+        detail: hasCalculations ? 'Review available' : 'Waiting for calculations',
+        detailEs: hasCalculations ? 'Revision disponible' : 'Esperando calculos',
+        actionCount: 0,
+      },
+      approve: {
+        state: isApproved ? 'completed' : (isPending ? 'in_progress' : 'not_started'),
+        detail: isApproved ? 'Approved' : (isPending ? 'Awaiting approver action' : 'Waiting for reconciliation'),
+        detailEs: isApproved ? 'Aprobado' : (isPending ? 'Esperando accion del aprobador' : 'Esperando conciliacion'),
+        actionCount: isPending ? 1 : 0,
+      },
+      pay: {
+        state: isClosed ? 'completed' : (isPosted ? 'in_progress' : 'not_started'),
+        detail: isClosed ? 'Period closed' : (isPosted ? 'Results posted - ready for payroll' : 'Awaiting approval'),
+        detailEs: isClosed ? 'Periodo cerrado' : (isPosted ? 'Resultados publicados - listo para nomina' : 'Esperando aprobacion'),
+        actionCount: isPosted && !isClosed ? 1 : 0,
+      },
+      closed: {
+        state: isClosed ? 'completed' : 'not_started',
+        detail: isClosed ? 'Period closed' : 'Period open',
+        detailEs: isClosed ? 'Periodo cerrado' : 'Periodo abierto',
+        actionCount: 0,
+      },
+    };
+  } catch {
     return getDefaultPhaseStatuses();
   }
+}
 
-  // Check for import data
-  const hasImportData = checkHasImportData(tenantId, periodId);
-
-  // Check for calculation results (with timestamps)
-  const calcInfo = checkHasCalculationsWithInfo(tenantId, periodId);
-  const hasCalculations = calcInfo.exists;
-
-  // Check for reconciliation
-  const hasReconciliation = checkHasReconciliation(tenantId, periodId);
-
-  // Check for pending approvals
-  const pendingApprovals = checkPendingApprovals(tenantId, periodId);
-
-  // Check for payroll status
-  const payrollStatus = checkPayrollStatus(tenantId, periodId);
-
-  // OB-39 Phase 11: Check lifecycle state for meaningful cycle indicator
-  const lifecycleCycle = getLatestLifecycleCycle(tenantId);
-
-  // Import detail with count from import batches
-  const importDetail = hasImportData ? getImportDetails(tenantId) : null;
-  const importCountStr = importDetail?.count ? ` (${importDetail.count} records)` : '';
-  const importCountStrEs = importDetail?.count ? ` (${importDetail.count} registros)` : '';
-
-  // Calculate detail with timestamp and employee count
-  const calcDateStr = calcInfo.calculatedAt ? ` -- ${formatShortDate(calcInfo.calculatedAt)}` : '';
-  const calcCountStr = calcInfo.totalEmployees ? ` (${calcInfo.totalEmployees} employees)` : '';
-  const calcCountStrEs = calcInfo.totalEmployees ? ` (${calcInfo.totalEmployees} empleados)` : '';
-
-  return {
-    import: {
-      state: hasImportData ? 'completed' : 'in_progress',
-      detail: hasImportData ? `Data imported${importCountStr}` : 'Awaiting data import',
-      detailEs: hasImportData ? `Datos importados${importCountStrEs}` : 'Esperando importacion de datos',
-      actionCount: hasImportData ? 0 : 1,
-    },
-    calculate: {
-      state: hasCalculations ? 'completed' : (hasImportData ? 'in_progress' : 'not_started'),
-      detail: hasCalculations
-        ? `Calculations complete${calcCountStr}${calcDateStr}${lifecycleCycle ? ` [${getStateLabel(lifecycleCycle.state)}]` : ''}`
-        : (hasImportData ? 'Ready to calculate' : 'Waiting for import'),
-      detailEs: hasCalculations
-        ? `Calculos completos${calcCountStrEs}${calcDateStr}${lifecycleCycle ? ` [${getStateLabel(lifecycleCycle.state)}]` : ''}`
-        : (hasImportData ? 'Listo para calcular' : 'Esperando importacion'),
-      actionCount: hasCalculations ? 0 : (hasImportData ? 1 : 0),
-    },
-    reconcile: {
-      state: hasReconciliation ? 'completed' : (hasCalculations ? 'in_progress' : 'not_started'),
-      detail: hasReconciliation ? 'Reconciliation complete' : (hasCalculations ? 'Review mismatches' : 'Waiting for calculations'),
-      detailEs: hasReconciliation ? 'Conciliación completa' : (hasCalculations ? 'Revisar diferencias' : 'Esperando cálculos'),
-      actionCount: hasReconciliation ? 0 : (hasCalculations ? 1 : 0), // OB-29: No fake mismatch counts
-    },
-    approve: {
-      state: (['APPROVED','POSTED','CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
-        ? 'completed'
-        : lifecycleCycle?.state === 'PENDING_APPROVAL'
-        ? 'in_progress'
-        : lifecycleCycle?.state === 'REJECTED'
-        ? 'warning' as PhaseStatus['state']
-        : (pendingApprovals === 0 && hasReconciliation ? 'completed' : (hasReconciliation ? 'in_progress' : 'not_started')),
-      detail: (['APPROVED','POSTED','CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
-        ? `Approved${lifecycleCycle?.approvedBy ? ` by ${lifecycleCycle.approvedBy}` : ''}`
-        : lifecycleCycle?.state === 'PENDING_APPROVAL'
-        ? 'Awaiting approver action'
-        : lifecycleCycle?.state === 'REJECTED'
-        ? `Rejected: ${lifecycleCycle.rejectionReason || 'No reason given'}`
-        : (pendingApprovals > 0 ? `${pendingApprovals} pending approvals` : 'All approved'),
-      detailEs: (['APPROVED','POSTED','CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
-        ? `Aprobado${lifecycleCycle?.approvedBy ? ` por ${lifecycleCycle.approvedBy}` : ''}`
-        : lifecycleCycle?.state === 'PENDING_APPROVAL'
-        ? 'Esperando accion del aprobador'
-        : lifecycleCycle?.state === 'REJECTED'
-        ? `Rechazado: ${lifecycleCycle.rejectionReason || 'Sin razon'}`
-        : (pendingApprovals > 0 ? `${pendingApprovals} aprobaciones pendientes` : 'Todo aprobado'),
-      actionCount: lifecycleCycle?.state === 'PENDING_APPROVAL' ? 1 : pendingApprovals,
-    },
-    pay: {
-      state: (['CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
-        ? 'completed'
-        : (['APPROVED','POSTED'] as string[]).includes(lifecycleCycle?.state || '')
-        ? 'in_progress'
-        : (payrollStatus === 'finalized' ? 'completed' : 'not_started'),
-      detail: (['CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
-        ? 'Period closed'
-        : lifecycleCycle?.state === 'POSTED'
-        ? 'Results posted - ready for payroll'
-        : lifecycleCycle?.state === 'APPROVED'
-        ? 'Post results to make visible'
-        : (payrollStatus === 'finalized' ? 'Payroll finalized' : 'Awaiting approval completion'),
-      detailEs: (['CLOSED','PAID','PUBLISHED'] as string[]).includes(lifecycleCycle?.state || '')
-        ? 'Periodo cerrado'
-        : lifecycleCycle?.state === 'POSTED'
-        ? 'Resultados publicados - listo para nomina'
-        : lifecycleCycle?.state === 'APPROVED'
-        ? 'Publicar resultados para visibilidad'
-        : (payrollStatus === 'finalized' ? 'Nomina finalizada' : 'Esperando completar aprobaciones'),
-      actionCount: (['APPROVED','POSTED'] as string[]).includes(lifecycleCycle?.state || '') ? 1 : 0,
-    },
-    closed: {
-      state: payrollStatus === 'finalized' ? 'completed' : 'not_started',
-      detail: payrollStatus === 'finalized' ? 'Period closed' : 'Period open',
-      detailEs: payrollStatus === 'finalized' ? 'Período cerrado' : 'Período abierto',
-      actionCount: 0,
-    },
-  };
+/**
+ * Detect the working period from Supabase batches
+ */
+async function detectWorkingPeriod(tenantId: string): Promise<string | null> {
+  try {
+    const batches = await listCalculationBatches(tenantId);
+    if (batches.length > 0 && batches[0].period_id) {
+      return batches[0].period_id;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -192,17 +154,14 @@ function determinePhaseStatuses(tenantId: string, periodId: string): Record<Cycl
 function getDefaultPhaseStatuses(): Record<CyclePhase, PhaseStatus> {
   return {
     import: { state: 'in_progress', detail: 'Ready to import data', detailEs: 'Listo para importar datos', actionCount: 1 },
-    calculate: { state: 'not_started', detail: 'Waiting for import', detailEs: 'Esperando importación' },
-    reconcile: { state: 'not_started', detail: 'Waiting for calculations', detailEs: 'Esperando cálculos' },
-    approve: { state: 'not_started', detail: 'Waiting for reconciliation', detailEs: 'Esperando conciliación' },
+    calculate: { state: 'not_started', detail: 'Waiting for import', detailEs: 'Esperando importacion' },
+    reconcile: { state: 'not_started', detail: 'Waiting for calculations', detailEs: 'Esperando calculos' },
+    approve: { state: 'not_started', detail: 'Waiting for reconciliation', detailEs: 'Esperando conciliacion' },
     pay: { state: 'not_started', detail: 'Waiting for approvals', detailEs: 'Esperando aprobaciones' },
-    closed: { state: 'not_started', detail: 'Period open', detailEs: 'Período abierto' },
+    closed: { state: 'not_started', detail: 'Period open', detailEs: 'Periodo abierto' },
   };
 }
 
-/**
- * Determine the current active phase
- */
 function determineCurrentPhase(statuses: Record<CyclePhase, PhaseStatus>): CyclePhase {
   const phaseOrder: CyclePhase[] = ['import', 'calculate', 'reconcile', 'approve', 'pay', 'closed'];
 
@@ -212,7 +171,6 @@ function determineCurrentPhase(statuses: Record<CyclePhase, PhaseStatus>): Cycle
     }
   }
 
-  // If all complete, return closed; otherwise return first incomplete
   for (const phase of phaseOrder) {
     if (statuses[phase].state !== 'completed') {
       return phase;
@@ -222,353 +180,18 @@ function determineCurrentPhase(statuses: Record<CyclePhase, PhaseStatus>): Cycle
   return 'closed';
 }
 
-/**
- * Calculate overall completion percentage
- */
 function calculateCompletionPercentage(statuses: Record<CyclePhase, PhaseStatus>): number {
   const phases: CyclePhase[] = ['import', 'calculate', 'reconcile', 'approve', 'pay'];
   const completedCount = phases.filter(p => statuses[p].state === 'completed').length;
   return Math.round((completedCount / phases.length) * 100);
 }
 
-/**
- * Count total pending actions across phases
- */
 function countPendingActions(statuses: Record<CyclePhase, PhaseStatus>): number {
   return Object.values(statuses).reduce((sum, status) => sum + (status.actionCount || 0), 0);
 }
 
 // =============================================================================
-// LIFECYCLE INTEGRATION
-// =============================================================================
-
-/**
- * OB-39 Phase 11: Get the latest lifecycle cycle for a tenant
- */
-function getLatestLifecycleCycle(tenantId: string): CalculationCycle | null {
-  try {
-    const cycles = listCycles(tenantId);
-    return cycles.length > 0 ? cycles[0] : null;
-  } catch {
-    return null;
-  }
-}
-
-// =============================================================================
-// WORKING PERIOD DETECTION
-// =============================================================================
-
-/**
- * Detect the actual working period from data instead of using the calendar date.
- * Scans vialuce_calculation_runs for the most recent completed run's periodId.
- * For VL Admin (tenantId='platform'), scans across all tenants.
- */
-function detectWorkingPeriod(tenantId: string): string | null {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    // Check calculation runs first (most specific indicator)
-    const runsStr = localStorage.getItem('vialuce_calculation_runs');
-    if (runsStr) {
-      const runs: Array<{ tenantId: string; periodId: string; status: string; startedAt?: string }> = JSON.parse(runsStr);
-      const completedRuns = runs
-        .filter(r => r.status === 'completed' && (tenantId === 'platform' || r.tenantId === tenantId))
-        .sort((a, b) => {
-          const ta = a.startedAt ? new Date(a.startedAt).getTime() : 0;
-          const tb = b.startedAt ? new Date(b.startedAt).getTime() : 0;
-          return tb - ta;
-        });
-      if (completedRuns.length > 0 && completedRuns[0].periodId) {
-        return completedRuns[0].periodId;
-      }
-    }
-
-    // Fall back to checking data_layer_batches for import date context
-    const batchesStr = localStorage.getItem('data_layer_batches');
-    if (batchesStr) {
-      const batches: [string, { status: string; periodId?: string; createdAt?: string }][] = JSON.parse(batchesStr);
-      const committed = batches.filter(([, b]) => b.status === 'committed' && b.periodId);
-      if (committed.length > 0) {
-        return committed[0][1].periodId!;
-      }
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// =============================================================================
-// DATA CHECKING FUNCTIONS
-// =============================================================================
-
-// Storage keys matching data-layer-service.ts
-const DATA_LAYER_KEYS = {
-  BATCHES: 'data_layer_batches',
-  COMMITTED: 'data_layer_committed',
-};
-
-// Storage key matching approval-service.ts
-const APPROVAL_KEYS = {
-  REQUESTS: 'approval_requests',
-};
-
-/**
- * Check if import data exists by looking at data layer batches
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function checkHasImportData(tenantId: string, periodId: string): boolean {
-  try {
-    // Primary check: Data layer batches (from OB-03 import system)
-    const batchesData = localStorage.getItem(DATA_LAYER_KEYS.BATCHES);
-    if (batchesData) {
-      const batches: [string, { status: string }][] = JSON.parse(batchesData);
-      const hasCommittedBatch = batches.some(([, batch]) => batch.status === 'committed');
-      if (hasCommittedBatch) return true;
-    }
-
-    // Fallback: Check tenant-specific transactions
-    const transactionsKey = `${tenantId}_transactions`;
-    const transactions = localStorage.getItem(transactionsKey);
-    if (transactions) {
-      const parsed = JSON.parse(transactions);
-      return Array.isArray(parsed) && parsed.length > 0;
-    }
-
-    // Check committed data layer
-    const committedData = localStorage.getItem(DATA_LAYER_KEYS.COMMITTED);
-    if (committedData) {
-      const committed: [string, unknown][] = JSON.parse(committedData);
-      return committed.length > 0;
-    }
-
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Format a short date from ISO string (e.g., "Feb 12")
- */
-function formatShortDate(isoDate: string): string {
-  try {
-    const d = new Date(isoDate);
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return `${months[d.getMonth()]} ${d.getDate()}`;
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Check for calculation results with metadata
- */
-function checkHasCalculationsWithInfo(tenantId: string, periodId: string): {
-  exists: boolean;
-  calculatedAt?: string;
-  totalEmployees?: number;
-} {
-  try {
-    const runsData = localStorage.getItem('vialuce_calculation_runs');
-    if (runsData) {
-      const runs: Array<{ tenantId: string; periodId: string; status: string; calculatedAt?: string; totalEmployees?: number }> = JSON.parse(runsData);
-      // For VL Admin (tenantId='platform'), match any tenant
-      const completedRun = runs.find(
-        (r) => (tenantId === 'platform' || r.tenantId === tenantId) && r.periodId === periodId && r.status === 'completed'
-      );
-      if (completedRun) {
-        return {
-          exists: true,
-          calculatedAt: completedRun.calculatedAt,
-          totalEmployees: completedRun.totalEmployees,
-        };
-      }
-    }
-    // Fall back to legacy check
-    return { exists: checkHasCalculations(tenantId, periodId) };
-  } catch {
-    return { exists: false };
-  }
-}
-
-/**
- * Check for calculation results
- * OB-20 Phase 9: Integrates with calculation orchestrator storage keys
- */
-function checkHasCalculations(tenantId: string, periodId: string): boolean {
-  try {
-    // PRIMARY: Check orchestrator calculation runs (vialuce_calculation_runs)
-    const runsData = localStorage.getItem('vialuce_calculation_runs');
-    if (runsData) {
-      const runs: Array<{ tenantId: string; periodId: string; status: string }> = JSON.parse(runsData);
-      const hasCompletedRun = runs.some(
-        (r) => (tenantId === 'platform' || r.tenantId === tenantId) && r.periodId === periodId && r.status === 'completed'
-      );
-      if (hasCompletedRun) return true;
-    }
-
-    // SECONDARY: Check orchestrator calculation results (vialuce_calculations)
-    const calcsData = localStorage.getItem('vialuce_calculations');
-    if (calcsData) {
-      const calcs: Array<{ tenantId: string; periodId?: string; period?: string }> = JSON.parse(calcsData);
-      const hasResults = calcs.some(
-        (c) => c.tenantId === tenantId && (c.periodId === periodId || c.period === periodId)
-      );
-      if (hasResults) return true;
-    }
-
-    // LEGACY: Check for calculation results stored by older calculate page
-    const calcKey = `${tenantId}_calculations_${periodId}`;
-    const calculations = localStorage.getItem(calcKey);
-    if (calculations) return true;
-
-    // LEGACY: Check for commissions data (alternative calculation storage)
-    const commissionsKey = `${tenantId}_commissions`;
-    const commissions = localStorage.getItem(commissionsKey);
-    if (commissions) {
-      const parsed = JSON.parse(commissions);
-      return Array.isArray(parsed) && parsed.length > 0;
-    }
-
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check for reconciliation completion
- */
-function checkHasReconciliation(tenantId: string, periodId: string): boolean {
-  try {
-    // Check for reconciliation results
-    const reconKey = `${tenantId}_reconciliation_${periodId}`;
-    const reconciliation = localStorage.getItem(reconKey);
-    if (reconciliation) return true;
-
-    // Check for reconciliation bridge data
-    const bridgeKey = `reconciliation_results_${tenantId}`;
-    const bridgeData = localStorage.getItem(bridgeKey);
-    if (bridgeData) {
-      const parsed = JSON.parse(bridgeData);
-      return parsed.status === 'completed';
-    }
-
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Get count of pending approvals from approval service
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function checkPendingApprovals(tenantId: string, periodId: string): number {
-  try {
-    // Primary: Check approval service requests
-    const requestsData = localStorage.getItem(APPROVAL_KEYS.REQUESTS);
-    if (requestsData) {
-      const requests: [string, { status: string; tenantId?: string }][] = JSON.parse(requestsData);
-      const pendingCount = requests.filter(([, req]) =>
-        req.status === 'pending' && (!req.tenantId || req.tenantId === tenantId)
-      ).length;
-      if (pendingCount > 0) return pendingCount;
-    }
-
-    // Fallback: Check tenant-specific approvals
-    const approvalsKey = `${tenantId}_pending_approvals`;
-    const approvals = localStorage.getItem(approvalsKey);
-    if (approvals) {
-      const parsed = JSON.parse(approvals);
-      return Array.isArray(parsed)
-        ? parsed.filter((a: { status: string }) => a.status === 'pending').length
-        : 0;
-    }
-
-    // OB-29: No hardcoded demo values
-    return 0;
-  } catch {
-    return 0;
-  }
-}
-
-/**
- * Check payroll status
- */
-function checkPayrollStatus(tenantId: string, periodId: string): 'not_started' | 'processing' | 'finalized' {
-  try {
-    const payrollKey = `${tenantId}_payroll_${periodId}`;
-    const payroll = localStorage.getItem(payrollKey);
-    if (payroll) {
-      const parsed = JSON.parse(payroll);
-      return parsed.status || 'not_started';
-    }
-
-    // Check period processor data
-    const processorKey = `payroll_period_${tenantId}_${periodId}`;
-    const processorData = localStorage.getItem(processorKey);
-    if (processorData) {
-      const parsed = JSON.parse(processorData);
-      if (parsed.finalized) return 'finalized';
-      if (parsed.processing) return 'processing';
-    }
-
-    return 'not_started';
-  } catch {
-    return 'not_started';
-  }
-}
-
-/**
- * Get import details for display
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function getImportDetails(tenantId: string): { count: number; lastImport?: string } {
-  try {
-    const batchesData = localStorage.getItem(DATA_LAYER_KEYS.BATCHES);
-    if (batchesData) {
-      const batches: [string, { status: string; recordCount: number; createdAt: string }][] = JSON.parse(batchesData);
-      const committedBatches = batches.filter(([, b]) => b.status === 'committed');
-      if (committedBatches.length > 0) {
-        const totalRecords = committedBatches.reduce((sum, [, b]) => sum + (b.recordCount || 0), 0);
-        const lastBatch = committedBatches.sort((a, b) =>
-          new Date(b[1].createdAt).getTime() - new Date(a[1].createdAt).getTime()
-        )[0];
-        return {
-          count: totalRecords,
-          lastImport: lastBatch?.[1]?.createdAt,
-        };
-      }
-    }
-    return { count: 0 };
-  } catch {
-    return { count: 0 };
-  }
-}
-
-/**
- * Get reconciliation mismatch count
- */
-export function getReconciliationMismatches(tenantId: string, periodId: string): number {
-  try {
-    const reconKey = `${tenantId}_reconciliation_mismatches_${periodId}`;
-    const mismatches = localStorage.getItem(reconKey);
-    if (mismatches) {
-      const parsed = JSON.parse(mismatches);
-      return Array.isArray(parsed) ? parsed.length : 0;
-    }
-    // OB-29: No hardcoded demo values
-    return 0;
-  } catch {
-    return 0;
-  }
-}
-
-// =============================================================================
-// CYCLE NAVIGATION
+// CYCLE NAVIGATION (pure functions — no localStorage)
 // =============================================================================
 
 /**
@@ -585,4 +208,20 @@ export function getRouteForPhase(phase: CyclePhase): string {
   };
 
   return phaseRoutes[phase];
+}
+
+/**
+ * Get import details — stub for Supabase (batch metadata)
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function getImportDetails(_tenantId: string): { count: number; lastImport?: string } {
+  return { count: 0 };
+}
+
+/**
+ * Get reconciliation mismatch count — stub
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function getReconciliationMismatches(_tenantId: string, _periodId: string): number {
+  return 0;
 }

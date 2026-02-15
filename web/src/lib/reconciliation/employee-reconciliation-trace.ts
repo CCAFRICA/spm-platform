@@ -14,8 +14,12 @@
  */
 
 import type { RuleSetConfig, CalculationResult, PlanComponent, Band, Tier } from '@/types/compensation-plan';
-import { loadAggregatedData, loadImportContext } from '@/lib/data-architecture/data-layer-service';
-import { getPlans } from '@/lib/compensation/plan-storage';
+import { getRuleSets } from '@/lib/supabase/rule-set-service';
+// Stubs for deleted data-layer-service -- Supabase migration pending
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
+function loadAggregatedData(_tenantId: string): any[] { return []; }
+function loadImportContext(_tenantId: string): { sheets?: Array<{ sheetName: string; classification?: string; matchedComponent?: string | null; fieldMappings?: Array<{ sourceColumn: string; semanticType: string }> }> } | null { return null; }
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { findSheetForComponent, inferSemanticType } from '@/lib/orchestration/metric-resolver';
 
 // ============================================
@@ -135,11 +139,11 @@ export interface EmployeeReconciliationTrace {
  * Generate a detailed reconciliation trace for a single employee.
  * This traces the entire calculation pipeline from data loading to final result.
  */
-export function generateEmployeeTrace(
+export async function generateEmployeeTrace(
   tenantId: string,
   entityId: string,
   planIdOverride?: string
-): EmployeeReconciliationTrace | null {
+): Promise<EmployeeReconciliationTrace | null> {
   const traceId = `trace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const generatedAt = new Date().toISOString();
   const warnings: string[] = [];
@@ -174,7 +178,7 @@ export function generateEmployeeTrace(
   // STEP 2: PLAN RESOLUTION
   // ============================================
 
-  const plans = getPlans(tenantId);
+  const plans = await getRuleSets(tenantId);
   const activePlans = plans.filter(p => p.status === 'active');
 
   let selectedPlan: RuleSetConfig | null = null;
@@ -674,12 +678,13 @@ function findTierForValue(tiers: Tier[], value: number): Tier {
 /**
  * Generate traces for multiple employees (useful for validation)
  */
-export function generateBatchTraces(
+export async function generateBatchTraces(
   tenantId: string,
   entityIds: string[],
   planIdOverride?: string
-): EmployeeReconciliationTrace[] {
-  return entityIds.map(id => generateEmployeeTrace(tenantId, id, planIdOverride)).filter(Boolean) as EmployeeReconciliationTrace[];
+): Promise<EmployeeReconciliationTrace[]> {
+  const results = await Promise.all(entityIds.map(id => generateEmployeeTrace(tenantId, id, planIdOverride)));
+  return results.filter(Boolean) as EmployeeReconciliationTrace[];
 }
 
 /**

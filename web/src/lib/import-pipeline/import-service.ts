@@ -16,15 +16,16 @@ import type {
   TransformedRecord,
   AnomalyFlag,
 } from '../data-architecture/types';
-import {
-  createRawRecords,
-  transformRecords,
-  commitRecords,
-  getTransformedRecordsByBatch,
-  getImportBatch,
-  updateBatchStatus,
-  rollbackBatch,
-} from '../data-architecture/data-layer-service';
+// Stubs for deleted data-layer-service -- Supabase data-service handles real imports
+/* eslint-disable @typescript-eslint/no-unused-vars */
+function createRawRecords(_batch: ImportBatch, _records: unknown[]): void {}
+async function transformRecords(_batchId: string, _pipeline: unknown, _userId: string): Promise<void> {}
+function commitRecords(_batchId: string, _approvalRef: string, _userId: string, _recordIds?: string[]): void {}
+function getTransformedRecordsByBatch(_batchId: string): TransformedRecord[] { return []; }
+function getImportBatch(_batchId: string): ImportBatch | null { return null; }
+function updateBatchStatus(_batchId: string, _status: string, _approvalId?: string): void {}
+function rollbackBatch(_batchId: string, _reason: string, _userId: string): { success: boolean; message: string; recordsAffected: number } { return { success: false, message: 'Supabase migration pending', recordsAffected: 0 }; }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 import { getDefaultPipeline } from '../data-architecture/transform-pipeline';
 import { createApprovalRequest } from '../approval-routing/approval-service';
 import type { ApprovalContext } from '../approval-routing/types';

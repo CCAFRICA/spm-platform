@@ -50,7 +50,9 @@ import { logWorkspaceSwitch } from '@/lib/navigation/navigation-signals';
 // STORAGE KEYS
 // =============================================================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const RAIL_COLLAPSED_KEY = 'vialuce_rail_collapsed';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const RECENT_PAGES_KEY = 'vialuce_recent_pages';
 const MAX_RECENT_PAGES = 10;
 
@@ -110,25 +112,10 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const [periodStates, setPeriodStates] = useState<PeriodState[]>([]);
   const [nextAction, setNextAction] = useState<string>('');
 
-  // Initialize from localStorage
+  // Initialize defaults (no localStorage)
   useEffect(() => {
     if (typeof window === 'undefined') return;
-
-    // Restore rail collapsed state
-    const storedCollapsed = localStorage.getItem(RAIL_COLLAPSED_KEY);
-    if (storedCollapsed) {
-      setIsRailCollapsed(storedCollapsed === 'true');
-    }
-
-    // Restore recent pages
-    const storedRecent = localStorage.getItem(RECENT_PAGES_KEY);
-    if (storedRecent) {
-      try {
-        setRecentPages(JSON.parse(storedRecent));
-      } catch {
-        // Ignore parse errors
-      }
-    }
+    // Rail collapsed and recent pages use defaults (false, [])
   }, []);
 
   // Set default workspace based on role
@@ -155,12 +142,11 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
       });
     }
 
-    // Track recent pages
+    // Track recent pages (in-memory only)
     if (pathname !== '/' && pathname !== '/login' && pathname !== '/select-tenant') {
       setRecentPages(prev => {
         const filtered = prev.filter(p => p !== pathname);
         const updated = [pathname, ...filtered].slice(0, MAX_RECENT_PAGES);
-        localStorage.setItem(RECENT_PAGES_KEY, JSON.stringify(updated));
         return updated;
       });
     }
@@ -173,29 +159,33 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     : userRole === 'manager' ? 'manager'
     : 'sales_rep';
 
-  // Load data from CompensationClockService (unified source of truth)
-  const refreshData = useCallback(() => {
+  // Load data from CompensationClockService (unified source of truth — async Supabase)
+  const refreshData = useCallback(async () => {
     if (!user || !userRole) return;
 
-    // THE CYCLE (central pacemaker)
-    const cycle = getCycleState(tenantId, isSpanish);
-    setCycleState(cycle);
+    try {
+      // THE CYCLE (central pacemaker)
+      const cycle = await getCycleState(tenantId, isSpanish);
+      setCycleState(cycle);
 
-    // Multi-period timeline
-    const periods = getAllPeriods(tenantId, isSpanish);
-    setPeriodStates(periods);
+      // Multi-period timeline
+      const periods = await getAllPeriods(tenantId, isSpanish);
+      setPeriodStates(periods);
 
-    // Next action for this persona
-    const action = getNextAction(tenantId, persona, isSpanish);
-    setNextAction(action);
+      // Next action for this persona
+      const action = await getNextAction(tenantId, persona, isSpanish);
+      setNextAction(action);
 
-    // THE QUEUE (peripheral oscillators)
-    const queue = getClockQueueItems(tenantId, persona, user.id);
-    setQueueItems(queue);
+      // THE QUEUE (peripheral oscillators)
+      const queue = await getClockQueueItems(tenantId, persona, user.id);
+      setQueueItems(queue);
 
-    // THE PULSE (feedback loops)
-    const pulse = getClockPulseMetrics(tenantId, persona, user.id);
-    setPulseMetrics(pulse);
+      // THE PULSE (feedback loops)
+      const pulse = await getClockPulseMetrics(tenantId, persona, user.id);
+      setPulseMetrics(pulse);
+    } catch (err) {
+      console.warn('[NavigationContext] Failed to refresh clock data:', err);
+    }
   }, [user, userRole, tenantId, persona, isSpanish]);
 
   // Initial data load
@@ -224,11 +214,10 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     setActiveWorkspaceState(workspace);
   }, [userRole, user, activeWorkspace, tenantId]);
 
-  // Toggle rail collapsed
+  // Toggle rail collapsed (in-memory only)
   const toggleRailCollapsed = useCallback(() => {
     setIsRailCollapsed(prev => {
       const newValue = !prev;
-      localStorage.setItem(RAIL_COLLAPSED_KEY, String(newValue));
       return newValue;
     });
   }, []);

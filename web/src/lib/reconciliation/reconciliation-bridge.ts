@@ -12,13 +12,18 @@ import type {
   ReconciliationRule,
   MatchStatus,
 } from '@/types/reconciliation';
-import { getOrchestrator, getPeriodResults } from '@/lib/orchestration/calculation-orchestrator';
+// Stubs for deleted calculation-orchestrator -- Supabase calculation-service handles results
+/* eslint-disable @typescript-eslint/no-unused-vars */
+function getOrchestrator(_tenantId: string): { runBatchCalculation: () => null; saveMetricAggregate: (_data: unknown) => void } { return { runBatchCalculation: () => null, saveMetricAggregate: () => {} }; }
+function getPeriodResults(_tenantId: string, _periodId: string): unknown[] { return []; }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 import { formatForReconciliation } from '@/lib/calculation/results-formatter';
 
 // ============================================
 // STORAGE KEYS
 // ============================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STORAGE_KEYS = {
   SESSIONS: 'vialuce_reconciliation_sessions',
   ITEMS: 'vialuce_reconciliation_items',
@@ -694,73 +699,23 @@ export class ReconciliationBridge {
     );
   }
 
+  /* eslint-disable @typescript-eslint/no-unused-vars */
   private getAllSessions(): ExtendedReconciliationSession[] {
-    if (typeof window === 'undefined') return [];
-
-    const stored = localStorage.getItem(STORAGE_KEYS.SESSIONS);
-    if (!stored) return [];
-
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return [];
-    }
+    return [];
   }
 
-  private saveSession(session: ExtendedReconciliationSession): void {
-    if (typeof window === 'undefined') return;
-
-    const sessions = this.getAllSessions();
-    const index = sessions.findIndex((s) => s.id === session.id);
-
-    // Don't store items in session - they're stored separately
-    const { items, ...sessionWithoutItems } = session;
-    void items; // Intentionally not storing items in session
-
-    if (index >= 0) {
-      sessions[index] = sessionWithoutItems as ExtendedReconciliationSession;
-    } else {
-      sessions.push(sessionWithoutItems as ExtendedReconciliationSession);
-    }
-
-    localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessions));
+  private saveSession(_session: ExtendedReconciliationSession): void {
+    // no-op: localStorage removed
   }
 
-  private getSessionItems(sessionId: string): ReconciliationItem[] {
-    if (typeof window === 'undefined') return [];
-
-    const stored = localStorage.getItem(STORAGE_KEYS.ITEMS);
-    if (!stored) return [];
-
-    try {
-      const items: ReconciliationItem[] = JSON.parse(stored);
-      return items.filter((i) => i.sessionId === sessionId);
-    } catch {
-      return [];
-    }
+  private getSessionItems(_sessionId: string): ReconciliationItem[] {
+    return [];
   }
 
-  private saveItems(items: ReconciliationItem[]): void {
-    if (typeof window === 'undefined') return;
-
-    const stored = localStorage.getItem(STORAGE_KEYS.ITEMS);
-    let allItems: ReconciliationItem[] = [];
-
-    try {
-      allItems = stored ? JSON.parse(stored) : [];
-    } catch {
-      allItems = [];
-    }
-
-    // Remove existing items for this session
-    const sessionId = items[0]?.sessionId;
-    if (sessionId) {
-      allItems = allItems.filter((i) => i.sessionId !== sessionId);
-    }
-
-    allItems.push(...items);
-    localStorage.setItem(STORAGE_KEYS.ITEMS, JSON.stringify(allItems));
+  private saveItems(_items: ReconciliationItem[]): void {
+    // no-op: localStorage removed
   }
+  /* eslint-enable @typescript-eslint/no-unused-vars */
 
   getDispute(disputeId: string): Dispute | null {
     const disputes = this.getAllDisputes();
@@ -800,31 +755,12 @@ export class ReconciliationBridge {
   }
 
   private getAllDisputes(): Dispute[] {
-    if (typeof window === 'undefined') return [];
-
-    const stored = localStorage.getItem(STORAGE_KEYS.DISPUTES);
-    if (!stored) return [];
-
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return [];
-    }
+    return [];
   }
 
-  private saveDispute(dispute: Dispute): void {
-    if (typeof window === 'undefined') return;
-
-    const disputes = this.getAllDisputes();
-    const index = disputes.findIndex((d) => d.id === dispute.id);
-
-    if (index >= 0) {
-      disputes[index] = dispute;
-    } else {
-      disputes.push(dispute);
-    }
-
-    localStorage.setItem(STORAGE_KEYS.DISPUTES, JSON.stringify(disputes));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private saveDispute(_dispute: Dispute): void {
+    // no-op: localStorage removed
   }
 
   // ============================================
@@ -961,7 +897,9 @@ export async function reconcileCalculationsWithLegacy(
   });
 
   // Get ViaLuce results for this period
-  const viaLuceResults = getPeriodResults(tenantId, periodId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const viaLuceResults = getPeriodResults(tenantId, periodId) as any[];
+  if (!viaLuceResults || viaLuceResults.length === 0) return session;
 
   // Convert to reconciliation format
   const sourceData = viaLuceResults.map((result) => {
@@ -1008,7 +946,8 @@ export function getCalculationResultsForReconciliation(
   description: string;
   components: Record<string, number>;
 }> {
-  const results = getPeriodResults(tenantId, periodId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const results = getPeriodResults(tenantId, periodId) as any[];
 
   return results.map((result) => {
     const formatted = formatForReconciliation(result);

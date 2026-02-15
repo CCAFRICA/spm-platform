@@ -103,11 +103,7 @@ class ApprovalService {
    * Get all requests
    */
   getAllRequests(): ApprovalRequest[] {
-    try {
-      return JSON.parse(localStorage.getItem('approval_requests') || '[]');
-    } catch {
-      return [];
-    }
+    return [];
   }
 
   /**
@@ -145,17 +141,12 @@ class ApprovalService {
 
   // Private helpers
 
-  private saveRequests(requests: ApprovalRequest[]): void {
-    localStorage.setItem('approval_requests', JSON.stringify(requests));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private saveRequests(_requests: ApprovalRequest[]): void {
+    // No-op: localStorage removed
   }
 
   private getCurrentUser(): { id: string; name: string; role: string } {
-    try {
-      const stored = localStorage.getItem('currentUser');
-      if (stored) return JSON.parse(stored);
-    } catch {
-      // Ignore parse errors
-    }
     return { id: 'user-1', name: 'Sarah Chen', role: 'Sales Rep' };
   }
 
