@@ -7,7 +7,7 @@
  * Currency: MXN (Mexican Pesos)
  */
 
-import type { CompensationPlanConfig, PlanComponent, MatrixConfig, TierConfig } from '@/types/compensation-plan';
+import type { RuleSetConfig, PlanComponent, MatrixConfig, TierConfig } from '@/types/compensation-plan';
 
 // ============================================
 // COMPONENT DEFINITIONS
@@ -343,14 +343,14 @@ function getNonCertifiedComponents(): PlanComponent[] {
 // PLAN FACTORIES
 // ============================================
 
-export function createRetailCGMXCertifiedPlan(): CompensationPlanConfig {
+export function createRetailCGMXCertifiedPlan(): RuleSetConfig {
   const now = new Date().toISOString();
   return {
     id: 'plan-retailcgmx-certified-2025',
     tenantId: 'retail_conglomerate',
     name: 'RetailCGMX Incentive Plan - Optometrista Certificado',
     description: 'Plan de incentivos para optometristas certificados con tablas de pago superiores',
-    planType: 'additive_lookup',
+    ruleSetType: 'additive_lookup',
     status: 'active',
     effectiveDate: '2025-01-01T00:00:00Z',
     endDate: null,
@@ -378,14 +378,14 @@ export function createRetailCGMXCertifiedPlan(): CompensationPlanConfig {
   };
 }
 
-export function createRetailCGMXNonCertifiedPlan(): CompensationPlanConfig {
+export function createRetailCGMXNonCertifiedPlan(): RuleSetConfig {
   const now = new Date().toISOString();
   return {
     id: 'plan-retailcgmx-noncertified-2025',
     tenantId: 'retail_conglomerate',
     name: 'RetailCGMX Incentive Plan - Optometrista No Certificado',
     description: 'Plan de incentivos para optometristas no certificados con tablas de pago reducidas',
-    planType: 'additive_lookup',
+    ruleSetType: 'additive_lookup',
     status: 'active',
     effectiveDate: '2025-01-01T00:00:00Z',
     endDate: null,
@@ -417,14 +417,14 @@ export function createRetailCGMXNonCertifiedPlan(): CompensationPlanConfig {
 // UNIFIED PLAN (BOTH VARIANTS IN ONE)
 // ============================================
 
-export function createRetailCGMXUnifiedPlan(): CompensationPlanConfig {
+export function createRetailCGMXUnifiedPlan(): RuleSetConfig {
   const now = new Date().toISOString();
   return {
     id: 'plan-retailcgmx-unified-2025',
     tenantId: 'retail_conglomerate',
     name: 'RetailCGMX Incentive Plan',
     description: 'Plan de incentivos unificado para optometristas certificados y no certificados',
-    planType: 'additive_lookup',
+    ruleSetType: 'additive_lookup',
     status: 'active',
     effectiveDate: '2025-01-01T00:00:00Z',
     endDate: null,
@@ -464,7 +464,7 @@ export function createRetailCGMXUnifiedPlan(): CompensationPlanConfig {
 // ============================================
 
 export const RETAILCGMX_LABELS = {
-  planName: {
+  ruleSetName: {
     es: 'RetailCGMX Plan de Incentivos',
     en: 'RetailCGMX Incentive Plan',
   },

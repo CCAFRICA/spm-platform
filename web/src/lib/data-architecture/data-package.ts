@@ -14,7 +14,7 @@ import type { AdditiveLookupConfig } from '@/types/compensation-plan';
 export interface DataPackage {
   packageId: string;
   tenantId: string;
-  planId: string;
+  ruleSetId: string;
   period: string;
   status: 'assembling' | 'complete' | 'committed';
   files: DataPackageFile[];
@@ -87,14 +87,14 @@ export function detectAvailablePeriods(tenantId: string): string[] {
  */
 export function assessDataCompleteness(
   tenantId: string,
-  planId: string,
+  ruleSetId: string,
   period?: string
 ): DataCompleteness[] {
   if (typeof window === 'undefined') return [];
 
   // Load plan
   const plans = getPlans(tenantId);
-  const plan = plans.find(p => p.id === planId);
+  const plan = plans.find(p => p.id === ruleSetId);
   if (!plan) return [];
 
   const config = plan.configuration as AdditiveLookupConfig;
@@ -215,7 +215,7 @@ export function loadDataPackage(tenantId: string, period: string): DataPackage |
  */
 export function createOrUpdatePackage(
   tenantId: string,
-  planId: string,
+  ruleSetId: string,
   period: string
 ): DataPackage {
   let pkg = loadDataPackage(tenantId, period);
@@ -223,7 +223,7 @@ export function createOrUpdatePackage(
     pkg = {
       packageId: `pkg-${tenantId}-${period}-${Date.now()}`,
       tenantId,
-      planId,
+      ruleSetId,
       period,
       status: 'assembling',
       files: [],
@@ -239,11 +239,11 @@ export function createOrUpdatePackage(
   }
 
   // Refresh completeness
-  pkg.dataCompleteness = assessDataCompleteness(tenantId, planId, period);
+  pkg.dataCompleteness = assessDataCompleteness(tenantId, ruleSetId, period);
 
   // Determine cumulative vs point-in-time from plan
   const plans = getPlans(tenantId);
-  const plan = plans.find(p => p.id === planId);
+  const plan = plans.find(p => p.id === ruleSetId);
   if (plan) {
     const config = plan.configuration as AdditiveLookupConfig;
     const cumulative: string[] = [];

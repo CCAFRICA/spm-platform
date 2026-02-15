@@ -71,7 +71,7 @@ export function ComponentBreakdownCard({ result, onViewDetails }: ComponentBreak
           <div>
             <CardTitle>Earnings by Component</CardTitle>
             <CardDescription>
-              How your {result.planName} compensation breaks down
+              How your {result.ruleSetName} compensation breaks down
             </CardDescription>
           </div>
           <div className="text-right">

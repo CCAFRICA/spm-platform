@@ -76,11 +76,11 @@ export function DisputeResolutionForm({
   const getOutcomeDescription = () => {
     switch (outcome) {
       case 'approved':
-        return `Full approval of ${formatCurrency(parseFloat(amount) || 0)} will be added to ${dispute.employeeName}'s next pay period.`;
+        return `Full approval of ${formatCurrency(parseFloat(amount) || 0)} will be added to ${dispute.entityName}'s next pay period.`;
       case 'partial':
-        return `Partial approval of ${formatCurrency(parseFloat(amount) || 0)} will be added to ${dispute.employeeName}'s next pay period.`;
+        return `Partial approval of ${formatCurrency(parseFloat(amount) || 0)} will be added to ${dispute.entityName}'s next pay period.`;
       case 'denied':
-        return `The dispute will be closed with no adjustment to ${dispute.employeeName}'s compensation.`;
+        return `The dispute will be closed with no adjustment to ${dispute.entityName}'s compensation.`;
     }
   };
 

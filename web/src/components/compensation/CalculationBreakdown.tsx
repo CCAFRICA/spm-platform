@@ -46,14 +46,14 @@ export function CalculationBreakdown({
               </div>
               <div>
                 <div className="text-sm text-muted-foreground">Compensation Plan</div>
-                <div className="font-semibold">{result.planName}</div>
+                <div className="font-semibold">{result.ruleSetName}</div>
                 <div className="text-xs text-muted-foreground">
-                  Version {result.planVersion} • {result.variantName || 'Default Variant'}
+                  Version {result.ruleSetVersion} • {result.variantName || 'Default Variant'}
                 </div>
               </div>
             </div>
             {showPlanLink && (
-              <Link href={`/performance/plans/${result.planId}`}>
+              <Link href={`/performance/plans/${result.ruleSetId}`}>
                 <Button variant="outline" size="sm" className="gap-2">
                   <ExternalLink className="h-3 w-3" />
                   View Plan

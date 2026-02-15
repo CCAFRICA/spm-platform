@@ -90,7 +90,7 @@ export function ImpactRatingBadge({
 
   const dimensionLabels = {
     financial: isSpanish ? 'Financiero' : 'Financial',
-    employeeCount: isSpanish ? 'Empleados' : 'Employees',
+    entityCount: isSpanish ? 'Empleados' : 'Employees',
     periodStatus: isSpanish ? 'Estado del Período' : 'Period Status',
     cascadeScope: isSpanish ? 'Alcance Derivado' : 'Cascade Scope',
     timelineSensitivity: isSpanish ? 'Urgencia' : 'Timeline',

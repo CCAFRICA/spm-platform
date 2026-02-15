@@ -3,7 +3,7 @@
  *
  * 23 tables: 17 MDS v2 + 6 entity model (incl. 3 materializations)
  * Domain-agnostic naming throughout: rule_sets NOT compensation_plans,
- * entity_id NOT employee_id.
+ * entity_id NOT entity_id.
  *
  * Tables:
  *  1. tenants                    - Multi-tenant container

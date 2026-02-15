@@ -8,7 +8,7 @@
  * All component references are dynamic from the plan -- zero hardcoded names.
  */
 
-import type { CalculationResult, CalculationStep, CompensationPlanConfig, AdditiveLookupConfig, PlanComponent } from '@/types/compensation-plan';
+import type { CalculationResult, CalculationStep, RuleSetConfig, AdditiveLookupConfig, PlanComponent } from '@/types/compensation-plan';
 import type { CalculationTrace, ComponentTrace, VariantTrace, MetricTrace, LookupTrace, DataProvenance, ComponentFlag } from './types';
 
 /**
@@ -19,7 +19,7 @@ export function buildTraces(
   results: CalculationResult[],
   runId: string,
   tenantId: string,
-  plan?: CompensationPlanConfig | null
+  plan?: RuleSetConfig | null
 ): CalculationTrace[] {
   return results.map(result => buildTrace(result, runId, tenantId, plan));
 }
@@ -28,7 +28,7 @@ function buildTrace(
   result: CalculationResult,
   runId: string,
   tenantId: string,
-  plan?: CompensationPlanConfig | null
+  plan?: RuleSetConfig | null
 ): CalculationTrace {
   const variant = extractVariant(result, plan);
 
@@ -41,11 +41,11 @@ function buildTrace(
   const flags = collectFlags(result);
 
   return {
-    traceId: `trace-${result.employeeId}-${runId}`,
+    traceId: `trace-${result.entityId}-${runId}`,
     calculationRunId: runId,
-    employeeId: result.employeeId,
-    employeeName: result.employeeName,
-    employeeRole: result.employeeRole,
+    entityId: result.entityId,
+    entityName: result.entityName,
+    entityRole: result.entityRole,
     storeId: result.storeId,
     tenantId,
     timestamp: result.calculatedAt,
@@ -68,7 +68,7 @@ function buildTrace(
 
 function extractVariant(
   result: CalculationResult,
-  plan?: CompensationPlanConfig | null
+  plan?: RuleSetConfig | null
 ): VariantTrace {
   const config = plan?.configuration as AdditiveLookupConfig | undefined;
   const matchedVariant = config?.variants?.find(v => v.variantId === result.variantId);

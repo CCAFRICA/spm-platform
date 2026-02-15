@@ -20,7 +20,7 @@ import type {
   PipelineLayer,
 } from './types';
 import type {
-  CompensationPlanConfig,
+  RuleSetConfig,
   AdditiveLookupConfig,
   PlanComponent,
 } from '@/types/compensation-plan';
@@ -97,10 +97,10 @@ export function getTraces(tenantId: string, runId?: string): CalculationTrace[] 
 
 export function getTraceForEmployee(
   tenantId: string,
-  employeeId: string
+  entityId: string
 ): CalculationTrace | null {
   const traces = getTraces(tenantId);
-  return traces.find(t => t.employeeId === employeeId) || null;
+  return traces.find(t => t.entityId === entityId) || null;
 }
 
 // =============================================================================
@@ -152,13 +152,13 @@ export function runReconciliation(
   traces: CalculationTrace[],
   comparisonData: Record<string, unknown>[],
   mapping: ColumnMapping,
-  plan: CompensationPlanConfig
+  plan: RuleSetConfig
 ): ReconciliationSession {
   const config = plan.configuration as AdditiveLookupConfig;
   const allComponents = config.variants?.[0]?.components || [];
 
   // Build employee ID column from mapping
-  const empIdMapping = mapping.mappings.find(m => m.mappedTo === 'employee_id');
+  const empIdMapping = mapping.mappings.find(m => m.mappedTo === 'entity_id');
   const empIdColumn = empIdMapping?.sourceColumn || '';
   const totalMapping = mapping.mappings.find(m => m.mappedTo === 'total');
   const totalColumn = totalMapping?.sourceColumn || '';
@@ -187,7 +187,7 @@ export function runReconciliation(
   // Index VL traces by employee ID
   const vlByEmployee = new Map<string, CalculationTrace>();
   for (const trace of traces) {
-    vlByEmployee.set(trace.employeeId, trace);
+    vlByEmployee.set(trace.entityId, trace);
   }
 
   // Reconcile each employee
@@ -208,10 +208,10 @@ export function runReconciliation(
 
   for (const trace of traces) {
     vlTotalSum += trace.totalIncentive;
-    const gtRow = gtByEmployee.get(trace.employeeId);
+    const gtRow = gtByEmployee.get(trace.entityId);
 
     if (!gtRow) continue;
-    processedGT.add(trace.employeeId);
+    processedGT.add(trace.entityId);
 
     const gtTotal = totalColumn ? Number(gtRow[totalColumn]) || 0 : 0;
     gtTotalSum += gtTotal;
@@ -256,7 +256,7 @@ export function runReconciliation(
     }
 
     employeeResults.push({
-      employeeId: trace.employeeId,
+      entityId: trace.entityId,
       storeId: trace.storeId,
       variantId: trace.variant.variantId,
       vlTotal: trace.totalIncentive,
@@ -269,8 +269,8 @@ export function runReconciliation(
 
   // Unmatched
   const unmatchedVL = traces
-    .filter(t => !gtByEmployee.has(t.employeeId))
-    .map(t => t.employeeId);
+    .filter(t => !gtByEmployee.has(t.entityId))
+    .map(t => t.entityId);
 
   const unmatchedGT: string[] = [];
   Array.from(gtByEmployee.keys()).forEach(empId => {
@@ -308,7 +308,7 @@ export function runReconciliation(
   const session: ReconciliationSession = {
     sessionId: `recon-${Date.now()}`,
     tenantId: traces[0]?.tenantId || '',
-    planId: plan.id,
+    ruleSetId: plan.id,
     calculationRunId: traces[0]?.calculationRunId || '',
     comparisonDataId: `comp-${Date.now()}`,
     createdAt: new Date().toISOString(),
@@ -355,7 +355,7 @@ export function runPipelineHealth(
   tenantId: string,
   traces?: CalculationTrace[],
   comparisonData?: { data: Record<string, unknown>[]; mapping: ColumnMapping },
-  plan?: CompensationPlanConfig
+  plan?: RuleSetConfig
 ): PipelineHealthResult {
   const layers: PipelineHealthResult['layers'] = {
     interpretation: checkInterpretationLayer(tenantId, plan),
@@ -380,7 +380,7 @@ export function runPipelineHealth(
 // --- Layer 1: Interpretation ---
 function checkInterpretationLayer(
   tenantId: string,
-  planOverride?: CompensationPlanConfig
+  planOverride?: RuleSetConfig
 ): PipelineLayer {
   const flags: string[] = [];
 
@@ -543,7 +543,7 @@ function checkPopulationLayer(
     const periodSet = new Set<string>();
 
     for (const emp of aggData) {
-      const id = String(emp.employeeId || '');
+      const id = String(emp.entityId || '');
       if (idSet.has(id)) duplicates++;
       idSet.add(id);
       if (emp.month && emp.year) {
@@ -620,12 +620,12 @@ function checkOutcomeLayer(
 // HELPERS — load data from localStorage
 // =============================================================================
 
-function loadActivePlan(tenantId: string): CompensationPlanConfig | null {
+function loadActivePlan(tenantId: string): RuleSetConfig | null {
   if (typeof window === 'undefined') return null;
   try {
     const plansStr = localStorage.getItem('compensation_plans');
     if (!plansStr) return null;
-    const plans: CompensationPlanConfig[] = JSON.parse(plansStr, (_, v) =>
+    const plans: RuleSetConfig[] = JSON.parse(plansStr, (_, v) =>
       v === 'INFINITY' ? Infinity : v
     );
     return plans.find(p => p.tenantId === tenantId && p.status === 'active') ||

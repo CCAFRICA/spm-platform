@@ -10,7 +10,7 @@
  * AI-DRIVEN: Uses AI import context for field resolution - NO HARDCODED FIELD NAMES
  */
 
-import type { EmployeeMetrics } from '@/lib/compensation/calculation-engine';
+import type { EntityMetrics } from '@/lib/compensation/calculation-engine';
 import {
   getPlanMappings,
   resolveMetrics,
@@ -102,12 +102,12 @@ export function buildCalculationContext(
 }
 
 /**
- * Build EmployeeMetrics from context for a single employee
+ * Build EntityMetrics from context for a single employee
  */
-export function buildEmployeeMetrics(
+export function buildEntityMetrics(
   context: CalculationContext,
   employee: EmployeeContext
-): EmployeeMetrics | null {
+): EntityMetrics | null {
   // Get resolved metrics for this employee
   const metrics = context.mappings.get(employee.id);
 
@@ -134,9 +134,9 @@ export function buildEmployeeMetrics(
     }
 
     return {
-      employeeId: employee.id,
-      employeeName: `${employee.firstName} ${employee.lastName}`,
-      employeeRole: employee.role,
+      entityId: employee.id,
+      entityName: `${employee.firstName} ${employee.lastName}`,
+      entityRole: employee.role,
       storeId: employee.storeId,
       storeName: employee.storeName,
       isCertified: employee.isCertified,
@@ -148,9 +148,9 @@ export function buildEmployeeMetrics(
   }
 
   return {
-    employeeId: employee.id,
-    employeeName: `${employee.firstName} ${employee.lastName}`,
-    employeeRole: employee.role,
+    entityId: employee.id,
+    entityName: `${employee.firstName} ${employee.lastName}`,
+    entityRole: employee.role,
     storeId: employee.storeId,
     storeName: employee.storeName,
     isCertified: employee.isCertified,
@@ -164,13 +164,13 @@ export function buildEmployeeMetrics(
 /**
  * Build metrics for all employees in context
  */
-export function buildAllEmployeeMetrics(
+export function buildAllEntityMetrics(
   context: CalculationContext
-): EmployeeMetrics[] {
-  const results: EmployeeMetrics[] = [];
+): EntityMetrics[] {
+  const results: EntityMetrics[] = [];
 
   for (const employee of context.employees) {
-    const metrics = buildEmployeeMetrics(context, employee);
+    const metrics = buildEntityMetrics(context, employee);
     if (metrics) {
       results.push(metrics);
     }
@@ -348,13 +348,13 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeContext[] 
       }
 
       // AI-DRIVEN: Extract employee ID using semantic mapping
-      const employeeId = extractFieldValue(aiContext, content, sheetName, ['employeeId', 'employee_id']);
+      const entityId = extractFieldValue(aiContext, content, sheetName, ['entityId', 'entity_id']);
 
-      if (!employeeId || employeeId.length < 3 || seenIds.has(employeeId)) continue;
-      seenIds.add(employeeId);
+      if (!entityId || entityId.length < 3 || seenIds.has(entityId)) continue;
+      seenIds.add(entityId);
 
       // AI-DRIVEN: Extract all fields using semantic mappings
-      const fullName = extractFieldValue(aiContext, content, sheetName, ['name', 'employeeName', 'fullName']);
+      const fullName = extractFieldValue(aiContext, content, sheetName, ['name', 'entityName', 'fullName']);
       const firstName = fullName.split(' ')[0] || 'Unknown';
       const lastName = fullName.split(' ').slice(1).join(' ') || 'Employee';
       const role = extractFieldValue(aiContext, content, sheetName, ['role', 'position', 'employeeType', 'jobTitle']) || 'sales_rep';
@@ -368,9 +368,9 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeContext[] 
       const isCertified = hasCertificado && !hasNoCertificado;
 
       employees.push({
-        id: employeeId.toLowerCase().replace(/\s+/g, '-'),
+        id: entityId.toLowerCase().replace(/\s+/g, '-'),
         tenantId,
-        employeeNumber: employeeId,
+        employeeNumber: entityId,
         firstName,
         lastName,
         email: extractFieldValue(aiContext, content, sheetName, ['email']),
@@ -450,8 +450,8 @@ function getCommittedDataByEmployee(
       const sheetName = String(content._sheetName || '');
 
       // AI-DRIVEN: Extract employee ID using semantic mapping
-      const employeeId = extractFieldValue(aiContext, content, sheetName, ['employeeId', 'employee_id']);
-      if (!employeeId) continue;
+      const entityId = extractFieldValue(aiContext, content, sheetName, ['entityId', 'entity_id']);
+      if (!entityId) continue;
 
       // AI-DRIVEN: Check if record matches period using semantic mapping
       const recordPeriod = extractFieldValue(aiContext, content, sheetName, ['period', 'month']);
@@ -459,7 +459,7 @@ function getCommittedDataByEmployee(
         continue;
       }
 
-      const normalizedId = employeeId.toLowerCase().replace(/\s+/g, '-');
+      const normalizedId = entityId.toLowerCase().replace(/\s+/g, '-');
       if (!result.has(normalizedId)) {
         result.set(normalizedId, []);
       }
@@ -503,7 +503,7 @@ function resolveMappingsForEmployees(
     }
   }
 
-  for (const [employeeId, records] of Array.from(committedData.entries())) {
+  for (const [entityId, records] of Array.from(committedData.entries())) {
     const employeeMetrics = new Map<string, number>();
 
     // Aggregate data from all records
@@ -531,7 +531,7 @@ function resolveMappingsForEmployees(
       }
     }
 
-    result.set(employeeId, employeeMetrics);
+    result.set(entityId, employeeMetrics);
   }
 
   return result;

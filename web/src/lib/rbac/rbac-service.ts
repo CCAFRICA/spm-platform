@@ -663,7 +663,7 @@ function getDefaultAuditLogs(): AuditLogEntry[] {
       resource: 'payout',
       resourceId: 'payout-001',
       resourceName: 'January 2024 Payout',
-      details: { amount: 12500, employeeCount: 15 },
+      details: { amount: 12500, entityCount: 15 },
     },
     {
       id: 'audit-2',

@@ -36,7 +36,7 @@ const OB12_PROOF_SCRIPT = `
     dataLayerCommitted: false,
     batchCount: 0,
     recordCount: 0,
-    employeeCount: 0,
+    entityCount: 0,
     tenantIds: [],
     sampleEmployees: [],
     hasDemoData: false,
@@ -107,7 +107,7 @@ const OB12_PROOF_SCRIPT = `
     const employees = [];
     for (const [, record] of tenantRecords) {
       const c = record.content;
-      const empId = c.num_empleado || c.Num_Empleado || c.employee_id || c.employeeId;
+      const empId = c.num_empleado || c.Num_Empleado || c.entity_id || c.entityId;
       const name = c.nombre || c.Nombre || c.name || c.nombre_completo;
 
       if (empId && name) {
@@ -121,7 +121,7 @@ const OB12_PROOF_SCRIPT = `
     console.log('  Employees detected:', employees.length);
 
     if (employees.length > 0) {
-      results.employeeCount += employees.length;
+      results.entityCount += employees.length;
       results.sampleEmployees.push(...employees.slice(0, 3));
 
       // Check for demo data
@@ -163,11 +163,11 @@ const OB12_PROOF_SCRIPT = `
 
   // Final verdict
   console.log('========================================');
-  if (results.employeeCount > 0 && !results.hasDemoData) {
+  if (results.entityCount > 0 && !results.hasDemoData) {
     console.log('VERDICT: PASS');
     console.log('The UI import flow IS persisting real employee data.');
-    console.log('Employees found:', results.employeeCount);
-  } else if (results.employeeCount > 0 && results.hasDemoData) {
+    console.log('Employees found:', results.entityCount);
+  } else if (results.entityCount > 0 && results.hasDemoData) {
     console.log('VERDICT: PARTIAL');
     console.log('Data exists but contains demo employees.');
     console.log('This might be from a previous demo reset.');

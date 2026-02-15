@@ -183,12 +183,12 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
             <div className="flex items-center gap-3">
               <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
                 <span className="text-lg font-bold text-primary">
-                  {dispute.employeeName.split(' ').map((n) => n[0]).join('')}
+                  {dispute.entityName.split(' ').map((n) => n[0]).join('')}
                 </span>
               </div>
               <div>
-                <div className="font-medium">{dispute.employeeName}</div>
-                <div className="text-sm text-muted-foreground">{dispute.employeeId}</div>
+                <div className="font-medium">{dispute.entityName}</div>
+                <div className="text-sm text-muted-foreground">{dispute.entityId}</div>
               </div>
             </div>
             <div className="flex items-center gap-2 text-sm">

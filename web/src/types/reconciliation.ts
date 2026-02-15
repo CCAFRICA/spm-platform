@@ -36,7 +36,7 @@ export interface ReconciliationSession {
   // Scope
   startDate: string;
   endDate: string;
-  employeeIds?: string[];
+  entityIds?: string[];
   departmentIds?: string[];
 
   // Results
@@ -105,7 +105,7 @@ export interface ReconciliationItem {
   // Source record
   sourceRecord?: {
     id: string;
-    employeeId: string;
+    entityId: string;
     amount: number;
     date: string;
     type: string;
@@ -116,7 +116,7 @@ export interface ReconciliationItem {
   // Target record
   targetRecord?: {
     id: string;
-    employeeId: string;
+    entityId: string;
     amount: number;
     date: string;
     type: string;
@@ -283,8 +283,8 @@ export interface ReconciliationReport {
 
   // By employee
   byEmployee: Array<{
-    employeeId: string;
-    employeeName: string;
+    entityId: string;
+    entityName: string;
     itemCount: number;
     matchedCount: number;
     discrepancyAmount: number;

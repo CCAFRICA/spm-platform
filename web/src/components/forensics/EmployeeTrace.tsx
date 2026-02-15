@@ -47,10 +47,10 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
                 <User className="h-6 w-6 text-blue-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">{trace.employeeName}</h2>
+                <h2 className="text-lg font-semibold">{trace.entityName}</h2>
                 <div className="flex items-center gap-3 text-sm text-slate-500">
-                  <span className="font-mono">{trace.employeeId}</span>
-                  <span>{trace.employeeRole}</span>
+                  <span className="font-mono">{trace.entityId}</span>
+                  <span>{trace.entityRole}</span>
                   {trace.storeId && (
                     <span className="flex items-center gap-1">
                       <Building2 className="h-3 w-3" />

@@ -323,7 +323,7 @@ function getDefaultQuarantineItems(): QuarantineItem[] {
         amount: 15000,
         date: '2025-01-23',
         store_id: '103',
-        employee_id: 'emp-012',
+        entity_id: 'emp-012',
       },
       errorType: 'anomaly',
       errorMessage: 'Unusually high amount detected',

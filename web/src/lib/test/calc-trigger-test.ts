@@ -190,12 +190,12 @@ function calcTestExtractEmployees(tenantId: string): CalcTestEmployeeData[] {
       }
 
       const content = record.content;
-      const employeeId = String(
+      const entityId = String(
         content['num_empleado'] || content['Num_Empleado'] ||
-        content['employee_id'] || content['employeeId'] || ''
+        content['entity_id'] || content['entityId'] || ''
       ).trim();
 
-      if (!employeeId || seenIds.has(employeeId)) continue;
+      if (!entityId || seenIds.has(entityId)) continue;
 
       // Check for name field (employee record vs component data)
       const hasNameField = content['nombre'] || content['name'] ||
@@ -204,7 +204,7 @@ function calcTestExtractEmployees(tenantId: string): CalcTestEmployeeData[] {
 
       if (!hasNameField) continue;
 
-      seenIds.add(employeeId);
+      seenIds.add(entityId);
 
       const fullName = String(content['nombre'] || content['nombre_completo'] || content['Nombre'] || '');
       const nameParts = fullName.split(' ');
@@ -212,9 +212,9 @@ function calcTestExtractEmployees(tenantId: string): CalcTestEmployeeData[] {
       const lastName = nameParts.slice(1).join(' ') || 'Employee';
 
       employees.push({
-        id: employeeId,
+        id: entityId,
         tenantId: tenantId,
-        employeeNumber: String(content['num_empleado'] || content['Num_Empleado'] || employeeId),
+        employeeNumber: String(content['num_empleado'] || content['Num_Empleado'] || entityId),
         firstName: firstName,
         lastName: lastName,
         email: String(content['email'] || content['correo'] || ''),

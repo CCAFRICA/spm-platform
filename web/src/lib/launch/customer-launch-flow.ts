@@ -14,7 +14,7 @@ import { getOrchestrator, type OrchestrationResult } from '@/lib/orchestration/c
 import { getPeriodProcessor } from '@/lib/payroll/period-processor';
 import { getPlans, savePlan } from '@/lib/compensation/plan-storage';
 import { validatePlanConfiguration, getRequiredMetrics } from '@/lib/compensation/plan-interpreter';
-import type { CompensationPlanConfig } from '@/types/compensation-plan';
+import type { RuleSetConfig } from '@/types/compensation-plan';
 
 // ============================================
 // STORAGE KEYS
@@ -62,7 +62,7 @@ export interface CustomerLaunch {
   // Test calculation
   testCalculationRun?: string;
   testCalculationResult?: {
-    employeesProcessed: number;
+    entitiesProcessed: number;
     totalPayout: number;
     errors: number;
   };
@@ -377,8 +377,8 @@ export class CustomerLaunchFlow {
    * Execute plan configuration step
    */
   async executePlanConfiguration(
-    plan: Omit<CompensationPlanConfig, 'id' | 'createdAt' | 'updatedAt'>
-  ): Promise<CompensationPlanConfig> {
+    plan: Omit<RuleSetConfig, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<RuleSetConfig> {
     const step = this.launch.steps.find((s) => s.id === 'plan-config');
     if (!step) throw new Error('Plan configuration step not found');
     if (!this.launch.tenantId) throw new Error('Tenant not set up');
@@ -387,7 +387,7 @@ export class CustomerLaunchFlow {
 
     try {
       const now = new Date().toISOString();
-      const fullPlan: CompensationPlanConfig = {
+      const fullPlan: RuleSetConfig = {
         ...plan,
         id: `plan-${Date.now()}`,
         tenantId: this.launch.tenantId,
@@ -415,7 +415,7 @@ export class CustomerLaunchFlow {
         success: true,
         message: `Plan configured: ${saved.name}`,
         details: {
-          planId: saved.id,
+          ruleSetId: saved.id,
           requiredMetrics: getRequiredMetrics(saved),
         },
         warnings: validation.warnings,
@@ -444,7 +444,7 @@ export class CustomerLaunchFlow {
       [key: string]: unknown;
     }>,
     metrics: Array<{
-      employeeId: string;
+      entityId: string;
       periodId: string;
       metrics: Record<string, number>;
     }>
@@ -479,7 +479,7 @@ export class CustomerLaunchFlow {
       // Save metrics
       for (const m of metrics) {
         orchestrator.saveMetricAggregate({
-          employeeId: m.employeeId,
+          entityId: m.entityId,
           periodId: m.periodId,
           tenantId: this.launch.tenantId!,
           metrics: m.metrics,
@@ -494,7 +494,7 @@ export class CustomerLaunchFlow {
       this.completeStep(step.id, {
         success: true,
         message: `Imported ${employees.length} employees and ${metrics.length} metric records`,
-        details: { employeeCount: employees.length, metricCount: metrics.length },
+        details: { entityCount: employees.length, metricCount: metrics.length },
       });
 
       return { employees: employees.length, metrics: metrics.length };
@@ -662,7 +662,7 @@ export class CustomerLaunchFlow {
 
       this.launch.testCalculationRun = result.run.id;
       this.launch.testCalculationResult = {
-        employeesProcessed: result.summary.employeesProcessed,
+        entitiesProcessed: result.summary.entitiesProcessed,
         totalPayout: result.summary.totalPayout,
         errors: result.run.errorCount,
       };
@@ -672,14 +672,14 @@ export class CustomerLaunchFlow {
       this.completeStep(step.id, {
         success,
         message: success
-          ? `Test calculation completed: ${result.summary.employeesProcessed} employees, $${result.summary.totalPayout.toLocaleString()} total`
+          ? `Test calculation completed: ${result.summary.entitiesProcessed} employees, $${result.summary.totalPayout.toLocaleString()} total`
           : `Test calculation had ${result.run.errorCount} errors`,
         details: {
           runId: result.run.id,
-          employeesProcessed: result.summary.employeesProcessed,
+          entitiesProcessed: result.summary.entitiesProcessed,
           totalPayout: result.summary.totalPayout,
         },
-        errors: result.run.errors?.map((e) => `${e.employeeId}: ${e.error}`),
+        errors: result.run.errors?.map((e) => `${e.entityId}: ${e.error}`),
       });
 
       return result;

@@ -109,12 +109,12 @@ export function PayoutBatchCard({
             </div>
             <div className="text-center p-3 bg-muted/50 rounded-lg">
               <Users className="h-5 w-5 mx-auto text-blue-600 mb-1" />
-              <div className="text-lg font-bold">{batch.employeeCount}</div>
+              <div className="text-lg font-bold">{batch.entityCount}</div>
               <div className="text-xs text-muted-foreground">Employees</div>
             </div>
             <div className="text-center p-3 bg-muted/50 rounded-lg">
               <Calendar className="h-5 w-5 mx-auto text-purple-600 mb-1" />
-              <div className="text-lg font-bold">{formatCurrency(batch.totalAmount / batch.employeeCount)}</div>
+              <div className="text-lg font-bold">{formatCurrency(batch.totalAmount / batch.entityCount)}</div>
               <div className="text-xs text-muted-foreground">Avg. Payout</div>
             </div>
           </div>
@@ -212,7 +212,7 @@ export function PayoutBatchCard({
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               Are you sure you want to reject the {batch.periodLabel} payout?
-              This will prevent {batch.employeeCount} employees from receiving their incentives.
+              This will prevent {batch.entityCount} employees from receiving their incentives.
             </p>
 
             <div className="space-y-2">

@@ -13,7 +13,7 @@ import {
   isAIInterpreterAvailable,
   type PlanInterpretation,
 } from '@/lib/compensation/plan-interpreter';
-import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation-plan';
+import type { RuleSetConfig, PlanComponent } from '@/types/compensation-plan';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -88,7 +88,7 @@ const labels = {
     importSuccess: 'Plan imported successfully!',
     importError: 'Failed to import plan',
     back: 'Back',
-    planName: 'Plan Name',
+    ruleSetName: 'Plan Name',
     planDescription: 'Plan Description',
     effectiveDate: 'Effective Date',
     eligibleRoles: 'Eligible Roles',
@@ -136,7 +136,7 @@ const labels = {
     importSuccess: '¡Plan importado exitosamente!',
     importError: 'Error al importar plan',
     back: 'Volver',
-    planName: 'Nombre del Plan',
+    ruleSetName: 'Nombre del Plan',
     planDescription: 'Descripción del Plan',
     effectiveDate: 'Fecha de Vigencia',
     eligibleRoles: 'Roles Elegibles',
@@ -225,7 +225,7 @@ interface ParsedPlan {
   employeeTypes?: Array<{ id: string; name: string; nameEs?: string }>;
   workedExamples?: PlanInterpretation['workedExamples'];
   requiredInputs?: PlanInterpretation['requiredInputs'];
-  planConfig?: CompensationPlanConfig;
+  planConfig?: RuleSetConfig;
   rawApiResponse?: string;
 }
 
@@ -239,10 +239,10 @@ export default function PlanImportPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [parsedPlan, setParsedPlan] = useState<ParsedPlan | null>(null);
   const [editingComponent, setEditingComponent] = useState<DetectedComponent | null>(null);
-  const [importResult, setImportResult] = useState<{ success: boolean; planId?: string; error?: string } | null>(null);
+  const [importResult, setImportResult] = useState<{ success: boolean; ruleSetId?: string; error?: string } | null>(null);
 
   // Plan metadata
-  const [planName, setPlanName] = useState('');
+  const [ruleSetName, setPlanName] = useState('');
   const [planDescription, setPlanDescription] = useState('');
   const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -483,12 +483,12 @@ export default function PlanImportPage() {
           }), (key, value) => {
             if (value === 'INFINITY_PLACEHOLDER') return Infinity;
             return value;
-          }) as CompensationPlanConfig
+          }) as RuleSetConfig
         : undefined;
 
       const parsed: ParsedPlan = {
-        name: interpretation.planName,
-        nameEs: interpretation.planNameEs,
+        name: interpretation.ruleSetName,
+        nameEs: interpretation.ruleSetNameEs,
         description,
         descriptionEs: interpretation.descriptionEs,
         components,
@@ -553,7 +553,7 @@ export default function PlanImportPage() {
 
     try {
       const now = new Date().toISOString();
-      let planConfig: CompensationPlanConfig;
+      let planConfig: RuleSetConfig;
 
       // Use the pre-built plan config from AI interpretation if available
       if (parsedPlan.planConfig) {
@@ -571,7 +571,7 @@ export default function PlanImportPage() {
         planConfig = {
           ...parsedPlan.planConfig,
           configuration: preservedConfig, // Use deep-copied configuration
-          name: planName,
+          name: ruleSetName,
           description: planDescription,
           effectiveDate: new Date(effectiveDate).toISOString(),
           tenantId: currentTenant.id,
@@ -585,9 +585,9 @@ export default function PlanImportPage() {
         planConfig = {
           id: `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
           tenantId: currentTenant.id,
-          name: planName,
+          name: ruleSetName,
           description: planDescription,
-          planType: 'additive_lookup',
+          ruleSetType: 'additive_lookup',
           status: 'draft',
           effectiveDate: new Date(effectiveDate).toISOString(),
           endDate: null,
@@ -691,7 +691,7 @@ export default function PlanImportPage() {
       const verifyPlans = localStorage.getItem('compensation_plans');
       console.log('[handleImport] Verification - Plans in storage:', verifyPlans ? JSON.parse(verifyPlans).length : 0);
 
-      setImportResult({ success: true, planId: planConfig.id });
+      setImportResult({ success: true, ruleSetId: planConfig.id });
       console.log('[handleImport] SUCCESS - Import complete');
     } catch (error) {
       console.error('[handleImport] ERROR:', error);
@@ -754,7 +754,7 @@ export default function PlanImportPage() {
               <CheckCircle2 className="h-8 w-8 text-emerald-500" />
               <div className="flex-1">
                 <p className="font-medium text-emerald-900 dark:text-emerald-100">{t.importSuccess}</p>
-                <p className="text-sm text-emerald-700 dark:text-emerald-300">Plan ID: {importResult.planId}</p>
+                <p className="text-sm text-emerald-700 dark:text-emerald-300">Plan ID: {importResult.ruleSetId}</p>
               </div>
             </CardContent>
           </Card>
@@ -970,15 +970,15 @@ export default function PlanImportPage() {
           {/* Plan Metadata */}
           <Card>
             <CardHeader>
-              <CardTitle>{t.planName}</CardTitle>
+              <CardTitle>{t.ruleSetName}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="planName">{t.planName}</Label>
+                  <Label htmlFor="ruleSetName">{t.ruleSetName}</Label>
                   <Input
-                    id="planName"
-                    value={planName}
+                    id="ruleSetName"
+                    value={ruleSetName}
                     onChange={(e) => setPlanName(e.target.value)}
                   />
                 </div>

@@ -95,7 +95,7 @@ export interface ImpactRating {
 
 export interface ImpactDimensions {
   financial: number; // 0-10: $ value affected
-  employeeCount: number; // 0-10: people affected
+  entityCount: number; // 0-10: people affected
   periodStatus: number; // 0-10: touching approved/paid periods?
   cascadeScope: number; // 0-10: downstream recalculations
   timelineSensitivity: number; // 0-10: urgency

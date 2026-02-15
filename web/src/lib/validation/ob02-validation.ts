@@ -151,7 +151,7 @@ function testAcceleratorApplication(): ValidationResult {
       {
         id: 'entry-1',
         batchId: 'batch-1',
-        employeeId: 'emp-001',
+        entityId: 'emp-001',
         periodId: 'period-1',
         type: 'commission',
         description: 'Commission',
@@ -208,15 +208,15 @@ function testReconciliationMatching(): ValidationResult {
 
   try {
     const sourceRecords = [
-      { id: 'src-1', employeeId: 'emp-001', amount: 1000, date: '2026-01-15', type: 'commission', rawData: {} },
-      { id: 'src-2', employeeId: 'emp-002', amount: 1500, date: '2026-01-16', type: 'commission', rawData: {} },
-      { id: 'src-3', employeeId: 'emp-003', amount: 2000, date: '2026-01-17', type: 'bonus', rawData: {} },
+      { id: 'src-1', entityId: 'emp-001', amount: 1000, date: '2026-01-15', type: 'commission', rawData: {} },
+      { id: 'src-2', entityId: 'emp-002', amount: 1500, date: '2026-01-16', type: 'commission', rawData: {} },
+      { id: 'src-3', entityId: 'emp-003', amount: 2000, date: '2026-01-17', type: 'bonus', rawData: {} },
     ];
 
     const targetRecords = [
-      { id: 'tgt-1', employeeId: 'emp-001', amount: 1000, date: '2026-01-15', type: 'commission', rawData: {} },
-      { id: 'tgt-2', employeeId: 'emp-002', amount: 1505, date: '2026-01-16', type: 'commission', rawData: {} }, // Small difference
-      { id: 'tgt-4', employeeId: 'emp-004', amount: 500, date: '2026-01-18', type: 'commission', rawData: {} }, // Only in target
+      { id: 'tgt-1', entityId: 'emp-001', amount: 1000, date: '2026-01-15', type: 'commission', rawData: {} },
+      { id: 'tgt-2', entityId: 'emp-002', amount: 1505, date: '2026-01-16', type: 'commission', rawData: {} }, // Small difference
+      { id: 'tgt-4', entityId: 'emp-004', amount: 500, date: '2026-01-18', type: 'commission', rawData: {} }, // Only in target
     ];
 
     const rules: ReconciliationRule[] = [
@@ -227,7 +227,7 @@ function testReconciliationMatching(): ValidationResult {
         priority: 100,
         isActive: true,
         matchCriteria: [
-          { sourceField: 'employeeId', targetField: 'employeeId', matchType: 'exact', weight: 40, required: true },
+          { sourceField: 'entityId', targetField: 'entityId', matchType: 'exact', weight: 40, required: true },
           { sourceField: 'amount', targetField: 'amount', matchType: 'numeric_range', weight: 40, required: true },
           { sourceField: 'type', targetField: 'type', matchType: 'exact', weight: 20, required: false },
         ],
@@ -283,7 +283,7 @@ function testFuzzyMatching(): ValidationResult {
   try {
     const sourceRecord = {
       id: 'src-1',
-      employeeId: 'emp-001',
+      entityId: 'emp-001',
       amount: 1000,
       date: '2026-01-15',
       type: 'commission',
@@ -291,8 +291,8 @@ function testFuzzyMatching(): ValidationResult {
     };
 
     const targetRecords = [
-      { id: 'tgt-1', employeeId: 'emp-001', amount: 995, date: '2026-01-16', type: 'commission', rawData: {} },
-      { id: 'tgt-2', employeeId: 'emp-002', amount: 1000, date: '2026-01-15', type: 'commission', rawData: {} },
+      { id: 'tgt-1', entityId: 'emp-001', amount: 995, date: '2026-01-16', type: 'commission', rawData: {} },
+      { id: 'tgt-2', entityId: 'emp-002', amount: 1000, date: '2026-01-15', type: 'commission', rawData: {} },
     ];
 
     const rules: ReconciliationRule[] = [
@@ -303,7 +303,7 @@ function testFuzzyMatching(): ValidationResult {
         priority: 100,
         isActive: true,
         matchCriteria: [
-          { sourceField: 'employeeId', targetField: 'employeeId', matchType: 'exact', weight: 50, required: true },
+          { sourceField: 'entityId', targetField: 'entityId', matchType: 'exact', weight: 50, required: true },
           { sourceField: 'amount', targetField: 'amount', matchType: 'numeric_range', weight: 30, required: true },
           { sourceField: 'date', targetField: 'date', matchType: 'date_range', weight: 20, required: false },
         ],
@@ -356,13 +356,13 @@ function testScenarioComparison(): ValidationResult {
 
   try {
     const baseData = [
-      { employeeId: 'emp-001', employeeName: 'John Doe', commission: 10000, bonus: 2000, spiff: 500, accelerator: 0, adjustment: 0, clawback: 0 },
-      { employeeId: 'emp-002', employeeName: 'Jane Smith', commission: 12000, bonus: 3000, spiff: 0, accelerator: 500, adjustment: 0, clawback: 0 },
+      { entityId: 'emp-001', entityName: 'John Doe', commission: 10000, bonus: 2000, spiff: 500, accelerator: 0, adjustment: 0, clawback: 0 },
+      { entityId: 'emp-002', entityName: 'Jane Smith', commission: 12000, bonus: 3000, spiff: 0, accelerator: 500, adjustment: 0, clawback: 0 },
     ];
 
     const scenarioData = [
-      { employeeId: 'emp-001', employeeName: 'John Doe', commission: 11000, bonus: 2000, spiff: 500, accelerator: 0, adjustment: 0, clawback: 0 },
-      { employeeId: 'emp-002', employeeName: 'Jane Smith', commission: 12500, bonus: 3000, spiff: 0, accelerator: 750, adjustment: 0, clawback: 0 },
+      { entityId: 'emp-001', entityName: 'John Doe', commission: 11000, bonus: 2000, spiff: 500, accelerator: 0, adjustment: 0, clawback: 0 },
+      { entityId: 'emp-002', entityName: 'Jane Smith', commission: 12500, bonus: 3000, spiff: 0, accelerator: 750, adjustment: 0, clawback: 0 },
     ];
 
     const results = compareScenarios(baseData, scenarioData);
@@ -404,13 +404,13 @@ function testShadowPayrollComparison(): ValidationResult {
 
   try {
     const legacyData = [
-      { employeeId: 'emp-001', employeeName: 'John Doe', amount: 15000, components: { commission: 12000, bonus: 3000 } },
-      { employeeId: 'emp-002', employeeName: 'Jane Smith', amount: 18000, components: { commission: 15000, bonus: 3000 } },
+      { entityId: 'emp-001', entityName: 'John Doe', amount: 15000, components: { commission: 12000, bonus: 3000 } },
+      { entityId: 'emp-002', entityName: 'Jane Smith', amount: 18000, components: { commission: 15000, bonus: 3000 } },
     ];
 
     const newData = [
-      { employeeId: 'emp-001', employeeName: 'John Doe', amount: 15000, components: { commission: 12000, bonus: 3000 } },
-      { employeeId: 'emp-002', employeeName: 'Jane Smith', amount: 18005, components: { commission: 15005, bonus: 3000 } }, // Small variance
+      { entityId: 'emp-001', entityName: 'John Doe', amount: 15000, components: { commission: 12000, bonus: 3000 } },
+      { entityId: 'emp-002', entityName: 'Jane Smith', amount: 18005, components: { commission: 15005, bonus: 3000 } }, // Small variance
     ];
 
     const comparison = compareShadowPayroll(legacyData, newData, 0.5, 10);

@@ -33,10 +33,10 @@ import type { ReconciliationSession, EmployeeReconciliation } from '@/lib/forens
 
 interface ReconciliationTableProps {
   session: ReconciliationSession;
-  onEmployeeClick?: (employeeId: string) => void;
+  onEmployeeClick?: (entityId: string) => void;
 }
 
-type SortField = 'employeeId' | 'vlTotal' | 'gtTotal' | 'difference';
+type SortField = 'entityId' | 'vlTotal' | 'gtTotal' | 'difference';
 type FilterType = 'all' | 'true_match' | 'coincidental_match' | 'mismatch';
 
 export function ReconciliationTable({ session, onEmployeeClick }: ReconciliationTableProps) {
@@ -55,7 +55,7 @@ export function ReconciliationTable({ session, onEmployeeClick }: Reconciliation
     if (search.trim()) {
       const q = search.toLowerCase();
       results = results.filter(r =>
-        r.employeeId.toLowerCase().includes(q) ||
+        r.entityId.toLowerCase().includes(q) ||
         (r.storeId?.toLowerCase().includes(q))
       );
     }
@@ -166,9 +166,9 @@ export function ReconciliationTable({ session, onEmployeeClick }: Reconciliation
             </TableHeader>
             <TableBody>
               {filtered.slice(0, 100).map(emp => (
-                <TableRow key={emp.employeeId}>
+                <TableRow key={emp.entityId}>
                   <TableCell className="sticky left-0 bg-white z-10 font-mono text-sm">
-                    {emp.employeeId}
+                    {emp.entityId}
                     {emp.storeId && (
                       <span className="text-xs text-slate-400 ml-1">@{emp.storeId}</span>
                     )}
@@ -199,7 +199,7 @@ export function ReconciliationTable({ session, onEmployeeClick }: Reconciliation
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => onEmployeeClick(emp.employeeId)}
+                        onClick={() => onEmployeeClick(emp.entityId)}
                       >
                         <ExternalLink className="h-3 w-3" />
                       </Button>

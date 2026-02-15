@@ -44,11 +44,11 @@ function openDB(): Promise<IDBDatabase> {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
 
-      // Create object store for results (keyed by composite: runId + employeeId)
+      // Create object store for results (keyed by composite: runId + entityId)
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: ['runId', 'employeeId'] });
+        const store = db.createObjectStore(STORE_NAME, { keyPath: ['runId', 'entityId'] });
         store.createIndex('runId', 'runId', { unique: false });
-        store.createIndex('employeeId', 'employeeId', { unique: false });
+        store.createIndex('entityId', 'entityId', { unique: false });
       }
 
       // Create object store for run index
@@ -103,7 +103,7 @@ export async function saveResultsToIndexedDB(
           resolve();
         };
         addRequest.onerror = () => {
-          console.error(`[IndexedDB] Failed to save result for ${result.employeeId}:`, addRequest.error);
+          console.error(`[IndexedDB] Failed to save result for ${result.entityId}:`, addRequest.error);
           reject(addRequest.error);
         };
       });

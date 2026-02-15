@@ -20,7 +20,7 @@ import type {
 
 interface SourceRecord {
   id: string;
-  employeeId: string;
+  entityId: string;
   amount: number;
   date: string;
   type: string;
@@ -163,7 +163,7 @@ export function findBestMatch(
   // Try exact match first
   const exactMatch = targetRecords.find(
     (t) =>
-      t.employeeId === sourceRecord.employeeId &&
+      t.entityId === sourceRecord.entityId &&
       t.amount === sourceRecord.amount &&
       t.date === sourceRecord.date &&
       t.type === sourceRecord.type
@@ -240,7 +240,7 @@ export function findBestMatch(
   // Try fuzzy matching as fallback
   if (bestMatch.matchConfidence < 50) {
     for (const targetRecord of targetRecords) {
-      if (targetRecord.employeeId !== sourceRecord.employeeId) continue;
+      if (targetRecord.entityId !== sourceRecord.entityId) continue;
 
       const amountDiff = Math.abs(sourceRecord.amount - targetRecord.amount);
       const amountSimilarity = 100 - Math.min(100, (amountDiff / Math.max(sourceRecord.amount, 1)) * 100);
@@ -334,7 +334,7 @@ export function processReconciliation(
       matchMethod: matchResult.matchMethod,
       sourceRecord: {
         id: sourceRecord.id,
-        employeeId: sourceRecord.employeeId,
+        entityId: sourceRecord.entityId,
         amount: sourceRecord.amount,
         date: sourceRecord.date,
         type: sourceRecord.type,
@@ -344,7 +344,7 @@ export function processReconciliation(
       targetRecord: matchResult.targetRecord
         ? {
             id: matchResult.targetRecord.id,
-            employeeId: matchResult.targetRecord.employeeId,
+            entityId: matchResult.targetRecord.entityId,
             amount: matchResult.targetRecord.amount,
             date: matchResult.targetRecord.date,
             type: matchResult.targetRecord.type,
@@ -381,7 +381,7 @@ export function processReconciliation(
         matchMethod: 'exact',
         targetRecord: {
           id: targetRecord.id,
-          employeeId: targetRecord.employeeId,
+          entityId: targetRecord.entityId,
           amount: targetRecord.amount,
           date: targetRecord.date,
           type: targetRecord.type,
@@ -625,7 +625,7 @@ export function generateReportData(
   items: ReconciliationItem[]
 ): {
   topDiscrepancies: Array<{ itemId: string; amount: number; description: string; severity: 'low' | 'medium' | 'high' }>;
-  byEmployee: Array<{ employeeId: string; itemCount: number; matchedCount: number; discrepancyAmount: number }>;
+  byEmployee: Array<{ entityId: string; itemCount: number; matchedCount: number; discrepancyAmount: number }>;
 } {
   // Get top discrepancies
   const discrepancyItems = items
@@ -644,8 +644,8 @@ export function generateReportData(
   const employeeMap = new Map<string, { itemCount: number; matchedCount: number; discrepancyAmount: number }>();
 
   for (const item of items) {
-    const employeeId = item.sourceRecord?.employeeId || item.targetRecord?.employeeId || 'unknown';
-    const existing = employeeMap.get(employeeId) || { itemCount: 0, matchedCount: 0, discrepancyAmount: 0 };
+    const entityId = item.sourceRecord?.entityId || item.targetRecord?.entityId || 'unknown';
+    const existing = employeeMap.get(entityId) || { itemCount: 0, matchedCount: 0, discrepancyAmount: 0 };
 
     existing.itemCount++;
     if (item.matchStatus === 'matched') {
@@ -655,12 +655,12 @@ export function generateReportData(
       existing.discrepancyAmount += Math.abs(item.discrepancy.amountDifference);
     }
 
-    employeeMap.set(employeeId, existing);
+    employeeMap.set(entityId, existing);
   }
 
   const byEmployee = Array.from(employeeMap.entries())
-    .map(([employeeId, stats]) => ({
-      employeeId,
+    .map(([entityId, stats]) => ({
+      entityId,
       ...stats,
     }))
     .sort((a, b) => b.discrepancyAmount - a.discrepancyAmount);

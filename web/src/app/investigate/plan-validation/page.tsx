@@ -16,14 +16,14 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { PlanValidation } from '@/components/forensics/PlanValidation';
 import { loadActivePlan } from '@/lib/forensics/forensics-service';
-import type { CompensationPlanConfig } from '@/types/compensation-plan';
+import type { RuleSetConfig } from '@/types/compensation-plan';
 
 export default function PlanValidationPage() {
   const router = useRouter();
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id || '';
 
-  const [plan, setPlan] = useState<CompensationPlanConfig | null>(null);
+  const [plan, setPlan] = useState<RuleSetConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

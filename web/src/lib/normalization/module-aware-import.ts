@@ -69,7 +69,7 @@ export interface FieldSummary {
 
 // Field signatures that indicate each module type
 const ICM_INDICATORS = [
-  'employee_id', 'employeeid', 'emp_id', 'empid',
+  'entity_id', 'employeeid', 'emp_id', 'empid',
   'goal', 'target', 'quota', 'actual', 'attainment',
   'commission', 'incentive', 'bonus', 'payout',
   'store_id', 'storeid', 'store',

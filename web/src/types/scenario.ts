@@ -85,8 +85,8 @@ export interface ScenarioImpact {
 }
 
 export interface EmployeeScenarioImpact {
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   role: string;
   baselinePayout: number;
   scenarioPayout: number;
@@ -112,8 +112,8 @@ export interface ScenarioComparison {
 
   // Comparison matrix
   comparisonData: {
-    employeeId: string;
-    employeeName: string;
+    entityId: string;
+    entityName: string;
     baseline: number;
     scenarioPayouts: Record<string, number>; // scenarioId -> payout
   }[];

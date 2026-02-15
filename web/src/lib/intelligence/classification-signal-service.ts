@@ -27,7 +27,7 @@ export interface ClassificationSignal {
   tenantId: string;
   domain: string; // e.g., "employee_data", "compensation_results", "benchmark"
   fieldName: string; // The raw column/field name from the file
-  semanticType: string; // e.g., "employee_id", "total_amount", "component:optical_sales"
+  semanticType: string; // e.g., "entity_id", "total_amount", "component:optical_sales"
   confidence: number; // 0-1
   source: SignalSource;
   timestamp: string;

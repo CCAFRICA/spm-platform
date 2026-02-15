@@ -12,7 +12,7 @@
  */
 
 import type {
-  CompensationPlanConfig,
+  RuleSetConfig,
   AdditiveLookupConfig,
   WeightedKPIConfig,
   PlanComponent,
@@ -79,8 +79,8 @@ export interface MetricValues {
 }
 
 export interface EmployeeContext {
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   role: string;
   department?: string;
   hireDate?: string;
@@ -202,12 +202,12 @@ export interface FloorConfig {
 // ============================================
 
 export class PlanInterpreter {
-  private plan: CompensationPlanConfig;
+  private plan: RuleSetConfig;
   private context: CalculationContext;
   private steps: CalculationStep[] = [];
   private warnings: string[] = [];
 
-  constructor(plan: CompensationPlanConfig, context: CalculationContext) {
+  constructor(plan: RuleSetConfig, context: CalculationContext) {
     this.plan = plan;
     this.context = context;
   }
@@ -945,15 +945,15 @@ export class PlanInterpreter {
    */
   private buildResult(totalIncentive: number, variant?: PlanVariant): CalculationResult {
     return {
-      employeeId: this.context.employee.employeeId,
-      employeeName: this.context.employee.employeeName,
-      employeeRole: this.context.employee.role,
+      entityId: this.context.employee.entityId,
+      entityName: this.context.employee.entityName,
+      entityRole: this.context.employee.role,
       storeId: this.context.store?.storeId,
       storeName: this.context.store?.storeName,
-      planId: this.plan.id,
-      planName: this.plan.name,
-      planVersion: this.plan.version,
-      planType: this.plan.planType,
+      ruleSetId: this.plan.id,
+      ruleSetName: this.plan.name,
+      ruleSetVersion: this.plan.version,
+      ruleSetType: this.plan.ruleSetType,
       variantId: variant?.variantId,
       variantName: variant?.variantName,
       period: this.context.period.periodName,
@@ -976,7 +976,7 @@ export class PlanInterpreter {
  * Calculate incentive for an employee given a plan and metrics
  */
 export function calculatePlanIncentive(
-  plan: CompensationPlanConfig,
+  plan: RuleSetConfig,
   context: CalculationContext
 ): CalculationResult {
   const interpreter = new PlanInterpreter(plan, context);
@@ -987,7 +987,7 @@ export function calculatePlanIncentive(
  * Validate plan configuration
  */
 export function validatePlanConfiguration(
-  plan: CompensationPlanConfig
+  plan: RuleSetConfig
 ): { valid: boolean; errors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -1039,7 +1039,7 @@ export function validatePlanConfiguration(
 /**
  * Get required metrics for a plan
  */
-export function getRequiredMetrics(plan: CompensationPlanConfig): string[] {
+export function getRequiredMetrics(plan: RuleSetConfig): string[] {
   const metrics: Set<string> = new Set();
 
   const config = plan.configuration;
@@ -1085,7 +1085,7 @@ export interface DocumentInterpretationResult {
   success: boolean;
   method: 'ai' | 'heuristic';
   interpretation?: PlanInterpretation;
-  planConfig?: CompensationPlanConfig;
+  planConfig?: RuleSetConfig;
   error?: string;
   confidence: number;
 }
@@ -1149,7 +1149,7 @@ export async function interpretPlanDocument(
 
       if (data.success && data.interpretation) {
         console.log('Interpretation received:');
-        console.log('  Plan name:', data.interpretation.planName);
+        console.log('  Plan name:', data.interpretation.ruleSetName);
         console.log('  Employee types:', data.interpretation.employeeTypes?.length || 0);
         console.log('  Components:', data.interpretation.components?.length || 0);
         data.interpretation.components?.forEach((comp: { name: string; type: string; confidence: number }, i: number) => {
@@ -1186,14 +1186,14 @@ export async function interpretPlanDocument(
 
     // Build a minimal plan config from heuristics
     const now = new Date().toISOString();
-    const planId = `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const ruleSetId = `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-    const planConfig: CompensationPlanConfig = {
-      id: planId,
+    const planConfig: RuleSetConfig = {
+      id: ruleSetId,
       tenantId,
       name: 'Imported Plan',
       description: 'Plan imported via heuristic detection. Manual configuration recommended.',
-      planType: 'additive_lookup',
+      ruleSetType: 'additive_lookup',
       status: 'draft',
       effectiveDate: now,
       endDate: null,
@@ -1223,7 +1223,7 @@ export async function interpretPlanDocument(
 
     // Build interpretation-like response for UI compatibility
     const interpretation: PlanInterpretation = {
-      planName: 'Imported Plan',
+      ruleSetName: 'Imported Plan',
       description: 'Detected via heuristic pattern matching',
       currency: 'USD',
       employeeTypes: [{ id: 'default', name: 'Default Employee Type' }],

@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button';
 import { FileText, ExternalLink, Calendar, Shield } from 'lucide-react';
 
 interface PlanReferenceCardProps {
-  planId: string;
-  planName: string;
-  planVersion: number;
+  ruleSetId: string;
+  ruleSetName: string;
+  ruleSetVersion: number;
   variantName?: string;
   effectiveDate?: string;
   showLink?: boolean;
@@ -17,9 +17,9 @@ interface PlanReferenceCardProps {
 }
 
 export function PlanReferenceCard({
-  planId,
-  planName,
-  planVersion,
+  ruleSetId,
+  ruleSetName,
+  ruleSetVersion,
   variantName,
   effectiveDate,
   showLink = true,
@@ -38,10 +38,10 @@ export function PlanReferenceCard({
       <div className="flex items-center gap-2 text-sm">
         <FileText className="h-4 w-4 text-muted-foreground" />
         <span className="text-muted-foreground">Plan:</span>
-        <span className="font-medium">{planName}</span>
-        <Badge variant="outline" className="text-xs">v{planVersion}</Badge>
+        <span className="font-medium">{ruleSetName}</span>
+        <Badge variant="outline" className="text-xs">v{ruleSetVersion}</Badge>
         {showLink && (
-          <Link href={`/performance/plans/${planId}`} className="text-primary hover:underline">
+          <Link href={`/performance/plans/${ruleSetId}`} className="text-primary hover:underline">
             View
           </Link>
         )}
@@ -59,8 +59,8 @@ export function PlanReferenceCard({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-semibold">{planName}</span>
-                <Badge variant="secondary" className="text-xs">v{planVersion}</Badge>
+                <span className="font-semibold">{ruleSetName}</span>
+                <Badge variant="secondary" className="text-xs">v{ruleSetVersion}</Badge>
               </div>
               {variantName && (
                 <div className="flex items-center gap-1 mt-1 text-sm text-muted-foreground">
@@ -77,7 +77,7 @@ export function PlanReferenceCard({
             </div>
           </div>
           {showLink && (
-            <Link href={`/performance/plans/${planId}`}>
+            <Link href={`/performance/plans/${ruleSetId}`}>
               <Button variant="outline" size="sm" className="gap-1">
                 <ExternalLink className="h-3 w-3" />
                 View Plan

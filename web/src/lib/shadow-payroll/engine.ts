@@ -26,8 +26,8 @@ import type {
 // ============================================
 
 interface EmployeePayoutData {
-  employeeId: string;
-  employeeName?: string;
+  entityId: string;
+  entityName?: string;
   commission: number;
   bonus: number;
   spiff: number;
@@ -70,13 +70,13 @@ export function compareScenarios(
   const toleranceBreaches: ToleranceBreach[] = [];
 
   // Create lookup for scenario data
-  const scenarioMap = new Map(scenarioData.map((d) => [d.employeeId, d]));
-  const baseMap = new Map(baseData.map((d) => [d.employeeId, d]));
+  const scenarioMap = new Map(scenarioData.map((d) => [d.entityId, d]));
+  const baseMap = new Map(baseData.map((d) => [d.entityId, d]));
 
   // All unique employee IDs
   const allEmployeeIds = Array.from(new Set([
-    ...baseData.map((d) => d.employeeId),
-    ...scenarioData.map((d) => d.employeeId),
+    ...baseData.map((d) => d.entityId),
+    ...scenarioData.map((d) => d.entityId),
   ]));
 
   let totalBasePayout = 0;
@@ -87,9 +87,9 @@ export function compareScenarios(
   let newPayouts = 0;
   let removedPayouts = 0;
 
-  for (const employeeId of allEmployeeIds) {
-    const base = baseMap.get(employeeId);
-    const scenario = scenarioMap.get(employeeId);
+  for (const entityId of allEmployeeIds) {
+    const base = baseMap.get(entityId);
+    const scenario = scenarioMap.get(entityId);
 
     const baseBreakdown = base
       ? calculateBreakdown(base)
@@ -146,8 +146,8 @@ export function compareScenarios(
 
         if (percentBreached || absoluteBreached) {
           toleranceBreaches.push({
-            employeeId,
-            employeeName: base?.employeeName || scenario?.employeeName,
+            entityId,
+            entityName: base?.entityName || scenario?.entityName,
             component,
             baseAmount,
             scenarioAmount,
@@ -181,8 +181,8 @@ export function compareScenarios(
     }
 
     employeeResults.push({
-      employeeId,
-      employeeName: base?.employeeName || scenario?.employeeName,
+      entityId,
+      entityName: base?.entityName || scenario?.entityName,
       basePayout,
       baseBreakdown,
       scenarioPayout,
@@ -205,7 +205,7 @@ export function compareScenarios(
   const sortedImpacts = [...impacts].sort((a, b) => a - b);
 
   const summary: ScenarioSummary = {
-    employeesProcessed: employeeResults.length,
+    entitiesProcessed: employeeResults.length,
     totalBasePayout,
     totalScenarioPayout,
     totalDifference,
@@ -307,14 +307,14 @@ function validateScenarioResults(
     status: 'passed',
   };
 
-  if (comparison.outsideTolerance > summary.employeesProcessed * 0.1) {
+  if (comparison.outsideTolerance > summary.entitiesProcessed * 0.1) {
     toleranceCheck.status = 'failed';
     toleranceCheck.details = `${comparison.outsideTolerance} employees outside tolerance (>${10}% of total)`;
     errors.push({
       code: 'TOO_MANY_BREACHES',
       message: `${comparison.outsideTolerance} employees have tolerance breaches`,
       severity: 'error',
-      affectedEmployees: comparison.toleranceBreaches.map((b) => b.employeeId),
+      affectedEmployees: comparison.toleranceBreaches.map((b) => b.entityId),
       suggestedAction: 'Investigate individual tolerance breaches',
     });
   } else if (comparison.outsideTolerance > 0) {
@@ -324,7 +324,7 @@ function validateScenarioResults(
       code: 'TOLERANCE_BREACHES',
       message: `${comparison.outsideTolerance} employees have tolerance breaches`,
       severity: 'warning',
-      affectedEmployees: comparison.toleranceBreaches.map((b) => b.employeeId),
+      affectedEmployees: comparison.toleranceBreaches.map((b) => b.entityId),
     });
   }
   checks.push(toleranceCheck);
@@ -344,7 +344,7 @@ function validateScenarioResults(
       code: 'MISSING_DATA',
       message: `${missingEmployees.length} employees have no calculations`,
       severity: 'warning',
-      affectedEmployees: missingEmployees.map((e) => e.employeeId),
+      affectedEmployees: missingEmployees.map((e) => e.entityId),
     });
   }
   checks.push(dataCheck);
@@ -390,8 +390,8 @@ function validateScenarioResults(
 // ============================================
 
 interface SystemPayrollData {
-  employeeId: string;
-  employeeName?: string;
+  entityId: string;
+  entityName?: string;
   amount: number;
   components: Record<string, number>;
 }
@@ -405,12 +405,12 @@ export function compareShadowPayroll(
   tolerancePercentage: number = 1,
   toleranceAbsolute: number = 10
 ): ShadowComparison {
-  const legacyMap = new Map(legacyData.map((d) => [d.employeeId, d]));
-  const newMap = new Map(newData.map((d) => [d.employeeId, d]));
+  const legacyMap = new Map(legacyData.map((d) => [d.entityId, d]));
+  const newMap = new Map(newData.map((d) => [d.entityId, d]));
 
   const allEmployeeIds = Array.from(new Set([
-    ...legacyData.map((d) => d.employeeId),
-    ...newData.map((d) => d.employeeId),
+    ...legacyData.map((d) => d.entityId),
+    ...newData.map((d) => d.entityId),
   ]));
 
   const employeeComparisons: EmployeeShadowComparison[] = [];
@@ -423,9 +423,9 @@ export function compareShadowPayroll(
   let totalLegacy = 0;
   let totalNew = 0;
 
-  for (const employeeId of allEmployeeIds) {
-    const legacy = legacyMap.get(employeeId);
-    const newRecord = newMap.get(employeeId);
+  for (const entityId of allEmployeeIds) {
+    const legacy = legacyMap.get(entityId);
+    const newRecord = newMap.get(entityId);
 
     const legacyAmount = legacy?.amount || 0;
     const newAmount = newRecord?.amount || 0;
@@ -482,8 +482,8 @@ export function compareShadowPayroll(
     });
 
     employeeComparisons.push({
-      employeeId,
-      employeeName: legacy?.employeeName || newRecord?.employeeName,
+      entityId,
+      entityName: legacy?.entityName || newRecord?.entityName,
       legacyAmount,
       newAmount,
       variance,
@@ -688,7 +688,7 @@ export function applyScenarioModifications(
 
     for (const mod of modifications) {
       // Check if modification applies to this employee
-      if (mod.target && mod.target !== employee.employeeId) {
+      if (mod.target && mod.target !== employee.entityId) {
         continue;
       }
 

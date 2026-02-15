@@ -184,12 +184,12 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         ],
       },
       {
-        id: 'employees',
-        label: 'Employees',
-        labelEs: 'Empleados',
+        id: 'entities',
+        label: 'Entities',
+        labelEs: 'Entidades',
         routes: [
-          { path: '/investigate/employees', label: 'Employee Lookup', labelEs: 'Buscar Empleado', icon: 'User', roles: ['vl_admin', 'admin', 'manager'] },
-          { path: '/investigate/employees/history', label: 'Assignment History', labelEs: 'Historial de Asignaciones', icon: 'History', roles: ['vl_admin', 'admin'] },
+          { path: '/investigate/entities', label: 'Entity Lookup', labelEs: 'Buscar Entidad', icon: 'User', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/investigate/entities/history', label: 'Assignment History', labelEs: 'Historial de Asignaciones', icon: 'History', roles: ['vl_admin', 'admin'] },
         ],
       },
       {

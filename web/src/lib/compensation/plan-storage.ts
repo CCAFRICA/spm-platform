@@ -5,10 +5,10 @@
  */
 
 import type {
-  CompensationPlanConfig,
-  PlanSummary,
-  PlanStatus,
-  PlanChangeRecord,
+  RuleSetConfig,
+  RuleSetSummary,
+  RuleSetStatus,
+  RuleSetChangeRecord,
 } from '@/types/compensation-plan';
 import { createRetailCGMXUnifiedPlan } from './retailcgmx-plan';
 import { audit } from '@/lib/audit-service';
@@ -20,17 +20,17 @@ const STORAGE_KEY_PLAN_HISTORY = 'compensation_plan_history';
 // CRUD OPERATIONS
 // ============================================
 
-export function getPlans(tenantId: string): CompensationPlanConfig[] {
+export function getPlans(tenantId: string): RuleSetConfig[] {
   const plans = getAllPlans();
   return plans.filter((p) => p.tenantId === tenantId);
 }
 
-export function getPlan(planId: string): CompensationPlanConfig | null {
+export function getPlan(ruleSetId: string): RuleSetConfig | null {
   const plans = getAllPlans();
-  return plans.find((p) => p.id === planId) || null;
+  return plans.find((p) => p.id === ruleSetId) || null;
 }
 
-export function getActivePlan(tenantId: string, role: string): CompensationPlanConfig | null {
+export function getActivePlan(tenantId: string, role: string): RuleSetConfig | null {
   const plans = getPlans(tenantId);
   const now = new Date().toISOString();
 
@@ -45,15 +45,15 @@ export function getActivePlan(tenantId: string, role: string): CompensationPlanC
   );
 }
 
-export function getPlansByStatus(tenantId: string, status: PlanStatus): CompensationPlanConfig[] {
+export function getPlansByStatus(tenantId: string, status: RuleSetStatus): RuleSetConfig[] {
   return getPlans(tenantId).filter((p) => p.status === status);
 }
 
-export function getPlanSummaries(tenantId: string): PlanSummary[] {
+export function getPlanSummaries(tenantId: string): RuleSetSummary[] {
   return getPlans(tenantId).map((p) => ({
     id: p.id,
     name: p.name,
-    planType: p.planType,
+    ruleSetType: p.ruleSetType,
     status: p.status,
     effectiveDate: p.effectiveDate,
     endDate: p.endDate,
@@ -62,7 +62,7 @@ export function getPlanSummaries(tenantId: string): PlanSummary[] {
   }));
 }
 
-export function savePlan(plan: CompensationPlanConfig): CompensationPlanConfig {
+export function savePlan(plan: RuleSetConfig): RuleSetConfig {
   const plans = getAllPlans();
   const existingIndex = plans.findIndex((p) => p.id === plan.id);
 
@@ -81,9 +81,9 @@ export function savePlan(plan: CompensationPlanConfig): CompensationPlanConfig {
   return updatedPlan;
 }
 
-export function deletePlan(planId: string): boolean {
+export function deletePlan(ruleSetId: string): boolean {
   const plans = getAllPlans();
-  const filtered = plans.filter((p) => p.id !== planId);
+  const filtered = plans.filter((p) => p.id !== ruleSetId);
 
   if (filtered.length === plans.length) {
     return false;
@@ -103,18 +103,18 @@ export function createPlan(params: {
   effectiveDate: string;
   endDate?: string | null;
   createdBy: string;
-  configuration: CompensationPlanConfig['configuration'];
+  configuration: RuleSetConfig['configuration'];
   eligibleRoles?: string[];
-  planType?: 'weighted_kpi' | 'additive_lookup';
-}): CompensationPlanConfig | null {
+  ruleSetType?: 'weighted_kpi' | 'additive_lookup';
+}): RuleSetConfig | null {
   const now = new Date().toISOString();
 
-  const newPlan: CompensationPlanConfig = {
+  const newPlan: RuleSetConfig = {
     id: generatePlanId(),
     tenantId: params.tenantId,
     name: params.name,
     description: params.description,
-    planType: params.planType ?? 'additive_lookup',
+    ruleSetType: params.ruleSetType ?? 'additive_lookup',
     status: 'draft',
     effectiveDate: params.effectiveDate,
     endDate: params.endDate || null,
@@ -137,12 +137,12 @@ export function createPlan(params: {
 // VERSIONING & CLONING
 // ============================================
 
-export function clonePlan(planId: string, newName: string, userId: string): CompensationPlanConfig | null {
-  const original = getPlan(planId);
+export function clonePlan(ruleSetId: string, newName: string, userId: string): RuleSetConfig | null {
+  const original = getPlan(ruleSetId);
   if (!original) return null;
 
   const now = new Date().toISOString();
-  const newPlan: CompensationPlanConfig = {
+  const newPlan: RuleSetConfig = {
     ...original,
     id: generatePlanId(),
     name: newName,
@@ -161,12 +161,12 @@ export function clonePlan(planId: string, newName: string, userId: string): Comp
   return savePlan(newPlan);
 }
 
-export function createNewVersion(planId: string, userId: string): CompensationPlanConfig | null {
-  const original = getPlan(planId);
+export function createNewVersion(ruleSetId: string, userId: string): RuleSetConfig | null {
+  const original = getPlan(ruleSetId);
   if (!original) return null;
 
   const now = new Date().toISOString();
-  const newVersion: CompensationPlanConfig = {
+  const newVersion: RuleSetConfig = {
     ...original,
     id: generatePlanId(),
     status: 'draft',
@@ -182,11 +182,11 @@ export function createNewVersion(planId: string, userId: string): CompensationPl
   return savePlan(newVersion);
 }
 
-export function getPlanHistory(planId: string): CompensationPlanConfig[] {
-  const plan = getPlan(planId);
+export function getPlanHistory(ruleSetId: string): RuleSetConfig[] {
+  const plan = getPlan(ruleSetId);
   if (!plan) return [];
 
-  const history: CompensationPlanConfig[] = [plan];
+  const history: RuleSetConfig[] = [plan];
   let currentId = plan.previousVersionId;
 
   while (currentId) {
@@ -206,8 +206,8 @@ export function getPlanHistory(planId: string): CompensationPlanConfig[] {
 // STATUS WORKFLOW
 // ============================================
 
-export function submitForApproval(planId: string, userId: string): CompensationPlanConfig | null {
-  const plan = getPlan(planId);
+export function submitForApproval(ruleSetId: string, userId: string): RuleSetConfig | null {
+  const plan = getPlan(ruleSetId);
   if (!plan || plan.status !== 'draft') return null;
 
   return savePlan({
@@ -217,8 +217,8 @@ export function submitForApproval(planId: string, userId: string): CompensationP
   });
 }
 
-export function approvePlan(planId: string, userId: string): CompensationPlanConfig | null {
-  const plan = getPlan(planId);
+export function approvePlan(ruleSetId: string, userId: string): RuleSetConfig | null {
+  const plan = getPlan(ruleSetId);
   if (!plan || plan.status !== 'pending_approval') return null;
 
   const now = new Date().toISOString();
@@ -227,7 +227,7 @@ export function approvePlan(planId: string, userId: string): CompensationPlanCon
   const plans = getAllPlans();
   plans.forEach((p) => {
     if (
-      p.id !== planId &&
+      p.id !== ruleSetId &&
       p.tenantId === plan.tenantId &&
       p.status === 'active' &&
       p.eligibleRoles.some((r) => plan.eligibleRoles.includes(r))
@@ -245,8 +245,8 @@ export function approvePlan(planId: string, userId: string): CompensationPlanCon
   });
 }
 
-export function rejectPlan(planId: string, userId: string): CompensationPlanConfig | null {
-  const plan = getPlan(planId);
+export function rejectPlan(ruleSetId: string, userId: string): RuleSetConfig | null {
+  const plan = getPlan(ruleSetId);
   if (!plan || plan.status !== 'pending_approval') return null;
 
   return savePlan({
@@ -256,8 +256,8 @@ export function rejectPlan(planId: string, userId: string): CompensationPlanConf
   });
 }
 
-export function archivePlan(planId: string, userId: string): CompensationPlanConfig | null {
-  const plan = getPlan(planId);
+export function archivePlan(ruleSetId: string, userId: string): RuleSetConfig | null {
+  const plan = getPlan(ruleSetId);
   if (!plan || plan.status !== 'active') return null;
 
   return savePlan({
@@ -271,8 +271,8 @@ export function archivePlan(planId: string, userId: string): CompensationPlanCon
  * Directly activate a plan (bypasses approval workflow).
  * Use for demo/testing or when approval is handled externally.
  */
-export function activatePlan(planId: string, userId: string): CompensationPlanConfig | null {
-  const plan = getPlan(planId);
+export function activatePlan(ruleSetId: string, userId: string): RuleSetConfig | null {
+  const plan = getPlan(ruleSetId);
   if (!plan) return null;
 
   // Can activate from draft or pending_approval
@@ -286,7 +286,7 @@ export function activatePlan(planId: string, userId: string): CompensationPlanCo
   const plans = getAllPlans();
   plans.forEach((p) => {
     if (
-      p.id !== planId &&
+      p.id !== ruleSetId &&
       p.tenantId === plan.tenantId &&
       p.status === 'active' &&
       p.eligibleRoles.some((r) => plan.eligibleRoles.includes(r))
@@ -315,7 +315,7 @@ export function activatePlan(planId: string, userId: string): CompensationPlanCo
   audit.log({
     action: 'update',
     entityType: 'plan',
-    entityId: planId,
+    entityId: ruleSetId,
     entityName: plan.name,
     changes: [{ field: 'status', oldValue: plan.status, newValue: 'active' }],
     reason: 'Plan activated',
@@ -328,7 +328,7 @@ export function activatePlan(planId: string, userId: string): CompensationPlanCo
 // CHANGE TRACKING
 // ============================================
 
-export function recordPlanChange(change: PlanChangeRecord): void {
+export function recordPlanChange(change: RuleSetChangeRecord): void {
   const history = getPlanChangeHistory();
   history.push(change);
 
@@ -337,7 +337,7 @@ export function recordPlanChange(change: PlanChangeRecord): void {
   }
 }
 
-export function getPlanChangeHistory(): PlanChangeRecord[] {
+export function getPlanChangeHistory(): RuleSetChangeRecord[] {
   if (typeof window === 'undefined') return [];
 
   const stored = localStorage.getItem(STORAGE_KEY_PLAN_HISTORY);
@@ -350,8 +350,8 @@ export function getPlanChangeHistory(): PlanChangeRecord[] {
   }
 }
 
-export function getPlanChanges(planId: string): PlanChangeRecord[] {
-  return getPlanChangeHistory().filter((c) => c.planId === planId);
+export function getPlanChanges(ruleSetId: string): RuleSetChangeRecord[] {
+  return getPlanChangeHistory().filter((c) => c.ruleSetId === ruleSetId);
 }
 
 // ============================================
@@ -359,7 +359,7 @@ export function getPlanChanges(planId: string): PlanChangeRecord[] {
 // ============================================
 
 export interface StalePlanInfo {
-  plan: CompensationPlanConfig;
+  plan: RuleSetConfig;
   reason: 'expired' | 'old_draft' | 'old_archived';
   staleSince: string;
 }
@@ -445,7 +445,7 @@ export function cleanupStalePlans(tenantId: string): number {
 // HELPERS
 // ============================================
 
-function getAllPlans(): CompensationPlanConfig[] {
+function getAllPlans(): RuleSetConfig[] {
   if (typeof window === 'undefined') return getDefaultPlans();
 
   const stored = localStorage.getItem(STORAGE_KEY_PLANS);
@@ -468,7 +468,7 @@ function getAllPlans(): CompensationPlanConfig[] {
   }
 }
 
-function savePlans(plans: CompensationPlanConfig[]): void {
+function savePlans(plans: RuleSetConfig[]): void {
   if (typeof window !== 'undefined') {
     // OB-30: Preserve Infinity values during serialization
     localStorage.setItem(STORAGE_KEY_PLANS, JSON.stringify(plans, (_, value) =>
@@ -485,7 +485,7 @@ function generatePlanId(): string {
 // DEFAULT RETAILCO PLANS
 // ============================================
 
-function getDefaultPlans(): CompensationPlanConfig[] {
+function getDefaultPlans(): RuleSetConfig[] {
   return [
     createRetailCoCertifiedPlan(),
     createRetailCoNonCertifiedPlan(),
@@ -493,13 +493,13 @@ function getDefaultPlans(): CompensationPlanConfig[] {
   ];
 }
 
-function createRetailCoCertifiedPlan(): CompensationPlanConfig {
+function createRetailCoCertifiedPlan(): RuleSetConfig {
   return {
     id: 'plan-retailco-certified-2025',
     tenantId: 'retailco',
     name: 'Sales Associate Certified - 2025',
     description: 'Compensation plan for certified sales associates with full optical incentives',
-    planType: 'additive_lookup',
+    ruleSetType: 'additive_lookup',
     status: 'active',
     effectiveDate: '2025-01-01T00:00:00Z',
     endDate: null,
@@ -665,13 +665,13 @@ function createRetailCoCertifiedPlan(): CompensationPlanConfig {
   };
 }
 
-function createRetailCoNonCertifiedPlan(): CompensationPlanConfig {
+function createRetailCoNonCertifiedPlan(): RuleSetConfig {
   return {
     id: 'plan-retailco-noncertified-2025',
     tenantId: 'retailco',
     name: 'Sales Associate Non-Certified - 2025',
     description: 'Compensation plan for non-certified sales associates with reduced optical incentives',
-    planType: 'additive_lookup',
+    ruleSetType: 'additive_lookup',
     status: 'active',
     effectiveDate: '2025-01-01T00:00:00Z',
     endDate: null,
@@ -925,7 +925,7 @@ export function ensureTenantPlans(tenantId: string): void {
  * Get all plans (active or not) for a tenant with their status.
  * Useful for UI to show available plans.
  */
-export function getPlansWithStatus(tenantId: string): Array<{ plan: CompensationPlanConfig; isActive: boolean; canActivate: boolean }> {
+export function getPlansWithStatus(tenantId: string): Array<{ plan: RuleSetConfig; isActive: boolean; canActivate: boolean }> {
   const plans = getPlans(tenantId);
   return plans.map((plan) => ({
     plan,

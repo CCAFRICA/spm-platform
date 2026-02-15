@@ -90,7 +90,7 @@ export default function InsightsPage() {
     return {
       totalPayout,
       avgPayout,
-      employeeCount: results.length,
+      entityCount: results.length,
       topPerformers,
       trendData,
     };
@@ -156,7 +156,7 @@ export default function InsightsPage() {
             Insights Dashboard
           </h1>
           <p className="mt-2 text-slate-600 dark:text-slate-400">
-            Compensation and performance analytics • {insights.employeeCount} employees
+            Compensation and performance analytics • {insights.entityCount} employees
           </p>
         </div>
 
@@ -176,7 +176,7 @@ export default function InsightsPage() {
               <div className="flex items-center gap-2 mb-6">
                 <TrendingUp className="h-4 w-4 text-emerald-300" />
                 <span className="text-sm text-indigo-100">
-                  Based on {insights.employeeCount} employees
+                  Based on {insights.entityCount} employees
                 </span>
               </div>
               <div className="space-y-3">
@@ -206,7 +206,7 @@ export default function InsightsPage() {
                       Employees Paid
                     </p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {insights.employeeCount}
+                      {insights.entityCount}
                     </p>
                   </div>
                   <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full">
@@ -290,7 +290,7 @@ export default function InsightsPage() {
             <CardContent className="px-2">
               <div className="space-y-1">
                 {insights.topPerformers.map((performer, idx) => {
-                  const initials = (performer.employeeName || 'EMP')
+                  const initials = (performer.entityName || 'EMP')
                     .split(' ')
                     .map(n => n[0])
                     .join('')
@@ -299,7 +299,7 @@ export default function InsightsPage() {
 
                   return (
                     <div
-                      key={performer.employeeId}
+                      key={performer.entityId}
                       className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
                         idx < 3
                           ? "bg-gradient-to-r from-amber-50 to-transparent dark:from-amber-950/20"
@@ -326,10 +326,10 @@ export default function InsightsPage() {
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-900 dark:text-slate-50 truncate">
-                          {performer.employeeName || performer.employeeId}
+                          {performer.entityName || performer.entityId}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          {performer.storeName || performer.employeeRole || 'Employee'}
+                          {performer.storeName || performer.entityRole || 'Employee'}
                         </p>
                       </div>
                       <div className="text-right">

@@ -60,7 +60,7 @@ const RULE_RESOLUTION_STRATEGIES: Record<JurisdictionalRuleType, ResolutionStrat
  * Resolve applicable rules for an employee based on their jurisdictions
  */
 export function resolveRulesForEmployee(
-  employeeId: string,
+  entityId: string,
   employeeJurisdictions: Array<{ level: JurisdictionLevel; code: string }>,
   allRules: JurisdictionalRule[],
   asOfDate: string = new Date().toISOString()
@@ -149,7 +149,7 @@ export function resolveRulesForEmployee(
   }
 
   return {
-    employeeId,
+    entityId,
     evaluatedAt,
     jurisdictions,
     resolvedValues,

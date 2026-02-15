@@ -15,11 +15,11 @@ import {
   Percent,
   AlertTriangle,
 } from 'lucide-react';
-import type { CompensationPlanConfig, AdditiveLookupConfig } from '@/types/compensation-plan';
+import type { RuleSetConfig, AdditiveLookupConfig } from '@/types/compensation-plan';
 import { cn } from '@/lib/utils';
 
 interface ScenarioBuilderProps {
-  basePlan: CompensationPlanConfig;
+  basePlan: RuleSetConfig;
   onScenarioChange: (modifiedConfig: AdditiveLookupConfig) => void;
   onReset: () => void;
 }

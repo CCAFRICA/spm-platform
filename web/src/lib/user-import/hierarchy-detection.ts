@@ -402,7 +402,7 @@ export function detectHierarchy(
     if (sortedCandidates.length > 0) {
       const [bestManagerId, bestVote] = sortedCandidates[0];
       inferredManager = {
-        employeeId: bestManagerId,
+        entityId: bestManagerId,
         confidence: Math.min(100, Math.round(bestVote.totalConfidence * 100)),
         supportingSignals: bestVote.signals,
       };
@@ -413,7 +413,7 @@ export function detectHierarchy(
         if (secondVote.totalConfidence > bestVote.totalConfidence * 0.7) {
           conflicts.push({
             type: 'manager_mismatch',
-            employeeIds: [record.id, sortedCandidates[0][0], sortedCandidates[1][0]],
+            entityIds: [record.id, sortedCandidates[0][0], sortedCandidates[1][0]],
             signals: [...bestVote.signals, ...secondVote.signals],
             description: 'Multiple potential managers detected with similar confidence',
             severity: 'medium',
@@ -428,7 +428,7 @@ export function detectHierarchy(
   const overallConfidence = calculateOverallConfidence(detectedSignals, inferredManager);
 
   return {
-    employeeId: record.id,
+    entityId: record.id,
     detectedSignals,
     inferredManager,
     inferredLevel: inferLevelFromSignals(detectedSignals),
@@ -515,7 +515,7 @@ export function detectInversions(
         if (!managerBySource[sourceId]) {
           managerBySource[sourceId] = {};
         }
-        managerBySource[sourceId][result.employeeId] = signal.inferredRelationship.targetEmployeeId;
+        managerBySource[sourceId][result.entityId] = signal.inferredRelationship.targetEmployeeId;
       }
     }
   }
@@ -558,7 +558,7 @@ export function detectCircularReferences(
   const reportsTo: Record<string, string> = {};
   for (const result of results) {
     if (result.inferredManager) {
-      reportsTo[result.employeeId] = result.inferredManager.employeeId;
+      reportsTo[result.entityId] = result.inferredManager.entityId;
     }
   }
 
@@ -566,37 +566,37 @@ export function detectCircularReferences(
   const visited = new Set<string>();
   const inStack = new Set<string>();
 
-  function hasCycle(employeeId: string, path: string[]): string[] | null {
-    if (inStack.has(employeeId)) {
+  function hasCycle(entityId: string, path: string[]): string[] | null {
+    if (inStack.has(entityId)) {
       // Found a cycle - return the path from the cycle start
-      const cycleStart = path.indexOf(employeeId);
+      const cycleStart = path.indexOf(entityId);
       return path.slice(cycleStart);
     }
 
-    if (visited.has(employeeId)) return null;
+    if (visited.has(entityId)) return null;
 
-    visited.add(employeeId);
-    inStack.add(employeeId);
-    path.push(employeeId);
+    visited.add(entityId);
+    inStack.add(entityId);
+    path.push(entityId);
 
-    const managerId = reportsTo[employeeId];
+    const managerId = reportsTo[entityId];
     if (managerId) {
       const cycle = hasCycle(managerId, path);
       if (cycle) return cycle;
     }
 
-    inStack.delete(employeeId);
+    inStack.delete(entityId);
     path.pop();
     return null;
   }
 
-  for (const employeeId of Object.keys(reportsTo)) {
-    if (!visited.has(employeeId)) {
-      const cycle = hasCycle(employeeId, []);
+  for (const entityId of Object.keys(reportsTo)) {
+    if (!visited.has(entityId)) {
+      const cycle = hasCycle(entityId, []);
       if (cycle) {
         conflicts.push({
           type: 'circular_reference',
-          employeeIds: cycle,
+          entityIds: cycle,
           signals: ['explicit_manager_id'],
           description: `Circular reporting structure detected: ${cycle.join(' -> ')} -> ${cycle[0]}`,
           severity: 'high',

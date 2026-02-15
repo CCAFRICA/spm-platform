@@ -6,17 +6,17 @@
 
 import { createClient } from './client';
 import type { Database, RuleSet, Json } from './database.types';
-import type { CompensationPlanConfig, PlanStatus } from '@/types/compensation-plan';
+import type { RuleSetConfig, RuleSetStatus } from '@/types/compensation-plan';
 
 // ──────────────────────────────────────────────
-// RuleSet ↔ CompensationPlanConfig mapping
+// RuleSet ↔ RuleSetConfig mapping
 // ──────────────────────────────────────────────
 
 /**
- * Convert a Supabase rule_set row to CompensationPlanConfig.
+ * Convert a Supabase rule_set row to RuleSetConfig.
  * The 5-layer JSONB is recombined into the configuration shape.
  */
-function ruleSetToPlanConfig(rs: RuleSet): CompensationPlanConfig {
+function ruleSetToPlanConfig(rs: RuleSet): RuleSetConfig {
   const components = rs.components as unknown;
   const populationConfig = rs.population_config as Record<string, unknown>;
   const cadenceConfig = rs.cadence_config as Record<string, unknown>;
@@ -28,8 +28,8 @@ function ruleSetToPlanConfig(rs: RuleSet): CompensationPlanConfig {
     tenantId: rs.tenant_id,
     name: rs.name,
     description: rs.description || '',
-    planType: (metadata.plan_type as string) === 'weighted_kpi' ? 'weighted_kpi' : 'additive_lookup',
-    status: rs.status as PlanStatus,
+    ruleSetType: (metadata.plan_type as string) === 'weighted_kpi' ? 'weighted_kpi' : 'additive_lookup',
+    status: rs.status as RuleSetStatus,
     effectiveDate: rs.effective_from || '',
     endDate: rs.effective_to || null,
     eligibleRoles: (populationConfig.eligible_roles as string[]) || [],
@@ -46,16 +46,16 @@ function ruleSetToPlanConfig(rs: RuleSet): CompensationPlanConfig {
       ...(components as Record<string, unknown>),
       ...(cadenceConfig.cadence ? { cadence: cadenceConfig } : {}),
       ...(outcomeConfig.outcome ? { outcome: outcomeConfig } : {}),
-    } as CompensationPlanConfig['configuration'],
+    } as RuleSetConfig['configuration'],
   };
 }
 
 /**
- * Convert a CompensationPlanConfig to rule_set Insert row.
+ * Convert a RuleSetConfig to rule_set Insert row.
  * Decomposes into 5-layer JSONB structure.
  */
 function planConfigToRuleSetInsert(
-  plan: CompensationPlanConfig
+  plan: RuleSetConfig
 ): Database['public']['Tables']['rule_sets']['Insert'] {
   return {
     id: plan.id,
@@ -74,7 +74,7 @@ function planConfigToRuleSetInsert(
     cadence_config: {} as Json,
     outcome_config: {} as Json,
     metadata: {
-      plan_type: plan.planType,
+      plan_type: plan.ruleSetType,
       previous_version_id: plan.previousVersionId,
       updated_by: plan.updatedBy,
       approved_at: plan.approvedAt,
@@ -89,7 +89,7 @@ function planConfigToRuleSetInsert(
 /**
  * Get all rule sets for a tenant.
  */
-export async function getRuleSets(tenantId: string): Promise<CompensationPlanConfig[]> {
+export async function getRuleSets(tenantId: string): Promise<RuleSetConfig[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_sets')
@@ -102,7 +102,7 @@ export async function getRuleSets(tenantId: string): Promise<CompensationPlanCon
 /**
  * Get a single rule set by ID.
  */
-export async function getRuleSet(tenantId: string, ruleSetId: string): Promise<CompensationPlanConfig | null> {
+export async function getRuleSet(tenantId: string, ruleSetId: string): Promise<RuleSetConfig | null> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_sets')
@@ -117,7 +117,7 @@ export async function getRuleSet(tenantId: string, ruleSetId: string): Promise<C
 /**
  * Get the active rule set for a tenant.
  */
-export async function getActiveRuleSet(tenantId: string): Promise<CompensationPlanConfig | null> {
+export async function getActiveRuleSet(tenantId: string): Promise<RuleSetConfig | null> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_sets')
@@ -135,8 +135,8 @@ export async function getActiveRuleSet(tenantId: string): Promise<CompensationPl
  */
 export async function getRuleSetsByStatus(
   tenantId: string,
-  status: PlanStatus
-): Promise<CompensationPlanConfig[]> {
+  status: RuleSetStatus
+): Promise<RuleSetConfig[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_sets')
@@ -150,7 +150,7 @@ export async function getRuleSetsByStatus(
 /**
  * Save (upsert) a rule set.
  */
-export async function saveRuleSet(tenantId: string, plan: CompensationPlanConfig): Promise<void> {
+export async function saveRuleSet(tenantId: string, plan: RuleSetConfig): Promise<void> {
   const supabase = createClient();
   const row = planConfigToRuleSetInsert(plan);
   const { error } = await supabase
@@ -180,7 +180,7 @@ export async function deleteRuleSet(tenantId: string, ruleSetId: string): Promis
 export async function submitRuleSetForApproval(
   tenantId: string,
   ruleSetId: string
-): Promise<CompensationPlanConfig | null> {
+): Promise<RuleSetConfig | null> {
   const supabase = createClient();
   const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
     status: 'pending_approval',
@@ -204,7 +204,7 @@ export async function approveRuleSet(
   ruleSetId: string,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _approvedBy: string
-): Promise<CompensationPlanConfig | null> {
+): Promise<RuleSetConfig | null> {
   const supabase = createClient();
   const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
     status: 'active',
@@ -227,7 +227,7 @@ export async function approveRuleSet(
 export async function archiveRuleSet(
   tenantId: string,
   ruleSetId: string
-): Promise<CompensationPlanConfig | null> {
+): Promise<RuleSetConfig | null> {
   const supabase = createClient();
   const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
     status: 'archived',
@@ -249,7 +249,7 @@ export async function archiveRuleSet(
 export async function activateRuleSet(
   tenantId: string,
   ruleSetId: string
-): Promise<CompensationPlanConfig | null> {
+): Promise<RuleSetConfig | null> {
   const supabase = createClient();
   // Deactivate all other active rule sets
   await supabase

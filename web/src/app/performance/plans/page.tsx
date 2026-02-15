@@ -32,9 +32,9 @@ import { Plus, MoreHorizontal, Search, Eye, Edit, Copy, History, FileText } from
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { getPlans, clonePlan, initializePlans } from '@/lib/compensation/plan-storage';
-import type { CompensationPlanConfig, PlanStatus } from '@/types/compensation-plan';
+import type { RuleSetConfig, RuleSetStatus } from '@/types/compensation-plan';
 
-const STATUS_BADGES: Record<PlanStatus, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
+const STATUS_BADGES: Record<RuleSetStatus, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   draft: { label: 'Draft', variant: 'secondary' },
   pending_approval: { label: 'Pending Approval', variant: 'outline' },
   active: { label: 'Active', variant: 'default' },
@@ -50,9 +50,9 @@ export default function PlansPage() {
   const router = useRouter();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const [plans, setPlans] = useState<CompensationPlanConfig[]>([]);
+  const [plans, setPlans] = useState<RuleSetConfig[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<PlanStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<RuleSetStatus | 'all'>('all');
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -93,9 +93,9 @@ export default function PlansPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const handleClone = async (planId: string, planName: string) => {
-    const newName = `${planName} (Copy)`;
-    const cloned = clonePlan(planId, newName, user?.id || 'system');
+  const handleClone = async (ruleSetId: string, ruleSetName: string) => {
+    const newName = `${ruleSetName} (Copy)`;
+    const cloned = clonePlan(ruleSetId, newName, user?.id || 'system');
     if (cloned) {
       loadPlans();
       router.push(`/performance/plans/${cloned.id}`);
@@ -192,7 +192,7 @@ export default function PlansPage() {
                 className="pl-9"
               />
             </div>
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as PlanStatus | 'all')}>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as RuleSetStatus | 'all')}>
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
@@ -257,7 +257,7 @@ export default function PlansPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{PLAN_TYPE_LABELS[plan.planType] || plan.planType}</Badge>
+                      <Badge variant="outline">{PLAN_TYPE_LABELS[plan.ruleSetType] || plan.ruleSetType}</Badge>
                     </TableCell>
                     <TableCell>
                       <Badge variant={STATUS_BADGES[plan.status].variant}>

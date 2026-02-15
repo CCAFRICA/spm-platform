@@ -5,7 +5,7 @@
  */
 
 import type {
-  CompensationPlanConfig,
+  RuleSetConfig,
   AdditiveLookupConfig,
   WeightedKPIConfig,
   CalculationResult,
@@ -20,17 +20,11 @@ import { getActivePlan, getPlan } from './plan-storage';
 // METRICS INTERFACE
 // ============================================
 
-export interface EmployeeMetrics {
-  // Entity model fields (canonical)
-  entityId?: string;
-  entityName?: string;
-  entityRole?: string;
+export interface EntityMetrics {
+  entityId: string;
+  entityName: string;
+  entityRole: string;
   ruleSetId?: string;
-
-  // Legacy fields (backward-compatible)
-  employeeId: string;
-  employeeName: string;
-  employeeRole: string;
   storeId?: string;
   storeName?: string;
   isCertified?: boolean;
@@ -39,9 +33,6 @@ export interface EmployeeMetrics {
   periodEnd: string;
   metrics: Record<string, number>;
 }
-
-/** @alias EmployeeMetrics — Entity model canonical name */
-export type EntityMetrics = EmployeeMetrics;
 
 // ============================================
 // OB-27B: WARNING SUMMARY SYSTEM
@@ -117,17 +108,17 @@ export function endCalculationRun(totalEmployees: number): void {
 // ============================================
 
 export function calculateIncentive(
-  employeeMetrics: EmployeeMetrics,
+  employeeMetrics: EntityMetrics,
   tenantId: string,
   planIdOverride?: string
 ): CalculationResult | null {
   // Get plan - either by override or active for role
   const plan = planIdOverride
     ? getPlan(planIdOverride)
-    : getActivePlan(tenantId, employeeMetrics.employeeRole);
+    : getActivePlan(tenantId, employeeMetrics.entityRole);
 
   if (!plan) {
-    console.warn('No active plan found for', employeeMetrics.employeeRole);
+    console.warn('No active plan found for', employeeMetrics.entityRole);
     return null;
   }
 
@@ -144,8 +135,8 @@ export function calculateIncentive(
 // ============================================
 
 function calculateAdditiveLookup(
-  employeeMetrics: EmployeeMetrics,
-  plan: CompensationPlanConfig
+  employeeMetrics: EntityMetrics,
+  plan: RuleSetConfig
 ): CalculationResult {
   const config = plan.configuration as AdditiveLookupConfig;
   const warnings: string[] = [];
@@ -181,23 +172,16 @@ function calculateAdditiveLookup(
     });
 
   return {
-    // Entity model fields (canonical)
-    entityId: employeeMetrics.entityId || employeeMetrics.employeeId,
-    entityName: employeeMetrics.entityName || employeeMetrics.employeeName,
-    entityRole: employeeMetrics.entityRole || employeeMetrics.employeeRole,
+    entityId: employeeMetrics.entityId,
+    entityName: employeeMetrics.entityName,
+    entityRole: employeeMetrics.entityRole,
     ruleSetId: employeeMetrics.ruleSetId || plan.id,
     ruleSetName: plan.name,
     totalOutcome: totalIncentive,
-    // Legacy fields (backward-compatible)
-    employeeId: employeeMetrics.employeeId,
-    employeeName: employeeMetrics.employeeName,
-    employeeRole: employeeMetrics.employeeRole,
     storeId: employeeMetrics.storeId,
     storeName: employeeMetrics.storeName,
-    planId: plan.id,
-    planName: plan.name,
-    planVersion: plan.version,
-    planType: plan.planType,
+    ruleSetVersion: plan.version,
+    ruleSetType: plan.ruleSetType,
     variantId: selectedVariant.variantId,
     variantName: selectedVariant.variantName,
     period: employeeMetrics.period,
@@ -211,7 +195,7 @@ function calculateAdditiveLookup(
   };
 }
 
-function findMatchingVariant(config: AdditiveLookupConfig, metrics: EmployeeMetrics) {
+function findMatchingVariant(config: AdditiveLookupConfig, metrics: EntityMetrics) {
   // HF-019: Treat undefined isCertified as false (non-certified default)
   const employeeIsCertified = metrics.isCertified ?? false;
 
@@ -265,7 +249,7 @@ function findMatchingVariant(config: AdditiveLookupConfig, metrics: EmployeeMetr
 
 function calculateComponent(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EntityMetrics
 ): CalculationStep {
   let result: CalculationStep;
 
@@ -292,7 +276,7 @@ function calculateComponent(
 
 function calculateMatrixLookup(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EntityMetrics
 ): CalculationStep {
   const config = component.matrixConfig!;
 
@@ -368,7 +352,7 @@ function calculateMatrixLookup(
 
 function calculateTierLookup(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EntityMetrics
 ): CalculationStep {
   const config = component.tierConfig!;
 
@@ -432,7 +416,7 @@ function calculateTierLookup(
 
 function calculatePercentage(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EntityMetrics
 ): CalculationStep {
   const config = component.percentageConfig!;
 
@@ -485,7 +469,7 @@ function calculatePercentage(
 
 function calculateConditionalPercentage(
   component: PlanComponent,
-  metrics: EmployeeMetrics
+  metrics: EntityMetrics
 ): CalculationStep {
   const config = component.conditionalConfig!;
 
@@ -556,8 +540,8 @@ function calculateConditionalPercentage(
 // ============================================
 
 function calculateWeightedKPI(
-  employeeMetrics: EmployeeMetrics,
-  plan: CompensationPlanConfig
+  employeeMetrics: EntityMetrics,
+  plan: RuleSetConfig
 ): CalculationResult {
   const config = plan.configuration as WeightedKPIConfig;
   const components: CalculationStep[] = [];
@@ -623,23 +607,16 @@ function calculateWeightedKPI(
   });
 
   return {
-    // Entity model fields (canonical)
-    entityId: employeeMetrics.entityId || employeeMetrics.employeeId,
-    entityName: employeeMetrics.entityName || employeeMetrics.employeeName,
-    entityRole: employeeMetrics.entityRole || employeeMetrics.employeeRole,
+    entityId: employeeMetrics.entityId,
+    entityName: employeeMetrics.entityName,
+    entityRole: employeeMetrics.entityRole,
     ruleSetId: employeeMetrics.ruleSetId || plan.id,
     ruleSetName: plan.name,
     totalOutcome: totalIncentive,
-    // Legacy fields (backward-compatible)
-    employeeId: employeeMetrics.employeeId,
-    employeeName: employeeMetrics.employeeName,
-    employeeRole: employeeMetrics.employeeRole,
     storeId: employeeMetrics.storeId,
     storeName: employeeMetrics.storeName,
-    planId: plan.id,
-    planName: plan.name,
-    planVersion: plan.version,
-    planType: plan.planType,
+    ruleSetVersion: plan.version,
+    ruleSetType: plan.ruleSetType,
     period: employeeMetrics.period,
     periodStart: employeeMetrics.periodStart,
     periodEnd: employeeMetrics.periodEnd,
@@ -733,12 +710,12 @@ function createZeroStep(component: PlanComponent, reason: string): CalculationSt
 // ============================================
 
 export function calculateIncentiveWithConfig(
-  employeeMetrics: EmployeeMetrics,
+  employeeMetrics: EntityMetrics,
   config: AdditiveLookupConfig,
-  basePlan: CompensationPlanConfig
+  basePlan: RuleSetConfig
 ): CalculationResult | null {
   // Create a temporary plan with the modified config
-  const tempPlan: CompensationPlanConfig = {
+  const tempPlan: RuleSetConfig = {
     ...basePlan,
     configuration: config,
   };
@@ -751,7 +728,7 @@ export function calculateIncentiveWithConfig(
 // ============================================
 
 export function calculateBatch(
-  employees: EmployeeMetrics[],
+  employees: EntityMetrics[],
   tenantId: string
 ): CalculationResult[] {
   return employees
@@ -763,11 +740,11 @@ export function calculateBatch(
 // DEMO DATA HELPERS
 // ============================================
 
-export function getMariaMetrics(): EmployeeMetrics {
+export function getMariaMetrics(): EntityMetrics {
   return {
-    employeeId: 'maria-rodriguez',
-    employeeName: 'Maria Rodriguez',
-    employeeRole: 'sales_rep',
+    entityId: 'maria-rodriguez',
+    entityName: 'Maria Rodriguez',
+    entityRole: 'sales_rep',
     storeId: 'store-101',
     storeName: 'Downtown Flagship',
     isCertified: true,
@@ -798,11 +775,11 @@ export function getMariaMetrics(): EmployeeMetrics {
   };
 }
 
-export function getJamesMetrics(): EmployeeMetrics {
+export function getJamesMetrics(): EntityMetrics {
   return {
-    employeeId: 'james-wilson',
-    employeeName: 'James Wilson',
-    employeeRole: 'sales_rep',
+    entityId: 'james-wilson',
+    entityName: 'James Wilson',
+    entityRole: 'sales_rep',
     storeId: 'store-101',
     storeName: 'Downtown Flagship',
     isCertified: true,

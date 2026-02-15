@@ -16,14 +16,14 @@ import { useCurrency } from '@/contexts/tenant-context';
 interface ScenarioComparisonProps {
   baseline: CalculationResult;
   scenario: CalculationResult;
-  employeeName: string;
+  entityName: string;
   scenarioName: string;
 }
 
 export function ScenarioComparison({
   baseline,
   scenario,
-  employeeName,
+  entityName,
   scenarioName,
 }: ScenarioComparisonProps) {
   const { format: formatCurrency } = useCurrency();
@@ -51,7 +51,7 @@ export function ScenarioComparison({
           <div>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              {employeeName}
+              {entityName}
             </CardTitle>
             <CardDescription>Impact analysis for {scenarioName}</CardDescription>
           </div>

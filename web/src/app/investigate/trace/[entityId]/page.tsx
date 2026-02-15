@@ -4,7 +4,7 @@
  * Employee Trace Page
  *
  * Shows the full forensic trace for a specific employee.
- * Route: /investigate/trace/[employeeId]
+ * Route: /investigate/trace/[entityId]
  */
 
 import { useEffect, useState } from 'react';
@@ -30,7 +30,7 @@ export default function EmployeeTracePage() {
   const searchParams = useSearchParams();
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id || '';
-  const employeeId = params?.employeeId as string;
+  const entityId = params?.entityId as string;
   const fromParam = searchParams.get('from') || '';
   const fromConfig = FROM_LABELS[fromParam];
 
@@ -38,12 +38,12 @@ export default function EmployeeTracePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!tenantId || !employeeId) return;
+    if (!tenantId || !entityId) return;
 
-    const t = getTraceForEmployee(tenantId, employeeId);
+    const t = getTraceForEmployee(tenantId, entityId);
     setTrace(t);
     setLoading(false);
-  }, [tenantId, employeeId]);
+  }, [tenantId, entityId]);
 
   if (loading) {
     return (
@@ -72,7 +72,7 @@ export default function EmployeeTracePage() {
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-slate-500">
-              No trace found for employee <span className="font-mono">{employeeId}</span>
+              No trace found for employee <span className="font-mono">{entityId}</span>
             </p>
             <p className="text-sm text-slate-400 mt-2">
               Run a calculation first, then navigate here from the reconciliation table.
@@ -97,7 +97,7 @@ export default function EmployeeTracePage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Employee Trace</h1>
           <p className="text-sm text-slate-500">
-            Full calculation forensics for {trace.employeeName}
+            Full calculation forensics for {trace.entityName}
             {fromConfig && (
               <span className="text-slate-400"> · from {fromConfig.label}</span>
             )}

@@ -53,7 +53,7 @@ const PERIOD_STATUS_SCORES: Record<string, number> = {
 
 interface DimensionWeights {
   financial: number;
-  employeeCount: number;
+  entityCount: number;
   periodStatus: number;
   cascadeScope: number;
   timelineSensitivity: number;
@@ -62,7 +62,7 @@ interface DimensionWeights {
 
 const DEFAULT_WEIGHTS: DimensionWeights = {
   financial: 0.25,
-  employeeCount: 0.20,
+  entityCount: 0.20,
   periodStatus: 0.20,
   cascadeScope: 0.15,
   timelineSensitivity: 0.10,
@@ -73,7 +73,7 @@ const DEFAULT_WEIGHTS: DimensionWeights = {
 const DOMAIN_WEIGHTS: Partial<Record<ApprovalDomain, Partial<DimensionWeights>>> = {
   import_batch: {
     financial: 0.30,
-    employeeCount: 0.25,
+    entityCount: 0.25,
     periodStatus: 0.15,
   },
   rollback: {
@@ -83,7 +83,7 @@ const DOMAIN_WEIGHTS: Partial<Record<ApprovalDomain, Partial<DimensionWeights>>>
   },
   compensation_plan: {
     financial: 0.35,
-    employeeCount: 0.30,
+    entityCount: 0.30,
   },
   period_operation: {
     periodStatus: 0.40,
@@ -115,7 +115,7 @@ export function calculateImpactRating(context: ApprovalContext): ImpactRating {
 function calculateDimensions(context: ApprovalContext): ImpactDimensions {
   return {
     financial: calculateFinancialScore(context.financialAmount || 0),
-    employeeCount: calculateEmployeeScore(context.affectedEmployees || 0),
+    entityCount: calculateEmployeeScore(context.affectedEmployees || 0),
     periodStatus: calculatePeriodStatusScore(context.periodStatus || 'open'),
     cascadeScope: calculateCascadeScore(context.cascadeCount || 0),
     timelineSensitivity: calculateTimelineScore(context.isUrgent || false),
@@ -219,13 +219,13 @@ export function generateImpactDetails(
   // Employees
   if (context.affectedEmployees !== undefined && context.affectedEmployees > 0) {
     details.push({
-      dimension: 'employeeCount',
+      dimension: 'entityCount',
       label: 'Affected Employees',
       labelEs: 'Empleados Afectados',
       description: `Number of personnel impacted`,
       descriptionEs: `Número de personal impactado`,
       value: `${context.affectedEmployees} ${context.affectedEmployees === 1 ? 'employee' : 'employees'}`,
-      severity: getSeverityFromScore(dimensions.employeeCount),
+      severity: getSeverityFromScore(dimensions.entityCount),
     });
   }
 

@@ -227,22 +227,22 @@ function proofExtractEmployees(tenantId: string): ProofEmployee[] {
       }
 
       const content = record.content;
-      const employeeId = String(content['num_empleado'] || '').trim();
+      const entityId = String(content['num_empleado'] || '').trim();
 
-      if (!employeeId || seenIds.has(employeeId)) continue;
+      if (!entityId || seenIds.has(entityId)) continue;
 
       // Must have name field (roster record, not performance)
       if (!content['nombre']) continue;
 
-      seenIds.add(employeeId);
+      seenIds.add(entityId);
 
       const fullName = String(content['nombre'] || '');
       const nameParts = fullName.split(' ');
 
       employees.push({
-        id: employeeId,
+        id: entityId,
         tenantId,
-        employeeNumber: employeeId,
+        employeeNumber: entityId,
         firstName: nameParts[0] || 'Unknown',
         lastName: nameParts.slice(1).join(' ') || 'Employee',
         role: String(content['puesto'] || 'sales_rep'),
@@ -260,7 +260,7 @@ function proofExtractEmployees(tenantId: string): ProofEmployee[] {
 // STEP 4: Get Employee Metrics
 // ============================================
 
-function proofGetEmployeeMetrics(employeeId: string): Record<string, number> {
+function proofGetEntityMetrics(entityId: string): Record<string, number> {
   const committedStored = localStorage.getItem(PROOF_KEYS.COMMITTED);
   if (!committedStored) return {};
 
@@ -272,7 +272,7 @@ function proofGetEmployeeMetrics(employeeId: string): Record<string, number> {
       const recEmployeeId = String(content['num_empleado'] || '').trim();
 
       // Performance record (no nombre field)
-      if (recEmployeeId === employeeId && !content['nombre']) {
+      if (recEmployeeId === entityId && !content['nombre']) {
         return {
           venta_optica: Number(content['venta_optica']) || 0,
           meta: Number(content['meta']) || 0,
@@ -354,10 +354,10 @@ function runProofGate() {
   console.log('\n=== Step 5: Calculation with Metrics ===');
   let totalPayout = 0;
   let metricsFound = 0;
-  const results: { employeeId: string; component: string; metric: number; payout: number }[] = [];
+  const results: { entityId: string; component: string; metric: number; payout: number }[] = [];
 
   for (const employee of employees) {
-    const metrics = proofGetEmployeeMetrics(employee.id);
+    const metrics = proofGetEntityMetrics(employee.id);
 
     if (metrics.pct_cumplimiento) {
       metricsFound++;
@@ -368,7 +368,7 @@ function runProofGate() {
         totalPayout += payout;
 
         results.push({
-          employeeId: employee.id,
+          entityId: employee.id,
           component: opticalComponent.name,
           metric: metrics.pct_cumplimiento,
           payout,
@@ -379,7 +379,7 @@ function runProofGate() {
 
   console.log('Calculation results:');
   results.slice(0, 5).forEach(r => {
-    console.log(`  ${r.employeeId} -> ${r.component} -> ${r.metric}% -> $${r.payout.toLocaleString()} MXN`);
+    console.log(`  ${r.entityId} -> ${r.component} -> ${r.metric}% -> $${r.payout.toLocaleString()} MXN`);
   });
   if (results.length > 5) console.log(`  ... and ${results.length - 5} more`);
 

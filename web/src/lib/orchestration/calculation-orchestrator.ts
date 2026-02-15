@@ -11,13 +11,13 @@ import {
   calculateIncentive,
   startCalculationRun,
   endCalculationRun,
-  type EmployeeMetrics,
+  type EntityMetrics,
 } from '@/lib/compensation/calculation-engine';
 import { getPlans } from '@/lib/compensation/plan-storage';
 import { audit } from '@/lib/audit-service';
 import {
   buildCalculationContext,
-  buildEmployeeMetrics,
+  buildEntityMetrics,
   type CalculationContext,
 } from '@/lib/calculation/context-resolver';
 import { loadImportContext, type AIImportContext } from '@/lib/data-architecture/data-layer-service';
@@ -67,7 +67,7 @@ export interface CalculationRunConfig {
   periodId: string;
   runType: 'preview' | 'official' | 'adjustment';
   scope: {
-    employeeIds?: string[];
+    entityIds?: string[];
     departmentIds?: string[];
     storeIds?: string[];
     planIds?: string[];
@@ -104,7 +104,7 @@ export interface CalculationRun {
 
   // Errors
   errors?: Array<{
-    employeeId: string;
+    entityId: string;
     error: string;
   }>;
 
@@ -132,7 +132,7 @@ export interface EmployeeData {
 }
 
 export interface MetricAggregate {
-  employeeId: string;
+  entityId: string;
   periodId: string;
   tenantId: string;
   metrics: Record<string, number>;
@@ -147,7 +147,7 @@ export interface OrchestrationResult {
   traces?: CalculationTrace[];
   summary: {
     totalPayout: number;
-    employeesProcessed: number;
+    entitiesProcessed: number;
     plansUsed: string[];
     byPlan: Record<string, { count: number; total: number }>;
     byDepartment: Record<string, { count: number; total: number }>;
@@ -232,7 +232,7 @@ export class CalculationOrchestrator {
 
       // Process each employee
       const results: CalculationResult[] = [];
-      const errors: Array<{ employeeId: string; error: string }> = [];
+      const errors: Array<{ entityId: string; error: string }> = [];
 
       // OB-27B: Start calculation run for warning summary
       startCalculationRun();
@@ -247,7 +247,7 @@ export class CalculationOrchestrator {
           }
         } catch (error) {
           errors.push({
-            employeeId: employee.id,
+            entityId: employee.id,
             error: error instanceof Error ? error.message : 'Unknown error',
           });
           run.errorCount++;
@@ -289,7 +289,7 @@ export class CalculationOrchestrator {
           tenantId: config.tenantId,
           periodId: config.periodId,
           runType: run.runType,
-          employeeCount: run.processedEmployees,
+          entityCount: run.processedEmployees,
           totalCompensation: run.totalPayout,
           errorCount: run.errorCount,
         },
@@ -319,7 +319,7 @@ export class CalculationOrchestrator {
       run.completedAt = new Date().toISOString();
       run.errors = [
         {
-          employeeId: 'system',
+          entityId: 'system',
           error: error instanceof Error ? error.message : 'Unknown error',
         },
       ];
@@ -331,7 +331,7 @@ export class CalculationOrchestrator {
         results: [],
         summary: {
           totalPayout: 0,
-          employeesProcessed: 0,
+          entitiesProcessed: 0,
           plansUsed: [],
           byPlan: {},
           byDepartment: {},
@@ -342,22 +342,22 @@ export class CalculationOrchestrator {
 
   /**
    * Calculate incentive for a single employee
-   * FIXED: Accept planId to use loaded plan instead of role-based lookup
+   * FIXED: Accept ruleSetId to use loaded plan instead of role-based lookup
    */
   private async calculateForEmployee(
     employee: EmployeeData,
     periodId: string,
-    planId: string
+    ruleSetId: string
   ): Promise<CalculationResult | null> {
     // Get metrics for this employee/period
-    const metrics = this.getEmployeeMetrics(employee, periodId);
+    const metrics = this.getEntityMetrics(employee, periodId);
 
     if (!metrics) {
       throw new Error(`No metrics found for employee ${employee.id} in period ${periodId}`);
     }
 
     // Execute calculation with explicit plan ID (bypasses role-based lookup)
-    const result = calculateIncentive(metrics, this.tenantId, planId);
+    const result = calculateIncentive(metrics, this.tenantId, ruleSetId);
 
     return result;
   }
@@ -399,7 +399,7 @@ export class CalculationOrchestrator {
       }
 
       // Filter by scope
-      if (config.scope.employeeIds && !config.scope.employeeIds.includes(emp.id)) {
+      if (config.scope.entityIds && !config.scope.entityIds.includes(emp.id)) {
         return false;
       }
 
@@ -607,15 +607,15 @@ export class CalculationOrchestrator {
    * Get employee metrics for a period
    * AI-DRIVEN: Uses AI import context to extract metrics from aggregated data
    */
-  private getEmployeeMetrics(employee: EmployeeData, periodId: string): EmployeeMetrics | null {
+  private getEntityMetrics(employee: EmployeeData, periodId: string): EntityMetrics | null {
     // AI-DRIVEN PRIORITY 0: Extract metrics from aggregated employee attributes using AI mappings
     const aiMetrics = this.extractMetricsWithAIMappings(employee);
 
     if (aiMetrics && Object.keys(aiMetrics).length > 0) {
       return {
-        employeeId: employee.id,
-        employeeName: `${employee.firstName} ${employee.lastName}`,
-        employeeRole: employee.role,
+        entityId: employee.id,
+        entityName: `${employee.firstName} ${employee.lastName}`,
+        entityRole: employee.role,
         storeId: employee.storeId,
         storeName: employee.storeName,
         isCertified: this.deriveIsCertified(employee),
@@ -630,9 +630,9 @@ export class CalculationOrchestrator {
     const aggregate = this.getMetricAggregate(employee.id, periodId);
     if (aggregate) {
       return {
-        employeeId: employee.id,
-        employeeName: `${employee.firstName} ${employee.lastName}`,
-        employeeRole: employee.role,
+        entityId: employee.id,
+        entityName: `${employee.firstName} ${employee.lastName}`,
+        entityRole: employee.role,
         storeId: employee.storeId,
         storeName: employee.storeName,
         isCertified: this.deriveIsCertified(employee),
@@ -649,7 +649,7 @@ export class CalculationOrchestrator {
         (e) => e.id === employee.id
       );
       if (contextEmployee) {
-        const metrics = buildEmployeeMetrics(this.calculationContext, contextEmployee);
+        const metrics = buildEntityMetrics(this.calculationContext, contextEmployee);
         if (metrics) {
           return metrics;
         }
@@ -660,9 +660,9 @@ export class CalculationOrchestrator {
     const calculatedMetrics = this.calculateMetricsFromTransactions(employee, periodId);
     if (calculatedMetrics) {
       return {
-        employeeId: employee.id,
-        employeeName: `${employee.firstName} ${employee.lastName}`,
-        employeeRole: employee.role,
+        entityId: employee.id,
+        entityName: `${employee.firstName} ${employee.lastName}`,
+        entityRole: employee.role,
         storeId: employee.storeId,
         storeName: employee.storeName,
         isCertified: this.deriveIsCertified(employee),
@@ -978,7 +978,7 @@ export class CalculationOrchestrator {
   /**
    * OB-30-7v2: Build sheet topology map from AI import context.
    * Classifies each sheet as employee_component, store_component, or roster
-   * based on whether it has employeeId or storeId field mappings.
+   * based on whether it has entityId or storeId field mappings.
    */
   private buildSheetTopology(): void {
     this.sheetTopologyMap.clear();
@@ -1061,12 +1061,12 @@ export class CalculationOrchestrator {
 
     for (const result of results) {
       // By plan
-      plansUsed.add(result.planId);
-      if (!byPlan[result.planId]) {
-        byPlan[result.planId] = { count: 0, total: 0 };
+      plansUsed.add(result.ruleSetId);
+      if (!byPlan[result.ruleSetId]) {
+        byPlan[result.ruleSetId] = { count: 0, total: 0 };
       }
-      byPlan[result.planId].count++;
-      byPlan[result.planId].total += result.totalIncentive;
+      byPlan[result.ruleSetId].count++;
+      byPlan[result.ruleSetId].total += result.totalIncentive;
 
       // By department (using storeId as proxy if no department)
       const dept = result.storeId || 'Unknown';
@@ -1079,7 +1079,7 @@ export class CalculationOrchestrator {
 
     return {
       totalPayout: results.reduce((sum, r) => sum + r.totalIncentive, 0),
-      employeesProcessed: results.length,
+      entitiesProcessed: results.length,
       plansUsed: Array.from(plansUsed),
       byPlan,
       byDepartment,
@@ -1409,9 +1409,9 @@ export class CalculationOrchestrator {
     );
   }
 
-  getEmployeeResult(employeeId: string, periodId: string): CalculationResult | null {
+  getEmployeeResult(entityId: string, periodId: string): CalculationResult | null {
     const results = this.getResults(periodId);
-    return results.find((r) => r.employeeId === employeeId) || null;
+    return results.find((r) => r.entityId === entityId) || null;
   }
 
   // ============================================
@@ -1480,12 +1480,12 @@ export class CalculationOrchestrator {
         const nameParts = name.split(' ');
 
         return {
-          id: String(record.employeeId || ''),
+          id: String(record.entityId || ''),
           tenantId: this.tenantId,
-          employeeNumber: String(record.employeeId || ''),
+          employeeNumber: String(record.entityId || ''),
           firstName: nameParts[0] || 'Employee',
-          lastName: nameParts.slice(1).join(' ') || String(record.employeeId || ''),
-          email: `${record.employeeId}@import.local`,
+          lastName: nameParts.slice(1).join(' ') || String(record.entityId || ''),
+          email: `${record.entityId}@import.local`,
           role: String(record.role || ''),
           department: '',
           storeId: String(record.storeId || ''),
@@ -1629,22 +1629,22 @@ export class CalculationOrchestrator {
         }
 
         // AI-DRIVEN: Extract employee ID using semantic mapping
-        const employeeId = this.extractFieldValue(content, sheetName, ['employeeId', 'employee_id']);
+        const entityId = this.extractFieldValue(content, sheetName, ['entityId', 'entity_id']);
 
-        if (!employeeId || employeeId.length < 3 || seenIds.has(employeeId)) {
+        if (!entityId || entityId.length < 3 || seenIds.has(entityId)) {
           continue;
         }
-        seenIds.add(employeeId);
+        seenIds.add(entityId);
 
         // AI-DRIVEN: Extract all fields using semantic mappings
-        const fullName = this.extractFieldValue(content, sheetName, ['name', 'employeeName', 'fullName']);
+        const fullName = this.extractFieldValue(content, sheetName, ['name', 'entityName', 'fullName']);
         const firstName = fullName.split(' ')[0] || 'Unknown';
         const lastName = fullName.split(' ').slice(1).join(' ') || 'Employee';
 
         employees.push({
-          id: employeeId.toLowerCase().replace(/\s+/g, '-'),
+          id: entityId.toLowerCase().replace(/\s+/g, '-'),
           tenantId: this.tenantId,
-          employeeNumber: employeeId,
+          employeeNumber: entityId,
           firstName,
           lastName,
           email: this.extractFieldValue(content, sheetName, ['email']),
@@ -1675,7 +1675,7 @@ export class CalculationOrchestrator {
     localStorage.setItem(STORAGE_KEYS.EMPLOYEE_DATA, JSON.stringify(updated));
   }
 
-  private getMetricAggregate(employeeId: string, periodId: string): MetricAggregate | null {
+  private getMetricAggregate(entityId: string, periodId: string): MetricAggregate | null {
     if (typeof window === 'undefined') return null;
 
     const stored = localStorage.getItem(STORAGE_KEYS.METRIC_AGGREGATES);
@@ -1686,7 +1686,7 @@ export class CalculationOrchestrator {
       return (
         aggregates.find(
           (a) =>
-            a.employeeId === employeeId && a.periodId === periodId && a.tenantId === this.tenantId
+            a.entityId === entityId && a.periodId === periodId && a.tenantId === this.tenantId
         ) || null
       );
     } catch {
@@ -1710,7 +1710,7 @@ export class CalculationOrchestrator {
     aggregates = aggregates.filter(
       (a) =>
         !(
-          a.employeeId === aggregate.employeeId &&
+          a.entityId === aggregate.entityId &&
           a.periodId === aggregate.periodId &&
           a.tenantId === aggregate.tenantId
         )
@@ -1726,7 +1726,7 @@ export class CalculationOrchestrator {
   }
 
   private getTransactions(
-    employeeId: string,
+    entityId: string,
     periodId: string
   ): Array<{ amount: number; category?: string }> {
     if (typeof window === 'undefined') return [];
@@ -1736,7 +1736,7 @@ export class CalculationOrchestrator {
 
     try {
       const transactions: Array<{
-        employeeId: string;
+        entityId: string;
         periodId: string;
         tenantId: string;
         amount: number;
@@ -1745,7 +1745,7 @@ export class CalculationOrchestrator {
 
       return transactions.filter(
         (t) =>
-          t.employeeId === employeeId && t.periodId === periodId && t.tenantId === this.tenantId
+          t.entityId === entityId && t.periodId === periodId && t.tenantId === this.tenantId
       );
     } catch {
       return [];
@@ -1753,9 +1753,9 @@ export class CalculationOrchestrator {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private getQuotas(employeeId: string, periodId: string): Record<string, number> {
+  private getQuotas(entityId: string, periodId: string): Record<string, number> {
     // In a real implementation, this would load from quota assignments
-    // using employeeId and periodId. For now, return defaults.
+    // using entityId and periodId. For now, return defaults.
     return {
       default_quota: 100000,
       optical_quota: 150000,
@@ -1857,7 +1857,7 @@ export async function runPeriodCalculation(
         timestamp: new Date().toISOString(),
         runId: result.run.id,
         totalPayout: result.summary.totalPayout,
-        employeeCount: result.summary.employeesProcessed,
+        entityCount: result.summary.entitiesProcessed,
         componentTotals: Object.fromEntries(
           Object.entries(result.summary.byPlan || {}).map(([k, v]) => [k, v.total])
         ),

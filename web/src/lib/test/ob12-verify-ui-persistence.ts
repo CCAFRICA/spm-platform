@@ -97,42 +97,42 @@ function verify() {
     );
 
     // Look for employee-like records
-    let employeeCount = 0;
-    const employeeIds: string[] = [];
-    const employeeNames: string[] = [];
+    let entityCount = 0;
+    const entityIds: string[] = [];
+    const entityNames: string[] = [];
 
     for (const [, record] of matchingRecords) {
       const content = record.content;
 
       // Check for employee ID
       const empId = content['num_empleado'] || content['Num_Empleado'] ||
-        content['employee_id'] || content['employeeId'];
+        content['entity_id'] || content['entityId'];
 
       // Check for name
       const name = content['nombre'] || content['name'] ||
         content['Nombre'] || content['nombre_completo'];
 
       if (empId && name) {
-        employeeCount++;
-        employeeIds.push(String(empId));
-        employeeNames.push(String(name));
+        entityCount++;
+        entityIds.push(String(empId));
+        entityNames.push(String(name));
       }
     }
 
     console.log(`=== Tenant: ${tenantId} ===`);
     console.log(`  Batches: ${tenantBatchIds.length}`);
     console.log(`  Matching records: ${matchingRecords.length}`);
-    console.log(`  Employee records: ${employeeCount}`);
+    console.log(`  Employee records: ${entityCount}`);
 
-    if (employeeCount > 0) {
-      console.log(`  Sample IDs: ${employeeIds.slice(0, 3).join(', ')}`);
-      console.log(`  Sample names: ${employeeNames.slice(0, 3).join(', ')}`);
+    if (entityCount > 0) {
+      console.log(`  Sample IDs: ${entityIds.slice(0, 3).join(', ')}`);
+      console.log(`  Sample names: ${entityNames.slice(0, 3).join(', ')}`);
 
       // Check for demo employees
-      const hasDemoIds = employeeIds.some(id =>
+      const hasDemoIds = entityIds.some(id =>
         id === 'maria-rodriguez' || id === 'james-wilson' || id === 'sarah-chen'
       );
-      const hasDemoNames = employeeNames.some(n =>
+      const hasDemoNames = entityNames.some(n =>
         n.toLowerCase().includes('maria rodriguez') ||
         n.toLowerCase().includes('james wilson') ||
         n.toLowerCase().includes('sarah chen')
@@ -150,7 +150,7 @@ function verify() {
   // Final verdict
   const totalEmployees = committedArr.filter(([, r]) => {
     const c = r.content;
-    return (c['num_empleado'] || c['Num_Empleado'] || c['employee_id']) &&
+    return (c['num_empleado'] || c['Num_Empleado'] || c['entity_id']) &&
            (c['nombre'] || c['name'] || c['Nombre']);
   }).length;
 

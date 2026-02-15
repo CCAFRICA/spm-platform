@@ -56,14 +56,14 @@ import {
   ConditionalRateEditor,
 } from '@/components/compensation/plan-editors';
 import type {
-  CompensationPlanConfig,
-  PlanStatus,
+  RuleSetConfig,
+  RuleSetStatus,
   PlanComponent,
   AdditiveLookupConfig,
 } from '@/types/compensation-plan';
 import { cn } from '@/lib/utils';
 
-const STATUS_BADGES: Record<PlanStatus, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
+const STATUS_BADGES: Record<RuleSetStatus, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   draft: { label: 'Draft', variant: 'secondary' },
   pending_approval: { label: 'Pending Approval', variant: 'outline' },
   active: { label: 'Active', variant: 'default' },
@@ -76,28 +76,28 @@ export default function PlanDetailPage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
 
-  const planId = params.id as string;
+  const ruleSetId = params.id as string;
   const initialTab = searchParams.get('tab') || 'general';
 
-  const [plan, setPlan] = useState<CompensationPlanConfig | null>(null);
-  const [originalPlan, setOriginalPlan] = useState<CompensationPlanConfig | null>(null);
+  const [plan, setPlan] = useState<RuleSetConfig | null>(null);
+  const [originalPlan, setOriginalPlan] = useState<RuleSetConfig | null>(null);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [expandedComponents, setExpandedComponents] = useState<string[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
-  const [planHistory, setPlanHistory] = useState<CompensationPlanConfig[]>([]);
+  const [planHistory, setPlanHistory] = useState<RuleSetConfig[]>([]);
 
   useEffect(() => {
     initializePlans();
 
     setIsLoading(true);
-    const loadedPlan = getPlan(planId);
+    const loadedPlan = getPlan(ruleSetId);
     if (loadedPlan) {
       setPlan(loadedPlan);
       setOriginalPlan(JSON.parse(JSON.stringify(loadedPlan)));
-      setPlanHistory(getPlanHistory(planId));
+      setPlanHistory(getPlanHistory(ruleSetId));
 
       // Expand first component by default
       const config = loadedPlan.configuration;
@@ -106,7 +106,7 @@ export default function PlanDetailPage() {
       }
     }
     setIsLoading(false);
-  }, [planId]);
+  }, [ruleSetId]);
 
   const handleSave = () => {
     if (!plan) return;
@@ -154,7 +154,7 @@ export default function PlanDetailPage() {
     }
   };
 
-  const updatePlanField = (field: keyof CompensationPlanConfig, value: unknown) => {
+  const updatePlanField = (field: keyof RuleSetConfig, value: unknown) => {
     if (!plan) return;
     setPlan({ ...plan, [field]: value });
     setHasChanges(true);
@@ -338,7 +338,7 @@ export default function PlanDetailPage() {
                   <Label>Plan Type</Label>
                   <div className="mt-1">
                     <Badge variant="outline">
-                      {plan.planType === 'additive_lookup' ? 'Additive Lookup' : 'Weighted KPI'}
+                      {plan.ruleSetType === 'additive_lookup' ? 'Additive Lookup' : 'Weighted KPI'}
                     </Badge>
                   </div>
                 </div>

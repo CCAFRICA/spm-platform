@@ -286,7 +286,7 @@ export function notifyManagerNewDispute(
   managerId: string,
   disputeId: string,
   transactionId: string,
-  employeeName: string
+  entityName: string
 ): Notification {
   return createNotification({
     tenantId,
@@ -294,14 +294,14 @@ export function notifyManagerNewDispute(
     type: 'dispute_submitted',
     title: 'New Dispute to Review',
     titleEs: 'Nueva Disputa para Revisar',
-    message: `${employeeName} submitted a dispute for ${transactionId}.`,
-    messageEs: `${employeeName} envió una disputa para ${transactionId}.`,
+    message: `${entityName} submitted a dispute for ${transactionId}.`,
+    messageEs: `${entityName} envió una disputa para ${transactionId}.`,
     priority: 'normal',
     linkTo: `/transactions/disputes/${disputeId}`,
     metadata: {
       disputeId,
       transactionId,
-      employeeName,
+      entityName,
     },
   });
 }

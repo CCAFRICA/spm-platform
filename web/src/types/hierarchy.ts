@@ -13,7 +13,7 @@
  */
 export interface HierarchyNode {
   id: string;
-  employeeId: string;
+  entityId: string;
 
   // Display info
   name: string;

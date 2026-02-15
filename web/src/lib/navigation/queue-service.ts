@@ -202,14 +202,14 @@ function getApprovalItems(userId: string, tenantId: string, role: UserRole): Que
             a.status === 'pending' && (!a.assignedTo || a.assignedTo === userId)
           )
           .slice(0, 5)
-          .map((a: { id: string; type: string; amount?: number; employeeName?: string; createdAt: string }) => ({
+          .map((a: { id: string; type: string; amount?: number; entityName?: string; createdAt: string }) => ({
             id: `approval-${a.id}`,
             type: 'approval' as QueueItemType,
             urgency: (a.amount && a.amount > 10000 ? 'high' : 'medium') as QueueUrgency,
             title: `Approval Required: ${a.type}`,
             titleEs: `Aprobacion Requerida: ${a.type}`,
-            description: a.employeeName ? `For ${a.employeeName}` : 'Review and approve',
-            descriptionEs: a.employeeName ? `Para ${a.employeeName}` : 'Revisar y aprobar',
+            description: a.entityName ? `For ${a.entityName}` : 'Review and approve',
+            descriptionEs: a.entityName ? `Para ${a.entityName}` : 'Revisar y aprobar',
             workspace: 'operate' as WorkspaceId,
             route: '/operate/approve',
             timestamp: a.createdAt || new Date().toISOString(),

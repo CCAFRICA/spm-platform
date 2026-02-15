@@ -45,7 +45,7 @@ export function runOB13AProofGate(): void {
   // PHASE 2: Field Mapping Vocabulary
   console.log('📋 PHASE 2: Field Mapping Vocabulary');
   const targetFields = [
-    'employee_id', 'employee_name', 'location_id', 'location_name',
+    'entity_id', 'employee_name', 'location_id', 'location_name',
     'period', 'date', 'amount', 'quantity', 'role',
     // Extended vocabulary - OB-13A additions
     'sales_target', 'sales_actual', 'achievement_percentage',

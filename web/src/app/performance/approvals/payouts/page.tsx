@@ -60,7 +60,7 @@ export default function PayoutApprovalsPage() {
 
     if (batch) {
       toast.success('Payout Approved', {
-        description: `${batch.periodLabel} payout for ${batch.employeeCount} employees has been approved`,
+        description: `${batch.periodLabel} payout for ${batch.entityCount} employees has been approved`,
       });
     }
 

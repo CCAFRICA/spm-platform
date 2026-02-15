@@ -142,13 +142,13 @@ export default function DashboardPage() {
     if (!results.length) return null;
 
     const userId = authUser?.email?.split('@')[0] || '';
-    const myResult = results.find(r => r.employeeId === userId);
+    const myResult = results.find(r => r.entityId === userId);
     const totalPayout = results.reduce((sum, r) => sum + (r.totalIncentive || 0), 0);
 
     if (myResult) {
       // Sales rep: show personal stats
       const sorted = [...results].sort((a, b) => (b.totalIncentive || 0) - (a.totalIncentive || 0));
-      const rank = sorted.findIndex(r => r.employeeId === userId) + 1;
+      const rank = sorted.findIndex(r => r.entityId === userId) + 1;
       return {
         ytdCompensation: myResult.totalIncentive || 0,
         mtdCompensation: myResult.totalIncentive || 0,

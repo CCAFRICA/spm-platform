@@ -120,7 +120,7 @@ export interface PlanInterpretationInput {
 }
 
 export interface PlanInterpretationResult {
-  planName: string;
+  ruleSetName: string;
   effectiveDate: string;
   components: Array<{
     type: string;

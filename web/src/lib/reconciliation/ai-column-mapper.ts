@@ -3,7 +3,7 @@
  *
  * HF-021 Phase 2: AI-powered column classification for reconciliation.
  * Uses AIService.classifySheet() to map uploaded file columns to:
- *   - employee_id
+ *   - entity_id
  *   - employee_name
  *   - total_amount
  *   - component:{componentId} (per plan component)
@@ -31,7 +31,7 @@ import type { ParsedFile } from './smart-file-parser';
 
 export interface ColumnMapping {
   sourceColumn: string;     // Column header from the uploaded file
-  mappedTo: string;         // Target: 'employee_id' | 'employee_name' | 'total_amount' | 'component:{id}'
+  mappedTo: string;         // Target: 'entity_id' | 'employee_name' | 'total_amount' | 'component:{id}'
   mappedToLabel: string;    // Human-readable label for the mapping
   confidence: number;       // 0-1 confidence score
   reasoning: string;        // Why this mapping was chosen
@@ -47,7 +47,7 @@ export interface MappingResult {
 
 /** Target fields the AI can map to */
 export interface MappingTarget {
-  id: string;               // e.g., 'employee_id', 'component:comp-optical'
+  id: string;               // e.g., 'entity_id', 'component:comp-optical'
   label: string;            // e.g., 'Employee ID', 'Optical Sales'
   category: 'identifier' | 'amount' | 'component';
 }
@@ -170,7 +170,7 @@ export function recordMappingFeedback(
  */
 export function buildMappingTargets(tenantId: string): MappingTarget[] {
   const targets: MappingTarget[] = [
-    { id: 'employee_id', label: 'Employee ID', category: 'identifier' },
+    { id: 'entity_id', label: 'Employee ID', category: 'identifier' },
     { id: 'employee_name', label: 'Employee Name', category: 'identifier' },
     { id: 'total_amount', label: 'Total Incentive Amount', category: 'amount' },
   ];
@@ -289,7 +289,7 @@ function transformAIResponse(
  * Extract the employee ID field from mappings
  */
 export function getEmployeeIdMapping(mappings: ColumnMapping[]): string | null {
-  const mapping = mappings.find(m => m.mappedTo === 'employee_id');
+  const mapping = mappings.find(m => m.mappedTo === 'entity_id');
   return mapping?.sourceColumn ?? null;
 }
 

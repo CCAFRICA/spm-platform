@@ -40,8 +40,8 @@ export interface ComponentComparison {
 }
 
 export interface EmployeeComparison {
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   population: 'matched' | 'file_only' | 'vl_only';
 
   // Total amounts
@@ -95,20 +95,20 @@ const AMBER_THRESHOLD = 0.15;        // 15%
  * @param fileRows - Raw rows from uploaded file
  * @param vlResults - Calculation results from VL
  * @param mappings - AI/user column mappings
- * @param employeeIdField - Which file column is the employee ID
+ * @param entityIdField - Which file column is the employee ID
  * @param totalAmountField - Which file column is the total amount
  */
 export function runComparison(
   fileRows: Record<string, unknown>[],
   vlResults: CalculationResult[],
   mappings: ColumnMapping[],
-  employeeIdField: string,
+  entityIdField: string,
   totalAmountField: string,
 ): ComparisonResult {
   // Build lookup maps with normalized IDs
   const fileByEmployee = new Map<string, Record<string, unknown>>();
   for (const row of fileRows) {
-    const empId = normalizeId(String(row[employeeIdField] ?? ''));
+    const empId = normalizeId(String(row[entityIdField] ?? ''));
     if (empId) {
       fileByEmployee.set(empId, row);
     }
@@ -116,7 +116,7 @@ export function runComparison(
 
   const vlByEmployee = new Map<string, CalculationResult>();
   for (const result of vlResults) {
-    const empId = normalizeId(result.employeeId);
+    const empId = normalizeId(result.entityId);
     if (empId) {
       vlByEmployee.set(empId, result);
     }
@@ -155,8 +155,8 @@ export function runComparison(
       const components = compareComponents(fileRow, vlResult, componentMappings);
 
       employees.push({
-        employeeId: empId,
-        employeeName: vlResult.employeeName || empId,
+        entityId: empId,
+        entityName: vlResult.entityName || empId,
         population: 'matched',
         fileTotal,
         vlTotal,
@@ -171,8 +171,8 @@ export function runComparison(
       // FILE-ONLY
       const fileTotal = Number(fileRow[totalAmountField] ?? 0);
       employees.push({
-        employeeId: empId,
-        employeeName: empId,
+        entityId: empId,
+        entityName: empId,
         population: 'file_only',
         fileTotal,
         vlTotal: 0,
@@ -186,8 +186,8 @@ export function runComparison(
       // VL-ONLY
       const vlTotal = vlResult.totalIncentive || 0;
       employees.push({
-        employeeId: empId,
-        employeeName: vlResult.employeeName || empId,
+        entityId: empId,
+        entityName: vlResult.entityName || empId,
         population: 'vl_only',
         fileTotal: 0,
         vlTotal,

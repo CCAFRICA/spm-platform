@@ -223,7 +223,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
                 <Users className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <div className="text-2xl font-bold">{batch.employeeCount}</div>
+                <div className="text-2xl font-bold">{batch.entityCount}</div>
                 <div className="text-sm text-muted-foreground">Employees</div>
               </div>
             </div>
@@ -238,7 +238,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
               </div>
               <div>
                 <div className="text-2xl font-bold">
-                  {formatCurrency(batch.totalAmount / batch.employeeCount)}
+                  {formatCurrency(batch.totalAmount / batch.entityCount)}
                 </div>
                 <div className="text-sm text-muted-foreground">Avg. Payout</div>
               </div>
@@ -319,7 +319,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
                   Payout Completed
                 </span>
                 <span className="text-green-700 dark:text-green-300 text-sm ml-2">
-                  All {batch.employeeCount} employees have been paid
+                  All {batch.entityCount} employees have been paid
                 </span>
               </div>
             </div>
@@ -350,7 +350,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
         <CardHeader>
           <CardTitle>Employee Breakdown</CardTitle>
           <CardDescription>
-            Individual payout details for all {batch.employeeCount} employees
+            Individual payout details for all {batch.entityCount} employees
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -378,7 +378,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
               <div>
                 <h4 className="font-medium">Ready to process this payout?</h4>
                 <p className="text-sm text-muted-foreground">
-                  Approving will initiate payment processing for all {batch.employeeCount} employees
+                  Approving will initiate payment processing for all {batch.entityCount} employees
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -412,7 +412,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
               Approve Payout Batch
             </DialogTitle>
             <DialogDescription>
-              You are about to approve the {batch.periodLabel} payout for {batch.employeeCount} employees
+              You are about to approve the {batch.periodLabel} payout for {batch.entityCount} employees
               totaling {formatCurrency(batch.totalAmount)}.
             </DialogDescription>
           </DialogHeader>
@@ -428,7 +428,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
                 </div>
                 <div>
                   <span className="text-muted-foreground">Employees:</span>
-                  <div className="font-bold text-lg">{batch.employeeCount}</div>
+                  <div className="font-bold text-lg">{batch.entityCount}</div>
                 </div>
               </div>
             </div>
@@ -479,7 +479,7 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
               Reject Payout Batch
             </DialogTitle>
             <DialogDescription>
-              Rejecting will prevent all {batch.employeeCount} employees from receiving their incentive payouts.
+              Rejecting will prevent all {batch.entityCount} employees from receiving their incentive payouts.
             </DialogDescription>
           </DialogHeader>
 

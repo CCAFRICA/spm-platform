@@ -13,19 +13,19 @@
  * come from the plan configuration data. Zero hardcoded field names.
  */
 
-import type { CompensationPlanConfig } from '@/types/compensation-plan';
+import type { RuleSetConfig } from '@/types/compensation-plan';
 
 // =============================================================================
 // PLAN FACTORY
 // =============================================================================
 
-export function createFRMXServerPlan(): CompensationPlanConfig {
+export function createFRMXServerPlan(): RuleSetConfig {
   return {
     id: 'plan-frmx-server-commission-2025',
     tenantId: 'frmx-demo',
     name: 'FRMX Server Commission Plan',
     description: 'Restaurant server compensation based on POS performance metrics',
-    planType: 'additive_lookup',
+    ruleSetType: 'additive_lookup',
     status: 'active',
     effectiveDate: '2024-12-01T00:00:00Z',
     endDate: null,

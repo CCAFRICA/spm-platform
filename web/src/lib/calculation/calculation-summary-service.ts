@@ -16,7 +16,7 @@ export interface CalculationSummary {
   tenantId: string;
   period: string;
   totalPayout: number;
-  employeeCount: number;
+  entityCount: number;
   averagePayout: number;
   componentTotals: ComponentTotal[];
   storeTotals: StoreTotal[];
@@ -32,13 +32,13 @@ export interface ComponentTotal {
   componentId: string;
   componentName: string;
   total: number;
-  employeeCount: number;
+  entityCount: number;
 }
 
 export interface StoreTotal {
   storeId: string;
   total: number;
-  employeeCount: number;
+  entityCount: number;
 }
 
 export interface VariantGroup {
@@ -49,8 +49,8 @@ export interface VariantGroup {
 }
 
 export interface OutlierEmployee {
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   storeId?: string;
   total: number;
   zScore: number;
@@ -70,15 +70,15 @@ export function buildCalculationSummary(
   if (traces.length === 0) {
     return {
       runId, tenantId, period,
-      totalPayout: 0, employeeCount: 0, averagePayout: 0,
+      totalPayout: 0, entityCount: 0, averagePayout: 0,
       componentTotals: [], storeTotals: [], variantDistribution: [], outliers: [],
       aiBriefingAvailable: false, generatedAt: new Date().toISOString(),
     };
   }
 
   const totalPayout = traces.reduce((sum, t) => sum + t.totalIncentive, 0);
-  const employeeCount = traces.length;
-  const averagePayout = employeeCount > 0 ? totalPayout / employeeCount : 0;
+  const entityCount = traces.length;
+  const averagePayout = entityCount > 0 ? totalPayout / entityCount : 0;
 
   // Component totals (dynamic from traces)
   const compMap = new Map<string, { id: string; name: string; total: number; count: number }>();
@@ -97,7 +97,7 @@ export function buildCalculationSummary(
     }
   }
   const componentTotals: ComponentTotal[] = Array.from(compMap.values())
-    .map(c => ({ componentId: c.id, componentName: c.name, total: c.total, employeeCount: c.count }))
+    .map(c => ({ componentId: c.id, componentName: c.name, total: c.total, entityCount: c.count }))
     .sort((a, b) => b.total - a.total);
 
   // Store totals
@@ -113,7 +113,7 @@ export function buildCalculationSummary(
     }
   }
   const storeTotals: StoreTotal[] = Array.from(storeMap.entries())
-    .map(([storeId, data]) => ({ storeId, total: data.total, employeeCount: data.count }))
+    .map(([storeId, data]) => ({ storeId, total: data.total, entityCount: data.count }))
     .sort((a, b) => b.total - a.total);
 
   // Variant distribution
@@ -143,8 +143,8 @@ export function buildCalculationSummary(
     ? traces
         .filter(t => Math.abs(t.totalIncentive - mean) > 3 * stdDev)
         .map(t => ({
-          employeeId: t.employeeId,
-          employeeName: t.employeeName,
+          entityId: t.entityId,
+          entityName: t.entityName,
           storeId: t.storeId,
           total: t.totalIncentive,
           zScore: (t.totalIncentive - mean) / stdDev,
@@ -154,7 +154,7 @@ export function buildCalculationSummary(
 
   return {
     runId, tenantId, period,
-    totalPayout, employeeCount, averagePayout,
+    totalPayout, entityCount, averagePayout,
     componentTotals, storeTotals, variantDistribution, outliers,
     aiBriefingAvailable: false,
     generatedAt: new Date().toISOString(),
@@ -177,7 +177,7 @@ export async function generateAIBriefing(
         input: {
           analysisData: {
             totalPayout: summary.totalPayout,
-            employeeCount: summary.employeeCount,
+            entityCount: summary.entityCount,
             averagePayout: summary.averagePayout,
             componentTotals: summary.componentTotals,
             outlierCount: summary.outliers.length,

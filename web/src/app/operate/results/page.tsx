@@ -96,8 +96,8 @@ export default function ResultsDashboardPage() {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(t =>
-        t.employeeId.toLowerCase().includes(q) ||
-        t.employeeName.toLowerCase().includes(q) ||
+        t.entityId.toLowerCase().includes(q) ||
+        t.entityName.toLowerCase().includes(q) ||
         (t.storeId || '').toLowerCase().includes(q)
       );
     }
@@ -111,8 +111,8 @@ export default function ResultsDashboardPage() {
       }
       if (sortField === 'name') {
         return sortDir === 'desc'
-          ? b.employeeName.localeCompare(a.employeeName)
-          : a.employeeName.localeCompare(b.employeeName);
+          ? b.entityName.localeCompare(a.entityName)
+          : a.entityName.localeCompare(b.entityName);
       }
       return 0;
     });
@@ -131,7 +131,7 @@ export default function ResultsDashboardPage() {
   // Outlier IDs for highlighting
   const outlierIds = useMemo(() => {
     if (!summary) return new Set<string>();
-    return new Set(summary.outliers.map(o => o.employeeId));
+    return new Set(summary.outliers.map(o => o.entityId));
   }, [summary]);
 
   if (!hasAccess) {
@@ -184,7 +184,7 @@ export default function ResultsDashboardPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Results Dashboard</h1>
           <p className="text-slate-500 text-sm">
-            {summary.employeeCount} employees | Run: {summary.runId.slice(0, 8)}
+            {summary.entityCount} employees | Run: {summary.runId.slice(0, 8)}
           </p>
         </div>
       </div>
@@ -239,7 +239,7 @@ export default function ResultsDashboardPage() {
               </div>
               <div>
                 <p className="text-sm text-slate-500">Employees</p>
-                <p className="text-2xl font-bold">{summary.employeeCount}</p>
+                <p className="text-2xl font-bold">{summary.entityCount}</p>
               </div>
             </div>
           </CardContent>
@@ -300,7 +300,7 @@ export default function ResultsDashboardPage() {
                     </span>
                   </div>
                   <span className="text-xs text-slate-400 w-16 text-right">
-                    {comp.employeeCount} emp
+                    {comp.entityCount} emp
                   </span>
                 </div>
               );
@@ -335,7 +335,7 @@ export default function ResultsDashboardPage() {
                       {formatCurrency(store.total)}
                     </span>
                   </div>
-                  <span className="text-xs text-slate-400 w-12 text-right">{store.employeeCount}</span>
+                  <span className="text-xs text-slate-400 w-12 text-right">{store.entityCount}</span>
                 </div>
               );
             })}
@@ -445,18 +445,18 @@ export default function ResultsDashboardPage() {
               </TableHeader>
               <TableBody>
                 {filteredTraces.slice(0, 100).map(trace => {
-                  const isOutlier = outlierIds.has(trace.employeeId);
+                  const isOutlier = outlierIds.has(trace.entityId);
                   return (
                     <TableRow
                       key={trace.traceId}
                       className={`cursor-pointer hover:bg-slate-50 ${isOutlier ? 'bg-amber-50' : ''}`}
-                      onClick={() => router.push(`/investigate/trace/${trace.employeeId}?from=results`)}
+                      onClick={() => router.push(`/investigate/trace/${trace.entityId}?from=results`)}
                     >
                       <TableCell>
                         <div>
-                          <span className="font-medium">{trace.employeeName}</span>
+                          <span className="font-medium">{trace.entityName}</span>
                           {isOutlier && <Badge className="ml-2 bg-amber-100 text-amber-700 text-xs">Outlier</Badge>}
-                          <p className="text-xs text-slate-400">{trace.employeeId}</p>
+                          <p className="text-xs text-slate-400">{trace.entityId}</p>
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-sm">{trace.storeId || '-'}</TableCell>

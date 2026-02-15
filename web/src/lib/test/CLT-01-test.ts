@@ -54,7 +54,7 @@ interface CLTEmployee {
   status: 'active' | 'inactive';
 }
 
-interface CLTCompensationPlan {
+interface CLTRuleSet {
   id: string;
   tenantId: string;
   name: string;
@@ -96,7 +96,7 @@ interface CLTCalculationRun {
 
 interface CLTCalculationResult {
   runId: string;
-  employeeId: string;
+  entityId: string;
   tenantId: string;
   status: 'success' | 'error';
   totalPayout: number;
@@ -236,12 +236,12 @@ function seedRetailCGMXData() {
   console.log('[CLT-01] Seeded 3 demo employees (should be bypassed)');
 }
 
-function seedCompensationPlan() {
+function seedRuleSet() {
   const tenantId = 'restaurantmx';
 
   console.log('[CLT-01] Creating compensation plan...');
 
-  const plan: CLTCompensationPlan = {
+  const plan: CLTRuleSet = {
     id: 'plan-retailcgmx-optical',
     tenantId,
     name: 'RetailCGMX Optical Sales Plan',
@@ -314,12 +314,12 @@ function cltExtractEmployeesFromCommittedData(tenantId: string): CLTEmployee[] {
       }
 
       const content = record.content;
-      const employeeId = String(
+      const entityId = String(
         content['num_empleado'] || content['Num_Empleado'] ||
-        content['employee_id'] || content['employeeId'] || ''
+        content['entity_id'] || content['entityId'] || ''
       ).trim();
 
-      if (!employeeId || seenIds.has(employeeId)) continue;
+      if (!entityId || seenIds.has(entityId)) continue;
 
       // Check for name field (employee record vs component data)
       const hasNameField = content['nombre'] || content['name'] ||
@@ -328,7 +328,7 @@ function cltExtractEmployeesFromCommittedData(tenantId: string): CLTEmployee[] {
 
       if (!hasNameField) continue;
 
-      seenIds.add(employeeId);
+      seenIds.add(entityId);
 
       const fullName = String(content['nombre'] || content['nombre_completo'] || content['Nombre'] || '');
       const nameParts = fullName.split(' ');
@@ -336,9 +336,9 @@ function cltExtractEmployeesFromCommittedData(tenantId: string): CLTEmployee[] {
       const lastName = nameParts.slice(1).join(' ') || 'Employee';
 
       employees.push({
-        id: employeeId,
+        id: entityId,
         tenantId: tenantId,
-        employeeNumber: String(content['num_empleado'] || content['Num_Empleado'] || employeeId),
+        employeeNumber: String(content['num_empleado'] || content['Num_Empleado'] || entityId),
         firstName: firstName,
         lastName: lastName,
         email: String(content['email'] || content['correo'] || ''),
@@ -386,7 +386,7 @@ function cltGetEmployees(tenantId: string): CLTEmployee[] {
 // ============================================
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function cltGetEmployeeMetrics(employeeId: string, _tenantId: string): Record<string, number> {
+function cltGetEntityMetrics(entityId: string, _tenantId: string): Record<string, number> {
   const committedStored = localStorage.getItem(CLT_STORAGE_KEYS.DATA_LAYER_COMMITTED);
   if (!committedStored) return {};
 
@@ -396,9 +396,9 @@ function cltGetEmployeeMetrics(employeeId: string, _tenantId: string): Record<st
 
     for (const [, record] of committed) {
       const content = record.content;
-      const recEmployeeId = String(content['num_empleado'] || content['employee_id'] || '').trim();
+      const recEmployeeId = String(content['num_empleado'] || content['entity_id'] || '').trim();
 
-      if (recEmployeeId === employeeId && !content['nombre']) {
+      if (recEmployeeId === entityId && !content['nombre']) {
         // This is a performance record, not roster
         return {
           venta_optica: Number(content['venta_optica']) || 0,
@@ -444,7 +444,7 @@ function runCalculation(tenantId: string, periodId: string): { run: CLTCalculati
 
   // Get plan
   const plansStored = localStorage.getItem(CLT_STORAGE_KEYS.PLANS);
-  const plans: CLTCompensationPlan[] = plansStored ? JSON.parse(plansStored) : [];
+  const plans: CLTRuleSet[] = plansStored ? JSON.parse(plansStored) : [];
   const activePlan = plans.find(p => p.status === 'active');
 
   if (!activePlan) {
@@ -458,7 +458,7 @@ function runCalculation(tenantId: string, periodId: string): { run: CLTCalculati
   console.log(`[CLT-01] Processing ${employees.length} employees...`);
 
   for (const employee of employees) {
-    const metrics = cltGetEmployeeMetrics(employee.id, tenantId);
+    const metrics = cltGetEntityMetrics(employee.id, tenantId);
 
     let totalPayout = 0;
     const componentResults: { componentId: string; componentName: string; amount: number }[] = [];
@@ -482,7 +482,7 @@ function runCalculation(tenantId: string, periodId: string): { run: CLTCalculati
 
     results.push({
       runId: run.id,
-      employeeId: employee.id,
+      entityId: employee.id,
       tenantId,
       status: 'success',
       totalPayout,
@@ -520,7 +520,7 @@ function runCLT01() {
   // Phase 1: Seed data
   console.log('=== PHASE 1: DATA SETUP ===');
   seedRetailCGMXData();
-  seedCompensationPlan();
+  seedRuleSet();
 
   // Phase 2: Run calculation
   console.log('\n=== PHASE 2: CALCULATION ===');
@@ -539,7 +539,7 @@ function runCLT01() {
   // Show sample results
   console.log('\nSample Results (first 5):');
   results.slice(0, 5).forEach((r, i) => {
-    console.log(`  ${i + 1}. Employee ${r.employeeId}: $${r.totalPayout.toLocaleString()} MXN`);
+    console.log(`  ${i + 1}. Employee ${r.entityId}: $${r.totalPayout.toLocaleString()} MXN`);
   });
 
   // Phase 4: Verification
@@ -554,12 +554,12 @@ function runCLT01() {
 
   // Check 1: Real employees (not demo IDs)
   const demoIds = ['maria-rodriguez', 'james-wilson', 'sarah-chen'];
-  const hasDemoEmployees = results.some(r => demoIds.includes(r.employeeId));
+  const hasDemoEmployees = results.some(r => demoIds.includes(r.entityId));
   checks.noDemoEmployees = !hasDemoEmployees;
   console.log(`[${checks.noDemoEmployees ? 'PASS' : 'FAIL'}] No demo employees in results`);
 
   // Check 2: Real employee IDs (numeric from import)
-  const hasRealEmployees = results.some(r => /^\d+$/.test(r.employeeId));
+  const hasRealEmployees = results.some(r => /^\d+$/.test(r.entityId));
   checks.realEmployees = hasRealEmployees;
   console.log(`[${checks.realEmployees ? 'PASS' : 'FAIL'}] Real employee IDs present`);
 

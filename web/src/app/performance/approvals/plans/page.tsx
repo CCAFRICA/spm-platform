@@ -276,8 +276,8 @@ export default function PlanApprovalsPage() {
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <h3 className="font-medium">{request.planName}</h3>
-                              <Badge variant="outline">v{request.planVersion}</Badge>
+                              <h3 className="font-medium">{request.ruleSetName}</h3>
+                              <Badge variant="outline">v{request.ruleSetVersion}</Badge>
                             </div>
                             <p className="text-sm text-muted-foreground mt-1">
                               {isSpanish ? 'Por' : 'By'} {request.requesterName} &bull;{' '}
@@ -334,7 +334,7 @@ export default function PlanApprovalsPage() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="font-medium">{request.planName}</h3>
+                            <h3 className="font-medium">{request.ruleSetName}</h3>
                             <Badge
                               variant={
                                 request.status === 'approved'

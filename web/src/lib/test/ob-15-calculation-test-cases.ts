@@ -5,7 +5,7 @@
  * Validates calculation engine against plan rules.
  */
 
-import { calculateIncentive, type EmployeeMetrics } from '@/lib/compensation/calculation-engine';
+import { calculateIncentive, type EntityMetrics } from '@/lib/compensation/calculation-engine';
 import { savePlan } from '@/lib/compensation/plan-storage';
 import { createRetailCGMXUnifiedPlan } from '@/lib/compensation/retailcgmx-plan';
 
@@ -17,10 +17,10 @@ import { createRetailCGMXUnifiedPlan } from '@/lib/compensation/retailcgmx-plan'
  * TEST-HIGH-001: HIGH PERFORMER (Certified)
  * All attainments > 100%
  */
-export const TEST_HIGH_001: EmployeeMetrics = {
-  employeeId: 'TEST-HIGH-001',
-  employeeName: 'Test High Performer',
-  employeeRole: 'optometrista',
+export const TEST_HIGH_001: EntityMetrics = {
+  entityId: 'TEST-HIGH-001',
+  entityName: 'Test High Performer',
+  entityRole: 'optometrista',
   storeId: 'MX-GDL-001',
   storeName: 'Guadalajara Centro',
   isCertified: true,
@@ -94,10 +94,10 @@ export const EXPECTED_HIGH_001 = {
  * TEST-LOW-002: LOW PERFORMER (Non-Certified)
  * All attainments < 80%
  */
-export const TEST_LOW_002: EmployeeMetrics = {
-  employeeId: 'TEST-LOW-002',
-  employeeName: 'Test Low Performer',
-  employeeRole: 'optometrista',
+export const TEST_LOW_002: EntityMetrics = {
+  entityId: 'TEST-LOW-002',
+  entityName: 'Test Low Performer',
+  entityRole: 'optometrista',
   storeId: 'MX-MTY-001',
   storeName: 'Monterrey Norte',
   isCertified: false,
@@ -159,10 +159,10 @@ export const EXPECTED_LOW_002 = {
  * TEST-EDGE-003: EDGE CASE (Certified)
  * Attainments at EXACTLY tier boundaries (100%, 80%)
  */
-export const TEST_EDGE_003: EmployeeMetrics = {
-  employeeId: 'TEST-EDGE-003',
-  employeeName: 'Test Edge Case',
-  employeeRole: 'optometrista',
+export const TEST_EDGE_003: EntityMetrics = {
+  entityId: 'TEST-EDGE-003',
+  entityName: 'Test Edge Case',
+  entityRole: 'optometrista',
   storeId: 'MX-CDMX-001',
   storeName: 'CDMX Reforma',
   isCertified: true,
@@ -230,10 +230,10 @@ export const EXPECTED_EDGE_003 = {
  * TEST-PARTIAL-004: PARTIAL DATA (Certified)
  * Missing metrics for 2 components
  */
-export const TEST_PARTIAL_004: EmployeeMetrics = {
-  employeeId: 'TEST-PARTIAL-004',
-  employeeName: 'Test Partial Data',
-  employeeRole: 'optometrista',
+export const TEST_PARTIAL_004: EntityMetrics = {
+  entityId: 'TEST-PARTIAL-004',
+  entityName: 'Test Partial Data',
+  entityRole: 'optometrista',
   storeId: 'MX-GDL-002',
   storeName: 'Guadalajara Sur',
   isCertified: true,
@@ -301,10 +301,10 @@ export const EXPECTED_PARTIAL_004 = {
  * TEST-ZERO-005: ZERO PERFORMER (Non-Certified)
  * All metrics at 0
  */
-export const TEST_ZERO_005: EmployeeMetrics = {
-  employeeId: 'TEST-ZERO-005',
-  employeeName: 'Test Zero Performer',
-  employeeRole: 'optometrista',
+export const TEST_ZERO_005: EntityMetrics = {
+  entityId: 'TEST-ZERO-005',
+  entityName: 'Test Zero Performer',
+  entityRole: 'optometrista',
   storeId: 'MX-MTY-002',
   storeName: 'Monterrey Centro',
   isCertified: false,
@@ -365,7 +365,7 @@ export const ALL_TEST_CASES = [
 // ============================================
 
 export interface TestResult {
-  employeeId: string;
+  entityId: string;
   description: string;
   passed: boolean;
   expectedTotal: number;
@@ -390,14 +390,14 @@ export function runCalculationTests(tenantId: string = 'retailcgmx'): TestResult
 
   for (const testCase of ALL_TEST_CASES) {
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`Testing: ${testCase.employee.employeeId} - ${testCase.description}`);
+    console.log(`Testing: ${testCase.employee.entityId} - ${testCase.description}`);
     console.log('='.repeat(60));
 
     const calcResult = calculateIncentive(testCase.employee, tenantId, plan.id);
 
     if (!calcResult) {
       results.push({
-        employeeId: testCase.employee.employeeId,
+        entityId: testCase.employee.entityId,
         description: testCase.description,
         passed: false,
         expectedTotal: testCase.expected.total,
@@ -437,7 +437,7 @@ export function runCalculationTests(tenantId: string = 'retailcgmx'): TestResult
     console.log(`\n  TOTAL: Engine=$${calcResult.totalIncentive.toFixed(2)}, Expected=$${testCase.expected.total} [${totalMatch ? 'MATCH' : 'MISMATCH'}]`);
 
     results.push({
-      employeeId: testCase.employee.employeeId,
+      entityId: testCase.employee.entityId,
       description: testCase.description,
       passed: allComponentsMatch && totalMatch,
       expectedTotal: testCase.expected.total,
@@ -458,7 +458,7 @@ export function runCalculationTests(tenantId: string = 'retailcgmx'): TestResult
 
   for (const result of results) {
     const status = result.passed ? 'PASS' : 'FAIL';
-    console.log(`  ${result.employeeId}: ${status} (Expected: $${result.expectedTotal}, Actual: $${result.actualTotal.toFixed(2)}, Diff: $${result.difference.toFixed(2)})`);
+    console.log(`  ${result.entityId}: ${status} (Expected: $${result.expectedTotal}, Actual: $${result.actualTotal.toFixed(2)}, Diff: $${result.difference.toFixed(2)})`);
   }
 
   console.log(`\n  PASSED: ${passCount}/${results.length}`);

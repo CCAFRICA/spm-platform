@@ -25,7 +25,7 @@ export type CalculationState =
 export interface CalculationCycle {
   cycleId: string;
   tenantId: string;
-  planId: string;
+  ruleSetId: string;
   period: string;
   state: CalculationState;
   previewRunId?: string;
@@ -54,7 +54,7 @@ export interface OfficialSnapshot {
   timestamp: string;
   runId: string;
   totalPayout: number;
-  employeeCount: number;
+  entityCount: number;
   componentTotals: Record<string, number>;
   immutable: true;
 }
@@ -129,11 +129,11 @@ export function saveCycle(cycle: CalculationCycle): void {
 /**
  * Create a new calculation cycle in DRAFT state.
  */
-export function createCycle(tenantId: string, planId: string, period: string): CalculationCycle {
+export function createCycle(tenantId: string, ruleSetId: string, period: string): CalculationCycle {
   const cycle: CalculationCycle = {
     cycleId: `cycle-${tenantId}-${period}-${Date.now()}`,
     tenantId,
-    planId,
+    ruleSetId,
     period,
     state: 'DRAFT',
     auditTrail: [{

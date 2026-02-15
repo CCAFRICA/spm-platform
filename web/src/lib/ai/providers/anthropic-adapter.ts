@@ -67,7 +67,7 @@ CONTEXT:
 You are resolving columns that could not be classified on first pass. You now have PLAN CONTEXT that tells you what metrics each component needs.
 
 VALID SEMANTIC TYPES:
-- employeeId: Employee identifier (numeric or string ID)
+- entityId: Employee identifier (numeric or string ID)
 - storeId: Store/location identifier
 - name: Employee name (full name or first/last)
 - role: Employee role/position/title
@@ -234,16 +234,16 @@ SHEET CLASSIFICATION TYPES:
 6. "unrelated" - Does not appear related to compensation calculations
 
 RELATIONSHIP DETECTION:
-- Look for shared column names across sheets (e.g., employee_id, store_id, period)
+- Look for shared column names across sheets (e.g., entity_id, store_id, period)
 - Spanish column names are common: num_empleado, No_Tienda, Fecha_Corte
 - Detect primary keys and foreign key relationships
 - Identify if one sheet references another
 
 FIELD MAPPING (CRITICAL - for each sheet's columns, suggest target field mappings):
-Target fields: employeeId, storeId, date, period, amount, goal, attainment, quantity, role
+Target fields: entityId, storeId, date, period, amount, goal, attainment, quantity, role
 
 SEMANTIC TYPE DEFINITIONS:
-- employeeId: Unique identifier for an employee (num_empleado, id_empleado, employee_id, Mitarbeiter-Nr, etc.)
+- entityId: Unique identifier for an employee (num_empleado, id_empleado, entity_id, Mitarbeiter-Nr, etc.)
 - storeId: Store/location identifier (no_tienda, tienda, store_id, Filiale, etc.)
 - date: Date column (fecha, date, Datum, etc.)
 - period: Time period identifier (mes, periodo, month, quarter, etc.)
@@ -481,8 +481,8 @@ CRITICAL: For each component, you MUST extract the complete calculationMethod wi
 
 Return a JSON object with:
 {
-  "planName": "Name of the plan",
-  "planNameEs": "Spanish name if present",
+  "ruleSetName": "Name of the plan",
+  "ruleSetNameEs": "Spanish name if present",
   "description": "Brief description",
   "currency": "MXN or USD",
   "employeeTypes": [
@@ -530,9 +530,9 @@ ${input.expectedFields || 'No expected fields provided.'}
 
 Return a JSON object with this structure:
 {
-  "sheets": [{ "name": "", "classification": "", "classificationConfidence": 0-100, "matchedComponent": null, "detectedPrimaryKey": null, "suggestedFieldMappings": [{ "sourceColumn": "exact_column_name_from_headers", "targetField": "employeeId|storeId|date|period|amount|goal|attainment|quantity|role", "confidence": 0-100 }] }],
+  "sheets": [{ "name": "", "classification": "", "classificationConfidence": 0-100, "matchedComponent": null, "detectedPrimaryKey": null, "suggestedFieldMappings": [{ "sourceColumn": "exact_column_name_from_headers", "targetField": "entityId|storeId|date|period|amount|goal|attainment|quantity|role", "confidence": 0-100 }] }],
   "relationships": [{ "fromSheet": "", "toSheet": "", "relationshipType": "", "sharedKeys": [], "confidence": 0-100 }],
-  "rosterDetected": { "found": false, "sheetName": null, "employeeIdColumn": null },
+  "rosterDetected": { "found": false, "sheetName": null, "entityIdColumn": null },
   "periodDetected": { "found": false, "dateColumn": null },
   "gaps": [],
   "extras": [],

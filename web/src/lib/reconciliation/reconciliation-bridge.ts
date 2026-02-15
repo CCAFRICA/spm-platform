@@ -57,8 +57,8 @@ export interface Dispute {
   // Submitter info
   submittedBy: string;
   submittedAt: string;
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
 
   // Dispute details
   category: DisputeCategory;
@@ -184,8 +184,8 @@ export class ReconciliationBridge {
    */
   async runReconciliation(
     sessionId: string,
-    sourceData: Array<{ id: string; employeeId: string; amount: number; date: string; type: string; description?: string; [key: string]: unknown }>,
-    targetData: Array<{ id: string; employeeId: string; amount: number; date: string; type: string; description?: string; [key: string]: unknown }>
+    sourceData: Array<{ id: string; entityId: string; amount: number; date: string; type: string; description?: string; [key: string]: unknown }>,
+    targetData: Array<{ id: string; entityId: string; amount: number; date: string; type: string; description?: string; [key: string]: unknown }>
   ): Promise<ExtendedReconciliationSession> {
     const session = this.getSession(sessionId);
     if (!session) {
@@ -217,7 +217,7 @@ export class ReconciliationBridge {
           sessionId,
           sourceRecord: {
             id: source.id,
-            employeeId: source.employeeId,
+            entityId: source.entityId,
             amount: source.amount,
             date: source.date,
             type: source.type,
@@ -226,7 +226,7 @@ export class ReconciliationBridge {
           },
           targetRecord: {
             id: bestMatch.match.id,
-            employeeId: bestMatch.match.employeeId,
+            entityId: bestMatch.match.entityId,
             amount: bestMatch.match.amount,
             date: bestMatch.match.date as string,
             type: bestMatch.match.type as string,
@@ -248,7 +248,7 @@ export class ReconciliationBridge {
           sessionId,
           sourceRecord: {
             id: source.id,
-            employeeId: source.employeeId,
+            entityId: source.entityId,
             amount: source.amount,
             date: source.date,
             type: source.type,
@@ -275,7 +275,7 @@ export class ReconciliationBridge {
           sessionId,
           targetRecord: {
             id: target.id,
-            employeeId: target.employeeId,
+            entityId: target.entityId,
             amount: target.amount,
             date: target.date,
             type: target.type,
@@ -313,8 +313,8 @@ export class ReconciliationBridge {
    * Find best match for a source record
    */
   private findBestMatch(
-    source: { id: string; employeeId: string; amount: number; [key: string]: unknown },
-    targets: Array<{ id: string; employeeId: string; amount: number; [key: string]: unknown }>,
+    source: { id: string; entityId: string; amount: number; [key: string]: unknown },
+    targets: Array<{ id: string; entityId: string; amount: number; [key: string]: unknown }>,
     rules: ReconciliationRule[]
   ): { match: typeof targets[0] | null; confidence: number; method: 'exact' | 'fuzzy' | 'rule_based' } {
     let bestMatch: typeof targets[0] | null = null;
@@ -323,7 +323,7 @@ export class ReconciliationBridge {
 
     for (const target of targets) {
       // Exact match on employee ID and amount
-      if (source.employeeId === target.employeeId) {
+      if (source.entityId === target.entityId) {
         const amountDiff = Math.abs(source.amount - target.amount);
         const amountMatch = amountDiff < 0.01 ? 100 : Math.max(0, 100 - (amountDiff / Math.max(source.amount, 1)) * 100);
 
@@ -470,7 +470,7 @@ export class ReconciliationBridge {
         priority: 1,
         isActive: true,
         matchCriteria: [
-          { sourceField: 'employeeId', targetField: 'employeeId', matchType: 'exact', weight: 50, required: true },
+          { sourceField: 'entityId', targetField: 'entityId', matchType: 'exact', weight: 50, required: true },
           { sourceField: 'amount', targetField: 'amount', matchType: 'numeric_range', weight: 50, required: true },
         ],
         matchThreshold: 80,
@@ -486,7 +486,7 @@ export class ReconciliationBridge {
         priority: 2,
         isActive: true,
         matchCriteria: [
-          { sourceField: 'employeeId', targetField: 'employeeId', matchType: 'exact', weight: 40, required: true },
+          { sourceField: 'entityId', targetField: 'entityId', matchType: 'exact', weight: 40, required: true },
           { sourceField: 'date', targetField: 'date', matchType: 'date_range', weight: 30, required: false },
           { sourceField: 'amount', targetField: 'amount', matchType: 'numeric_range', weight: 30, required: true },
         ],
@@ -511,8 +511,8 @@ export class ReconciliationBridge {
     sessionId: string;
     itemId: string;
     submittedBy: string;
-    employeeId: string;
-    employeeName: string;
+    entityId: string;
+    entityName: string;
     category: DisputeCategory;
     description: string;
     expectedAmount: number;
@@ -525,8 +525,8 @@ export class ReconciliationBridge {
       itemId: params.itemId,
       submittedBy: params.submittedBy,
       submittedAt: new Date().toISOString(),
-      employeeId: params.employeeId,
-      employeeName: params.employeeName,
+      entityId: params.entityId,
+      entityName: params.entityName,
       category: params.category,
       description: params.description,
       expectedAmount: params.expectedAmount,
@@ -644,7 +644,7 @@ export class ReconciliationBridge {
 
     // Store adjustment as metric
     orchestrator.saveMetricAggregate({
-      employeeId: dispute.employeeId,
+      entityId: dispute.entityId,
       periodId: dispute.sessionId.split('-')[1] || 'current',
       tenantId: this.tenantId,
       metrics: {
@@ -770,7 +770,7 @@ export class ReconciliationBridge {
   getDisputes(filters?: {
     status?: DisputeStatus;
     sessionId?: string;
-    employeeId?: string;
+    entityId?: string;
     assignedTo?: string;
   }): Dispute[] {
     let disputes = this.getAllDisputes().filter((d) => d.tenantId === this.tenantId);
@@ -781,8 +781,8 @@ export class ReconciliationBridge {
     if (filters?.sessionId) {
       disputes = disputes.filter((d) => d.sessionId === filters.sessionId);
     }
-    if (filters?.employeeId) {
-      disputes = disputes.filter((d) => d.employeeId === filters.employeeId);
+    if (filters?.entityId) {
+      disputes = disputes.filter((d) => d.entityId === filters.entityId);
     }
     if (filters?.assignedTo) {
       disputes = disputes.filter((d) => d.assignedTo === filters.assignedTo);
@@ -932,8 +932,8 @@ export function resolveDispute(
 // ============================================
 
 export interface LegacyRecord {
-  employeeId: string;
-  employeeName?: string;
+  entityId: string;
+  entityName?: string;
   period: string;
   totalIncentive: number;
   components?: Record<string, number>;
@@ -967,24 +967,24 @@ export async function reconcileCalculationsWithLegacy(
   const sourceData = viaLuceResults.map((result) => {
     const formatted = formatForReconciliation(result);
     return {
-      id: `cc-${result.employeeId}-${result.period}`,
-      employeeId: result.employeeId,
+      id: `cc-${result.entityId}-${result.period}`,
+      entityId: result.entityId,
       amount: result.totalIncentive,
       date: result.period,
       type: 'incentive',
-      description: `ViaLuce: ${result.planName}`,
+      description: `ViaLuce: ${result.ruleSetName}`,
       components: formatted.componentBreakdown,
     };
   });
 
   // Convert legacy data to reconciliation format
   const targetData = legacyData.map((record, index) => ({
-    id: `legacy-${record.employeeId}-${record.period}-${index}`,
-    employeeId: record.employeeId,
+    id: `legacy-${record.entityId}-${record.period}-${index}`,
+    entityId: record.entityId,
     amount: record.totalIncentive,
     date: record.period,
     type: 'incentive',
-    description: `Legacy: ${record.employeeName || record.employeeId}`,
+    description: `Legacy: ${record.entityName || record.entityId}`,
     components: record.components,
   }));
 
@@ -1000,8 +1000,8 @@ export function getCalculationResultsForReconciliation(
   periodId: string
 ): Array<{
   id: string;
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   amount: number;
   date: string;
   type: string;
@@ -1013,13 +1013,13 @@ export function getCalculationResultsForReconciliation(
   return results.map((result) => {
     const formatted = formatForReconciliation(result);
     return {
-      id: `cc-${result.employeeId}-${result.period}`,
-      employeeId: result.employeeId,
-      employeeName: result.employeeName,
+      id: `cc-${result.entityId}-${result.period}`,
+      entityId: result.entityId,
+      entityName: result.entityName,
       amount: result.totalIncentive,
       date: result.period,
       type: 'incentive',
-      description: `${result.planName} (${result.variantName || 'default'})`,
+      description: `${result.ruleSetName} (${result.variantName || 'default'})`,
       components: formatted.componentBreakdown,
     };
   });
@@ -1061,8 +1061,8 @@ export function parseLegacyCSV(csvContent: string): LegacyRecord[] {
     const values = lines[i].split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
 
     const record: LegacyRecord = {
-      employeeId: values[empIdIdx] || '',
-      employeeName: empNameIdx >= 0 ? values[empNameIdx] : undefined,
+      entityId: values[empIdIdx] || '',
+      entityName: empNameIdx >= 0 ? values[empNameIdx] : undefined,
       period: periodIdx >= 0 ? values[periodIdx] : '',
       totalIncentive: parseFloat(values[totalIdx]?.replace(/[$,]/g, '') || '0'),
     };
@@ -1085,7 +1085,7 @@ export function parseLegacyCSV(csvContent: string): LegacyRecord[] {
       }
     }
 
-    if (record.employeeId) {
+    if (record.entityId) {
       records.push(record);
     }
   }

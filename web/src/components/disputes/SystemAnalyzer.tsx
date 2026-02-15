@@ -56,7 +56,7 @@ interface RiskFactor {
 // Mock analysis based on dispute data
 function generateAnalysis(dispute: Dispute): AnalysisResult {
   // For the demo, Maria's attribution dispute should show strong evidence
-  const isMariaDispute = dispute.employeeId === 'maria-rodriguez';
+  const isMariaDispute = dispute.entityId === 'maria-rodriguez';
 
   if (dispute.category === 'wrong_attribution' && isMariaDispute) {
     return {

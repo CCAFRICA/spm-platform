@@ -15,9 +15,9 @@ import type { ComponentType, MeasurementLevel } from '@/types/compensation-plan'
 export interface CalculationTrace {
   traceId: string;
   calculationRunId: string;
-  employeeId: string;
-  employeeName: string;
-  employeeRole: string;
+  entityId: string;
+  entityName: string;
+  entityRole: string;
   storeId?: string;
   tenantId: string;
   timestamp: string;
@@ -155,7 +155,7 @@ export interface ComponentFlag {
 export interface ReconciliationSession {
   sessionId: string;
   tenantId: string;
-  planId: string;
+  ruleSetId: string;
   calculationRunId: string;
   comparisonDataId?: string;
   createdAt: string;
@@ -208,7 +208,7 @@ export interface PopulationSummary {
 }
 
 export interface EmployeeReconciliation {
-  employeeId: string;
+  entityId: string;
   storeId?: string;
   variantId?: string;
   vlTotal: number;

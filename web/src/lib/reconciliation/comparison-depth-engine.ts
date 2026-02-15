@@ -58,7 +58,7 @@ export interface DepthAssessmentInput {
   vlResults: CalculationResult[];
   fileRows: Record<string, unknown>[];
   mappings: ColumnMapping[];
-  employeeIdField: string;
+  entityIdField: string;
   totalAmountField: string;
 }
 
@@ -71,19 +71,19 @@ export interface DepthAssessmentInput {
  * Returns a layer-by-layer assessment of what comparisons are possible.
  */
 export function assessComparisonDepth(input: DepthAssessmentInput): DepthAssessment {
-  const { vlResults, fileRows, mappings, employeeIdField, totalAmountField } = input;
+  const { vlResults, fileRows, mappings, entityIdField, totalAmountField } = input;
 
   // Build employee ID lookup from file
   const fileEmployeeIds = new Set<string>();
   for (const row of fileRows) {
-    const id = normalizeId(String(row[employeeIdField] || ''));
+    const id = normalizeId(String(row[entityIdField] || ''));
     if (id) fileEmployeeIds.add(id);
   }
 
   // Build employee ID lookup from VL
   const vlEmployeeIds = new Set<string>();
   for (const r of vlResults) {
-    const id = normalizeId(r.employeeId);
+    const id = normalizeId(r.entityId);
     if (id) vlEmployeeIds.add(id);
   }
 
@@ -104,7 +104,7 @@ export function assessComparisonDepth(input: DepthAssessmentInput): DepthAssessm
   // Assess each layer
   const layers: LayerAssessment[] = [
     assessAggregateLayer(vlResults, fileRows, totalAmountField),
-    assessEmployeeLayer(vlResults, fileRows, employeeIdField, totalAmountField, matchable),
+    assessEmployeeLayer(vlResults, fileRows, entityIdField, totalAmountField, matchable),
     assessComponentLayer(vlResults, fileRows, mappings, matchable),
     assessMetricLayer(vlResults),
     assessStoreLayer(vlResults, fileRows, mappings),
@@ -168,18 +168,18 @@ function assessAggregateLayer(
 function assessEmployeeLayer(
   vlResults: CalculationResult[],
   fileRows: Record<string, unknown>[],
-  employeeIdField: string,
+  entityIdField: string,
   totalAmountField: string,
   matchable: Set<string>,
 ): LayerAssessment {
   const notes: string[] = [];
 
   const fileHasEmployeeIds = fileRows.some(row => {
-    const id = String(row[employeeIdField] || '').trim();
+    const id = String(row[entityIdField] || '').trim();
     return id.length > 0;
   });
 
-  const vlHasEmployeeIds = vlResults.some(r => r.employeeId && r.employeeId.trim().length > 0);
+  const vlHasEmployeeIds = vlResults.some(r => r.entityId && r.entityId.trim().length > 0);
 
   const matchRate = Math.max(vlResults.length, fileRows.length) > 0
     ? (matchable.size / Math.max(vlResults.length, fileRows.length)) * 100

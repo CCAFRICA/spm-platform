@@ -207,7 +207,7 @@ const DEMO_APPROVAL_REQUESTS: ApprovalRequest[] = [
       overall: 6,
       dimensions: {
         financial: 7,
-        employeeCount: 5,
+        entityCount: 5,
         periodStatus: 4,
         cascadeScope: 3,
         timelineSensitivity: 5,
@@ -225,7 +225,7 @@ const DEMO_APPROVAL_REQUESTS: ApprovalRequest[] = [
         severity: 'high',
       },
       {
-        dimension: 'employeeCount',
+        dimension: 'entityCount',
         label: 'Employees Affected',
         labelEs: 'Empleados Afectados',
         description: '32 sales representatives',
@@ -287,7 +287,7 @@ const DEMO_APPROVAL_REQUESTS: ApprovalRequest[] = [
       overall: 4,
       dimensions: {
         financial: 4,
-        employeeCount: 3,
+        entityCount: 3,
         periodStatus: 5,
         cascadeScope: 2,
         timelineSensitivity: 4,
@@ -353,7 +353,7 @@ const DEMO_APPROVAL_REQUESTS: ApprovalRequest[] = [
       overall: 8,
       dimensions: {
         financial: 9,
-        employeeCount: 8,
+        entityCount: 8,
         periodStatus: 6,
         cascadeScope: 7,
         timelineSensitivity: 5,
@@ -371,7 +371,7 @@ const DEMO_APPROVAL_REQUESTS: ApprovalRequest[] = [
         severity: 'critical',
       },
       {
-        dimension: 'employeeCount',
+        dimension: 'entityCount',
         label: 'Employees Affected',
         labelEs: 'Empleados Afectados',
         description: 'All 156 sales representatives',
@@ -448,7 +448,7 @@ const DEMO_APPROVAL_REQUESTS: ApprovalRequest[] = [
       overall: 2,
       dimensions: {
         financial: 2,
-        employeeCount: 1,
+        entityCount: 1,
         periodStatus: 3,
         cascadeScope: 1,
         timelineSensitivity: 2,

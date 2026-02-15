@@ -62,10 +62,10 @@ export default function PayPage() {
         componentSet.add(c.componentName || c.componentId);
       }
     }
-    return { employeeCount: results.length, totalPayout, componentCount: componentSet.size };
+    return { entityCount: results.length, totalPayout, componentCount: componentSet.size };
   })();
 
-  const employeeCount = snapshot?.employeeCount || fallbackData?.employeeCount || 0;
+  const entityCount = snapshot?.entityCount || fallbackData?.entityCount || 0;
   const totalPayout = snapshot?.totalPayout || fallbackData?.totalPayout || 0;
   const componentCount = snapshot ? Object.keys(snapshot.componentTotals).length : fallbackData?.componentCount || 0;
 
@@ -175,7 +175,7 @@ export default function PayPage() {
                 <div className="flex items-center gap-3">
                   <Users className="h-8 w-8 text-blue-600" />
                   <div>
-                    <p className="text-2xl font-bold">{employeeCount}</p>
+                    <p className="text-2xl font-bold">{entityCount}</p>
                     <p className="text-sm text-slate-500">
                       {displaySpanish ? 'Empleados' : 'Employees'}
                     </p>

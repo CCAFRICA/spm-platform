@@ -46,7 +46,7 @@ export interface CalculationScenario {
 
 export interface ScenarioParameters {
   // Scope
-  employeeIds?: string[];
+  entityIds?: string[];
   departmentIds?: string[];
   planIds?: string[];
 
@@ -97,7 +97,7 @@ export interface ScenarioResults {
 }
 
 export interface ScenarioSummary {
-  employeesProcessed: number;
+  entitiesProcessed: number;
   totalBasePayout: number;
   totalScenarioPayout: number;
   totalDifference: number;
@@ -120,8 +120,8 @@ export interface ScenarioSummary {
 }
 
 export interface EmployeeScenarioResult {
-  employeeId: string;
-  employeeName?: string;
+  entityId: string;
+  entityName?: string;
 
   // Base calculation
   basePayout: number;
@@ -195,8 +195,8 @@ export interface ComparisonResults {
 }
 
 export interface ToleranceBreach {
-  employeeId: string;
-  employeeName?: string;
+  entityId: string;
+  entityName?: string;
   component: string;
   baseAmount: number;
   scenarioAmount: number;
@@ -300,8 +300,8 @@ export interface ShadowComparison {
 }
 
 export interface EmployeeShadowComparison {
-  employeeId: string;
-  employeeName?: string;
+  entityId: string;
+  entityName?: string;
 
   // Amounts
   legacyAmount: number;
@@ -364,7 +364,7 @@ export interface ExecutionInstance {
 
   // Results
   results?: {
-    employeesProcessed: number;
+    entitiesProcessed: number;
     totalPayout: number;
     errors: number;
   };
@@ -385,7 +385,7 @@ export interface ParallelComparisonResults {
 
   // Per-employee variance
   employeeVariances: Array<{
-    employeeId: string;
+    entityId: string;
     amounts: Record<string, number>; // execution ID -> amount
     variance: number;
     converged: boolean;

@@ -57,8 +57,8 @@ export function getScenario(scenarioId: string): SavedScenario | null {
 /**
  * Get scenarios for a specific plan
  */
-export function getScenariosForPlan(tenantId: string, planId: string): SavedScenario[] {
-  return getScenarios(tenantId).filter((s) => s.basePlanId === planId);
+export function getScenariosForPlan(tenantId: string, ruleSetId: string): SavedScenario[] {
+  return getScenarios(tenantId).filter((s) => s.basePlanId === ruleSetId);
 }
 
 /**
@@ -198,26 +198,26 @@ export function compareScenarios(scenarioIds: string[]): ScenarioComparison | nu
   // Build comparison data
   const allEmployeeIds = new Set<string>();
   scenarios.forEach((s) => {
-    s.impacts.employeeImpacts.forEach((e) => allEmployeeIds.add(e.employeeId));
+    s.impacts.employeeImpacts.forEach((e) => allEmployeeIds.add(e.entityId));
   });
 
-  const comparisonData = Array.from(allEmployeeIds).map((employeeId) => {
+  const comparisonData = Array.from(allEmployeeIds).map((entityId) => {
     const scenarioPayouts: Record<string, number> = {};
     let baseline = 0;
-    let employeeName = '';
+    let entityName = '';
 
     scenarios.forEach((s) => {
-      const impact = s.impacts.employeeImpacts.find((e) => e.employeeId === employeeId);
+      const impact = s.impacts.employeeImpacts.find((e) => e.entityId === entityId);
       if (impact) {
         scenarioPayouts[s.id] = impact.scenarioPayout;
         baseline = impact.baselinePayout;
-        employeeName = impact.employeeName;
+        entityName = impact.entityName;
       }
     });
 
     return {
-      employeeId,
-      employeeName,
+      entityId,
+      entityName,
       baseline,
       scenarioPayouts,
     };
@@ -235,10 +235,10 @@ export function compareScenarios(scenarioIds: string[]): ScenarioComparison | nu
 
     impacts.forEach((e) => {
       if (e.percentChange > maxWinner.change) {
-        maxWinner = { name: e.employeeName, change: e.percentChange };
+        maxWinner = { name: e.entityName, change: e.percentChange };
       }
       if (e.percentChange < maxLoser.change) {
-        maxLoser = { name: e.employeeName, change: e.percentChange };
+        maxLoser = { name: e.entityName, change: e.percentChange };
       }
     });
 
@@ -340,8 +340,8 @@ function getDefaultScenarios(): SavedScenario[] {
         percentChange: -10,
         employeeImpacts: [
           {
-            employeeId: 'maria-rodriguez',
-            employeeName: 'Maria Rodriguez',
+            entityId: 'maria-rodriguez',
+            entityName: 'Maria Rodriguez',
             role: 'Sales Associate',
             baselinePayout: 8500,
             scenarioPayout: 7650,
@@ -350,8 +350,8 @@ function getDefaultScenarios(): SavedScenario[] {
             componentImpacts: [],
           },
           {
-            employeeId: 'james-wilson',
-            employeeName: 'James Wilson',
+            entityId: 'james-wilson',
+            entityName: 'James Wilson',
             role: 'Sales Associate',
             baselinePayout: 6500,
             scenarioPayout: 5850,
@@ -400,8 +400,8 @@ function getDefaultScenarios(): SavedScenario[] {
         percentChange: 8,
         employeeImpacts: [
           {
-            employeeId: 'maria-rodriguez',
-            employeeName: 'Maria Rodriguez',
+            entityId: 'maria-rodriguez',
+            entityName: 'Maria Rodriguez',
             role: 'Sales Associate',
             baselinePayout: 8500,
             scenarioPayout: 9100,
@@ -410,8 +410,8 @@ function getDefaultScenarios(): SavedScenario[] {
             componentImpacts: [],
           },
           {
-            employeeId: 'james-wilson',
-            employeeName: 'James Wilson',
+            entityId: 'james-wilson',
+            entityName: 'James Wilson',
             role: 'Sales Associate',
             baselinePayout: 6500,
             scenarioPayout: 7100,

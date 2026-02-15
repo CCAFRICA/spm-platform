@@ -32,7 +32,7 @@ import {
   loadActivePlan,
 } from '@/lib/forensics/forensics-service';
 import type { ReconciliationSession } from '@/lib/forensics/types';
-import type { AdditiveLookupConfig, PlanComponent, CompensationPlanConfig } from '@/types/compensation-plan';
+import type { AdditiveLookupConfig, PlanComponent, RuleSetConfig } from '@/types/compensation-plan';
 import type { ColumnMapping } from '@/lib/forensics/types';
 
 export default function ReconciliationPage() {
@@ -41,7 +41,7 @@ export default function ReconciliationPage() {
   const tenantId = currentTenant?.id || '';
 
   const [session, setSession] = useState<ReconciliationSession | null>(null);
-  const [plan, setPlan] = useState<CompensationPlanConfig | null>(null);
+  const [plan, setPlan] = useState<RuleSetConfig | null>(null);
   const [hasTraces, setHasTraces] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -87,8 +87,8 @@ export default function ReconciliationPage() {
     setSession(null);
   };
 
-  const handleEmployeeClick = (employeeId: string) => {
-    router.push(`/investigate/trace/${employeeId}?from=reconciliation`);
+  const handleEmployeeClick = (entityId: string) => {
+    router.push(`/investigate/trace/${entityId}?from=reconciliation`);
   };
 
   if (loading) {

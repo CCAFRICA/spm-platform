@@ -51,7 +51,7 @@ export default function InvestigatePage() {
       icon: User,
       label: isSpanish ? 'Empleados' : 'Employees',
       description: isSpanish ? 'Buscar por nombre o ID' : 'Search by name or ID',
-      route: '/investigate/employees',
+      route: '/investigate/entities',
       color: 'green',
     },
     {

@@ -42,8 +42,8 @@ export function getPulseMetrics(
 // =============================================================================
 
 interface CalcResultSummary {
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   storeId?: string;
   totalIncentive: number;
   components: Array<{ attainment?: number; outputValue: number }>;
@@ -176,12 +176,12 @@ function getDataFreshness(): string | null {
 function getRepMetrics(userId: string, tenantId: string): PulseMetric[] {
   const results = loadLatestResults(tenantId);
 
-  // Try to find this user's result by matching userId patterns (email prefix = employeeId)
+  // Try to find this user's result by matching userId patterns (email prefix = entityId)
   const emailPrefix = userId.replace(/-/g, '');
   const myResult = results.find(r =>
-    r.employeeId === userId ||
-    r.employeeId === emailPrefix ||
-    userId.includes(r.employeeId)
+    r.entityId === userId ||
+    r.entityId === emailPrefix ||
+    userId.includes(r.entityId)
   );
 
   // Calculate average attainment from components if available
@@ -247,7 +247,7 @@ function getManagerMetrics(tenantId: string): PulseMetric[] {
     const sorted = [...results].sort((a, b) => b.totalIncentive - a.totalIncentive);
     if (sorted.length > 0 && sorted[0].totalIncentive > 0) {
       const top = sorted[0];
-      const firstName = top.employeeName?.split(' ')[0] || top.employeeId;
+      const firstName = top.entityName?.split(' ')[0] || top.entityId;
       topPerformer = firstName;
     }
   }
@@ -306,7 +306,7 @@ function getAdminMetrics(tenantId: string): PulseMetric[] {
   const freshness = getDataFreshness();
 
   const results = loadLatestResults(tenantId);
-  const employeeCount = results.length;
+  const entityCount = results.length;
 
   return [
     {
@@ -340,8 +340,8 @@ function getAdminMetrics(tenantId: string): PulseMetric[] {
       id: 'admin-employees',
       label: 'Employees',
       labelEs: 'Empleados',
-      value: employeeCount > 0 ? employeeCount : '—',
-      format: employeeCount > 0 ? 'number' : 'text',
+      value: entityCount > 0 ? entityCount : '—',
+      format: entityCount > 0 ? 'number' : 'text',
       roles: ['admin'],
       route: '/configure/people',
     },

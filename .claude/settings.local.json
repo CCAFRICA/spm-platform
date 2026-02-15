@@ -69,7 +69,9 @@
       "Bash(do echo '  $page:' grep -n \"Breadcrumb\\\\|breadcrumb\\\\|ModuleShell\" $page)",
       "Bash(__NEW_LINE_f21e87f2a70948c9__ echo \"\")",
       "Bash(CERTIFICADO\"\\)\n2. calculation-engine.ts: Treat undefined isCertified as false \\(non-certified\n   default\\) as additional safety\n\nThe derivation logic:\n- Normalize: role.toUpperCase\\(\\).replace\\(/\\\\s+/g, '' ''\\).trim\\(\\)\n- Check hasNoCertificado: includes ''NO CERTIFICADO'', ''NO-CERTIFICADO'', etc.\n- Check hasCertificado: includes ''CERTIFICADO'' or ''CERTIFIED''\n- isCertified = hasCertificado && !hasNoCertificado\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(xargs -0 perl -pi -e '\ns/CompensationPlanConfig/RuleSetConfig/g;\ns/CompensationPlan/RuleSet/g;\ns/EmployeeCalculationResult/EntityCalculationResult/g;\ns/EmployeeMetrics/EntityMetrics/g;\ns/employeesProcessed/entitiesProcessed/g;\ns/employeeCount/entityCount/g;\ns/employee_count/entity_count/g;\ns/employeeName/entityName/g;\ns/employeeRole/entityRole/g;\ns/employeeId/entityId/g;\ns/employee_id/entity_id/g;\ns/PlanChangeRecord/RuleSetChangeRecord/g;\ns/PlanSummary/RuleSetSummary/g;\ns/PlanStatus/RuleSetStatus/g;\ns/\\\\bPlanType\\\\b/RuleSetType/g;\ns/\\\\bPlanChange\\\\b/RuleSetChange/g;\ns/planVersion/ruleSetVersion/g;\ns/planName/ruleSetName/g;\ns/\\\\bplanId\\\\b/ruleSetId/g;\ns/\\\\bplan_id\\\\b/rule_set_id/g;\ns/planType/ruleSetType/g;\n' echo \"Bulk rename complete\")",
+      "Bash(xargs -0 perl -pi -e:*)"
     ]
   }
 }

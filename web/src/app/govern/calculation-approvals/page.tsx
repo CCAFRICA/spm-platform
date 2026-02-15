@@ -146,7 +146,7 @@ export default function CalculationApprovalPage() {
                     </div>
                     <div className="flex items-center gap-1">
                       <Users className="h-4 w-4 text-blue-500" />
-                      {item.summary.employeeCount}
+                      {item.summary.entityCount}
                     </div>
                     {item.summary.riskAssessment && (
                       <Badge className={

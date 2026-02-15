@@ -62,7 +62,7 @@ export function runProofGate(): ProofGateResult[] {
   });
 
   // Check calculation types via test results
-  const highResult = testResults.find(r => r.employeeId === 'TEST-HIGH-001');
+  const highResult = testResults.find(r => r.entityId === 'TEST-HIGH-001');
   const matrixWorking = highResult?.componentResults.find(c => c.componentName === 'Venta Óptica')?.match ?? false;
   results.push({
     criterion: '3. matrix_lookup produces correct payout',
@@ -92,7 +92,7 @@ export function runProofGate(): ProofGateResult[] {
   });
 
   // Criterion 7: Certified vs Non-Certified uses different matrix
-  const lowResult = testResults.find(r => r.employeeId === 'TEST-LOW-002');
+  const lowResult = testResults.find(r => r.entityId === 'TEST-LOW-002');
   const certMatrixValue = highResult?.componentResults.find(c => c.componentName === 'Venta Óptica')?.actual ?? 0;
   const nonCertMatrixValue = lowResult?.componentResults.find(c => c.componentName === 'Venta Óptica')?.actual ?? 0;
   // Certified high performer should have much higher optical payout than non-certified low performer
@@ -115,21 +115,21 @@ export function runProofGate(): ProofGateResult[] {
     details: `Expected total: $50 (only % components), Got: $${lowResult?.actualTotal.toFixed(2) ?? 'N/A'}`,
   });
 
-  const edgeResult = testResults.find(r => r.employeeId === 'TEST-EDGE-003');
+  const edgeResult = testResults.find(r => r.entityId === 'TEST-EDGE-003');
   results.push({
     criterion: '10. TEST-EDGE-003: boundary values handled correctly',
     status: edgeResult?.passed ? 'PASS' : 'FAIL',
     details: `Expected total: $2470, Got: $${edgeResult?.actualTotal.toFixed(2) ?? 'N/A'}`,
   });
 
-  const partialResult = testResults.find(r => r.employeeId === 'TEST-PARTIAL-004');
+  const partialResult = testResults.find(r => r.entityId === 'TEST-PARTIAL-004');
   results.push({
     criterion: '11. TEST-PARTIAL-004: partial data calculates without crash',
     status: partialResult?.passed ? 'PASS' : 'FAIL',
     details: `Expected total: $1245, Got: $${partialResult?.actualTotal.toFixed(2) ?? 'N/A'}`,
   });
 
-  const zeroResult = testResults.find(r => r.employeeId === 'TEST-ZERO-005');
+  const zeroResult = testResults.find(r => r.entityId === 'TEST-ZERO-005');
   results.push({
     criterion: '12. TEST-ZERO-005: zero data produces $0, no errors',
     status: zeroResult?.passed ? 'PASS' : 'FAIL',
@@ -202,7 +202,7 @@ export function runProofGate(): ProofGateResult[] {
 // ============================================
 
 interface TestResult {
-  employeeId: string;
+  entityId: string;
   description: string;
   passed: boolean;
   expectedTotal: number;
@@ -216,18 +216,18 @@ interface TestResult {
   }>;
 }
 
-function runAllTests(planId: string): TestResult[] {
+function runAllTests(ruleSetId: string): TestResult[] {
   const results: TestResult[] = [];
   const tenantId = 'retailcgmx';
 
   for (const testCase of ALL_TEST_CASES) {
-    console.log(`\nTesting: ${testCase.employee.employeeId}`);
+    console.log(`\nTesting: ${testCase.employee.entityId}`);
 
-    const calcResult = calculateIncentive(testCase.employee, tenantId, planId);
+    const calcResult = calculateIncentive(testCase.employee, tenantId, ruleSetId);
 
     if (!calcResult) {
       results.push({
-        employeeId: testCase.employee.employeeId,
+        entityId: testCase.employee.entityId,
         description: testCase.description,
         passed: false,
         expectedTotal: testCase.expected.total,
@@ -268,7 +268,7 @@ function runAllTests(planId: string): TestResult[] {
     }
 
     results.push({
-      employeeId: testCase.employee.employeeId,
+      entityId: testCase.employee.entityId,
       description: testCase.description,
       passed: allMatch && totalMatch,
       expectedTotal: testCase.expected.total,

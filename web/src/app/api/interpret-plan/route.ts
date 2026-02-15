@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('\n========== PARSED INTERPRETATION ==========');
-    console.log('Plan name:', interpretation.planName);
+    console.log('Plan name:', interpretation.ruleSetName);
     console.log('Employee types:', (interpretation.employeeTypes as unknown[])?.length || 0);
     console.log('Components:', (interpretation.components as unknown[])?.length || 0);
     if (interpretation.components && Array.isArray(interpretation.components)) {

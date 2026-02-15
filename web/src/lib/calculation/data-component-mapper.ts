@@ -5,7 +5,7 @@
  * Supports auto-mapping based on naming conventions and manual overrides.
  */
 
-import type { CompensationPlanConfig } from '@/types/compensation-plan';
+import type { RuleSetConfig } from '@/types/compensation-plan';
 import { getPlans } from '@/lib/compensation/plan-storage';
 
 // ============================================
@@ -40,7 +40,7 @@ export interface DataComponentMapping {
   id: string;
   tenantId: string;
   /** Plan ID this mapping applies to (or 'default' for tenant-wide) */
-  planId: string;
+  ruleSetId: string;
   /** Component ID within the plan */
   componentId: string;
   /** Component name for display */
@@ -59,8 +59,8 @@ export interface DataComponentMapping {
 
 export interface ComponentDataMap {
   tenantId: string;
-  planId: string;
-  planName: string;
+  ruleSetId: string;
+  ruleSetName: string;
   components: DataComponentMapping[];
   /** Unmapped source fields (available for manual mapping) */
   unmappedFields: string[];
@@ -197,8 +197,8 @@ export function getMappings(tenantId: string): DataComponentMapping[] {
 /**
  * Get mappings for a specific plan
  */
-export function getPlanMappings(tenantId: string, planId: string): DataComponentMapping[] {
-  return getMappings(tenantId).filter((m) => m.planId === planId || m.planId === 'default');
+export function getPlanMappings(tenantId: string, ruleSetId: string): DataComponentMapping[] {
+  return getMappings(tenantId).filter((m) => m.ruleSetId === ruleSetId || m.ruleSetId === 'default');
 }
 
 /**
@@ -211,7 +211,7 @@ export function saveMapping(mapping: DataComponentMapping): DataComponentMapping
   const existingIndex = allMappings.findIndex(
     (m) =>
       m.tenantId === mapping.tenantId &&
-      m.planId === mapping.planId &&
+      m.ruleSetId === mapping.ruleSetId &&
       m.componentId === mapping.componentId
   );
 
@@ -242,7 +242,7 @@ export function saveMappings(mappings: DataComponentMapping[]): void {
     const existingIndex = allMappings.findIndex(
       (m) =>
         m.tenantId === mapping.tenantId &&
-        m.planId === mapping.planId &&
+        m.ruleSetId === mapping.ruleSetId &&
         m.componentId === mapping.componentId
     );
 
@@ -264,13 +264,13 @@ export function saveMappings(mappings: DataComponentMapping[]): void {
 /**
  * Delete a mapping
  */
-export function deleteMapping(tenantId: string, planId: string, componentId: string): boolean {
+export function deleteMapping(tenantId: string, ruleSetId: string, componentId: string): boolean {
   if (typeof window === 'undefined') return false;
 
   const allMappings = getAllMappings();
   const filtered = allMappings.filter(
     (m) =>
-      !(m.tenantId === tenantId && m.planId === planId && m.componentId === componentId)
+      !(m.tenantId === tenantId && m.ruleSetId === ruleSetId && m.componentId === componentId)
   );
 
   if (filtered.length === allMappings.length) return false;
@@ -286,7 +286,7 @@ export function deleteMapping(tenantId: string, planId: string, componentId: str
 /**
  * Extract required metrics from a plan configuration
  */
-export function extractRequiredMetrics(plan: CompensationPlanConfig): Map<string, string[]> {
+export function extractRequiredMetrics(plan: RuleSetConfig): Map<string, string[]> {
   const componentMetrics = new Map<string, string[]>();
 
   if (plan.configuration.type !== 'additive_lookup') {
@@ -415,7 +415,7 @@ export function autoMapFields(
  * Run auto-mapping for a plan against available source fields
  */
 export function autoMapPlan(
-  plan: CompensationPlanConfig,
+  plan: RuleSetConfig,
   sourceFields: string[]
 ): AutoMappingResult {
   const componentMetrics = extractRequiredMetrics(plan);
@@ -497,7 +497,7 @@ export function autoMapPlan(
       mappings.push({
         id: `mapping-${plan.id}-${component.id}`,
         tenantId: plan.tenantId,
-        planId: plan.id,
+        ruleSetId: plan.id,
         componentId: component.id,
         componentName: component.name,
         requiredMetrics,
@@ -569,8 +569,8 @@ export function buildComponentDataMap(
 
     results.push({
       tenantId,
-      planId: plan.id,
-      planName: plan.name,
+      ruleSetId: plan.id,
+      ruleSetName: plan.name,
       components: mergedComponents,
       unmappedFields: autoResult.unmappedFields,
       completeness,
@@ -640,7 +640,7 @@ export function resolveMetrics(
  */
 export function addManualMapping(
   tenantId: string,
-  planId: string,
+  ruleSetId: string,
   componentId: string,
   sourceField: string,
   targetMetric: string,
@@ -649,13 +649,13 @@ export function addManualMapping(
 ): DataComponentMapping | null {
   const existingMappings = getMappings(tenantId);
   let mapping = existingMappings.find(
-    (m) => m.planId === planId && m.componentId === componentId
+    (m) => m.ruleSetId === ruleSetId && m.componentId === componentId
   );
 
   if (!mapping) {
     // Need to create a new mapping - get component info from plan
     const plans = getPlans(tenantId);
-    const plan = plans.find((p) => p.id === planId);
+    const plan = plans.find((p) => p.id === ruleSetId);
     if (!plan || plan.configuration.type !== 'additive_lookup') return null;
 
     let componentName = '';
@@ -672,9 +672,9 @@ export function addManualMapping(
     }
 
     mapping = {
-      id: `mapping-${planId}-${componentId}`,
+      id: `mapping-${ruleSetId}-${componentId}`,
       tenantId,
-      planId,
+      ruleSetId,
       componentId,
       componentName,
       requiredMetrics,

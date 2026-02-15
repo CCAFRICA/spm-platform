@@ -240,11 +240,11 @@ export class PeriodProcessor {
       updatedPeriod.lastCalculationRun = actionResult.run.id;
       updatedPeriod.calculationCount++;
       updatedPeriod.summary = {
-        totalEmployees: actionResult.summary.employeesProcessed,
+        totalEmployees: actionResult.summary.entitiesProcessed,
         totalPayout: actionResult.summary.totalPayout,
         averagePayout:
-          actionResult.summary.employeesProcessed > 0
-            ? actionResult.summary.totalPayout / actionResult.summary.employeesProcessed
+          actionResult.summary.entitiesProcessed > 0
+            ? actionResult.summary.totalPayout / actionResult.summary.entitiesProcessed
             : 0,
         minPayout: Math.min(...actionResult.results.map((r) => r.totalIncentive)),
         maxPayout: Math.max(...actionResult.results.map((r) => r.totalIncentive)),
@@ -343,7 +343,7 @@ export class PeriodProcessor {
 
           return {
             success: true,
-            message: `Calculated ${result.summary.employeesProcessed} employees, total payout: $${result.summary.totalPayout.toLocaleString()}`,
+            message: `Calculated ${result.summary.entitiesProcessed} employees, total payout: $${result.summary.totalPayout.toLocaleString()}`,
             runId: result.run.id,
             orchestrationResult: result,
           };
@@ -394,11 +394,11 @@ export class PeriodProcessor {
         lastCalculationRun: result.run.id,
         calculationCount: period.calculationCount + 1,
         summary: {
-          totalEmployees: result.summary.employeesProcessed,
+          totalEmployees: result.summary.entitiesProcessed,
           totalPayout: result.summary.totalPayout,
           averagePayout:
-            result.summary.employeesProcessed > 0
-              ? result.summary.totalPayout / result.summary.employeesProcessed
+            result.summary.entitiesProcessed > 0
+              ? result.summary.totalPayout / result.summary.entitiesProcessed
               : 0,
           minPayout: Math.min(...result.results.map((r) => r.totalIncentive)),
           maxPayout: Math.max(...result.results.map((r) => r.totalIncentive)),

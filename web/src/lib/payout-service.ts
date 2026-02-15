@@ -30,7 +30,7 @@ export interface PayoutBatch {
   rejectionReason?: string;
   employees: PayoutEmployee[];
   totalAmount: number;
-  employeeCount: number;
+  entityCount: number;
   notes?: string;
 }
 
@@ -109,7 +109,7 @@ const DEMO_BATCHES: PayoutBatch[] = [
     createdBy: 'System',
     employees: DEMO_EMPLOYEES,
     totalAmount: DEMO_EMPLOYEES.reduce((sum, e) => sum + e.total, 0),
-    employeeCount: DEMO_EMPLOYEES.length,
+    entityCount: DEMO_EMPLOYEES.length,
     notes: 'Monthly incentive payout for RetailCo Optical Sales team. Note: 1 pending dispute for Maria Rodriguez (TXN-2025-0147).',
   },
   {
@@ -128,7 +128,7 @@ const DEMO_BATCHES: PayoutBatch[] = [
       total: e.total * 1.15,
     })),
     totalAmount: DEMO_EMPLOYEES.reduce((sum, e) => sum + e.total, 0) * 1.15,
-    employeeCount: DEMO_EMPLOYEES.length,
+    entityCount: DEMO_EMPLOYEES.length,
   },
   {
     id: 'PAYOUT-2024-11',
@@ -146,7 +146,7 @@ const DEMO_BATCHES: PayoutBatch[] = [
       total: e.total * 0.95,
     })),
     totalAmount: DEMO_EMPLOYEES.reduce((sum, e) => sum + e.total, 0) * 0.95,
-    employeeCount: DEMO_EMPLOYEES.length,
+    entityCount: DEMO_EMPLOYEES.length,
   },
 ];
 
@@ -209,7 +209,7 @@ class PayoutService {
         batchId: batch.id,
         periodLabel: batch.periodLabel,
         totalAmount: batch.totalAmount,
-        employeeCount: batch.employeeCount,
+        entityCount: batch.entityCount,
       },
       reason: comment || `Approved payout batch for ${batch.periodLabel}`,
     });
@@ -267,18 +267,18 @@ class PayoutService {
       pendingAmount: pending.reduce((sum, b) => sum + b.totalAmount, 0),
       completedCount: completed.length,
       completedAmount: completed.reduce((sum, b) => sum + b.totalAmount, 0),
-      totalEmployees: pending.reduce((sum, b) => sum + b.employeeCount, 0),
+      totalEmployees: pending.reduce((sum, b) => sum + b.entityCount, 0),
     };
   }
 
   // For demo: update employee in batch
-  updateEmployeeInBatch(batchId: string, employeeId: string, updates: Partial<PayoutEmployee>): PayoutBatch | null {
+  updateEmployeeInBatch(batchId: string, entityId: string, updates: Partial<PayoutEmployee>): PayoutBatch | null {
     const batches = this.getAllBatches();
     const batch = batches.find(b => b.id === batchId);
 
     if (!batch) return null;
 
-    const employee = batch.employees.find(e => e.id === employeeId);
+    const employee = batch.employees.find(e => e.id === entityId);
     if (employee) {
       Object.assign(employee, updates);
       employee.total = employee.baseEarnings + employee.incentives + employee.adjustments;

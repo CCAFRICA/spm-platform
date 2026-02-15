@@ -37,8 +37,8 @@ export function suggestColumnMappings(
     const normalized = header.toLowerCase().trim();
 
     // Employee ID patterns (multi-language)
-    if (matchesAny(normalized, ['employee', 'emp_id', 'employeeid', 'employee_id', 'id_empleado', 'empleado', 'rep_id', 'associate', 'id'])) {
-      return { sourceColumn: header, suggestedMapping: 'employee_id', confidence: 0.9, reasoning: 'Matches employee identifier pattern' };
+    if (matchesAny(normalized, ['employee', 'emp_id', 'employeeid', 'entity_id', 'id_empleado', 'empleado', 'rep_id', 'associate', 'id'])) {
+      return { sourceColumn: header, suggestedMapping: 'entity_id', confidence: 0.9, reasoning: 'Matches employee identifier pattern' };
     }
 
     // Total patterns
@@ -175,7 +175,7 @@ export function analyzeReconciliationPatterns(
 export function explainCompensation(trace: CalculationTrace): string {
   const lines: string[] = [];
 
-  lines.push(`${trace.employeeName} (${trace.employeeRole}) earned $${trace.totalIncentive.toLocaleString()} in total incentive.`);
+  lines.push(`${trace.entityName} (${trace.entityRole}) earned $${trace.totalIncentive.toLocaleString()} in total incentive.`);
   lines.push('');
   lines.push(`Variant: ${trace.variant.variantName}`);
   lines.push('');

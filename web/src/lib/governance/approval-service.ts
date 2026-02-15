@@ -20,7 +20,7 @@ export interface ApprovalItem {
   status: 'pending' | 'approved' | 'rejected';
   summary: {
     totalPayout: number;
-    employeeCount: number;
+    entityCount: number;
     componentTotals: Record<string, number>;
     aiBriefing?: string;
     riskAssessment?: RiskAssessment;
@@ -121,7 +121,7 @@ export async function generateRiskAssessment(
         input: {
           analysisData: {
             totalPayout: summary.totalPayout,
-            employeeCount: summary.employeeCount,
+            entityCount: summary.entityCount,
             componentTotals: summary.componentTotals,
           },
           context: {

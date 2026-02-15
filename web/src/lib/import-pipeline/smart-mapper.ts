@@ -54,7 +54,7 @@ const FIELD_SYNONYMS: Record<string, string[]> = {
   orderId: ['order_id', 'orderid', 'order_number', 'orderno', 'order #', 'po_number', 'po'],
   transactionId: ['transaction_id', 'txn_id', 'txnid', 'trans_id', 'transaction_number'],
   externalId: ['external_id', 'ext_id', 'extid', 'source_id', 'ref_id', 'reference'],
-  repId: ['rep_id', 'sales_rep_id', 'employee_id', 'emp_id', 'salesrep', 'rep_code', 'agent_id'],
+  repId: ['rep_id', 'sales_rep_id', 'entity_id', 'emp_id', 'salesrep', 'rep_code', 'agent_id'],
   repName: ['rep_name', 'sales_rep', 'employee_name', 'salesperson', 'agent_name', 'seller'],
   date: ['transaction_date', 'order_date', 'sale_date', 'created_at', 'fecha', 'created'],
   amount: ['total', 'value', 'sale_amount', 'revenue', 'price', 'monto', 'total_amount'],

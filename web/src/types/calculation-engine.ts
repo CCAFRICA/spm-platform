@@ -41,7 +41,7 @@ export interface CalculationBatch {
   // Results
   results?: {
     entityCount?: number;
-    employeesProcessed: number;
+    entitiesProcessed: number;
     calculationsPerformed: number;
     totalPayout: number;
     errors: number;
@@ -72,8 +72,7 @@ export type LedgerEntryType =
 export interface LedgerEntry {
   id: string;
   batchId: string;
-  entityId?: string;
-  employeeId: string;
+  entityId: string;
   periodId: string;
 
   // Entry details
@@ -86,7 +85,6 @@ export interface LedgerEntry {
   sourceType: 'transaction' | 'plan' | 'manual' | 'rule';
   sourceId?: string;
   ruleSetId?: string;
-  planId?: string;
   componentId?: string;
 
   // Compliance
@@ -161,9 +159,8 @@ export interface RuleAction {
 // CALCULATION RESULT
 // ============================================
 
-export interface EmployeeCalculationResult {
-  entityId?: string;
-  employeeId: string;
+export interface EntityCalculationResult {
+  entityId: string;
   batchId: string;
   periodId: string;
 
@@ -235,8 +232,7 @@ export interface TierResult {
 // ============================================
 
 export interface QuotaAttainment {
-  entityId?: string;
-  employeeId: string;
+  entityId: string;
   periodId: string;
   quotaId: string;
 
@@ -291,8 +287,7 @@ export interface Accelerator {
 
 export interface AcceleratorApplication {
   acceleratorId: string;
-  entityId?: string;
-  employeeId: string;
+  entityId: string;
   periodId: string;
   triggeredAt: string;
   multiplier: number;

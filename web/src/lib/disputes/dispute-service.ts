@@ -46,9 +46,9 @@ export function getDispute(disputeId: string): Dispute | null {
   return allDisputes.find((d) => d.id === disputeId) || null;
 }
 
-export function getByEmployee(employeeId: string): Dispute[] {
+export function getByEmployee(entityId: string): Dispute[] {
   const allDisputes = getAllDisputesInternal();
-  return allDisputes.filter((d) => d.employeeId === employeeId);
+  return allDisputes.filter((d) => d.entityId === entityId);
 }
 
 export function getByTransaction(transactionId: string): Dispute | null {
@@ -109,8 +109,8 @@ export function deleteDispute(disputeId: string): boolean {
 export function createDraft(
   tenantId: string,
   transactionId: string,
-  employeeId: string,
-  employeeName: string,
+  entityId: string,
+  entityName: string,
   storeId: string,
   storeName: string,
   component: string
@@ -121,8 +121,8 @@ export function createDraft(
     id: `dispute-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
     tenantId,
     transactionId,
-    employeeId,
-    employeeName,
+    entityId,
+    entityName,
     storeId,
     storeName,
     status: 'draft',
@@ -192,8 +192,8 @@ export function markResolvedAtStep(disputeId: string, stepNumber: 1 | 2): Disput
       outcome: 'denied', // Self-resolved means no payout needed
       adjustmentAmount: 0,
       explanation: `Employee understood calculation after Step ${stepNumber} explanation`,
-      resolvedBy: dispute.employeeId,
-      resolvedByName: dispute.employeeName,
+      resolvedBy: dispute.entityId,
+      resolvedByName: dispute.entityName,
       resolvedAt: now,
       adjustmentApplied: false,
     },
@@ -220,7 +220,7 @@ export function submitDispute(disputeId: string): Dispute | null {
   // Notify the employee that their dispute was submitted
   notifyDisputeSubmitted(
     dispute.tenantId,
-    dispute.employeeId,
+    dispute.entityId,
     dispute.id,
     dispute.transactionId
   );
@@ -266,8 +266,8 @@ export function resolveDispute(
     adjustment = createAdjustment({
       tenantId: dispute.tenantId,
       disputeId: dispute.id,
-      employeeId: dispute.employeeId,
-      employeeName: dispute.employeeName,
+      entityId: dispute.entityId,
+      entityName: dispute.entityName,
       type: 'dispute_resolution',
       amount: resolution.adjustmentAmount,
       currency: 'USD',
@@ -291,7 +291,7 @@ export function resolveDispute(
   // Notify the employee about the resolution
   notifyDisputeResolved(
     dispute.tenantId,
-    dispute.employeeId,
+    dispute.entityId,
     dispute.id,
     dispute.transactionId,
     resolution.outcome,
@@ -325,8 +325,8 @@ export function createAdjustment(
   return adjustment;
 }
 
-export function getAdjustmentsByEmployee(employeeId: string): CompensationAdjustment[] {
-  return getAllAdjustments().filter((a) => a.employeeId === employeeId);
+export function getAdjustmentsByEmployee(entityId: string): CompensationAdjustment[] {
+  return getAllAdjustments().filter((a) => a.entityId === entityId);
 }
 
 export function getAllAdjustments(): CompensationAdjustment[] {
@@ -426,8 +426,8 @@ function getDefaultDisputes(): Dispute[] {
       id: 'dispute-maria-txn0147',
       tenantId: 'retailco',
       transactionId: 'TXN-2025-0147',
-      employeeId: 'maria-rodriguez',
-      employeeName: 'Maria Rodriguez',
+      entityId: 'maria-rodriguez',
+      entityName: 'Maria Rodriguez',
       storeId: 'store-101',
       storeName: 'Downtown Flagship',
       status: 'draft',
@@ -461,8 +461,8 @@ function getDefaultDisputes(): Dispute[] {
       id: 'dispute-maria-txn0098',
       tenantId: 'retailco',
       transactionId: 'TXN-2025-0098',
-      employeeId: 'maria-rodriguez',
-      employeeName: 'Maria Rodriguez',
+      entityId: 'maria-rodriguez',
+      entityName: 'Maria Rodriguez',
       storeId: 'store-101',
       storeName: 'Downtown Flagship',
       status: 'submitted',

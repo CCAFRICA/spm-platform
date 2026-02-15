@@ -40,8 +40,8 @@ export default function ReconciliationTestPage() {
 
       // Log EVERYTHING to console
       traces.forEach(trace => {
-        console.log(`\n=== EMPLOYEE ${trace.employeeId} (${trace.employeeRole}) ===`);
-        console.log('Plan:', trace.planResolution?.planName);
+        console.log(`\n=== EMPLOYEE ${trace.entityId} (${trace.entityRole}) ===`);
+        console.log('Plan:', trace.planResolution?.ruleSetName);
         console.log('Variant:', trace.variantSelection?.selectedVariantName);
         console.log('isCertified:', trace.isCertified);
 
@@ -110,18 +110,18 @@ export default function ReconciliationTestPage() {
           </div>
 
           {results.traces.map((trace) => (
-            <div key={trace.employeeId} className="border rounded p-4 bg-white shadow-sm">
+            <div key={trace.entityId} className="border rounded p-4 bg-white shadow-sm">
               <h3 className="font-bold text-lg flex items-center gap-2">
-                Employee {trace.employeeId}
+                Employee {trace.entityId}
                 <span className={`text-xs px-2 py-0.5 rounded ${trace.isCertified ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
                   {trace.isCertified ? 'Certified' : 'Non-Certified'}
                 </span>
               </h3>
               <p className="text-sm text-gray-600 mb-2">
-                {trace.employeeRole} | Period: {trace.period?.formatted}
+                {trace.entityRole} | Period: {trace.period?.formatted}
               </p>
               <p className="text-sm text-gray-500 mb-3">
-                Plan: {trace.planResolution?.planName} |
+                Plan: {trace.planResolution?.ruleSetName} |
                 Variant: {trace.variantSelection?.selectedVariantName}
               </p>
 

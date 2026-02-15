@@ -45,7 +45,7 @@ interface ParsedFile {
   preview: Record<string, unknown>[];
 }
 
-type MappingTarget = 'unmapped' | 'employee_id' | 'total' | `component:${string}`;
+type MappingTarget = 'unmapped' | 'entity_id' | 'total' | `component:${string}`;
 
 export function ComparisonUpload({ components, onUploadComplete }: ComparisonUploadProps) {
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
@@ -57,7 +57,7 @@ export function ComparisonUpload({ components, onUploadComplete }: ComparisonUpl
   // Build mapping options dynamically from plan components
   const mappingOptions: Array<{ value: MappingTarget; label: string }> = [
     { value: 'unmapped', label: 'Skip' },
-    { value: 'employee_id', label: 'Employee ID' },
+    { value: 'entity_id', label: 'Employee ID' },
     { value: 'total', label: 'Total' },
     ...components.map(c => ({
       value: `component:${c.id}` as MappingTarget,
@@ -145,7 +145,7 @@ export function ComparisonUpload({ components, onUploadComplete }: ComparisonUpl
     onUploadComplete(parsedFile.rows, mapping);
   };
 
-  const hasEmployeeId = Object.values(columnMappings).includes('employee_id');
+  const hasEmployeeId = Object.values(columnMappings).includes('entity_id');
   const hasTotal = Object.values(columnMappings).includes('total');
   const mappedComponents = Object.values(columnMappings).filter(v => v.startsWith('component:')).length;
   const isReady = hasEmployeeId && (hasTotal || mappedComponents > 0);
@@ -296,8 +296,8 @@ function autoSuggestMapping(
   components: PlanComponent[]
 ): MappingTarget {
   // Employee ID heuristics
-  const empIdPatterns = ['employee', 'emp_id', 'employeeid', 'employee_id', 'id_empleado', 'empleado', 'rep_id', 'associate'];
-  if (empIdPatterns.some(p => normalizedHeader.includes(p))) return 'employee_id';
+  const empIdPatterns = ['employee', 'emp_id', 'employeeid', 'entity_id', 'id_empleado', 'empleado', 'rep_id', 'associate'];
+  if (empIdPatterns.some(p => normalizedHeader.includes(p))) return 'entity_id';
 
   // Total heuristics
   const totalPatterns = ['total', 'grand_total', 'payout', 'incentive', 'comision_total', 'total_pago'];

@@ -15,12 +15,12 @@ import type { CalculationResult, CalculationStep } from '@/types/compensation-pl
 // ============================================
 
 export interface FormattedResult {
-  employeeId: string;
-  employeeName: string;
-  employeeRole: string;
+  entityId: string;
+  entityName: string;
+  entityRole: string;
   storeId?: string;
   storeName?: string;
-  planName: string;
+  ruleSetName: string;
   variantName?: string;
   period: string;
   periodLabel: string;
@@ -44,16 +44,16 @@ export interface FormattedComponent {
 }
 
 export interface ReconciliationFormat {
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   period: string;
-  planId: string;
-  planName: string;
+  ruleSetId: string;
+  ruleSetName: string;
   componentBreakdown: Record<string, number>;
   totalIncentive: number;
   metadata: {
     calculatedAt: string;
-    planVersion: number;
+    ruleSetVersion: number;
     variantId?: string;
   };
 }
@@ -131,12 +131,12 @@ export function formatResult(
   const periodLabel = formatPeriodLabel(result.period, locale);
 
   return {
-    employeeId: result.employeeId,
-    employeeName: result.employeeName,
-    employeeRole: result.employeeRole,
+    entityId: result.entityId,
+    entityName: result.entityName,
+    entityRole: result.entityRole,
     storeId: result.storeId,
     storeName: result.storeName,
-    planName: result.planName,
+    ruleSetName: result.ruleSetName,
     variantName: result.variantName,
     period: result.period,
     periodLabel,
@@ -219,16 +219,16 @@ export function formatForReconciliation(result: CalculationResult): Reconciliati
   }
 
   return {
-    employeeId: result.employeeId,
-    employeeName: result.employeeName,
+    entityId: result.entityId,
+    entityName: result.entityName,
     period: result.period,
-    planId: result.planId,
-    planName: result.planName,
+    ruleSetId: result.ruleSetId,
+    ruleSetName: result.ruleSetName,
     componentBreakdown,
     totalIncentive: result.totalIncentive,
     metadata: {
       calculatedAt: result.calculatedAt,
-      planVersion: result.planVersion,
+      ruleSetVersion: result.ruleSetVersion,
       variantId: result.variantId,
     },
   };
@@ -254,9 +254,9 @@ export function formatForLegacyExport(result: CalculationResult): LegacyExportFo
 
   const legacyResult: LegacyExportFormat = {
     // Columns 1-12: Employee/Period metadata
-    EMP_ID: result.employeeId,
-    EMP_NAME: result.employeeName,
-    EMP_ROLE: result.employeeRole || '',
+    EMP_ID: result.entityId,
+    EMP_NAME: result.entityName,
+    EMP_ROLE: result.entityRole || '',
     DEPT_ID: result.departmentId || '',
     DEPT_NAME: result.departmentName || '',
     STORE_ID: result.storeId || '',
@@ -264,7 +264,7 @@ export function formatForLegacyExport(result: CalculationResult): LegacyExportFo
     MANAGER_ID: result.managerId || '',
     HIRE_DATE: result.hireDate || '',
     PERIOD: result.period,
-    PLAN_NAME: result.planName,
+    PLAN_NAME: result.ruleSetName,
     VARIANT_NAME: result.variantName || 'Standard',
     // Columns 13-16: Optical Sales
     OPTICAL_ACTUAL: 0,
@@ -288,7 +288,7 @@ export function formatForLegacyExport(result: CalculationResult): LegacyExportFo
     TOTAL_INCENTIVE: result.totalIncentive,
     CURRENCY: result.currency,
     CALC_DATE: result.calculatedAt,
-    CALC_VERSION: `v${result.planVersion || 1}`,
+    CALC_VERSION: `v${result.ruleSetVersion || 1}`,
   };
 
   // Map components to legacy columns with full detail
@@ -360,13 +360,13 @@ export function exportToCSV(
 
   const rows = results.map((result) => {
     const row = [
-      result.employeeId,
-      result.employeeName,
-      result.employeeRole,
+      result.entityId,
+      result.entityName,
+      result.entityRole,
       result.storeId || '',
       result.storeName || '',
       result.period,
-      result.planName,
+      result.ruleSetName,
       result.totalIncentive.toFixed(2),
       result.currency,
       result.calculatedAt,
@@ -595,11 +595,11 @@ export function getResultsSummary(results: CalculationResult[]): {
     maxPayout = Math.max(maxPayout, result.totalIncentive);
 
     // By plan
-    if (!byPlan[result.planName]) {
-      byPlan[result.planName] = { count: 0, total: 0, average: 0 };
+    if (!byPlan[result.ruleSetName]) {
+      byPlan[result.ruleSetName] = { count: 0, total: 0, average: 0 };
     }
-    byPlan[result.planName].count++;
-    byPlan[result.planName].total += result.totalIncentive;
+    byPlan[result.ruleSetName].count++;
+    byPlan[result.ruleSetName].total += result.totalIncentive;
 
     // By store
     const storeName = result.storeName || 'Unknown';

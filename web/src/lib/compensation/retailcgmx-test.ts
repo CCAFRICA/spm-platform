@@ -8,7 +8,7 @@
  * Or import and call runTests() from a test framework
  */
 
-import { calculateIncentive, type EmployeeMetrics } from './calculation-engine';
+import { calculateIncentive, type EntityMetrics } from './calculation-engine';
 import { savePlan } from './plan-storage';
 import { createRetailCGMXUnifiedPlan } from './retailcgmx-plan';
 
@@ -29,10 +29,10 @@ if (typeof window === 'undefined') {
 // TEST DATA
 // ============================================
 
-const CERTIFIED_EXAMPLE: EmployeeMetrics = {
-  employeeId: 'test-certified',
-  employeeName: 'Test Certified Optometrist',
-  employeeRole: 'optometrista',
+const CERTIFIED_EXAMPLE: EntityMetrics = {
+  entityId: 'test-certified',
+  entityName: 'Test Certified Optometrist',
+  entityRole: 'optometrista',
   storeId: 'store-001',
   storeName: 'Test Store',
   isCertified: true,
@@ -51,10 +51,10 @@ const CERTIFIED_EXAMPLE: EmployeeMetrics = {
   },
 };
 
-const NON_CERTIFIED_EXAMPLE: EmployeeMetrics = {
+const NON_CERTIFIED_EXAMPLE: EntityMetrics = {
   ...CERTIFIED_EXAMPLE,
-  employeeId: 'test-noncertified',
-  employeeName: 'Test Non-Certified Optometrist',
+  entityId: 'test-noncertified',
+  entityName: 'Test Non-Certified Optometrist',
   isCertified: false,
   metrics: {
     ...CERTIFIED_EXAMPLE.metrics,

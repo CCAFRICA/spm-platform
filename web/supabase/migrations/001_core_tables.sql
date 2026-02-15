@@ -2,15 +2,22 @@
 -- OB-42 Migration 001: Core Tables
 -- Tables: tenants, profiles, entities, entity_relationships,
 --         reassignment_events
+--
+-- Structure: CREATE all tables first, then ADD cross-FKs,
+-- RLS policies, indexes, and triggers — avoids circular
+-- dependency between tenants ↔ profiles.
 -- ============================================================
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+-- ══════════════════════════════════════════════
+-- STEP 1: CREATE TABLES (no cross-table FKs yet)
+-- ══════════════════════════════════════════════
+
 -- ──────────────────────────────────────────────
 -- TABLE 1: tenants
--- Multi-tenant container with domain-agnostic labels
 -- ──────────────────────────────────────────────
 CREATE TABLE tenants (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -26,28 +33,8 @@ CREATE TABLE tenants (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
-
--- RLS: Users can only see tenants they belong to (via profiles)
-CREATE POLICY "tenants_select_own" ON tenants
-  FOR SELECT USING (
-    id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
-  );
-
-CREATE POLICY "tenants_update_own" ON tenants
-  FOR UPDATE USING (
-    id IN (
-      SELECT tenant_id FROM profiles
-      WHERE auth_user_id = auth.uid()
-        AND capabilities @> '["manage_tenants"]'
-    )
-  );
-
-CREATE INDEX idx_tenants_slug ON tenants(slug);
-
 -- ──────────────────────────────────────────────
 -- TABLE 2: profiles
--- User profiles with capabilities array
 -- ──────────────────────────────────────────────
 CREATE TABLE profiles (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -64,36 +51,8 @@ CREATE TABLE profiles (
   UNIQUE(tenant_id, auth_user_id)
 );
 
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-
--- RLS: Users see profiles in their tenant
-CREATE POLICY "profiles_select_tenant" ON profiles
-  FOR SELECT USING (
-    tenant_id IN (SELECT tenant_id FROM profiles p2 WHERE p2.auth_user_id = auth.uid())
-  );
-
--- RLS: Users can update their own profile
-CREATE POLICY "profiles_update_own" ON profiles
-  FOR UPDATE USING (auth_user_id = auth.uid());
-
--- RLS: Admins can insert profiles
-CREATE POLICY "profiles_insert_admin" ON profiles
-  FOR INSERT WITH CHECK (
-    tenant_id IN (
-      SELECT tenant_id FROM profiles
-      WHERE auth_user_id = auth.uid()
-        AND capabilities @> '["manage_profiles"]'
-    )
-  );
-
-CREATE INDEX idx_profiles_tenant ON profiles(tenant_id);
-CREATE INDEX idx_profiles_auth_user ON profiles(auth_user_id);
-CREATE INDEX idx_profiles_email ON profiles(tenant_id, email);
-
 -- ──────────────────────────────────────────────
--- TABLE 3: entities
--- Domain-agnostic entity registry
--- temporal_attributes JSONB, entity_type, external_id, profile_id FK
+-- TABLE 3: entities (profile_id FK added in Step 2)
 -- ──────────────────────────────────────────────
 CREATE TABLE entities (
   id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -104,7 +63,7 @@ CREATE TABLE entities (
     CHECK (status IN ('proposed', 'active', 'suspended', 'terminated')),
   external_id          TEXT,
   display_name         TEXT NOT NULL,
-  profile_id           UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  profile_id           UUID,
   temporal_attributes  JSONB NOT NULL DEFAULT '[]',
   metadata             JSONB NOT NULL DEFAULT '{}',
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -112,42 +71,8 @@ CREATE TABLE entities (
   UNIQUE(tenant_id, external_id)
 );
 
-ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
-
--- RLS: Users see entities in their tenant
-CREATE POLICY "entities_select_tenant" ON entities
-  FOR SELECT USING (
-    tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
-  );
-
--- RLS: Users with manage capabilities can insert/update
-CREATE POLICY "entities_insert" ON entities
-  FOR INSERT WITH CHECK (
-    tenant_id IN (
-      SELECT tenant_id FROM profiles
-      WHERE auth_user_id = auth.uid()
-        AND (capabilities @> '["manage_assignments"]' OR capabilities @> '["import_data"]')
-    )
-  );
-
-CREATE POLICY "entities_update" ON entities
-  FOR UPDATE USING (
-    tenant_id IN (
-      SELECT tenant_id FROM profiles
-      WHERE auth_user_id = auth.uid()
-        AND (capabilities @> '["manage_assignments"]' OR capabilities @> '["import_data"]')
-    )
-  );
-
-CREATE INDEX idx_entities_tenant ON entities(tenant_id);
-CREATE INDEX idx_entities_type ON entities(tenant_id, entity_type);
-CREATE INDEX idx_entities_external ON entities(tenant_id, external_id);
-CREATE INDEX idx_entities_profile ON entities(profile_id);
-CREATE INDEX idx_entities_status ON entities(tenant_id, status);
-
 -- ──────────────────────────────────────────────
 -- TABLE 4: entity_relationships
--- Relationship graph with confidence, evidence, source
 -- ──────────────────────────────────────────────
 CREATE TABLE entity_relationships (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -172,9 +97,108 @@ CREATE TABLE entity_relationships (
   CHECK (source_entity_id != target_entity_id)
 );
 
-ALTER TABLE entity_relationships ENABLE ROW LEVEL SECURITY;
+-- ──────────────────────────────────────────────
+-- TABLE 5: reassignment_events (created_by FK added in Step 2)
+-- ──────────────────────────────────────────────
+CREATE TABLE reassignment_events (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id         UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  entity_id         UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  from_entity_id    UUID REFERENCES entities(id) ON DELETE SET NULL,
+  to_entity_id      UUID REFERENCES entities(id) ON DELETE SET NULL,
+  effective_date    DATE NOT NULL,
+  credit_model      JSONB NOT NULL DEFAULT '{}',
+  transition_window JSONB NOT NULL DEFAULT '{}',
+  impact_preview    JSONB NOT NULL DEFAULT '{}',
+  reason            TEXT,
+  created_by        UUID,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
--- RLS: Users see relationships in their tenant
+-- ══════════════════════════════════════════════
+-- STEP 2: ADD DEFERRED CROSS-TABLE FOREIGN KEYS
+-- ══════════════════════════════════════════════
+
+ALTER TABLE entities
+  ADD CONSTRAINT fk_entities_profile
+  FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE SET NULL;
+
+ALTER TABLE reassignment_events
+  ADD CONSTRAINT fk_reassignment_created_by
+  FOREIGN KEY (created_by) REFERENCES profiles(id);
+
+-- ══════════════════════════════════════════════
+-- STEP 3: ENABLE RLS ON ALL TABLES
+-- ══════════════════════════════════════════════
+
+ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entity_relationships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reassignment_events ENABLE ROW LEVEL SECURITY;
+
+-- ══════════════════════════════════════════════
+-- STEP 4: RLS POLICIES (all tables exist now)
+-- ══════════════════════════════════════════════
+
+-- tenants policies
+CREATE POLICY "tenants_select_own" ON tenants
+  FOR SELECT USING (
+    id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
+  );
+
+CREATE POLICY "tenants_update_own" ON tenants
+  FOR UPDATE USING (
+    id IN (
+      SELECT tenant_id FROM profiles
+      WHERE auth_user_id = auth.uid()
+        AND capabilities @> '["manage_tenants"]'
+    )
+  );
+
+-- profiles policies
+CREATE POLICY "profiles_select_tenant" ON profiles
+  FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM profiles p2 WHERE p2.auth_user_id = auth.uid())
+  );
+
+CREATE POLICY "profiles_update_own" ON profiles
+  FOR UPDATE USING (auth_user_id = auth.uid());
+
+CREATE POLICY "profiles_insert_admin" ON profiles
+  FOR INSERT WITH CHECK (
+    tenant_id IN (
+      SELECT tenant_id FROM profiles
+      WHERE auth_user_id = auth.uid()
+        AND capabilities @> '["manage_profiles"]'
+    )
+  );
+
+-- entities policies
+CREATE POLICY "entities_select_tenant" ON entities
+  FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
+  );
+
+CREATE POLICY "entities_insert" ON entities
+  FOR INSERT WITH CHECK (
+    tenant_id IN (
+      SELECT tenant_id FROM profiles
+      WHERE auth_user_id = auth.uid()
+        AND (capabilities @> '["manage_assignments"]' OR capabilities @> '["import_data"]')
+    )
+  );
+
+CREATE POLICY "entities_update" ON entities
+  FOR UPDATE USING (
+    tenant_id IN (
+      SELECT tenant_id FROM profiles
+      WHERE auth_user_id = auth.uid()
+        AND (capabilities @> '["manage_assignments"]' OR capabilities @> '["import_data"]')
+    )
+  );
+
+-- entity_relationships policies
 CREATE POLICY "entity_relationships_select_tenant" ON entity_relationships
   FOR SELECT USING (
     tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
@@ -198,34 +222,7 @@ CREATE POLICY "entity_relationships_update" ON entity_relationships
     )
   );
 
-CREATE INDEX idx_entity_rel_tenant ON entity_relationships(tenant_id);
-CREATE INDEX idx_entity_rel_source ON entity_relationships(source_entity_id);
-CREATE INDEX idx_entity_rel_target ON entity_relationships(target_entity_id);
-CREATE INDEX idx_entity_rel_type ON entity_relationships(tenant_id, relationship_type);
-CREATE INDEX idx_entity_rel_effective ON entity_relationships(effective_from, effective_to);
-
--- ──────────────────────────────────────────────
--- TABLE 5: reassignment_events
--- Entity reassignment tracking with credit model
--- ──────────────────────────────────────────────
-CREATE TABLE reassignment_events (
-  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  tenant_id         UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  entity_id         UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  from_entity_id    UUID REFERENCES entities(id) ON DELETE SET NULL,
-  to_entity_id      UUID REFERENCES entities(id) ON DELETE SET NULL,
-  effective_date    DATE NOT NULL,
-  credit_model      JSONB NOT NULL DEFAULT '{}',
-  transition_window JSONB NOT NULL DEFAULT '{}',
-  impact_preview    JSONB NOT NULL DEFAULT '{}',
-  reason            TEXT,
-  created_by        UUID REFERENCES profiles(id),
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-ALTER TABLE reassignment_events ENABLE ROW LEVEL SECURITY;
-
--- RLS: Users see reassignment events in their tenant
+-- reassignment_events policies
 CREATE POLICY "reassignment_events_select_tenant" ON reassignment_events
   FOR SELECT USING (
     tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
@@ -240,13 +237,36 @@ CREATE POLICY "reassignment_events_insert" ON reassignment_events
     )
   );
 
+-- ══════════════════════════════════════════════
+-- STEP 5: INDEXES
+-- ══════════════════════════════════════════════
+
+CREATE INDEX idx_tenants_slug ON tenants(slug);
+
+CREATE INDEX idx_profiles_tenant ON profiles(tenant_id);
+CREATE INDEX idx_profiles_auth_user ON profiles(auth_user_id);
+CREATE INDEX idx_profiles_email ON profiles(tenant_id, email);
+
+CREATE INDEX idx_entities_tenant ON entities(tenant_id);
+CREATE INDEX idx_entities_type ON entities(tenant_id, entity_type);
+CREATE INDEX idx_entities_external ON entities(tenant_id, external_id);
+CREATE INDEX idx_entities_profile ON entities(profile_id);
+CREATE INDEX idx_entities_status ON entities(tenant_id, status);
+
+CREATE INDEX idx_entity_rel_tenant ON entity_relationships(tenant_id);
+CREATE INDEX idx_entity_rel_source ON entity_relationships(source_entity_id);
+CREATE INDEX idx_entity_rel_target ON entity_relationships(target_entity_id);
+CREATE INDEX idx_entity_rel_type ON entity_relationships(tenant_id, relationship_type);
+CREATE INDEX idx_entity_rel_effective ON entity_relationships(effective_from, effective_to);
+
 CREATE INDEX idx_reassignment_tenant ON reassignment_events(tenant_id);
 CREATE INDEX idx_reassignment_entity ON reassignment_events(entity_id);
 CREATE INDEX idx_reassignment_date ON reassignment_events(effective_date);
 
--- ──────────────────────────────────────────────
--- Trigger: auto-update updated_at
--- ──────────────────────────────────────────────
+-- ══════════════════════════════════════════════
+-- STEP 6: TRIGGERS
+-- ══════════════════════════════════════════════
+
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN

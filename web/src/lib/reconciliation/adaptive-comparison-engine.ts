@@ -40,8 +40,8 @@ export interface AggregateComparison {
   delta: number;
   deltaPercent: number;
   flag: DeltaFlag;
-  employeeCountFile: number;
-  employeeCountVL: number;
+  entityCountFile: number;
+  entityCountVL: number;
 }
 
 export interface StoreComparison {
@@ -52,14 +52,14 @@ export interface StoreComparison {
   delta: number;
   deltaPercent: number;
   flag: DeltaFlag;
-  employeeCount: number;
+  entityCount: number;
   fileEmployeeCount: number;
   vlEmployeeCount: number;
 }
 
 export interface FalseGreenAlert {
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   totalDelta: number;
   totalFlag: DeltaFlag;
   componentFlags: Array<{
@@ -103,7 +103,7 @@ export function runAdaptiveComparison(
   fileRows: Record<string, unknown>[],
   vlResults: CalculationResult[],
   mappings: ColumnMapping[],
-  employeeIdField: string,
+  entityIdField: string,
   totalAmountField: string,
 ): AdaptiveComparisonResult {
   // Step 1: Assess comparison depth
@@ -111,7 +111,7 @@ export function runAdaptiveComparison(
     vlResults,
     fileRows,
     mappings,
-    employeeIdField,
+    entityIdField,
     totalAmountField,
   });
 
@@ -132,7 +132,7 @@ export function runAdaptiveComparison(
   // Step 3: L1 Employee + L2 Component (use existing engine)
   const employeeLayer = depth.layers.find(l => l.layer === 'employee');
   if (employeeLayer && employeeLayer.status !== 'unavailable') {
-    employeeComparison = runComparison(fileRows, vlResults, mappings, employeeIdField, totalAmountField);
+    employeeComparison = runComparison(fileRows, vlResults, mappings, entityIdField, totalAmountField);
     summary = employeeComparison.summary;
     comparedLayers.push('employee');
 
@@ -196,8 +196,8 @@ function computeAggregate(
     delta,
     deltaPercent,
     flag: classifyDelta(deltaPercent),
-    employeeCountFile: fileRows.length,
-    employeeCountVL: vlResults.length,
+    entityCountFile: fileRows.length,
+    entityCountVL: vlResults.length,
   };
 }
 
@@ -214,7 +214,7 @@ function computeStoreComparisons(
     storeName: string;
     fileTotal: number;
     vlTotal: number;
-    employeeIds: Set<string>;
+    entityIds: Set<string>;
     fileEmployeeIds: Set<string>;
     vlEmployeeIds: Set<string>;
   }>();
@@ -222,11 +222,11 @@ function computeStoreComparisons(
   // Assign employees to stores using VL result storeId
   const vlByEmployee = new Map<string, CalculationResult>();
   for (const r of vlResults) {
-    vlByEmployee.set(normalizeId(r.employeeId), r);
+    vlByEmployee.set(normalizeId(r.entityId), r);
   }
 
   for (const emp of employees) {
-    const vlResult = emp.vlResult || vlByEmployee.get(normalizeId(emp.employeeId));
+    const vlResult = emp.vlResult || vlByEmployee.get(normalizeId(emp.entityId));
     const storeId = vlResult?.storeId || 'unknown';
     const storeName = vlResult?.storeName || storeId;
 
@@ -235,29 +235,29 @@ function computeStoreComparisons(
         storeName,
         fileTotal: 0,
         vlTotal: 0,
-        employeeIds: new Set<string>(),
+        entityIds: new Set<string>(),
         fileEmployeeIds: new Set<string>(),
         vlEmployeeIds: new Set<string>(),
       });
     }
 
     const store = storeMap.get(storeId)!;
-    store.employeeIds.add(emp.employeeId);
+    store.entityIds.add(emp.entityId);
     store.fileTotal += emp.fileTotal;
     store.vlTotal += emp.vlTotal;
 
     if (emp.population === 'matched' || emp.population === 'file_only') {
-      store.fileEmployeeIds.add(emp.employeeId);
+      store.fileEmployeeIds.add(emp.entityId);
     }
     if (emp.population === 'matched' || emp.population === 'vl_only') {
-      store.vlEmployeeIds.add(emp.employeeId);
+      store.vlEmployeeIds.add(emp.entityId);
     }
   }
 
   // Convert to array and compute deltas
   const comparisons: StoreComparison[] = [];
   storeMap.forEach((store, storeId) => {
-    if (storeId === 'unknown' && store.employeeIds.size === 0) return;
+    if (storeId === 'unknown' && store.entityIds.size === 0) return;
 
     const delta = store.fileTotal - store.vlTotal;
     const deltaPercent = store.vlTotal !== 0 ? (delta / store.vlTotal) : (store.fileTotal !== 0 ? 1 : 0);
@@ -270,7 +270,7 @@ function computeStoreComparisons(
       delta,
       deltaPercent,
       flag: classifyDelta(deltaPercent),
-      employeeCount: store.employeeIds.size,
+      entityCount: store.entityIds.size,
       fileEmployeeCount: store.fileEmployeeIds.size,
       vlEmployeeCount: store.vlEmployeeIds.size,
     });
@@ -310,8 +310,8 @@ function detectFalseGreens(employees: EmployeeComparison[]): FalseGreenAlert[] {
 
     if (badComponents.length > 0) {
       alerts.push({
-        employeeId: emp.employeeId,
-        employeeName: emp.employeeName,
+        entityId: emp.entityId,
+        entityName: emp.entityName,
         totalDelta: emp.totalDelta,
         totalFlag: emp.totalFlag,
         componentFlags: badComponents.map(c => ({

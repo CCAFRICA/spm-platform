@@ -196,7 +196,7 @@ export function extractServerMetrics(
 
 /**
  * Convert bridge metrics to the format expected by the ICM metric resolver.
- * Returns a map of employeeId -> metricName -> value.
+ * Returns a map of entityId -> metricName -> value.
  */
 export function toICMMetrics(
   bridgeResult: BridgeResult
@@ -204,8 +204,8 @@ export function toICMMetrics(
   const metrics = new Map<string, Record<string, number>>();
 
   for (const sm of bridgeResult.serverMetrics) {
-    const employeeId = String(sm.serverId);
-    metrics.set(employeeId, {
+    const entityId = String(sm.serverId);
+    metrics.set(entityId, {
       server_total_revenue: sm.server_total_revenue,
       server_total_tips: sm.server_total_tips,
       server_tip_rate: sm.server_tip_rate,

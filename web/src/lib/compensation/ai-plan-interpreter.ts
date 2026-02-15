@@ -109,8 +109,8 @@ export interface WorkedExample {
 }
 
 export interface PlanInterpretation {
-  planName: string;
-  planNameEs?: string;
+  ruleSetName: string;
+  ruleSetNameEs?: string;
   description: string;
   descriptionEs?: string;
   currency: string;
@@ -176,7 +176,7 @@ export class AIPlainInterpreter {
       interpretation.rawApiResponse = JSON.stringify(response.result);
 
       console.log('\n========== PARSED INTERPRETATION ==========');
-      console.log('Plan name:', interpretation.planName);
+      console.log('Plan name:', interpretation.ruleSetName);
       console.log('Employee types:', interpretation.employeeTypes.length);
       interpretation.employeeTypes.forEach((et, i) => {
         console.log(`  ${i + 1}. ${et.name} (${et.id})`);
@@ -202,8 +202,8 @@ export class AIPlainInterpreter {
    */
   private validateAndNormalize(parsed: Record<string, unknown>): PlanInterpretation {
     return {
-      planName: String(parsed.planName || 'Unnamed Plan'),
-      planNameEs: parsed.planNameEs ? String(parsed.planNameEs) : undefined,
+      ruleSetName: String(parsed.ruleSetName || 'Unnamed Plan'),
+      ruleSetNameEs: parsed.ruleSetNameEs ? String(parsed.ruleSetNameEs) : undefined,
       description: String(parsed.description || ''),
       descriptionEs: parsed.descriptionEs ? String(parsed.descriptionEs) : undefined,
       currency: String(parsed.currency || 'USD').toUpperCase(),
@@ -407,21 +407,21 @@ export class AIPlainInterpreter {
 // ============================================
 
 import type {
-  CompensationPlanConfig,
+  RuleSetConfig,
   PlanComponent,
   AdditiveLookupConfig,
 } from '@/types/compensation-plan';
 
 /**
- * Convert AI interpretation to CompensationPlanConfig
+ * Convert AI interpretation to RuleSetConfig
  */
 export function interpretationToPlanConfig(
   interpretation: PlanInterpretation,
   tenantId: string,
   userId: string
-): CompensationPlanConfig {
+): RuleSetConfig {
   const now = new Date().toISOString();
-  const planId = `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  const ruleSetId = `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
   // Build variants from employee types
   const employeeTypes = interpretation.employeeTypes || [];
@@ -488,11 +488,11 @@ export function interpretationToPlanConfig(
   });
 
   return {
-    id: planId,
+    id: ruleSetId,
     tenantId,
-    name: interpretation.planName,
+    name: interpretation.ruleSetName,
     description: interpretation.description,
-    planType: 'additive_lookup',
+    ruleSetType: 'additive_lookup',
     status: 'draft',
     effectiveDate: now,
     endDate: null,

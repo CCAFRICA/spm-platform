@@ -759,7 +759,7 @@ export default function CustomerLaunchDashboard() {
                     <div className="grid grid-cols-3 gap-4 text-center">
                       <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
                         <p className="text-2xl font-bold text-slate-900 dark:text-slate-50">
-                          {selectedLaunch.testCalculationResult.employeesProcessed}
+                          {selectedLaunch.testCalculationResult.entitiesProcessed}
                         </p>
                         <p className="text-xs text-slate-500">
                           {locale === 'es-MX' ? 'Empleados' : 'Employees'}

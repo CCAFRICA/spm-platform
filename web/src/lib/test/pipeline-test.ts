@@ -86,13 +86,13 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeData[] {
       const content = record.content;
 
       // Extract employee ID
-      const employeeId = String(
+      const entityId = String(
         content['num_empleado'] || content['Num_Empleado'] ||
-        content['employee_id'] || content['employeeId'] ||
+        content['entity_id'] || content['entityId'] ||
         content['id_empleado'] || content['Id_Empleado'] || ''
       ).trim();
 
-      if (!employeeId || seenIds.has(employeeId)) continue;
+      if (!entityId || seenIds.has(entityId)) continue;
 
       // Check for name field
       const hasNameField = content['nombre'] || content['name'] ||
@@ -101,7 +101,7 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeData[] {
 
       if (!hasNameField) continue;
 
-      seenIds.add(employeeId);
+      seenIds.add(entityId);
 
       const firstName = String(content['nombre'] || content['first_name'] ||
         content['firstName'] || content['nombre_completo'] || content['Nombre'] || '').split(' ')[0];
@@ -110,10 +110,10 @@ function extractEmployeesFromCommittedData(tenantId: string): EmployeeData[] {
         String(content['nombre'] || content['nombre_completo'] || content['Nombre'] || '').split(' ').slice(1).join(' ');
 
       employees.push({
-        id: employeeId,
+        id: entityId,
         tenantId: tenantId,
         employeeNumber: String(content['num_empleado'] || content['Num_Empleado'] ||
-          content['employee_number'] || content['employeeNumber'] || employeeId),
+          content['employee_number'] || content['employeeNumber'] || entityId),
         firstName: firstName || 'Unknown',
         lastName: lastName || 'Employee',
         email: String(content['email'] || content['correo'] || ''),

@@ -13,7 +13,7 @@
  * NO HARDCODED VALUES - Uses AI semantic mappings throughout
  */
 
-import type { CompensationPlanConfig, CalculationResult, PlanComponent, Band, Tier } from '@/types/compensation-plan';
+import type { RuleSetConfig, CalculationResult, PlanComponent, Band, Tier } from '@/types/compensation-plan';
 import { loadAggregatedData, loadImportContext } from '@/lib/data-architecture/data-layer-service';
 import { getPlans } from '@/lib/compensation/plan-storage';
 import { findSheetForComponent, inferSemanticType } from '@/lib/orchestration/metric-resolver';
@@ -71,9 +71,9 @@ export interface EmployeeReconciliationTrace {
   traceId: string;
   generatedAt: string;
   tenantId: string;
-  employeeId: string;
-  employeeName: string;
-  employeeRole: string;
+  entityId: string;
+  entityName: string;
+  entityRole: string;
   isCertified: boolean;
   period: {
     month: number | null;
@@ -91,9 +91,9 @@ export interface EmployeeReconciliationTrace {
 
   // Step 2: Plan Resolution
   planResolution: {
-    planId: string;
-    planName: string;
-    planType: string;
+    ruleSetId: string;
+    ruleSetName: string;
+    ruleSetType: string;
     planStatus: string;
     totalPlansForTenant: number;
     selectionMethod: string;
@@ -137,7 +137,7 @@ export interface EmployeeReconciliationTrace {
  */
 export function generateEmployeeTrace(
   tenantId: string,
-  employeeId: string,
+  entityId: string,
   planIdOverride?: string
 ): EmployeeReconciliationTrace | null {
   const traceId = `trace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -152,20 +152,20 @@ export function generateEmployeeTrace(
   const aggregatedEmployees = loadAggregatedData(tenantId);
   if (!aggregatedEmployees || aggregatedEmployees.length === 0) {
     errors.push('No aggregated employee data found. Run calculation first.');
-    return createErrorTrace(traceId, generatedAt, tenantId, employeeId, errors);
+    return createErrorTrace(traceId, generatedAt, tenantId, entityId, errors);
   }
 
   // Find the employee in aggregated data
   const employee = aggregatedEmployees.find(
-    emp => String(emp.employeeId) === String(employeeId) ||
-           String(emp.employeeNumber) === String(employeeId)
+    emp => String(emp.entityId) === String(entityId) ||
+           String(emp.employeeNumber) === String(entityId)
   );
 
   if (!employee) {
-    errors.push(`Employee ${employeeId} not found in aggregated data. Available IDs: ${
-      aggregatedEmployees.slice(0, 5).map(e => String(e.employeeId)).join(', ')
+    errors.push(`Employee ${entityId} not found in aggregated data. Available IDs: ${
+      aggregatedEmployees.slice(0, 5).map(e => String(e.entityId)).join(', ')
     }...`);
-    return createErrorTrace(traceId, generatedAt, tenantId, employeeId, errors);
+    return createErrorTrace(traceId, generatedAt, tenantId, entityId, errors);
   }
 
   const componentMetrics = (employee.componentMetrics || {}) as Record<string, Record<string, unknown>>;
@@ -177,7 +177,7 @@ export function generateEmployeeTrace(
   const plans = getPlans(tenantId);
   const activePlans = plans.filter(p => p.status === 'active');
 
-  let selectedPlan: CompensationPlanConfig | null = null;
+  let selectedPlan: RuleSetConfig | null = null;
   let selectionMethod = '';
 
   if (planIdOverride) {
@@ -190,7 +190,7 @@ export function generateEmployeeTrace(
 
   if (!selectedPlan) {
     errors.push(`No plan found. Override: ${planIdOverride}, Active plans: ${activePlans.length}`);
-    return createErrorTrace(traceId, generatedAt, tenantId, employeeId, errors);
+    return createErrorTrace(traceId, generatedAt, tenantId, entityId, errors);
   }
 
   // ============================================
@@ -273,9 +273,9 @@ export function generateEmployeeTrace(
     traceId,
     generatedAt,
     tenantId,
-    employeeId: String(employee.employeeId),
-    employeeName: empName,
-    employeeRole: empRole,
+    entityId: String(employee.entityId),
+    entityName: empName,
+    entityRole: empRole,
     isCertified,
     period: {
       month: empMonth,
@@ -289,9 +289,9 @@ export function generateEmployeeTrace(
       componentMetrics: sanitizeForTrace(componentMetrics) as Record<string, Record<string, unknown>>,
     },
     planResolution: {
-      planId: selectedPlan.id,
-      planName: selectedPlan.name,
-      planType: selectedPlan.planType,
+      ruleSetId: selectedPlan.id,
+      ruleSetName: selectedPlan.name,
+      ruleSetType: selectedPlan.ruleSetType,
       planStatus: selectedPlan.status,
       totalPlansForTenant: plans.length,
       selectionMethod,
@@ -319,7 +319,7 @@ export function generateEmployeeTrace(
 // ============================================
 
 function traceVariantSelection(
-  plan: CompensationPlanConfig,
+  plan: RuleSetConfig,
   isCertified: boolean
 ): VariantSelectionTrace {
   if (plan.configuration.type !== 'additive_lookup') {
@@ -584,16 +584,16 @@ function createErrorTrace(
   traceId: string,
   generatedAt: string,
   tenantId: string,
-  employeeId: string,
+  entityId: string,
   errors: string[]
 ): EmployeeReconciliationTrace {
   return {
     traceId,
     generatedAt,
     tenantId,
-    employeeId,
-    employeeName: 'Unknown',
-    employeeRole: 'Unknown',
+    entityId,
+    entityName: 'Unknown',
+    entityRole: 'Unknown',
     isCertified: false,
     period: { month: null, year: null, formatted: '?/?' },
     dataLoading: {
@@ -603,9 +603,9 @@ function createErrorTrace(
       componentMetrics: {},
     },
     planResolution: {
-      planId: '',
-      planName: '',
-      planType: '',
+      ruleSetId: '',
+      ruleSetName: '',
+      ruleSetType: '',
       planStatus: '',
       totalPlansForTenant: 0,
       selectionMethod: 'None - Error occurred',
@@ -676,10 +676,10 @@ function findTierForValue(tiers: Tier[], value: number): Tier {
  */
 export function generateBatchTraces(
   tenantId: string,
-  employeeIds: string[],
+  entityIds: string[],
   planIdOverride?: string
 ): EmployeeReconciliationTrace[] {
-  return employeeIds.map(id => generateEmployeeTrace(tenantId, id, planIdOverride)).filter(Boolean) as EmployeeReconciliationTrace[];
+  return entityIds.map(id => generateEmployeeTrace(tenantId, id, planIdOverride)).filter(Boolean) as EmployeeReconciliationTrace[];
 }
 
 /**

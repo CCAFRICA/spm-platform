@@ -5,7 +5,7 @@
  * Uses worked examples from the original plan document.
  */
 
-import type { EmployeeMetrics } from './calculation-engine';
+import type { EntityMetrics } from './calculation-engine';
 import { calculateIncentive } from './calculation-engine';
 import { savePlan, getPlan } from './plan-storage';
 import { createRetailCGMXUnifiedPlan } from './retailcgmx-plan';
@@ -24,11 +24,11 @@ import { createRetailCGMXUnifiedPlan } from './retailcgmx-plan';
  * - Warranty: $4,276 sales → $171 (at 4%)
  * - TOTAL: $2,335
  */
-export function getCertifiedWorkedExample(): EmployeeMetrics {
+export function getCertifiedWorkedExample(): EntityMetrics {
   return {
-    employeeId: 'optometrista-certificado-ejemplo',
-    employeeName: 'Juan García (Certificado)',
-    employeeRole: 'optometrista',
+    entityId: 'optometrista-certificado-ejemplo',
+    entityName: 'Juan García (Certificado)',
+    entityRole: 'optometrista',
     storeId: 'store-cgmx-001',
     storeName: 'Tienda Centro CDMX',
     isCertified: true,
@@ -75,11 +75,11 @@ export function getCertifiedWorkedExample(): EmployeeMetrics {
  * - Warranty: $4,276 → $171
  * - TOTAL: $1,585
  */
-export function getNonCertifiedWorkedExample(): EmployeeMetrics {
+export function getNonCertifiedWorkedExample(): EntityMetrics {
   return {
-    employeeId: 'optometrista-no-certificado-ejemplo',
-    employeeName: 'María López (No Certificado)',
-    employeeRole: 'optometrista',
+    entityId: 'optometrista-no-certificado-ejemplo',
+    entityName: 'María López (No Certificado)',
+    entityRole: 'optometrista',
     storeId: 'store-cgmx-001',
     storeName: 'Tienda Centro CDMX',
     isCertified: false,
@@ -136,15 +136,15 @@ export interface ValidationResult {
 
 export function validateCertifiedExample(): ValidationResult {
   // Ensure plan is saved
-  const planId = 'plan-retailcgmx-unified-2025';
-  let plan = getPlan(planId);
+  const ruleSetId = 'plan-retailcgmx-unified-2025';
+  let plan = getPlan(ruleSetId);
   if (!plan) {
     plan = createRetailCGMXUnifiedPlan();
     savePlan(plan);
   }
 
   const metrics = getCertifiedWorkedExample();
-  const result = calculateIncentive(metrics, 'retailcgmx', planId);
+  const result = calculateIncentive(metrics, 'retailcgmx', ruleSetId);
 
   const expectedComponents = [
     { name: 'Venta Óptica', expected: 1500 },
@@ -180,15 +180,15 @@ export function validateCertifiedExample(): ValidationResult {
 
 export function validateNonCertifiedExample(): ValidationResult {
   // Ensure plan is saved
-  const planId = 'plan-retailcgmx-unified-2025';
-  let plan = getPlan(planId);
+  const ruleSetId = 'plan-retailcgmx-unified-2025';
+  let plan = getPlan(ruleSetId);
   if (!plan) {
     plan = createRetailCGMXUnifiedPlan();
     savePlan(plan);
   }
 
   const metrics = getNonCertifiedWorkedExample();
-  const result = calculateIncentive(metrics, 'retailcgmx', planId);
+  const result = calculateIncentive(metrics, 'retailcgmx', ruleSetId);
 
   const expectedComponents = [
     { name: 'Venta Óptica', expected: 750 },

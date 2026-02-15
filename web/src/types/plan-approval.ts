@@ -10,9 +10,9 @@ export type ReviewerRole = 'manager' | 'finance' | 'executive' | 'admin';
 
 export interface PlanApprovalRequest {
   id: string;
-  planId: string;
-  planName: string;
-  planVersion: number;
+  ruleSetId: string;
+  ruleSetName: string;
+  ruleSetVersion: number;
   tenantId: string;
 
   // Current state
@@ -207,8 +207,8 @@ export const REVIEWER_ROLES: Record<ReviewerRole, {
 // Summary type for list views
 export interface PlanApprovalSummary {
   id: string;
-  planId: string;
-  planName: string;
+  ruleSetId: string;
+  ruleSetName: string;
   stage: ApprovalStage;
   status: PlanApprovalRequest['status'];
   requesterName: string;

@@ -59,7 +59,7 @@ export interface PayrollPeriod {
     startedAt?: string;
     completedAt?: string;
     calculationsRun: number;
-    employeesProcessed: number;
+    entitiesProcessed: number;
     totalPayout: number;
     currency: string;
   };
@@ -224,7 +224,7 @@ export interface JurisdictionalRuleConfig {
  * Resolved rules for an employee based on their jurisdictions
  */
 export interface ResolvedRules {
-  employeeId: string;
+  entityId: string;
   evaluatedAt: string;
 
   // Applicable jurisdictions
@@ -304,7 +304,7 @@ export interface PeriodCalculationSummary {
   // By department
   byDepartment: Array<{
     department: string;
-    employeeCount: number;
+    entityCount: number;
     totalPayout: number;
   }>;
 
@@ -339,7 +339,7 @@ export interface PeriodApproval {
 
   // Amounts
   totalPayout: number;
-  employeeCount: number;
+  entityCount: number;
 
   // Deadline
   deadline?: string;

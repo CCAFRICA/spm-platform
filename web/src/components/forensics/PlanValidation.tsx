@@ -27,14 +27,14 @@ import {
   Grid3X3,
 } from 'lucide-react';
 import type {
-  CompensationPlanConfig,
+  RuleSetConfig,
   AdditiveLookupConfig,
   PlanComponent,
   PlanVariant,
 } from '@/types/compensation-plan';
 
 interface PlanValidationProps {
-  plan: CompensationPlanConfig;
+  plan: RuleSetConfig;
 }
 
 interface ValidationIssue {
@@ -75,7 +75,7 @@ export function PlanValidation({ plan }: PlanValidationProps) {
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
               <span className="text-slate-500">Plan Type:</span>
-              <span className="ml-2 font-medium">{plan.planType}</span>
+              <span className="ml-2 font-medium">{plan.ruleSetType}</span>
             </div>
             <div>
               <span className="text-slate-500">Variants:</span>
@@ -244,7 +244,7 @@ function ComponentStructure({ component }: { component: PlanComponent }) {
  * Validate plan structure and return issues.
  * All component names come from the plan data.
  */
-function validatePlan(plan: CompensationPlanConfig): ValidationIssue[] {
+function validatePlan(plan: RuleSetConfig): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const config = plan.configuration;
 

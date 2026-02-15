@@ -64,11 +64,11 @@ const techCorpTrendData = [
 ];
 
 const techCorpPaymentHistory = [
-  { id: 1, date: '2024-12-15', employee: 'Sarah Chen', amount: 7500, planType: 'Accelerator', status: 'completed' },
-  { id: 2, date: '2024-12-14', employee: 'Marcus Johnson', amount: 6200, planType: 'Accelerator', status: 'completed' },
-  { id: 3, date: '2024-12-14', employee: 'Emily Rodriguez', amount: 2100, planType: 'Tiered', status: 'completed' },
-  { id: 4, date: '2024-12-13', employee: 'David Kim', amount: 8900, planType: 'Accelerator', status: 'processing' },
-  { id: 5, date: '2024-12-12', employee: 'Lisa Thompson', amount: 4500, planType: 'Tiered', status: 'completed' },
+  { id: 1, date: '2024-12-15', employee: 'Sarah Chen', amount: 7500, ruleSetType: 'Accelerator', status: 'completed' },
+  { id: 2, date: '2024-12-14', employee: 'Marcus Johnson', amount: 6200, ruleSetType: 'Accelerator', status: 'completed' },
+  { id: 3, date: '2024-12-14', employee: 'Emily Rodriguez', amount: 2100, ruleSetType: 'Tiered', status: 'completed' },
+  { id: 4, date: '2024-12-13', employee: 'David Kim', amount: 8900, ruleSetType: 'Accelerator', status: 'processing' },
+  { id: 5, date: '2024-12-12', employee: 'Lisa Thompson', amount: 4500, ruleSetType: 'Tiered', status: 'completed' },
 ];
 
 interface HospitalityData {
@@ -369,10 +369,10 @@ export default function CompensationPage() {
                         <TableCell className="font-medium text-slate-900 dark:text-slate-50">{payment.employee}</TableCell>
                         <TableCell>
                           <Badge variant="secondary" className={
-                            payment.planType === 'Accelerator' ? 'bg-indigo-100 text-indigo-700' :
-                            payment.planType === 'Tiered' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'
+                            payment.ruleSetType === 'Accelerator' ? 'bg-indigo-100 text-indigo-700' :
+                            payment.ruleSetType === 'Tiered' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'
                           }>
-                            {payment.planType}
+                            {payment.ruleSetType}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right font-semibold text-slate-900 dark:text-slate-50">

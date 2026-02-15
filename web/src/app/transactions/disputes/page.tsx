@@ -241,7 +241,7 @@ export default function DisputeQueuePage() {
                           <User className="h-4 w-4 text-muted-foreground" />
                         </div>
                         <div>
-                          <div className="font-medium">{dispute.employeeName}</div>
+                          <div className="font-medium">{dispute.entityName}</div>
                           <div className="text-xs text-muted-foreground">{dispute.storeName}</div>
                         </div>
                       </div>

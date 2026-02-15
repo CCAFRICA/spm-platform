@@ -68,7 +68,7 @@ export default function DesignPage() {
       .slice(0, 5);
 
     const activity = sortedChanges.map(change => {
-      const plan = plans.find(p => p.id === change.planId);
+      const plan = plans.find(p => p.id === change.ruleSetId);
       const timeAgo = formatTimeAgo(new Date(change.changedAt));
       return {
         action: change.changeType === 'status_changed' ? 'Status changed' :

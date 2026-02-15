@@ -29,7 +29,7 @@ export interface OrganizationalUnit {
 }
 
 // Compensation Types
-export interface CompensationPlan {
+export interface RuleSet {
   id: string;
   name: string;
   type: 'basic' | 'tiered' | 'accelerator' | 'team_based' | 'executive';

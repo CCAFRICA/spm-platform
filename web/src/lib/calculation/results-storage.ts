@@ -25,9 +25,9 @@ export interface CalculationRun {
   tenantId: string;
   period: string;  // YYYY-MM format
   status: CalculationStatus;
-  planId: string;
-  planName: string;
-  planVersion: number;
+  ruleSetId: string;
+  ruleSetName: string;
+  ruleSetVersion: number;
 
   // Summary stats
   totalEmployees: number;
@@ -104,9 +104,9 @@ export function getPublishedRun(tenantId: string, period: string): CalculationRu
 export function createCalculationRun(params: {
   tenantId: string;
   period: string;
-  planId: string;
-  planName: string;
-  planVersion: number;
+  ruleSetId: string;
+  ruleSetName: string;
+  ruleSetVersion: number;
   totalEmployees: number;
   totalPayout: number;
   currency: string;
@@ -121,9 +121,9 @@ export function createCalculationRun(params: {
     tenantId: params.tenantId,
     period: params.period,
     status: 'preview',
-    planId: params.planId,
-    planName: params.planName,
-    planVersion: params.planVersion,
+    ruleSetId: params.ruleSetId,
+    ruleSetName: params.ruleSetName,
+    ruleSetVersion: params.ruleSetVersion,
     totalEmployees: params.totalEmployees,
     totalPayout: params.totalPayout,
     currency: params.currency,
@@ -419,9 +419,9 @@ export function getCalculationResults(runId: string): CalculationResult[] {
 /**
  * Get a single employee's result from a run
  */
-export function getEmployeeResult(runId: string, employeeId: string): CalculationResult | null {
+export function getEmployeeResult(runId: string, entityId: string): CalculationResult | null {
   const results = getCalculationResults(runId);
-  return results.find((r) => r.employeeId === employeeId) || null;
+  return results.find((r) => r.entityId === entityId) || null;
 }
 
 /**
@@ -431,7 +431,7 @@ export function getEmployeeResult(runId: string, employeeId: string): Calculatio
 export function getPublishedEmployeeResult(
   tenantId: string,
   period: string,
-  employeeId: string
+  entityId: string
 ): CalculationResult | null {
   const run = getPublishedRun(tenantId, period);
   if (!run) {
@@ -439,7 +439,7 @@ export function getPublishedEmployeeResult(
     return null;
   }
 
-  return getEmployeeResult(run.id, employeeId);
+  return getEmployeeResult(run.id, entityId);
 }
 
 /**
@@ -448,14 +448,14 @@ export function getPublishedEmployeeResult(
 export function getLatestEmployeeResult(
   tenantId: string,
   period: string,
-  employeeId: string
+  entityId: string
 ): { result: CalculationResult | null; status: CalculationStatus | null } {
   const run = getLatestRun(tenantId, period);
   if (!run) {
     return { result: null, status: null };
   }
 
-  const result = getEmployeeResult(run.id, employeeId);
+  const result = getEmployeeResult(run.id, entityId);
   return { result, status: run.status };
 }
 

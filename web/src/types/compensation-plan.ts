@@ -1,25 +1,25 @@
 /**
- * Compensation Plan Types - ViaLuce SPM Platform
+ * Rule Set Types - ViaLuce SPM Platform
  *
- * Supports two plan types:
+ * Supports two rule set types:
  * 1. additive_lookup - RetailCo style (matrix + tier lookups)
  * 2. weighted_kpi - TechCorp style (KPI weights + multiplier curves)
  */
 
 // ============================================
-// PLAN METADATA
+// RULE SET METADATA
 // ============================================
 
-export type PlanType = 'weighted_kpi' | 'additive_lookup';
-export type PlanStatus = 'draft' | 'pending_approval' | 'active' | 'archived';
+export type RuleSetType = 'weighted_kpi' | 'additive_lookup';
+export type RuleSetStatus = 'draft' | 'pending_approval' | 'active' | 'archived';
 
-export interface CompensationPlanConfig {
+export interface RuleSetConfig {
   id: string;
   tenantId: string;
   name: string;
   description: string;
-  planType: PlanType;
-  status: PlanStatus;
+  ruleSetType: RuleSetType;
+  status: RuleSetStatus;
   effectiveDate: string;
   endDate: string | null;
   eligibleRoles: string[];
@@ -203,7 +203,7 @@ export interface CalculationStep {
   sourceData?: {
     sheetName: string;           // Which data sheet the metrics came from
     columns: Record<string, string>; // metric name -> column name used
-    rowIdentifier?: string;      // How the employee row was matched
+    rowIdentifier?: string;      // How the entity row was matched
   };
   // OB-27: Component trace for diagnosing calculation chain failures
   componentTrace?: {
@@ -221,28 +221,20 @@ export interface CalculationStep {
 }
 
 export interface CalculationResult {
-  // Entity model fields (canonical)
-  entityId?: string;
-  entityName?: string;
-  entityRole?: string;
-  ruleSetId?: string;
-  ruleSetName?: string;
+  entityId: string;
+  entityName: string;
+  entityRole: string;
+  ruleSetId: string;
+  ruleSetName: string;
   totalOutcome?: number;
-
-  // Legacy fields (backward-compatible — will be removed in future)
-  employeeId: string;
-  employeeName: string;
-  employeeRole: string;
   departmentId?: string;
   departmentName?: string;
   storeId?: string;
   storeName?: string;
   managerId?: string;
   hireDate?: string;
-  planId: string;
-  planName: string;
-  planVersion: number;
-  planType: PlanType;
+  ruleSetVersion: number;
+  ruleSetType: RuleSetType;
   variantId?: string;
   variantName?: string;
   period: string;
@@ -256,22 +248,22 @@ export interface CalculationResult {
 }
 
 // ============================================
-// PLAN HISTORY & AUDIT
+// RULE SET HISTORY & AUDIT
 // ============================================
 
-export interface PlanChangeRecord {
+export interface RuleSetChangeRecord {
   id: string;
-  planId: string;
+  ruleSetId: string;
   previousVersion: number;
   newVersion: number;
   changeType: 'created' | 'modified' | 'status_changed' | 'approved' | 'archived';
-  changes: PlanChange[];
+  changes: RuleSetChange[];
   changedBy: string;
   changedAt: string;
   notes?: string;
 }
 
-export interface PlanChange {
+export interface RuleSetChange {
   path: string;
   componentId?: string;
   componentName?: string;
@@ -284,11 +276,11 @@ export interface PlanChange {
 // HELPER TYPES
 // ============================================
 
-export interface PlanSummary {
+export interface RuleSetSummary {
   id: string;
   name: string;
-  planType: PlanType;
-  status: PlanStatus;
+  ruleSetType: RuleSetType;
+  status: RuleSetStatus;
   effectiveDate: string;
   endDate: string | null;
   eligibleRoles: string[];
@@ -302,20 +294,3 @@ export function isAdditiveLookupConfig(config: AdditiveLookupConfig | WeightedKP
 export function isWeightedKPIConfig(config: AdditiveLookupConfig | WeightedKPIConfig): config is WeightedKPIConfig {
   return config.type === 'weighted_kpi';
 }
-
-// ============================================
-// ENTITY MODEL ALIASES (OB-42 Phase 11)
-// Backward-compatible: old names still work
-// ============================================
-
-/** @alias CompensationPlanConfig — Entity model canonical name */
-export type RuleSetConfig = CompensationPlanConfig;
-
-/** @alias PlanStatus — Entity model canonical name */
-export type RuleSetStatus = PlanStatus;
-
-/** @alias PlanType — Entity model canonical name */
-export type RuleSetType = PlanType;
-
-/** @alias PlanSummary — Entity model canonical name */
-export type RuleSetSummary = PlanSummary;

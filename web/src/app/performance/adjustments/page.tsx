@@ -29,8 +29,8 @@ const adjustments = [
   {
     id: "ADJ-001",
     type: "manual_credit",
-    employeeId: "maria-rodriguez",
-    employeeName: "Maria Rodriguez",
+    entityId: "maria-rodriguez",
+    entityName: "Maria Rodriguez",
     amount: 150.00,
     reason: "Customer referral bonus",
     period: "2025-01",
@@ -43,8 +43,8 @@ const adjustments = [
   {
     id: "ADJ-002",
     type: "correction",
-    employeeId: "james-wilson",
-    employeeName: "James Wilson",
+    entityId: "james-wilson",
+    entityName: "James Wilson",
     amount: -85.00,
     reason: "Duplicate transaction correction",
     period: "2025-01",
@@ -55,8 +55,8 @@ const adjustments = [
   {
     id: "ADJ-003",
     type: "quota_adjustment",
-    employeeId: "sarah-chen",
-    employeeName: "Sarah Chen",
+    entityId: "sarah-chen",
+    entityName: "Sarah Chen",
     amount: 0,
     quotaChange: -5000,
     reason: "Territory realignment",
@@ -68,8 +68,8 @@ const adjustments = [
   {
     id: "ADJ-004",
     type: "spiff",
-    employeeId: "maria-rodriguez",
-    employeeName: "Maria Rodriguez",
+    entityId: "maria-rodriguez",
+    entityName: "Maria Rodriguez",
     amount: 250.00,
     reason: "Product launch promotion",
     period: "2025-01",
@@ -82,8 +82,8 @@ const adjustments = [
   {
     id: "ADJ-005",
     type: "manual_credit",
-    employeeId: "james-wilson",
-    employeeName: "James Wilson",
+    entityId: "james-wilson",
+    entityName: "James Wilson",
     amount: 320.00,
     reason: "Split transaction reattribution",
     period: "2025-01",
@@ -120,7 +120,7 @@ export default function AdjustmentsPage() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
-        adj.employeeName.toLowerCase().includes(query) ||
+        adj.entityName.toLowerCase().includes(query) ||
         adj.reason.toLowerCase().includes(query) ||
         adj.id.toLowerCase().includes(query)
       );
@@ -287,7 +287,7 @@ export default function AdjustmentsPage() {
                           </h4>
                           <div className="flex items-center gap-2 mt-1 text-sm text-slate-500">
                             <User className="h-3.5 w-3.5" />
-                            {adj.employeeName}
+                            {adj.entityName}
                             <span className="text-slate-300">|</span>
                             Period: {adj.period}
                           </div>

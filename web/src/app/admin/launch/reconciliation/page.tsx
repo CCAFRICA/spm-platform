@@ -141,7 +141,7 @@ const labels = {
     accessDenied: 'Access Denied',
     accessDeniedDesc: 'You must be a VL Admin to access this page.',
     fieldMapping: 'Field Mapping',
-    employeeIdField: 'Employee ID Field',
+    entityIdField: 'Employee ID Field',
     amountField: 'Amount Field',
     autoDetected: 'Auto-detected',
     // HF-021 Phase 1 additions
@@ -233,7 +233,7 @@ const labels = {
     accessDenied: 'Acceso Denegado',
     accessDeniedDesc: 'Debe ser un VL Admin para acceder a esta pagina.',
     fieldMapping: 'Mapeo de Campos',
-    employeeIdField: 'Campo de ID de Empleado',
+    entityIdField: 'Campo de ID de Empleado',
     amountField: 'Campo de Monto',
     autoDetected: 'Auto-detectado',
     // HF-021 Phase 1 additions
@@ -296,7 +296,7 @@ interface CalculationBatch {
   runType: string;
   completedAt: string;
   totalPayout: number;
-  employeesProcessed: number;
+  entitiesProcessed: number;
 }
 
 export default function ReconciliationPage() {
@@ -318,7 +318,7 @@ export default function ReconciliationPage() {
   const [mappingConfirmed, setMappingConfirmed] = useState(false);
 
   // Field mapping state (derived from AI or manual)
-  const [employeeIdField, setEmployeeIdField] = useState<string>('');
+  const [entityIdField, setEmployeeIdField] = useState<string>('');
   const [amountField, setAmountField] = useState<string>('');
 
   // Batch & reconciliation state
@@ -360,14 +360,14 @@ export default function ReconciliationPage() {
         runType: r.runType,
         completedAt: r.completedAt || r.startedAt,
         totalPayout: r.totalPayout || 0,
-        employeesProcessed: r.processedEmployees,
+        entitiesProcessed: r.processedEmployees,
       }))
     );
   }, [currentTenant]);
 
   // OB-39: Run depth assessment when file, mappings, and VL results are available
   useEffect(() => {
-    if (!currentTenant || !parsedFile || !employeeIdField || !amountField) {
+    if (!currentTenant || !parsedFile || !entityIdField || !amountField) {
       setDepthAssessment(null);
       return;
     }
@@ -386,7 +386,7 @@ export default function ReconciliationPage() {
       vlResults,
       fileRows: parsedFile.rows,
       mappings: aiMappings,
-      employeeIdField,
+      entityIdField,
       totalAmountField: amountField,
     });
 
@@ -394,7 +394,7 @@ export default function ReconciliationPage() {
     console.log('[Reconciliation] Depth assessment:', assessment.maxDepth,
       'layers:', assessment.layers.map(l => `${l.layer}=${l.status}`).join(', '),
       'falseGreenRisk:', assessment.falseGreenRisk);
-  }, [currentTenant, parsedFile, employeeIdField, amountField, selectedBatch, batches, aiMappings]);
+  }, [currentTenant, parsedFile, entityIdField, amountField, selectedBatch, batches, aiMappings]);
 
   // ============================================
   // HF-021 Phase 1: Smart File Processing
@@ -501,7 +501,7 @@ export default function ReconciliationPage() {
         if (totalAmt) setAmountField(totalAmt);
 
         // OB-39: Auto-confirm mapping when both critical fields mapped with high confidence
-        const empMapping = boostedMappings.find(m => m.mappedTo === 'employee_id');
+        const empMapping = boostedMappings.find(m => m.mappedTo === 'entity_id');
         const amtMapping = boostedMappings.find(m => m.mappedTo === 'total_amount');
         if (empMapping && empMapping.confidence >= 0.85 && amtMapping && amtMapping.confidence >= 0.85) {
           setMappingConfirmed(true);
@@ -513,7 +513,7 @@ export default function ReconciliationPage() {
         // AI unavailable -- check if prior signals can map fields directly
         const priorMappings = getConfidentMappings(currentTenant.id, 0.85);
         if (priorMappings.length > 0) {
-          const empSignal = priorMappings.find(m => m.semanticType === 'employee_id');
+          const empSignal = priorMappings.find(m => m.semanticType === 'entity_id');
           const amtSignal = priorMappings.find(m => m.semanticType === 'total_amount');
           const matchedEmp = empSignal && parsed.headers.some(h => h.toLowerCase() === empSignal.fieldName.toLowerCase());
           const matchedAmt = amtSignal && parsed.headers.some(h => h.toLowerCase() === amtSignal.fieldName.toLowerCase());
@@ -521,7 +521,7 @@ export default function ReconciliationPage() {
           if (matchedAmt && amtSignal) setAmountField(amtSignal.fieldName);
           if (matchedEmp && matchedAmt) setMappingConfirmed(true);
         }
-        if (!employeeIdField && !amountField) {
+        if (!entityIdField && !amountField) {
           autoDetectFields(parsed);
         }
       }
@@ -582,8 +582,8 @@ export default function ReconciliationPage() {
   // ============================================
 
   const handleRunComparison = () => {
-    if (!currentTenant || !parsedFile || !employeeIdField || !amountField) {
-      console.warn('[Reconciliation] Guard failed:', { currentTenant: !!currentTenant, parsedFile: !!parsedFile, employeeIdField, amountField });
+    if (!currentTenant || !parsedFile || !entityIdField || !amountField) {
+      console.warn('[Reconciliation] Guard failed:', { currentTenant: !!currentTenant, parsedFile: !!parsedFile, entityIdField, amountField });
       return;
     }
 
@@ -609,7 +609,7 @@ export default function ReconciliationPage() {
           parsedFile.rows,
           vlResults,
           aiMappings,
-          employeeIdField,
+          entityIdField,
           amountField,
         );
 
@@ -688,17 +688,17 @@ export default function ReconciliationPage() {
 
   // OB-39 Phase 6: Set of false green employee IDs for visual distinction
   const falseGreenIds = new Set(
-    adaptiveResult?.falseGreens.map(fg => fg.employeeId) ?? []
+    adaptiveResult?.falseGreens.map(fg => fg.entityId) ?? []
   );
 
   // OB-39 Phase 6: Toggle expandable row
-  const toggleRow = (employeeId: string) => {
+  const toggleRow = (entityId: string) => {
     setExpandedRows(prev => {
       const next = new Set(prev);
-      if (next.has(employeeId)) {
-        next.delete(employeeId);
+      if (next.has(entityId)) {
+        next.delete(entityId);
       } else {
-        next.add(employeeId);
+        next.add(entityId);
       }
       return next;
     });
@@ -754,15 +754,15 @@ export default function ReconciliationPage() {
     // Data rows
     for (const emp of comparisonResult.employees) {
       const row = [
-        emp.employeeId,
-        emp.employeeName,
+        emp.entityId,
+        emp.entityName,
         emp.population,
         emp.fileTotal.toString(),
         emp.vlTotal.toString(),
         emp.totalDelta.toString(),
         (emp.totalDeltaPercent * 100).toFixed(2) + '%',
         emp.totalFlag,
-        falseGreenIds.has(emp.employeeId) ? 'YES' : '',
+        falseGreenIds.has(emp.entityId) ? 'YES' : '',
       ];
 
       if (hasComponents) {
@@ -976,17 +976,17 @@ export default function ReconciliationPage() {
                 <p className="text-sm font-medium">{t.fieldMapping}</p>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-1">
-                    <Label className="text-xs">{t.employeeIdField}</Label>
-                    <Select value={employeeIdField} onValueChange={(val) => {
+                    <Label className="text-xs">{t.entityIdField}</Label>
+                    <Select value={entityIdField} onValueChange={(val) => {
                       setEmployeeIdField(val);
                       // Record correction signal for closed-loop learning
                       if (currentTenant) {
                         const aiSuggested = getEmployeeIdMapping(aiMappings);
                         if (aiSuggested && aiSuggested !== val) {
                           if (aiMappingResult?.signalId) {
-                            recordMappingFeedback(aiMappingResult.signalId, 'corrected', { employee_id: val }, currentTenant.id);
+                            recordMappingFeedback(aiMappingResult.signalId, 'corrected', { entity_id: val }, currentTenant.id);
                           }
-                          recordUserCorrection(currentTenant.id, 'reconciliation', val, 'employee_id');
+                          recordUserCorrection(currentTenant.id, 'reconciliation', val, 'entity_id');
                         }
                       }
                     }}>
@@ -1074,7 +1074,7 @@ export default function ReconciliationPage() {
                       : '';
                     return (
                       <SelectItem key={batch.id} value={batch.id}>
-                        {batch.periodId} - {runLabel} | {dateStr} | {batch.employeesProcessed} {t.employees} | {formatCurrency(batch.totalPayout)}
+                        {batch.periodId} - {runLabel} | {dateStr} | {batch.entitiesProcessed} {t.employees} | {formatCurrency(batch.totalPayout)}
                       </SelectItem>
                     );
                   })
@@ -1120,7 +1120,7 @@ export default function ReconciliationPage() {
             <Button
               className="w-full mt-4"
               onClick={handleRunComparison}
-              disabled={!parsedFile || !employeeIdField || !amountField || isRunning}
+              disabled={!parsedFile || !entityIdField || !amountField || isRunning}
             >
               {isRunning ? (
                 <>
@@ -1393,11 +1393,11 @@ export default function ReconciliationPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredEmployees.slice(0, 20).map((emp) => {
-                    const isFalseGreen = falseGreenIds.has(emp.employeeId);
-                    const isExpanded = expandedRows.has(emp.employeeId);
+                    const isFalseGreen = falseGreenIds.has(emp.entityId);
+                    const isExpanded = expandedRows.has(emp.entityId);
                     const hasComponents = emp.components.length > 0;
                     return (
-                      <React.Fragment key={emp.employeeId}>
+                      <React.Fragment key={emp.entityId}>
                         <TableRow className={cn(
                           isFalseGreen && 'bg-amber-50/50 dark:bg-amber-900/10'
                         )}>
@@ -1406,7 +1406,7 @@ export default function ReconciliationPage() {
                               {hasComponents && (
                                 <button
                                   className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
-                                  onClick={() => toggleRow(emp.employeeId)}
+                                  onClick={() => toggleRow(emp.entityId)}
                                 >
                                   {isExpanded
                                     ? <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
@@ -1415,8 +1415,8 @@ export default function ReconciliationPage() {
                                 </button>
                               )}
                               <div>
-                                <p className="font-medium">{emp.employeeName}</p>
-                                <p className="text-xs text-slate-400">{emp.employeeId}</p>
+                                <p className="font-medium">{emp.entityName}</p>
+                                <p className="text-xs text-slate-400">{emp.entityId}</p>
                               </div>
                             </div>
                           </TableCell>
@@ -1507,9 +1507,9 @@ export default function ReconciliationPage() {
           {selectedEmployee && (
             <>
               <DialogHeader>
-                <DialogTitle>{selectedEmployee.employeeName}</DialogTitle>
+                <DialogTitle>{selectedEmployee.entityName}</DialogTitle>
                 <DialogDescription className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">{selectedEmployee.employeeId}</span>
+                  <span className="text-xs text-slate-400">{selectedEmployee.entityId}</span>
                   {getFlagBadge(selectedEmployee)}
                 </DialogDescription>
               </DialogHeader>

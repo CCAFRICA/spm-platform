@@ -603,16 +603,16 @@ function getAllFieldsForSemantic(
 
 /**
  * Sheet topology types derived from AI semantic mappings
- * - roster: Has employeeId, represents employee master data
- * - employee_component: Has employeeId, performance data joined by employee
- * - store_component: Has storeId but NO employeeId, needs join through roster's storeId
+ * - roster: Has entityId, represents employee master data
+ * - employee_component: Has entityId, performance data joined by employee
+ * - store_component: Has storeId but NO entityId, needs join through roster's storeId
  */
 type SheetTopology = 'roster' | 'employee_component' | 'store_component';
 
 interface ClassifiedSheet {
   sheetName: string;
   topology: SheetTopology;
-  joinField: 'employeeId' | 'storeId';
+  joinField: 'entityId' | 'storeId';
   hasEmployeeId: boolean;
   hasStoreId: boolean;
   hasPeriod: boolean;
@@ -620,7 +620,7 @@ interface ClassifiedSheet {
 
 /**
  * OB-24 R9: Classify sheets by topology using AI semantic mappings
- * Derives join type from semantic types: employeeId presence → employee join, storeId only → store join
+ * Derives join type from semantic types: entityId presence → employee join, storeId only → store join
  */
 function classifySheets(
   aiContext: { sheets: Array<{ sheetName?: string; name?: string; classification?: string; fieldMappings?: Array<{ semanticType: string }> }> } | null
@@ -640,14 +640,14 @@ function classifySheets(
 
     // Determine topology from AI classification + semantic types
     let topology: SheetTopology;
-    let joinField: 'employeeId' | 'storeId';
+    let joinField: 'entityId' | 'storeId';
 
     if (sheet.classification === 'roster') {
       topology = 'roster';
-      joinField = 'employeeId';
+      joinField = 'entityId';
     } else if (hasEmployeeId) {
       topology = 'employee_component';
-      joinField = 'employeeId';
+      joinField = 'entityId';
     } else if (hasStoreId) {
       topology = 'store_component';
       joinField = 'storeId';
@@ -695,8 +695,8 @@ function storeAggregatedData(
   tenantId: string,
   batchId: string,
   records: Array<{ content: Record<string, unknown> }>
-): { employeeCount: number; sizeKB: number } {
-  if (typeof window === 'undefined') return { employeeCount: 0, sizeKB: 0 };
+): { entityCount: number; sizeKB: number } {
+  if (typeof window === 'undefined') return { entityCount: 0, sizeKB: 0 };
 
   // AI-DRIVEN: Load AI import context for field mappings
   const aiContext = loadImportContext(tenantId);
@@ -800,7 +800,7 @@ function storeAggregatedData(
 
   for (const row of rosterRecords) {
     // AI-DRIVEN: Get employee ID using ONLY AI semantic mapping (NO HARDCODED FALLBACKS)
-    const empId = getFieldValue(row, ['employeeId', 'employee_id']);
+    const empId = getFieldValue(row, ['entityId', 'entity_id']);
     if (!empId || empId.length < 3 || empId === 'undefined' || empId === 'null') continue;
 
     // OB-24 R9: Use resolvePeriodFromRecord for multi-field period extraction
@@ -811,9 +811,9 @@ function storeAggregatedData(
 
     if (!employeeMap.has(key)) {
       employeeMap.set(key, {
-        employeeId: empId,
+        entityId: empId,
         // AI-DRIVEN: Extract identity fields using ONLY AI semantic mappings
-        name: getFieldValue(row, ['name', 'employeeName', 'fullName']),
+        name: getFieldValue(row, ['name', 'entityName', 'fullName']),
         role: getFieldValue(row, ['role', 'position', 'employeeType', 'jobTitle']),
         // OB-28: Use fallback patterns for storeId (consistent with component sheet extraction)
         storeId: getFieldValueWithFallback(row, ['storeId', 'locationId', 'store'], [
@@ -838,7 +838,7 @@ function storeAggregatedData(
     console.log(`[DataLayer] OB-28 Roster storeId: ${storeIdCount}/${employeeMap.size} employees have storeId`);
     if (storeIdCount < employeeMap.size / 2) {
       console.warn(`[DataLayer] OB-28 WARNING: Less than half of employees have storeId. Store attribution may fail.`);
-      console.log(`[DataLayer] OB-28 Sample employees: ${sampleEmps.map(e => `${e.employeeId}:storeId="${e.storeId || 'EMPTY'}"`).join(', ')}`);
+      console.log(`[DataLayer] OB-28 Sample employees: ${sampleEmps.map(e => `${e.entityId}:storeId="${e.storeId || 'EMPTY'}"`).join(', ')}`);
     }
   }
 
@@ -847,20 +847,20 @@ function storeAggregatedData(
     console.warn('[DataLayer] NO EMPLOYEES FOUND - AI import context may be missing or roster sheet not identified.');
     console.warn('[DataLayer] Please re-import data with AI analysis to generate proper field mappings.');
     // Return early with empty result rather than using hardcoded column names
-    return { employeeCount: 0, sizeKB: 0 };
+    return { entityCount: 0, sizeKB: 0 };
   }
 
   // STEP 3: Build componentMetrics - AI-DRIVEN extraction of attainment/amount/goal per sheet
   // OB-24 R8: Added attainmentSource to track 'source' vs 'computed' attainment
   // OB-27B: Extended with Carry Everything - preserves ALL numeric fields
-  // Key: employeeId -> sheetName -> { attainment, attainmentSource, amount, goal, _rawFields }
+  // Key: entityId -> sheetName -> { attainment, attainmentSource, amount, goal, _rawFields }
   const empComponentMetrics = new Map<string, Map<string, MergedMetrics>>();
   // Key: storeId -> sheetName -> { attainment, attainmentSource, amount, goal, _rawFields }
   const storeComponentMetrics = new Map<string, Map<string, MergedMetrics>>();
 
   // AI-DRIVEN: Helper to find column by semantic type from AI Import Context
   // OB-24 R4: Simplified to use ONLY the AI's semantic types (not column names)
-  // AI outputs exactly: employeeId|storeId|date|period|amount|goal|attainment|quantity|role
+  // AI outputs exactly: entityId|storeId|date|period|amount|goal|attainment|quantity|role
   const getSheetFieldBySemantic = (sheetName: string, semanticType: string): string | null => {
     if (!aiContext?.sheets) return null;
 
@@ -900,7 +900,7 @@ function storeAggregatedData(
   // OB-24 R9: isStoreJoinSheet removed - replaced by classifySheets() and sheetTopology lookup
 
   // OB-24 R9: Get roster's join field names for join-field-preference
-  // When a component sheet has multiple fields mapped as employeeId/storeId,
+  // When a component sheet has multiple fields mapped as entityId/storeId,
   // prefer the field whose name matches the roster's field
   const rosterEmpIdField = rosterSheetInfo?.fieldMappings?.find(
     fm => fm.semanticType?.toLowerCase() === 'employeeid'
@@ -1189,9 +1189,9 @@ function storeAggregatedData(
     const sheetName = String(content['_sheetName'] || 'unknown');
 
     // OB-24 R4: Use ONLY the AI's actual semantic types
-    // AI outputs exactly: employeeId|storeId|date|period|amount|goal|attainment|quantity|role
-    // OB-24 R9: Use join-field-preference for employeeId/storeId to match roster's field names
-    const empIdField = getJoinFieldWithPreference(sheetName, 'employeeId', rosterEmpIdField);
+    // AI outputs exactly: entityId|storeId|date|period|amount|goal|attainment|quantity|role
+    // OB-24 R9: Use join-field-preference for entityId/storeId to match roster's field names
+    const empIdField = getJoinFieldWithPreference(sheetName, 'entityId', rosterEmpIdField);
     const storeIdField = getJoinFieldWithPreference(sheetName, 'storeId', rosterStoreIdField);
     const attainmentField = getSheetFieldBySemantic(sheetName, 'attainment');
     // OB-24 R7: Use quantity as fallback for amount (both represent actual values)
@@ -1349,7 +1349,7 @@ function storeAggregatedData(
   for (const [, emp] of Array.from(employeeMap.entries())) {
     // OB-24 R6: Use normalized empId for consistent Map key lookup
     // OB-28: Use normalized storeId for consistent store attribution
-    const empId = normalizeEmpId(String(emp.employeeId));
+    const empId = normalizeEmpId(String(emp.entityId));
     const storeId = normalizeStoreId(String(emp.storeId || ''));
     const month = String(emp.month || '');
     const year = String(emp.year || '');
@@ -1360,7 +1360,7 @@ function storeAggregatedData(
 
     // Start with identity fields only
     const enriched: Record<string, unknown> = {
-      employeeId: emp.employeeId,
+      entityId: emp.entityId,
       name: emp.name,
       role: emp.role,
       storeId: emp.storeId,
@@ -1568,11 +1568,11 @@ function storeAggregatedData(
       console.error(`[DataLayer] FAILED: Verification failed - key not found after write`);
     }
 
-    return { employeeCount: aggregated.length, sizeKB: finalSizeKB };
+    return { entityCount: aggregated.length, sizeKB: finalSizeKB };
   } catch (error) {
     console.error('[DataLayer] FAILED to store aggregated data:', error);
     reportStorageUsage();
-    return { employeeCount: 0, sizeKB: 0 };
+    return { entityCount: 0, sizeKB: 0 };
   }
 }
 
@@ -2429,7 +2429,7 @@ export function directCommitImportData(
 
     if (allCommittedRecords.length > 0) {
       const aggregateResult = storeAggregatedData(tenantId, batchId, allCommittedRecords);
-      console.log(`[DataLayer] ✅ Aggregated: ${aggregateResult.employeeCount} employees, ${aggregateResult.sizeKB} KB`);
+      console.log(`[DataLayer] ✅ Aggregated: ${aggregateResult.entityCount} employees, ${aggregateResult.sizeKB} KB`);
 
       // Verify the aggregated data was written
       const verifyKey = `${STORAGE_KEYS.COMMITTED}_aggregated_${tenantId}`;
@@ -2490,7 +2490,7 @@ export interface AIImportContext {
     matchedComponentConfidence: number;
     fieldMappings: Array<{
       sourceColumn: string;
-      semanticType: string; // employeeId | storeId | amount | goal | attainment | period | etc
+      semanticType: string; // entityId | storeId | amount | goal | attainment | period | etc
       confidence: number;
     }>;
   }>;

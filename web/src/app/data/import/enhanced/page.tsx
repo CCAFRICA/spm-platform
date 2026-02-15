@@ -67,7 +67,7 @@ import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
 import { getPlans } from '@/lib/compensation/plan-storage';
-import type { CompensationPlanConfig, PlanComponent } from '@/types/compensation-plan';
+import type { RuleSetConfig, PlanComponent } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 import {
   directCommitImportData,
@@ -160,7 +160,7 @@ interface WorkbookAnalysis {
   rosterDetected: {
     found: boolean;
     sheetName: string | null;
-    employeeIdColumn: string | null;
+    entityIdColumn: string | null;
     storeAssignmentColumn: string | null;
     canCreateUsers: boolean;
   };
@@ -257,7 +257,7 @@ interface PeriodValidation {
 }
 
 interface CrossSheetValidation {
-  employeeIdMatch: {
+  entityIdMatch: {
     rosterCount: number;
     dataSheetCount: number;
     matchedCount: number;
@@ -282,8 +282,8 @@ interface DataAnomaly {
 }
 
 interface CalculationPreviewResult {
-  employeeId: string;
-  employeeName?: string;
+  entityId: string;
+  entityName?: string;
   storeId?: string;
   components: ComponentPreview[];
   totalIncentive: number;
@@ -318,7 +318,7 @@ interface CriticalFieldValidation {
 function validateCriticalFields(
   fieldMappings: SheetFieldMapping[],
   analysis: { sheets: AnalyzedSheet[]; rosterDetected?: { sheetName: string | null } } | null,
-  activePlan: CompensationPlanConfig | null,
+  activePlan: RuleSetConfig | null,
   isSpanish: boolean
 ): CriticalFieldValidation[] {
   const issues: CriticalFieldValidation[] = [];
@@ -337,11 +337,11 @@ function validateCriticalFields(
   const rosterSheet = analysis.rosterDetected?.sheetName ||
     analysis.sheets.find(s => s.classification === 'roster')?.name;
 
-  // 1. CRITICAL: employeeId must be mapped somewhere
-  if (!mappedFieldTypes.has('employeeId')) {
+  // 1. CRITICAL: entityId must be mapped somewhere
+  if (!mappedFieldTypes.has('entityId')) {
     issues.push({
       severity: 'error',
-      field: 'employeeId',
+      field: 'entityId',
       message: isSpanish
         ? 'No se ha mapeado identificador de empleado'
         : 'No employee identifier mapped',
@@ -443,7 +443,7 @@ function validateCriticalFields(
   }
 
   // 4. INFO: name field for readable results
-  if (!mappedFieldTypes.has('name') && !mappedFieldTypes.has('employeeName') && !mappedFieldTypes.has('fullName')) {
+  if (!mappedFieldTypes.has('name') && !mappedFieldTypes.has('entityName') && !mappedFieldTypes.has('fullName')) {
     issues.push({
       severity: 'info',
       field: 'name',
@@ -529,19 +529,19 @@ function translateColumn(column: string): string | null {
 // OB-13A: Expanded to 80+ entries to handle all AI suggestions from CLT-05 console logs
 const FIELD_ID_MAPPINGS: Record<string, string> = {
   // ========== Employee identifiers ==========
-  'employee_id': 'employeeId',
-  'employeeid': 'employeeId',
-  'emp_id': 'employeeId',
-  'empid': 'employeeId',
-  'num_empleado': 'employeeId',
-  'numero_empleado': 'employeeId',
-  'id_empleado': 'employeeId',
-  'rep_id': 'employeeId',
-  'repid': 'employeeId',
-  'sales_rep_id': 'employeeId',
-  'worker_id': 'employeeId',
-  'staff_id': 'employeeId',
-  'associate_id': 'employeeId',
+  'entity_id': 'entityId',
+  'employeeid': 'entityId',
+  'emp_id': 'entityId',
+  'empid': 'entityId',
+  'num_empleado': 'entityId',
+  'numero_empleado': 'entityId',
+  'id_empleado': 'entityId',
+  'rep_id': 'entityId',
+  'repid': 'entityId',
+  'sales_rep_id': 'entityId',
+  'worker_id': 'entityId',
+  'staff_id': 'entityId',
+  'associate_id': 'entityId',
 
   // ========== Store/Location identifiers ==========
   'store_id': 'storeId',
@@ -712,8 +712,8 @@ const COMPOUND_PATTERNS: Array<{ pattern: RegExp; semanticType: string; confiden
 
   // Identity patterns
   { pattern: /\btienda\b/i, semanticType: 'storeId', confidence: 0.70 },
-  { pattern: /\bempleado\b/i, semanticType: 'employeeId', confidence: 0.85 },
-  { pattern: /\bvendedor\b/i, semanticType: 'employeeId', confidence: 0.80 },
+  { pattern: /\bempleado\b/i, semanticType: 'entityId', confidence: 0.85 },
+  { pattern: /\bvendedor\b/i, semanticType: 'entityId', confidence: 0.80 },
   { pattern: /\bnombre\b/i, semanticType: 'name', confidence: 0.80 },
   { pattern: /\bpuesto\b|\bcargo\b|\bposicion\b/i, semanticType: 'role', confidence: 0.85 },
   { pattern: /\brango\b/i, semanticType: 'storeRange', confidence: 0.75 },
@@ -799,10 +799,10 @@ function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields:
 // OB-13A: Base fields include role for position/puesto mapping
 // CLT-08 FIX: Added name field for employee name display
 // HOTFIX: Core metric types (amount, goal, attainment, quantity) ALWAYS included
-function extractTargetFieldsFromPlan(plan: CompensationPlanConfig | null): TargetField[] {
+function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] {
   const baseFields: TargetField[] = [
     // Always-required identifier fields
-    { id: 'employeeId', label: 'Employee ID', labelEs: 'ID Empleado', isRequired: true, category: 'identifier' },
+    { id: 'entityId', label: 'Employee ID', labelEs: 'ID Empleado', isRequired: true, category: 'identifier' },
     { id: 'name', label: 'Employee Name', labelEs: 'Nombre', isRequired: false, category: 'identifier' },  // CLT-08
     { id: 'storeId', label: 'Store ID', labelEs: 'ID Tienda', isRequired: false, category: 'identifier' },
     { id: 'date', label: 'Date', labelEs: 'Fecha', isRequired: true, category: 'date' },
@@ -959,7 +959,7 @@ function inferDataType(values: unknown[]): string {
 async function runSecondPassClassification(
   sheets: AnalyzedSheet[],
   fieldMappings: SheetFieldMapping[],
-  activePlan: CompensationPlanConfig,
+  activePlan: RuleSetConfig,
   targetFields: TargetField[],
   tenantId: string
 ): Promise<SheetFieldMapping[]> {
@@ -1104,7 +1104,7 @@ export default function DataPackageImportPage() {
   const [newCustomField, setNewCustomField] = useState('');
 
   // Plan state
-  const [activePlan, setActivePlan] = useState<CompensationPlanConfig | null>(null);
+  const [activePlan, setActivePlan] = useState<RuleSetConfig | null>(null);
   const [targetFields, setTargetFields] = useState<TargetField[]>([]);
 
   // Validation state
@@ -1483,7 +1483,7 @@ export default function DataPackageImportPage() {
           }],
           relationships: [],
           sheetGroups: [],
-          rosterDetected: { found: false, sheetName: null, employeeIdColumn: null, storeAssignmentColumn: null, canCreateUsers: false },
+          rosterDetected: { found: false, sheetName: null, entityIdColumn: null, storeAssignmentColumn: null, canCreateUsers: false },
           periodDetected: { found: false, dateColumn: '', dateRange: { start: null, end: null }, periodType: 'unknown' },
           gaps: [],
           extras: [],
@@ -1677,7 +1677,7 @@ export default function DataPackageImportPage() {
       const rosterSheet = analysis.sheets.find(s => s.classification === 'roster');
       const dataSheets = analysis.sheets.filter(s => s.classification === 'component_data');
 
-      const employeeIds = new Set<string>();
+      const entityIds = new Set<string>();
       const dataEmployeeIds = new Set<string>();
 
       if (rosterSheet) {
@@ -1691,14 +1691,14 @@ export default function DataPackageImportPage() {
         if (employeeCol) {
           rosterSheet.sampleRows.forEach(row => {
             const id = row[employeeCol];
-            if (id) employeeIds.add(String(id));
+            if (id) entityIds.add(String(id));
           });
         }
       }
 
       dataSheets.forEach(sheet => {
         const mapping = fieldMappings.find(m => m.sheetName === sheet.name);
-        const employeeMapping = mapping?.mappings.find(m => m.targetField === 'employeeId');
+        const employeeMapping = mapping?.mappings.find(m => m.targetField === 'entityId');
         if (employeeMapping) {
           sheet.sampleRows.forEach(row => {
             const id = row[employeeMapping.sourceColumn];
@@ -1707,12 +1707,12 @@ export default function DataPackageImportPage() {
         }
       });
 
-      const matchedEmployees = new Set(Array.from(employeeIds).filter(x => dataEmployeeIds.has(x)));
-      const unmatchedEmployees = Array.from(dataEmployeeIds).filter(x => !employeeIds.has(x));
+      const matchedEmployees = new Set(Array.from(entityIds).filter(x => dataEmployeeIds.has(x)));
+      const unmatchedEmployees = Array.from(dataEmployeeIds).filter(x => !entityIds.has(x));
 
       const crossSheetValidation: CrossSheetValidation = {
-        employeeIdMatch: {
-          rosterCount: employeeIds.size,
+        entityIdMatch: {
+          rosterCount: entityIds.size,
           dataSheetCount: dataEmployeeIds.size,
           matchedCount: matchedEmployees.size,
           unmatchedIds: unmatchedEmployees.slice(0, 5),
@@ -1754,10 +1754,10 @@ export default function DataPackageImportPage() {
       const firstDataMapping = fieldMappings.find(m => m.sheetName === firstDataSheet?.name);
 
       if (firstDataSheet && firstDataMapping && activePlan) {
-        const employeeMapping = firstDataMapping.mappings.find(m => m.targetField === 'employeeId');
+        const employeeMapping = firstDataMapping.mappings.find(m => m.targetField === 'entityId');
 
         firstDataSheet.sampleRows.slice(0, 3).forEach((row, idx) => {
-          const employeeId = employeeMapping
+          const entityId = employeeMapping
             ? String(row[employeeMapping.sourceColumn] || `EMP-${idx + 1}`)
             : `EMP-${idx + 1}`;
 
@@ -1809,7 +1809,7 @@ export default function DataPackageImportPage() {
           }
 
           calculationPreview.push({
-            employeeId,
+            entityId,
             components,
             totalIncentive,
             currency,
@@ -1940,7 +1940,7 @@ export default function DataPackageImportPage() {
           batchId,
           timestamp: new Date().toISOString(),
           rosterSheet: analysis.rosterDetected?.sheetName || null,
-          rosterEmployeeIdColumn: analysis.rosterDetected?.employeeIdColumn || null,
+          rosterEmployeeIdColumn: analysis.rosterDetected?.entityIdColumn || null,
           sheets: analysis.sheets.map(sheet => {
             // CLT-08: Find user-confirmed mappings for this sheet
             const confirmedMapping = fieldMappings.find(fm => fm.sheetName === sheet.name);
@@ -3293,24 +3293,24 @@ export default function DataPackageImportPage() {
                           <div className="space-y-1 text-sm">
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">{isSpanish ? 'En plantilla' : 'In roster'}:</span>
-                              <span>{validationResult.crossSheetValidation.employeeIdMatch.rosterCount}</span>
+                              <span>{validationResult.crossSheetValidation.entityIdMatch.rosterCount}</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">{isSpanish ? 'En datos' : 'In data'}:</span>
-                              <span>{validationResult.crossSheetValidation.employeeIdMatch.dataSheetCount}</span>
+                              <span>{validationResult.crossSheetValidation.entityIdMatch.dataSheetCount}</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">{isSpanish ? 'Coincidentes' : 'Matched'}:</span>
-                              <span className="text-green-600">{validationResult.crossSheetValidation.employeeIdMatch.matchedCount}</span>
+                              <span className="text-green-600">{validationResult.crossSheetValidation.entityIdMatch.matchedCount}</span>
                             </div>
                           </div>
-                          {validationResult.crossSheetValidation.employeeIdMatch.unmatchedIds.length > 0 && (
+                          {validationResult.crossSheetValidation.entityIdMatch.unmatchedIds.length > 0 && (
                             <div className="mt-2 pt-2 border-t">
                               <p className="text-xs text-muted-foreground mb-1">
                                 {isSpanish ? 'IDs no encontrados en plantilla:' : 'IDs not in roster:'}
                               </p>
                               <p className="text-xs text-orange-600">
-                                {validationResult.crossSheetValidation.employeeIdMatch.unmatchedIds.join(', ')}
+                                {validationResult.crossSheetValidation.entityIdMatch.unmatchedIds.join(', ')}
                               </p>
                             </div>
                           )}
@@ -3398,9 +3398,9 @@ export default function DataPackageImportPage() {
                             </thead>
                             <tbody>
                               {validationResult.calculationPreview.map((preview, idx) => (
-                                <tr key={preview.employeeId} className={cn('border-t', idx % 2 === 0 && 'bg-muted/30')}>
+                                <tr key={preview.entityId} className={cn('border-t', idx % 2 === 0 && 'bg-muted/30')}>
                                   <td className="px-3 py-2 font-medium">
-                                    {preview.employeeId}
+                                    {preview.entityId}
                                     {preview.flags.length > 0 && (
                                       <span className="ml-2 text-xs text-orange-500">
                                         ({preview.flags[0]})

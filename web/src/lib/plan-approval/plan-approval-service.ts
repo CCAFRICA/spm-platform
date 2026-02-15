@@ -59,9 +59,9 @@ export function getApprovalRequest(requestId: string): PlanApprovalRequest | nul
 /**
  * Get approval request for a specific plan
  */
-export function getApprovalForPlan(planId: string): PlanApprovalRequest | null {
+export function getApprovalForPlan(ruleSetId: string): PlanApprovalRequest | null {
   const requests = getAllApprovalRequests();
-  return requests.find((r) => r.planId === planId && r.status !== 'withdrawn') || null;
+  return requests.find((r) => r.ruleSetId === ruleSetId && r.status !== 'withdrawn') || null;
 }
 
 /**
@@ -97,9 +97,9 @@ export function getApprovalsByStage(
  * Submit a plan for approval
  */
 export function submitForApproval(
-  planId: string,
-  planName: string,
-  planVersion: number,
+  ruleSetId: string,
+  ruleSetName: string,
+  ruleSetVersion: number,
   tenantId: string,
   requesterId: string,
   requesterName: string,
@@ -112,9 +112,9 @@ export function submitForApproval(
 
   const request: PlanApprovalRequest = {
     id: `apr-${Date.now()}`,
-    planId,
-    planName,
-    planVersion,
+    ruleSetId,
+    ruleSetName,
+    ruleSetVersion,
     tenantId,
     stage: 'manager_review',
     status: 'pending',
@@ -330,8 +330,8 @@ export function getApprovalSummaries(tenantId: string): PlanApprovalSummary[] {
 
     return {
       id: r.id,
-      planId: r.planId,
-      planName: r.planName,
+      ruleSetId: r.ruleSetId,
+      ruleSetName: r.ruleSetName,
       stage: r.stage,
       status: r.status,
       requesterName: r.requesterName,
@@ -378,9 +378,9 @@ function getDefaultApprovalRequests(): PlanApprovalRequest[] {
   return [
     {
       id: 'apr-001',
-      planId: 'plan-q1-2025',
-      planName: 'Q1 2025 Sales Incentive Plan',
-      planVersion: 2,
+      ruleSetId: 'plan-q1-2025',
+      ruleSetName: 'Q1 2025 Sales Incentive Plan',
+      ruleSetVersion: 2,
       tenantId: 'retailco',
       stage: 'finance_review',
       status: 'pending',
@@ -408,9 +408,9 @@ function getDefaultApprovalRequests(): PlanApprovalRequest[] {
     },
     {
       id: 'apr-002',
-      planId: 'plan-regional-bonus',
-      planName: 'Regional Manager Bonus Plan',
-      planVersion: 1,
+      ruleSetId: 'plan-regional-bonus',
+      ruleSetName: 'Regional Manager Bonus Plan',
+      ruleSetVersion: 1,
       tenantId: 'retailco',
       stage: 'manager_review',
       status: 'in_review',
@@ -456,9 +456,9 @@ function getDefaultApprovalRequests(): PlanApprovalRequest[] {
     },
     {
       id: 'apr-003',
-      planId: 'plan-services',
-      planName: 'Services Commission Plan',
-      planVersion: 3,
+      ruleSetId: 'plan-services',
+      ruleSetName: 'Services Commission Plan',
+      ruleSetVersion: 3,
       tenantId: 'retailco',
       stage: 'approved',
       status: 'approved',

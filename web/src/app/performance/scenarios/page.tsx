@@ -49,7 +49,7 @@ import { ScenarioComparison } from '@/components/compensation/ScenarioComparison
 import { TeamImpactSummary } from '@/components/compensation/TeamImpactSummary';
 import { SavedScenariosList } from '@/components/compensation/SavedScenariosList';
 import type {
-  CompensationPlanConfig,
+  RuleSetConfig,
   AdditiveLookupConfig,
   CalculationResult,
 } from '@/types/compensation-plan';
@@ -67,7 +67,7 @@ export default function ScenarioModelingPage() {
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
 
-  const [activePlan, setActivePlan] = useState<CompensationPlanConfig | null>(null);
+  const [activePlan, setActivePlan] = useState<RuleSetConfig | null>(null);
   const [baselineResults, setBaselineResults] = useState<Map<string, CalculationResult>>(new Map());
   const [scenarioResults, setScenarioResults] = useState<Map<string, CalculationResult>>(new Map());
   const [savedScenarios, setSavedScenarios] = useState<SavedScenario[]>([]);
@@ -186,8 +186,8 @@ export default function ScenarioModelingPage() {
       const percentChange = baselinePayout > 0 ? (absoluteChange / baselinePayout) * 100 : 0;
 
       return {
-        employeeId: emp.id,
-        employeeName: emp.name,
+        entityId: emp.id,
+        entityName: emp.name,
         role: emp.role,
         baselinePayout,
         scenarioPayout,
@@ -403,7 +403,7 @@ export default function ScenarioModelingPage() {
                   <ScenarioComparison
                     baseline={baseline}
                     scenario={scenario}
-                    employeeName={emp.name}
+                    entityName={emp.name}
                     scenarioName="Modified Plan"
                   />
                 );

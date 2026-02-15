@@ -6,7 +6,7 @@ import type {
   User,
   Transaction,
   PerformanceMetric,
-  CompensationPlan,
+  RuleSet,
   OrganizationalUnit,
   TransactionFilters,
   LeaderboardEntry,
@@ -140,16 +140,16 @@ export function getRegionalPerformance() {
 // Compensation Plan Functions
 // ============================================================================
 
-export function getCompensationPlans(): CompensationPlan[] {
-  return compensationPlansData.compensationPlans as CompensationPlan[];
+export function getRuleSets(): RuleSet[] {
+  return compensationPlansData.compensationPlans as RuleSet[];
 }
 
-export function getCompensationPlanById(id: string): CompensationPlan | undefined {
-  return compensationPlansData.compensationPlans.find((p) => p.id === id) as CompensationPlan | undefined;
+export function getRuleSetById(id: string): RuleSet | undefined {
+  return compensationPlansData.compensationPlans.find((p) => p.id === id) as RuleSet | undefined;
 }
 
-export function getActivePlans(): CompensationPlan[] {
-  return compensationPlansData.compensationPlans.filter((p) => p.status === 'active') as CompensationPlan[];
+export function getActivePlans(): RuleSet[] {
+  return compensationPlansData.compensationPlans.filter((p) => p.status === 'active') as RuleSet[];
 }
 
 // ============================================================================
@@ -222,7 +222,7 @@ export function getTopPerformers(limit: number = 10, period?: string): Leaderboa
   });
 }
 
-export function getCompensationByPlanType(): { planType: string; total: number; count: number }[] {
+export function getCompensationByPlanType(): { ruleSetType: string; total: number; count: number }[] {
   const transactions = transactionsData.transactions as Transaction[];
   const users = usersData.users as User[];
   const plans = compensationPlansData.compensationPlans;
@@ -243,8 +243,8 @@ export function getCompensationByPlanType(): { planType: string; total: number; 
     }
   });
 
-  return Object.entries(planTotals).map(([planType, data]) => ({
-    planType,
+  return Object.entries(planTotals).map(([ruleSetType, data]) => ({
+    ruleSetType,
     total: data.total,
     count: data.count,
   }));

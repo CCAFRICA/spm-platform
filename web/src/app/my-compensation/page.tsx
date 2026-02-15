@@ -120,7 +120,7 @@ export default function MyCompensationPage() {
   useEffect(() => {
     if (!currentTenant || !user) return;
 
-    const employeeId = extractEmployeeId(user.email);
+    const entityId = extractEmployeeId(user.email);
     const currentPeriodId = getCurrentPeriod();
 
     // OB-34: Check lifecycle visibility gate
@@ -151,11 +151,11 @@ export default function MyCompensationPage() {
 
     // Find this employee's result
     let result: CalculationResult | null = null;
-    if (employeeId && allResults.length > 0) {
-      result = allResults.find((r) => r.employeeId === employeeId) || null;
+    if (entityId && allResults.length > 0) {
+      result = allResults.find((r) => r.entityId === entityId) || null;
       if (!result) {
         result = allResults.find((r) =>
-          r.employeeName?.toLowerCase() === user.name?.toLowerCase()
+          r.entityName?.toLowerCase() === user.name?.toLowerCase()
         ) || null;
       }
     }
@@ -169,8 +169,8 @@ export default function MyCompensationPage() {
     }
 
     // Load pending disputes
-    if (employeeId) {
-      const disputes = getByEmployee(employeeId);
+    if (entityId) {
+      const disputes = getByEmployee(entityId);
       const pending = disputes.filter((d) => d.status === 'submitted' || d.status === 'in_review');
       setPendingDisputes(pending.length);
     }
@@ -189,7 +189,7 @@ export default function MyCompensationPage() {
           task: 'recommendation',
           input: {
             analysisData: {
-              employeeName: calculationResult.employeeName,
+              entityName: calculationResult.entityName,
               totalIncentive: calculationResult.totalIncentive,
               components: calculationResult.components.map(c => ({
                 name: c.componentName,
@@ -214,7 +214,7 @@ export default function MyCompensationPage() {
           options: { responseFormat: 'text' },
         },
         true,
-        { tenantId: currentTenant.id, userId: calculationResult.employeeId }
+        { tenantId: currentTenant.id, userId: calculationResult.entityId }
       );
       const text = typeof response.result === 'string'
         ? response.result
@@ -232,12 +232,12 @@ export default function MyCompensationPage() {
   const handleSubmitDispute = () => {
     if (!currentTenant || !user || !calculationResult || !disputeComponent || !disputeReason.trim()) return;
 
-    const employeeId = extractEmployeeId(user.email) || calculationResult.employeeId;
+    const entityId = extractEmployeeId(user.email) || calculationResult.entityId;
     const draft = createDraft(
       currentTenant.id,
       `comp-${calculationResult.period}-${disputeComponent}`,
-      employeeId,
-      calculationResult.employeeName,
+      entityId,
+      calculationResult.entityName,
       calculationResult.storeId || '',
       calculationResult.storeName || '',
       disputeComponent
@@ -253,7 +253,7 @@ export default function MyCompensationPage() {
     }, 3000);
 
     // Refresh pending count
-    const disputes = getByEmployee(employeeId);
+    const disputes = getByEmployee(entityId);
     const pending = disputes.filter((d) => d.status === 'submitted' || d.status === 'in_review');
     setPendingDisputes(pending.length);
   };
@@ -302,11 +302,11 @@ export default function MyCompensationPage() {
     );
   }
 
-  const employeeName = calculationResult?.employeeName || user?.name || 'Employee';
-  const employeeRole = calculationResult?.employeeRole || user?.role || 'Sales Rep';
+  const entityName = calculationResult?.entityName || user?.name || 'Employee';
+  const entityRole = calculationResult?.entityRole || user?.role || 'Sales Rep';
   const storeName = calculationResult?.storeName || 'Store';
-  const planName = calculationResult?.planName || 'Compensation Plan';
-  const initials = employeeName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+  const ruleSetName = calculationResult?.ruleSetName || 'Compensation Plan';
+  const initials = entityName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   const now = new Date();
   const currentPeriodLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -365,7 +365,7 @@ export default function MyCompensationPage() {
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">{employeeName}</h2>
+                <h2 className="text-lg font-semibold">{entityName}</h2>
                 {calculationResult?.variantName?.toLowerCase().includes('certified') && (
                   <Badge variant="secondary" className="bg-green-100 text-green-800">
                     <Award className="h-3 w-3 mr-1" />
@@ -376,7 +376,7 @@ export default function MyCompensationPage() {
               <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
                 <span className="flex items-center gap-1">
                   <User className="h-3 w-3" />
-                  {employeeRole}
+                  {entityRole}
                 </span>
                 <span className="flex items-center gap-1">
                   <Building className="h-3 w-3" />
@@ -386,7 +386,7 @@ export default function MyCompensationPage() {
             </div>
             <div className="text-right">
               <div className="text-sm text-muted-foreground">Plan</div>
-              <div className="font-medium">{planName}</div>
+              <div className="font-medium">{ruleSetName}</div>
             </div>
           </div>
         </CardContent>

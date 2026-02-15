@@ -22,17 +22,17 @@ import { submitForApproval } from '@/lib/plan-approval/plan-approval-service';
 import { STAGE_CONFIG } from '@/types/plan-approval';
 
 interface SubmitForApprovalDialogProps {
-  planId: string;
-  planName: string;
-  planVersion: number;
+  ruleSetId: string;
+  ruleSetName: string;
+  ruleSetVersion: number;
   onSubmitted?: () => void;
   trigger?: React.ReactNode;
 }
 
 export function SubmitForApprovalDialog({
-  planId,
-  planName,
-  planVersion,
+  ruleSetId,
+  ruleSetName,
+  ruleSetVersion,
   onSubmitted,
   trigger,
 }: SubmitForApprovalDialogProps) {
@@ -49,9 +49,9 @@ export function SubmitForApprovalDialog({
     setIsSubmitting(true);
     try {
       submitForApproval(
-        planId,
-        planName,
-        planVersion,
+        ruleSetId,
+        ruleSetName,
+        ruleSetVersion,
         currentTenant?.id || 'retailco',
         user?.id || 'admin',
         user?.name || 'Admin',
@@ -104,9 +104,9 @@ export function SubmitForApprovalDialog({
         <div className="py-4 space-y-4">
           {/* Plan info */}
           <div className="p-3 bg-muted rounded-md">
-            <div className="font-medium">{planName}</div>
+            <div className="font-medium">{ruleSetName}</div>
             <div className="text-sm text-muted-foreground">
-              {isSpanish ? 'Versi\u00f3n' : 'Version'} {planVersion}
+              {isSpanish ? 'Versi\u00f3n' : 'Version'} {ruleSetVersion}
             </div>
           </div>
 

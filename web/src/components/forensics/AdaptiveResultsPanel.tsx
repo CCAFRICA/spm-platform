@@ -122,9 +122,9 @@ export function AdaptiveResultsPanel({ result }: AdaptiveResultsPanelProps) {
             </p>
             <div className="space-y-2">
               {result.falseGreens.slice(0, 10).map(fg => (
-                <div key={fg.employeeId} className="p-2 bg-amber-50 rounded border border-amber-200">
+                <div key={fg.entityId} className="p-2 bg-amber-50 rounded border border-amber-200">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{fg.employeeName}</span>
+                    <span className="text-sm font-medium">{fg.entityName}</span>
                     <span className="text-xs text-amber-600 font-mono">
                       {fg.componentFlags.length} component(s) diverge
                     </span>
@@ -159,12 +159,12 @@ export function AdaptiveResultsPanel({ result }: AdaptiveResultsPanelProps) {
               <div>
                 <p className="text-xs text-slate-500">VL Total</p>
                 <p className="text-lg font-bold">{fmt(result.aggregate.vlTotal)}</p>
-                <p className="text-xs text-slate-400">{result.aggregate.employeeCountVL} employees</p>
+                <p className="text-xs text-slate-400">{result.aggregate.entityCountVL} employees</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">File Total</p>
                 <p className="text-lg font-bold">{fmt(result.aggregate.fileTotal)}</p>
-                <p className="text-xs text-slate-400">{result.aggregate.employeeCountFile} rows</p>
+                <p className="text-xs text-slate-400">{result.aggregate.entityCountFile} rows</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Difference</p>
@@ -263,7 +263,7 @@ export function AdaptiveResultsPanel({ result }: AdaptiveResultsPanelProps) {
                       {sc.delta >= 0 ? '+' : ''}{fmt(Math.abs(sc.delta))}
                     </TableCell>
                     <TableCell className="text-right text-sm">
-                      {sc.employeeCount}
+                      {sc.entityCount}
                     </TableCell>
                   </TableRow>
                 ))}

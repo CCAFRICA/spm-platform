@@ -44,8 +44,8 @@ import type {
 interface HierarchyReviewPanelProps {
   results: HierarchyDetectionResult[];
   inversions: RelationshipInversion[];
-  employeeNames: Record<string, { firstName: string; lastName: string }>;
-  onResolveConflict: (employeeId: string, managerId: string) => void;
+  entityNames: Record<string, { firstName: string; lastName: string }>;
+  onResolveConflict: (entityId: string, managerId: string) => void;
   onResolveInversion: (inversion: RelationshipInversion, correctManagerId: string) => void;
   className?: string;
 }
@@ -106,7 +106,7 @@ const SIGNAL_INFO: Record<HierarchySignal, { label: string; labelEs: string; des
 export function HierarchyReviewPanel({
   results,
   inversions,
-  employeeNames,
+  entityNames,
   onResolveConflict,
   onResolveInversion,
   className,
@@ -133,7 +133,7 @@ export function HierarchyReviewPanel({
   };
 
   const getEmployeeName = (id: string): string => {
-    const emp = employeeNames[id];
+    const emp = entityNames[id];
     if (!emp) return isSpanish ? 'Desconocido' : 'Unknown';
     return `${emp.firstName} ${emp.lastName}`;
   };
@@ -212,12 +212,12 @@ export function HierarchyReviewPanel({
           <CardContent className="space-y-2">
             {needsReview.map((result) => (
               <ReviewItem
-                key={result.employeeId}
+                key={result.entityId}
                 result={result}
-                expanded={expandedItems.has(result.employeeId)}
-                onToggle={() => toggleExpand(result.employeeId)}
+                expanded={expandedItems.has(result.entityId)}
+                onToggle={() => toggleExpand(result.entityId)}
                 getEmployeeName={getEmployeeName}
-                onResolve={(managerId) => onResolveConflict(result.employeeId, managerId)}
+                onResolve={(managerId) => onResolveConflict(result.entityId, managerId)}
                 isSpanish={isSpanish}
               />
             ))}
@@ -240,18 +240,18 @@ export function HierarchyReviewPanel({
           <div className="max-h-64 overflow-y-auto space-y-1">
             {autoResolved.map((result) => (
               <div
-                key={result.employeeId}
+                key={result.entityId}
                 className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
               >
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4 text-slate-400" />
-                  <span className="text-sm">{getEmployeeName(result.employeeId)}</span>
+                  <span className="text-sm">{getEmployeeName(result.entityId)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <GitBranch className="h-3 w-3 text-slate-400" />
                   <span className="text-sm text-slate-500">
                     {result.inferredManager
-                      ? getEmployeeName(result.inferredManager.employeeId)
+                      ? getEmployeeName(result.inferredManager.entityId)
                       : '-'}
                   </span>
                   <ConfidenceRing score={result.overallConfidence} size="sm" />
@@ -373,7 +373,7 @@ function ReviewItem({
             <ChevronRight className="h-4 w-4 text-slate-400" />
           )}
           <User className="h-4 w-4 text-slate-500" />
-          <span className="font-medium">{getEmployeeName(result.employeeId)}</span>
+          <span className="font-medium">{getEmployeeName(result.entityId)}</span>
         </div>
         <div className="flex items-center gap-3">
           {result.conflicts.length > 0 && (
@@ -440,13 +440,13 @@ function ReviewItem({
                   </h4>
                   <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded">
                     <GitBranch className="h-4 w-4 text-slate-400" />
-                    <span>{getEmployeeName(result.inferredManager.employeeId)}</span>
+                    <span>{getEmployeeName(result.inferredManager.entityId)}</span>
                     <ConfidenceRing score={result.inferredManager.confidence} size="sm" />
                     <Button
                       size="sm"
                       variant="outline"
                       className="ml-auto"
-                      onClick={() => onResolve(result.inferredManager!.employeeId)}
+                      onClick={() => onResolve(result.inferredManager!.entityId)}
                     >
                       {isSpanish ? 'Confirmar' : 'Confirm'}
                     </Button>

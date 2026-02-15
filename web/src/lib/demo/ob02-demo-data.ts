@@ -332,7 +332,7 @@ export const DEMO_RECONCILIATION_RULES: ReconciliationRule[] = [
     priority: 100,
     isActive: true,
     matchCriteria: [
-      { sourceField: 'employeeId', targetField: 'employeeId', matchType: 'exact', weight: 40, required: true },
+      { sourceField: 'entityId', targetField: 'entityId', matchType: 'exact', weight: 40, required: true },
       { sourceField: 'amount', targetField: 'amount', matchType: 'exact', weight: 40, required: true },
       { sourceField: 'date', targetField: 'date', matchType: 'exact', weight: 20, required: false },
     ],
@@ -350,7 +350,7 @@ export const DEMO_RECONCILIATION_RULES: ReconciliationRule[] = [
     priority: 80,
     isActive: true,
     matchCriteria: [
-      { sourceField: 'employeeId', targetField: 'employeeId', matchType: 'exact', weight: 50, required: true },
+      { sourceField: 'entityId', targetField: 'entityId', matchType: 'exact', weight: 50, required: true },
       { sourceField: 'amount', targetField: 'amount', matchType: 'numeric_range', weight: 35, required: true },
       { sourceField: 'type', targetField: 'type', matchType: 'exact', weight: 15, required: false },
     ],
@@ -370,7 +370,7 @@ export const DEMO_RECONCILIATION_RULES: ReconciliationRule[] = [
     priority: 60,
     isActive: true,
     matchCriteria: [
-      { sourceField: 'employeeId', targetField: 'employeeId', matchType: 'exact', weight: 45, required: true },
+      { sourceField: 'entityId', targetField: 'entityId', matchType: 'exact', weight: 45, required: true },
       { sourceField: 'amount', targetField: 'amount', matchType: 'numeric_range', weight: 35, required: true },
       { sourceField: 'date', targetField: 'date', matchType: 'date_range', weight: 20, required: false },
     ],
@@ -418,8 +418,8 @@ export const DEMO_SHADOW_PAYROLL_RUNS: ShadowPayrollRun[] = [
       overallConfidence: 94,
       readyForCutover: false,
       employeeComparisons: DEMO_EMPLOYEES.slice(0, 5).map((emp, idx) => ({
-        employeeId: emp.id,
-        employeeName: `${emp.firstName} ${emp.lastName}`,
+        entityId: emp.id,
+        entityName: `${emp.firstName} ${emp.lastName}`,
         legacyAmount: 15000 + idx * 1000,
         newAmount: 15000 + idx * 1000 + (idx === 2 ? -50 : 0),
         variance: idx === 2 ? -50 : 0,
@@ -470,8 +470,8 @@ export const DEMO_SHADOW_PAYROLL_RUNS: ShadowPayrollRun[] = [
       overallConfidence: 97,
       readyForCutover: true,
       employeeComparisons: DEMO_EMPLOYEES.map((emp, idx) => ({
-        employeeId: emp.id,
-        employeeName: `${emp.firstName} ${emp.lastName}`,
+        entityId: emp.id,
+        entityName: `${emp.firstName} ${emp.lastName}`,
         legacyAmount: 16000 + idx * 1100,
         newAmount: 16000 + idx * 1100,
         variance: 0,
@@ -521,7 +521,7 @@ export const DEMO_CALCULATION_SCENARIOS: CalculationScenario[] = [
     },
     results: {
       summary: {
-        employeesProcessed: 10,
+        entitiesProcessed: 10,
         totalBasePayout: 2456789.50,
         totalScenarioPayout: 2579628.98,
         totalDifference: 122839.48,
@@ -583,7 +583,7 @@ export const DEMO_CALCULATION_SCENARIOS: CalculationScenario[] = [
     },
     results: {
       summary: {
-        employeesProcessed: 10,
+        entitiesProcessed: 10,
         totalBasePayout: 2678432.00,
         totalScenarioPayout: 2712456.00,
         totalDifference: 34024.00,

@@ -7,7 +7,7 @@
 import type {
   LedgerEntry,
   LedgerEntryType,
-  EmployeeCalculationResult,
+  EntityCalculationResult,
   TierDefinition,
   TierResult,
   QuotaAttainment,
@@ -92,7 +92,7 @@ export function calculateTieredPayout(
  * Calculate quota attainment for an employee
  */
 export function calculateQuotaAttainment(
-  employeeId: string,
+  entityId: string,
   periodId: string,
   quotaId: string,
   quotaAmount: number,
@@ -113,7 +113,7 @@ export function calculateQuotaAttainment(
   const ytdPercentage = ytdQuota > 0 ? (ytdAttained / ytdQuota) * 100 : 0;
 
   return {
-    employeeId,
+    entityId,
     periodId,
     quotaId,
     quotaAmount,
@@ -143,7 +143,7 @@ export function calculateQuotaAttainment(
  */
 export function applyAccelerator(
   accelerator: Accelerator,
-  employeeId: string,
+  entityId: string,
   periodId: string,
   baseEntries: LedgerEntry[],
   attainmentPercentage: number
@@ -190,7 +190,7 @@ export function applyAccelerator(
 
   return {
     acceleratorId: accelerator.id,
-    employeeId,
+    entityId,
     periodId,
     triggeredAt: new Date().toISOString(),
     multiplier: accelerator.multiplier,
@@ -210,7 +210,7 @@ export function applyAccelerator(
  */
 export function createLedgerEntry(
   batchId: string,
-  employeeId: string,
+  entityId: string,
   periodId: string,
   type: LedgerEntryType,
   amount: number,
@@ -220,7 +220,7 @@ export function createLedgerEntry(
 ): Omit<LedgerEntry, 'id'> {
   return {
     batchId,
-    employeeId,
+    entityId,
     periodId,
     type,
     description,
@@ -245,7 +245,7 @@ export function createReversalEntry(
 ): Omit<LedgerEntry, 'id'> {
   return {
     batchId,
-    employeeId: originalEntry.employeeId,
+    entityId: originalEntry.entityId,
     periodId: originalEntry.periodId,
     type: originalEntry.type,
     description: `Reversal: ${reason}`,
@@ -293,13 +293,13 @@ export function summarizeByType(
  * Process calculation results for an employee
  */
 export function processEmployeeCalculation(
-  employeeId: string,
+  entityId: string,
   batchId: string,
   periodId: string,
   entries: LedgerEntry[],
   rulesApplied: string[],
   jurisdictions: string[]
-): EmployeeCalculationResult {
+): EntityCalculationResult {
   const grossPayout = entries
     .filter((e) => e.amount > 0)
     .reduce((sum, e) => sum + e.amount, 0);
@@ -311,7 +311,7 @@ export function processEmployeeCalculation(
   const netPayout = grossPayout - deductions;
 
   return {
-    employeeId,
+    entityId,
     batchId,
     periodId,
     grossPayout,
@@ -333,7 +333,7 @@ export function processEmployeeCalculation(
  * Validate calculation result
  */
 export function validateCalculationResult(
-  result: EmployeeCalculationResult
+  result: EntityCalculationResult
 ): { valid: boolean; errors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -344,7 +344,7 @@ export function validateCalculationResult(
   }
 
   // Check for missing commission when expected
-  if (result.byType.commission === 0 && result.entries.some((e) => e.planId)) {
+  if (result.byType.commission === 0 && result.entries.some((e) => e.ruleSetId)) {
     warnings.push('No commission calculated despite having plan assignments');
   }
 

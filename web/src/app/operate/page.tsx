@@ -109,7 +109,7 @@ export default function OperatePage() {
                 <span className="text-xs text-slate-500">{latestCycle.period}</span>
                 {latestCycle.officialSnapshot && (
                   <span className="text-xs text-slate-400">
-                    {formatCurrency(latestCycle.officialSnapshot.totalPayout)} | {latestCycle.officialSnapshot.employeeCount} {displaySpanish ? 'empleados' : 'employees'}
+                    {formatCurrency(latestCycle.officialSnapshot.totalPayout)} | {latestCycle.officialSnapshot.entityCount} {displaySpanish ? 'empleados' : 'employees'}
                   </span>
                 )}
               </div>

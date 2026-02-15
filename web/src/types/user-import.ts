@@ -114,10 +114,10 @@ export interface SignalObservation {
  * Result of hierarchy auto-detection for an employee
  */
 export interface HierarchyDetectionResult {
-  employeeId: string;
+  entityId: string;
   detectedSignals: SignalObservation[];
   inferredManager?: {
-    employeeId: string;
+    entityId: string;
     confidence: number;
     supportingSignals: HierarchySignal[];
   };
@@ -136,7 +136,7 @@ export interface HierarchyDetectionResult {
  */
 export interface HierarchyConflict {
   type: 'manager_mismatch' | 'circular_reference' | 'level_inconsistency' | 'inversion_detected';
-  employeeIds: string[];
+  entityIds: string[];
   signals: HierarchySignal[];
   description: string;
   severity: 'low' | 'medium' | 'high';

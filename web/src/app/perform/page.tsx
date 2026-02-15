@@ -150,9 +150,9 @@ export default function PerformPage() {
     setAllResults(results);
     setHasResults(results.length > 0);
 
-    const employeeId = extractEmployeeId(user?.email);
-    if (employeeId && results.length > 0) {
-      const result = results.find((r) => r.employeeId === employeeId);
+    const entityId = extractEmployeeId(user?.email);
+    if (entityId && results.length > 0) {
+      const result = results.find((r) => r.entityId === entityId);
       setMyResult(result || null);
     }
   }, [currentTenant, user, isVLAdmin, isManager, isSalesRep]);
@@ -181,7 +181,7 @@ export default function PerformPage() {
     return {
       totalPayout,
       avgPayout,
-      employeeCount: allResults.length,
+      entityCount: allResults.length,
       topPerformer: sorted[0],
       bottomPerformer: sorted[sorted.length - 1],
       storeCount: storeMap.size,
@@ -309,7 +309,7 @@ export default function PerformPage() {
                       <p className="text-xs text-blue-600">
                         {displaySpanish ? 'Empleados' : 'Employees'}
                       </p>
-                      <p className="text-xl font-bold text-blue-800">{stats.employeeCount}</p>
+                      <p className="text-xl font-bold text-blue-800">{stats.entityCount}</p>
                     </div>
                     <div className="p-3 bg-green-50 rounded-lg">
                       <p className="text-xs text-green-600">
@@ -371,7 +371,7 @@ export default function PerformPage() {
                     <p className="text-sm text-emerald-600 mb-1">
                       {displaySpanish ? 'Mayor Rendimiento' : 'Top Performer'}
                     </p>
-                    <p className="font-bold text-emerald-800">{stats.topPerformer?.employeeName || 'N/A'}</p>
+                    <p className="font-bold text-emerald-800">{stats.topPerformer?.entityName || 'N/A'}</p>
                     <p className="text-sm text-emerald-600">{format(stats.topPerformer?.totalIncentive || 0)}</p>
                   </div>
                   {stats.topStores.length > 0 && (
@@ -428,7 +428,7 @@ export default function PerformPage() {
                         <p className="text-sm text-blue-600">
                           {displaySpanish ? 'Miembros del Equipo' : 'Team Members'}
                         </p>
-                        <p className="text-2xl font-bold text-blue-800 mt-1">{stats.employeeCount}</p>
+                        <p className="text-2xl font-bold text-blue-800 mt-1">{stats.entityCount}</p>
                       </div>
                       <div className="p-4 bg-green-50 rounded-lg">
                         <p className="text-sm text-green-600">
@@ -437,7 +437,7 @@ export default function PerformPage() {
                         <div className="flex items-center gap-2 mt-1">
                           <Trophy className="h-5 w-5 text-amber-500" />
                           <p className="font-bold text-green-800 truncate">
-                            {stats.topPerformer?.employeeName?.split(' ')[0] || 'N/A'}
+                            {stats.topPerformer?.entityName?.split(' ')[0] || 'N/A'}
                           </p>
                         </div>
                       </div>
@@ -522,7 +522,7 @@ export default function PerformPage() {
                             {displaySpanish ? 'Ganancias Actuales' : 'Current Earnings'}
                           </p>
                           <p className="text-sm text-green-600">
-                            {myResult.planName || (displaySpanish ? 'Este periodo' : 'This period')}
+                            {myResult.ruleSetName || (displaySpanish ? 'Este periodo' : 'This period')}
                           </p>
                         </div>
                         <div className="text-right">

@@ -105,7 +105,7 @@ const labels = {
     running: 'Running...',
     results: 'Results',
     summary: 'Summary',
-    employeesProcessed: 'Employees Processed',
+    entitiesProcessed: 'Employees Processed',
     totalCompensation: 'Total Compensation',
     averagePayout: 'Average Payout',
     warnings: 'Warnings',
@@ -146,7 +146,7 @@ const labels = {
     running: 'Ejecutando...',
     results: 'Resultados',
     summary: 'Resumen',
-    employeesProcessed: 'Empleados Procesados',
+    entitiesProcessed: 'Empleados Procesados',
     totalCompensation: 'Compensación Total',
     averagePayout: 'Pago Promedio',
     warnings: 'Advertencias',
@@ -186,7 +186,7 @@ interface Period {
   status: string;
 }
 
-interface PlanStatus {
+interface RuleSetStatus {
   hasPlans: boolean;
   hasActivePlan: boolean;
   activePlanName: string | null;
@@ -206,7 +206,7 @@ export default function CalculatePage() {
   const [recentRuns, setRecentRuns] = useState<CalculationRun[]>([]);
   const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [planStatus, setPlanStatus] = useState<PlanStatus>({
+  const [planStatus, setRuleSetStatus] = useState<RuleSetStatus>({
     hasPlans: false,
     hasActivePlan: false,
     activePlanName: null,
@@ -245,7 +245,7 @@ export default function CalculatePage() {
       .filter((p) => p.canActivate)
       .map((p) => ({ id: p.plan.id, name: p.plan.name }));
 
-    setPlanStatus({
+    setRuleSetStatus({
       hasPlans: plansWithStatus.length > 0,
       hasActivePlan: !!activePlan,
       activePlanName: activePlan?.plan.name || null,
@@ -375,8 +375,8 @@ export default function CalculatePage() {
       if (runType === 'official' && orchestrationResult.success) {
         try {
           const tracelike = orchestrationResult.results.map(r => ({
-            employeeId: r.employeeId,
-            employeeName: r.employeeName,
+            entityId: r.entityId,
+            entityName: r.entityName,
             storeId: r.storeId || '',
             variant: { variantName: r.variantName || 'Default' },
             totalIncentive: r.totalIncentive,
@@ -430,13 +430,13 @@ export default function CalculatePage() {
       const summary = snapshot
         ? {
             totalPayout: snapshot.totalPayout,
-            employeeCount: snapshot.employeeCount,
+            entityCount: snapshot.entityCount,
             componentTotals: snapshot.componentTotals,
           }
         : {
             // Fallback: use latest result if snapshot missing
             totalPayout: result?.summary.totalPayout || 0,
-            employeeCount: result?.summary.employeesProcessed || 0,
+            entityCount: result?.summary.entitiesProcessed || 0,
             componentTotals: {} as Record<string, number>,
           };
 
@@ -498,8 +498,8 @@ export default function CalculatePage() {
 
     for (const trace of traces) {
       rows.push([
-        trace.employeeId || '',
-        trace.employeeName || '',
+        trace.entityId || '',
+        trace.entityName || '',
         trace.storeId || '',
         trace.variant?.variantName || '',
         String(trace.totalIncentive || 0),
@@ -536,12 +536,12 @@ export default function CalculatePage() {
   };
 
   // Activate a draft plan
-  const handleActivatePlan = async (planId: string) => {
+  const handleActivatePlan = async (ruleSetId: string) => {
     if (!user || !currentTenant) return;
 
     setIsActivating(true);
     try {
-      const activated = activatePlan(planId, user.name);
+      const activated = activatePlan(ruleSetId, user.name);
       if (activated) {
         // Refresh plan status
         const plansWithStatus = getPlansWithStatus(currentTenant.id);
@@ -550,7 +550,7 @@ export default function CalculatePage() {
           .filter((p) => p.canActivate)
           .map((p) => ({ id: p.plan.id, name: p.plan.name }));
 
-        setPlanStatus({
+        setRuleSetStatus({
           hasPlans: plansWithStatus.length > 0,
           hasActivePlan: !!activePlan,
           activePlanName: activePlan?.plan.name || null,
@@ -565,8 +565,8 @@ export default function CalculatePage() {
   };
 
   // Toggle employee expansion
-  const toggleEmployee = (employeeId: string) => {
-    setExpandedEmployee(expandedEmployee === employeeId ? null : employeeId);
+  const toggleEmployee = (entityId: string) => {
+    setExpandedEmployee(expandedEmployee === entityId ? null : entityId);
   };
 
   // Get status badge
@@ -713,7 +713,7 @@ export default function CalculatePage() {
                     // Refresh plan status
                     const plansWithStatus = getPlansWithStatus(currentTenant!.id);
                     const activePlan = plansWithStatus.find((p) => p.isActive);
-                    setPlanStatus({
+                    setRuleSetStatus({
                       hasPlans: plansWithStatus.length > 0,
                       hasActivePlan: !!activePlan,
                       activePlanName: activePlan?.plan.name || null,
@@ -883,7 +883,7 @@ export default function CalculatePage() {
                 </Badge>
                 {cycle.officialSnapshot && (
                   <span className="text-xs text-slate-500">
-                    Official: {formatCurrency(cycle.officialSnapshot.totalPayout)} ({cycle.officialSnapshot.employeeCount} employees)
+                    Official: {formatCurrency(cycle.officialSnapshot.totalPayout)} ({cycle.officialSnapshot.entityCount} employees)
                   </span>
                 )}
                 {cycle.state === 'REJECTED' && cycle.rejectionReason && (
@@ -1012,8 +1012,8 @@ export default function CalculatePage() {
                     <Users className="h-6 w-6 text-blue-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.employeesProcessed}</p>
-                    <p className="text-2xl font-bold">{result.summary.employeesProcessed}</p>
+                    <p className="text-sm text-slate-500">{t.entitiesProcessed}</p>
+                    <p className="text-2xl font-bold">{result.summary.entitiesProcessed}</p>
                   </div>
                 </div>
               </CardContent>
@@ -1042,8 +1042,8 @@ export default function CalculatePage() {
                   <div>
                     <p className="text-sm text-slate-500">{t.averagePayout}</p>
                     <p className="text-2xl font-bold">
-                      {formatCurrency(result.summary.employeesProcessed > 0
-                        ? Math.round(result.summary.totalPayout / result.summary.employeesProcessed)
+                      {formatCurrency(result.summary.entitiesProcessed > 0
+                        ? Math.round(result.summary.totalPayout / result.summary.entitiesProcessed)
                         : 0)}
                     </p>
                   </div>
@@ -1116,7 +1116,7 @@ export default function CalculatePage() {
 
             // Error rate
             if (result.run.errorCount > 0) {
-              const errorRate = (result.run.errorCount / result.summary.employeesProcessed * 100).toFixed(1);
+              const errorRate = (result.run.errorCount / result.summary.entitiesProcessed * 100).toFixed(1);
               signals.push({
                 type: result.run.errorCount > 10 ? 'critical' : 'warning',
                 label: `${errorRate}% error rate (${result.run.errorCount} failures)`,
@@ -1178,7 +1178,7 @@ export default function CalculatePage() {
                 {result.run.errorCount > 0
                   ? `${result.run.errorCount} error(s) found. Review errors above, fix data issues, then re-run.`
                   : cycle?.state === 'PREVIEW'
-                    ? `${result.summary.employeesProcessed} employees processed. Review results, reconcile, then run Official.`
+                    ? `${result.summary.entitiesProcessed} employees processed. Review results, reconcile, then run Official.`
                   : cycle?.state === 'OFFICIAL'
                     ? `Official run locked. Total payout: ${formatCurrency(result.summary.totalPayout)}. Submit for approval when ready.`
                   : cycle?.state === 'APPROVED'
@@ -1191,7 +1191,7 @@ export default function CalculatePage() {
                     ? `Payment recorded. Publish to finalize this period.`
                   : cycle?.state === 'PUBLISHED'
                     ? `Period is complete and published.`
-                  : `${result.summary.employeesProcessed} employees, ${formatCurrency(result.summary.totalPayout)} total.`}
+                  : `${result.summary.entitiesProcessed} employees, ${formatCurrency(result.summary.totalPayout)} total.`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1335,9 +1335,9 @@ export default function CalculatePage() {
                       if (!searchQuery.trim()) return true;
                       const q = searchQuery.toLowerCase();
                       return (
-                        r.employeeName?.toLowerCase().includes(q) ||
-                        r.employeeId?.toLowerCase().includes(q) ||
-                        r.employeeRole?.toLowerCase().includes(q) ||
+                        r.entityName?.toLowerCase().includes(q) ||
+                        r.entityId?.toLowerCase().includes(q) ||
+                        r.entityRole?.toLowerCase().includes(q) ||
                         r.storeName?.toLowerCase().includes(q)
                       );
                     });
@@ -1345,9 +1345,9 @@ export default function CalculatePage() {
                     return filtered.slice(start, start + pageSize);
                   })().map((employeeResult) => (
                     <Collapsible
-                      key={employeeResult.employeeId}
-                      open={expandedEmployee === employeeResult.employeeId}
-                      onOpenChange={() => toggleEmployee(employeeResult.employeeId)}
+                      key={employeeResult.entityId}
+                      open={expandedEmployee === employeeResult.entityId}
+                      onOpenChange={() => toggleEmployee(employeeResult.entityId)}
                       asChild
                     >
                       <>
@@ -1355,7 +1355,7 @@ export default function CalculatePage() {
                           <TableCell>
                             <CollapsibleTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-6 w-6">
-                                {expandedEmployee === employeeResult.employeeId ? (
+                                {expandedEmployee === employeeResult.entityId ? (
                                   <ChevronDown className="h-4 w-4" />
                                 ) : (
                                   <ChevronRight className="h-4 w-4" />
@@ -1364,10 +1364,10 @@ export default function CalculatePage() {
                             </CollapsibleTrigger>
                           </TableCell>
                           <TableCell className="font-medium">
-                            {employeeResult.employeeName}
+                            {employeeResult.entityName}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{employeeResult.employeeRole}</Badge>
+                            <Badge variant="outline">{employeeResult.entityRole}</Badge>
                           </TableCell>
                           <TableCell>{employeeResult.storeName || '-'}</TableCell>
                           <TableCell className="text-right font-semibold text-emerald-600">
@@ -1378,7 +1378,7 @@ export default function CalculatePage() {
                           </TableCell>
                           <TableCell>
                             <Link
-                              href={`/transactions/disputes?employeeId=${employeeResult.employeeId}&employeeName=${encodeURIComponent(employeeResult.employeeName)}`}
+                              href={`/transactions/disputes?entityId=${employeeResult.entityId}&entityName=${encodeURIComponent(employeeResult.entityName)}`}
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Button variant="outline" size="sm" className="text-xs">
@@ -1428,8 +1428,8 @@ export default function CalculatePage() {
                                 {/* Reconciliation Trace */}
                                 <ReconciliationTracePanel
                                   tenantId={currentTenant?.id || ''}
-                                  employeeId={employeeResult.employeeId}
-                                  employeeName={employeeResult.employeeName}
+                                  entityId={employeeResult.entityId}
+                                  entityName={employeeResult.entityName}
                                   engineTotal={employeeResult.totalIncentive}
                                   formatCurrency={formatCurrency}
                                 />
@@ -1449,9 +1449,9 @@ export default function CalculatePage() {
                   if (!searchQuery.trim()) return true;
                   const q = searchQuery.toLowerCase();
                   return (
-                    r.employeeName?.toLowerCase().includes(q) ||
-                    r.employeeId?.toLowerCase().includes(q) ||
-                    r.employeeRole?.toLowerCase().includes(q) ||
+                    r.entityName?.toLowerCase().includes(q) ||
+                    r.entityId?.toLowerCase().includes(q) ||
+                    r.entityRole?.toLowerCase().includes(q) ||
                     r.storeName?.toLowerCase().includes(q)
                   );
                 });
@@ -1506,7 +1506,7 @@ export default function CalculatePage() {
                     <li key={index} className="flex items-start gap-2 text-sm">
                       <XCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
                       <span>
-                        <strong>{error.employeeId}:</strong> {error.error}
+                        <strong>{error.entityId}:</strong> {error.error}
                       </span>
                     </li>
                   ))}
@@ -1540,7 +1540,7 @@ export default function CalculatePage() {
                       <TableHead>{t.runType}</TableHead>
                       <TableHead>{locale === 'es-MX' ? 'Período' : 'Period'}</TableHead>
                       <TableHead>{t.status}</TableHead>
-                      <TableHead>{t.employeesProcessed}</TableHead>
+                      <TableHead>{t.entitiesProcessed}</TableHead>
                       <TableHead className="text-right">{t.totalCompensation}</TableHead>
                       <TableHead>{t.startedAt}</TableHead>
                       <TableHead>{t.duration}</TableHead>

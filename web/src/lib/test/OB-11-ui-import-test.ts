@@ -196,12 +196,12 @@ function ob11ExtractEmployees(tenantId: string): OB11Employee[] {
       }
 
       const content = record.content;
-      const employeeId = String(
+      const entityId = String(
         content['num_empleado'] || content['Num_Empleado'] ||
-        content['employee_id'] || content['employeeId'] || ''
+        content['entity_id'] || content['entityId'] || ''
       ).trim();
 
-      if (!employeeId || seenIds.has(employeeId)) continue;
+      if (!entityId || seenIds.has(entityId)) continue;
 
       const hasNameField = content['nombre'] || content['name'] ||
         content['first_name'] || content['firstName'] ||
@@ -209,15 +209,15 @@ function ob11ExtractEmployees(tenantId: string): OB11Employee[] {
 
       if (!hasNameField) continue;
 
-      seenIds.add(employeeId);
+      seenIds.add(entityId);
 
       const fullName = String(content['nombre'] || content['nombre_completo'] || content['Nombre'] || '');
       const nameParts = fullName.split(' ');
 
       employees.push({
-        id: employeeId,
+        id: entityId,
         tenantId,
-        employeeNumber: employeeId,
+        employeeNumber: entityId,
         firstName: nameParts[0] || 'Unknown',
         lastName: nameParts.slice(1).join(' ') || 'Employee',
         email: String(content['email'] || ''),

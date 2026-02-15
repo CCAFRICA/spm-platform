@@ -17,16 +17,16 @@ import {
 
 interface ReconciliationTracePanelProps {
   tenantId: string;
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   engineTotal: number;
   formatCurrency: (value: number) => string;
 }
 
 export function ReconciliationTracePanel({
   tenantId,
-  employeeId,
-  employeeName,
+  entityId,
+  entityName,
   engineTotal,
   formatCurrency,
 }: ReconciliationTracePanelProps) {
@@ -39,7 +39,7 @@ export function ReconciliationTracePanel({
     setLoading(true);
     setError(null);
     try {
-      const result = generateEmployeeTrace(tenantId, employeeId);
+      const result = generateEmployeeTrace(tenantId, entityId);
       setTrace(result);
       // Auto-expand all components
       if (result) {
@@ -84,7 +84,7 @@ export function ReconciliationTracePanel({
     return (
       <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t flex items-center gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />
-        <span className="text-sm text-muted-foreground">Loading trace for {employeeName}...</span>
+        <span className="text-sm text-muted-foreground">Loading trace for {entityName}...</span>
       </div>
     );
   }
@@ -147,7 +147,7 @@ export function ReconciliationTracePanel({
 
       {/* Variant Selection */}
       <div className="text-xs text-muted-foreground">
-        <span>Plan: {trace.planResolution.planName}</span>
+        <span>Plan: {trace.planResolution.ruleSetName}</span>
         <span className="mx-2">|</span>
         <span>Variant: {trace.variantSelection.selectedVariantName}</span>
         <span className="mx-2">|</span>

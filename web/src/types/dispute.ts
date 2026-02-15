@@ -21,8 +21,8 @@ export interface Dispute {
   id: string;
   tenantId: string;
   transactionId: string;
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   storeId: string;
   storeName: string;
   status: DisputeStatus;
@@ -85,8 +85,8 @@ export interface CompensationAdjustment {
   id: string;
   tenantId: string;
   disputeId: string | null;
-  employeeId: string;
-  employeeName: string;
+  entityId: string;
+  entityName: string;
   type: 'dispute_resolution' | 'manual_correction' | 'retroactive';
   amount: number;
   currency: string;
@@ -153,8 +153,8 @@ export const DISPUTE_CATEGORIES: Record<
 export function createDisputeDraft(
   tenantId: string,
   transactionId: string,
-  employeeId: string,
-  employeeName: string,
+  entityId: string,
+  entityName: string,
   storeId: string,
   storeName: string,
   component: string
@@ -165,8 +165,8 @@ export function createDisputeDraft(
     id: `dispute-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
     tenantId,
     transactionId,
-    employeeId,
-    employeeName,
+    entityId,
+    entityName,
     storeId,
     storeName,
     status: 'draft',
