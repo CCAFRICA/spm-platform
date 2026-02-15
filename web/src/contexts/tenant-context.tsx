@@ -1,10 +1,17 @@
 'use client';
 
+/**
+ * Tenant Context — Derives tenant from authenticated user's profile.
+ *
+ * No localStorage for tenant/role. The user's profile (from Supabase Auth)
+ * provides tenant_id. Tenant config is loaded from JSON files or Supabase.
+ */
+
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from './auth-context';
 import type { TenantConfig, TenantSummary, TenantTerminology, Currency } from '@/types/tenant';
 import { DEFAULT_TERMINOLOGY, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
-import { cleanupStaleData } from '@/lib/data-architecture/data-layer-service';
 
 interface TenantContextState {
   currentTenant: TenantConfig | null;
@@ -19,20 +26,11 @@ interface TenantContextState {
 
 const TenantContext = createContext<TenantContextState | undefined>(undefined);
 
-const STORAGE_KEY_TENANT = 'vialuce_current_tenant';
-const STORAGE_KEY_USER_ROLE = 'vialuce_user_role';
-
-// Storage keys for dynamic tenants (matches provisioning-engine.ts)
-const DYNAMIC_TENANTS_KEY = 'vialuce_tenants';
-const DYNAMIC_REGISTRY_KEY = 'vialuce_tenant_registry';
-
 // Tenant config cache to avoid repeated imports
 const tenantConfigCache: Record<string, TenantConfig> = {};
 
 /**
- * OB-16A: Normalize tenant ID - strip leading/trailing underscores
- * This is the SINGLE SOURCE of normalization for all tenant IDs.
- * Fixes data mismatch where tenant was created with trailing underscore.
+ * Normalize tenant ID - strip leading/trailing underscores
  */
 function normalizeTenantId(id: string): string {
   const normalized = id.replace(/^_+|_+$/g, '');
@@ -42,60 +40,14 @@ function normalizeTenantId(id: string): string {
   return normalized;
 }
 
-/**
- * Load dynamic tenants from localStorage (created via provisioning wizard)
- */
-function loadDynamicTenants(): TenantConfig[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(DYNAMIC_TENANTS_KEY);
-    if (stored) {
-      const tenants = JSON.parse(stored) as TenantConfig[];
-      // OB-16A: Normalize all tenant IDs on load
-      return tenants.map(t => ({ ...t, id: normalizeTenantId(t.id) }));
-    }
-  } catch (e) {
-    console.warn('Failed to load dynamic tenants:', e);
-  }
-  return [];
-}
-
-/**
- * Load dynamic tenant registry summaries from localStorage
- */
-function loadDynamicTenantSummaries(): TenantSummary[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(DYNAMIC_REGISTRY_KEY);
-    if (stored) {
-      const registry = JSON.parse(stored);
-      const summaries = (registry.tenants || []) as TenantSummary[];
-      // OB-16A: Normalize all tenant IDs on load
-      return summaries.map(t => ({ ...t, id: normalizeTenantId(t.id) }));
-    }
-  } catch (e) {
-    console.warn('Failed to load dynamic tenant registry:', e);
-  }
-  return [];
-}
-
 async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
-  // OB-16A: Normalize tenant ID before any lookup
   const normalizedId = normalizeTenantId(tenantId);
 
   if (tenantConfigCache[normalizedId]) {
     return tenantConfigCache[normalizedId];
   }
 
-  // First, check localStorage for dynamically provisioned tenants
-  const dynamicTenants = loadDynamicTenants();
-  const dynamicTenant = dynamicTenants.find(t => t.id === normalizedId);
-  if (dynamicTenant) {
-    tenantConfigCache[normalizedId] = dynamicTenant;
-    return dynamicTenant;
-  }
-
-  // Fall back to static tenant config files
+  // Load tenant config from static JSON files
   try {
     const config = await import(`@/data/tenants/${normalizedId}/config.json`);
     const tenantConfig = { ...(config.default || config), id: normalizedId };
@@ -108,29 +60,17 @@ async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
 
 export function TenantProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const { user, isVLAdmin: isAdmin, isLoading: authLoading } = useAuth();
   const [currentTenant, setCurrentTenant] = useState<TenantConfig | null>(null);
   const [availableTenants, setAvailableTenants] = useState<TenantSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isVLAdmin, setIsVLAdmin] = useState(false);
 
   const loadTenant = useCallback(async (tenantId: string): Promise<void> => {
-    // OB-16A: Normalize tenant ID at the entry point
     const normalizedId = normalizeTenantId(tenantId);
     try {
       const config = await loadTenantConfig(normalizedId);
       setCurrentTenant(config);
-      if (typeof window !== 'undefined') {
-        // Store the normalized ID to prevent dirty values from persisting
-        localStorage.setItem(STORAGE_KEY_TENANT, normalizedId);
-
-        // OB-16C: Clean up stale data from other tenants to free localStorage space
-        try {
-          cleanupStaleData(normalizedId);
-        } catch (cleanupErr) {
-          console.warn('[TenantContext] Stale data cleanup failed:', cleanupErr);
-        }
-      }
       setIsLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to load tenant: ${normalizedId}`);
@@ -139,56 +79,43 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // React to auth user changes — derive tenant from profile
   useEffect(() => {
+    if (authLoading) return;
+
     const initializeTenant = async () => {
       setIsLoading(true);
       setError(null);
 
       try {
-        // Check if user is VL Admin
-        const userRole = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_USER_ROLE) : null;
-        const isAdmin = userRole === 'vl_admin';
-        setIsVLAdmin(isAdmin);
-
-        // Load available tenants for VL Admin (both static and dynamic)
+        // Load available tenants for VL Admin
         if (isAdmin) {
           try {
-            // Load static tenants from registry file
             const registry = await import('@/data/tenants/index.json');
             const staticTenants = (registry.tenants || []) as TenantSummary[];
-
-            // Load dynamic tenants from localStorage
-            const dynamicTenants = loadDynamicTenantSummaries();
-
-            // Merge, with dynamic tenants taking precedence for duplicates
-            const staticIds = new Set(staticTenants.map(t => t.id));
-            const mergedTenants = [
-              ...staticTenants,
-              ...dynamicTenants.filter(t => !staticIds.has(t.id)),
-            ];
-
-            setAvailableTenants(mergedTenants);
+            setAvailableTenants(staticTenants);
           } catch {
             console.warn('Failed to load tenant registry');
-            // Still try to load dynamic tenants if static fails
-            const dynamicTenants = loadDynamicTenantSummaries();
-            if (dynamicTenants.length > 0) {
-              setAvailableTenants(dynamicTenants);
-            }
           }
         }
 
-        // Check for stored tenant
-        const storedTenantId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_TENANT) : null;
-
-        if (storedTenantId) {
-          await loadTenant(storedTenantId);
+        // Derive tenant from authenticated user
+        if (user && !isAdmin && 'tenantId' in user && user.tenantId) {
+          await loadTenant(user.tenantId);
         } else if (isAdmin) {
-          // VL Admin without selected tenant - will redirect in component
-          setIsLoading(false);
+          // VL Admin without selected tenant — check if we had one selected
+          // Use sessionStorage for admin's tenant selection (survives refresh, not tabs)
+          const selectedTenant = typeof window !== 'undefined'
+            ? sessionStorage.getItem('vialuce_admin_tenant')
+            : null;
+          if (selectedTenant) {
+            await loadTenant(selectedTenant);
+          } else {
+            setIsLoading(false);
+          }
         } else {
-          // Default tenant for regular users
-          await loadTenant('techcorp');
+          // Not authenticated or no tenant
+          setIsLoading(false);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to initialize tenant');
@@ -197,13 +124,17 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     };
 
     initializeTenant();
-  }, [loadTenant]);
+  }, [user, isAdmin, authLoading, loadTenant]);
 
   const setTenant = useCallback(async (tenantId: string): Promise<void> => {
     setIsLoading(true);
     setError(null);
     try {
       await loadTenant(tenantId);
+      // Store admin's tenant selection in sessionStorage
+      if (isAdmin && typeof window !== 'undefined') {
+        sessionStorage.setItem('vialuce_admin_tenant', tenantId);
+      }
       router.push('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to switch tenant');
@@ -211,21 +142,20 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [router, loadTenant]);
+  }, [router, loadTenant, isAdmin]);
 
   const clearTenant = useCallback((): void => {
     setCurrentTenant(null);
     if (typeof window !== 'undefined') {
-      localStorage.removeItem(STORAGE_KEY_TENANT);
+      sessionStorage.removeItem('vialuce_admin_tenant');
     }
-    if (isVLAdmin) {
+    if (isAdmin) {
       router.push('/select-tenant');
     }
-  }, [isVLAdmin, router]);
+  }, [isAdmin, router]);
 
   const refreshTenant = useCallback(async (): Promise<void> => {
     if (currentTenant) {
-      // Clear cache to force reload
       delete tenantConfigCache[currentTenant.id];
       await loadTenant(currentTenant.id);
     }
@@ -236,7 +166,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       currentTenant,
       isLoading,
       error,
-      isVLAdmin,
+      isVLAdmin: isAdmin,
       availableTenants,
       setTenant,
       clearTenant,
@@ -307,6 +237,3 @@ export function useFeature(featureKey: keyof TenantConfig['features']): boolean 
   if (!currentTenant?.features) return false;
   return currentTenant.features[featureKey] ?? false;
 }
-
-// Storage key exports for use in auth context
-export { STORAGE_KEY_TENANT, STORAGE_KEY_USER_ROLE };

@@ -7,7 +7,6 @@ import { NavigationProvider, useNavigation } from '@/contexts/navigation-context
 import { MissionControlRail } from '@/components/navigation/mission-control';
 import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
 import { Navbar } from '@/components/navigation/Navbar';
-import { DemoUserSwitcher } from '@/components/demo/DemoUserSwitcher';
 import { cn } from '@/lib/utils';
 
 // Routes that don't require authentication
@@ -39,7 +38,6 @@ function AuthShellInner({ children }: AuthShellProps) {
         <main>{children}</main>
       </div>
       <CommandPalette />
-      <DemoUserSwitcher />
     </>
   );
 }

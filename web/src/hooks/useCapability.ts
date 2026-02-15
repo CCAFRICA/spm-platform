@@ -1,7 +1,7 @@
 /**
  * useCapability — Check if the current user has a specific capability.
  *
- * OB-42 Phase 11C: Capabilities-based UI rendering.
+ * Capabilities come from the user's Supabase profile.
  *
  * Capabilities:
  * - view_outcomes: Can see calculation results
@@ -24,77 +24,34 @@
 'use client';
 
 import { useAuth } from '@/contexts/auth-context';
-import { isTenantUser } from '@/types/auth';
 
 /**
  * Check if the current user has a specific capability.
  * VL admins always have all capabilities.
  */
 export function useCapability(capability: string): boolean {
-  const { user } = useAuth();
+  const { user, capabilities } = useAuth();
   if (!user) return false;
-
-  // VL admins have all capabilities
   if (user.role === 'vl_admin') return true;
-
-  if (isTenantUser(user)) {
-    // Check capabilities first (Supabase mode)
-    if (user.capabilities?.includes(capability)) return true;
-
-    // Fall back to permissions (demo mode — mapped from capabilities)
-    // Map capability names to permission names for backward compatibility
-    const capToPermMap: Record<string, string[]> = {
-      view_outcomes: ['view_own_compensation', 'view_all_compensation'],
-      approve_outcomes: ['approve_plans', 'approve_results'],
-      export_results: ['export_data'],
-      manage_rule_sets: ['manage_plans', 'edit_plans'],
-      manage_assignments: ['manage_employees', 'manage_team'],
-      design_scenarios: ['run_scenarios'],
-      import_data: ['import_data'],
-      view_audit: ['view_audit'],
-      manage_tenants: ['manage_system'],
-      manage_profiles: ['manage_employees'],
-    };
-
-    const mappedPerms = capToPermMap[capability] || [];
-    return mappedPerms.some(p => user.permissions?.includes(p));
-  }
-
-  return false;
+  return capabilities.includes(capability);
 }
 
 /**
  * Check if the current user has any of the given capabilities.
  */
-export function useHasAnyCapability(capabilities: string[]): boolean {
-  const { user } = useAuth();
+export function useHasAnyCapability(caps: string[]): boolean {
+  const { user, capabilities } = useAuth();
   if (!user) return false;
   if (user.role === 'vl_admin') return true;
-
-  if (isTenantUser(user)) {
-    return capabilities.some(cap => {
-      if (user.capabilities?.includes(cap)) return true;
-      return false;
-    });
-  }
-
-  return false;
+  return caps.some(cap => capabilities.includes(cap));
 }
 
 /**
  * Check if the current user has all of the given capabilities.
  */
-export function useHasAllCapabilities(capabilities: string[]): boolean {
-  const { user } = useAuth();
+export function useHasAllCapabilities(caps: string[]): boolean {
+  const { user, capabilities } = useAuth();
   if (!user) return false;
   if (user.role === 'vl_admin') return true;
-
-  if (isTenantUser(user)) {
-    return capabilities.every(cap => {
-      if (user.capabilities?.includes(cap)) return true;
-      return false;
-    });
-  }
-
-  return false;
+  return caps.every(cap => capabilities.includes(cap));
 }

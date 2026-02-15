@@ -6,71 +6,41 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, ChevronDown, ChevronUp } from 'lucide-react';
-import { useAuth, ALL_USERS } from '@/contexts/auth-context';
+import { DollarSign } from 'lucide-react';
+import { useAuth } from '@/contexts/auth-context';
 import { LoadingButton } from '@/components/ui/loading-button';
 import { useLocale } from '@/contexts/locale-context';
-import { isVLAdmin } from '@/types/auth';
-import { Button } from '@/components/ui/button';
 
 export default function LoginPage() {
-  const { login, isSupabaseAuth } = useAuth();
+  const { login } = useAuth();
   const { t } = useLocale();
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [showDemoHint, setShowDemoHint] = useState(false);
 
   const handleLogin = async () => {
-    if (!emailInput) return;
+    if (!emailInput || !passwordInput) return;
 
     setIsLoading(true);
     setLoginError(null);
 
-    if (!isSupabaseAuth) {
-      // Demo mode: artificial delay for UX
-      await new Promise(r => setTimeout(r, 800));
-    }
-
-    const success = await login(
-      emailInput,
-      isSupabaseAuth ? passwordInput : undefined,
-    );
+    const success = await login(emailInput, passwordInput);
 
     if (success) {
-      const user = ALL_USERS.find(u => u.email.toLowerCase() === emailInput.toLowerCase());
-      toast.success(t('auth.welcomeBack', { name: user?.name || emailInput }), {
-        description: user && isVLAdmin(user) ? 'Platform Administrator' : `Signed in`,
+      toast.success(t('auth.welcomeBack', { name: emailInput }), {
+        description: 'Signed in',
       });
     } else {
-      setLoginError(
-        isSupabaseAuth
-          ? 'Invalid email or password. Please try again.'
-          : 'Invalid credentials. Please check your email address.'
-      );
+      setLoginError('Invalid email or password. Please try again.');
       setIsLoading(false);
     }
   };
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await handleLogin();
   };
-
-  const handleDemoSelect = (email: string) => {
-    setEmailInput(email);
-    setLoginError(null);
-  };
-
-  // Demo account emails
-  const demoEmails = [
-    'admin@vialuce.com',
-    'admin@retailcgmx.com',
-    'admin@techcorp.com',
-    'sarah.chen@techcorp.com',
-    'admin@restaurantmx.com',
-  ];
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-4">
@@ -102,14 +72,11 @@ export default function LoginPage() {
           <CardHeader className="px-4 md:px-6">
             <CardTitle className="text-lg md:text-xl">{t('auth.signIn')}</CardTitle>
             <CardDescription>
-              {isSupabaseAuth
-                ? 'Enter your email and password to sign in'
-                : 'Enter your email address to sign in'}
+              Enter your email and password to sign in
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-4 md:px-6">
-            {/* Login Form */}
-            <form onSubmit={handleEmailSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email Address</Label>
                 <Input
@@ -127,35 +94,31 @@ export default function LoginPage() {
                 />
               </div>
 
-              {/* Password field: only shown when Supabase is configured */}
-              {isSupabaseAuth && (
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Enter your password"
-                    value={passwordInput}
-                    onChange={(e) => {
-                      setPasswordInput(e.target.value);
-                      setLoginError(null);
-                    }}
-                    disabled={isLoading}
-                    autoComplete="current-password"
-                  />
-                </div>
-              )}
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Enter your password"
+                  value={passwordInput}
+                  onChange={(e) => {
+                    setPasswordInput(e.target.value);
+                    setLoginError(null);
+                  }}
+                  disabled={isLoading}
+                  autoComplete="current-password"
+                />
+              </div>
 
               {loginError && (
                 <p className="text-sm text-destructive">{loginError}</p>
               )}
 
-              {/* Login Button */}
               <LoadingButton
                 type="submit"
                 className="w-full"
                 size="lg"
-                disabled={!emailInput || (isSupabaseAuth && !passwordInput)}
+                disabled={!emailInput || !passwordInput}
                 loading={isLoading}
                 loadingText="Signing in..."
               >
@@ -163,60 +126,13 @@ export default function LoginPage() {
               </LoadingButton>
             </form>
 
-            {/* Demo Accounts Hint (collapsible) — only in demo mode */}
-            {!isSupabaseAuth && (
-              <div className="pt-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-muted-foreground text-xs"
-                  onClick={() => setShowDemoHint(!showDemoHint)}
-                >
-                  Demo accounts
-                  {showDemoHint ? (
-                    <ChevronUp className="h-3 w-3 ml-1" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3 ml-1" />
-                  )}
-                </Button>
-
-                {showDemoHint && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mt-2 p-3 bg-muted/50 rounded-lg"
-                  >
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Click to use a demo account:
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {demoEmails.map((email) => (
-                        <button
-                          key={email}
-                          type="button"
-                          onClick={() => handleDemoSelect(email)}
-                          className="text-xs px-2 py-1 rounded bg-background hover:bg-primary/10 border transition-colors"
-                          disabled={isLoading}
-                        >
-                          {email}
-                        </button>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </div>
-            )}
-
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.4 }}
               className="text-xs text-center text-muted-foreground pt-2"
             >
-              {isSupabaseAuth
-                ? 'Secured by Supabase Auth'
-                : 'Demo environment • Azure AD B2C in production'}
+              Secured by Supabase Auth
             </motion.p>
           </CardContent>
         </Card>
