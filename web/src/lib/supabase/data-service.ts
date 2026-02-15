@@ -527,6 +527,7 @@ export async function directCommitImportDataAsync(
     rows: Record<string, unknown>[];
     mappings?: Record<string, string>;
   }>,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _providedBatchId?: string
 ): Promise<{ batchId: string; recordCount: number }> {
   // Create batch and write committed data

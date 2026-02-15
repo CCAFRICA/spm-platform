@@ -202,7 +202,8 @@ export async function submitRuleSetForApproval(
 export async function approveRuleSet(
   tenantId: string,
   ruleSetId: string,
-  approvedBy: string
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _approvedBy: string
 ): Promise<CompensationPlanConfig | null> {
   const supabase = createClient();
   const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
