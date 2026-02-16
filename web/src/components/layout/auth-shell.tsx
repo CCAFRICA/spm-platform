@@ -3,14 +3,19 @@
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
+import { useTenant } from '@/contexts/tenant-context';
 import { NavigationProvider, useNavigation } from '@/contexts/navigation-context';
 import { MissionControlRail } from '@/components/navigation/mission-control';
 import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
 import { Navbar } from '@/components/navigation/Navbar';
+import { DemoPersonaSwitcher } from '@/components/demo/DemoPersonaSwitcher';
 import { cn } from '@/lib/utils';
 
 // Routes that don't require authentication
 const PUBLIC_ROUTES = ['/login'];
+
+// Routes that don't require a tenant to be selected
+const TENANT_EXEMPT_ROUTES = ['/login', '/select-tenant'];
 
 // Routes that should not show the app shell (sidebar/navbar)
 const SHELL_EXCLUDED_ROUTES = ['/login', '/select-tenant'];
@@ -45,25 +50,33 @@ function AuthShellInner({ children }: AuthShellProps) {
 }
 
 export function AuthShell({ children }: AuthShellProps) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isVLAdmin } = useAuth();
+  const { currentTenant, isLoading: tenantLoading } = useTenant();
   const pathname = usePathname();
   const router = useRouter();
 
   const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
+  const isTenantExempt = TENANT_EXEMPT_ROUTES.includes(pathname);
   const showShell = !SHELL_EXCLUDED_ROUTES.includes(pathname);
 
   useEffect(() => {
     // Don't redirect while loading
-    if (isLoading) return;
+    if (isLoading || tenantLoading) return;
 
     // If not authenticated and not on a public route, redirect to login
     if (!isAuthenticated && !isPublicRoute) {
       router.push('/login');
+      return;
     }
-  }, [isAuthenticated, isLoading, isPublicRoute, router]);
 
-  // Show loading state while checking auth
-  if (isLoading) {
+    // Platform admin without a tenant selected must pick one first
+    if (isAuthenticated && isVLAdmin && !currentTenant && !isTenantExempt) {
+      router.push('/select-tenant');
+    }
+  }, [isAuthenticated, isLoading, tenantLoading, isPublicRoute, isVLAdmin, currentTenant, isTenantExempt, router]);
+
+  // Show loading state while checking auth or tenant
+  if (isLoading || tenantLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
         <div className="flex flex-col items-center gap-4">
@@ -79,6 +92,11 @@ export function AuthShell({ children }: AuthShellProps) {
     return <>{children}</>;
   }
 
+  // Platform admin without tenant on a non-exempt route: render nothing while redirect fires
+  if (isVLAdmin && !currentTenant && !isTenantExempt) {
+    return null;
+  }
+
   // Authenticated user - show with or without shell based on route
   if (!showShell) {
     return <>{children}</>;
@@ -88,6 +106,7 @@ export function AuthShell({ children }: AuthShellProps) {
   return (
     <NavigationProvider>
       <AuthShellInner>{children}</AuthShellInner>
+      <DemoPersonaSwitcher />
     </NavigationProvider>
   );
 }
