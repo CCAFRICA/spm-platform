@@ -73,6 +73,12 @@ export async function getSession() {
  */
 export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
   const supabase = createClient();
+
+  // Check local session first (no network request) to avoid 500 errors
+  // when there's no session cookie at all
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
