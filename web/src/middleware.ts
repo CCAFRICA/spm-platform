@@ -4,6 +4,16 @@
  * 1. Refreshes the Supabase auth session on every request.
  * 2. Redirects unauthenticated users to /login.
  * 3. Redirects platform admins without a selected tenant to /select-tenant.
+ *
+ * CRITICAL: When redirecting unauthenticated users, the redirect response
+ * must NOT carry Set-Cookie headers from the Supabase client. Otherwise,
+ * the browser stores those cookies, follows the redirect to /login, and
+ * on the next request the middleware sees the cookies → thinks user is
+ * authenticated → redirects from /login back to / → dashboard renders.
+ *
+ * Fix: All redirect responses are fresh NextResponse.redirect() objects.
+ * When user is NOT authenticated, stale sb-* cookies are explicitly cleared
+ * on the redirect response so the browser arrives at /login with a clean slate.
  */
 
 import { createServerClient } from '@supabase/ssr';
@@ -14,6 +24,23 @@ const PUBLIC_PATHS = ['/login', '/api/auth', '/api/health'];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(p => pathname.startsWith(p));
+}
+
+/**
+ * Clear all Supabase auth cookies (sb-*) on a response.
+ * Sets each cookie to empty with maxAge=0 so the browser deletes them.
+ */
+function clearSbCookies(request: NextRequest, response: NextResponse): void {
+  request.cookies.getAll().forEach(cookie => {
+    if (cookie.name.startsWith('sb-')) {
+      response.cookies.set({
+        name: cookie.name,
+        value: '',
+        maxAge: 0,
+        path: '/',
+      });
+    }
+  });
 }
 
 export async function middleware(request: NextRequest) {
@@ -30,6 +57,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Response object for authenticated pass-through (carries cookie refresh).
+  // The Supabase client's setAll handler writes refreshed tokens to THIS response.
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -53,22 +82,37 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Refresh session and get user
+  // Refresh session and get user — may trigger setAll (token refresh)
   const { data: { user } } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
 
-  // If not authenticated and not a public path, redirect to login
-  if (!user && !isPublicPath(pathname)) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(loginUrl);
+  // ── NOT AUTHENTICATED ──
+  if (!user) {
+    if (!isPublicPath(pathname)) {
+      // Protected path, no user → redirect to /login.
+      // CRITICAL: Fresh NextResponse.redirect() — NOT supabaseResponse.
+      // Clear all stale sb-* cookies so the browser arrives at /login clean.
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname);
+      const redirectResponse = NextResponse.redirect(loginUrl);
+      clearSbCookies(request, redirectResponse);
+      return redirectResponse;
+    }
+
+    // Public path, no user → pass through, but clear stale cookies.
+    // This prevents: GET /login with stale cookies → getUser() refreshes
+    // on a subsequent request → middleware thinks user is authenticated.
+    const passThrough = NextResponse.next({ request });
+    clearSbCookies(request, passThrough);
+    return passThrough;
   }
 
-  // If authenticated and on login page, redirect away
-  if (user && pathname === '/login') {
+  // ── AUTHENTICATED ──
+
+  // Authenticated user on /login → redirect to app
+  if (pathname === '/login') {
     // Check if this is a platform admin (has manage_tenants capability)
-    // We check the profile in the profiles table
     const { data: profile } = await supabase
       .from('profiles')
       .select('role, capabilities')
@@ -84,6 +128,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
+  // Authenticated user on protected route → pass through WITH cookie refresh.
+  // supabaseResponse carries the refreshed session cookies from setAll.
   return supabaseResponse;
 }
 
