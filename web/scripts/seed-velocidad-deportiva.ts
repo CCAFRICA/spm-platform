@@ -10,7 +10,7 @@
  * - 2 rule sets (Floor Sales + Online Assist)
  * - 36 rule set assignments (18 associates × 2 plans)
  * - 8 periods (6 monthly + 2 quarterly)
- * - 6 months committed data (Jul–Dec 2024)
+ * - 6 months committed data (Sep 2025–Feb 2026)
  * - 8 calc batches (6 monthly + 2 quarterly)
  * - 108 calc results (18 associates × 6 months)
  * - 36 outcomes (18 associates × 2 quarters)
@@ -45,36 +45,36 @@ const RS_ONLINE_ID = 'b2000000-0001-0000-0000-000000000002';
 
 // Periods (6 monthly + 2 quarterly)
 const PERIOD_IDS = {
-  '2024-07': 'b2000000-0010-0000-0000-000000000001',
-  '2024-08': 'b2000000-0010-0000-0000-000000000002',
-  '2024-09': 'b2000000-0010-0000-0000-000000000003',
-  '2024-10': 'b2000000-0010-0000-0000-000000000004',
-  '2024-11': 'b2000000-0010-0000-0000-000000000005',
-  '2024-12': 'b2000000-0010-0000-0000-000000000006',
-  '2024-Q3': 'b2000000-0010-0000-0000-000000000007',
-  '2024-Q4': 'b2000000-0010-0000-0000-000000000008',
+  '2025-09': 'b2000000-0010-0000-0000-000000000001',
+  '2025-10': 'b2000000-0010-0000-0000-000000000002',
+  '2025-11': 'b2000000-0010-0000-0000-000000000003',
+  '2025-12': 'b2000000-0010-0000-0000-000000000004',
+  '2026-01': 'b2000000-0010-0000-0000-000000000005',
+  '2026-02': 'b2000000-0010-0000-0000-000000000006',
+  'Q1-FY26': 'b2000000-0010-0000-0000-000000000007',
+  'Q2-FY26': 'b2000000-0010-0000-0000-000000000008',
 };
 
 // Import batches (1 per month)
 const IB_IDS = {
-  '2024-07': 'b2000000-0020-0000-0000-000000000001',
-  '2024-08': 'b2000000-0020-0000-0000-000000000002',
-  '2024-09': 'b2000000-0020-0000-0000-000000000003',
-  '2024-10': 'b2000000-0020-0000-0000-000000000004',
-  '2024-11': 'b2000000-0020-0000-0000-000000000005',
-  '2024-12': 'b2000000-0020-0000-0000-000000000006',
+  '2025-09': 'b2000000-0020-0000-0000-000000000001',
+  '2025-10': 'b2000000-0020-0000-0000-000000000002',
+  '2025-11': 'b2000000-0020-0000-0000-000000000003',
+  '2025-12': 'b2000000-0020-0000-0000-000000000004',
+  '2026-01': 'b2000000-0020-0000-0000-000000000005',
+  '2026-02': 'b2000000-0020-0000-0000-000000000006',
 };
 
 // Calc batches (6 monthly + 2 quarterly)
 const CB_IDS = {
-  '2024-07': 'b2000000-0030-0000-0000-000000000001',
-  '2024-08': 'b2000000-0030-0000-0000-000000000002',
-  '2024-09': 'b2000000-0030-0000-0000-000000000003',
-  '2024-10': 'b2000000-0030-0000-0000-000000000004',
-  '2024-11': 'b2000000-0030-0000-0000-000000000005',
-  '2024-12': 'b2000000-0030-0000-0000-000000000006',
-  '2024-Q3': 'b2000000-0030-0000-0000-000000000007',
-  '2024-Q4': 'b2000000-0030-0000-0000-000000000008',
+  '2025-09': 'b2000000-0030-0000-0000-000000000001',
+  '2025-10': 'b2000000-0030-0000-0000-000000000002',
+  '2025-11': 'b2000000-0030-0000-0000-000000000003',
+  '2025-12': 'b2000000-0030-0000-0000-000000000004',
+  '2026-01': 'b2000000-0030-0000-0000-000000000005',
+  '2026-02': 'b2000000-0030-0000-0000-000000000006',
+  'Q1-FY26': 'b2000000-0030-0000-0000-000000000007',
+  'Q2-FY26': 'b2000000-0030-0000-0000-000000000008',
 };
 
 // ── Entity UUIDs ──
@@ -134,10 +134,10 @@ const AUTH_USERS = [
   },
 ];
 
-// ── Store attainment by month (Jul–Dec 2024) ──
+// ── Store attainment by month (Sep 2025–Feb 2026) ──
 // Key pattern: drives medals for associates
 const STORE_ATT: Record<string, number[]> = {
-  // [Jul, Aug, Sep, Oct, Nov, Dec]
+  // [Sep, Oct, Nov, Dec, Jan, Feb]
   [STORES[0].id]: [125, 122, 130, 124, 121, 140], // Polanco — all ≥120 → all Oro
   [STORES[1].id]: [105, 110, 98, 108, 112, 120],   // Santa Fe — mostly Plata
   [STORES[2].id]: [88, 92, 85, 90, 95, 88],         // Interlomas — mostly Bronce
@@ -148,8 +148,8 @@ const STORE_ATT: Record<string, number[]> = {
   [STORES[7].id]: [95, 98, 90, 92, 100, 98],        // Leon — Bronce/Plata
 };
 
-const MONTHS = ['2024-07', '2024-08', '2024-09', '2024-10', '2024-11', '2024-12'];
-const MONTH_LABELS = ['Julio 2024', 'Agosto 2024', 'Septiembre 2024', 'Octubre 2024', 'Noviembre 2024', 'Diciembre 2024'];
+const MONTHS = ['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02'];
+const MONTH_LABELS = ['Septiembre 2025', 'Octubre 2025', 'Noviembre 2025', 'Diciembre 2025', 'Enero 2026', 'Febrero 2026'];
 
 // ── Individuals (20 total, 18 floor associates + 2 managers) ──
 interface Individual {
@@ -464,12 +464,12 @@ async function main() {
   const { error: rs1Err } = await supabase.from('rule_sets').upsert({
     id: RS_FLOOR_ID,
     tenant_id: TENANT_ID,
-    name: 'Plan de Ventas de Piso — Velocidad Deportiva 2024',
+    name: 'Plan de Ventas de Piso — Velocidad Deportiva 2025-26',
     description: 'Plan principal para vendedores de piso: comisión base + bono por logro + racha + medallas',
     status: 'active',
     version: 1,
-    effective_from: '2024-01-01',
-    effective_to: '2024-12-31',
+    effective_from: '2025-09-01',
+    effective_to: '2026-08-31',
     population_config: { entity_types: ['individual'], filters: [{ field: 'role', operator: 'equals', value: 'Vendedor Piso' }], scope: 'tenant' },
     input_bindings: {
       store_metrics: { source: 'committed_data', data_type: 'store_metrics', aggregation: 'latest' },
@@ -496,12 +496,12 @@ async function main() {
   const { error: rs2Err } = await supabase.from('rule_sets').upsert({
     id: RS_ONLINE_ID,
     tenant_id: TENANT_ID,
-    name: 'Plan de Asistencia Online — Velocidad Deportiva 2024',
+    name: 'Plan de Asistencia Online — Velocidad Deportiva 2025-26',
     description: 'Plan secundario para entregas de pedidos online + satisfaccion',
     status: 'active',
     version: 1,
-    effective_from: '2024-01-01',
-    effective_to: '2024-12-31',
+    effective_from: '2025-09-01',
+    effective_to: '2026-08-31',
     population_config: { entity_types: ['individual'], filters: [{ field: 'role', operator: 'equals', value: 'Vendedor Piso' }], scope: 'tenant' },
     input_bindings: {
       online_metrics: { source: 'committed_data', data_type: 'online_metrics', aggregation: 'sum' },
@@ -534,8 +534,8 @@ async function main() {
         tenant_id: TENANT_ID,
         rule_set_id: rsId,
         entity_id: ind.id,
-        effective_from: '2024-01-01',
-        effective_to: '2024-12-31',
+        effective_from: '2025-09-01',
+        effective_to: '2026-08-31',
         assignment_type: 'direct',
       }, { onConflict: 'id' });
       if (error && !error.message.includes('duplicate')) {
@@ -567,24 +567,24 @@ async function main() {
   }
   // Quarterly periods
   await supabase.from('periods').upsert({
-    id: PERIOD_IDS['2024-Q3'],
+    id: PERIOD_IDS['Q1-FY26'],
     tenant_id: TENANT_ID,
-    label: 'Q3 2024 (Jul-Sep)',
+    label: 'Q1 FY26 (Sep-Nov 2025)',
     period_type: 'quarterly',
     status: 'closed',
-    start_date: '2024-07-01',
-    end_date: '2024-09-30',
-    canonical_key: '2024-Q3',
+    start_date: '2025-09-01',
+    end_date: '2025-11-30',
+    canonical_key: 'Q1-FY26',
   }, { onConflict: 'id' });
   await supabase.from('periods').upsert({
-    id: PERIOD_IDS['2024-Q4'],
+    id: PERIOD_IDS['Q2-FY26'],
     tenant_id: TENANT_ID,
-    label: 'Q4 2024 (Oct-Dec)',
+    label: 'Q2 FY26 (Dec 2025-Feb 2026)',
     period_type: 'quarterly',
     status: 'open',
-    start_date: '2024-10-01',
-    end_date: '2024-12-31',
-    canonical_key: '2024-Q4',
+    start_date: '2025-12-01',
+    end_date: '2026-02-28',
+    canonical_key: 'Q2-FY26',
   }, { onConflict: 'id' });
   console.log('  8 periods created');
 
@@ -677,26 +677,26 @@ async function main() {
 
   // Quarterly batches (batch_type must be one of: standard, superseding, adjustment, reversal)
   await supabase.from('calculation_batches').upsert({
-    id: CB_IDS['2024-Q3'],
+    id: CB_IDS['Q1-FY26'],
     tenant_id: TENANT_ID,
-    period_id: PERIOD_IDS['2024-Q3'],
+    period_id: PERIOD_IDS['Q1-FY26'],
     rule_set_id: RS_FLOOR_ID,
     batch_type: 'standard',
     lifecycle_state: 'CLOSED',
     entity_count: 18,
-    config: { payout_quarter: 'Q3-2024', months: ['2024-07', '2024-08', '2024-09'] },
+    config: { payout_quarter: 'Q1-FY26', months: ['2025-09', '2025-10', '2025-11'] },
     created_by: PROF_ADMIN,
   }, { onConflict: 'id' });
 
   await supabase.from('calculation_batches').upsert({
-    id: CB_IDS['2024-Q4'],
+    id: CB_IDS['Q2-FY26'],
     tenant_id: TENANT_ID,
-    period_id: PERIOD_IDS['2024-Q4'],
+    period_id: PERIOD_IDS['Q2-FY26'],
     rule_set_id: RS_FLOOR_ID,
     batch_type: 'standard',
     lifecycle_state: 'APPROVED',
     entity_count: 18,
-    config: { payout_quarter: 'Q4-2024', months: ['2024-10', '2024-11', '2024-12'] },
+    config: { payout_quarter: 'Q2-FY26', months: ['2025-12', '2026-01', '2026-02'] },
     created_by: PROF_ADMIN,
   }, { onConflict: 'id' });
   console.log('  8 calculation batches created');
@@ -712,7 +712,7 @@ async function main() {
     const monthKey = MONTHS[mi] as keyof typeof CB_IDS;
     const batchId = CB_IDS[monthKey];
     const periodId = PERIOD_IDS[monthKey as keyof typeof PERIOD_IDS];
-    const quarter = mi < 3 ? '2024-Q3' : '2024-Q4';
+    const quarter = mi < 3 ? 'Q1-FY26' : 'Q2-FY26';
 
     for (let ai = 0; ai < FLOOR_ASSOCIATES.length; ai++) {
       const ind = FLOOR_ASSOCIATES[ai];
@@ -795,9 +795,9 @@ async function main() {
   console.log('\n12. Creating entity period outcomes...');
   let epoCount = 0;
 
-  for (const quarter of ['2024-Q3', '2024-Q4'] as const) {
+  for (const quarter of ['Q1-FY26', 'Q2-FY26'] as const) {
     const periodId = PERIOD_IDS[quarter];
-    const isPaid = quarter === '2024-Q3';
+    const isPaid = quarter === 'Q1-FY26';
 
     for (const ind of FLOOR_ASSOCIATES) {
       const qt = quarterlyTotals[quarter]?.[ind.id];
@@ -872,7 +872,7 @@ async function upsertRelationship(sourceId: string, targetId: string, relType: s
     relationship_type: relType,
     source: 'imported_explicit',
     confidence: 1.0,
-    effective_from: '2024-01-01',
+    effective_from: '2025-09-01',
   }).select().maybeSingle();
   if (error && !error.message.includes('duplicate') && !error.message.includes('unique')) {
     console.error(`  Rel error (${sourceId} -> ${targetId}):`, error.message);

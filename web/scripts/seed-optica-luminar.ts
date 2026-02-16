@@ -9,7 +9,7 @@
  * - Entity relationships (hierarchy)
  * - 1 rule set with 6 components + 2 variants
  * - Rule set assignments for all 12 individuals
- * - Periods + committed data for 2024-01
+ * - Periods + committed data for 2026-02
  *
  * Idempotent: safe to re-run. Uses ON CONFLICT DO NOTHING and checks before insert.
  *
@@ -285,12 +285,12 @@ async function main() {
   const { error: rsErr } = await supabase.from('rule_sets').upsert({
     id: RULE_SET_ID,
     tenant_id: TENANT_ID,
-    name: 'Plan de Comisiones Optica Luminar 2024',
+    name: 'Plan de Comisiones Optica Luminar 2026',
     description: 'Plan de incentivos para vendedores de Optica Luminar',
     status: 'active',
     version: 1,
-    effective_from: '2024-01-01',
-    effective_to: '2024-12-31',
+    effective_from: '2026-01-01',
+    effective_to: '2026-12-31',
     population_config: { entity_types: ['individual'], filters: [{ field: 'status', operator: 'equals', value: 'active' }], scope: 'tenant' },
     input_bindings: {
       store_attainment: { source: 'committed_data', data_type: 'store_metrics', aggregation: 'latest' },
@@ -316,8 +316,8 @@ async function main() {
       tenant_id: TENANT_ID,
       rule_set_id: RULE_SET_ID,
       entity_id: ind.id,
-      effective_from: '2024-01-01',
-      effective_to: '2024-12-31',
+      effective_from: '2026-01-01',
+      effective_to: '2026-12-31',
       assignment_type: 'direct',
     }, { onConflict: 'id' });
     if (error && !error.message.includes('duplicate')) {
@@ -331,22 +331,22 @@ async function main() {
   const { error: periodErr } = await supabase.from('periods').upsert({
     id: PERIOD_ID,
     tenant_id: TENANT_ID,
-    label: 'Enero 2024',
+    label: 'Febrero 2026',
     period_type: 'monthly',
-    status: 'closed',
-    start_date: '2024-01-01',
-    end_date: '2024-01-31',
-    canonical_key: '2024-01',
+    status: 'open',
+    start_date: '2026-02-01',
+    end_date: '2026-02-28',
+    canonical_key: '2026-02',
   }, { onConflict: 'id' });
   if (periodErr) console.error('  Period error:', periodErr.message);
-  else console.log('  Period created: Enero 2024');
+  else console.log('  Period created: Febrero 2026');
 
   // ── 9. Import Batch ──
   console.log('\n9. Creating import batch...');
   const { error: ibErr } = await supabase.from('import_batches').upsert({
     id: IMPORT_BATCH_ID,
     tenant_id: TENANT_ID,
-    file_name: 'optica_luminar_enero_2024.xlsx',
+    file_name: 'optica_luminar_febrero_2026.xlsx',
     file_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     row_count: 18,
     status: 'completed',
@@ -463,7 +463,7 @@ async function main() {
   console.log('Users: admin@opticaluminar.mx, gerente@opticaluminar.mx, vendedor@opticaluminar.mx');
   console.log('Entities: 22 (1 org + 3 zones + 6 stores + 12 individuals)');
   console.log('Rule set: Plan de Comisiones with 6 components, 2 variants');
-  console.log('Period: Enero 2024 with committed data and calculation results');
+  console.log('Period: Febrero 2026 with committed data and calculation results');
 }
 
 // ── Helpers ──
@@ -492,7 +492,7 @@ async function upsertRelationship(sourceId: string, targetId: string, relType: s
     relationship_type: relType,
     source: 'imported_explicit',
     confidence: 1.0,
-    effective_from: '2024-01-01',
+    effective_from: '2026-01-01',
   }).select().maybeSingle();
   // Ignore duplicate key errors
   if (error && !error.message.includes('duplicate') && !error.message.includes('unique')) {
