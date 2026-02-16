@@ -27,3 +27,13 @@ export function createClient() {
   client = createBrowserClient<Database>(url, key);
   return client;
 }
+
+/**
+ * Guard: throws if tenantId is null, undefined, or empty string.
+ * Call at the top of any service function that writes to Supabase.
+ */
+export function requireTenantId(tenantId: string | null | undefined): asserts tenantId is string {
+  if (!tenantId) {
+    throw new Error('tenantId is required but was ' + JSON.stringify(tenantId));
+  }
+}

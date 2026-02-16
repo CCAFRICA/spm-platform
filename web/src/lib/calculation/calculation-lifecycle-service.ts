@@ -8,7 +8,7 @@
  * This file is imported by LifecycleSubway and LifecycleActionBar components.
  */
 
-import { createClient } from '@/lib/supabase/client';
+import { createClient, requireTenantId } from '@/lib/supabase/client';
 import type { Database, Json, LifecycleState } from '@/lib/supabase/database.types';
 import {
   transitionBatchLifecycle,
@@ -195,6 +195,7 @@ export async function writeLifecycleAuditLog(
   actor: { profileId: string; name: string },
   details?: string
 ): Promise<void> {
+  requireTenantId(tenantId);
   try {
     const supabase = createClient();
     await supabase.from('audit_logs').insert({

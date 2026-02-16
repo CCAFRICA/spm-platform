@@ -4,7 +4,7 @@
  * Supabase-only. No localStorage fallback.
  */
 
-import { createClient } from './client';
+import { createClient, requireTenantId } from './client';
 import type { Database, RuleSet, Json } from './database.types';
 import type { RuleSetConfig, RuleSetStatus } from '@/types/compensation-plan';
 
@@ -285,6 +285,7 @@ export async function assignRuleSet(
   entityId: string,
   effectiveFrom?: string
 ): Promise<void> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRow: Database['public']['Tables']['rule_set_assignments']['Insert'] = {
     tenant_id: tenantId,
