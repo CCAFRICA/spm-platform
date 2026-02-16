@@ -25,14 +25,14 @@ export default function LoginPage() {
     setIsLoading(true);
     setLoginError(null);
 
-    const success = await login(emailInput, passwordInput);
+    const result = await login(emailInput, passwordInput);
 
-    if (success) {
+    if (result.success) {
       toast.success(t('auth.welcomeBack', { name: emailInput }), {
         description: 'Signed in',
       });
     } else {
-      setLoginError('Invalid email or password. Please try again.');
+      setLoginError(result.error || 'Login failed. Please try again.');
       setIsLoading(false);
     }
   };

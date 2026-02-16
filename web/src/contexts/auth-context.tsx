@@ -24,13 +24,18 @@ import {
 // Context Type
 // ──────────────────────────────────────────────
 
+interface LoginResult {
+  success: boolean;
+  error?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   isVLAdmin: boolean;
   capabilities: string[];
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
   hasCapability: (capability: string) => boolean;
@@ -140,11 +145,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Login ──
-  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     try {
       await signInWithEmail(email, password);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Authentication failed';
+      if (msg.includes('Invalid login credentials')) {
+        return { success: false, error: 'Invalid email or password.' };
+      }
+      if (msg.includes('Email not confirmed')) {
+        return { success: false, error: 'Please confirm your email before signing in.' };
+      }
+      console.error('[Auth] signIn error:', msg);
+      return { success: false, error: `Authentication error: ${msg}` };
+    }
+
+    try {
       const profile = await fetchCurrentProfile();
-      if (!profile) return false;
+      if (!profile) {
+        return { success: false, error: 'Account found but profile is missing. Contact your administrator.' };
+      }
 
       const mappedUser = mapProfileToUser(profile);
       setUser(mappedUser);
@@ -155,9 +175,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         router.push('/');
       }
-      return true;
-    } catch {
-      return false;
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Profile load failed';
+      console.error('[Auth] profile error:', msg);
+      return { success: false, error: `Profile error: ${msg}` };
     }
   }, [router]);
 
