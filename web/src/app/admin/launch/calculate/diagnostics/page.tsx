@@ -59,9 +59,10 @@ export default function CalculationDiagnosticsPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [allPassed, setAllPassed] = useState(false);
 
-  const tenantId = currentTenant?.id || "retail_conglomerate";
+  const tenantId = currentTenant?.id;
 
   const runDiagnostics = async () => {
+    if (!tenantId) return;
     setIsRunning(true);
 
     // Initialize all checks as "checking"
