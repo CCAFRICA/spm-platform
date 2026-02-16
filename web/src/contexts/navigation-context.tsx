@@ -19,6 +19,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -162,33 +163,32 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     : 'sales_rep';
 
   // Load data from CompensationClockService (unified source of truth — async Supabase)
+  const isRefreshingRef = useRef(false);
   const refreshData = useCallback(async () => {
     // Guard: skip ALL Supabase calls if no valid tenant selected.
-    // Without this, queries fire with tenant_id=null/undefined and return 400.
     if (!user || !userRole || !tenantId) return;
+    // Prevent concurrent refreshes (fixes 10+ duplicate queries on mount)
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
 
     try {
-      // THE CYCLE (central pacemaker)
-      const cycle = await getCycleState(tenantId, isSpanish);
+      // Run all five service calls in parallel
+      const [cycle, periods, action, queue, pulse] = await Promise.all([
+        getCycleState(tenantId, isSpanish),
+        getAllPeriods(tenantId, isSpanish),
+        getNextAction(tenantId, persona, isSpanish),
+        getClockQueueItems(tenantId, persona, user.id),
+        getClockPulseMetrics(tenantId, persona, user.id),
+      ]);
       setCycleState(cycle);
-
-      // Multi-period timeline
-      const periods = await getAllPeriods(tenantId, isSpanish);
       setPeriodStates(periods);
-
-      // Next action for this persona
-      const action = await getNextAction(tenantId, persona, isSpanish);
       setNextAction(action);
-
-      // THE QUEUE (peripheral oscillators)
-      const queue = await getClockQueueItems(tenantId, persona, user.id);
       setQueueItems(queue);
-
-      // THE PULSE (feedback loops)
-      const pulse = await getClockPulseMetrics(tenantId, persona, user.id);
       setPulseMetrics(pulse);
     } catch (err) {
       console.warn('[NavigationContext] Failed to refresh clock data:', err);
+    } finally {
+      isRefreshingRef.current = false;
     }
   }, [user, userRole, tenantId, persona, isSpanish]);
 

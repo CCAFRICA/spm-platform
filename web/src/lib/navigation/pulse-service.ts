@@ -12,6 +12,9 @@ import type { UserRole } from '@/types/auth';
 import {
   listCalculationBatches,
   getCalculationResults,
+  getProfileCount,
+  getBatchCountToday,
+  getTenantCount,
 } from '@/lib/supabase/calculation-service';
 import { getRuleSets } from '@/lib/supabase/rule-set-service';
 
@@ -195,19 +198,45 @@ async function getManagerMetrics(tenantId: string): Promise<PulseMetric[]> {
 
 async function getAdminMetrics(tenantId: string): Promise<PulseMetric[]> {
   let cycleProgress: number | string = '\u2014';
-  const results = await loadLatestResults(tenantId);
-  const entityCount = results.length;
+  let profileCount = 0;
+  let calcsToday = 0;
 
   try {
-    const batches = await listCalculationBatches(tenantId);
-    const ruleSets = await getRuleSets(tenantId);
+    const [batches, ruleSets, profiles, batchesToday] = await Promise.all([
+      listCalculationBatches(tenantId),
+      getRuleSets(tenantId),
+      getProfileCount(tenantId),
+      getBatchCountToday(tenantId),
+    ]);
+
+    profileCount = profiles;
+    calcsToday = batchesToday;
+
     let completed = 0;
-    if (ruleSets.length > 0) completed++; // Has plans
-    if (batches.length > 0) completed++; // Has calculations
-    cycleProgress = completed * 20; // 5 phases, each worth 20%
+    if (ruleSets.length > 0) completed++;
+    if (batches.length > 0) completed++;
+    cycleProgress = completed * 20;
   } catch { /* ignore */ }
 
   return [
+    {
+      id: 'admin-total-users',
+      label: 'Total Users',
+      labelEs: 'Usuarios Totales',
+      value: profileCount > 0 ? profileCount : '\u2014',
+      format: profileCount > 0 ? 'number' : 'text',
+      roles: ['admin'],
+      route: '/workforce/personnel',
+    },
+    {
+      id: 'admin-calculations-today',
+      label: 'Calculations Today',
+      labelEs: 'Calculos Hoy',
+      value: calcsToday,
+      format: 'number',
+      roles: ['admin'],
+      route: '/operate/results',
+    },
     {
       id: 'admin-cycle-progress',
       label: 'Cycle Progress',
@@ -218,61 +247,52 @@ async function getAdminMetrics(tenantId: string): Promise<PulseMetric[]> {
       route: '/operate',
     },
     {
-      id: 'admin-pending-approvals',
-      label: 'Pending Approvals',
-      labelEs: 'Aprobaciones Pendientes',
-      value: 0,
-      format: 'number',
-      roles: ['admin'],
-      route: '/operate/approve',
-    },
-    {
-      id: 'admin-data-freshness',
-      label: 'Data Freshness',
-      labelEs: 'Frescura de Datos',
-      value: '\u2014',
-      format: 'text',
-      roles: ['admin'],
-      route: '/operate/monitor/readiness',
-    },
-    {
       id: 'admin-employees',
       label: 'Employees',
       labelEs: 'Empleados',
-      value: entityCount > 0 ? entityCount : '\u2014',
-      format: entityCount > 0 ? 'number' : 'text',
+      value: profileCount > 0 ? profileCount : '\u2014',
+      format: profileCount > 0 ? 'number' : 'text',
       roles: ['admin'],
-      route: '/configure/people',
+      route: '/workforce/personnel',
     },
   ];
 }
 
 async function getVLAdminMetrics(tenantId: string): Promise<PulseMetric[]> {
-  const results = await loadLatestResults(tenantId);
-  const totalUsers = results.length;
+  let tenantCount = 0;
+  let profileCount = 0;
+  let calcsToday = 0;
+
+  try {
+    [tenantCount, profileCount, calcsToday] = await Promise.all([
+      getTenantCount(),
+      getProfileCount(tenantId),
+      getBatchCountToday(tenantId),
+    ]);
+  } catch { /* ignore */ }
 
   return [
     {
       id: 'cc-active-tenants',
       label: 'Active Tenants',
       labelEs: 'Tenants Activos',
-      value: '\u2014',
-      format: 'text',
+      value: tenantCount > 0 ? tenantCount : '\u2014',
+      format: tenantCount > 0 ? 'number' : 'text',
       roles: ['vl_admin'],
     },
     {
       id: 'cc-total-users',
       label: 'Total Users',
       labelEs: 'Usuarios Totales',
-      value: totalUsers > 0 ? totalUsers : '\u2014',
-      format: totalUsers > 0 ? 'number' : 'text',
+      value: profileCount > 0 ? profileCount : '\u2014',
+      format: profileCount > 0 ? 'number' : 'text',
       roles: ['vl_admin'],
     },
     {
       id: 'cc-calculations-today',
       label: 'Calculations Today',
       labelEs: 'Calculos Hoy',
-      value: 0,
+      value: calcsToday,
       format: 'number',
       roles: ['vl_admin'],
     },
