@@ -4,7 +4,7 @@
  * Supabase-only. No localStorage fallback.
  */
 
-import { createClient } from './client';
+import { createClient, requireTenantId } from './client';
 import type { Database, Json } from './database.types';
 import { findOrCreateEntity, materializePeriodEntityState } from './entity-service';
 
@@ -44,6 +44,7 @@ export async function createImportBatch(
     uploadedBy?: string;
   }
 ): Promise<ImportBatchRow> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRow: ImportBatchInsert = {
     tenant_id: tenantId,
@@ -143,6 +144,7 @@ export async function writeCommittedData(
     metadata?: Record<string, unknown>;
   }>
 ): Promise<{ count: number }> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRows: CommittedDataInsert[] = rows.map(r => ({
     tenant_id: tenantId,
@@ -446,6 +448,7 @@ export async function writeAuditLog(
     metadata?: Json;
   }
 ): Promise<void> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRow: Database['public']['Tables']['audit_logs']['Insert'] = {
     tenant_id: tenantId,

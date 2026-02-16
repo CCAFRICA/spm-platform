@@ -29,7 +29,7 @@ export default function EmployeeTracePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { currentTenant } = useTenant();
-  const tenantId = currentTenant?.id || '';
+  const tenantId = currentTenant?.id;
   const entityId = params?.entityId as string;
   const fromParam = searchParams.get('from') || '';
   const fromConfig = FROM_LABELS[fromParam];

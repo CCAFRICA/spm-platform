@@ -5,7 +5,7 @@
  * Rule 30: OFFICIAL+ states cannot be overwritten, only superseded.
  */
 
-import { createClient } from './client';
+import { createClient, requireTenantId } from './client';
 import type { Database, Json, LifecycleState, BatchType } from './database.types';
 
 // ──────────────────────────────────────────────
@@ -61,6 +61,7 @@ export async function createCalculationBatch(
     createdBy?: string;
   }
 ): Promise<CalcBatchRow> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRow: CalcBatchInsert = {
     tenant_id: tenantId,
@@ -286,6 +287,7 @@ export async function writeCalculationResults(
     metadata?: Json;
   }>
 ): Promise<{ count: number }> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRows: CalcResultInsert[] = results.map(r => ({
     tenant_id: tenantId,
@@ -375,6 +377,7 @@ export async function writeCalculationTraces(
     steps?: Json;
   }>
 ): Promise<void> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRows: CalcTraceInsert[] = traces.map(t => ({
     tenant_id: tenantId,
@@ -430,6 +433,7 @@ export async function materializeEntityPeriodOutcomes(
   periodId: string,
   batchId: string
 ): Promise<EntityPeriodOutcomeRow[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
 
   // Read all results for this batch

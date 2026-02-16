@@ -4,7 +4,7 @@
  * Supabase-only. No localStorage fallback.
  */
 
-import { createClient } from './client';
+import { createClient, requireTenantId } from './client';
 import type {
   Database,
   Entity,
@@ -59,6 +59,7 @@ export async function createEntity(
   tenantId: string,
   entity: Omit<Entity, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>
 ): Promise<Entity> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRow: Database['public']['Tables']['entities']['Insert'] = {
     tenant_id: tenantId,
@@ -197,6 +198,7 @@ export async function materializePeriodEntityState(
   periodId: string,
   asOfDate: string
 ): Promise<PeriodEntityState[]> {
+  requireTenantId(tenantId);
   const entities = await listEntities(tenantId, { status: 'active' });
   const results: PeriodEntityState[] = [];
 
@@ -255,6 +257,7 @@ export async function createRelationship(
   tenantId: string,
   rel: Omit<EntityRelationship, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>
 ): Promise<EntityRelationship> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRow: Database['public']['Tables']['entity_relationships']['Insert'] = {
     tenant_id: tenantId,
@@ -373,6 +376,7 @@ export async function materializeProfileScope(
   profileId: string,
   entityId: string
 ): Promise<ProfileScope> {
+  requireTenantId(tenantId);
   // Traverse outgoing relationships (manages, contains, oversees)
   const reachable = await traverseGraph(tenantId, entityId, {
     maxDepth: 10,
@@ -424,6 +428,7 @@ export async function createReassignmentEvent(
   tenantId: string,
   event: Omit<ReassignmentEvent, 'id' | 'tenant_id' | 'created_at'>
 ): Promise<ReassignmentEvent> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRow: Database['public']['Tables']['reassignment_events']['Insert'] = {
     tenant_id: tenantId,
