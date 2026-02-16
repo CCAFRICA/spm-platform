@@ -142,6 +142,11 @@ async function main() {
       entity_type_labels: { individual: 'Empleado', location: 'Tienda', team: 'Equipo', organization: 'Empresa' },
       outcome_label: 'Comision',
       domain_labels: { rule_set: 'Plan de Compensacion', outcome_value: 'Pago' },
+      demo_users: [
+        { email: 'admin@opticaluminar.mx', password: 'demo-password-OL1', label: 'Admin', icon: 'shield' },
+        { email: 'gerente@opticaluminar.mx', password: 'demo-password-OL2', label: 'Gerente', icon: 'users' },
+        { email: 'vendedor@opticaluminar.mx', password: 'demo-password-OL3', label: 'Vendedor', icon: 'user' },
+      ],
     },
     hierarchy_labels: { level_1: 'Zona', level_2: 'Tienda', level_3: 'Equipo' },
     entity_type_labels: { individual: 'Empleado', location: 'Tienda', team: 'Equipo', organization: 'Empresa' },
@@ -255,6 +260,9 @@ async function main() {
   // ── 5. Entity Relationships ──
   console.log('\n5. Creating entity relationships...');
 
+  // Delete existing relationships first (idempotent re-run)
+  await supabase.from('entity_relationships').delete().eq('tenant_id', TENANT_ID);
+
   // Org → Zones
   await upsertRelationship(ORG_ID, ZONE_CENTRO_ID, 'contains');
   await upsertRelationship(ORG_ID, ZONE_NORTE_ID, 'contains');
@@ -350,6 +358,9 @@ async function main() {
 
   // ── 10. Committed Data ──
   console.log('\n10. Creating committed data...');
+
+  // Delete existing committed_data first (idempotent re-run)
+  await supabase.from('committed_data').delete().eq('tenant_id', TENANT_ID);
 
   // Store-level metrics
   for (const s of stores) {
