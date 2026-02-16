@@ -38,7 +38,7 @@ export function UserMenu() {
     toast.success('Logged out', {
       description: 'See you next time!'
     });
-    router.push('/login');
+    // Do NOT router.push('/login') — AuthShellProtected handles navigation
   };
 
   const getRoleColor = (role: string) => {

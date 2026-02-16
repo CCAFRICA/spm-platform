@@ -6,6 +6,10 @@
  * No demo users. No localStorage auth. No fallback.
  * User profiles come from the Supabase profiles table.
  * Capabilities are stored on the profile.
+ *
+ * IMPORTANT: This provider sets STATE only. It NEVER triggers navigation
+ * (no window.location.href, no router.push to /login). Navigation to /login
+ * is handled exclusively by AuthShellProtected in auth-shell.tsx.
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
@@ -17,6 +21,7 @@ import {
   signOut,
   fetchCurrentProfile,
   getSession,
+  getAuthUser,
   onAuthStateChange,
   type AuthProfile,
 } from '@/lib/supabase/auth-service';
@@ -115,20 +120,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function initAuth() {
       try {
-        // Check local session first (no network request).
-        // If no session cookie exists, skip profile fetch entirely —
-        // avoids 500 errors and unnecessary Supabase calls on /login.
+        // 1. Check local session first (no network request).
+        //    If no session cookie exists, skip everything.
         const session = await getSession();
-
-        if (session) {
-          const profile = await fetchCurrentProfile();
-          if (profile) {
-            setUser(mapProfileToUser(profile));
-            setCapabilities(profile.capabilities || []);
-          }
+        if (!session) {
+          return; // No cookies at all → unauthenticated, isLoading set false in finally
         }
 
-        // Always set up the auth listener so login/logout events are handled
+        // 2. Validate with server (network request).
+        //    getSession() can return stale cookie data in Chrome.
+        //    getAuthUser() verifies the token with Supabase server.
+        const authUser = await getAuthUser();
+        if (!authUser) {
+          // Stale cookie — session cookie exists but server says invalid.
+          // Clear the stale cookies so the middleware stops redirecting /login → /.
+          await signOut().catch(() => {});
+          return; // isLoading set false in finally
+        }
+
+        // 3. Both session AND user confirmed — NOW fetch profile.
+        const profile = await fetchCurrentProfile();
+        if (profile) {
+          setUser(mapProfileToUser(profile));
+          setCapabilities(profile.capabilities || []);
+        }
+        // If profile is null (500, missing row, etc.), user stays null.
+        // AuthShellProtected will handle the redirect. Do NOT redirect here.
+
+        // 4. Set up auth listener for future sign-in/sign-out events
         unsubscribe = onAuthStateChange(async (event) => {
           if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             const p = await fetchCurrentProfile();
@@ -139,9 +158,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } else if (event === 'SIGNED_OUT') {
             setUser(null);
             setCapabilities([]);
+            // Do NOT redirect here — AuthShellProtected handles navigation
           }
         });
       } catch (e) {
+        // On ANY error, stay unauthenticated. Do NOT redirect.
         console.error('Auth init failed:', e);
       } finally {
         setIsLoading(false);
@@ -193,6 +214,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   // ── Logout ──
+  // Clears Supabase session and resets state.
+  // Does NOT navigate — AuthShellProtected detects isAuthenticated=false and redirects.
   const logout = useCallback(async () => {
     try {
       await signOut();
@@ -201,8 +224,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     setCapabilities([]);
-    router.push('/login');
-  }, [router]);
+    // Do NOT router.push('/login') — AuthShellProtected handles navigation
+  }, []);
 
   // ── Permissions (legacy check) ──
   const hasPermission = useCallback((permission: string): boolean => {

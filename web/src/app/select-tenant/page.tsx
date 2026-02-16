@@ -99,12 +99,10 @@ export default function SelectTenantPage() {
     loadTenants();
   }, [isVLAdmin, authLoading, tenantLoading]);
 
-  // Redirect guards
+  // Redirect non-admin users away — AuthShellProtected handles /login redirect for unauth
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
-      router.push('/login');
-    } else if (!isVLAdmin) {
+    if (user && !isVLAdmin) {
       router.push('/');
     }
   }, [isVLAdmin, user, router, authLoading]);
