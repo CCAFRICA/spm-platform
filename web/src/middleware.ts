@@ -17,11 +17,16 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
-  // Skip if Supabase is not configured
+  // If Supabase is not configured, auth enforcement is impossible.
+  // Log a warning so this is never silent — a missing env var should
+  // never silently disable the entire auth layer.
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   ) {
+    console.warn(
+      '[Middleware] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY missing — auth enforcement disabled'
+    );
     return NextResponse.next();
   }
 
