@@ -16,6 +16,7 @@ import {
   signInWithEmail,
   signOut,
   fetchCurrentProfile,
+  getSession,
   onAuthStateChange,
   type AuthProfile,
 } from '@/lib/supabase/auth-service';
@@ -114,12 +115,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function initAuth() {
       try {
-        const profile = await fetchCurrentProfile();
-        if (profile) {
-          setUser(mapProfileToUser(profile));
-          setCapabilities(profile.capabilities || []);
+        // Check local session first (no network request).
+        // If no session cookie exists, skip profile fetch entirely —
+        // avoids 500 errors and unnecessary Supabase calls on /login.
+        const session = await getSession();
+
+        if (session) {
+          const profile = await fetchCurrentProfile();
+          if (profile) {
+            setUser(mapProfileToUser(profile));
+            setCapabilities(profile.capabilities || []);
+          }
         }
 
+        // Always set up the auth listener so login/logout events are handled
         unsubscribe = onAuthStateChange(async (event) => {
           if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             const p = await fetchCurrentProfile();
