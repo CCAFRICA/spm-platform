@@ -3,6 +3,10 @@
  *
  * Handles authentication operations via Supabase Auth.
  * Supabase-only. No fallback.
+ *
+ * IMPORTANT: Functions in this file set STATE only. They NEVER trigger
+ * navigation (no window.location.href, no router.push). Navigation is
+ * handled exclusively by AuthShellProtected.
  */
 
 import { createClient } from './client';
@@ -59,7 +63,8 @@ export async function signOut() {
 }
 
 /**
- * Get the current Supabase auth session.
+ * Get the current Supabase auth session from local cookies (no network request).
+ * WARNING: May return stale session data in Chrome. Always double-check with getAuthUser().
  */
 export async function getSession() {
   const supabase = createClient();
@@ -68,40 +73,58 @@ export async function getSession() {
 }
 
 /**
+ * Validate the current auth user with the Supabase server (network request).
+ * Returns null if no valid session exists. This is the authoritative check —
+ * getSession() can return stale cookie data, but getAuthUser() verifies with the server.
+ */
+export async function getAuthUser() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  return user;
+}
+
+/**
  * Fetch the profile for the current auth user from the profiles table.
- * Returns null if no profile exists.
+ * Returns null on ANY error — never throws. Callers should treat null
+ * as "not authenticated" and let AuthShellProtected handle the redirect.
  */
 export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
-  const supabase = createClient();
+  try {
+    const supabase = createClient();
 
-  // Check local session first (no network request) to avoid 500 errors
-  // when there's no session cookie at all
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return null;
+    // Check local session first (no network request)
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return null;
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+    // Validate with server
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('auth_user_id', user.id)
-    .single();
+    // Both session and user confirmed — query profiles
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('auth_user_id', user.id)
+      .single();
 
-  if (error || !data) return null;
+    if (error || !data) return null;
 
-  const profile = data as Profile;
-  return {
-    id: profile.id,
-    authUserId: profile.auth_user_id,
-    tenantId: profile.tenant_id,
-    displayName: profile.display_name,
-    email: profile.email,
-    role: profile.role,
-    capabilities: (profile.capabilities as string[]) || [],
-    locale: profile.locale,
-    avatarUrl: profile.avatar_url,
-  };
+    const profile = data as Profile;
+    return {
+      id: profile.id,
+      authUserId: profile.auth_user_id,
+      tenantId: profile.tenant_id,
+      displayName: profile.display_name,
+      email: profile.email,
+      role: profile.role,
+      capabilities: (profile.capabilities as string[]) || [],
+      locale: profile.locale,
+      avatarUrl: profile.avatar_url,
+    };
+  } catch {
+    // Swallow ALL errors — return null, never throw
+    return null;
+  }
 }
 
 /**
