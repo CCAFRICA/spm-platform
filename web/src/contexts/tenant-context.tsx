@@ -111,7 +111,8 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { user, isVLAdmin: isAdmin, isLoading: authLoading } = useAuth();
   const [currentTenant, setCurrentTenant] = useState<TenantConfig | null>(null);
-  const [availableTenants, setAvailableTenants] = useState<TenantSummary[]>([]);
+  // Available tenants loaded by select-tenant page from Supabase directly
+  const availableTenants: TenantSummary[] = [];
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,16 +138,8 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       try {
-        // Load available tenants for VL Admin
-        if (isAdmin) {
-          try {
-            const registry = await import('@/data/tenants/index.json');
-            const staticTenants = (registry.tenants || []) as TenantSummary[];
-            setAvailableTenants(staticTenants);
-          } catch {
-            console.warn('Failed to load tenant registry');
-          }
-        }
+        // VL Admin: tenant list loaded by select-tenant page from Supabase
+        // No static registry needed here
 
         // Derive tenant from authenticated user
         if (user && !isAdmin && 'tenantId' in user && user.tenantId) {
