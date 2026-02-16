@@ -73,7 +73,23 @@
       "Bash(xargs -0 perl -pi -e '\ns/CompensationPlanConfig/RuleSetConfig/g;\ns/CompensationPlan/RuleSet/g;\ns/EmployeeCalculationResult/EntityCalculationResult/g;\ns/EmployeeMetrics/EntityMetrics/g;\ns/employeesProcessed/entitiesProcessed/g;\ns/employeeCount/entityCount/g;\ns/employee_count/entity_count/g;\ns/employeeName/entityName/g;\ns/employeeRole/entityRole/g;\ns/employeeId/entityId/g;\ns/employee_id/entity_id/g;\ns/PlanChangeRecord/RuleSetChangeRecord/g;\ns/PlanSummary/RuleSetSummary/g;\ns/PlanStatus/RuleSetStatus/g;\ns/\\\\bPlanType\\\\b/RuleSetType/g;\ns/\\\\bPlanChange\\\\b/RuleSetChange/g;\ns/planVersion/ruleSetVersion/g;\ns/planName/ruleSetName/g;\ns/\\\\bplanId\\\\b/ruleSetId/g;\ns/\\\\bplan_id\\\\b/rule_set_id/g;\ns/planType/ruleSetType/g;\n' echo \"Bulk rename complete\")",
       "Bash(xargs -0 perl -pi -e:*)",
       "Bash(git rebase:*)",
-      "Bash(GIT_EDITOR=true git rebase:*)"
+      "Bash(GIT_EDITOR=true git rebase:*)",
+      "Bash(gh pr create:*)",
+      "Bash(set:*)",
+      "Bash(source:*)",
+      "Bash(npx vercel env ls:*)",
+      "WebFetch(domain:vialuce.ai)",
+      "Bash(npx supabase:*)",
+      "Bash(gh pr list:*)",
+      "Bash(ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY:*)",
+      "Bash(SUPA_URL=$NEXT_PUBLIC_SUPABASE_URL)",
+      "Bash(python3:*)",
+      "Bash(NEXT_PUBLIC_SUPABASE_ANON_KEY=\"bad_key_not_jwt\" npm run build:*)",
+      "Bash(git diff:*)",
+      "Bash(git -C /Users/AndrewAfrica/spm-platform status)",
+      "Bash(git -C /Users/AndrewAfrica/spm-platform log --oneline -5)",
+      "Bash(git -C /Users/AndrewAfrica/spm-platform log --all --oneline -- web/src/middleware.ts)",
+      "Bash(git -C /Users/AndrewAfrica/spm-platform show main:web/src/middleware.ts)"
     ]
   }
 }
