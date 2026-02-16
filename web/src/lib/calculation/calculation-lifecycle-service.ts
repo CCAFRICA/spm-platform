@@ -226,6 +226,7 @@ export async function getLifecycleAuditTrail(
   tenantId: string,
   batchId: string
 ): Promise<AuditEntry[]> {
+  requireTenantId(tenantId);
   try {
     const supabase = createClient();
     const { data, error } = await supabase

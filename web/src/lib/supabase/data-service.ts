@@ -70,6 +70,7 @@ export async function getImportBatch(
   tenantId: string,
   batchId: string
 ): Promise<ImportBatchRow | null> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('import_batches')
@@ -88,6 +89,7 @@ export async function listImportBatches(
   tenantId: string,
   options?: { status?: string; limit?: number }
 ): Promise<ImportBatchRow[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   let query = supabase
     .from('import_batches')
@@ -176,6 +178,7 @@ export async function getCommittedDataByEntity(
   entityId: string,
   options?: { periodId?: string; dataType?: string }
 ): Promise<CommittedDataRow[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   let query = supabase
     .from('committed_data')
@@ -196,6 +199,7 @@ export async function getCommittedDataByBatch(
   tenantId: string,
   batchId: string
 ): Promise<CommittedDataRow[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('committed_data')
@@ -213,6 +217,7 @@ export async function getCommittedDataByPeriod(
   tenantId: string,
   periodId: string
 ): Promise<CommittedDataRow[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('committed_data')
@@ -416,6 +421,7 @@ export async function getClassificationSignals(
   tenantId: string,
   options?: { signalType?: string; entityId?: string; limit?: number }
 ): Promise<Array<Database['public']['Tables']['classification_signals']['Row']>> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   let query = supabase
     .from('classification_signals')
@@ -475,6 +481,7 @@ export async function loadAggregatedDataAsync(
   tenantId: string,
   periodId?: string
 ): Promise<Array<Record<string, unknown>>> {
+  requireTenantId(tenantId);
   if (!periodId) return [];
 
   const supabase = createClient();

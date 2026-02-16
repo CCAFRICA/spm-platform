@@ -90,6 +90,7 @@ function planConfigToRuleSetInsert(
  * Get all rule sets for a tenant.
  */
 export async function getRuleSets(tenantId: string): Promise<RuleSetConfig[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_sets')
@@ -103,6 +104,7 @@ export async function getRuleSets(tenantId: string): Promise<RuleSetConfig[]> {
  * Get a single rule set by ID.
  */
 export async function getRuleSet(tenantId: string, ruleSetId: string): Promise<RuleSetConfig | null> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_sets')
@@ -118,6 +120,7 @@ export async function getRuleSet(tenantId: string, ruleSetId: string): Promise<R
  * Get the active rule set for a tenant.
  */
 export async function getActiveRuleSet(tenantId: string): Promise<RuleSetConfig | null> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_sets')
@@ -137,6 +140,7 @@ export async function getRuleSetsByStatus(
   tenantId: string,
   status: RuleSetStatus
 ): Promise<RuleSetConfig[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_sets')
@@ -306,6 +310,7 @@ export async function getRuleSetAssignments(
   tenantId: string,
   ruleSetId: string
 ): Promise<Array<{ entity_id: string; effective_from: string | null }>> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_set_assignments')
@@ -323,6 +328,7 @@ export async function getEntityRuleSetAssignments(
   tenantId: string,
   entityId: string
 ): Promise<Array<{ rule_set_id: string; effective_from: string | null }>> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('rule_set_assignments')

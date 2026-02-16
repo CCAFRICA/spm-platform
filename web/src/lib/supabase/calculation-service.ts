@@ -89,6 +89,7 @@ export async function getCalculationBatch(
   tenantId: string,
   batchId: string
 ): Promise<CalcBatchRow | null> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('calculation_batches')
@@ -107,6 +108,7 @@ export async function listCalculationBatches(
   tenantId: string,
   options?: { periodId?: string; ruleSetId?: string; lifecycleState?: LifecycleState }
 ): Promise<CalcBatchRow[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   let query = supabase
     .from('calculation_batches')
@@ -129,6 +131,7 @@ export async function getActiveBatch(
   periodId: string,
   ruleSetId?: string
 ): Promise<CalcBatchRow | null> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   let query = supabase
     .from('calculation_batches')
@@ -328,6 +331,7 @@ export async function getCalculationResults(
   tenantId: string,
   batchId: string
 ): Promise<CalcResultRow[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('calculation_results')
@@ -346,6 +350,7 @@ export async function getEntityResults(
   entityId: string,
   options?: { periodId?: string }
 ): Promise<CalcResultRow[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   let query = supabase
     .from('calculation_results')
@@ -405,6 +410,7 @@ export async function getCalculationTraces(
   tenantId: string,
   resultId: string
 ): Promise<Array<Database['public']['Tables']['calculation_traces']['Row']>> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('calculation_traces')
@@ -543,6 +549,7 @@ export async function getEntityPeriodOutcomes(
   periodId: string,
   options?: { entityId?: string }
 ): Promise<EntityPeriodOutcomeRow[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   let query = supabase
     .from('entity_period_outcomes')
@@ -563,6 +570,7 @@ export async function getEntityOutcome(
   entityId: string,
   periodId: string
 ): Promise<EntityPeriodOutcomeRow | null> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('entity_period_outcomes')

@@ -62,7 +62,7 @@ export default function NotificationsPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
-  const tenantId = currentTenant?.id || 'retailco';
+  const tenantId = currentTenant?.id;
   const userId = user?.id || 'user-1';
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -70,6 +70,7 @@ export default function NotificationsPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = useCallback(() => {
+    if (!tenantId) return;
     try {
       initializeNotifications();
       initializeAlerts();
@@ -97,6 +98,7 @@ export default function NotificationsPage() {
   };
 
   const handleMarkAllAsRead = () => {
+    if (!tenantId) return;
     const count = markAllAsRead(userId, tenantId);
     if (count > 0) {
       toast.success(
@@ -115,6 +117,7 @@ export default function NotificationsPage() {
   };
 
   const handleClearAll = () => {
+    if (!tenantId) return;
     const count = clearNotifications(userId, tenantId);
     if (count > 0) {
       toast.success(
@@ -127,6 +130,7 @@ export default function NotificationsPage() {
   };
 
   const handleToggleGlobal = (enabled: boolean) => {
+    if (!tenantId) return;
     updateUserPreferences(userId, tenantId, { globalEnabled: enabled });
     loadData();
     toast.success(
@@ -141,7 +145,7 @@ export default function NotificationsPage() {
   };
 
   const handleToggleChannel = (channel: keyof UserAlertPreferences['channels'], enabled: boolean) => {
-    if (!preferences) return;
+    if (!preferences || !tenantId) return;
     updateUserPreferences(userId, tenantId, {
       channels: { ...preferences.channels, [channel]: enabled },
     });
@@ -149,6 +153,7 @@ export default function NotificationsPage() {
   };
 
   const handleToggleTrigger = (trigger: AlertTrigger, enabled: boolean) => {
+    if (!tenantId) return;
     updateTriggerPreference(userId, tenantId, trigger, { enabled });
     loadData();
   };
@@ -401,9 +406,10 @@ export default function NotificationsPage() {
                     </div>
                     <Switch
                       checked={preferences.quietHoursEnabled}
-                      onCheckedChange={(checked) =>
-                        updateUserPreferences(userId, tenantId, { quietHoursEnabled: checked })
-                      }
+                      onCheckedChange={(checked) => {
+                        if (!tenantId) return;
+                        updateUserPreferences(userId, tenantId, { quietHoursEnabled: checked });
+                      }}
                     />
                   </div>
                 </CardContent>

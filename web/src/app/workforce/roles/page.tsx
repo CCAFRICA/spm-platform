@@ -51,7 +51,7 @@ export default function RolesPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
-  const tenantId = currentTenant?.id || 'retailco';
+  const tenantId = currentTenant?.id;
 
   const [roles, setRoles] = useState<Role[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,6 +63,7 @@ export default function RolesPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   const loadData = useCallback(() => {
+    if (!tenantId) return;
     setIsLoading(true);
     try {
       const loadedRoles = getRoles(tenantId);

@@ -81,6 +81,7 @@ export async function createEntity(
 }
 
 export async function getEntity(tenantId: string, entityId: string): Promise<Entity | null> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { data, error } = await supabase
     .from('entities')
@@ -96,6 +97,7 @@ export async function listEntities(
   tenantId: string,
   filters?: { entity_type?: string; status?: string; external_id?: string }
 ): Promise<Entity[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   let query = supabase.from('entities').select('*').eq('tenant_id', tenantId);
   if (filters?.entity_type) query = query.eq('entity_type', filters.entity_type as EntityType);
@@ -285,6 +287,7 @@ export async function getEntityRelationships(
   entityId: string,
   direction: 'outgoing' | 'incoming' | 'both' = 'outgoing'
 ): Promise<EntityRelationship[]> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   if (direction === 'both') {
     const { data, error } = await supabase

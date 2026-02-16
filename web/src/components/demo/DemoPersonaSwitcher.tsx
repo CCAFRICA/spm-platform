@@ -33,7 +33,7 @@ const ICON_MAP: Record<string, typeof Shield> = {
 };
 
 const PLATFORM_EMAIL = 'platform@vialuce.com';
-const PLATFORM_PASSWORD = 'VL-platform-2024!';
+const PLATFORM_PASSWORD = 'demo-password-VL1';
 
 export function DemoPersonaSwitcher() {
   const { currentTenant, isVLAdmin } = useTenant();

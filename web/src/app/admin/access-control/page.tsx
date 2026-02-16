@@ -61,7 +61,7 @@ export default function AccessControlPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
-  const tenantId = currentTenant?.id || 'retailco';
+  const tenantId = currentTenant?.id;
   const userId = user?.id || 'admin';
 
   const [roles, setRoles] = useState<Role[]>([]);
@@ -75,6 +75,7 @@ export default function AccessControlPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    if (!tenantId) return;
     setIsLoading(true);
     const timer = setTimeout(() => {
       setRoles(getRoles(tenantId));
@@ -85,6 +86,7 @@ export default function AccessControlPage() {
   }, [tenantId]);
 
   const loadData = () => {
+    if (!tenantId) return;
     setIsLoading(true);
     setTimeout(() => {
       setRoles(getRoles(tenantId));
@@ -104,6 +106,7 @@ export default function AccessControlPage() {
   };
 
   const handleSaveRole = (data: { name: string; description: string; permissions: string[] }) => {
+    if (!tenantId) return;
     if (editingRole) {
       updateRole(editingRole.id, data, userId);
     } else {
@@ -126,6 +129,7 @@ export default function AccessControlPage() {
   };
 
   const handleDuplicateRole = (role: Role) => {
+    if (!tenantId) return;
     createRole(
       tenantId,
       `${role.name} (Copy)`,
@@ -142,6 +146,7 @@ export default function AccessControlPage() {
   };
 
   const handleAssignUser = (userId: string, userName: string, userEmail: string) => {
+    if (!tenantId) return;
     if (selectedRole) {
       assignRole(userId, userName, userEmail, selectedRole.id, user?.id || 'admin', tenantId);
       setRoleAssignments(getAssignmentsForRole(selectedRole.id));
@@ -150,6 +155,7 @@ export default function AccessControlPage() {
   };
 
   const handleRevokeUser = (revokeUserId: string) => {
+    if (!tenantId) return;
     if (selectedRole) {
       revokeRole(revokeUserId, selectedRole.id, user?.id || 'admin', tenantId);
       setRoleAssignments(getAssignmentsForRole(selectedRole.id));
