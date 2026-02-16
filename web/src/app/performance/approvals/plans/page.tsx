@@ -38,7 +38,7 @@ export default function PlanApprovalsPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
-  const tenantId = currentTenant?.id || 'retailco';
+  const tenantId = currentTenant?.id;
 
   const [requests, setRequests] = useState<PlanApprovalRequest[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<PlanApprovalRequest | null>(null);
@@ -61,6 +61,7 @@ export default function PlanApprovalsPage() {
   };
 
   const loadData = useCallback(() => {
+    if (!tenantId) return;
     try {
       initializePlanApprovals();
       const approvals = getApprovalRequests(tenantId);

@@ -59,7 +59,7 @@ export default function PermissionsPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
-  const tenantId = currentTenant?.id || 'retailco';
+  const tenantId = currentTenant?.id;
 
   const [roles, setRoles] = useState<Role[]>([]);
   const [assignments, setAssignments] = useState<UserPermissionAssignment[]>([]);
@@ -74,6 +74,7 @@ export default function PermissionsPage() {
   const [selectedScopeType, setSelectedScopeType] = useState<PermissionScope['type']>('own');
 
   const loadData = useCallback(() => {
+    if (!tenantId) return;
     setIsLoading(true);
     try {
       const loadedRoles = getRoles(tenantId);

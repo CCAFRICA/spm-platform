@@ -41,7 +41,7 @@ type ReviewTab = 'all' | 'auto' | 'suggest' | 'manual';
 
 export default function NormalizationReviewPage() {
   const { currentTenant } = useTenant();
-  const tenantId = currentTenant?.id || 'frmx-demo';
+  const tenantId = currentTenant?.id;
 
   const [result, setResult] = useState<NormalizationResult | null>(null);
   const [entries, setEntries] = useState<NormalizationEntry[]>([]);
@@ -53,11 +53,13 @@ export default function NormalizationReviewPage() {
 
   // Load dictionary stats on mount
   useEffect(() => {
+    if (!tenantId) return;
     setDictStats(getDictionaryStats(tenantId));
   }, [tenantId]);
 
   // Seed dictionary
   const handleSeedDictionary = useCallback(() => {
+    if (!tenantId) return;
     const count = seedNormalizationDictionary(tenantId);
     setSeedCount(count);
     setDictStats(getDictionaryStats(tenantId));
@@ -65,6 +67,7 @@ export default function NormalizationReviewPage() {
 
   // Generate and classify week data
   const handleClassifyWeek = useCallback(async () => {
+    if (!tenantId) return;
     setLoading(true);
     try {
       // Check if week data exists, generate if not
@@ -101,6 +104,7 @@ export default function NormalizationReviewPage() {
 
   // Accept a suggestion
   const handleAccept = useCallback((entry: NormalizationEntry) => {
+    if (!tenantId) return;
     const updated = acceptSuggestion(tenantId, entry, 'admin');
     setEntries(prev => prev.map(e => e.id === entry.id ? updated : e));
     setDictStats(getDictionaryStats(tenantId));

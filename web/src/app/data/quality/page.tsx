@@ -42,7 +42,7 @@ export default function DataQualityPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
-  const tenantId = currentTenant?.id || 'retailco';
+  const tenantId = currentTenant?.id;
 
   const [qualityScore, setQualityScore] = useState<QualityScore | null>(null);
   const [pendingItems, setPendingItems] = useState<QuarantineItem[]>([]);
@@ -52,6 +52,7 @@ export default function DataQualityPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const loadData = useCallback(() => {
+    if (!tenantId) return;
     try {
       const score = calculateQualityScore(tenantId);
       const pending = getPendingItems(tenantId);
@@ -135,7 +136,9 @@ export default function DataQualityPage() {
     }
   };
 
-  const stats = getQuarantineStats(tenantId);
+  const stats = tenantId
+    ? getQuarantineStats(tenantId)
+    : { pending: 0, resolved: 0, total: 0, bySeverity: { critical: 0, warning: 0, info: 0 }, byType: {} };
 
   if (isLoading) {
     return (

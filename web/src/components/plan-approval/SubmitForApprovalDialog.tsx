@@ -52,7 +52,7 @@ export function SubmitForApprovalDialog({
         ruleSetId,
         ruleSetName,
         ruleSetVersion,
-        currentTenant?.id || 'retailco',
+        currentTenant?.id || '',
         user?.id || 'admin',
         user?.name || 'Admin',
         notes || undefined

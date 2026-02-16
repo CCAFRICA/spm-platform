@@ -93,7 +93,7 @@ export default function AnalyticsDashboardPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const isSpanish = locale === 'es-MX';
-  const tenantId = currentTenant?.id || 'retailco';
+  const tenantId = currentTenant?.id;
 
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [granularity, setGranularity] = useState<TimeGranularity>('weekly');
@@ -110,6 +110,7 @@ export default function AnalyticsDashboardPage() {
   const dateRange = getDateRange(timeRange);
 
   useEffect(() => {
+    if (!tenantId) return;
     // Load dashboard data
     setIsLoading(true);
     const timer = setTimeout(() => {
@@ -126,6 +127,7 @@ export default function AnalyticsDashboardPage() {
   }, [timeRange, tenantId, dateRange.start, dateRange.end]);
 
   useEffect(() => {
+    if (!tenantId) return;
     if (selectedMetric) {
       const detail = getMetricTimeSeries(
         tenantId,
@@ -139,6 +141,7 @@ export default function AnalyticsDashboardPage() {
   }, [selectedMetric, granularity, tenantId, dateRange.start, dateRange.end]);
 
   const loadDashboard = () => {
+    if (!tenantId) return;
     setIsLoading(true);
     setTimeout(() => {
       const data = getExecutiveDashboard(tenantId, dateRange.start, dateRange.end);
@@ -148,6 +151,7 @@ export default function AnalyticsDashboardPage() {
   };
 
   const loadSavedReports = () => {
+    if (!tenantId) return;
     const reports = getSavedReports(tenantId);
     setSavedReports(reports);
   };
@@ -181,6 +185,7 @@ export default function AnalyticsDashboardPage() {
   };
 
   const handleExport = (config: Parameters<typeof exportAnalytics>[1]) => {
+    if (!tenantId) return;
     const result = exportAnalytics(tenantId, config);
 
     // Trigger download
