@@ -64,8 +64,10 @@ export function AuthShell({ children }: AuthShellProps) {
     if (isLoading || tenantLoading) return;
 
     // If not authenticated and not on a public route, redirect to login
+    // Use window.location.href for a full page navigation that always works
+    // (router.push is SPA navigation that can silently fail without a session)
     if (!isAuthenticated && !isPublicRoute) {
-      router.push('/login');
+      window.location.href = `/login?redirect=${encodeURIComponent(pathname)}`;
       return;
     }
 
@@ -73,7 +75,7 @@ export function AuthShell({ children }: AuthShellProps) {
     if (isAuthenticated && isVLAdmin && !currentTenant && !isTenantExempt) {
       router.push('/select-tenant');
     }
-  }, [isAuthenticated, isLoading, tenantLoading, isPublicRoute, isVLAdmin, currentTenant, isTenantExempt, router]);
+  }, [isAuthenticated, isLoading, tenantLoading, isPublicRoute, isVLAdmin, currentTenant, isTenantExempt, pathname, router]);
 
   // Show loading state while checking auth or tenant
   if (isLoading || tenantLoading) {
