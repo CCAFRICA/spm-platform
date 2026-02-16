@@ -87,9 +87,22 @@ export function AuthShell({ children }: AuthShellProps) {
     );
   }
 
-  // For public routes or when not authenticated, just render children
-  if (isPublicRoute || !isAuthenticated) {
+  // Public routes: render children directly (e.g. login page)
+  if (isPublicRoute) {
     return <>{children}</>;
+  }
+
+  // Not authenticated on a protected route: show loading while middleware/redirect fires
+  // Do NOT render page content — prevents flash of "Welcome back, User!" with no auth
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground">Redirecting...</p>
+        </div>
+      </div>
+    );
   }
 
   // Platform admin without tenant on a non-exempt route: render nothing while redirect fires
