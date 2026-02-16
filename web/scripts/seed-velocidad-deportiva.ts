@@ -400,6 +400,10 @@ async function main() {
 
   // ── 4. Entity Relationships ──
   console.log('\n4. Creating entity relationships...');
+
+  // Delete existing relationships first (idempotent re-run)
+  await supabase.from('entity_relationships').delete().eq('tenant_id', TENANT_ID);
+
   let relCount = 0;
 
   // Org → Regions
@@ -603,6 +607,10 @@ async function main() {
 
   // ── 9. Committed Data ──
   console.log('\n9. Creating committed data...');
+
+  // Delete existing committed_data first (idempotent re-run)
+  await supabase.from('committed_data').delete().eq('tenant_id', TENANT_ID);
+
   let cdCount = 0;
 
   for (let mi = 0; mi < 6; mi++) {
@@ -667,13 +675,13 @@ async function main() {
     }, { onConflict: 'id' });
   }
 
-  // Quarterly batches
+  // Quarterly batches (batch_type must be one of: standard, superseding, adjustment, reversal)
   await supabase.from('calculation_batches').upsert({
     id: CB_IDS['2024-Q3'],
     tenant_id: TENANT_ID,
     period_id: PERIOD_IDS['2024-Q3'],
     rule_set_id: RS_FLOOR_ID,
-    batch_type: 'quarterly_payout',
+    batch_type: 'standard',
     lifecycle_state: 'CLOSED',
     entity_count: 18,
     config: { payout_quarter: 'Q3-2024', months: ['2024-07', '2024-08', '2024-09'] },
@@ -685,7 +693,7 @@ async function main() {
     tenant_id: TENANT_ID,
     period_id: PERIOD_IDS['2024-Q4'],
     rule_set_id: RS_FLOOR_ID,
-    batch_type: 'quarterly_payout',
+    batch_type: 'standard',
     lifecycle_state: 'APPROVED',
     entity_count: 18,
     config: { payout_quarter: 'Q4-2024', months: ['2024-10', '2024-11', '2024-12'] },
