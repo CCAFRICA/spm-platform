@@ -582,3 +582,122 @@ export async function getEntityOutcome(
   if (error) return null;
   return data as EntityPeriodOutcomeRow;
 }
+
+// ──────────────────────────────────────────────
+// Dashboard KPIs — single call, correct tables
+// ──────────────────────────────────────────────
+
+export interface DashboardKPIs {
+  ytdOutcome: number;
+  avgAttainment: number;
+  individualCount: number;
+  pendingOutcomeTotal: number;
+  pendingOutcomeCount: number;
+}
+
+/**
+ * Fetch all dashboard KPI data in parallel from the correct tables.
+ * Queries: entity_period_outcomes, calculation_results, entities.
+ */
+export async function getDashboardKPIs(tenantId: string): Promise<DashboardKPIs> {
+  requireTenantId(tenantId);
+  const supabase = createClient();
+
+  const [outcomesRes, pendingRes, entityRes, batchRes] = await Promise.all([
+    // YTD: all outcomes for this tenant
+    supabase
+      .from('entity_period_outcomes')
+      .select('total_payout')
+      .eq('tenant_id', tenantId),
+    // Pending: APPROVED but not yet paid
+    supabase
+      .from('entity_period_outcomes')
+      .select('total_payout')
+      .eq('tenant_id', tenantId)
+      .eq('lowest_lifecycle_state', 'APPROVED'),
+    // Individual entity count
+    supabase
+      .from('entities')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('entity_type', 'individual'),
+    // Latest batch (for attainment)
+    supabase
+      .from('calculation_batches')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .limit(1),
+  ]);
+
+  const ytdOutcome =
+    outcomesRes.data?.reduce((s, o) => s + (o.total_payout || 0), 0) || 0;
+  const pendingOutcomeTotal =
+    pendingRes.data?.reduce((s, o) => s + (o.total_payout || 0), 0) || 0;
+  const pendingOutcomeCount = pendingRes.data?.length || 0;
+  const individualCount = entityRes.count || 0;
+
+  // Average attainment from latest batch results
+  let avgAttainment = 0;
+  if (batchRes.data?.[0]) {
+    const { data: results } = await supabase
+      .from('calculation_results')
+      .select('attainment')
+      .eq('tenant_id', tenantId)
+      .eq('batch_id', batchRes.data[0].id);
+
+    if (results && results.length > 0) {
+      const values = results
+        .map(r => {
+          const att = r.attainment as Record<string, unknown> | null;
+          if (!att) return null;
+          const v = typeof att.overall === 'number' ? att.overall : typeof att.store === 'number' ? att.store : null;
+          return v;
+        })
+        .filter((a): a is number => a !== null && a > 0);
+
+      if (values.length > 0) {
+        avgAttainment = Math.round(
+          (values.reduce((s, a) => s + a, 0) / values.length) * 100
+        );
+      }
+    }
+  }
+
+  return { ytdOutcome, avgAttainment, individualCount, pendingOutcomeTotal, pendingOutcomeCount };
+}
+
+// ──────────────────────────────────────────────
+// Pulse sidebar counts — lightweight queries
+// ──────────────────────────────────────────────
+
+export async function getProfileCount(tenantId: string): Promise<number> {
+  requireTenantId(tenantId);
+  const supabase = createClient();
+  const { count } = await supabase
+    .from('profiles')
+    .select('*', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId);
+  return count || 0;
+}
+
+export async function getBatchCountToday(tenantId: string): Promise<number> {
+  requireTenantId(tenantId);
+  const supabase = createClient();
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const { count } = await supabase
+    .from('calculation_batches')
+    .select('*', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .gte('created_at', todayStart.toISOString());
+  return count || 0;
+}
+
+export async function getTenantCount(): Promise<number> {
+  const supabase = createClient();
+  const { count } = await supabase
+    .from('tenants')
+    .select('*', { count: 'exact', head: true });
+  return count || 0;
+}

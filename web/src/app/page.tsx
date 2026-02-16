@@ -32,10 +32,7 @@ import { useTenant, useCurrency } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { isTenantUser } from "@/types/auth";
 import { getCheques } from "@/lib/restaurant-service";
-import {
-  listCalculationBatches,
-  getCalculationResults as getSupabaseResults,
-} from "@/lib/supabase/calculation-service";
+import { getDashboardKPIs } from "@/lib/supabase/calculation-service";
 import type { Cheque } from "@/types/cheques";
 
 const STATIC_TENANT_IDS = ['retailco', 'restaurantmx', 'techcorp'];
@@ -135,50 +132,32 @@ export default function DashboardPage() {
   // Only show mock data for static tenants
   const hasMockData = isStaticTenant(currentTenant?.id);
 
-  // Wire dynamic tenants to real calculation results from Supabase
+  // Wire dynamic tenants to real data from Supabase (entity_period_outcomes, calculation_results, entities)
   const [dynamicStats, setDynamicStats] = useState<typeof stats | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
   useEffect(() => {
     if (hasMockData || isHospitality || !currentTenant?.id) return;
-    const loadResults = async () => {
+    let cancelled = false;
+    const loadKPIs = async () => {
       try {
-        const batches = await listCalculationBatches(currentTenant.id);
-        if (batches.length === 0) return;
-        const batch = batches[0];
-        const results = await getSupabaseResults(currentTenant.id, batch.id);
-        if (!results.length) return;
-
-        const userId = authUser?.email?.split('@')[0] || '';
-        const myResult = results.find(r => r.entity_id === userId);
-        const totalPayout = results.reduce((sum, r) => sum + (r.total_payout || 0), 0);
-
-        if (myResult) {
-          const sorted = [...results].sort((a, b) => (b.total_payout || 0) - (a.total_payout || 0));
-          const rank = sorted.findIndex(r => r.entity_id === userId) + 1;
-          setDynamicStats({
-            ytdCompensation: myResult.total_payout || 0,
-            mtdCompensation: myResult.total_payout || 0,
-            quotaAttainment: 0,
-            ranking: rank,
-            rankingTotal: results.length,
-            pendingCommissions: 0,
-          });
-        } else {
-          const avgPayout = totalPayout / results.length;
-          setDynamicStats({
-            ytdCompensation: totalPayout,
-            mtdCompensation: avgPayout,
-            quotaAttainment: 0,
-            ranking: 0,
-            rankingTotal: results.length,
-            pendingCommissions: 0,
-          });
-        }
+        const kpis = await getDashboardKPIs(currentTenant.id);
+        if (cancelled) return;
+        setDynamicStats({
+          ytdCompensation: kpis.ytdOutcome,
+          mtdCompensation: kpis.ytdOutcome,
+          quotaAttainment: kpis.avgAttainment,
+          ranking: 0,
+          rankingTotal: kpis.individualCount,
+          pendingCommissions: kpis.pendingOutcomeTotal,
+        });
+        setPendingCount(kpis.pendingOutcomeCount);
       } catch (err) {
-        console.warn('[Home] Failed to load results:', err);
+        console.warn('[Home] Failed to load KPIs:', err);
       }
     };
-    loadResults();
-  }, [hasMockData, isHospitality, currentTenant?.id, authUser?.email]);
+    loadKPIs();
+    return () => { cancelled = true; };
+  }, [hasMockData, isHospitality, currentTenant?.id]);
 
   // Use real data for dynamic tenants, mock for static
   const displayStats = dynamicStats || (hasMockData ? stats : {
@@ -454,8 +433,8 @@ export default function DashboardPage() {
                       <p className="text-3xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                         {displayStats.quotaAttainment}%
                       </p>
-                      <Badge className="mt-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
-                        Exceeding
+                      <Badge className={`mt-2 ${displayStats.quotaAttainment >= 100 ? 'bg-emerald-100 text-emerald-700' : displayStats.quotaAttainment >= 80 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'} hover:bg-opacity-100`}>
+                        {displayStats.quotaAttainment >= 100 ? (isSpanish ? 'Superando' : 'Exceeding') : displayStats.quotaAttainment >= 80 ? (isSpanish ? 'En Camino' : 'On Track') : displayStats.quotaAttainment > 0 ? (isSpanish ? 'Por Debajo' : 'Below') : '\u2014'}
                       </Badge>
                     </div>
                     <div className="p-3 bg-emerald-100 rounded-full dark:bg-emerald-900/30">
@@ -471,13 +450,13 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-slate-500">
-                        Team Ranking
+                        {isSpanish ? 'Tamaño del Equipo' : 'Team Size'}
                       </p>
                       <p className="text-3xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                        #{displayStats.ranking}
+                        {displayStats.rankingTotal || '\u2014'}
                       </p>
                       <p className="text-sm text-slate-500 mt-2">
-                        of {displayStats.rankingTotal} entities
+                        {isSpanish ? 'individuos' : 'individuals'}
                       </p>
                     </div>
                     <div className="p-3 bg-amber-100 rounded-full dark:bg-amber-900/30">
@@ -498,7 +477,7 @@ export default function DashboardPage() {
                       <p className="text-3xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                         {format(displayStats.pendingCommissions)}
                       </p>
-                      <p className="text-sm text-slate-500 mt-2">2 transactions</p>
+                      <p className="text-sm text-slate-500 mt-2">{pendingCount} {isSpanish ? 'resultados' : 'outcomes'}</p>
                     </div>
                     <div className="p-3 bg-blue-100 rounded-full dark:bg-blue-900/30">
                       <Clock className="h-6 w-6 text-blue-600" />
