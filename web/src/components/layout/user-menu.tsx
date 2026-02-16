@@ -35,10 +35,8 @@ export function UserMenu() {
 
   const handleLogout = () => {
     logout();
-    toast.success('Logged out', {
-      description: 'See you next time!'
-    });
-    // Do NOT router.push('/login') — AuthShellProtected handles navigation
+    // logout() calls signOut() + window.location.href = '/login'
+    // Toast may not display since full page navigation fires immediately
   };
 
   const getRoleColor = (role: string) => {

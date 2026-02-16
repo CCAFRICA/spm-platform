@@ -7,9 +7,9 @@
  * User profiles come from the Supabase profiles table.
  * Capabilities are stored on the profile.
  *
- * IMPORTANT: This provider sets STATE only. It NEVER triggers navigation
- * (no window.location.href, no router.push to /login). Navigation to /login
- * is handled exclusively by AuthShellProtected in auth-shell.tsx.
+ * Navigation to /login is triggered in TWO places (defense-in-depth):
+ *   1. logout() — immediate window.location.href = '/login' (primary)
+ *   2. AuthShellProtected — backup redirect if isAuthenticated becomes false
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
@@ -214,17 +214,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   // ── Logout ──
-  // Clears Supabase session and resets state.
-  // Does NOT navigate — AuthShellProtected detects isAuthenticated=false and redirects.
+  // Clears Supabase session, resets state, and navigates to /login.
+  // Uses window.location.href for full page navigation — clears all client
+  // state (React, providers, cached RSC payloads) and hits middleware fresh.
   const logout = useCallback(async () => {
     try {
       await signOut();
     } catch {
-      // Continue with cleanup
+      // Continue with cleanup even if signOut fails
     }
     setUser(null);
     setCapabilities([]);
-    // Do NOT router.push('/login') — AuthShellProtected handles navigation
+    // Full page navigation — always works, always hits middleware
+    window.location.href = '/login';
   }, []);
 
   // ── Permissions (legacy check) ──

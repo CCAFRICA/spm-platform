@@ -4,9 +4,9 @@
  * Handles authentication operations via Supabase Auth.
  * Supabase-only. No fallback.
  *
- * IMPORTANT: Functions in this file set STATE only. They NEVER trigger
- * navigation (no window.location.href, no router.push). Navigation is
- * handled exclusively by AuthShellProtected.
+ * Functions in this file handle Supabase auth operations only.
+ * Navigation is handled by auth-context.tsx (logout) and
+ * AuthShellProtected (backup redirect).
  */
 
 import { createClient } from './client';
