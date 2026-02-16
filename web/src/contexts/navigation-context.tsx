@@ -25,7 +25,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from './auth-context';
 import { useTenant } from './tenant-context';
 import { useLocale } from './locale-context';
-import { isVLAdmin } from '@/types/auth';
+
 import type {
   WorkspaceId,
   NavigationState,
@@ -97,10 +97,12 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Locale follows user's language selector (single source of truth)
   const { locale } = useLocale();
-  const userIsVLAdmin = user && isVLAdmin(user);
   const isSpanish = locale === 'es-MX';
   const userRole = user?.role || null;
-  const tenantId = userIsVLAdmin ? 'platform' : (currentTenant?.id || 'default');
+  // Use the selected tenant's actual UUID — never a placeholder string.
+  // VL admins: currentTenant is set after tenant selection, null before.
+  // Non-admins: currentTenant comes from their profile's tenant_id.
+  const tenantId = currentTenant?.id || null;
   // Core state
   const [activeWorkspace, setActiveWorkspaceState] = useState<WorkspaceId>('perform');
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);
@@ -161,7 +163,9 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Load data from CompensationClockService (unified source of truth — async Supabase)
   const refreshData = useCallback(async () => {
-    if (!user || !userRole) return;
+    // Guard: skip ALL Supabase calls if no valid tenant selected.
+    // Without this, queries fire with tenant_id=null/undefined and return 400.
+    if (!user || !userRole || !tenantId) return;
 
     try {
       // THE CYCLE (central pacemaker)
@@ -206,8 +210,8 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
       return;
     }
 
-    // Log the switch for analytics
-    if (user && activeWorkspace !== workspace) {
+    // Log the switch for analytics (only if tenant is selected)
+    if (user && activeWorkspace !== workspace && tenantId) {
       logWorkspaceSwitch(activeWorkspace, workspace, user.id, tenantId);
     }
 
