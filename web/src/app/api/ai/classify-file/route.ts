@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAIService } from '@/lib/ai';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   console.log('\n========== API ROUTE: /api/ai/classify-file ==========');
@@ -46,6 +47,30 @@ export async function POST(request: NextRequest) {
     console.log('Confidence:', (response.confidence * 100).toFixed(1) + '%');
     console.log('Latency:', response.latencyMs + 'ms');
     console.log('=====================================\n');
+
+    // Write metering event (non-blocking)
+    try {
+      if (tenantId) {
+        const meter = await createServiceRoleClient();
+        const now = new Date();
+        const periodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        await meter.from('usage_metering').insert({
+          tenant_id: tenantId,
+          metric_name: 'ai_inference',
+          metric_value: 1,
+          period_key: periodKey,
+          metadata: {
+            endpoint: 'classify-file',
+            model: response.model,
+            latencyMs: response.latencyMs,
+            tokenUsage: response.tokenUsage,
+            confidence: response.confidence,
+          },
+        });
+      }
+    } catch (meterErr) {
+      console.error('[classify-file] Metering failed:', meterErr);
+    }
 
     return NextResponse.json({
       success: true,

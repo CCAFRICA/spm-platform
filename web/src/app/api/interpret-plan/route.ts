@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAIService } from '@/lib/ai';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -77,6 +78,30 @@ export async function POST(request: NextRequest) {
       });
     }
     console.log('============================================\n');
+
+    // Write metering event (non-blocking)
+    try {
+      if (tenantId) {
+        const meter = await createServiceRoleClient();
+        const now = new Date();
+        const periodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        await meter.from('usage_metering').insert({
+          tenant_id: tenantId,
+          metric_name: 'ai_inference',
+          metric_value: 1,
+          period_key: periodKey,
+          metadata: {
+            endpoint: 'interpret-plan',
+            model: response.model,
+            latencyMs: response.latencyMs,
+            tokenUsage: response.tokenUsage,
+            confidence: response.confidence,
+          },
+        });
+      }
+    } catch (meterErr) {
+      console.error('[interpret-plan] Metering failed:', meterErr);
+    }
 
     return NextResponse.json({
       success: true,

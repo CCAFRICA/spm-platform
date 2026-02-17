@@ -93,6 +93,13 @@ export interface OnboardingTenant {
   latestLifecycleState: string | null;
 }
 
+export interface MeteringEvent {
+  metricName: string;
+  totalValue: number;
+  eventCount: number;
+  periodKey: string;
+}
+
 export interface IngestionMetricsData {
   totalEvents: number;
   committedCount: number;
