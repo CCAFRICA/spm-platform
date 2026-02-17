@@ -14,6 +14,7 @@
  * OB-46C Phase 2
  */
 
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -90,6 +91,8 @@ import {
   Target,
   Copy,
   ShieldAlert,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -145,6 +148,22 @@ export function ChromeSidebar() {
   const isSpanish = locale === 'es-MX';
   const showCycle = userRole === 'vl_admin' || userRole === 'admin';
 
+  // Section accordion state — tracks which section IDs are expanded
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+
+  // Toggle a section's expanded state
+  const toggleSection = useCallback((sectionId: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) {
+        next.delete(sectionId);
+      } else {
+        next.add(sectionId);
+      }
+      return next;
+    });
+  }, []);
+
   // Get accessible workspaces for current user
   const accessibleWorkspaces = userRole
     ? getAccessibleWorkspaces(userRole as UserRole).filter(wsId => {
@@ -160,6 +179,25 @@ export function ChromeSidebar() {
   const activeSections = userRole
     ? getWorkspaceRoutesForRole(activeWorkspace, userRole as UserRole)
     : [];
+
+  // Auto-expand section containing the active route
+  useEffect(() => {
+    if (!pathname || !activeSections.length) return;
+    for (const section of activeSections) {
+      const hasActive = section.routes.some(
+        r => pathname === r.path || pathname.startsWith(r.path + '/')
+      );
+      if (hasActive) {
+        setExpandedSections(prev => {
+          if (prev.has(section.id)) return prev;
+          const next = new Set(prev);
+          next.add(section.id);
+          return next;
+        });
+        break;
+      }
+    }
+  }, [pathname, activeSections]);
 
   // Persona accent color for the sidebar header stripe
   const accentGrad = PERSONA_TOKENS[persona].accentGrad;
@@ -313,6 +351,8 @@ export function ChromeSidebar() {
                     isSpanish={isSpanish}
                     collapsed={isRailCollapsed}
                     pathname={pathname}
+                    isExpanded={expandedSections.has(section.id)}
+                    onToggle={() => toggleSection(section.id)}
                   />
                 ))}
               </div>
@@ -437,13 +477,16 @@ interface SectionNavProps {
   isSpanish: boolean;
   collapsed: boolean;
   pathname: string;
+  isExpanded: boolean;
+  onToggle: () => void;
 }
 
-function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname }: SectionNavProps) {
+function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpanded, onToggle }: SectionNavProps) {
   const hasActiveRoute = section.routes.some(r => pathname === r.path || pathname.startsWith(r.path + '/'));
+  const routeCount = section.routes.length;
 
   if (collapsed) {
-    // Collapsed: show only icons for routes
+    // Collapsed rail: show only icons for routes
     return (
       <div className="flex flex-col items-center gap-0.5">
         {section.routes.map(route => {
@@ -476,42 +519,62 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname }: Secti
     );
   }
 
-  // Expanded: show section header + route links
+  // Expanded sidebar: accordion section header + collapsible route links
   return (
-    <div className="mb-2">
-      <p className={cn(
-        'text-[10px] font-semibold uppercase tracking-wider mb-1 px-2',
-        hasActiveRoute ? 'text-zinc-300' : 'text-zinc-600'
-      )}>
-        {isSpanish ? section.labelEs : section.label}
-      </p>
-      <div className="space-y-0.5">
-        {section.routes.map(route => {
-          const isActive = pathname === route.path || pathname.startsWith(route.path + '/');
-          return (
-            <Link
-              key={route.path}
-              href={route.path}
-              className={cn(
-                'flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs transition-all',
-                isActive
-                  ? 'text-white font-medium'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-              )}
-              style={isActive ? { backgroundColor: `${wsAccent}20`, color: wsAccent } : undefined}
-            >
-              {isActive && (
-                <div
-                  className="absolute left-0 w-0.5 h-5 rounded-full"
-                  style={{ backgroundColor: wsAccent }}
-                />
-              )}
-              <RouteIcon name={route.icon} className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{isSpanish ? route.labelEs : route.label}</span>
-            </Link>
-          );
-        })}
-      </div>
+    <div className="mb-1">
+      <button
+        onClick={onToggle}
+        className={cn(
+          'flex w-full items-center justify-between px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-colors',
+          hasActiveRoute
+            ? 'text-zinc-300 hover:bg-zinc-800/40'
+            : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/30'
+        )}
+      >
+        <span>{isSpanish ? section.labelEs : section.label}</span>
+        <span className="flex items-center gap-1">
+          <span className={cn(
+            'text-[9px] font-normal tabular-nums',
+            hasActiveRoute ? 'text-zinc-500' : 'text-zinc-700'
+          )}>
+            {routeCount}
+          </span>
+          {isExpanded ? (
+            <ChevronDown className="h-3 w-3 text-zinc-600" />
+          ) : (
+            <ChevronRight className="h-3 w-3 text-zinc-600" />
+          )}
+        </span>
+      </button>
+      {isExpanded && (
+        <div className="space-y-0.5 mt-0.5">
+          {section.routes.map(route => {
+            const isActive = pathname === route.path || pathname.startsWith(route.path + '/');
+            return (
+              <Link
+                key={route.path}
+                href={route.path}
+                className={cn(
+                  'flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs transition-all relative',
+                  isActive
+                    ? 'text-white font-medium'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                )}
+                style={isActive ? { backgroundColor: `${wsAccent}20`, color: wsAccent } : undefined}
+              >
+                {isActive && (
+                  <div
+                    className="absolute left-0 w-0.5 h-5 rounded-full"
+                    style={{ backgroundColor: wsAccent }}
+                  />
+                )}
+                <RouteIcon name={route.icon} className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{isSpanish ? route.labelEs : route.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
