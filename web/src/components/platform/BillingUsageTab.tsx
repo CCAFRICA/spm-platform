@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import type {
   TenantBillingData,
   RecentBatchActivity,
+  MeteringEvent,
 } from '@/lib/data/platform-queries';
-import { Loader2, Users, Calendar, Calculator, Activity } from 'lucide-react';
+import { Loader2, Users, Calendar, Calculator, Activity, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_LIMITS = { entities: 100, batches: 50, users: 10 };
@@ -13,6 +14,7 @@ const DEFAULT_LIMITS = { entities: 100, batches: 50, users: 10 };
 export function BillingUsageTab() {
   const [tenants, setTenants] = useState<TenantBillingData[]>([]);
   const [activity, setActivity] = useState<RecentBatchActivity[]>([]);
+  const [metering, setMetering] = useState<MeteringEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -23,10 +25,11 @@ export function BillingUsageTab() {
         if (!res.ok) throw new Error(`Billing API: ${res.status}`);
         return res.json();
       })
-      .then((result: { tenants: TenantBillingData[]; recentActivity: RecentBatchActivity[] }) => {
+      .then((result: { tenants: TenantBillingData[]; recentActivity: RecentBatchActivity[]; meteringEvents?: MeteringEvent[] }) => {
         if (!cancelled) {
           setTenants(result.tenants);
           setActivity(result.recentActivity);
+          setMetering(result.meteringEvents ?? []);
           setIsLoading(false);
         }
       })
@@ -115,6 +118,27 @@ export function BillingUsageTab() {
           ))}
         </div>
       </div>
+
+      {/* Metering Events */}
+      {metering.length > 0 && (
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+          <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
+            Platform Metering Events
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {metering.map(m => (
+              <div key={`${m.metricName}-${m.periodKey}`} className="px-3 py-3 rounded-lg border border-zinc-800 bg-zinc-900/30">
+                <div className="flex items-center gap-2 mb-1">
+                  <Zap className="h-3 w-3 text-amber-400 shrink-0" />
+                  <span className="text-[10px] text-zinc-500 truncate">{m.metricName.replace(/_/g, ' ')}</span>
+                </div>
+                <p className="text-lg font-bold tabular-nums text-white">{m.eventCount}</p>
+                <span className="text-[10px] text-zinc-600 tabular-nums">{m.periodKey}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Recent Activity Feed */}
       {activity.length > 0 && (

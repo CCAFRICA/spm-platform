@@ -18,6 +18,7 @@ import type {
   RecentBatchActivity,
   OnboardingTenant,
   IngestionMetricsData,
+  MeteringEvent,
 } from '@/lib/data/platform-queries';
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceRoleClient>>;
@@ -325,6 +326,7 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
 async function fetchBillingData(supabase: ServiceClient): Promise<{
   tenants: TenantBillingData[];
   recentActivity: RecentBatchActivity[];
+  meteringEvents: MeteringEvent[];
 }> {
   const { data: tenants } = await supabase
     .from('tenants')
@@ -334,8 +336,8 @@ async function fetchBillingData(supabase: ServiceClient): Promise<{
   const safeTenants = tenants ?? [];
   const tenantIds = safeTenants.map(t => t.id);
 
-  // Bulk fetch all counts + payouts in parallel (6 queries instead of 5N+3)
-  const [allEntities, allPeriods, allBatches, allProfiles, allOutcomes, recentBatchesRes] = await Promise.all([
+  // Bulk fetch all counts + payouts + metering in parallel
+  const [allEntities, allPeriods, allBatches, allProfiles, allOutcomes, recentBatchesRes, meteringRes] = await Promise.all([
     supabase.from('entities').select('tenant_id').in('tenant_id', tenantIds.length > 0 ? tenantIds : ['__none__']).limit(10000),
     supabase.from('periods').select('tenant_id').in('tenant_id', tenantIds.length > 0 ? tenantIds : ['__none__']).limit(10000),
     supabase.from('calculation_batches').select('tenant_id').in('tenant_id', tenantIds.length > 0 ? tenantIds : ['__none__']).limit(10000),
@@ -343,6 +345,7 @@ async function fetchBillingData(supabase: ServiceClient): Promise<{
     supabase.from('entity_period_outcomes').select('tenant_id, total_payout').in('tenant_id', tenantIds.length > 0 ? tenantIds : ['__none__']).limit(10000),
     supabase.from('calculation_batches').select('id, tenant_id, lifecycle_state, entity_count, created_at')
       .order('created_at', { ascending: false }).limit(10),
+    supabase.from('usage_metering').select('metric_name, metric_value, period_key').limit(10000),
   ]);
 
   const entityCounts = countByField(allEntities.data ?? [], 'tenant_id');
@@ -368,6 +371,21 @@ async function fetchBillingData(supabase: ServiceClient): Promise<{
 
   const nameMap = new Map(safeTenants.map(t => [t.id, t.name]));
 
+  // Aggregate metering events by metric_name + period_key
+  const meterAgg = new Map<string, { totalValue: number; eventCount: number }>();
+  for (const m of (meteringRes.data ?? [])) {
+    const key = `${m.metric_name}||${m.period_key}`;
+    const existing = meterAgg.get(key) ?? { totalValue: 0, eventCount: 0 };
+    existing.totalValue += m.metric_value ?? 0;
+    existing.eventCount += 1;
+    meterAgg.set(key, existing);
+  }
+
+  const meteringEvents: MeteringEvent[] = Array.from(meterAgg.entries()).map(([key, agg]) => {
+    const [metricName, periodKey] = key.split('||');
+    return { metricName, periodKey, totalValue: agg.totalValue, eventCount: agg.eventCount };
+  });
+
   return {
     tenants: tenantData,
     recentActivity: (recentBatchesRes.data ?? []).map(b => ({
@@ -378,6 +396,7 @@ async function fetchBillingData(supabase: ServiceClient): Promise<{
       entityCount: b.entity_count,
       createdAt: b.created_at,
     })),
+    meteringEvents,
   };
 }
 
