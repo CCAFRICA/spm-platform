@@ -102,35 +102,26 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     sections: [
       {
         id: 'dashboard',
-        label: 'Dashboard',
-        labelEs: 'Panel',
+        label: 'Home',
+        labelEs: 'Inicio',
         routes: [
-          { path: '/perform', label: 'Overview', labelEs: 'Resumen', icon: 'LayoutDashboard', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/perform/dashboard', label: 'Performance Dashboard', labelEs: 'Panel de Rendimiento', icon: 'BarChart3', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform', label: 'Dashboard', labelEs: 'Panel', icon: 'LayoutDashboard', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
         id: 'compensation',
-        label: 'My Compensation',
-        labelEs: 'Mi Compensación',
+        label: 'My Pay',
+        labelEs: 'Mi Pago',
         routes: [
           { path: '/perform/compensation', label: 'My Compensation', labelEs: 'Mi Compensación', icon: 'Wallet', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/transactions', label: 'Transactions', labelEs: 'Transacciones', icon: 'Receipt', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
           { path: '/perform/statement', label: 'Statement', labelEs: 'Estado de Cuenta', icon: 'FileText', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
-        id: 'transactions',
-        label: 'Transactions',
-        labelEs: 'Transacciones',
-        routes: [
-          { path: '/perform/transactions', label: 'My Transactions', labelEs: 'Mis Transacciones', icon: 'Receipt', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/perform/transactions/find', label: 'Find Transaction', labelEs: 'Buscar Transacción', icon: 'Search', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-        ],
-      },
-      {
         id: 'team',
-        label: 'Team',
-        labelEs: 'Equipo',
+        label: 'My Team',
+        labelEs: 'Mi Equipo',
         routes: [
           { path: '/perform/team', label: 'Team Performance', labelEs: 'Rendimiento del Equipo', icon: 'Users', roles: ['vl_admin', 'admin', 'manager'] },
           { path: '/perform/team/rankings', label: 'Rankings', labelEs: 'Clasificaciones', icon: 'Trophy', roles: ['vl_admin', 'admin', 'manager'] },
@@ -141,17 +132,16 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Trends',
         labelEs: 'Tendencias',
         routes: [
-          { path: '/perform/trends', label: 'Performance Trends', labelEs: 'Tendencias de Rendimiento', icon: 'LineChart', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/trends', label: 'Performance Trends', labelEs: 'Tendencias de Rendimiento', icon: 'LineChart', roles: ['vl_admin', 'admin', 'manager'] },
           { path: '/perform/trends/analytics', label: 'Analytics', labelEs: 'Análisis', icon: 'PieChart', roles: ['vl_admin', 'admin', 'manager'] },
         ],
       },
       {
         id: 'inquiries',
-        label: 'Inquiries',
-        labelEs: 'Consultas',
+        label: 'Disputes',
+        labelEs: 'Disputas',
         routes: [
-          { path: '/perform/inquiries', label: 'My Inquiries', labelEs: 'Mis Consultas', icon: 'HelpCircle', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/perform/inquiries/new', label: 'Submit Inquiry', labelEs: 'Enviar Consulta', icon: 'PlusCircle', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform/inquiries', label: 'My Disputes', labelEs: 'Mis Disputas', icon: 'HelpCircle', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
         ],
       },
     ],
@@ -476,18 +466,11 @@ export function getWorkspacesForRole(role: UserRole): Workspace[] {
 /**
  * Get the default workspace for a role
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function getDefaultWorkspaceForRole(role: UserRole): WorkspaceId {
-  switch (role) {
-    case 'vl_admin':
-    case 'admin':
-      return 'operate';
-    case 'manager':
-      return 'perform';
-    case 'sales_rep':
-      return 'perform';
-    default:
-      return 'perform';
-  }
+  // All personas land on Perform (dashboard) by default.
+  // Operate is accessed explicitly via workspace switcher.
+  return 'perform';
 }
 
 /**

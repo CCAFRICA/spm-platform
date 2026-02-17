@@ -467,6 +467,7 @@ interface SectionNavProps {
 function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpanded, onToggle }: SectionNavProps) {
   const hasActiveRoute = section.routes.some(r => pathname === r.path || pathname.startsWith(r.path + '/'));
   const routeCount = section.routes.length;
+  const isSingleChild = routeCount === 1;
 
   if (collapsed) {
     // Collapsed rail: show only icons for routes
@@ -503,7 +504,34 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
     );
   }
 
-  // Expanded sidebar: accordion section header + collapsible route links
+  // Single-child section: direct-navigate on click instead of expanding
+  if (isSingleChild) {
+    const route = section.routes[0];
+    const isActive = pathname === route.path || pathname.startsWith(route.path + '/');
+    return (
+      <div className="mb-1">
+        <Link
+          href={route.path}
+          prefetch={false}
+          className={cn(
+            'flex w-full items-center gap-2.5 px-2 py-1.5 rounded-md transition-all',
+            isActive ? 'font-medium' : 'hover:bg-zinc-800/50'
+          )}
+          style={{
+            fontSize: '13px',
+            ...(isActive
+              ? { backgroundColor: `${wsAccent}20`, color: wsAccent }
+              : { color: '#a1a1aa' }),
+          }}
+        >
+          <RouteIcon name={route.icon} className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{isSpanish ? section.labelEs : section.label}</span>
+        </Link>
+      </div>
+    );
+  }
+
+  // Multi-child: accordion section header + collapsible route links
   return (
     <div className="mb-1">
       <button

@@ -23,8 +23,8 @@ export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
 // =============================================================================
 
 export const DEFAULT_WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceId> = {
-  vl_admin: 'operate',
-  admin: 'operate',
+  vl_admin: 'perform',
+  admin: 'perform',
   manager: 'perform',
   sales_rep: 'perform',
 };
