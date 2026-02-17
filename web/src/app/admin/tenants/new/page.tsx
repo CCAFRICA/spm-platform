@@ -523,7 +523,7 @@ export default function NewTenantPage() {
                 <div key={key} className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-slate-50">
                   <Checkbox
                     id={key}
-                    checked={formData.features[key as keyof TenantFeatures] || false}
+                    checked={!!formData.features[key as keyof TenantFeatures] || false}
                     onCheckedChange={(checked) =>
                       setFormData((prev) => ({
                         ...prev,

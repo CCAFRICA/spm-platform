@@ -36,6 +36,7 @@ import {
 } from '@/lib/calculation/calculation-lifecycle-service';
 import { LifecycleSubway } from '@/components/lifecycle/LifecycleSubway';
 import { LifecycleActionBar } from '@/components/lifecycle/LifecycleActionBar';
+import { getPipelineConfig, type LifecyclePipelineConfig } from '@/lib/lifecycle/lifecycle-pipeline';
 import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -123,6 +124,11 @@ export default function CalculatePage() {
   const { locale } = useAdminLocale();
   const t = labels[locale];
   const hasAccess = user && (isVLAdmin(user) || user.role === 'admin');
+
+  // Derive pipeline config from tenant features (default: production)
+  const pipelineConfig: LifecyclePipelineConfig = getPipelineConfig(
+    currentTenant?.features?.lifecyclePipeline || 'production'
+  );
 
   // Load rule sets and batches from Supabase
   useEffect(() => {
@@ -416,7 +422,7 @@ export default function CalculatePage() {
       {activeCycle && selectedPeriod && (
         <Card>
           <CardContent className="py-4 space-y-4">
-            <LifecycleSubway cycle={activeCycle} />
+            <LifecycleSubway cycle={activeCycle} pipelineConfig={pipelineConfig} />
             <div className="flex items-center gap-3 text-xs text-slate-500">
               <span>{entityCount} entities</span>
               <span>|</span>
@@ -428,6 +434,7 @@ export default function CalculatePage() {
               onTransition={handleLifecycleTransition}
               onExport={handleExportPayroll}
               isSubmitter={activeCycle.submittedBy === user?.name}
+              pipelineConfig={pipelineConfig}
             />
           </CardContent>
         </Card>
