@@ -17,6 +17,7 @@ import {
   Receipt,
   Server,
   Rocket,
+  Upload,
   LogOut,
   Loader2,
 } from 'lucide-react';
@@ -27,8 +28,9 @@ const AIIntelligenceTab = lazy(() => import('./AIIntelligenceTab').then(m => ({ 
 const BillingUsageTab = lazy(() => import('./BillingUsageTab').then(m => ({ default: m.BillingUsageTab })));
 const InfrastructureTab = lazy(() => import('./InfrastructureTab').then(m => ({ default: m.InfrastructureTab })));
 const OnboardingTab = lazy(() => import('./OnboardingTab').then(m => ({ default: m.OnboardingTab })));
+const IngestionTab = lazy(() => import('./IngestionTab').then(m => ({ default: m.IngestionTab })));
 
-type TabId = 'observatory' | 'ai' | 'billing' | 'infrastructure' | 'onboarding';
+type TabId = 'observatory' | 'ai' | 'billing' | 'infrastructure' | 'onboarding' | 'ingestion';
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'observatory', label: 'Observatory', icon: Activity },
@@ -36,6 +38,7 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: 
   { id: 'billing', label: 'Billing & Usage', icon: Receipt },
   { id: 'infrastructure', label: 'Infrastructure', icon: Server },
   { id: 'onboarding', label: 'Onboarding', icon: Rocket },
+  { id: 'ingestion', label: 'Ingestion', icon: Upload },
 ];
 
 export function PlatformObservatory() {
@@ -103,6 +106,7 @@ export function PlatformObservatory() {
           {activeTab === 'billing' && <BillingUsageTab />}
           {activeTab === 'infrastructure' && <InfrastructureTab />}
           {activeTab === 'onboarding' && <OnboardingTab />}
+          {activeTab === 'ingestion' && <IngestionTab />}
         </Suspense>
       </main>
     </div>
