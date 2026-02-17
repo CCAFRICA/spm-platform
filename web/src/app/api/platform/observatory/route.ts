@@ -81,18 +81,21 @@ export async function GET(request: NextRequest) {
 
 async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOverview> {
   const [tenantRes, entityRes, batchRes, periodRes] = await Promise.all([
-    supabase.from('tenants').select('id, status', { count: 'exact', head: false }),
+    supabase.from('tenants').select('id', { count: 'exact', head: false }),
     supabase.from('entities').select('*', { count: 'exact', head: true }),
     supabase.from('calculation_batches').select('*', { count: 'exact', head: true }),
     supabase.from('periods').select('*', { count: 'exact', head: true }).neq('status', 'closed'),
   ]);
 
-  const tenants = tenantRes.data ?? [];
-  const activeTenants = tenants.filter(t => t.status === 'active' || !t.status);
+  if (tenantRes.error) {
+    console.error('[fetchFleetOverview] tenants query error:', tenantRes.error);
+  }
+
+  const tenantCount = tenantRes.count ?? (tenantRes.data?.length ?? 0);
 
   return {
-    tenantCount: tenantRes.count ?? tenants.length,
-    activeTenantCount: activeTenants.length,
+    tenantCount,
+    activeTenantCount: tenantCount, // all tenants are active (no status column)
     totalEntities: entityRes.count ?? 0,
     totalBatches: batchRes.count ?? 0,
     activePeriodsCount: periodRes.count ?? 0,
@@ -100,10 +103,14 @@ async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOvervie
 }
 
 async function fetchTenantFleetCards(supabase: ServiceClient): Promise<TenantFleetCard[]> {
-  const { data: tenants } = await supabase
+  const { data: tenants, error: tenantError } = await supabase
     .from('tenants')
-    .select('id, name, slug, settings, status, created_at, updated_at')
+    .select('id, name, slug, settings, created_at, updated_at')
     .order('name');
+
+  if (tenantError) {
+    console.error('[fetchTenantFleetCards] tenants query error:', tenantError);
+  }
 
   if (!tenants || tenants.length === 0) return [];
 
@@ -138,7 +145,7 @@ async function fetchTenantFleetCards(supabase: ServiceClient): Promise<TenantFle
       slug: t.slug,
       industry: (settings.industry as string) || '',
       country: (settings.country_code as string) || '',
-      status: t.status || 'active',
+      status: 'active',
       entityCount: entityRes.count ?? 0,
       userCount: profileRes.count ?? 0,
       periodCount: 0,
