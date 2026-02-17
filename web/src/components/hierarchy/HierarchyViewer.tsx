@@ -486,8 +486,8 @@ function ListView({
           className={cn(
             'flex items-center gap-2 py-2 px-3 rounded cursor-pointer transition-colors',
             selectedNodeId === nodeId
-              ? 'bg-sky-50 dark:bg-sky-900/20'
-              : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+              ? 'bg-sky-900/20'
+              : 'hover:bg-slate-800'
           )}
           style={{ paddingLeft: `${depth * 24 + 12}px` }}
           onClick={() => onNodeSelect(nodeId)}
@@ -511,7 +511,7 @@ function ListView({
             <div className="w-5" />
           )}
 
-          <span className="font-medium text-slate-900 dark:text-slate-100">
+          <span className="font-medium text-slate-100">
             {node.name}
           </span>
 
@@ -595,8 +595,8 @@ function TableView({
               className={cn(
                 'border-b cursor-pointer transition-colors',
                 selectedNodeId === node.id
-                  ? 'bg-sky-50 dark:bg-sky-900/20'
-                  : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+                  ? 'bg-sky-900/20'
+                  : 'hover:bg-slate-800'
               )}
               onClick={() => onNodeSelect(node.id)}
             >

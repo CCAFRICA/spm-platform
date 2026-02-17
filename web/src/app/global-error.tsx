@@ -12,15 +12,15 @@ export default function GlobalError({
   return (
     <html>
       <body>
-        <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
+        <div className="min-h-screen flex items-center justify-center p-6" style={{ background: '#0a0e1a' }}>
           <div className="text-center max-w-md">
-            <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-6">
-              <AlertTriangle className="h-8 w-8 text-red-600" />
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6" style={{ background: 'rgba(239, 68, 68, 0.15)' }}>
+              <AlertTriangle className="h-8 w-8 text-red-400" />
             </div>
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">
+            <h2 className="text-2xl font-bold mb-2" style={{ color: '#e4e4e7' }}>
               Something went wrong
             </h2>
-            <p className="text-slate-600 mb-6">
+            <p className="mb-6" style={{ color: '#71717a' }}>
               A critical error occurred. Please refresh the page.
             </p>
             <Button onClick={reset}>

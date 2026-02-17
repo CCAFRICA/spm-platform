@@ -64,7 +64,7 @@ export function ModuleShell({
 
       {/* Breadcrumb */}
       {showBreadcrumb && !customBreadcrumb && (
-        <div className="flex items-center gap-2 px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm">
+        <div className="flex items-center gap-2 px-6 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-sm">
           {IconComponent && (
             <IconComponent
               className="h-4 w-4"

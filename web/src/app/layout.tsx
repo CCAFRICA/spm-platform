@@ -12,7 +12,7 @@ import { Toaster } from "sonner";
 const dmSans = DM_Sans({
   subsets: ["latin"],
   variable: "--font-dm-sans",
-  weight: ["400", "500", "700"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 const dmMono = DM_Mono({
   subsets: ["latin"],
@@ -31,9 +31,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" style={{ colorScheme: 'dark' }}>
       <body
         className={`${dmSans.variable} ${dmMono.variable} antialiased`}
+        style={{ background: '#0a0e1a', color: '#e2e8f0', minHeight: '100vh' }}
       >
         <AuthProvider>
           <TenantProvider>

@@ -304,14 +304,14 @@ export function ApprovalRequestCard({
                       <div
                         className={cn(
                           'flex items-center justify-center h-8 w-8 rounded-full border-2',
-                          step.status === 'approved' && 'border-green-500 bg-green-50',
-                          step.status === 'rejected' && 'border-red-500 bg-red-50',
+                          step.status === 'approved' && 'border-green-500 bg-green-900/30',
+                          step.status === 'rejected' && 'border-red-500 bg-red-900/30',
                           step.status === 'pending' &&
                             index === request.chain.currentStep &&
-                            'border-blue-500 bg-blue-50',
+                            'border-blue-500 bg-blue-900/30',
                           step.status === 'pending' &&
                             index !== request.chain.currentStep &&
-                            'border-gray-300 bg-gray-50'
+                            'border-zinc-600 bg-zinc-800/50'
                         )}
                       >
                         {step.status === 'approved' && (

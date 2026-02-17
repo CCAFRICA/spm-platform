@@ -81,7 +81,7 @@ export function InfrastructureTab() {
   return (
     <div className="space-y-8">
       {/* Service Health */}
-      <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+      <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
         <h3 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-4">
           Service Health
         </h3>
@@ -117,32 +117,32 @@ export function InfrastructureTab() {
 
       {/* Storage Metrics */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <HardDrive className="h-4 w-4 text-violet-400" />
-            <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Committed Data Rows</span>
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Committed Data Rows</span>
           </div>
-          <p className="text-2xl font-bold text-white tabular-nums">{data.committedDataCount.toLocaleString()}</p>
+          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{data.committedDataCount.toLocaleString()}</p>
         </div>
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <Database className="h-4 w-4 text-violet-400" />
-            <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Calculation Outcomes</span>
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Calculation Outcomes</span>
           </div>
-          <p className="text-2xl font-bold text-white tabular-nums">{data.totalOutcomes.toLocaleString()}</p>
+          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{data.totalOutcomes.toLocaleString()}</p>
         </div>
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <Server className="h-4 w-4 text-violet-400" />
-            <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Active Tenants</span>
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Active Tenants</span>
           </div>
-          <p className="text-2xl font-bold text-white tabular-nums">{data.tenantCount}</p>
+          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{data.tenantCount}</p>
         </div>
       </div>
 
       {/* Cost Projection */}
-      <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
-        <h3 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-4">
+      <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+        <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
           Cost Projection (Monthly Estimate)
         </h3>
         <div className="overflow-x-auto">

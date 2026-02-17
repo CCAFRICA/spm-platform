@@ -120,7 +120,7 @@ export default function GovernPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-2xl font-bold text-zinc-100">
             {isSpanish ? 'Centro de Gobernanza' : 'Governance Center'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -154,7 +154,7 @@ export default function GovernPage() {
               <div
                 key={item.label}
                 className={`p-4 rounded-lg ${
-                  item.status === 'pass' ? 'bg-green-50' : 'bg-amber-50'
+                  item.status === 'pass' ? 'bg-green-900/20' : 'bg-amber-900/20'
                 }`}
               >
                 <div className="flex items-center gap-2 mb-2">
@@ -193,13 +193,13 @@ export default function GovernPage() {
                   <button
                     key={item.route}
                     onClick={() => router.push(item.route)}
-                    className="flex items-start gap-4 p-4 rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-colors text-left"
+                    className="flex items-start gap-4 p-4 rounded-lg border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50 transition-colors text-left"
                   >
                     <div className="p-2 bg-blue-100 rounded-lg">
                       <Icon className="h-5 w-5 text-blue-600" />
                     </div>
                     <div className="flex-1">
-                      <p className="font-medium text-slate-900">{item.label}</p>
+                      <p className="font-medium text-zinc-100">{item.label}</p>
                       <p className="text-sm text-slate-500 mt-1">{item.description}</p>
                     </div>
                     <ArrowRight className="h-5 w-5 text-slate-400 shrink-0" />

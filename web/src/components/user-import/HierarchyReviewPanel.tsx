@@ -241,7 +241,7 @@ export function HierarchyReviewPanel({
             {autoResolved.map((result) => (
               <div
                 key={result.entityId}
-                className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
+                className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-800"
               >
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4 text-slate-400" />
@@ -281,10 +281,10 @@ function SummaryCard({
   variant?: 'default' | 'success' | 'warning' | 'error';
 }) {
   const variantStyles = {
-    default: 'bg-slate-50 dark:bg-slate-800/50',
-    success: 'bg-emerald-50 dark:bg-emerald-900/20',
-    warning: 'bg-amber-50 dark:bg-amber-900/20',
-    error: 'bg-red-50 dark:bg-red-900/20',
+    default: 'bg-slate-800/50',
+    success: 'bg-emerald-900/20',
+    warning: 'bg-amber-900/20',
+    error: 'bg-red-900/20',
   };
 
   return (
@@ -364,7 +364,7 @@ function ReviewItem({
       {/* Header */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between p-3 hover:bg-slate-50 dark:hover:bg-slate-800"
+        className="w-full flex items-center justify-between p-3 hover:bg-slate-800"
       >
         <div className="flex items-center gap-3">
           {expanded ? (
@@ -438,7 +438,7 @@ function ReviewItem({
                   <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                     {isSpanish ? 'Gerente Inferido' : 'Inferred Manager'}
                   </h4>
-                  <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded">
+                  <div className="flex items-center gap-2 p-2 bg-slate-800 rounded">
                     <GitBranch className="h-4 w-4 text-slate-400" />
                     <span>{getEmployeeName(result.inferredManager.entityId)}</span>
                     <ConfidenceRing score={result.inferredManager.confidence} size="sm" />

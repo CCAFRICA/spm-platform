@@ -240,7 +240,7 @@ export default function LocationBenchmarksPage() {
 
   const SortableHeader = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
     <TableHead
-      className="cursor-pointer hover:bg-slate-50 transition-colors"
+      className="cursor-pointer hover:bg-zinc-800/50 transition-colors"
       onClick={() => toggleSort(field)}
     >
       <div className="flex items-center gap-1">
@@ -248,7 +248,7 @@ export default function LocationBenchmarksPage() {
         {sortField === field ? (
           sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
         ) : (
-          <ArrowUpDown className="h-3 w-3 text-slate-300" />
+          <ArrowUpDown className="h-3 w-3 text-zinc-500" />
         )}
       </div>
     </TableHead>
@@ -257,7 +257,7 @@ export default function LocationBenchmarksPage() {
   const getRankIcon = (change: number) => {
     if (change > 0) return <ArrowUp className="h-3 w-3 text-green-600" />;
     if (change < 0) return <ArrowDown className="h-3 w-3 text-red-600" />;
-    return <Minus className="h-3 w-3 text-slate-400" />;
+    return <Minus className="h-3 w-3 text-zinc-500" />;
   };
 
   const getLeakageColor = (leakage: number) => {
@@ -331,7 +331,7 @@ export default function LocationBenchmarksPage() {
         <CardContent>
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader className="sticky top-0 bg-white z-10">
+              <TableHeader className="sticky top-0 z-10">
                 <TableRow>
                   <SortableHeader field="rank">
                     <span className="w-[60px]">{isSpanish ? 'Rank' : 'Rank'}</span>
@@ -363,7 +363,7 @@ export default function LocationBenchmarksPage() {
               </TableHeader>
               <TableBody>
                 {filteredLocations.map((location) => (
-                  <TableRow key={location.id} className="hover:bg-slate-50">
+                  <TableRow key={location.id} className="hover:bg-zinc-800/50">
                     {/* Rank */}
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -400,7 +400,7 @@ export default function LocationBenchmarksPage() {
                     <TableCell>
                       <div className="space-y-1">
                         <span className="font-medium">{format(location.revenue)}</span>
-                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden w-full">
+                        <div className="h-1.5 bg-zinc-800/50 rounded-full overflow-hidden w-full">
                           <div
                             className="h-full rounded-full"
                             style={{

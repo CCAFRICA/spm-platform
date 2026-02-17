@@ -313,8 +313,8 @@ export default function InsightsPerformancePage() {
                       key={performer.rank}
                       className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
                         performer.rank <= 3
-                          ? 'bg-gradient-to-r from-amber-50 to-transparent dark:from-amber-950/20'
-                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                          ? 'bg-gradient-to-r from-amber-950/20 to-transparent'
+                          : 'hover:bg-slate-800/50'
                       }`}
                     >
                       <div

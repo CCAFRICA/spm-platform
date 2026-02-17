@@ -119,7 +119,7 @@ export default function CalculationApprovalPage() {
           pendingItems.map(item => (
             <Card
               key={item.itemId}
-              className={`cursor-pointer transition-colors ${selectedItem?.itemId === item.itemId ? 'ring-2 ring-blue-500' : 'hover:bg-slate-50'}`}
+              className={`cursor-pointer transition-colors ${selectedItem?.itemId === item.itemId ? 'ring-2 ring-blue-500' : 'hover:bg-zinc-800/50'}`}
               onClick={() => { setSelectedItem(item); setError(null); setComments(''); }}
             >
               <CardContent className="py-4">

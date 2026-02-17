@@ -57,7 +57,7 @@ export function KPICard({ metric, onClick }: KPICardProps) {
   const isSpanish = locale === 'es-MX';
 
   const Icon = ICON_MAP[metric.id] || BarChart3;
-  const colorClass = COLOR_MAP[metric.id] || 'text-gray-600 bg-gray-50';
+  const colorClass = COLOR_MAP[metric.id] || 'text-zinc-400 bg-zinc-800/50';
 
   const formatValue = (value: number, format: string) => {
     if (format === 'currency') {

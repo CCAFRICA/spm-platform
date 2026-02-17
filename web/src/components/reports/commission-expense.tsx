@@ -41,7 +41,7 @@ export function CommissionExpense({ data, summary }: CommissionExpenseProps) {
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; dataKey: string; color: string }[]; label?: string }) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
+        <div className="bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-700">
           <p className="font-medium text-sm mb-2">{label}</p>
           <div className="space-y-1 text-sm">
             {payload.map((entry, index) => (
@@ -137,10 +137,10 @@ export function CommissionExpense({ data, summary }: CommissionExpenseProps) {
         </div>
 
         {/* Summary stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-800">
           <div className="text-center">
             <p className="text-xs text-slate-500">Total Revenue</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-slate-50">
+            <p className="text-lg font-bold text-slate-50">
               {formatCurrency(summary.totalRevenue)}
             </p>
           </div>

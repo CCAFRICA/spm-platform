@@ -74,8 +74,8 @@ export function OnboardingTab() {
       </div>
 
       {/* Per-Tenant Pipeline */}
-      <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
-        <h3 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-4">
+      <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+        <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
           Onboarding Pipeline
         </h3>
 
@@ -158,8 +158,8 @@ export function OnboardingTab() {
 
 function SummaryCard({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
-      <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">{label}</span>
+    <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+      <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</span>
       <p className={cn('text-2xl font-bold tabular-nums mt-1', color)}>{value}</p>
     </div>
   );

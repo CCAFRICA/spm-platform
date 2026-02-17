@@ -145,7 +145,7 @@ export function CoachingCard({
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
-                          <h4 className="font-medium text-slate-900 dark:text-slate-50 line-clamp-1">
+                          <h4 className="font-medium text-slate-50 line-clamp-1">
                             {tip.title}
                           </h4>
                           <Button

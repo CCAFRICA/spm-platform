@@ -36,7 +36,7 @@ function DashboardContent() {
   }
 
   return (
-    <PersonaLayout persona={persona} tokens={tokens}>
+    <PersonaLayout persona={persona}>
       {/* Period Ribbon — layout-level, always visible */}
       <PeriodRibbon
         periods={availablePeriods}

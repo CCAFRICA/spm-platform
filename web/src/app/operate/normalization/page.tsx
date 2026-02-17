@@ -130,7 +130,7 @@ export default function NormalizationReviewPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">Product Normalization</h1>
-        <p className="text-gray-500 mt-1">
+        <p className="text-zinc-500 mt-1">
           Classify and standardize messy product descriptions from POS data
         </p>
       </div>
@@ -146,7 +146,7 @@ export default function NormalizationReviewPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{dictStats?.totalEntries || 0}</div>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-zinc-500">
               entries, {dictStats?.totalHits || 0} total hits
             </p>
             {dictStats && dictStats.totalEntries === 0 && (
@@ -218,10 +218,10 @@ export default function NormalizationReviewPage() {
                 </span>
               </div>
             ) : (
-              <p className="text-sm text-gray-400">No classification run yet</p>
+              <p className="text-sm text-zinc-400">No classification run yet</p>
             )}
             {stats && stats.total > 0 && (
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-zinc-500 mt-1">
                 {Math.round((stats.autoClassified / stats.total) * 100)}% auto-resolved
               </p>
             )}
@@ -239,8 +239,8 @@ export default function NormalizationReviewPage() {
                 onClick={() => setActiveTab(tab)}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   activeTab === tab
-                    ? 'bg-gray-900 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    ? 'bg-zinc-700 text-white'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                 }`}
               >
                 {tab === 'all' ? 'All' : tab === 'auto' ? 'Auto' : tab === 'suggest' ? 'Suggest' : 'Manual'}
@@ -257,7 +257,7 @@ export default function NormalizationReviewPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b bg-gray-50">
+                    <tr className="border-b border-zinc-700 bg-zinc-800/50">
                       <th className="text-left p-3 font-medium">Tier</th>
                       <th className="text-left p-3 font-medium">Raw Value</th>
                       <th className="text-left p-3 font-medium">Normalized</th>
@@ -271,7 +271,7 @@ export default function NormalizationReviewPage() {
                     {filteredEntries.map((entry) => (
                       <tr
                         key={entry.id}
-                        className={`border-b hover:bg-gray-50 ${
+                        className={`border-b border-zinc-700/50 hover:bg-zinc-800/50 ${
                           entry.reviewed ? 'opacity-60' : ''
                         }`}
                       >
@@ -290,20 +290,20 @@ export default function NormalizationReviewPage() {
                         <td className="p-3">
                           <ConfidenceBar confidence={entry.confidence} />
                         </td>
-                        <td className="p-3 text-xs text-gray-500">{entry.source}</td>
+                        <td className="p-3 text-xs text-zinc-500">{entry.source}</td>
                         <td className="p-3">
                           {!entry.reviewed && entry.tier !== 'auto' && (
                             <div className="flex gap-1">
                               <button
                                 onClick={() => handleAccept(entry)}
-                                className="p-1 rounded hover:bg-green-100 text-green-600"
+                                className="p-1 rounded hover:bg-green-900/30 text-green-400"
                                 title="Accept and learn"
                               >
                                 <Check className="h-4 w-4" />
                               </button>
                               <button
                                 onClick={() => handleReject(entry)}
-                                className="p-1 rounded hover:bg-red-100 text-red-600"
+                                className="p-1 rounded hover:bg-red-900/30 text-red-400"
                                 title="Reject"
                               >
                                 <X className="h-4 w-4" />
@@ -311,7 +311,7 @@ export default function NormalizationReviewPage() {
                             </div>
                           )}
                           {entry.reviewed && (
-                            <span className="text-xs text-gray-400">Reviewed</span>
+                            <span className="text-xs text-zinc-500">Reviewed</span>
                           )}
                         </td>
                       </tr>
@@ -320,7 +320,7 @@ export default function NormalizationReviewPage() {
                 </table>
               </div>
               {filteredEntries.length === 0 && (
-                <div className="text-center py-8 text-gray-400">
+                <div className="text-center py-8 text-zinc-500">
                   No entries in this tier
                 </div>
               )}
@@ -351,9 +351,9 @@ export default function NormalizationReviewPage() {
       {entries.length === 0 && !loading && (
         <Card>
           <CardContent className="text-center py-12">
-            <Search className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-medium text-gray-600">No Classification Results</h3>
-            <p className="text-sm text-gray-400 mt-2">
+            <Search className="h-12 w-12 mx-auto text-zinc-500 mb-4" />
+            <h3 className="text-lg font-medium text-zinc-400">No Classification Results</h3>
+            <p className="text-sm text-zinc-400 mt-2">
               {dictStats?.totalEntries === 0
                 ? 'Start by seeding the dictionary, then classify a week of data.'
                 : 'Select a week and click Classify to run product normalization.'}
@@ -373,21 +373,21 @@ function TierBadge({ tier }: { tier: string }) {
   switch (tier) {
     case 'auto':
       return (
-        <Badge className="bg-green-100 text-green-700 border-green-200">
+        <Badge className="bg-green-900/30 text-green-400 border-green-800/50">
           <CheckCircle className="h-3 w-3 mr-1" />
           Auto
         </Badge>
       );
     case 'suggest':
       return (
-        <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200">
+        <Badge className="bg-yellow-900/30 text-yellow-400 border-yellow-800/50">
           <AlertTriangle className="h-3 w-3 mr-1" />
           Suggest
         </Badge>
       );
     case 'manual':
       return (
-        <Badge className="bg-red-100 text-red-700 border-red-200">
+        <Badge className="bg-red-900/30 text-red-400 border-red-800/50">
           <HelpCircle className="h-3 w-3 mr-1" />
           Manual
         </Badge>
@@ -403,13 +403,13 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
 
   return (
     <div className="flex items-center gap-2">
-      <div className="w-16 h-1.5 bg-gray-200 rounded-full">
+      <div className="w-16 h-1.5 bg-zinc-700 rounded-full">
         <div
           className={`h-full rounded-full ${color}`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs text-gray-500">{pct}%</span>
+      <span className="text-xs text-zinc-500">{pct}%</span>
     </div>
   );
 }

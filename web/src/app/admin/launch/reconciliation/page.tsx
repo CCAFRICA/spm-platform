@@ -648,7 +648,7 @@ export default function ReconciliationPage() {
         if (vlResults.length === 0) {
           setReconFeedback({
             type: 'warning',
-            message: `No ViaLuce calculation results found for ${batchId ? `batch "${batchId}"` : 'this tenant'}. Run calculations first, then reconcile.`,
+            message: `No Vialuce calculation results found for ${batchId ? `batch "${batchId}"` : 'this tenant'}. Run calculations first, then reconcile.`,
           });
         } else if (result.employeeComparison && result.employeeComparison.summary.matched === 0) {
           setReconFeedback({
@@ -725,7 +725,7 @@ export default function ReconciliationPage() {
     }
     switch (emp.totalFlag) {
       case 'exact':
-        return <Badge variant="outline" className="text-xs border-slate-600 text-slate-900 dark:text-slate-100 font-semibold">{t.exact}</Badge>;
+        return <Badge variant="outline" className="text-xs border-slate-600 text-slate-100 font-semibold">{t.exact}</Badge>;
       case 'tolerance':
         return <Badge variant="outline" className="text-xs border-slate-300 text-slate-600">{t.toleranceLabel}</Badge>;
       case 'amber':
@@ -863,7 +863,7 @@ export default function ReconciliationPage() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+          <h1 className="text-2xl font-bold text-slate-50">
             {t.title}
           </h1>
           <p className="text-slate-600 dark:text-slate-400">{t.subtitle}</p>
@@ -1095,7 +1095,7 @@ export default function ReconciliationPage() {
 
             {/* OB-39: Comparison Depth Assessment */}
             {depthAssessment && (
-              <div className="mt-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 space-y-2">
+              <div className="mt-3 p-3 rounded-lg bg-slate-900 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-slate-600">
                     {locale === 'es-MX' ? 'Profundidad de Comparacion' : 'Comparison Depth'}
@@ -1273,7 +1273,7 @@ export default function ReconciliationPage() {
                   </div>
                   <div>
                     <p className="text-sm text-slate-500">{t.exactTolerance}</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                    <p className="text-2xl font-bold text-slate-100">
                       {comparisonResult.summary.exactMatches + comparisonResult.summary.toleranceMatches}
                     </p>
                   </div>
@@ -1331,25 +1331,25 @@ export default function ReconciliationPage() {
           <Card>
             <CardContent className="pt-6">
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="text-center p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                <div className="text-center p-4 bg-slate-800 rounded-lg">
                   <p className="text-sm text-slate-500">{t.sourceTotal}</p>
                   <p className="text-2xl font-bold">{formatCurrency(comparisonResult.summary.fileTotalAmount)}</p>
                 </div>
-                <div className="text-center p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                <div className="text-center p-4 bg-slate-800 rounded-lg">
                   <p className="text-sm text-slate-500">{t.targetTotal}</p>
                   <p className="text-2xl font-bold">{formatCurrency(comparisonResult.summary.vlTotalAmount)}</p>
                 </div>
                 <div className={cn(
                   'text-center p-4 rounded-lg',
                   Math.abs(comparisonResult.summary.totalDelta) < 1
-                    ? 'bg-slate-50 dark:bg-slate-800'
-                    : 'bg-slate-50 dark:bg-slate-800 border border-amber-200 dark:border-amber-800'
+                    ? 'bg-slate-800'
+                    : 'bg-slate-800 border border-amber-200 dark:border-amber-800'
                 )}>
                   <p className="text-sm text-slate-500">{t.difference}</p>
                   <p className={cn(
                     'text-2xl font-bold',
                     Math.abs(comparisonResult.summary.totalDelta) < 1
-                      ? 'text-slate-900 dark:text-slate-100'
+                      ? 'text-slate-100'
                       : 'text-amber-700 dark:text-amber-400'
                   )}>
                     {formatCurrency(Math.abs(comparisonResult.summary.totalDelta))}
@@ -1470,7 +1470,7 @@ export default function ReconciliationPage() {
                         </TableRow>
                         {/* OB-39 Phase 6: Expandable component breakdown row */}
                         {isExpanded && hasComponents && (
-                          <TableRow className="bg-slate-50/80 dark:bg-slate-900/40">
+                          <TableRow className="bg-slate-900/40">
                             <TableCell colSpan={6} className="py-2 px-8">
                               <Table>
                                 <TableHeader>
@@ -1526,11 +1526,11 @@ export default function ReconciliationPage() {
               </DialogHeader>
               <div className="space-y-4 pt-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                  <div className="p-4 bg-slate-800 rounded-lg">
                     <p className="text-sm text-slate-500">{t.expected}</p>
                     <p className="text-xl font-bold">{formatCurrency(selectedEmployee.fileTotal)}</p>
                   </div>
-                  <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                  <div className="p-4 bg-slate-800 rounded-lg">
                     <p className="text-sm text-slate-500">{t.calculated}</p>
                     <p className="text-xl font-bold">{formatCurrency(selectedEmployee.vlTotal)}</p>
                   </div>
@@ -1565,7 +1565,7 @@ export default function ReconciliationPage() {
                   </div>
                 )}
 
-                <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800">
+                <div className="p-4 rounded-lg bg-slate-800">
                   <p className="text-sm font-medium mb-2">{t.reasoning}</p>
                   <p className="text-sm">
                     {selectedEmployee.population === 'matched'

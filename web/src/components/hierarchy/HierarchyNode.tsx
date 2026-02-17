@@ -53,8 +53,8 @@ interface HierarchyNodeProps {
 
 const STATUS_CONFIG = {
   active: {
-    bg: 'bg-white dark:bg-slate-800',
-    border: 'border-slate-200 dark:border-slate-700',
+    bg: 'bg-slate-800',
+    border: 'border-slate-700',
     label: 'Active',
     labelEs: 'Activo',
   },
@@ -71,7 +71,7 @@ const STATUS_CONFIG = {
     labelEs: 'Atención',
   },
   orphan: {
-    bg: 'bg-slate-50 dark:bg-slate-900',
+    bg: 'bg-slate-900',
     border: 'border-dashed border-slate-300 dark:border-slate-600',
     label: 'No Manager',
     labelEs: 'Sin Gerente',
@@ -165,7 +165,7 @@ export function HierarchyNodeCard({
 
           {/* Name and title */}
           <div className="flex-1 min-w-0" onClick={onSelect}>
-            <h4 className="font-medium text-sm text-slate-900 dark:text-slate-100 truncate">
+            <h4 className="font-medium text-sm text-slate-100 truncate">
               {node.name}
             </h4>
             {node.title && (
@@ -267,11 +267,11 @@ export function HierarchyNodeCompact({
         statusConfig.bg,
         isSelected
           ? 'ring-1 ring-sky-500'
-          : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+          : 'hover:bg-slate-800',
         className
       )}
     >
-      <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
+      <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
         <User className="h-3 w-3 text-slate-500" />
       </div>
       <div className="flex-1 min-w-0">

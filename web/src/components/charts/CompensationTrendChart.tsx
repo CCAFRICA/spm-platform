@@ -46,8 +46,8 @@ export function CompensationTrendChart({ data }: CompensationTrendChartProps) {
   }) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
-          <p className="font-medium text-slate-900 dark:text-slate-100 mb-2">
+        <div className="bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-700">
+          <p className="font-medium text-slate-100 mb-2">
             {label}
           </p>
           {payload.map((entry, index) => (
@@ -57,7 +57,7 @@ export function CompensationTrendChart({ data }: CompensationTrendChartProps) {
                 style={{ backgroundColor: entry.color }}
               />
               <span className="text-slate-500">{entry.name}:</span>
-              <span className="font-medium text-slate-700 dark:text-slate-300">
+              <span className="font-medium text-slate-300">
                 {formatCurrency(entry.value)}
               </span>
             </div>
@@ -77,7 +77,7 @@ export function CompensationTrendChart({ data }: CompensationTrendChartProps) {
             <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+        <CartesianGrid strokeDasharray="3 3" className="stroke-slate-700" />
         <XAxis
           dataKey="month"
           tickLine={false}
@@ -96,7 +96,7 @@ export function CompensationTrendChart({ data }: CompensationTrendChartProps) {
         <Legend
           wrapperStyle={{ paddingTop: 20 }}
           formatter={(value: string) => (
-            <span className="text-sm text-slate-600 dark:text-slate-400">
+            <span className="text-sm text-slate-400">
               {value}
             </span>
           )}

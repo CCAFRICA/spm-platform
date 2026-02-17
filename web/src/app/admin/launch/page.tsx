@@ -309,7 +309,7 @@ export default function CustomerLaunchDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+          <h1 className="text-2xl font-bold text-slate-50">
             {t.title}
           </h1>
           <p className="text-slate-600 dark:text-slate-400">{t.subtitle}</p>
@@ -500,7 +500,7 @@ export default function CustomerLaunchDashboard() {
 
       {/* Active Launches */}
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-4">
+        <h2 className="text-lg font-semibold text-slate-50 mb-4">
           {t.activeLaunches} ({activeLaunches.length})
         </h2>
         {activeLaunches.length === 0 ? (
@@ -592,7 +592,7 @@ export default function CustomerLaunchDashboard() {
       {/* Completed Launches */}
       {completedLaunches.length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-4">
+          <h2 className="text-lg font-semibold text-slate-50 mb-4">
             {t.completedLaunches} ({completedLaunches.length})
           </h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -669,12 +669,12 @@ export default function CustomerLaunchDashboard() {
                         className={cn(
                           'flex items-center justify-between p-3 rounded-lg border',
                           step.status === 'completed'
-                            ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/10 dark:border-emerald-800'
+                            ? 'bg-emerald-900/10 border-emerald-800'
                             : step.status === 'in_progress'
-                            ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/10 dark:border-blue-800'
+                            ? 'bg-blue-900/10 border-blue-800'
                             : step.status === 'failed'
-                            ? 'bg-red-50 border-red-200 dark:bg-red-900/10 dark:border-red-800'
-                            : 'bg-slate-50 border-slate-200 dark:bg-slate-800/50 dark:border-slate-700'
+                            ? 'bg-red-900/10 border-red-800'
+                            : 'bg-slate-800/50 border-slate-700'
                         )}
                       >
                         <div className="flex items-center gap-3">
@@ -757,15 +757,15 @@ export default function CustomerLaunchDashboard() {
                       {locale === 'es-MX' ? 'Resultados del Cálculo de Prueba' : 'Test Calculation Results'}
                     </h3>
                     <div className="grid grid-cols-3 gap-4 text-center">
-                      <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                        <p className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+                      <div className="p-3 bg-slate-800 rounded-lg">
+                        <p className="text-2xl font-bold text-slate-50">
                           {selectedLaunch.testCalculationResult.entitiesProcessed}
                         </p>
                         <p className="text-xs text-slate-500">
                           {locale === 'es-MX' ? 'Empleados' : 'Employees'}
                         </p>
                       </div>
-                      <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                      <div className="p-3 bg-slate-800 rounded-lg">
                         <p className="text-2xl font-bold text-emerald-600">
                           {fmt(selectedLaunch.testCalculationResult.totalPayout)}
                         </p>
@@ -773,7 +773,7 @@ export default function CustomerLaunchDashboard() {
                           {locale === 'es-MX' ? 'Total' : 'Total Payout'}
                         </p>
                       </div>
-                      <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                      <div className="p-3 bg-slate-800 rounded-lg">
                         <p
                           className={cn(
                             'text-2xl font-bold',

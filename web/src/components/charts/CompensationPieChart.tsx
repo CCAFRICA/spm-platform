@@ -64,8 +64,8 @@ export function CompensationPieChart({ data }: CompensationPieChartProps) {
     if (active && payload && payload.length) {
       const data = payload[0];
       return (
-        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
-          <p className="font-medium text-slate-900 dark:text-slate-100">
+        <div className="bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-700">
+          <p className="font-medium text-slate-100">
             {data.name}
           </p>
           <p className="text-sm text-slate-500">
@@ -106,7 +106,7 @@ export function CompensationPieChart({ data }: CompensationPieChartProps) {
           align="right"
           verticalAlign="middle"
           formatter={(value: string) => (
-            <span className="text-sm text-slate-600 dark:text-slate-400">
+            <span className="text-sm text-slate-400">
               {value}
             </span>
           )}

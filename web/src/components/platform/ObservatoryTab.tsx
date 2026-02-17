@@ -104,7 +104,7 @@ export function ObservatoryTab() {
       )}
 
       {/* Operations Queue */}
-      <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+      <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
           Operations Queue
         </h3>
@@ -146,7 +146,8 @@ export function ObservatoryTab() {
             <button
               key={tenant.id}
               onClick={() => handleSelectTenant(tenant.id)}
-              className="text-left bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 hover:border-violet-500/40 hover:bg-[#0F172A]/80 transition-all group"
+              className="text-left rounded-2xl hover:border-violet-500/40 transition-all group"
+              style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}
             >
               <div className="flex items-start justify-between mb-3">
                 <div>
@@ -211,7 +212,8 @@ export function ObservatoryTab() {
           {/* Create New Tenant */}
           <button
             onClick={() => router.push('/admin/tenants/new')}
-            className="flex flex-col items-center justify-center gap-3 bg-[#0F172A] border border-dashed border-zinc-700 rounded-xl p-8 hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group min-h-[160px]"
+            className="flex flex-col items-center justify-center gap-3 rounded-2xl hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group min-h-[160px]"
+            style={{ background: 'rgba(24, 24, 27, 0.4)', border: '1px dashed rgba(63, 63, 70, 0.6)', padding: '32px' }}
           >
             <PlusCircle className="h-8 w-8 text-zinc-600 group-hover:text-violet-400 transition-colors" />
             <div className="text-center">
@@ -239,13 +241,13 @@ function MetricCard({
   subtitle?: string;
 }) {
   return (
-    <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+    <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
       <div className="flex items-center gap-2 mb-2">
         <Icon className="h-4 w-4 text-violet-400" />
-        <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">{label}</span>
+        <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</span>
       </div>
-      <p className="text-2xl font-bold text-white tabular-nums">{value.toLocaleString()}</p>
-      {subtitle && <p className="text-[10px] text-zinc-500 mt-0.5">{subtitle}</p>}
+      <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{value.toLocaleString()}</p>
+      {subtitle && <p style={{ color: '#71717a', fontSize: '10px', marginTop: '2px' }}>{subtitle}</p>}
     </div>
   );
 }

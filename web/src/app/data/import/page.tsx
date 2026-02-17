@@ -264,7 +264,7 @@ export default function ImportPage() {
     >
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+        <h1 className="text-2xl font-bold text-slate-50">
           {isHospitality ? 'Importar Cheques' : `Import ${transactionTerm}`}
         </h1>
         <p className="text-slate-500 mt-1">
@@ -310,7 +310,7 @@ export default function ImportPage() {
                     className={cn(
                       'ml-3 text-sm font-medium hidden sm:block',
                       isActive
-                        ? 'text-slate-900 dark:text-slate-50'
+                        ? 'text-slate-50'
                         : 'text-slate-500'
                     )}
                   >
@@ -458,8 +458,8 @@ export default function ImportPage() {
               <CardContent className="space-y-6">
                 {/* Summary Stats */}
                 <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 text-center">
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+                  <div className="bg-slate-900 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-slate-50">
                       {chequesPreview.totalRows}
                     </p>
                     <p className="text-sm text-slate-500">Total Filas</p>
@@ -651,7 +651,7 @@ export default function ImportPage() {
                   </div>
                 </motion.div>
 
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-2">
+                <h2 className="text-2xl font-bold text-slate-50 mb-2">
                   {chequesResult.success ? 'Importación Completada' : 'Error en la Importación'}
                 </h2>
                 <p className="text-slate-500 mb-6">
@@ -667,7 +667,7 @@ export default function ImportPage() {
                     </p>
                     <p className="text-sm text-emerald-600">Importados</p>
                   </div>
-                  <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                  <div className="p-4 bg-slate-900 rounded-lg">
                     <p className="text-2xl font-bold text-slate-600 dark:text-slate-400">
                       {chequesResult.errorRows}
                     </p>
@@ -708,7 +708,7 @@ export default function ImportPage() {
                   </div>
                 </motion.div>
 
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-2">
+                <h2 className="text-2xl font-bold text-slate-50 mb-2">
                   Import Complete!
                 </h2>
                 <p className="text-slate-500 mb-6">
@@ -722,7 +722,7 @@ export default function ImportPage() {
                     </p>
                     <p className="text-sm text-emerald-600">Imported</p>
                   </div>
-                  <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                  <div className="p-4 bg-slate-900 rounded-lg">
                     <p className="text-2xl font-bold text-slate-600 dark:text-slate-400">
                       {importResult.skipped}
                     </p>

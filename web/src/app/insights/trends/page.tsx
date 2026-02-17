@@ -137,7 +137,7 @@ export default function TrendsPage() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-50">
               {isSpanish ? 'An\u00e1lisis de Tendencias' : 'Trends Analysis'}
             </h1>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
@@ -172,7 +172,7 @@ export default function TrendsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-slate-500">{metric.label}</p>
-                    <p className="text-3xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                    <p className="text-3xl font-bold text-slate-50 mt-1">
                       {metric.trend === 'up' ? '+' : '-'}{metric.value}%
                     </p>
                     <div className="flex items-center gap-1 mt-2">

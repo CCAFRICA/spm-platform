@@ -200,8 +200,8 @@ export default function LeakageMonitorPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Leakage Monitor</h1>
-          <p className="text-gray-600">Revenue leakage analytics and threshold monitoring</p>
+          <h1 className="text-2xl font-bold text-zinc-100">Leakage Monitor</h1>
+          <p className="text-zinc-400">Revenue leakage analytics and threshold monitoring</p>
         </div>
         <Select value={periodFilter} onValueChange={setPeriodFilter}>
           <SelectTrigger className="w-40">
@@ -225,7 +225,7 @@ export default function LeakageMonitorPage() {
                 <DollarSign className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Total Leakage</p>
+                <p className="text-sm text-zinc-400">Total Leakage</p>
                 <p className="text-2xl font-bold text-red-600">
                   {format(stats.totalLeakage)}
                 </p>
@@ -242,7 +242,7 @@ export default function LeakageMonitorPage() {
                 <AlertTriangle className={`w-5 h-5 ${stats.aboveThreshold > 0 ? 'text-amber-600' : 'text-green-600'}`} />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Above Threshold</p>
+                <p className="text-sm text-zinc-400">Above Threshold</p>
                 <p className="text-2xl font-bold">
                   {stats.aboveThreshold} of {locations.length}
                 </p>
@@ -262,7 +262,7 @@ export default function LeakageMonitorPage() {
                 }
               </div>
               <div>
-                <p className="text-sm text-gray-600">Rate Trend</p>
+                <p className="text-sm text-zinc-400">Rate Trend</p>
                 <p className={`text-2xl font-bold ${stats.trendChange <= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {stats.trendChange <= 0 ? '' : '+'}{stats.trendChange.toFixed(1)}%
                 </p>
@@ -279,7 +279,7 @@ export default function LeakageMonitorPage() {
                 <MapPin className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Highest Rate</p>
+                <p className="text-sm text-zinc-400">Highest Rate</p>
                 <p className="text-lg font-bold">{stats.topOffender.name}</p>
                 <p className="text-sm text-red-600">{stats.topOffender.leakageRate.toFixed(1)}%</p>
               </div>
@@ -350,14 +350,14 @@ export default function LeakageMonitorPage() {
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
                   <XAxis dataKey="period" stroke="#6b7280" />
                   <YAxis stroke="#6b7280" tickFormatter={(v) => format(v)} />
                   <Tooltip
                     formatter={(value: number) => [format(value), 'Leakage']}
                     contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
+                      backgroundColor: '#18181b',
+                      border: '1px solid #3f3f46',
                       borderRadius: '8px',
                     }}
                   />
@@ -386,7 +386,7 @@ export default function LeakageMonitorPage() {
                 return (
                   <div
                     key={loc.id}
-                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
+                    className="flex items-center justify-between p-4 bg-zinc-900/50 rounded-lg"
                   >
                     <div className="flex items-center gap-4">
                       <div className={`p-2 rounded-lg ${STATUS_CONFIG[loc.status].color}`}>
@@ -394,28 +394,28 @@ export default function LeakageMonitorPage() {
                       </div>
                       <div>
                         <div className="font-medium">{loc.name}</div>
-                        <div className="text-sm text-gray-500">{loc.brand}</div>
+                        <div className="text-sm text-zinc-500">{loc.brand}</div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-6">
                       {/* Leakage Amount */}
                       <div className="text-right">
-                        <div className="text-sm text-gray-500">Amount</div>
+                        <div className="text-sm text-zinc-500">Amount</div>
                         <div className="font-medium">{format(loc.leakageAmount)}</div>
                       </div>
 
                       {/* Rate vs Threshold */}
                       <div className="text-right w-24">
-                        <div className="text-sm text-gray-500">Rate / Threshold</div>
+                        <div className="text-sm text-zinc-500">Rate / Threshold</div>
                         <div className="flex items-center gap-1">
                           <span className={`font-medium ${
                             loc.leakageRate > loc.threshold ? 'text-red-600' : 'text-green-600'
                           }`}>
                             {loc.leakageRate.toFixed(1)}%
                           </span>
-                          <span className="text-gray-400">/</span>
-                          <span className="text-gray-600">{loc.threshold}%</span>
+                          <span className="text-zinc-500">/</span>
+                          <span className="text-zinc-400">{loc.threshold}%</span>
                         </div>
                       </div>
 

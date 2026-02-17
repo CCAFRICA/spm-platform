@@ -61,10 +61,10 @@ const STATUS_STYLES: Record<LayerStatus, { badge: string; icon: typeof CheckCirc
 
 // Wayfinder L2: opacity/weight, NOT red/green stoplight
 const FLAG_STYLES: Record<DeltaFlag, string> = {
-  exact: 'text-slate-900 font-normal',
-  tolerance: 'text-slate-600 font-normal',
-  amber: 'text-slate-900 font-semibold',
-  red: 'text-slate-900 font-bold underline decoration-2',
+  exact: 'text-zinc-100 font-normal',
+  tolerance: 'text-zinc-400 font-normal',
+  amber: 'text-zinc-100 font-semibold',
+  red: 'text-zinc-100 font-bold underline decoration-2',
 };
 
 export function AdaptiveResultsPanel({ result }: AdaptiveResultsPanelProps) {

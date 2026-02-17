@@ -65,10 +65,10 @@ export function FieldMapper({
   };
 
   const getConfidenceColor = (confidence: number): string => {
-    if (confidence >= 90) return 'text-green-600 bg-green-50 border-green-200';
-    if (confidence >= 70) return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-    if (confidence >= 50) return 'text-orange-600 bg-orange-50 border-orange-200';
-    return 'text-gray-500 bg-gray-50 border-gray-200';
+    if (confidence >= 90) return 'text-green-400 bg-green-900/30 border-green-800/50';
+    if (confidence >= 70) return 'text-yellow-400 bg-yellow-900/30 border-yellow-800/50';
+    if (confidence >= 50) return 'text-orange-400 bg-orange-900/30 border-orange-800/50';
+    return 'text-zinc-400 bg-zinc-800/50 border-zinc-700/50';
   };
 
   const getMappedRequiredFields = () => {

@@ -25,7 +25,7 @@ export default function DailyOperationsPage() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="text-2xl font-bold text-zinc-100">
           {isSpanish ? 'Operaciones Diarias' : 'Daily Operations'}
         </h1>
         <p className="text-sm text-slate-500 mt-1">

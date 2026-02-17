@@ -1,5 +1,7 @@
 'use client';
 
+/** @cognitiveFit progress — "How close am I to the next tier?" */
+
 interface Tier {
   pct: number;
   label: string;

@@ -83,9 +83,9 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
           </div>
           <p className="text-sm text-slate-500 mt-2">{trace.variant.selectionReasoning}</p>
           {Object.keys(trace.variant.eligibilityFields).length > 0 && (
-            <div className="mt-3 bg-slate-50 p-3 rounded-lg">
-              <p className="text-xs font-medium text-slate-600 mb-1">Eligibility Fields</p>
-              <pre className="text-xs text-slate-500">
+            <div className="mt-3 bg-slate-800/50 p-3 rounded-lg">
+              <p className="text-xs font-medium text-zinc-400 mb-1">Eligibility Fields</p>
+              <pre className="text-xs text-zinc-500">
                 {JSON.stringify(trace.variant.eligibilityFields, null, 2)}
               </pre>
             </div>
@@ -110,7 +110,7 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
           <CardContent>
             <div className="space-y-2">
               {trace.flags.map((flag, i) => (
-                <div key={i} className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 p-2 rounded">
+                <div key={i} className="flex items-start gap-2 text-sm text-amber-400 bg-amber-900/20 p-2 rounded">
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   {flag}
                 </div>
@@ -173,15 +173,15 @@ function ComponentCard({ component, index }: { component: ComponentTrace; index:
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Calculation Sentence */}
-        <div className="bg-slate-50 p-3 rounded-lg flex items-center gap-2">
-          <ArrowRight className="h-4 w-4 text-slate-400 shrink-0" />
+        <div className="bg-slate-800/50 p-3 rounded-lg flex items-center gap-2">
+          <ArrowRight className="h-4 w-4 text-zinc-400 shrink-0" />
           <p className="text-sm font-mono">{component.calculationSentence}</p>
         </div>
 
         {/* Metrics */}
         {component.metrics.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-slate-700 mb-2">Metrics</p>
+            <p className="text-sm font-medium text-zinc-300 mb-2">Metrics</p>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -218,8 +218,8 @@ function ComponentCard({ component, index }: { component: ComponentTrace; index:
 
         {/* Lookup Details */}
         <div>
-          <p className="text-sm font-medium text-slate-700 mb-2">Lookup</p>
-          <div className="bg-slate-50 p-3 rounded-lg text-sm space-y-1">
+          <p className="text-sm font-medium text-zinc-300 mb-2">Lookup</p>
+          <div className="bg-slate-800/50 p-3 rounded-lg text-sm space-y-1">
             <div><span className="text-slate-500">Type:</span> {component.lookup.type}</div>
             {component.lookup.tierLabel && (
               <div><span className="text-slate-500">Tier:</span> {component.lookup.tierLabel}</div>
@@ -242,8 +242,8 @@ function ComponentCard({ component, index }: { component: ComponentTrace; index:
         {/* Data Provenance */}
         {component.dataProvenance.sourceSheet && (
           <div>
-            <p className="text-sm font-medium text-slate-700 mb-2">Data Provenance</p>
-            <div className="bg-slate-50 p-3 rounded-lg text-xs text-slate-600 space-y-1">
+            <p className="text-sm font-medium text-zinc-300 mb-2">Data Provenance</p>
+            <div className="bg-slate-800/50 p-3 rounded-lg text-xs text-zinc-400 space-y-1">
               <div>Source: {component.dataProvenance.sourceSheet}</div>
               <div>Topology: {component.dataProvenance.topology}</div>
               {component.dataProvenance.storeId && (

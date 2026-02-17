@@ -202,7 +202,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
             )}
           </Button>
           <span className="text-lg font-semibold text-zinc-100">
-            ViaLuce
+            Vialuce
           </span>
         </div>
 
@@ -303,7 +303,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
                 notifications.map((notification) => (
                   <DropdownMenuItem
                     key={notification.id}
-                    className={`flex flex-col items-start gap-1 py-3 cursor-pointer ${!notification.read ? 'bg-blue-50 dark:bg-blue-950' : ''}`}
+                    className={`flex flex-col items-start gap-1 py-3 cursor-pointer ${!notification.read ? 'bg-blue-950' : ''}`}
                     onClick={() => handleNotificationClick(notification)}
                   >
                     <span className={`font-medium ${NOTIFICATION_TYPE_COLORS[notification.type]}`}>

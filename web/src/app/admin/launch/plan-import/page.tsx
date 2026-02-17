@@ -733,7 +733,7 @@ export default function PlanImportPage() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+          <h1 className="text-2xl font-bold text-slate-50">
             {t.title}
           </h1>
           <p className="text-slate-600 dark:text-slate-400">{t.subtitle}</p>
@@ -765,7 +765,7 @@ export default function PlanImportPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <a
                   href="/operate/import"
-                  className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                  className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
                 >
                   <div className="p-3 bg-primary/10 rounded-lg">
                     <Upload className="h-6 w-6 text-primary" />
@@ -783,7 +783,7 @@ export default function PlanImportPage() {
                 </a>
                 <a
                   href="/configure/periods"
-                  className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                  className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
                 >
                   <div className="p-3 bg-muted rounded-lg">
                     <Calendar className="h-6 w-6 text-muted-foreground" />
@@ -936,7 +936,7 @@ export default function PlanImportPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-sm">
+              <div className="bg-slate-800/50 rounded-lg p-3 text-sm">
                 <p className="text-slate-600 dark:text-slate-400">
                   <strong>{t.reasoning}:</strong> {parsedPlan.overallReasoning}
                 </p>
@@ -1212,7 +1212,7 @@ export default function PlanImportPage() {
                 </div>
 
                 {/* Reasoning */}
-                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
+                <div className="bg-slate-800/50 rounded-lg p-3">
                   <p className="text-sm text-slate-600 dark:text-slate-400">
                     <strong>{t.reasoning}:</strong> {editingComponent.reasoning}
                   </p>
@@ -1314,7 +1314,7 @@ export default function PlanImportPage() {
                         <TableBody>
                           {editingComponent.matrix.rowRanges.map((row, rowIdx) => (
                             <TableRow key={rowIdx}>
-                              <TableCell className="font-medium bg-slate-50 dark:bg-slate-800/50">
+                              <TableCell className="font-medium bg-slate-800/50">
                                 {row.label}
                               </TableCell>
                               {editingComponent.matrix!.values[rowIdx]?.map((val, colIdx) => (

@@ -1,5 +1,7 @@
 'use client';
 
+/** @cognitiveFit identification — "What state is this?" */
+
 import type { ReactNode } from 'react';
 import { PILL_COLORS, type PillColor } from '@/lib/design/tokens';
 

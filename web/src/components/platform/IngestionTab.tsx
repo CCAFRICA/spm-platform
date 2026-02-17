@@ -214,7 +214,7 @@ export function IngestionTab() {
 
       {/* Empty state */}
       {data.totalEvents === 0 && (
-        <div className="text-center py-12 border border-[#1E293B] rounded-lg bg-[#0F172A]">
+        <div className="text-center py-12 rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
           <Upload className="h-10 w-10 text-zinc-700 mx-auto mb-3" />
           <p className="text-zinc-400 font-medium">No ingestion events yet</p>
           <p className="text-xs text-zinc-600 mt-1">
@@ -243,13 +243,13 @@ function MetricCard({ icon: Icon, label, value, subtitle, color }: {
   };
 
   return (
-    <div className="rounded-lg border border-[#1E293B] bg-[#0F172A] p-4">
+    <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '16px' }}>
       <div className="flex items-center gap-2 mb-2">
         <Icon className={cn('h-4 w-4', colorMap[color])} />
-        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">{label}</span>
+        <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</span>
       </div>
-      <div className="text-2xl font-bold text-white">{value}</div>
-      <div className="text-xs text-zinc-500 mt-0.5">{subtitle}</div>
+      <div className="text-2xl font-bold" style={{ color: '#ffffff' }}>{value}</div>
+      <div style={{ color: '#71717a', fontSize: '12px', marginTop: '2px' }}>{subtitle}</div>
     </div>
   );
 }
@@ -269,11 +269,11 @@ function StatusCard({ icon: Icon, label, count, total, color }: {
   };
 
   return (
-    <div className="rounded-lg border border-[#1E293B] bg-[#0F172A] p-4">
+    <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '16px' }}>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <Icon className={cn('h-4 w-4', colorMap[color].text)} />
-          <span className="text-xs font-medium text-zinc-300">{label}</span>
+          <span className="text-xs font-medium" style={{ color: '#d4d4d8' }}>{label}</span>
         </div>
         <span className={cn('text-sm font-bold', colorMap[color].text)}>
           {count.toLocaleString()}
@@ -285,7 +285,7 @@ function StatusCard({ icon: Icon, label, count, total, color }: {
           style={{ width: `${Math.min(pctValue, 100)}%` }}
         />
       </div>
-      <div className="text-[10px] text-zinc-600 mt-1.5">
+      <div style={{ color: '#52525b', fontSize: '10px', marginTop: '6px' }}>
         {pctValue.toFixed(1)}% of {total.toLocaleString()} total
       </div>
     </div>

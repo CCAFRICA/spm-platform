@@ -69,7 +69,7 @@ export function ColumnMapper({
   return (
     <div className="space-y-6">
       {/* Summary */}
-      <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+      <div className="flex items-center gap-4 p-4 bg-slate-900 rounded-lg">
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-600 dark:text-slate-400">Mapped:</span>
           <Badge variant="secondary">

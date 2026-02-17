@@ -167,7 +167,7 @@ export default function DataPage() {
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-50">
               Data Operations
             </h1>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
@@ -267,7 +267,7 @@ export default function DataPage() {
             <div className="rounded-lg border border-slate-200 dark:border-slate-800">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-slate-50 dark:bg-slate-800/50">
+                  <TableRow className="bg-slate-800/50">
                     <TableHead className="font-semibold">Timestamp</TableHead>
                     <TableHead className="font-semibold">Source</TableHead>
                     <TableHead className="font-semibold text-right">Records</TableHead>
@@ -279,7 +279,7 @@ export default function DataPage() {
                 </TableHeader>
                 <TableBody>
                   {recentLoads.map((load) => (
-                    <TableRow key={load.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <TableRow key={load.id} className="hover:bg-slate-800/50">
                       <TableCell className="text-slate-600">
                         {formatDate(load.timestamp)}
                       </TableCell>
@@ -335,7 +335,7 @@ export default function DataPage() {
                 return (
                   <div
                     key={error.id}
-                    className="p-4 rounded-lg border border-slate-200 dark:border-slate-700"
+                    className="p-4 rounded-lg border border-slate-700"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-start gap-3">
@@ -343,7 +343,7 @@ export default function DataPage() {
                           {error.severity.charAt(0).toUpperCase() + error.severity.slice(1)}
                         </Badge>
                         <div>
-                          <p className="font-medium text-slate-900 dark:text-slate-50">
+                          <p className="font-medium text-slate-50">
                             {error.message}
                           </p>
                           <p className="text-sm text-slate-500 mt-1">

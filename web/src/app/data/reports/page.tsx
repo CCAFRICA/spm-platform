@@ -78,7 +78,7 @@ export default function ReportsPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-50">
               Financial Reports
             </h1>
             <p className="text-slate-500 mt-1">

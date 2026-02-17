@@ -1,5 +1,7 @@
 'use client';
 
+/** @cognitiveFit distribution — "What is the shape of this population?" */
+
 interface DistributionChartProps {
   data: number[];
   benchmarkLine?: number;

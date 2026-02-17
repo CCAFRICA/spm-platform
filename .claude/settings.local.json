@@ -92,7 +92,9 @@
       "Bash(git -C /Users/AndrewAfrica/spm-platform show main:web/src/middleware.ts)",
       "Bash(npx next build)",
       "Bash(npm ls:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(OB-50_DATA_INGESTION_FACILITY.md:*)",
+      "Bash(gh pr merge:*)"
     ]
   }
 }

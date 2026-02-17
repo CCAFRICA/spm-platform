@@ -321,13 +321,13 @@ export function ManualEntryForm({ onSubmit, onCancel, salesReps }: ManualEntryFo
 
             {/* Total Display */}
             <div className="md:col-span-2 flex items-end">
-              <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg flex-1">
+              <div className="p-4 bg-slate-900 rounded-lg flex-1">
                 <p className="text-sm text-slate-500">Calculated Total</p>
                 <motion.p
                   key={calculateTotal()}
                   initial={{ scale: 1.1 }}
                   animate={{ scale: 1 }}
-                  className="text-2xl font-bold text-slate-900 dark:text-slate-50"
+                  className="text-2xl font-bold text-slate-50"
                 >
                   {formatCurrency(calculateTotal())}
                 </motion.p>

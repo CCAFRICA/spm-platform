@@ -118,7 +118,7 @@ export default function ConfigurePage() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="text-2xl font-bold text-zinc-100">
           {isSpanish ? 'Centro de Configuración' : 'Configuration Center'}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
@@ -142,14 +142,14 @@ export default function ConfigurePage() {
                   <button
                     key={item.route}
                     onClick={() => router.push(item.route)}
-                    className="flex items-start gap-4 p-4 rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-colors text-left"
+                    className="flex items-start gap-4 p-4 rounded-lg border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50 transition-colors text-left"
                   >
-                    <div className="p-2 bg-orange-100 rounded-lg">
+                    <div className="p-2 bg-orange-900/30 rounded-lg">
                       <Icon className="h-5 w-5 text-orange-600" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <p className="font-medium text-slate-900">{item.label}</p>
+                        <p className="font-medium text-zinc-100">{item.label}</p>
                         {item.badge && (
                           <Badge variant="secondary" className="text-xs">{item.badge}</Badge>
                         )}

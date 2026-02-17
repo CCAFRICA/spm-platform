@@ -1,5 +1,7 @@
 'use client';
 
+/** @cognitiveFit monitoring — "What is the trajectory?" */
+
 interface SparklineProps {
   data: number[];
   color?: string;

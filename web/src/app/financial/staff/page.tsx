@@ -276,7 +276,7 @@ export default function StaffPerformancePage() {
     } else if (diff < 0) {
       return <ArrowDown className="w-4 h-4 text-red-600" />;
     }
-    return <Minus className="w-4 h-4 text-gray-400" />;
+    return <Minus className="w-4 h-4 text-zinc-500" />;
   };
 
   const { format } = useCurrency();
@@ -294,8 +294,8 @@ export default function StaffPerformancePage() {
 
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Staff Performance</h1>
-        <p className="text-gray-600">Individual performance rankings and trends</p>
+        <h1 className="text-2xl font-bold text-zinc-100">Staff Performance</h1>
+        <p className="text-zinc-400">Individual performance rankings and trends</p>
       </div>
 
       {/* Summary Cards */}
@@ -307,7 +307,7 @@ export default function StaffPerformancePage() {
                 <Users className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Active Staff</p>
+                <p className="text-sm text-zinc-400">Active Staff</p>
                 <p className="text-2xl font-bold">{stats.count}</p>
               </div>
             </div>
@@ -321,7 +321,7 @@ export default function StaffPerformancePage() {
                 <DollarSign className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Total Revenue</p>
+                <p className="text-sm text-zinc-400">Total Revenue</p>
                 <p className="text-2xl font-bold">{format(stats.totalRevenue)}</p>
               </div>
             </div>
@@ -335,7 +335,7 @@ export default function StaffPerformancePage() {
                 <Award className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Total Tips</p>
+                <p className="text-sm text-zinc-400">Total Tips</p>
                 <p className="text-2xl font-bold">{format(stats.totalTips)}</p>
               </div>
             </div>
@@ -349,7 +349,7 @@ export default function StaffPerformancePage() {
                 <TrendingUp className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Avg Performance</p>
+                <p className="text-sm text-zinc-400">Avg Performance</p>
                 <p className="text-2xl font-bold">{stats.avgPerformance.toFixed(0)}</p>
               </div>
             </div>
@@ -394,7 +394,7 @@ export default function StaffPerformancePage() {
             <TableHeader>
               <TableRow>
                 <TableHead
-                  className="cursor-pointer hover:bg-gray-50 w-20"
+                  className="cursor-pointer hover:bg-zinc-800/50 w-20"
                   onClick={() => handleSort('rank')}
                 >
                   <div className="flex items-center gap-1">
@@ -402,7 +402,7 @@ export default function StaffPerformancePage() {
                   </div>
                 </TableHead>
                 <TableHead
-                  className="cursor-pointer hover:bg-gray-50"
+                  className="cursor-pointer hover:bg-zinc-800/50"
                   onClick={() => handleSort('name')}
                 >
                   <div className="flex items-center gap-1">
@@ -412,7 +412,7 @@ export default function StaffPerformancePage() {
                 <TableHead>Location</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead
-                  className="cursor-pointer hover:bg-gray-50 text-right"
+                  className="cursor-pointer hover:bg-zinc-800/50 text-right"
                   onClick={() => handleSort('revenue')}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -420,7 +420,7 @@ export default function StaffPerformancePage() {
                   </div>
                 </TableHead>
                 <TableHead
-                  className="cursor-pointer hover:bg-gray-50 text-right"
+                  className="cursor-pointer hover:bg-zinc-800/50 text-right"
                   onClick={() => handleSort('checks')}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -428,7 +428,7 @@ export default function StaffPerformancePage() {
                   </div>
                 </TableHead>
                 <TableHead
-                  className="cursor-pointer hover:bg-gray-50 text-right"
+                  className="cursor-pointer hover:bg-zinc-800/50 text-right"
                   onClick={() => handleSort('avgCheck')}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -437,7 +437,7 @@ export default function StaffPerformancePage() {
                 </TableHead>
                 <TableHead className="text-center w-24">Trend</TableHead>
                 <TableHead
-                  className="cursor-pointer hover:bg-gray-50 text-right"
+                  className="cursor-pointer hover:bg-zinc-800/50 text-right"
                   onClick={() => handleSort('tipRate')}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -445,7 +445,7 @@ export default function StaffPerformancePage() {
                   </div>
                 </TableHead>
                 <TableHead
-                  className="cursor-pointer hover:bg-gray-50 text-right"
+                  className="cursor-pointer hover:bg-zinc-800/50 text-right"
                   onClick={() => handleSort('performanceIndex')}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -466,9 +466,9 @@ export default function StaffPerformancePage() {
                       <div className="flex items-center gap-2">
                         <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm ${
                           staff.rank === 1 ? 'bg-yellow-100 text-yellow-700' :
-                          staff.rank === 2 ? 'bg-gray-200 text-gray-700' :
+                          staff.rank === 2 ? 'bg-zinc-700 text-zinc-300' :
                           staff.rank === 3 ? 'bg-orange-100 text-orange-700' :
-                          'bg-gray-100 text-gray-600'
+                          'bg-zinc-800 text-zinc-400'
                         }`}>
                           {staff.rank}
                         </div>
@@ -478,8 +478,8 @@ export default function StaffPerformancePage() {
 
                     {/* Name */}
                     <TableCell>
-                      <div className="font-medium text-gray-900">{staff.name}</div>
-                      <div className="text-xs text-gray-500">{staff.id}</div>
+                      <div className="font-medium text-zinc-100">{staff.name}</div>
+                      <div className="text-xs text-zinc-500">{staff.id}</div>
                     </TableCell>
 
                     {/* Location */}
@@ -488,7 +488,7 @@ export default function StaffPerformancePage() {
                     </TableCell>
 
                     {/* Role */}
-                    <TableCell className="text-gray-600">{staff.role}</TableCell>
+                    <TableCell className="text-zinc-400">{staff.role}</TableCell>
 
                     {/* Revenue */}
                     <TableCell className="text-right font-medium">
@@ -496,12 +496,12 @@ export default function StaffPerformancePage() {
                     </TableCell>
 
                     {/* Checks */}
-                    <TableCell className="text-right text-gray-600">
+                    <TableCell className="text-right text-zinc-400">
                       {staff.checks}
                     </TableCell>
 
                     {/* Avg Check */}
-                    <TableCell className="text-right text-gray-600">
+                    <TableCell className="text-right text-zinc-400">
                       {format(staff.avgCheck)}
                     </TableCell>
 
@@ -524,7 +524,7 @@ export default function StaffPerformancePage() {
 
                     {/* Tip Rate */}
                     <TableCell className="text-right">
-                      <span className={staff.tipRate >= 15 ? 'text-green-600' : 'text-gray-600'}>
+                      <span className={staff.tipRate >= 15 ? 'text-green-600' : 'text-zinc-400'}>
                         {staff.tipRate.toFixed(1)}%
                       </span>
                     </TableCell>
@@ -532,7 +532,7 @@ export default function StaffPerformancePage() {
                     {/* Performance Index */}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <div className="w-16 bg-gray-200 rounded-full h-2">
+                        <div className="w-16 bg-zinc-700 rounded-full h-2">
                           <div
                             className={`h-2 rounded-full ${
                               staff.performanceIndex >= 90 ? 'bg-green-500' :

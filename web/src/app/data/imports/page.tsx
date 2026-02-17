@@ -61,7 +61,7 @@ export default function ImportsPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-50">
               Import Data
             </h1>
             <p className="text-slate-500 mt-1">
@@ -192,13 +192,13 @@ export default function ImportsPage() {
                   onFileContent={() => handleFileSelect()}
                   maxFiles={1}
                 />
-                <div className="mt-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                <div className="mt-6 p-4 bg-slate-900 rounded-lg">
                   <h4 className="font-medium text-sm mb-2">Supported Sources</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {['Salesforce', 'HubSpot', 'NetSuite', 'CSV/Excel'].map((source) => (
                       <div
                         key={source}
-                        className="p-3 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 text-center text-sm"
+                        className="p-3 bg-slate-800 rounded border border-slate-700 text-center text-sm"
                       >
                         {source}
                       </div>
