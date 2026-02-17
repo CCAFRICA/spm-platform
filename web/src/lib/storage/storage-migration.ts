@@ -5,10 +5,9 @@
  * localStorage removed -- all operations return zero/false (no-ops).
  */
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const OLD_PREFIX = 'clearcomp_';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const NEW_PREFIX = 'vialuce_';
+// Legacy prefixes (migration complete — all localStorage removed)
+// const OLD_PREFIX = 'clearcomp_';
+// const NEW_PREFIX = 'vialuce_';
 
 /**
  * Migrate all localStorage keys from legacy prefix to vialuce_ prefix.
