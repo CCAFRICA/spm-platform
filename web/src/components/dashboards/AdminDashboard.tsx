@@ -3,8 +3,10 @@
 /**
  * Admin Dashboard — "Gobernar"
  *
- * Governance view: total payout, distribution, component composition,
- * budget position, exceptions, payroll summary, period comparison.
+ * DS-001 Admin View layout:
+ *   Row 1: Hero (col-5) + Distribution (col-4) + Lifecycle (col-3)
+ *   Row 2: Locations vs Budget (col-7) + Components + Exceptions (col-5)
+ *
  * All data from persona-queries.ts getAdminDashboardData().
  */
 
@@ -12,21 +14,15 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePeriod } from '@/contexts/period-context';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
-import { StatusPill } from '@/components/design-system/StatusPill';
 import { DistributionChart } from '@/components/design-system/DistributionChart';
 import { ComponentStack } from '@/components/design-system/ComponentStack';
-import { BudgetGauge } from '@/components/design-system/BudgetGauge';
-import { PayrollSummary, type PayrollRow } from '@/components/design-system/PayrollSummary';
+import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
+import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
 import { QueueItem } from '@/components/design-system/QueueItem';
 import {
   getAdminDashboardData,
   type AdminDashboardData,
 } from '@/lib/data/persona-queries';
-import {
-  LIFECYCLE_DISPLAY,
-  isDashboardState,
-  type DashboardLifecycleState,
-} from '@/lib/lifecycle/lifecycle-service';
 
 export function AdminDashboard() {
   const { currentTenant } = useTenant();
@@ -54,31 +50,15 @@ export function AdminDashboard() {
     return () => { cancelled = true; };
   }, [tenantId, activePeriodId]);
 
-  const stateLabel = useMemo(() => {
-    if (!data?.lifecycleState) return null;
-    if (isDashboardState(data.lifecycleState)) {
-      return LIFECYCLE_DISPLAY[data.lifecycleState as DashboardLifecycleState];
-    }
-    return null;
-  }, [data?.lifecycleState]);
-
-  const payrollRows: PayrollRow[] = useMemo(() => {
-    if (!data) return [];
-    return data.storeBreakdown.map(s => ({
-      entityName: s.entityName,
-      entityType: s.entityType,
-      totalPayout: s.totalPayout,
-      components: 0,
-      lifecycleState: data.lifecycleState ?? undefined,
-      approved: data.lifecycleState === 'APPROVED' || data.lifecycleState === 'POSTED',
-    }));
-  }, [data]);
-
   const budgetTotal = useMemo(() => {
     if (!data) return 0;
-    // Estimate budget as 110% of total payout (placeholder until real budget data exists)
     return data.totalPayout * 1.1;
   }, [data]);
+
+  const budgetPct = useMemo(() => {
+    if (!budgetTotal || !data) return 0;
+    return Math.round((data.totalPayout / budgetTotal) * 100);
+  }, [data, budgetTotal]);
 
   if (isLoading) {
     return (
@@ -97,82 +77,128 @@ export function AdminDashboard() {
     );
   }
 
-  const statePillColor = data.lifecycleState === 'APPROVED' || data.lifecycleState === 'POSTED' ? 'emerald'
-    : data.lifecycleState === 'PUBLISHED' ? 'indigo'
-    : 'zinc';
-
   return (
-    <div className="space-y-6">
-      {/* Hero Stats */}
-      <div className="bg-gradient-to-br from-indigo-600/80 to-violet-700/80 rounded-2xl p-6 border border-indigo-500/20">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-indigo-200/70 text-sm">Pago Total del Periodo</p>
-            <p className="text-3xl font-bold text-white mt-1">
-              {currencySymbol}<AnimatedNumber value={data.totalPayout} />
-            </p>
-            <div className="flex items-center gap-4 mt-2 text-sm text-indigo-200/60">
-              <span>{data.entityCount} entidades</span>
-              <span>{activePeriodLabel}</span>
+    <div className="space-y-4">
+      {/* ── Row 1: Hero (5) + Distribution (4) + Lifecycle (3) ── */}
+      <div className="grid grid-cols-12 gap-4">
+        {/* Hero Card */}
+        <div className="col-span-12 lg:col-span-5 bg-gradient-to-br from-indigo-600/80 to-violet-700/80 rounded-2xl p-5 border border-indigo-500/20">
+          <p className="text-indigo-200/60 text-[10px] font-medium uppercase tracking-widest">
+            Total Compensacion · {activePeriodLabel}
+          </p>
+          <p className="text-4xl font-bold text-white mt-2">
+            {currencySymbol}<AnimatedNumber value={data.totalPayout} />
+          </p>
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            <div>
+              <p className="text-lg font-bold text-white">{data.entityCount}</p>
+              <p className="text-[10px] text-indigo-200/60">entidades</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">{budgetPct}%</p>
+              <p className="text-[10px] text-indigo-200/60">presupuesto</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">{data.exceptions.length}</p>
+              <p className="text-[10px] text-indigo-200/60">excepciones</p>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            {stateLabel && (
-              <StatusPill color={statePillColor}>{stateLabel.labelEs}</StatusPill>
-            )}
-          </div>
         </div>
-      </div>
 
-      {/* Distribution + Component Stack */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Distribucion de Logro</h4>
+        {/* Distribution Histogram */}
+        <div className="col-span-12 lg:col-span-4 bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-3">Distribucion</p>
           {data.attainmentDistribution.length > 0 ? (
             <DistributionChart data={data.attainmentDistribution} benchmarkLine={100} />
           ) : (
             <p className="text-sm text-zinc-500">Sin datos de distribucion.</p>
           )}
         </div>
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Composicion de Componentes</h4>
-          {data.componentComposition.length > 0 ? (
-            <ComponentStack components={data.componentComposition} total={data.totalPayout} />
-          ) : (
-            <p className="text-sm text-zinc-500">Sin datos de componentes.</p>
-          )}
+
+        {/* Lifecycle */}
+        <div className="col-span-12 lg:col-span-3 bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-3">Ciclo de Vida</p>
+          <LifecycleStepper
+            currentState={data.lifecycleState || 'DRAFT'}
+          />
         </div>
       </div>
 
-      {/* Budget Gauge */}
-      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-        <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Posicion Presupuestaria</h4>
-        <BudgetGauge actual={data.totalPayout} budget={budgetTotal} currency={currencySymbol} />
-      </div>
+      {/* ── Row 2: Locations vs Budget (7) + Components + Exceptions (5) ── */}
+      <div className="grid grid-cols-12 gap-4">
+        {/* Locations vs Budget */}
+        <div className="col-span-12 lg:col-span-7 bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-4">
+            Ubicaciones vs Presupuesto
+          </p>
+          <div className="space-y-3">
+            {data.storeBreakdown.length > 0 ? (
+              data.storeBreakdown.slice(0, 10).map(store => {
+                const storeBudget = budgetTotal > 0
+                  ? (store.totalPayout / data.totalPayout) * budgetTotal
+                  : store.totalPayout * 1.1;
+                const deltaPct = storeBudget > 0
+                  ? ((store.totalPayout - storeBudget) / storeBudget) * 100
+                  : 0;
+                const barColor = store.totalPayout >= storeBudget ? '#10b981'
+                  : store.totalPayout >= storeBudget * 0.85 ? '#f59e0b'
+                  : '#ef4444';
 
-      {/* Exceptions */}
-      {data.exceptions.length > 0 && (
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">
-            Excepciones ({data.exceptions.length})
-          </h4>
-          <div className="space-y-2">
-            {data.exceptions.slice(0, 10).map((exc, i) => (
-              <QueueItem
-                key={i}
-                priority={exc.severity === 'critical' ? 'high' : exc.severity === 'watch' ? 'medium' : 'low'}
-                text={`${exc.entityName}: ${exc.issue}`}
-                action="Investigar"
-              />
-            ))}
+                return (
+                  <BenchmarkBar
+                    key={store.entityId}
+                    value={store.totalPayout}
+                    benchmark={storeBudget}
+                    label={store.entityName}
+                    sublabel={`${currencySymbol}${store.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ${currencySymbol}${storeBudget.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                    rightLabel={
+                      <span className={`text-xs tabular-nums font-medium ${deltaPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%
+                      </span>
+                    }
+                    color={barColor}
+                  />
+                );
+              })
+            ) : (
+              <p className="text-sm text-zinc-500">Sin datos de ubicacion.</p>
+            )}
           </div>
         </div>
-      )}
 
-      {/* Payroll Summary */}
-      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-        <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Resumen de Nomina</h4>
-        <PayrollSummary rows={payrollRows} currency={currencySymbol} />
+        {/* Components + Exceptions */}
+        <div className="col-span-12 lg:col-span-5 space-y-4">
+          {/* Component Stack */}
+          <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5">
+            <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-3">
+              Composicion de Componentes
+            </p>
+            {data.componentComposition.length > 0 ? (
+              <ComponentStack components={data.componentComposition} total={data.totalPayout} />
+            ) : (
+              <p className="text-sm text-zinc-500">Sin datos de componentes.</p>
+            )}
+          </div>
+
+          {/* Exceptions */}
+          {data.exceptions.length > 0 && (
+            <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5">
+              <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-3">
+                Excepciones Activas ({data.exceptions.length})
+              </p>
+              <div className="space-y-2">
+                {data.exceptions.slice(0, 5).map((exc, i) => (
+                  <QueueItem
+                    key={i}
+                    priority={exc.severity === 'critical' ? 'high' : exc.severity === 'watch' ? 'medium' : 'low'}
+                    text={`${exc.entityName}: ${exc.issue}`}
+                    action="Investigar"
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

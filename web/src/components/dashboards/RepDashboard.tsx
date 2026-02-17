@@ -72,12 +72,25 @@ export function RepDashboard() {
     );
   }
 
-  // Build default tiers for what-if slider (simplified)
-  const defaultTiers: TierConfig[] = [
-    { min: 0, max: data.attainment * 0.8, rate: 0.5, label: 'Base' },
-    { min: data.attainment * 0.8, max: data.attainment * 1.2, rate: 1.0, label: 'Target' },
-    { min: data.attainment * 1.2, max: data.attainment * 2, rate: 1.5, label: 'Acelerador' },
+  // Build tiers for what-if slider, scaled so calculatePayout(currentAttainment) ≈ totalPayout
+  // Without scaling, rates multiply against percentage points giving nonsensical results
+  const rawTiers: TierConfig[] = [
+    { min: 0, max: 80, rate: 0.5, label: 'Base' },
+    { min: 80, max: 120, rate: 1.0, label: 'Target' },
+    { min: 120, max: 250, rate: 1.5, label: 'Acelerador' },
   ];
+  // Calculate raw payout at current attainment to derive scale factor
+  let rawPayout = 0;
+  for (const t of rawTiers) {
+    if (data.attainment <= t.min) continue;
+    const applicable = Math.min(data.attainment, t.max) - t.min;
+    if (applicable > 0) rawPayout += applicable * t.rate;
+  }
+  const scaleFactor = rawPayout > 0 ? data.totalPayout / rawPayout : 1;
+  const defaultTiers: TierConfig[] = rawTiers.map(t => ({
+    ...t,
+    rate: t.rate * scaleFactor,
+  }));
 
   // Build waterfall for expanded component
   const waterfallSteps: WaterfallStep[] = data.components.map(c => ({
@@ -203,6 +216,35 @@ export function RepDashboard() {
           />
         </div>
       )}
+
+      {/* Trajectory History */}
+      {data.history.length > 0 && (
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
+          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Trayectoria</h4>
+          <div className="grid grid-cols-5 gap-2">
+            {data.history.slice(-5).map((h, i) => (
+              <div key={i} className="text-center p-2 rounded-lg bg-zinc-800/50">
+                <p className="text-[10px] text-zinc-500 truncate">{h.period}</p>
+                <p className="text-sm font-bold text-zinc-200 tabular-nums mt-1">
+                  {currencySymbol}{h.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 hover:border-emerald-500/30 transition-colors cursor-pointer">
+          <p className="text-sm font-medium text-zinc-200">Simulador</p>
+          <p className="text-[10px] text-zinc-500 mt-1">Proyecta tu pago con distintos escenarios</p>
+        </div>
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 hover:border-emerald-500/30 transition-colors cursor-pointer">
+          <p className="text-sm font-medium text-zinc-200">Mi Plan</p>
+          <p className="text-[10px] text-zinc-500 mt-1">Revisa tu plan de compensacion completo</p>
+        </div>
+      </div>
     </div>
   );
 }

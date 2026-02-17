@@ -494,8 +494,8 @@ export function getDemoScripts(): DemoScript[] {
           route: '/',
           talkingPoints: [
             {
-              text: 'Welcome to the ViaLuce Sales Performance Management platform.',
-              textEs: 'Bienvenidos a la plataforma de Gestión de Rendimiento de Ventas ViaLuce.',
+              text: 'Welcome to the Vialuce Performance Intelligence Platform.',
+              textEs: 'Bienvenidos a la plataforma de inteligencia de rendimiento Vialuce.',
               emphasis: true,
             },
             {

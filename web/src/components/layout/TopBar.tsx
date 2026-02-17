@@ -4,7 +4,7 @@
  * TopBar — Persona-aware top navigation bar
  *
  * Shows:
- *   - ViaLuce logo with persona accent gradient
+ *   - Vialuce logo with persona accent gradient
  *   - Tenant name
  *   - Persona intent label (italic, subtle)
  *   - User avatar + name + role
@@ -25,7 +25,7 @@ interface TopBarProps {
 
 export function TopBar({
   persona = 'rep',
-  tenantName = 'ViaLuce',
+  tenantName = 'Vialuce',
   userName = '',
   userRole = '',
   avatarUrl,
@@ -37,9 +37,9 @@ export function TopBar({
       {/* Left: Logo + Tenant */}
       <div className="flex items-center gap-4">
         <span className={`text-lg font-bold bg-gradient-to-r ${tokens.accentGrad} bg-clip-text text-transparent`}>
-          ViaLuce
+          Vialuce
         </span>
-        {tenantName && tenantName !== 'ViaLuce' && (
+        {tenantName && tenantName !== 'Vialuce' && (
           <>
             <div className="w-px h-5 bg-zinc-700" />
             <span className="text-sm text-zinc-400">{tenantName}</span>
