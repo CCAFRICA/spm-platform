@@ -38,6 +38,8 @@ export interface TenantFeatures {
   mobileApp: boolean;
   apiAccess: boolean;
   financial: boolean; // Financial Module - POS data analysis for restaurants
+  /** Lifecycle pipeline config: 'launch' (simplified) or 'production' (full) */
+  lifecyclePipeline?: string;
 }
 
 export const DEFAULT_FEATURES: TenantFeatures = {

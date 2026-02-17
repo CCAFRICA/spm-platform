@@ -301,5 +301,6 @@ export function useTenantDate() {
 export function useFeature(featureKey: keyof TenantConfig['features']): boolean {
   const { currentTenant } = useTenant();
   if (!currentTenant?.features) return false;
-  return currentTenant.features[featureKey] ?? false;
+  const value = currentTenant.features[featureKey];
+  return typeof value === 'boolean' ? value : !!value;
 }

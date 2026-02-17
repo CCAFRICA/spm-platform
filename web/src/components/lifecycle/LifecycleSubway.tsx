@@ -1,45 +1,54 @@
 'use client';
 
 /**
- * LifecycleSubway — Enhanced subway visualization for the 10-state lifecycle
+ * LifecycleSubway — Config-driven subway visualization
  *
+ * Reads orderedGates from the pipeline config to render the subway.
  * Each state node is a clickable button (not just a visual indicator).
  * Current state is highlighted. Next valid action pulses.
  * Completed states show checkmark. Each state shows timestamp.
  * Hover shows who performed the action, when, and notes.
+ *
+ * Accepts an optional `pipelineConfig` prop. Falls back to PRODUCTION_CONFIG.
  */
 
 import { memo } from 'react';
 import { Check, Circle, AlertTriangle } from 'lucide-react';
+import type { CalculationState, CalculationCycle } from '@/lib/calculation/calculation-lifecycle-service';
+import { getStateLabel } from '@/lib/calculation/calculation-lifecycle-service';
 import {
-  type CalculationState,
-  type CalculationCycle,
-  LIFECYCLE_STATES_ORDERED,
-  getStateLabel,
-  getAllowedTransitions,
-} from '@/lib/calculation/calculation-lifecycle-service';
+  type LifecyclePipelineConfig,
+  type GateKey,
+  PRODUCTION_CONFIG,
+  getAllowedTransitionsForConfig,
+  toLinearState,
+} from '@/lib/lifecycle/lifecycle-pipeline';
 
 interface LifecycleSubwayProps {
   cycle: CalculationCycle;
   onStateClick?: (state: CalculationState) => void;
   compact?: boolean;
+  pipelineConfig?: LifecyclePipelineConfig;
 }
 
-function getStateIndex(state: CalculationState): number {
-  return LIFECYCLE_STATES_ORDERED.indexOf(state);
-}
-
-function LifecycleSubwayComponent({ cycle, onStateClick, compact = false }: LifecycleSubwayProps) {
-  const currentIndex = getStateIndex(cycle.state);
-  const nextStates = getAllowedTransitions(cycle.state);
+function LifecycleSubwayComponent({
+  cycle,
+  onStateClick,
+  compact = false,
+  pipelineConfig = PRODUCTION_CONFIG,
+}: LifecycleSubwayProps) {
+  const orderedGates = pipelineConfig.orderedGates;
+  const linearState = toLinearState(pipelineConfig, cycle.state as GateKey);
+  const currentIndex = orderedGates.indexOf(linearState);
+  const nextStates = getAllowedTransitionsForConfig(pipelineConfig, cycle.state as GateKey);
   const isRejected = cycle.state === 'REJECTED';
 
   return (
     <div className="w-full">
       <div className={`flex items-center ${compact ? 'gap-1' : 'gap-0'} overflow-x-auto`}>
-        {LIFECYCLE_STATES_ORDERED.map((state, index) => {
+        {orderedGates.map((state, index) => {
           const isCompleted = index < currentIndex;
-          const isCurrent = state === cycle.state;
+          const isCurrent = state === linearState;
           const isNext = nextStates.includes(state);
           // Find audit entry for this state
           const audit = cycle.auditTrail.find(a => a.toState === state && a.fromState !== state);
@@ -48,7 +57,7 @@ function LifecycleSubwayComponent({ cycle, onStateClick, compact = false }: Life
             <div key={state} className="flex items-center flex-shrink-0">
               {/* Node */}
               <button
-                onClick={() => onStateClick?.(state)}
+                onClick={() => onStateClick?.(state as CalculationState)}
                 className={`
                   relative flex flex-col items-center group
                   ${compact ? 'px-1' : 'px-2'}
@@ -114,7 +123,7 @@ function LifecycleSubwayComponent({ cycle, onStateClick, compact = false }: Life
               </button>
 
               {/* Connector line */}
-              {index < LIFECYCLE_STATES_ORDERED.length - 1 && (
+              {index < orderedGates.length - 1 && (
                 <div
                   className={`
                     ${compact ? 'w-3 h-0.5' : 'w-6 h-0.5'}

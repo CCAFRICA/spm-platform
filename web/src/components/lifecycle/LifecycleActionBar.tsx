@@ -1,10 +1,13 @@
 'use client';
 
 /**
- * LifecycleActionBar — Shows valid actions for the current lifecycle state
+ * LifecycleActionBar — Config-driven action buttons for lifecycle transitions
  *
- * Each state has specific buttons. Only valid transitions are shown.
+ * Reads valid transitions from the pipeline config.
+ * Each state has specific buttons based on config transitions (not hardcoded).
  * Enforces separation of duties for approval.
+ *
+ * Accepts an optional `pipelineConfig` prop. Falls back to PRODUCTION_CONFIG.
  */
 
 import { useState } from 'react';
@@ -32,20 +35,23 @@ import {
   RefreshCw,
   Clock,
 } from 'lucide-react';
+import type { CalculationState, CalculationCycle } from '@/lib/calculation/calculation-lifecycle-service';
+import { getStateLabel, getStateColor } from '@/lib/calculation/calculation-lifecycle-service';
 import {
-  type CalculationState,
-  type CalculationCycle,
-  getStateLabel,
-  getStateColor,
-} from '@/lib/calculation/calculation-lifecycle-service';
+  type LifecyclePipelineConfig,
+  type GateKey,
+  PRODUCTION_CONFIG,
+  getAllowedTransitionsForConfig,
+  getGateDefinition,
+} from '@/lib/lifecycle/lifecycle-pipeline';
 
 interface LifecycleActionBarProps {
   cycle: CalculationCycle;
-  /** Reserved for future separation-of-duties enforcement in the UI */
   currentUserId?: string;
   onTransition: (toState: CalculationState, details?: string) => void;
   onExport?: () => void;
   isSubmitter?: boolean;
+  pipelineConfig?: LifecyclePipelineConfig;
 }
 
 interface ActionButton {
@@ -59,58 +65,68 @@ interface ActionButton {
   requiresReason?: boolean;
 }
 
-function getActionsForState(
-  state: CalculationState,
+/** Icon map for each gate key */
+const GATE_ICONS: Partial<Record<GateKey, React.ReactNode>> = {
+  PREVIEW: <Eye className="h-4 w-4 mr-1.5" />,
+  RECONCILE: <FileCheck className="h-4 w-4 mr-1.5" />,
+  OFFICIAL: <FileCheck className="h-4 w-4 mr-1.5" />,
+  PENDING_APPROVAL: <Send className="h-4 w-4 mr-1.5" />,
+  APPROVED: <CheckCircle className="h-4 w-4 mr-1.5" />,
+  REJECTED: <XCircle className="h-4 w-4 mr-1.5" />,
+  POSTED: <Globe className="h-4 w-4 mr-1.5" />,
+  CLOSED: <Lock className="h-4 w-4 mr-1.5" />,
+  PAID: <DollarSign className="h-4 w-4 mr-1.5" />,
+  PUBLISHED: <BookOpen className="h-4 w-4 mr-1.5" />,
+};
+
+/** Build actions from pipeline config transitions */
+function getActionsFromConfig(
+  config: LifecyclePipelineConfig,
+  currentState: CalculationState,
   isSubmitter: boolean
 ): ActionButton[] {
-  switch (state) {
-    case 'DRAFT':
-      return [
-        { state: 'PREVIEW', label: 'Run Preview', icon: <Eye className="h-4 w-4 mr-1.5" />, variant: 'default' },
-      ];
-    case 'PREVIEW':
-      return [
-        { state: 'PREVIEW', label: 'Re-run Preview', icon: <RefreshCw className="h-4 w-4 mr-1.5" />, variant: 'outline' },
-        { state: 'OFFICIAL', label: 'Run Official', icon: <FileCheck className="h-4 w-4 mr-1.5" />, variant: 'default', requiresConfirmation: true, confirmTitle: 'Run Official Calculation?', confirmDescription: 'This will lock the calculation results as the official record for this period.' },
-      ];
-    case 'OFFICIAL':
-      return [
-        { state: 'PENDING_APPROVAL', label: 'Submit for Approval', icon: <Send className="h-4 w-4 mr-1.5" />, variant: 'default' },
-        { state: 'PREVIEW', label: 'Re-Run (new batch)', icon: <RefreshCw className="h-4 w-4 mr-1.5" />, variant: 'outline' },
-      ];
-    case 'PENDING_APPROVAL':
-      if (isSubmitter) {
-        return []; // Submitter sees no buttons during approval
-      }
-      return [
-        { state: 'APPROVED', label: 'Approve', icon: <CheckCircle className="h-4 w-4 mr-1.5" />, variant: 'default', requiresConfirmation: true, confirmTitle: 'Approve Results?', confirmDescription: 'This approves the official calculation results.' },
-        { state: 'REJECTED', label: 'Reject', icon: <XCircle className="h-4 w-4 mr-1.5" />, variant: 'destructive', requiresReason: true, confirmTitle: 'Reject Results?', confirmDescription: 'Please provide a reason for rejection.' },
-      ];
-    case 'REJECTED':
-      return [
-        { state: 'OFFICIAL', label: 'Return to Official', icon: <RefreshCw className="h-4 w-4 mr-1.5" />, variant: 'outline' },
-      ];
-    case 'APPROVED':
-      return [
-        { state: 'POSTED', label: 'Post Results', icon: <Globe className="h-4 w-4 mr-1.5" />, variant: 'default', requiresConfirmation: true, confirmTitle: 'Post Results?', confirmDescription: 'This will make results visible to all users in Perform.' },
-      ];
-    case 'POSTED':
-      return [
-        { state: 'CLOSED', label: 'Close Period', icon: <Lock className="h-4 w-4 mr-1.5" />, variant: 'default', requiresConfirmation: true, confirmTitle: 'Close Period?', confirmDescription: 'This prevents further changes to this period\'s data.' },
-      ];
-    case 'CLOSED':
-      return [
-        { state: 'PAID', label: 'Mark as Paid', icon: <DollarSign className="h-4 w-4 mr-1.5" />, variant: 'default', requiresConfirmation: true, confirmTitle: 'Mark as Paid?', confirmDescription: 'Record that payment has been processed.' },
-      ];
-    case 'PAID':
-      return [
-        { state: 'PUBLISHED', label: 'Publish', icon: <BookOpen className="h-4 w-4 mr-1.5" />, variant: 'default', requiresConfirmation: true, confirmTitle: 'Publish?', confirmDescription: 'This seals the full audit trail. Terminal state.' },
-      ];
-    case 'PUBLISHED':
-      return [];
-    default:
-      return [];
+  const transitions = getAllowedTransitionsForConfig(config, currentState as GateKey);
+  const actions: ActionButton[] = [];
+
+  for (const targetState of transitions) {
+    // Skip SUPERSEDED — handled separately
+    if (targetState === 'SUPERSEDED') continue;
+
+    // Separation of duties: submitter sees no approval buttons
+    if (currentState === 'PENDING_APPROVAL' && isSubmitter) continue;
+
+    const gate = getGateDefinition(targetState);
+    const isDestructive = targetState === 'REJECTED';
+    const requiresConfirmation =
+      gate.immutable ||
+      targetState === 'POSTED' ||
+      targetState === 'CLOSED' ||
+      targetState === 'PAID' ||
+      targetState === 'PUBLISHED';
+
+    actions.push({
+      state: targetState as CalculationState,
+      label: gate.actionLabel || getStateLabel(targetState),
+      icon: GATE_ICONS[targetState] || <Eye className="h-4 w-4 mr-1.5" />,
+      variant: isDestructive ? 'destructive' : (targetState === 'DRAFT' ? 'outline' : 'default'),
+      requiresConfirmation,
+      confirmTitle: `${gate.label}?`,
+      confirmDescription: gate.description,
+      requiresReason: targetState === 'REJECTED',
+    });
   }
+
+  // Special: add re-run button at PREVIEW state
+  if (currentState === 'PREVIEW' && transitions.length > 0) {
+    actions.unshift({
+      state: 'PREVIEW' as CalculationState,
+      label: 'Re-run Preview',
+      icon: <RefreshCw className="h-4 w-4 mr-1.5" />,
+      variant: 'outline',
+    });
+  }
+
+  return actions;
 }
 
 export function LifecycleActionBar({
@@ -118,11 +134,12 @@ export function LifecycleActionBar({
   onTransition,
   onExport,
   isSubmitter = false,
+  pipelineConfig = PRODUCTION_CONFIG,
 }: LifecycleActionBarProps) {
   const [confirmDialog, setConfirmDialog] = useState<ActionButton | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
 
-  const actions = getActionsForState(cycle.state, isSubmitter);
+  const actions = getActionsFromConfig(pipelineConfig, cycle.state, isSubmitter);
   const showExport = ['APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED'].includes(cycle.state);
 
   const handleAction = (action: ActionButton) => {
