@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Upload, History, FileText, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { pageVariants, containerVariants, itemVariants } from '@/lib/animations';
-import { FileUpload } from '@/components/import/file-upload';
+import { UploadZone } from '@/components/ingestion/UploadZone';
 import { ImportHistory } from '@/components/import/import-history';
 import { getImportHistory } from '@/lib/financial-service';
 import { TableSkeleton } from '@/components/ui/skeleton-loaders';
@@ -187,7 +187,11 @@ export default function ImportsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <FileUpload onFileSelect={handleFileSelect} />
+                <UploadZone
+                  acceptCategories={['spreadsheets', 'text']}
+                  onFileContent={() => handleFileSelect()}
+                  maxFiles={1}
+                />
                 <div className="mt-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
                   <h4 className="font-medium text-sm mb-2">Supported Sources</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
