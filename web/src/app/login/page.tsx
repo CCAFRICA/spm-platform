@@ -74,7 +74,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <label htmlFor="email" className="text-xs font-medium" style={{ color: '#94A3B8' }}>
+              <label htmlFor="email" className="font-medium" style={{ color: '#e2e8f0', fontSize: '14px' }}>
                 Email Address
               </label>
               <input
@@ -99,7 +99,7 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="password" className="text-xs font-medium" style={{ color: '#94A3B8' }}>
+              <label htmlFor="password" className="font-medium" style={{ color: '#e2e8f0', fontSize: '14px' }}>
                 Password
               </label>
               <input

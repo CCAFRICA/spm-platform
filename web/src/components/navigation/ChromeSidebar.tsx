@@ -244,9 +244,9 @@ export function ChromeSidebar() {
                 <span className="text-sm font-bold text-zinc-100 truncate">
                   Vialuce
                 </span>
-                <span className="text-[10px] text-zinc-500 truncate -mt-0.5 flex items-center gap-1">
+                <span style={{ fontSize: '12px', color: '#94a3b8' }} className="truncate -mt-0.5 flex items-center gap-1">
                   {currentTenant?.displayName || 'Platform'}
-                  {isUserVLAdmin && <ArrowLeftRight className="h-2.5 w-2.5 text-zinc-600" />}
+                  {isUserVLAdmin && <ArrowLeftRight className="h-2.5 w-2.5 text-zinc-500" />}
                 </span>
               </div>
             )}
@@ -262,9 +262,10 @@ export function ChromeSidebar() {
             <Link
               href="/select-tenant"
               className={cn(
-                'flex items-center gap-1.5 rounded-md text-[10px] font-medium text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 transition-all',
+                'flex items-center gap-1.5 rounded-md font-medium text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 transition-all',
                 isRailCollapsed ? 'justify-center px-1 py-1' : 'px-2 py-1'
               )}
+              style={{ fontSize: '12px' }}
             >
               <ArrowLeftRight className="h-3 w-3 shrink-0" />
               {!isRailCollapsed && (isSpanish ? '← Observatorio' : '← Observatory')}
@@ -275,7 +276,7 @@ export function ChromeSidebar() {
         {/* ── Workspace Switcher ── */}
         <div className={cn('shrink-0 border-b border-zinc-800/40', isRailCollapsed ? 'py-2 px-1' : 'py-2 px-3')}>
           {!isRailCollapsed && (
-            <p className="text-[10px] font-medium text-zinc-600 uppercase tracking-wider mb-2 px-1">
+            <p style={{ fontSize: '11px', color: '#71717a', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
               {isSpanish ? 'Espacios' : 'Workspaces'}
             </p>
           )}
@@ -316,12 +317,17 @@ export function ChromeSidebar() {
                   key={wsId}
                   onClick={() => navigateToWorkspace(wsId)}
                   className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all',
+                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md font-medium transition-all',
                     isActive
                       ? 'text-white'
-                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                      : 'hover:bg-zinc-800/50'
                   )}
-                  style={isActive ? { backgroundColor: `${ws.accentColor}25`, color: ws.accentColor } : undefined}
+                  style={{
+                    fontSize: '13px',
+                    ...(isActive
+                      ? { backgroundColor: `${ws.accentColor}25`, color: ws.accentColor }
+                      : { color: '#a1a1aa' }),
+                  }}
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {isSpanish ? ws.labelEs : ws.label}
@@ -337,7 +343,7 @@ export function ChromeSidebar() {
           {activeSections.length > 0 && (
             <nav className={cn('py-3', isRailCollapsed ? 'px-1' : 'px-3')}>
               {!isRailCollapsed && (
-                <p className="text-[10px] font-medium text-zinc-600 uppercase tracking-wider mb-2 px-1">
+                <p style={{ fontSize: '11px', color: '#71717a', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
                   {isSpanish ? activeWsConfig?.labelEs : activeWsConfig?.label}
                 </p>
               )}
@@ -381,8 +387,8 @@ export function ChromeSidebar() {
                         <span className="flex-1 text-left text-sm">
                           {isSpanish ? 'Buscar...' : 'Search...'}
                         </span>
-                        <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 font-mono text-[10px] font-medium text-zinc-400 sm:flex">
-                          <span className="text-xs">⌘</span>K
+                        <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 font-mono font-medium sm:flex" style={{ fontSize: '11px', color: '#a1a1aa' }}>
+                          <span style={{ fontSize: '12px' }}>⌘</span>K
                         </kbd>
                       </>
                     )}
@@ -503,18 +509,19 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
       <button
         onClick={onToggle}
         className={cn(
-          'flex w-full items-center justify-between px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-colors',
+          'flex w-full items-center justify-between px-2 py-1.5 rounded-md font-semibold uppercase tracking-wider transition-colors',
           hasActiveRoute
-            ? 'text-zinc-300 hover:bg-zinc-800/40'
-            : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/30'
+            ? 'hover:bg-zinc-800/40'
+            : 'hover:bg-zinc-800/30'
         )}
+        style={{
+          fontSize: '11px',
+          color: hasActiveRoute ? '#d4d4d8' : '#71717a',
+        }}
       >
         <span>{isSpanish ? section.labelEs : section.label}</span>
         <span className="flex items-center gap-1">
-          <span className={cn(
-            'text-[9px] font-normal tabular-nums',
-            hasActiveRoute ? 'text-zinc-500' : 'text-zinc-700'
-          )}>
+          <span style={{ fontSize: '10px', color: hasActiveRoute ? '#71717a' : '#3f3f46' }} className="font-normal tabular-nums">
             {routeCount}
           </span>
           {isExpanded ? (
@@ -534,12 +541,17 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
                 href={route.path}
                 prefetch={false}
                 className={cn(
-                  'flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs transition-all relative',
+                  'flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-all relative',
                   isActive
-                    ? 'text-white font-medium'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                    ? 'font-medium'
+                    : 'hover:bg-zinc-800/50'
                 )}
-                style={isActive ? { backgroundColor: `${wsAccent}20`, color: wsAccent } : undefined}
+                style={{
+                  fontSize: '13px',
+                  ...(isActive
+                    ? { backgroundColor: `${wsAccent}20`, color: wsAccent }
+                    : { color: '#a1a1aa' }),
+                }}
               >
                 {isActive && (
                   <div
