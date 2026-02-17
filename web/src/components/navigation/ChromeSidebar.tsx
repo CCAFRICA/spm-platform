@@ -137,7 +137,7 @@ export function ChromeSidebar() {
     userRole,
   } = useNavigation();
   const { setOpen: setCommandPaletteOpen } = useCommandPalette();
-  const { persona, tokens: personaTokens } = usePersona();
+  const { persona } = usePersona();
   const { currentTenant } = useTenant();
   const { isVLAdmin: isUserVLAdmin } = useAuth();
   const { locale } = useLocale();
