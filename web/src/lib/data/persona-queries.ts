@@ -200,8 +200,6 @@ export async function getManagerDashboardData(
     .select('id, display_name, external_id, entity_type')
     .in('id', entityIds);
 
-  const entityMap = new Map((entities ?? []).map(e => [e.id, e]));
-
   // Fetch multi-period history for sparklines
   const { data: history } = await supabase
     .from('entity_period_outcomes')

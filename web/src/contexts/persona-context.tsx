@@ -17,7 +17,7 @@ import { useAuth } from './auth-context';
 import { useTenant } from './tenant-context';
 import { createClient } from '@/lib/supabase/client';
 import { PERSONA_TOKENS, type PersonaKey } from '@/lib/design/tokens';
-import type { User, TenantUser } from '@/types/auth';
+import type { User } from '@/types/auth';
 
 // ──────────────────────────────────────────────
 // Types

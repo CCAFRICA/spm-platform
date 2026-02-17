@@ -12,6 +12,7 @@
  * Created as standalone (OB-46A) — wired into layout in OB-46B.
  */
 
+import Image from 'next/image';
 import { PERSONA_TOKENS, type PersonaKey } from '@/lib/design/tokens';
 
 interface TopBarProps {
@@ -58,10 +59,12 @@ export function TopBar({
           <span className="text-sm text-zinc-300">{userName}</span>
         )}
         {avatarUrl ? (
-          <img
+          <Image
             src={avatarUrl}
             alt={userName || 'User'}
-            className="w-7 h-7 rounded-full border border-zinc-700"
+            width={28}
+            height={28}
+            className="rounded-full border border-zinc-700"
           />
         ) : userName ? (
           <div className={`w-7 h-7 rounded-full bg-gradient-to-br ${tokens.accentGrad} flex items-center justify-center text-xs font-medium text-white`}>
