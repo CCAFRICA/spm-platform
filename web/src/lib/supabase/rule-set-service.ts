@@ -88,16 +88,31 @@ function planConfigToRuleSetInsert(
 
 /**
  * Get all rule sets for a tenant.
+ * 5-second dedup cache prevents redundant queries from parallel clock services.
  */
+const _rsCache = new Map<string, { data: RuleSetConfig[]; ts: number; promise?: Promise<RuleSetConfig[]> }>();
+const RS_CACHE_TTL = 5000;
+
 export async function getRuleSets(tenantId: string): Promise<RuleSetConfig[]> {
   requireTenantId(tenantId);
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from('rule_sets')
-    .select('*')
-    .eq('tenant_id', tenantId);
-  if (error) throw error;
-  return ((data || []) as RuleSet[]).map(ruleSetToPlanConfig);
+  const cached = _rsCache.get(tenantId);
+  if (cached) {
+    if (cached.promise) return cached.promise;
+    if (Date.now() - cached.ts < RS_CACHE_TTL) return cached.data;
+  }
+  const promise = (async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('rule_sets')
+      .select('*')
+      .eq('tenant_id', tenantId);
+    if (error) throw error;
+    const result = ((data || []) as RuleSet[]).map(ruleSetToPlanConfig);
+    _rsCache.set(tenantId, { data: result, ts: Date.now() });
+    return result;
+  })();
+  _rsCache.set(tenantId, { data: [], ts: 0, promise });
+  try { return await promise; } catch (e) { _rsCache.delete(tenantId); throw e; }
 }
 
 /**
