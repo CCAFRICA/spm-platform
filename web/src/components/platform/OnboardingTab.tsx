@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import type { OnboardingTenant } from '@/lib/data/platform-queries';
 import {
   Loader2,
@@ -12,6 +13,7 @@ import {
   Rocket,
   CheckCircle,
   Circle,
+  Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +27,7 @@ const STAGES = [
 ] as const;
 
 export function OnboardingTab() {
+  const router = useRouter();
   const [tenants, setTenants] = useState<OnboardingTenant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -65,6 +68,22 @@ export function OnboardingTab() {
 
   return (
     <div className="space-y-8">
+      {/* Header with Create Tenant action */}
+      <div className="flex items-center justify-between">
+        <div />
+        <button
+          onClick={() => router.push('/admin/tenants/new')}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          style={{
+            background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+            color: '#ffffff',
+          }}
+        >
+          <Plus className="h-4 w-4" />
+          Create Tenant
+        </button>
+      </div>
+
       {/* Pipeline Summary */}
       <div className="grid grid-cols-4 gap-4">
         <SummaryCard label="Total Tenants" value={totalTenants} color="text-white" />

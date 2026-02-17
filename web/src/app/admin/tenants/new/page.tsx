@@ -336,13 +336,17 @@ export default function NewTenantPage() {
         return;
       }
 
-      const { tenant } = await res.json();
+      const { tenant, adminUserId, warnings: serverWarnings } = await res.json();
 
       setProvisionResult({
         success: true,
         tenantId: tenant.id,
-        warnings: [],
+        warnings: serverWarnings || [],
       });
+
+      if (adminUserId) {
+        console.log('[NewTenantPage] Admin user created:', adminUserId);
+      }
     } catch (error) {
       setProvisionResult({
         success: false,
