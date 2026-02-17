@@ -119,6 +119,17 @@ function AuthShellProtected({ children }: AuthShellProps) {
 
   // Authenticated user - show with or without shell based on route
   if (!showShell) {
+    // On shell-excluded routes (e.g. /select-tenant), still show the
+    // DemoPersonaSwitcher for VL Admin with a tenant context so they
+    // can switch persona views before navigating into the tenant.
+    if (isVLAdmin && currentTenant) {
+      return (
+        <PersonaProvider>
+          {children}
+          <DemoPersonaSwitcher />
+        </PersonaProvider>
+      );
+    }
     return <>{children}</>;
   }
 
