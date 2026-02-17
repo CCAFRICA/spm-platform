@@ -3,9 +3,18 @@
 /**
  * Rep Dashboard — "Crecer"
  *
- * Personal growth view: total payout, goal gradient, what-if slider,
- * component stack with waterfall drill-down, relative leaderboard, pacing.
- * All data from persona-queries.ts getRepDashboardData().
+ * DS-001 Rep View layout (7 distinct visual forms):
+ *   Hero: Full width (emerald gradient + Ring gauge + GoalGradient + Pill badges)
+ *   Row 2: Components (col-7) + Leaderboard + Trajectory + Actions (col-5)
+ *
+ * Cognitive Fit Test:
+ *   1. Personal payout → HeroMetric (AnimNum, 5xl) — identification
+ *   2. Attainment → Ring gauge — monitoring
+ *   3. Tier progress → GoalGradient (multi-tier progress bar) — progress
+ *   4. Component breakdown → StackedBar + expandable list — part-of-whole
+ *   5. Relative position → RelativeLeaderboard (neighbors) — ranking
+ *   6. Trajectory → Small multiples (5 months) — comparison over time
+ *   7. Actions → Card buttons (Simulador, Mi Plan) — selection
  */
 
 import { useState, useEffect } from 'react';
@@ -13,16 +22,29 @@ import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
+import { ProgressRing } from '@/components/design-system/ProgressRing';
 import { GoalGradientBar } from '@/components/design-system/GoalGradientBar';
 import { WhatIfSlider, type TierConfig } from '@/components/design-system/WhatIfSlider';
 import { ComponentStack } from '@/components/design-system/ComponentStack';
-import { CalculationWaterfall, type WaterfallStep } from '@/components/design-system/CalculationWaterfall';
 import { RelativeLeaderboard } from '@/components/design-system/RelativeLeaderboard';
-import { PacingCone } from '@/components/design-system/PacingCone';
 import {
   getRepDashboardData,
   type RepDashboardData,
 } from '@/lib/data/persona-queries';
+
+const HERO_STYLE = {
+  background: 'linear-gradient(to bottom right, rgba(5, 150, 105, 0.7), rgba(13, 148, 136, 0.7))',
+  border: '1px solid rgba(52, 211, 153, 0.2)',
+  borderRadius: '16px',
+  padding: '24px',
+};
+
+const CARD_STYLE = {
+  background: 'rgba(24, 24, 27, 0.8)',
+  border: '1px solid rgba(39, 39, 42, 0.6)',
+  borderRadius: '16px',
+  padding: '20px',
+};
 
 export function RepDashboard() {
   const { currentTenant } = useTenant();
@@ -66,20 +88,18 @@ export function RepDashboard() {
   if (!data || data.totalPayout === 0) {
     return (
       <div className="text-center py-16 space-y-3">
-        <p className="text-zinc-400">No hay resultados de compensacion para este periodo.</p>
-        <p className="text-sm text-zinc-600">Tus resultados apareceran aqui cuando se ejecute el calculo.</p>
+        <p style={{ color: '#a1a1aa' }}>No hay resultados de compensacion para este periodo.</p>
+        <p className="text-sm" style={{ color: '#52525b' }}>Tus resultados apareceran aqui cuando se ejecute el calculo.</p>
       </div>
     );
   }
 
-  // Build tiers for what-if slider, scaled so calculatePayout(currentAttainment) ≈ totalPayout
-  // Without scaling, rates multiply against percentage points giving nonsensical results
+  // Scale tiers so calculatePayout(current) = actual payout
   const rawTiers: TierConfig[] = [
     { min: 0, max: 80, rate: 0.5, label: 'Base' },
     { min: 80, max: 120, rate: 1.0, label: 'Target' },
     { min: 120, max: 250, rate: 1.5, label: 'Acelerador' },
   ];
-  // Calculate raw payout at current attainment to derive scale factor
   let rawPayout = 0;
   for (const t of rawTiers) {
     if (data.attainment <= t.min) continue;
@@ -87,162 +107,184 @@ export function RepDashboard() {
     if (applicable > 0) rawPayout += applicable * t.rate;
   }
   const scaleFactor = rawPayout > 0 ? data.totalPayout / rawPayout : 1;
-  const defaultTiers: TierConfig[] = rawTiers.map(t => ({
-    ...t,
-    rate: t.rate * scaleFactor,
-  }));
+  const defaultTiers: TierConfig[] = rawTiers.map(t => ({ ...t, rate: t.rate * scaleFactor }));
 
-  // Build waterfall for expanded component
-  const waterfallSteps: WaterfallStep[] = data.components.map(c => ({
-    label: c.name,
-    value: c.value,
-    type: 'add' as const,
-  }));
-  waterfallSteps.push({
-    label: 'Total',
-    value: data.totalPayout,
-    type: 'total' as const,
-  });
-
-  // Pacing history from trend data
-  const pacingHistory = data.history.map(h => h.payout);
+  // Ring gauge capped at 100% for display
+  const ringPct = Math.min(data.attainment, 200);
+  const ringColor = data.attainment >= 100 ? '#34d399' : data.attainment >= 80 ? '#fbbf24' : '#f87171';
 
   return (
-    <div className="space-y-6">
-      {/* Hero */}
-      <div className="bg-gradient-to-br from-emerald-600/80 to-lime-700/80 rounded-2xl p-6 border border-emerald-500/20">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-emerald-100/50 text-sm">Mi Pago Total</p>
-            <p className="text-3xl font-bold text-white mt-1">
+    <div className="space-y-4">
+      {/* ── Hero: Full width ── */}
+      <div style={HERO_STYLE}>
+        <div className="flex items-start justify-between gap-6">
+          <div className="flex-1">
+            <p style={{ color: 'rgba(167, 243, 208, 0.6)', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Mi Compensacion · {activePeriodLabel}
+            </p>
+            <p className="text-4xl lg:text-5xl font-bold mt-2" style={{ color: '#ffffff' }}>
               {currencySymbol}<AnimatedNumber value={data.totalPayout} />
             </p>
-            <p className="text-emerald-100/60 text-sm mt-1">Cada peso explicado</p>
-            <div className="flex items-center gap-4 mt-2 text-sm text-emerald-100/50">
-              <span>{activePeriodLabel}</span>
-              <span>Logro: {data.attainment.toFixed(1)}%</span>
-              {data.rank > 0 && data.totalPayout > 0 && <span>Posicion: #{data.rank} de {data.totalEntities}</span>}
+            {/* Pill badges */}
+            <div className="flex flex-wrap gap-2 mt-3">
+              {data.rank > 0 && data.totalEntities > 0 && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium"
+                  style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+                  #{data.rank} de {data.totalEntities}
+                </span>
+              )}
+              {data.attainment >= 100 && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium"
+                  style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#6ee7b7', border: '1px solid rgba(52, 211, 153, 0.3)' }}>
+                  Certificado
+                </span>
+              )}
+              {data.history.length >= 3 && data.history.slice(-3).every(h => h.payout > 0) && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium"
+                  style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.3)' }}>
+                  {data.history.length} meses
+                </span>
+              )}
             </div>
+            {/* GoalGradient */}
+            <div className="mt-4">
+              <GoalGradientBar
+                currentPct={data.attainment}
+                tiers={[
+                  { pct: 0, label: '0%' },
+                  { pct: 80, label: 'Base' },
+                  { pct: 100, label: 'Premium' },
+                  { pct: 150, label: 'Elite' },
+                ]}
+              />
+            </div>
+          </div>
+          {/* Ring gauge */}
+          <div className="flex-shrink-0 hidden md:block">
+            <ProgressRing pct={Math.min(ringPct / 1.5, 100)} size={100} stroke={8} color={ringColor}>
+              <div className="text-center">
+                <p className="text-xl font-bold" style={{ color: '#ffffff' }}>{data.attainment.toFixed(0)}%</p>
+                <p style={{ color: 'rgba(167, 243, 208, 0.6)', fontSize: '9px' }}>logro</p>
+              </div>
+            </ProgressRing>
           </div>
         </div>
       </div>
 
-      {/* Goal Gradient + What-If */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Progreso hacia Meta</h4>
-          <GoalGradientBar
-            currentPct={data.attainment}
-            tiers={[
-              { pct: 80, label: 'Base' },
-              { pct: 100, label: 'Target' },
-              { pct: 120, label: 'Acelerador' },
-            ]}
-          />
+      {/* ── Row 2: Components (7) + Leaderboard + Trajectory + Actions (5) ── */}
+      <div className="grid grid-cols-12 gap-4">
+        {/* Component breakdown */}
+        <div className="col-span-12 lg:col-span-7" style={CARD_STYLE}>
+          <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+            Cada Peso Explicado
+          </p>
+          {data.components.length > 0 ? (
+            <div className="space-y-3">
+              <ComponentStack components={data.components} total={data.totalPayout} />
+              <div className="space-y-1 mt-3">
+                {data.components.map(c => (
+                  <button
+                    key={c.name}
+                    onClick={() => setExpandedComponent(expandedComponent === c.name ? null : c.name)}
+                    className="w-full flex items-center justify-between py-2 px-2 rounded-lg transition-colors"
+                    style={{
+                      background: expandedComponent === c.name ? 'rgba(52, 211, 153, 0.08)' : 'transparent',
+                    }}
+                  >
+                    <span className="text-xs" style={{ color: '#d4d4d8' }}>{c.name}</span>
+                    <span className="text-xs tabular-nums font-medium" style={{ color: '#a1a1aa' }}>
+                      {currencySymbol}{c.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                  </button>
+                ))}
+                <div className="flex items-center justify-between pt-2 mt-2" style={{ borderTop: '1px solid rgba(39, 39, 42, 0.6)' }}>
+                  <span className="text-xs font-medium" style={{ color: '#e4e4e7' }}>Total</span>
+                  <span className="text-sm font-bold tabular-nums" style={{ color: '#ffffff' }}>
+                    {currencySymbol}{data.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm" style={{ color: '#71717a' }}>Sin desglose de componentes.</p>
+          )}
         </div>
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Que Pasaria Si...</h4>
-          <WhatIfSlider
-            currentValue={data.attainment}
-            currentPayout={data.totalPayout}
-            tiers={defaultTiers}
-            currency={currencySymbol}
-          />
-        </div>
-      </div>
 
-      {/* Component Stack + Waterfall Drill-down */}
-      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-        <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Componentes de Compensacion</h4>
-        {data.components.length > 0 ? (
-          <div className="space-y-3">
-            <ComponentStack
-              components={data.components}
-              total={data.totalPayout}
+        {/* Right column: Leaderboard + Trajectory + Actions */}
+        <div className="col-span-12 lg:col-span-5 space-y-4">
+          {/* Relative Leaderboard */}
+          {data.neighbors.length > 0 && (
+            <div style={CARD_STYLE}>
+              <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+                Tu Posicion Relativa
+              </p>
+              <RelativeLeaderboard
+                yourRank={data.rank}
+                yourName="Tu"
+                neighbors={data.neighbors}
+              />
+            </div>
+          )}
+
+          {/* Trajectory */}
+          {data.history.length > 0 && (
+            <div style={CARD_STYLE}>
+              <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+                Trayectoria
+              </p>
+              <div className="grid grid-cols-5 gap-2">
+                {data.history.slice(-5).map((h, i) => (
+                  <div key={i} className="text-center p-2 rounded-lg" style={{ background: 'rgba(39, 39, 42, 0.5)' }}>
+                    <p style={{ color: '#71717a', fontSize: '10px' }} className="truncate">{h.period}</p>
+                    <p className="text-sm font-bold tabular-nums mt-1" style={{ color: '#e4e4e7' }}>
+                      {currencySymbol}{h.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* What-If */}
+          <div style={CARD_STYLE}>
+            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+              Que Pasaria Si...
+            </p>
+            <WhatIfSlider
+              currentValue={data.attainment}
+              currentPayout={data.totalPayout}
+              tiers={defaultTiers}
+              currency={currencySymbol}
             />
-            {/* Click any component legend to expand waterfall */}
-            <div className="flex flex-wrap gap-2 mt-2">
-              {data.components.map(c => (
-                <button
-                  key={c.name}
-                  onClick={() => setExpandedComponent(expandedComponent === c.name ? null : c.name)}
-                  className={`text-xs px-2 py-1 rounded-md border transition-colors ${
-                    expandedComponent === c.name
-                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
-                      : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {c.name}: {currencySymbol}{c.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </button>
-              ))}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-3">
+            <div
+              className="cursor-pointer transition-all"
+              style={{
+                ...CARD_STYLE,
+                padding: '14px',
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(52, 211, 153, 0.3)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(39, 39, 42, 0.6)'; }}
+            >
+              <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>Simulador</p>
+              <p style={{ color: '#71717a', fontSize: '10px', marginTop: '4px' }}>Proyecta escenarios</p>
             </div>
-            {expandedComponent && (
-              <div className="mt-3 pt-3 border-t border-zinc-800">
-                <h5 className="text-xs text-zinc-400 mb-2">Detalle: {expandedComponent}</h5>
-                <CalculationWaterfall steps={waterfallSteps} currency={currencySymbol} />
-              </div>
-            )}
+            <div
+              className="cursor-pointer transition-all"
+              style={{
+                ...CARD_STYLE,
+                padding: '14px',
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(52, 211, 153, 0.3)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(39, 39, 42, 0.6)'; }}
+            >
+              <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>Mi Plan</p>
+              <p style={{ color: '#71717a', fontSize: '10px', marginTop: '4px' }}>Revisa tu plan</p>
+            </div>
           </div>
-        ) : (
-          <p className="text-sm text-zinc-500">Sin desglose de componentes.</p>
-        )}
-      </div>
-
-      {/* Relative Leaderboard */}
-      {data.neighbors.length > 0 && (
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Tu Posicion Relativa</h4>
-          <RelativeLeaderboard
-            yourRank={data.rank}
-            yourName="Tu"
-            neighbors={data.neighbors}
-          />
-        </div>
-      )}
-
-      {/* Pacing Cone */}
-      {pacingHistory.length > 1 && (
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Ritmo y Proyeccion</h4>
-          <PacingCone
-            history={pacingHistory}
-            daysRemaining={15}
-            daysTotal={30}
-            tiers={[
-              { threshold: data.totalPayout * 0.8, label: 'Base' },
-              { threshold: data.totalPayout, label: 'Target' },
-              { threshold: data.totalPayout * 1.2, label: 'Acelerador' },
-            ]}
-          />
-        </div>
-      )}
-
-      {/* Trajectory History */}
-      {data.history.length > 0 && (
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Trayectoria</h4>
-          <div className="grid grid-cols-5 gap-2">
-            {data.history.slice(-5).map((h, i) => (
-              <div key={i} className="text-center p-2 rounded-lg bg-zinc-800/50">
-                <p className="text-[10px] text-zinc-500 truncate">{h.period}</p>
-                <p className="text-sm font-bold text-zinc-200 tabular-nums mt-1">
-                  {currencySymbol}{h.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Action Buttons */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 hover:border-emerald-500/30 transition-colors cursor-pointer">
-          <p className="text-sm font-medium text-zinc-200">Simulador</p>
-          <p className="text-[10px] text-zinc-500 mt-1">Proyecta tu pago con distintos escenarios</p>
-        </div>
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 hover:border-emerald-500/30 transition-colors cursor-pointer">
-          <p className="text-sm font-medium text-zinc-200">Mi Plan</p>
-          <p className="text-[10px] text-zinc-500 mt-1">Revisa tu plan de compensacion completo</p>
         </div>
       </div>
     </div>
