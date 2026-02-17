@@ -14,9 +14,7 @@ import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { isVLAdmin } from '@/types/auth';
 import {
-  getTenantProvisioningEngine,
   getIndustryTemplates,
-  type TenantProvisioningRequest,
 } from '@/lib/tenant/provisioning-engine';
 import {
   Building2,
@@ -300,24 +298,51 @@ export default function NewTenantPage() {
     setCurrentStep('provision');
 
     try {
-      const engine = getTenantProvisioningEngine();
-      const request: TenantProvisioningRequest = {
-        name: formData.name,
-        displayName: formData.displayName,
-        industry: formData.industry,
-        country: formData.country,
-        adminEmail: formData.adminEmail,
-        adminName: formData.adminName, // Pass admin name to provisioning
-        currency: formData.currency,
-        locale: formData.locale,
-        timezone: formData.timezone,
-        primaryColor: formData.primaryColor,
-        logo: formData.logoUrl || undefined,
-        features: formData.features as Partial<TenantFeatures>,
-      };
+      // Call server-side API route (uses service role client to bypass RLS)
+      const res = await fetch('/api/admin/tenants/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          slug: formData.name
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .substring(0, 50),
+          settings: {
+            industry: formData.industry,
+            country_code: formData.country,
+            timezone: formData.timezone,
+            display_name: formData.displayName,
+            primary_color: formData.primaryColor,
+            logo_url: formData.logoUrl || undefined,
+            admin_email: formData.adminEmail,
+            admin_name: formData.adminName,
+          },
+          features: formData.features,
+          locale: formData.locale,
+          currency: formData.currency,
+        }),
+      });
 
-      const result = engine.provisionTenant(request);
-      setProvisionResult(result);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        setProvisionResult({
+          success: false,
+          error: err.error || `Server error: ${res.status}`,
+          warnings: [],
+        });
+        return;
+      }
+
+      const { tenant } = await res.json();
+
+      setProvisionResult({
+        success: true,
+        tenantId: tenant.id,
+        warnings: [],
+      });
     } catch (error) {
       setProvisionResult({
         success: false,
