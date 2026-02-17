@@ -382,10 +382,9 @@ export default function ResultsDashboardPage() {
                     <TableCell>
                       <div>
                         <span className="font-medium">{row.entityName}</span>
-                        <p className="text-xs text-slate-400">{row.entityId}</p>
                       </div>
                     </TableCell>
-                    <TableCell className="font-mono text-sm">{row.storeId || '-'}</TableCell>
+                    <TableCell className="text-sm">{row.storeId ? row.storeId.slice(0, 8) : '-'}</TableCell>
                     {componentTotals.map(cc => {
                       const comp = row.components.find(c => c.componentId === cc.componentId);
                       return (

@@ -534,8 +534,10 @@ export default function CalculatePage() {
                       className="cursor-pointer hover:bg-slate-50"
                       onClick={() => router.push(`/investigate/trace/${r.entity_id}?from=calculate`)}
                     >
-                      <TableCell className="font-mono text-sm">{r.entity_id}</TableCell>
-                      <TableCell className="text-sm">{r.rule_set_id || '-'}</TableCell>
+                      <TableCell className="text-sm">
+                        <span className="font-medium">{(r as Record<string, unknown>).entity_name as string || r.entity_id.slice(0, 8)}</span>
+                      </TableCell>
+                      <TableCell className="text-sm text-slate-500">{r.rule_set_id ? r.rule_set_id.slice(0, 8) : '-'}</TableCell>
                       <TableCell className="text-right font-semibold text-emerald-600">
                         {formatCurrency(r.total_payout || 0)}
                       </TableCell>

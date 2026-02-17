@@ -677,7 +677,7 @@ export default function NewTenantPage() {
                 <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
                 <div>
                   <p className="text-lg font-medium text-green-600">Tenant Provisioned Successfully!</p>
-                  <p className="text-slate-500 mt-1">Tenant ID: {provisionResult.tenantId}</p>
+                  <p className="text-slate-500 mt-1">{formData.name} is ready</p>
                 </div>
                 {provisionResult.warnings.length > 0 && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-left">
