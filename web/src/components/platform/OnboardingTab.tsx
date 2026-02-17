@@ -1,10 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  getOnboardingData,
-  type OnboardingTenant,
-} from '@/lib/data/platform-queries';
+import type { OnboardingTenant } from '@/lib/data/platform-queries';
 import {
   Loader2,
   Building2,
@@ -34,14 +31,21 @@ export function OnboardingTab() {
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    getOnboardingData().then(result => {
-      if (!cancelled) {
-        setTenants(result);
-        setIsLoading(false);
-      }
-    }).catch(() => {
-      if (!cancelled) setIsLoading(false);
-    });
+    fetch('/api/platform/observatory?tab=onboarding')
+      .then(res => {
+        if (!res.ok) throw new Error(`Onboarding API: ${res.status}`);
+        return res.json();
+      })
+      .then((result: OnboardingTenant[]) => {
+        if (!cancelled) {
+          setTenants(result);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error('[OnboardingTab] Fetch failed:', err);
+        if (!cancelled) setIsLoading(false);
+      });
     return () => { cancelled = true; };
   }, []);
 
