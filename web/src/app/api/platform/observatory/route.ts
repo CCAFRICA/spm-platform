@@ -114,69 +114,104 @@ async function fetchTenantFleetCards(supabase: ServiceClient): Promise<TenantFle
 
   if (!tenants || tenants.length === 0) return [];
 
-  const cards: TenantFleetCard[] = [];
+  const tenantIds = tenants.map(t => t.id);
 
-  for (const t of tenants) {
-    const settings = (t.settings || {}) as Record<string, unknown>;
+  // Bulk fetch all related data in parallel (5 queries instead of 5N)
+  const [allEntities, allProfiles, allPeriods, allBatches, allOutcomes] = await Promise.all([
+    supabase.from('entities').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
+    supabase.from('profiles').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
+    supabase.from('periods').select('id, tenant_id, period_key, start_date, status')
+      .in('tenant_id', tenantIds).order('start_date', { ascending: false }).limit(10000),
+    supabase.from('calculation_batches').select('tenant_id, lifecycle_state, entity_count, created_at')
+      .in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(10000),
+    supabase.from('entity_period_outcomes').select('tenant_id, period_id, total_payout')
+      .in('tenant_id', tenantIds).limit(10000),
+  ]);
 
-    const [entityRes, profileRes, periodRes, batchRes] = await Promise.all([
-      supabase.from('entities').select('*', { count: 'exact', head: true }).eq('tenant_id', t.id),
-      supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('tenant_id', t.id),
-      supabase.from('periods').select('id, period_key, start_date, status')
-        .eq('tenant_id', t.id).order('start_date', { ascending: false }).limit(1),
-      supabase.from('calculation_batches').select('id, lifecycle_state, entity_count, created_at')
-        .eq('tenant_id', t.id).order('created_at', { ascending: false }).limit(1),
-    ]);
+  const entityCounts = countByField(allEntities.data ?? [], 'tenant_id');
+  const profileCounts = countByField(allProfiles.data ?? [], 'tenant_id');
 
-    let latestBatchPayout = 0;
-    const latestPeriod = periodRes.data?.[0];
-    if (latestPeriod) {
-      const { data: outcomes } = await supabase
-        .from('entity_period_outcomes')
-        .select('total_payout')
-        .eq('tenant_id', t.id)
-        .eq('period_id', latestPeriod.id);
-      latestBatchPayout = (outcomes ?? []).reduce((s, o) => s + (o.total_payout || 0), 0);
+  // Latest period per tenant (data is ordered by start_date desc)
+  const latestPeriodByTenant = new Map<string, { id: string; period_key: string; status: string }>();
+  for (const p of (allPeriods.data ?? [])) {
+    if (!latestPeriodByTenant.has(p.tenant_id)) {
+      latestPeriodByTenant.set(p.tenant_id, { id: p.id, period_key: p.period_key, status: p.status });
     }
+  }
 
-    cards.push({
+  // Latest batch per tenant (data is ordered by created_at desc)
+  const latestBatchByTenant = new Map<string, { lifecycle_state: string; created_at: string }>();
+  for (const b of (allBatches.data ?? [])) {
+    if (!latestBatchByTenant.has(b.tenant_id)) {
+      latestBatchByTenant.set(b.tenant_id, { lifecycle_state: b.lifecycle_state, created_at: b.created_at });
+    }
+  }
+
+  // Sum payout per tenant for their latest period only
+  const payoutByTenant = new Map<string, number>();
+  for (const o of (allOutcomes.data ?? [])) {
+    const latestPeriod = latestPeriodByTenant.get(o.tenant_id);
+    if (latestPeriod && o.period_id === latestPeriod.id) {
+      payoutByTenant.set(o.tenant_id, (payoutByTenant.get(o.tenant_id) ?? 0) + (o.total_payout || 0));
+    }
+  }
+
+  return tenants.map(t => {
+    const settings = (t.settings || {}) as Record<string, unknown>;
+    const latestPeriod = latestPeriodByTenant.get(t.id);
+    const latestBatch = latestBatchByTenant.get(t.id);
+
+    return {
       id: t.id,
       name: t.name,
       slug: t.slug,
       industry: (settings.industry as string) || '',
       country: (settings.country_code as string) || '',
       status: 'active',
-      entityCount: entityRes.count ?? 0,
-      userCount: profileRes.count ?? 0,
+      entityCount: entityCounts.get(t.id) ?? 0,
+      userCount: profileCounts.get(t.id) ?? 0,
       periodCount: 0,
       latestPeriodLabel: latestPeriod?.period_key ?? null,
       latestPeriodStatus: latestPeriod?.status ?? null,
-      latestLifecycleState: batchRes.data?.[0]?.lifecycle_state ?? null,
-      latestBatchPayout,
-      lastActivity: batchRes.data?.[0]?.created_at || t.updated_at || t.created_at,
+      latestLifecycleState: latestBatch?.lifecycle_state ?? null,
+      latestBatchPayout: payoutByTenant.get(t.id) ?? 0,
+      lastActivity: latestBatch?.created_at || t.updated_at || t.created_at,
       createdAt: t.created_at,
-    });
-  }
-
-  return cards;
+    };
+  });
 }
 
 async function fetchOperationsQueue(supabase: ServiceClient): Promise<OperationsQueueItem[]> {
-  const items: OperationsQueueItem[] = [];
-
   const { data: tenants } = await supabase
     .from('tenants')
     .select('id, name, created_at');
 
   if (!tenants) return [];
 
-  for (const t of tenants) {
-    const { count: entityCount } = await supabase
-      .from('entities')
-      .select('*', { count: 'exact', head: true })
-      .eq('tenant_id', t.id);
+  const tenantIds = tenants.map(t => t.id);
 
-    if ((entityCount ?? 0) === 0) {
+  // Bulk fetch entity counts and latest batches (2 queries instead of 2N)
+  const [allEntities, allBatches] = await Promise.all([
+    supabase.from('entities').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
+    supabase.from('calculation_batches').select('tenant_id, lifecycle_state, created_at')
+      .in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(10000),
+  ]);
+
+  const entityCounts = countByField(allEntities.data ?? [], 'tenant_id');
+
+  // Latest batch per tenant
+  const latestBatchByTenant = new Map<string, { lifecycle_state: string; created_at: string }>();
+  for (const b of (allBatches.data ?? [])) {
+    if (!latestBatchByTenant.has(b.tenant_id)) {
+      latestBatchByTenant.set(b.tenant_id, { lifecycle_state: b.lifecycle_state, created_at: b.created_at });
+    }
+  }
+
+  const items: OperationsQueueItem[] = [];
+  const STALL_THRESHOLD = 48 * 60 * 60 * 1000;
+
+  for (const t of tenants) {
+    if ((entityCounts.get(t.id) ?? 0) === 0) {
       items.push({
         tenantId: t.id,
         tenantName: t.name,
@@ -187,14 +222,8 @@ async function fetchOperationsQueue(supabase: ServiceClient): Promise<Operations
       continue;
     }
 
-    const { data: batches } = await supabase
-      .from('calculation_batches')
-      .select('id, lifecycle_state, created_at')
-      .eq('tenant_id', t.id)
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (!batches || batches.length === 0) {
+    const latest = latestBatchByTenant.get(t.id);
+    if (!latest) {
       items.push({
         tenantId: t.id,
         tenantName: t.name,
@@ -205,10 +234,7 @@ async function fetchOperationsQueue(supabase: ServiceClient): Promise<Operations
       continue;
     }
 
-    const latest = batches[0];
     const batchAge = Date.now() - new Date(latest.created_at).getTime();
-    const STALL_THRESHOLD = 48 * 60 * 60 * 1000;
-
     if (
       batchAge > STALL_THRESHOLD &&
       latest.lifecycle_state !== 'POSTED' &&
@@ -302,44 +328,46 @@ async function fetchBillingData(supabase: ServiceClient): Promise<{
     .select('id, name')
     .order('name');
 
-  const tenantData: TenantBillingData[] = [];
+  const safeTenants = tenants ?? [];
+  const tenantIds = safeTenants.map(t => t.id);
 
-  for (const t of (tenants ?? [])) {
-    const [entityRes, periodRes, batchRes, profileRes, payoutRes] = await Promise.all([
-      supabase.from('entities').select('*', { count: 'exact', head: true }).eq('tenant_id', t.id),
-      supabase.from('periods').select('*', { count: 'exact', head: true }).eq('tenant_id', t.id),
-      supabase.from('calculation_batches').select('*', { count: 'exact', head: true }).eq('tenant_id', t.id),
-      supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('tenant_id', t.id),
-      supabase.from('entity_period_outcomes').select('total_payout').eq('tenant_id', t.id),
-    ]);
+  // Bulk fetch all counts + payouts in parallel (6 queries instead of 5N+3)
+  const [allEntities, allPeriods, allBatches, allProfiles, allOutcomes, recentBatchesRes] = await Promise.all([
+    supabase.from('entities').select('tenant_id').in('tenant_id', tenantIds.length > 0 ? tenantIds : ['__none__']).limit(10000),
+    supabase.from('periods').select('tenant_id').in('tenant_id', tenantIds.length > 0 ? tenantIds : ['__none__']).limit(10000),
+    supabase.from('calculation_batches').select('tenant_id').in('tenant_id', tenantIds.length > 0 ? tenantIds : ['__none__']).limit(10000),
+    supabase.from('profiles').select('tenant_id').in('tenant_id', tenantIds.length > 0 ? tenantIds : ['__none__']).limit(10000),
+    supabase.from('entity_period_outcomes').select('tenant_id, total_payout').in('tenant_id', tenantIds.length > 0 ? tenantIds : ['__none__']).limit(10000),
+    supabase.from('calculation_batches').select('id, tenant_id, lifecycle_state, entity_count, created_at')
+      .order('created_at', { ascending: false }).limit(10),
+  ]);
 
-    tenantData.push({
-      tenantId: t.id,
-      tenantName: t.name,
-      entityCount: entityRes.count ?? 0,
-      periodCount: periodRes.count ?? 0,
-      batchCount: batchRes.count ?? 0,
-      userCount: profileRes.count ?? 0,
-      totalPayout: (payoutRes.data ?? []).reduce((s, o) => s + (o.total_payout || 0), 0),
-    });
+  const entityCounts = countByField(allEntities.data ?? [], 'tenant_id');
+  const periodCounts = countByField(allPeriods.data ?? [], 'tenant_id');
+  const batchCounts = countByField(allBatches.data ?? [], 'tenant_id');
+  const profileCounts = countByField(allProfiles.data ?? [], 'tenant_id');
+
+  // Sum payouts per tenant
+  const payoutByTenant = new Map<string, number>();
+  for (const o of (allOutcomes.data ?? [])) {
+    payoutByTenant.set(o.tenant_id, (payoutByTenant.get(o.tenant_id) ?? 0) + (o.total_payout || 0));
   }
 
-  const { data: recentBatches } = await supabase
-    .from('calculation_batches')
-    .select('id, tenant_id, lifecycle_state, entity_count, created_at')
-    .order('created_at', { ascending: false })
-    .limit(10);
+  const tenantData: TenantBillingData[] = safeTenants.map(t => ({
+    tenantId: t.id,
+    tenantName: t.name,
+    entityCount: entityCounts.get(t.id) ?? 0,
+    periodCount: periodCounts.get(t.id) ?? 0,
+    batchCount: batchCounts.get(t.id) ?? 0,
+    userCount: profileCounts.get(t.id) ?? 0,
+    totalPayout: payoutByTenant.get(t.id) ?? 0,
+  }));
 
-  const batchTenantIds = Array.from(new Set((recentBatches ?? []).map(b => b.tenant_id)));
-  const { data: batchTenants } = await supabase
-    .from('tenants')
-    .select('id, name')
-    .in('id', batchTenantIds.length > 0 ? batchTenantIds : ['__none__']);
-  const nameMap = new Map((batchTenants ?? []).map(t => [t.id, t.name]));
+  const nameMap = new Map(safeTenants.map(t => [t.id, t.name]));
 
   return {
     tenants: tenantData,
-    recentActivity: (recentBatches ?? []).map(b => ({
+    recentActivity: (recentBatchesRes.data ?? []).map(b => ({
       batchId: b.id,
       tenantId: b.tenant_id,
       tenantName: nameMap.get(b.tenant_id) ?? b.tenant_id,
@@ -386,24 +414,39 @@ async function fetchOnboardingData(supabase: ServiceClient): Promise<OnboardingT
     .select('id, name, created_at')
     .order('created_at', { ascending: false });
 
-  if (!tenants) return [];
+  if (!tenants || tenants.length === 0) return [];
 
-  const result: OnboardingTenant[] = [];
+  const tenantIds = tenants.map(t => t.id);
 
-  for (const t of tenants) {
-    const [profileRes, ruleSetRes, dataRes, batchRes] = await Promise.all([
-      supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('tenant_id', t.id),
-      supabase.from('rule_sets').select('*', { count: 'exact', head: true }).eq('tenant_id', t.id),
-      supabase.from('committed_data').select('*', { count: 'exact', head: true }).eq('tenant_id', t.id),
-      supabase.from('calculation_batches').select('id, lifecycle_state')
-        .eq('tenant_id', t.id).order('created_at', { ascending: false }).limit(1),
-    ]);
+  // Bulk fetch all onboarding data in parallel (4 queries instead of 4N)
+  const [allProfiles, allRuleSets, allData, allBatches] = await Promise.all([
+    supabase.from('profiles').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
+    supabase.from('rule_sets').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
+    supabase.from('committed_data').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
+    supabase.from('calculation_batches').select('tenant_id, lifecycle_state, created_at')
+      .in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(10000),
+  ]);
 
-    const userCount = profileRes.count ?? 0;
-    const ruleSetCount = ruleSetRes.count ?? 0;
-    const dataCount = dataRes.count ?? 0;
-    const batchCount = batchRes.data?.length ?? 0;
-    const latestLifecycle = batchRes.data?.[0]?.lifecycle_state ?? null;
+  const profileCounts = countByField(allProfiles.data ?? [], 'tenant_id');
+  const ruleSetCounts = countByField(allRuleSets.data ?? [], 'tenant_id');
+  const dataCounts = countByField(allData.data ?? [], 'tenant_id');
+
+  // Count batches per tenant + latest lifecycle
+  const batchCounts = new Map<string, number>();
+  const latestLifecycleByTenant = new Map<string, string>();
+  for (const b of (allBatches.data ?? [])) {
+    batchCounts.set(b.tenant_id, (batchCounts.get(b.tenant_id) ?? 0) + 1);
+    if (!latestLifecycleByTenant.has(b.tenant_id)) {
+      latestLifecycleByTenant.set(b.tenant_id, b.lifecycle_state);
+    }
+  }
+
+  return tenants.map(t => {
+    const userCount = profileCounts.get(t.id) ?? 0;
+    const ruleSetCount = ruleSetCounts.get(t.id) ?? 0;
+    const dataCount = dataCounts.get(t.id) ?? 0;
+    const batchCount = batchCounts.get(t.id) ?? 0;
+    const latestLifecycle = latestLifecycleByTenant.get(t.id) ?? null;
 
     const stages = {
       tenantCreated: true,
@@ -421,7 +464,7 @@ async function fetchOnboardingData(supabase: ServiceClient): Promise<OnboardingT
     if (stages.firstCalculation) stage = 5;
     if (stages.goLive) stage = 6;
 
-    result.push({
+    return {
       id: t.id,
       name: t.name,
       createdAt: t.created_at,
@@ -432,8 +475,20 @@ async function fetchOnboardingData(supabase: ServiceClient): Promise<OnboardingT
       dataCount,
       batchCount,
       latestLifecycleState: latestLifecycle,
-    });
-  }
+    };
+  });
+}
 
-  return result;
+// ═══════════════════════════════════════════════
+// Utility
+// ═══════════════════════════════════════════════
+
+/** Count rows grouped by a field (typically tenant_id) */
+function countByField<T extends Record<string, unknown>>(rows: T[], field: keyof T): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    const key = String(row[field]);
+    map.set(key, (map.get(key) ?? 0) + 1);
+  }
+  return map;
 }

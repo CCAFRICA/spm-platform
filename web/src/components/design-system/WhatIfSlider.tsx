@@ -33,7 +33,7 @@ export function WhatIfSlider({
   currentValue,
   currentPayout,
   tiers,
-  currency = 'MX$',
+  currency = '$',
   onChange,
 }: WhatIfSliderProps) {
   const maxSlider = currentValue * 2 || 100;

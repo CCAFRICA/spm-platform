@@ -13,7 +13,7 @@ interface CalculationWaterfallProps {
   currency?: string;
 }
 
-export function CalculationWaterfall({ steps, currency = 'MX$' }: CalculationWaterfallProps) {
+export function CalculationWaterfall({ steps, currency = '$' }: CalculationWaterfallProps) {
   const bars = useMemo(() => {
     let runningTotal = 0;
     const maxAbs = steps.reduce((max, s) => {

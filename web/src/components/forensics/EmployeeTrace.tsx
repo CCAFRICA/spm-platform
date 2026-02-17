@@ -49,12 +49,12 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
               <div>
                 <h2 className="text-lg font-semibold">{trace.entityName}</h2>
                 <div className="flex items-center gap-3 text-sm text-slate-500">
-                  <span className="font-mono">{trace.entityId}</span>
+                  <span>#{trace.entityId.slice(0, 8)}</span>
                   <span>{trace.entityRole}</span>
                   {trace.storeId && (
                     <span className="flex items-center gap-1">
                       <Building2 className="h-3 w-3" />
-                      {trace.storeId}
+                      #{trace.storeId.slice(0, 8)}
                     </span>
                   )}
                 </div>
@@ -78,7 +78,7 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-4">
-            <Badge variant="outline">{trace.variant.variantId}</Badge>
+            <Badge variant="outline">#{trace.variant.variantId.slice(0, 8)}</Badge>
             <span className="font-medium">{trace.variant.variantName}</span>
           </div>
           <p className="text-sm text-slate-500 mt-2">{trace.variant.selectionReasoning}</p>
@@ -132,11 +132,11 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-slate-500">Trace ID:</span>
-              <span className="ml-2 font-mono">{trace.traceId}</span>
+              <span className="ml-2">#{trace.traceId.slice(0, 8)}</span>
             </div>
             <div>
               <span className="text-slate-500">Run ID:</span>
-              <span className="ml-2 font-mono">{trace.calculationRunId}</span>
+              <span className="ml-2">#{trace.calculationRunId.slice(0, 8)}</span>
             </div>
             <div>
               <span className="text-slate-500">Timestamp:</span>
@@ -144,7 +144,7 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
             </div>
             <div>
               <span className="text-slate-500">Tenant:</span>
-              <span className="ml-2 font-mono">{trace.tenantId}</span>
+              <span className="ml-2">#{trace.tenantId.slice(0, 8)}</span>
             </div>
           </div>
         </CardContent>

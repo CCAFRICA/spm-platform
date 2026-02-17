@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
@@ -26,6 +26,7 @@ import {
 
 export function RepDashboard() {
   const { currentTenant } = useTenant();
+  const { symbol: currencySymbol } = useCurrency();
   const { entityId } = usePersona();
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const tenantId = currentTenant?.id ?? '';
@@ -101,13 +102,13 @@ export function RepDashboard() {
           <div>
             <p className="text-emerald-100/50 text-sm">Mi Pago Total</p>
             <p className="text-3xl font-bold text-white mt-1">
-              $<AnimatedNumber value={data.totalPayout} />
+              {currencySymbol}<AnimatedNumber value={data.totalPayout} />
             </p>
             <p className="text-emerald-100/60 text-sm mt-1">Cada peso explicado</p>
             <div className="flex items-center gap-4 mt-2 text-sm text-emerald-100/50">
               <span>{activePeriodLabel}</span>
               <span>Logro: {data.attainment.toFixed(1)}%</span>
-              {data.rank > 0 && <span>Posicion: #{data.rank} de {data.totalEntities}</span>}
+              {data.rank > 0 && data.totalPayout > 0 && <span>Posicion: #{data.rank} de {data.totalEntities}</span>}
             </div>
           </div>
         </div>
@@ -132,7 +133,7 @@ export function RepDashboard() {
             currentValue={data.attainment}
             currentPayout={data.totalPayout}
             tiers={defaultTiers}
-            currency="MX$"
+            currency={currencySymbol}
           />
         </div>
       </div>
@@ -158,14 +159,14 @@ export function RepDashboard() {
                       : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  {c.name}: ${c.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {c.name}: {currencySymbol}{c.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </button>
               ))}
             </div>
             {expandedComponent && (
               <div className="mt-3 pt-3 border-t border-zinc-800">
                 <h5 className="text-xs text-zinc-400 mb-2">Detalle: {expandedComponent}</h5>
-                <CalculationWaterfall steps={waterfallSteps} currency="MX$" />
+                <CalculationWaterfall steps={waterfallSteps} currency={currencySymbol} />
               </div>
             )}
           </div>

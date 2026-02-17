@@ -31,6 +31,7 @@ import {
   ExternalLink,
   ChevronRight,
   Home,
+  Activity,
 } from "lucide-react";
 import { UserMenu } from "@/components/layout/user-menu";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
@@ -39,6 +40,7 @@ import { GlobalSearch } from "@/components/search/global-search";
 import { useTenant } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
+import { useNavigation } from "@/contexts/navigation-context";
 import { WORKSPACES } from "@/lib/navigation/workspace-config";
 import type { WorkspaceId } from "@/types/navigation";
 import { toast } from "sonner";
@@ -60,8 +62,10 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
+  const { cycleState, queueItems } = useNavigation();
   const pathname = usePathname();
   const isSpanish = locale === 'es-MX';
+  const pendingCount = queueItems.length;
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -228,6 +232,21 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
             </span>
           ))}
         </nav>
+
+        {/* Status Chip — compact cycle/queue summary */}
+        {cycleState && (
+          <div className="hidden md:flex items-center gap-1.5 ml-3 shrink-0">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/60 border border-zinc-700/50 text-[11px]">
+              <Activity className="h-3 w-3 text-emerald-400" />
+              <span className="text-zinc-400">{cycleState.currentPhase}</span>
+              {pendingCount > 0 && (
+                <span className="flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-medium">
+                  {pendingCount}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Center - Search Bar */}
         <div className="hidden flex-1 max-w-xl mx-auto md:flex px-4">

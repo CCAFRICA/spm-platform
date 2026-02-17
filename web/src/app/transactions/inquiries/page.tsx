@@ -214,8 +214,8 @@ export default function InquiriesPage() {
               <TableBody>
                 {filteredInquiries.map((inq) => (
                   <TableRow key={inq.id} className="cursor-pointer hover:bg-muted/50">
-                    <TableCell className="font-mono font-medium">{inq.id}</TableCell>
-                    <TableCell className="font-mono">{inq.transactionId}</TableCell>
+                    <TableCell className="font-medium text-sm">#{inq.id.slice(0, 8)}</TableCell>
+                    <TableCell className="text-sm">#{inq.transactionId.slice(0, 8)}</TableCell>
                     <TableCell>{inq.subject}</TableCell>
                     <TableCell>{getPriorityBadge(inq.priority)}</TableCell>
                     <TableCell>{getStatusBadge(inq.status)}</TableCell>
