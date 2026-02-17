@@ -96,7 +96,7 @@ export function RepDashboard() {
   return (
     <div className="space-y-6">
       {/* Hero */}
-      <div className="bg-gradient-to-r from-emerald-600/70 to-teal-700/70 rounded-xl p-6 border border-emerald-500/20">
+      <div className="bg-gradient-to-br from-emerald-600/80 to-lime-700/80 rounded-2xl p-6 border border-emerald-500/20">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-emerald-100/50 text-sm">Mi Pago Total</p>
@@ -115,7 +115,7 @@ export function RepDashboard() {
 
       {/* Goal Gradient + What-If */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Progreso hacia Meta</h4>
           <GoalGradientBar
             currentPct={data.attainment}
@@ -126,7 +126,7 @@ export function RepDashboard() {
             ]}
           />
         </div>
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Que Pasaria Si...</h4>
           <WhatIfSlider
             currentValue={data.attainment}
@@ -138,7 +138,7 @@ export function RepDashboard() {
       </div>
 
       {/* Component Stack + Waterfall Drill-down */}
-      <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
         <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Componentes de Compensacion</h4>
         {data.components.length > 0 ? (
           <div className="space-y-3">
@@ -176,7 +176,7 @@ export function RepDashboard() {
 
       {/* Relative Leaderboard */}
       {data.neighbors.length > 0 && (
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Tu Posicion Relativa</h4>
           <RelativeLeaderboard
             yourRank={data.rank}
@@ -188,7 +188,7 @@ export function RepDashboard() {
 
       {/* Pacing Cone */}
       {pacingHistory.length > 1 && (
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Ritmo y Proyeccion</h4>
           <PacingCone
             history={pacingHistory}

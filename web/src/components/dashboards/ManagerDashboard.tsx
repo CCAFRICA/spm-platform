@@ -85,7 +85,7 @@ export function ManagerDashboard() {
   return (
     <div className="space-y-6">
       {/* Hero Stats */}
-      <div className="bg-gradient-to-r from-amber-600/70 to-yellow-700/60 rounded-xl p-6 border border-amber-500/20">
+      <div className="bg-gradient-to-br from-amber-600/80 to-yellow-700/80 rounded-2xl p-6 border border-amber-500/20">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-amber-100/60 text-sm">Total del Equipo</p>
@@ -113,7 +113,7 @@ export function ManagerDashboard() {
       </div>
 
       {/* Team Members */}
-      <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
         <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
           Miembros del Equipo (por logro)
         </h4>
@@ -153,7 +153,7 @@ export function ManagerDashboard() {
 
       {/* Acceleration Opportunities */}
       {data.accelerationOpportunities.length > 0 && (
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
             Oportunidades de Aceleracion ({data.accelerationOpportunities.length})
           </h4>

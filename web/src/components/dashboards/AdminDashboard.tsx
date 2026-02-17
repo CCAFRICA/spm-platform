@@ -103,7 +103,7 @@ export function AdminDashboard() {
   return (
     <div className="space-y-6">
       {/* Hero Stats */}
-      <div className="bg-gradient-to-r from-indigo-600/80 to-violet-700/80 rounded-xl p-6 border border-indigo-500/20">
+      <div className="bg-gradient-to-br from-indigo-600/80 to-violet-700/80 rounded-2xl p-6 border border-indigo-500/20">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-indigo-200/70 text-sm">Pago Total del Periodo</p>
@@ -125,7 +125,7 @@ export function AdminDashboard() {
 
       {/* Distribution + Component Stack */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Distribucion de Logro</h4>
           {data.attainmentDistribution.length > 0 ? (
             <DistributionChart data={data.attainmentDistribution} benchmarkLine={100} />
@@ -133,7 +133,7 @@ export function AdminDashboard() {
             <p className="text-sm text-zinc-500">Sin datos de distribucion.</p>
           )}
         </div>
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Composicion de Componentes</h4>
           {data.componentComposition.length > 0 ? (
             <ComponentStack components={data.componentComposition} total={data.totalPayout} />
@@ -144,14 +144,14 @@ export function AdminDashboard() {
       </div>
 
       {/* Budget Gauge */}
-      <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
         <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Posicion Presupuestaria</h4>
         <BudgetGauge actual={data.totalPayout} budget={budgetTotal} currency="MX$" />
       </div>
 
       {/* Exceptions */}
       {data.exceptions.length > 0 && (
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
             Excepciones ({data.exceptions.length})
           </h4>
@@ -169,7 +169,7 @@ export function AdminDashboard() {
       )}
 
       {/* Payroll Summary */}
-      <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
         <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Resumen de Nomina</h4>
         <PayrollSummary rows={payrollRows} currency="MX$" />
       </div>
