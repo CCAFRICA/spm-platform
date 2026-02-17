@@ -17,7 +17,7 @@
  *   7. Actions → Card buttons (Simulador, Mi Plan) — selection
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
@@ -28,6 +28,8 @@ import { WhatIfSlider, type TierConfig } from '@/components/design-system/WhatIf
 import { ComponentStack } from '@/components/design-system/ComponentStack';
 import { RelativeLeaderboard } from '@/components/design-system/RelativeLeaderboard';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
+import { useLocale } from '@/contexts/locale-context';
+import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
   getRepDashboardData,
   type RepDashboardData,
@@ -52,6 +54,7 @@ export function RepDashboard() {
   const { symbol: currencySymbol } = useCurrency();
   const { entityId } = usePersona();
   const { activePeriodId, activePeriodLabel } = usePeriod();
+  const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
 
   const [data, setData] = useState<RepDashboardData | null>(null);
@@ -77,6 +80,23 @@ export function RepDashboard() {
 
     return () => { cancelled = true; };
   }, [tenantId, entityId, activePeriodId]);
+
+  // Build assessment payload (must be before early returns for hooks rule)
+  const assessmentData = useMemo(() => {
+    if (!data) return {};
+    const priorP = data.history.length >= 2 ? data.history[data.history.length - 2].payout : 0;
+    const delta = priorP > 0 ? ((data.totalPayout - priorP) / priorP) * 100 : 0;
+    return {
+      totalPayout: data.totalPayout,
+      attainment: data.attainment,
+      rank: data.rank,
+      totalEntities: data.totalEntities,
+      components: data.components.map(c => ({ name: c.name, value: c.value })),
+      trendDelta: delta,
+      historyMonths: data.history.length,
+      tierPosition: data.attainment >= 120 ? 'Accelerator' : data.attainment >= 80 ? 'Target' : 'Base',
+    };
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -120,6 +140,13 @@ export function RepDashboard() {
 
   return (
     <div className="space-y-4">
+      <AssessmentPanel
+        persona="rep"
+        data={assessmentData}
+        locale={locale === 'es-MX' ? 'es' : 'en'}
+        accentColor="#10b981"
+        tenantId={tenantId}
+      />
       {/* ── Hero: Full width ── */}
       <div style={HERO_STYLE}>
         <div className="flex items-start justify-between gap-6">

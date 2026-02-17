@@ -24,6 +24,8 @@ import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
 import { Sparkline } from '@/components/design-system/Sparkline';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
+import { useLocale } from '@/contexts/locale-context';
+import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
   getManagerDashboardData,
   type ManagerDashboardData,
@@ -54,6 +56,7 @@ export function ManagerDashboard() {
   const { symbol: currencySymbol } = useCurrency();
   const { scope } = usePersona();
   const { activePeriodId } = usePeriod();
+  const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
 
   const [data, setData] = useState<ManagerDashboardData | null>(null);
@@ -91,6 +94,26 @@ export function ManagerDashboard() {
     return data.teamMembers.reduce((s, m) => s + m.attainment, 0) / data.teamMembers.length;
   }, [data]);
 
+  // Build assessment payload (must be before early returns for hooks rule)
+  const assessmentData = useMemo(() => {
+    if (!data || data.teamMembers.length === 0) return {};
+    return {
+      teamTotal: data.teamTotal,
+      avgAttainment,
+      onTarget: teamStats?.onTarget ?? 0,
+      coaching: teamStats?.coaching ?? 0,
+      teamSize: data.teamMembers.length,
+      accelerationSignals: data.accelerationOpportunities.length,
+      members: data.teamMembers.map(m => ({
+        name: m.entityName,
+        attainment: m.attainment,
+        payout: m.totalPayout,
+        trendLength: m.trend.length,
+        streak: m.trend.length >= 3 && m.trend.every(v => v >= 100) ? m.trend.length : 0,
+      })),
+    };
+  }, [data, avgAttainment, teamStats]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -112,6 +135,13 @@ export function ManagerDashboard() {
 
   return (
     <div className="space-y-4">
+      <AssessmentPanel
+        persona="manager"
+        data={assessmentData}
+        locale={locale === 'es-MX' ? 'es' : 'en'}
+        accentColor="#f59e0b"
+        tenantId={tenantId}
+      />
       {/* ── Row 1: Zone Hero (4) + Acceleration Opportunities (8) ── */}
       <div className="grid grid-cols-12 gap-4">
         {/* Zone Hero */}

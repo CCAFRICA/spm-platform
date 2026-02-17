@@ -20,6 +20,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePeriod } from '@/contexts/period-context';
+import { useLocale } from '@/contexts/locale-context';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { DistributionChart } from '@/components/design-system/DistributionChart';
 import { ComponentStack } from '@/components/design-system/ComponentStack';
@@ -27,6 +28,7 @@ import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
 import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
 import { QueueItem } from '@/components/design-system/QueueItem';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
+import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
   getAdminDashboardData,
   type AdminDashboardData,
@@ -51,6 +53,7 @@ export function AdminDashboard() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol } = useCurrency();
   const { activePeriodId, activePeriodLabel } = usePeriod();
+  const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
 
   const [data, setData] = useState<AdminDashboardData | null>(null);
@@ -97,6 +100,24 @@ export function AdminDashboard() {
     return { avg, median, stdDev };
   }, [data]);
 
+  // Build assessment payload (must be before early returns for hooks rule)
+  const assessmentData = useMemo(() => {
+    if (!data) return {};
+    return {
+      totalPayout: data.totalPayout,
+      entityCount: data.entityCount,
+      budgetUtilization: budgetPct,
+      avgAttainment: distStats?.avg,
+      medianAttainment: distStats?.median,
+      stdDev: distStats?.stdDev,
+      lifecycleState: data.lifecycleState,
+      exceptionsCount: data.exceptions.length,
+      topExceptions: data.exceptions.slice(0, 3).map(e => `${e.entityName}: ${e.issue}`),
+      componentNames: data.componentComposition.map(c => c.name),
+      storeCount: data.storeBreakdown.length,
+    };
+  }, [data, budgetPct, distStats]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -116,6 +137,13 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-4">
+      <AssessmentPanel
+        persona="admin"
+        data={assessmentData}
+        locale={locale === 'es-MX' ? 'es' : 'en'}
+        accentColor="#6366f1"
+        tenantId={tenantId}
+      />
       {/* ── Row 1: Hero (5) + Distribution (4) + Lifecycle (3) ── */}
       <div className="grid grid-cols-12 gap-4">
         {/* Hero Card */}
