@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
 import {
   getFleetOverview,
@@ -21,10 +22,12 @@ import {
   ChevronRight,
   Loader2,
   CheckCircle,
+  PlusCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function ObservatoryTab() {
+  const router = useRouter();
   const { setTenant } = useTenant();
   const [overview, setOverview] = useState<FleetOverview | null>(null);
   const [tenantCards, setTenantCards] = useState<TenantFleetCard[]>([]);
@@ -204,6 +207,18 @@ export function ObservatoryTab() {
               </div>
             </button>
           ))}
+
+          {/* Create New Tenant */}
+          <button
+            onClick={() => router.push('/admin/tenants/new')}
+            className="flex flex-col items-center justify-center gap-3 bg-[#0F172A] border border-dashed border-zinc-700 rounded-xl p-8 hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group min-h-[160px]"
+          >
+            <PlusCircle className="h-8 w-8 text-zinc-600 group-hover:text-violet-400 transition-colors" />
+            <div className="text-center">
+              <p className="text-sm font-medium text-zinc-400 group-hover:text-violet-300 transition-colors">Create New Tenant</p>
+              <p className="text-[10px] text-zinc-600 mt-0.5">Provision a new customer environment</p>
+            </div>
+          </button>
         </div>
       </div>
     </div>

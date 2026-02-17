@@ -103,24 +103,41 @@ export async function getCalculationBatch(
 
 /**
  * List calculation batches for a tenant/period.
+ * Includes 5-second dedup cache so parallel callers (cycle, queue, pulse)
+ * share a single Supabase round-trip during the same refresh cycle.
  */
+const _batchCache = new Map<string, { data: CalcBatchRow[]; ts: number; promise?: Promise<CalcBatchRow[]> }>();
+const CACHE_TTL = 5000; // 5 seconds
+
 export async function listCalculationBatches(
   tenantId: string,
   options?: { periodId?: string; ruleSetId?: string; lifecycleState?: LifecycleState }
 ): Promise<CalcBatchRow[]> {
   requireTenantId(tenantId);
-  const supabase = createClient();
-  let query = supabase
-    .from('calculation_batches')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .order('created_at', { ascending: false });
-  if (options?.periodId) query = query.eq('period_id', options.periodId);
-  if (options?.ruleSetId) query = query.eq('rule_set_id', options.ruleSetId);
-  if (options?.lifecycleState) query = query.eq('lifecycle_state', options.lifecycleState);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data || []) as CalcBatchRow[];
+  const cacheKey = `${tenantId}:${options?.periodId ?? ''}:${options?.ruleSetId ?? ''}:${options?.lifecycleState ?? ''}`;
+  const cached = _batchCache.get(cacheKey);
+  if (cached) {
+    if (cached.promise) return cached.promise; // In-flight — share it
+    if (Date.now() - cached.ts < CACHE_TTL) return cached.data; // Fresh — reuse it
+  }
+  const promise = (async () => {
+    const supabase = createClient();
+    let query = supabase
+      .from('calculation_batches')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false });
+    if (options?.periodId) query = query.eq('period_id', options.periodId);
+    if (options?.ruleSetId) query = query.eq('rule_set_id', options.ruleSetId);
+    if (options?.lifecycleState) query = query.eq('lifecycle_state', options.lifecycleState);
+    const { data, error } = await query;
+    if (error) throw error;
+    const result = (data || []) as CalcBatchRow[];
+    _batchCache.set(cacheKey, { data: result, ts: Date.now() });
+    return result;
+  })();
+  _batchCache.set(cacheKey, { data: [], ts: 0, promise });
+  try { return await promise; } catch (e) { _batchCache.delete(cacheKey); throw e; }
 }
 
 /**
