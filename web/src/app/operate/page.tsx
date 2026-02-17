@@ -235,7 +235,7 @@ export default function OperateCockpitPage() {
         </div>
 
         {/* Lifecycle Stepper */}
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <LifecycleStepper
             currentState={dashState}
             onAdvance={handleAdvance}
@@ -247,12 +247,12 @@ export default function OperateCockpitPage() {
         {/* Two-column grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left: Data Readiness */}
-          <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5">
+          <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
             <DataReadinessPanel readiness={readiness} />
           </div>
 
           {/* Right: Calculation Summary */}
-          <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+          <div className="rounded-2xl space-y-3" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
             <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">{isSpanish ? 'Resumen de Calculo' : 'Calculation Summary'}</h4>
             {calcSummary ? (
               <div className="space-y-3">
@@ -283,11 +283,11 @@ export default function OperateCockpitPage() {
         {/* Results Preview */}
         {calcSummary && calcSummary.attainmentDist.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+            <div className="rounded-2xl space-y-3" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
               <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">{isSpanish ? 'Distribucion de Logro' : 'Attainment Distribution'}</h4>
               <DistributionChart data={calcSummary.attainmentDist} benchmarkLine={100} />
             </div>
-            <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+            <div className="rounded-2xl space-y-3" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
               <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">{isSpanish ? 'Top 5 Entidades' : 'Top 5 Entities'}</h4>
               <div className="space-y-2">
                 {calcSummary.topEntities.map((e) => (
