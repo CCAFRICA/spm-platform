@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
+import { DM_Sans, DM_Mono } from "next/font/google";
 import "./globals.css";
 import "@/styles/wayfinder.css";
 import { AuthProvider } from "@/contexts/auth-context";
@@ -9,15 +9,15 @@ import { TenantProvider } from "@/contexts/tenant-context";
 import { AuthShell } from "@/components/layout/auth-shell";
 import { Toaster } from "sonner";
 
-const geistSans = localFont({
-  src: "./fonts/GeistVF.woff",
-  variable: "--font-geist-sans",
-  weight: "100 900",
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  variable: "--font-dm-sans",
+  weight: ["400", "500", "700"],
 });
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
-  weight: "100 900",
+const dmMono = DM_Mono({
+  subsets: ["latin"],
+  variable: "--font-dm-mono",
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
@@ -33,7 +33,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${dmSans.variable} ${dmMono.variable} antialiased`}
       >
         <AuthProvider>
           <TenantProvider>
