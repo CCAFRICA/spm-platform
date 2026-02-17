@@ -3,13 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
-import {
-  getFleetOverview,
-  getTenantFleetCards,
-  getOperationsQueue,
-  type FleetOverview,
-  type TenantFleetCard,
-  type OperationsQueueItem,
+import type {
+  FleetOverview,
+  TenantFleetCard,
+  OperationsQueueItem,
 } from '@/lib/data/platform-queries';
 import {
   Building2,
@@ -39,20 +36,23 @@ export function ObservatoryTab() {
     let cancelled = false;
     setIsLoading(true);
 
-    Promise.all([
-      getFleetOverview(),
-      getTenantFleetCards(),
-      getOperationsQueue(),
-    ]).then(([ov, cards, q]) => {
-      if (!cancelled) {
-        setOverview(ov);
-        setTenantCards(cards);
-        setQueue(q);
-        setIsLoading(false);
-      }
-    }).catch(() => {
-      if (!cancelled) setIsLoading(false);
-    });
+    fetch('/api/platform/observatory')
+      .then(res => {
+        if (!res.ok) throw new Error(`Observatory API: ${res.status}`);
+        return res.json();
+      })
+      .then((data: { overview: FleetOverview; tenantCards: TenantFleetCard[]; queue: OperationsQueueItem[] }) => {
+        if (!cancelled) {
+          setOverview(data.overview);
+          setTenantCards(data.tenantCards);
+          setQueue(data.queue);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error('[ObservatoryTab] Failed to fetch data:', err);
+        if (!cancelled) setIsLoading(false);
+      });
 
     return () => { cancelled = true; };
   }, []);
