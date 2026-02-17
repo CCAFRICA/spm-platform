@@ -30,7 +30,7 @@ import {
 
 export function AdminDashboard() {
   const { currentTenant } = useTenant();
-  const { activePeriodId, activePeriodKey } = usePeriod();
+  const { activePeriodId, activePeriodLabel } = usePeriod();
   const tenantId = currentTenant?.id ?? '';
 
   const [data, setData] = useState<AdminDashboardData | null>(null);
@@ -112,7 +112,7 @@ export function AdminDashboard() {
             </p>
             <div className="flex items-center gap-4 mt-2 text-sm text-indigo-200/60">
               <span>{data.entityCount} entidades</span>
-              <span>{activePeriodKey}</span>
+              <span>{activePeriodLabel}</span>
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">

@@ -257,7 +257,7 @@ export async function getRepDashboardData(
   // Detailed component breakdown from calculation_results
   const { data: myResults } = await supabase
     .from('calculation_results')
-    .select('components, total_payout, period_id')
+    .select('components, total_payout, period_id, batch_id')
     .eq('tenant_id', tenantId)
     .eq('entity_id', entityId)
     .order('created_at', { ascending: false });
@@ -274,6 +274,22 @@ export async function getRepDashboardData(
   const myRank = safeAll.findIndex(o => o.entity_id === entityId) + 1;
   const neighbors = buildRelativeNeighbors(safeAll, entityId, myRank);
 
+  // Resolve period IDs to human-readable labels
+  const resultPeriodIds = Array.from(new Set((myResults ?? []).map(r => r.period_id).filter(Boolean)));
+  let periodLabelMap = new Map<string, string>();
+  if (resultPeriodIds.length > 0) {
+    const { data: periodRows } = await supabase
+      .from('periods')
+      .select('id, period_key, start_date')
+      .in('id', resultPeriodIds as string[]);
+    if (periodRows) {
+      periodLabelMap = new Map(periodRows.map(p => {
+        const label = formatPeriodLabelFromDate(p.start_date);
+        return [p.id, label];
+      }));
+    }
+  }
+
   return {
     totalPayout: myOutcome?.total_payout ?? 0,
     components: parseComponents(myResults?.[0]?.components ?? null),
@@ -281,7 +297,7 @@ export async function getRepDashboardData(
     totalEntities: safeAll.length,
     neighbors,
     history: (myResults ?? []).map(r => ({
-      period: r.period_id ?? '',
+      period: periodLabelMap.get(r.period_id ?? '') ?? r.period_id ?? '',
       payout: r.total_payout,
     })),
     attainment: extractAttainment(myOutcome?.attainment_summary ?? null),
@@ -291,6 +307,17 @@ export async function getRepDashboardData(
 // ──────────────────────────────────────────────
 // Helper Functions
 // ──────────────────────────────────────────────
+
+function formatPeriodLabelFromDate(startDate: string): string {
+  try {
+    const d = new Date(startDate);
+    const month = d.toLocaleString('es-MX', { month: 'short' });
+    const year = d.getFullYear();
+    return `${month.charAt(0).toUpperCase() + month.slice(1)} ${year}`;
+  } catch {
+    return startDate;
+  }
+}
 
 function sum(values: number[]): number {
   return values.reduce((s, v) => s + (v || 0), 0);

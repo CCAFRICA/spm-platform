@@ -15,6 +15,7 @@ import type { PeriodInfo } from '@/components/design-system/PeriodRibbon';
 interface PeriodContextValue {
   activePeriodKey: string;
   activePeriodId: string;
+  activePeriodLabel: string;
   availablePeriods: PeriodInfo[];
   setActivePeriod: (periodKey: string) => void;
   isLoading: boolean;
@@ -116,18 +117,21 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
     setActiveKey(periodKey);
   }, []);
 
-  const activePeriodId = useMemo(() => {
-    const found = periods.find(p => p.periodKey === activeKey);
-    return found?.periodId ?? '';
+  const activePeriod = useMemo(() => {
+    return periods.find(p => p.periodKey === activeKey) ?? null;
   }, [periods, activeKey]);
+
+  const activePeriodId = activePeriod?.periodId ?? '';
+  const activePeriodLabel = activePeriod?.label ?? activeKey;
 
   const value = useMemo<PeriodContextValue>(() => ({
     activePeriodKey: activeKey,
     activePeriodId,
+    activePeriodLabel,
     availablePeriods: periods,
     setActivePeriod,
     isLoading,
-  }), [activeKey, activePeriodId, periods, setActivePeriod, isLoading]);
+  }), [activeKey, activePeriodId, activePeriodLabel, periods, setActivePeriod, isLoading]);
 
   return (
     <PeriodContext.Provider value={value}>
