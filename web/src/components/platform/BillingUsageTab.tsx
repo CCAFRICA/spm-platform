@@ -53,32 +53,32 @@ export function BillingUsageTab() {
     <div className="space-y-8">
       {/* Hero Metrics */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <Users className="h-4 w-4 text-violet-400" />
-            <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Total Entities (Billable)</span>
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Total Entities (Billable)</span>
           </div>
-          <p className="text-2xl font-bold text-white tabular-nums">{totalEntities.toLocaleString()}</p>
+          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{totalEntities.toLocaleString()}</p>
         </div>
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <Calculator className="h-4 w-4 text-violet-400" />
-            <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Calculation Runs</span>
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Calculation Runs</span>
           </div>
-          <p className="text-2xl font-bold text-white tabular-nums">{totalBatches.toLocaleString()}</p>
+          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{totalBatches.toLocaleString()}</p>
         </div>
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <Calendar className="h-4 w-4 text-violet-400" />
-            <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Periods Processed</span>
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Periods Processed</span>
           </div>
-          <p className="text-2xl font-bold text-white tabular-nums">{totalPeriods.toLocaleString()}</p>
+          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{totalPeriods.toLocaleString()}</p>
         </div>
       </div>
 
       {/* Per-Tenant Subscription Cards */}
-      <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
-        <h3 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-4">
+      <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+        <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
           Per-Tenant Usage
         </h3>
         <div className="space-y-4">
@@ -118,8 +118,8 @@ export function BillingUsageTab() {
 
       {/* Recent Activity Feed */}
       {activity.length > 0 && (
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
-          <h3 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-4">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+          <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
             Recent Activity
           </h3>
           <div className="space-y-2">

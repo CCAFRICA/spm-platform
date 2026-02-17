@@ -60,24 +60,24 @@ export function AIIntelligenceTab() {
       <div className="space-y-8">
         {/* Hero metrics — empty state */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+          <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="h-4 w-4 text-violet-400" />
-              <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Total Signals</span>
+              <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Total Signals</span>
             </div>
-            <p className="text-2xl font-bold text-white tabular-nums">0</p>
+            <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>0</p>
           </div>
-          <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+          <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
             <div className="flex items-center gap-2 mb-2">
               <BarChart3 className="h-4 w-4 text-violet-400" />
-              <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Avg Confidence</span>
+              <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Avg Confidence</span>
             </div>
-            <p className="text-2xl font-bold text-zinc-600">—</p>
+            <p className="text-2xl font-bold" style={{ color: '#52525b' }}>—</p>
           </div>
         </div>
 
         {/* Informative placeholder */}
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-6">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '24px' }}>
           <div className="flex items-start gap-3 mb-4">
             <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
             <div>
@@ -91,8 +91,8 @@ export function AIIntelligenceTab() {
         </div>
 
         {/* Architectural intent */}
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
-          <h3 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-4">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+          <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
             Classification Accuracy By Type (Planned)
           </h3>
           <div className="space-y-3">
@@ -116,25 +116,25 @@ export function AIIntelligenceTab() {
     <div className="space-y-8">
       {/* Hero metrics */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <Sparkles className="h-4 w-4 text-violet-400" />
-            <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Total Signals</span>
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Total Signals</span>
           </div>
-          <p className="text-2xl font-bold text-white tabular-nums">{data.totalSignals.toLocaleString()}</p>
+          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{data.totalSignals.toLocaleString()}</p>
         </div>
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <BarChart3 className="h-4 w-4 text-violet-400" />
-            <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Avg Confidence</span>
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Avg Confidence</span>
           </div>
-          <p className="text-2xl font-bold text-white tabular-nums">{(data.avgConfidence * 100).toFixed(1)}%</p>
+          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{(data.avgConfidence * 100).toFixed(1)}%</p>
         </div>
       </div>
 
       {/* By Type */}
-      <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
-        <h3 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-4">
+      <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+        <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
           Classification Accuracy By Type
         </h3>
         <div className="space-y-3">
@@ -152,8 +152,8 @@ export function AIIntelligenceTab() {
 
       {/* Per Tenant */}
       {data.perTenant.length > 0 && (
-        <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
-          <h3 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest mb-4">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+          <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
             Per-Tenant AI Health
           </h3>
           <div className="space-y-2">
