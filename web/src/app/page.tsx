@@ -47,10 +47,10 @@ function DashboardContent() {
       <div className="p-6 max-w-6xl mx-auto">
         {/* Persona header */}
         <div className="mb-6">
-          <h1 className="text-xl font-bold text-zinc-100">
+          <h1 className="text-2xl font-bold text-white">
             {tokens.intent}
           </h1>
-          <p className="text-sm text-zinc-500">{tokens.intentDescription}</p>
+          <p className="text-xs text-zinc-500">{tokens.intentDescription}</p>
         </div>
 
         {/* Persona-driven content */}

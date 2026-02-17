@@ -114,7 +114,7 @@ export function ManagerDashboard() {
 
       {/* Team Members */}
       <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-        <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+        <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">
           Miembros del Equipo (por logro)
         </h4>
         <div className="space-y-3">
@@ -154,7 +154,7 @@ export function ManagerDashboard() {
       {/* Acceleration Opportunities */}
       {data.accelerationOpportunities.length > 0 && (
         <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-          <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">
             Oportunidades de Aceleracion ({data.accelerationOpportunities.length})
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
