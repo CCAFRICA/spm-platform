@@ -4,8 +4,9 @@ import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
+import { PersonaProvider } from '@/contexts/persona-context';
 import { NavigationProvider, useNavigation } from '@/contexts/navigation-context';
-import { MissionControlRail } from '@/components/navigation/mission-control';
+import { ChromeSidebar } from '@/components/navigation/ChromeSidebar';
 import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
 import { Navbar } from '@/components/navigation/Navbar';
 import { DemoPersonaSwitcher } from '@/components/demo/DemoPersonaSwitcher';
@@ -30,12 +31,12 @@ function AuthShellInner({ children }: AuthShellProps) {
 
   return (
     <>
-      <MissionControlRail />
+      <ChromeSidebar />
       <div
         data-workspace={activeWorkspace}
         className={cn(
           'transition-all duration-300 ease-in-out',
-          isRailCollapsed ? 'md:pl-16' : 'md:pl-[280px]'
+          isRailCollapsed ? 'md:pl-16' : 'md:pl-[264px]'
         )}
       >
         <Navbar />
@@ -123,9 +124,11 @@ function AuthShellProtected({ children }: AuthShellProps) {
 
   // Full app shell with Mission Control Rail
   return (
-    <NavigationProvider>
-      <AuthShellInner>{children}</AuthShellInner>
-      <DemoPersonaSwitcher />
-    </NavigationProvider>
+    <PersonaProvider>
+      <NavigationProvider>
+        <AuthShellInner>{children}</AuthShellInner>
+        <DemoPersonaSwitcher />
+      </NavigationProvider>
+    </PersonaProvider>
   );
 }

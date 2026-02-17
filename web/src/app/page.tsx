@@ -13,7 +13,7 @@
  * Period switching in PeriodRibbon updates all dashboard content.
  */
 
-import { PersonaProvider, usePersona } from '@/contexts/persona-context';
+import { usePersona } from '@/contexts/persona-context';
 import { PeriodProvider, usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
 import { PeriodRibbon } from '@/components/design-system/PeriodRibbon';
@@ -72,10 +72,8 @@ function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <PersonaProvider>
-      <PeriodProvider>
-        <DashboardContent />
-      </PeriodProvider>
-    </PersonaProvider>
+    <PeriodProvider>
+      <DashboardContent />
+    </PeriodProvider>
   );
 }
