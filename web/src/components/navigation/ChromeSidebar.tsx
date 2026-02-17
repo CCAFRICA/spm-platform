@@ -216,6 +216,25 @@ export function ChromeSidebar() {
           </div>
         </div>
 
+        {/* ── VL Admin: Back to Observatory ── */}
+        {isUserVLAdmin && currentTenant && (
+          <div className={cn(
+            'shrink-0 border-b border-zinc-800/40',
+            isRailCollapsed ? 'px-1 py-1.5' : 'px-3 py-1.5'
+          )}>
+            <Link
+              href="/select-tenant"
+              className={cn(
+                'flex items-center gap-1.5 rounded-md text-[10px] font-medium text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 transition-all',
+                isRailCollapsed ? 'justify-center px-1 py-1' : 'px-2 py-1'
+              )}
+            >
+              <ArrowLeftRight className="h-3 w-3 shrink-0" />
+              {!isRailCollapsed && (isSpanish ? '← Observatorio' : '← Observatory')}
+            </Link>
+          </div>
+        )}
+
         {/* ── Workspace Switcher ── */}
         <div className={cn('shrink-0 border-b border-zinc-800/40', isRailCollapsed ? 'py-2 px-1' : 'py-2 px-3')}>
           {!isRailCollapsed && (
