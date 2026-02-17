@@ -93,7 +93,7 @@ export function OnboardingTab() {
           setInviteStatus(null);
         }, 2000);
       }
-    } catch (_err) {
+    } catch {
       setInviteStatus({ type: 'error', message: 'Network error' });
     } finally {
       setIsInviting(false);
