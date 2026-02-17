@@ -538,3 +538,103 @@ function emptyRepData(): RepDashboardData {
     attainment: 0,
   };
 }
+
+// ──────────────────────────────────────────────
+// Extended Queries (OB-46B Phase 10)
+// ──────────────────────────────────────────────
+
+/**
+ * Get peer rankings for leaderboard context.
+ * Returns top N entities by total payout for the given period.
+ */
+export async function getPeerRankings(
+  tenantId: string,
+  periodId: string,
+  limit = 20
+): Promise<{ entityId: string; entityName: string; totalPayout: number; rank: number }[]> {
+  const supabase = createClient();
+
+  const { data: outcomes } = await supabase
+    .from('entity_period_outcomes')
+    .select('entity_id, total_payout')
+    .eq('tenant_id', tenantId)
+    .eq('period_id', periodId)
+    .order('total_payout', { ascending: false })
+    .limit(limit);
+
+  if (!outcomes || outcomes.length === 0) return [];
+
+  const entityIds = outcomes.map(o => o.entity_id);
+  const { data: entities } = await supabase
+    .from('entities')
+    .select('id, display_name')
+    .in('id', entityIds);
+
+  const nameMap = new Map((entities ?? []).map(e => [e.id, e.display_name]));
+
+  return outcomes.map((o, i) => ({
+    entityId: o.entity_id,
+    entityName: nameMap.get(o.entity_id) ?? o.entity_id,
+    totalPayout: o.total_payout,
+    rank: i + 1,
+  }));
+}
+
+/**
+ * Get detailed component breakdown for a specific entity + batch.
+ */
+export async function getComponentDetail(
+  tenantId: string,
+  batchId: string,
+  entityId: string
+): Promise<ComponentItem[]> {
+  const supabase = createClient();
+
+  const { data } = await supabase
+    .from('calculation_results')
+    .select('components')
+    .eq('tenant_id', tenantId)
+    .eq('batch_id', batchId)
+    .eq('entity_id', entityId)
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) return [];
+  return parseComponents(data.components);
+}
+
+/**
+ * Get plan tier configuration for what-if slider.
+ */
+export async function getPlanTiers(
+  tenantId: string,
+  ruleSetId: string
+): Promise<{ componentName: string; tiers: { min: number; max: number; rate: number; label: string }[] }[]> {
+  const supabase = createClient();
+
+  const { data } = await supabase
+    .from('rule_sets')
+    .select('components')
+    .eq('tenant_id', tenantId)
+    .eq('id', ruleSetId)
+    .limit(1)
+    .maybeSingle();
+
+  if (!data?.components || !Array.isArray(data.components)) return [];
+
+  return (data.components as Array<Record<string, unknown>>).map(comp => {
+    const tiers = Array.isArray(comp.tiers) ? comp.tiers : [];
+    return {
+      componentName: String(comp.name ?? comp.componentName ?? ''),
+      tiers: tiers.map((t: unknown) => {
+        const tier = t as Record<string, unknown>;
+        return {
+          min: Number(tier.min ?? tier.from ?? 0),
+          max: Number(tier.max ?? tier.to ?? Infinity),
+          rate: Number(tier.rate ?? tier.multiplier ?? 1),
+          label: String(tier.label ?? tier.name ?? ''),
+        };
+      }),
+    };
+  });
+}
