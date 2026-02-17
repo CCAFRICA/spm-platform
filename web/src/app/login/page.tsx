@@ -60,8 +60,8 @@ export default function LoginPage() {
           <p className="text-sm mt-2" style={{ color: '#94A3B8' }}>
             Performance Intelligence Platform
           </p>
-          <p className="text-sm italic mt-1" style={{ color: '#A5B4FC' }}>
-            See what you&apos;ve earned.
+          <p className="text-sm font-medium mt-1" style={{ color: '#A5B4FC', letterSpacing: '0.05em' }}>
+            Intelligence. Acceleration. Performance.
           </p>
         </motion.div>
 

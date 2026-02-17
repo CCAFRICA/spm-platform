@@ -22,7 +22,7 @@ const dmMono = DM_Mono({
 
 export const metadata: Metadata = {
   title: "Vialuce",
-  description: "Performance Intelligence Platform — See what you've earned.",
+  description: "Performance Intelligence Platform — Intelligence. Acceleration. Performance.",
 };
 
 export default function RootLayout({
