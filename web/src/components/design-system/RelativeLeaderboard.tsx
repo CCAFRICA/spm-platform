@@ -1,5 +1,7 @@
 'use client';
 
+/** @cognitiveFit ranking — "Where do I stand?" */
+
 interface Neighbor {
   rank: number;
   name: string;

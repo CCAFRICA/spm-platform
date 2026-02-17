@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+/** @cognitiveFit identification — "What is this value?" */
+
 interface AnimatedNumberProps {
   value: number;
   prefix?: string;

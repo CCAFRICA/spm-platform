@@ -41,3 +41,6 @@ export * from './BudgetGauge';
 export * from './PeriodComparison';
 export * from './AnomalyMatrix';
 export * from './PayrollSummary';
+
+// DS-001 cognitive-fit components (OB-51 Phase 2)
+export * from './TrendArrow';

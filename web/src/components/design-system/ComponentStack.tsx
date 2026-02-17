@@ -1,5 +1,7 @@
 'use client';
 
+/** @cognitiveFit part-of-whole — "What is the breakdown?" */
+
 import { useState } from 'react';
 import { COMPONENT_PALETTE } from '@/lib/design/tokens';
 

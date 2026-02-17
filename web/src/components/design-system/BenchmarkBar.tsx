@@ -1,5 +1,7 @@
 'use client';
 
+/** @cognitiveFit comparison — "How does this compare to expected?" */
+
 import type { ReactNode } from 'react';
 
 interface BenchmarkBarProps {

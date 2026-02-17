@@ -2,6 +2,8 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 
+/** @cognitiveFit monitoring — "How full is this?" */
+
 interface ProgressRingProps {
   pct: number;
   size?: number;
