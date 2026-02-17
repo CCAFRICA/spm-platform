@@ -31,14 +31,14 @@ export function ManagerDashboard() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!tenantId || scope.entityIds.length === 0) {
+    if (!tenantId || (scope.entityIds.length === 0 && !scope.canSeeAll)) {
       setIsLoading(false);
       return;
     }
     let cancelled = false;
     setIsLoading(true);
 
-    getManagerDashboardData(tenantId, scope.entityIds).then(result => {
+    getManagerDashboardData(tenantId, scope.entityIds, scope.canSeeAll).then(result => {
       if (!cancelled) {
         setData(result);
         setIsLoading(false);
@@ -48,7 +48,7 @@ export function ManagerDashboard() {
     });
 
     return () => { cancelled = true; };
-  }, [tenantId, scope.entityIds, activePeriodId]);
+  }, [tenantId, scope.entityIds, scope.canSeeAll, activePeriodId]);
 
   const teamStats = useMemo(() => {
     if (!data || data.teamMembers.length === 0) return null;

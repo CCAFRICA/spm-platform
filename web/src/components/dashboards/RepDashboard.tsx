@@ -35,7 +35,7 @@ export function RepDashboard() {
   const [expandedComponent, setExpandedComponent] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!tenantId || !entityId) {
+    if (!tenantId) {
       setIsLoading(false);
       return;
     }
