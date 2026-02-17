@@ -178,7 +178,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
   }, [pathname, isSpanish]);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:border-slate-800 dark:bg-slate-950/95">
+    <header className="sticky top-0 z-50 w-full border-b border-white/[0.06] bg-black/30 backdrop-blur-xl">
       <div className="flex h-16 items-center justify-between px-4 md:px-6">
         {/* Left Section - Mobile Menu + Logo (visible only on mobile) */}
         <div className="flex items-center gap-4 md:hidden">
@@ -194,7 +194,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
               <Menu className="h-5 w-5" />
             )}
           </Button>
-          <span className="text-lg font-semibold text-navy-900 dark:text-slate-50">
+          <span className="text-lg font-semibold text-zinc-100">
             ViaLuce
           </span>
         </div>
@@ -203,23 +203,23 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
         <nav className="hidden md:flex items-center gap-1 text-sm min-w-0 shrink-0" aria-label="Breadcrumb">
           {currentTenant && (
             <>
-              <span className="text-slate-400 truncate max-w-[120px]" title={currentTenant.name}>
+              <span className="text-zinc-500 truncate max-w-[120px]" title={currentTenant.name}>
                 {currentTenant.name}
               </span>
               {breadcrumbs.length > 0 && (
-                <ChevronRight className="h-3.5 w-3.5 text-slate-300 shrink-0" />
+                <ChevronRight className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
               )}
             </>
           )}
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1">
-              {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
-              {crumb.isHome && <Home className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
+              {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-zinc-600 shrink-0" />}
+              {crumb.isHome && <Home className="h-3.5 w-3.5 text-zinc-500 shrink-0" />}
               <span
                 className={
                   i === breadcrumbs.length - 1
-                    ? 'text-slate-900 font-medium dark:text-slate-100 truncate max-w-[180px]'
-                    : 'text-slate-400 truncate max-w-[120px]'
+                    ? 'text-zinc-200 font-medium truncate max-w-[180px]'
+                    : 'text-zinc-500 truncate max-w-[120px]'
                 }
                 title={crumb.label}
               >
@@ -243,14 +243,14 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
 
           {/* Help */}
           <Button variant="ghost" size="icon" className="hidden md:flex" onClick={() => setIsHelpOpen(true)}>
-            <HelpCircle className="h-5 w-5 text-slate-500" />
+            <HelpCircle className="h-5 w-5 text-zinc-500" />
           </Button>
 
           {/* Notifications */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5 text-slate-500" />
+                <Bell className="h-5 w-5 text-zinc-500" />
                 {notificationCount > 0 && (
                   <Badge
                     variant="destructive"
@@ -279,18 +279,18 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
                     <span className={`font-medium ${NOTIFICATION_TYPE_COLORS[notification.type]}`}>
                       {isSpanish && notification.titleEs ? notification.titleEs : notification.title}
                     </span>
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-zinc-500">
                       {isSpanish && notification.messageEs ? notification.messageEs : notification.message}
                     </span>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-zinc-500">
                       {formatRelativeTime(notification.createdAt)}
                     </span>
                   </DropdownMenuItem>
                 ))
               ) : (
                 <div className="px-4 py-6 text-center">
-                  <Bell className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm text-slate-500">
+                  <Bell className="h-8 w-8 text-zinc-600 mx-auto mb-2" />
+                  <p className="text-sm text-zinc-500">
                     {isSpanish ? 'Sin notificaciones' : 'No notifications'}
                   </p>
                 </div>
@@ -310,7 +310,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
 
           {/* Settings - Hidden on desktop as Rail has user menu */}
           <Button variant="ghost" size="icon" className="hidden md:flex">
-            <Settings className="h-5 w-5 text-slate-500" />
+            <Settings className="h-5 w-5 text-zinc-500" />
           </Button>
 
           {/* User Menu - Only show on mobile since Rail has UserIdentity on desktop */}
