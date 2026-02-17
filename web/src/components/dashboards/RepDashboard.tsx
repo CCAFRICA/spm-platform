@@ -108,7 +108,7 @@ export function RepDashboard() {
             <div className="flex items-center gap-4 mt-2 text-sm text-emerald-100/50">
               <span>{activePeriodLabel}</span>
               <span>Logro: {data.attainment.toFixed(1)}%</span>
-              {data.rank > 0 && <span>Posicion: #{data.rank} de {data.totalEntities}</span>}
+              {data.rank > 0 && data.totalPayout > 0 && <span>Posicion: #{data.rank} de {data.totalEntities}</span>}
             </div>
           </div>
         </div>

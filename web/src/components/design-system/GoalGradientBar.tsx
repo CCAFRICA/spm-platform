@@ -12,16 +12,18 @@ interface GoalGradientBarProps {
 
 export function GoalGradientBar({ currentPct, tiers }: GoalGradientBarProps) {
   const sortedTiers = [...tiers].sort((a, b) => a.pct - b.pct);
-  const maxPct = Math.max(sortedTiers[sortedTiers.length - 1]?.pct ?? 100, currentPct) * 1.1;
+  // Cap display at 200% to prevent extreme bar widths from bad data
+  const cappedPct = Math.min(currentPct, 200);
+  const maxPct = Math.max(sortedTiers[sortedTiers.length - 1]?.pct ?? 100, cappedPct) * 1.1;
 
   // Find next tier
-  const nextTier = sortedTiers.find(t => t.pct > currentPct);
-  const gap = nextTier ? nextTier.pct - currentPct : 0;
+  const nextTier = sortedTiers.find(t => t.pct > cappedPct);
+  const gap = nextTier ? nextTier.pct - cappedPct : 0;
 
   // Gradient warms as you approach the next tier
-  const gradientClass = currentPct >= 100
+  const gradientClass = cappedPct >= 100
     ? 'from-emerald-400 via-lime-400 to-yellow-400'
-    : currentPct >= 80
+    : cappedPct >= 80
     ? 'from-emerald-500 via-lime-500 to-lime-400'
     : 'from-emerald-600 to-emerald-500';
 
@@ -31,7 +33,7 @@ export function GoalGradientBar({ currentPct, tiers }: GoalGradientBarProps) {
         {/* Progress bar with gradient */}
         <div
           className={`absolute inset-y-0 left-0 rounded-full bg-gradient-to-r ${gradientClass} transition-all duration-700 ease-out`}
-          style={{ width: `${Math.min((currentPct / maxPct) * 100, 100)}%` }}
+          style={{ width: `${Math.min((cappedPct / maxPct) * 100, 100)}%` }}
         />
         {/* Tier landmarks */}
         {sortedTiers.map(tier => {
@@ -53,7 +55,7 @@ export function GoalGradientBar({ currentPct, tiers }: GoalGradientBarProps) {
         {/* Current position dot */}
         <div
           className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-zinc-900 shadow-lg z-10 transition-all duration-700"
-          style={{ left: `${Math.min((currentPct / maxPct) * 100, 100)}%`, transform: 'translate(-50%, -50%)' }}
+          style={{ left: `${Math.min((cappedPct / maxPct) * 100, 100)}%`, transform: 'translate(-50%, -50%)' }}
         />
       </div>
       {/* Gap text */}

@@ -329,7 +329,7 @@ export async function getRepDashboardData(
   return {
     totalPayout: myOutcome?.total_payout ?? 0,
     components: parseComponents(myResults?.[0]?.components ?? null),
-    rank: myRank || safeAll.length,
+    rank: myRank > 0 ? myRank : 0,
     totalEntities: safeAll.length,
     neighbors,
     history: (myResults ?? []).map(r => ({
