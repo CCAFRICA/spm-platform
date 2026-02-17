@@ -34,15 +34,18 @@ export function BenchmarkBar({
         </div>
         {rightLabel && <div className="text-sm">{rightLabel}</div>}
       </div>
-      <div className="relative h-3 w-full rounded-full bg-zinc-800/60 overflow-hidden">
-        {/* Value bar */}
+      <div className="relative h-3 w-full rounded-full bg-zinc-800 overflow-hidden">
+        {/* Value bar with gradient */}
         <div
           className="absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out"
-          style={{ width: `${valuePct}%`, backgroundColor: color }}
+          style={{
+            width: `${valuePct}%`,
+            background: `linear-gradient(90deg, ${color}, ${color}dd)`,
+          }}
         />
         {/* Benchmark reference line */}
         <div
-          className="absolute top-0 h-full w-0.5 bg-white/80 z-10"
+          className="absolute top-0 h-full w-px bg-white/40 z-10"
           style={{ left: `${benchmarkPct}%` }}
           title={`Benchmark: ${benchmark}`}
         />

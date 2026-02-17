@@ -91,7 +91,7 @@ function AuthShellProtected({ children }: AuthShellProps) {
   // Show loading state while checking auth or tenant
   if (isLoading || tenantLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-muted-foreground">Loading...</p>
@@ -103,7 +103,7 @@ function AuthShellProtected({ children }: AuthShellProps) {
   // Not authenticated on a protected route: show spinner while redirect fires
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-muted-foreground">Redirecting...</p>

@@ -31,14 +31,14 @@ export function ManagerDashboard() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!tenantId || scope.entityIds.length === 0) {
+    if (!tenantId || (scope.entityIds.length === 0 && !scope.canSeeAll)) {
       setIsLoading(false);
       return;
     }
     let cancelled = false;
     setIsLoading(true);
 
-    getManagerDashboardData(tenantId, scope.entityIds).then(result => {
+    getManagerDashboardData(tenantId, scope.entityIds, scope.canSeeAll).then(result => {
       if (!cancelled) {
         setData(result);
         setIsLoading(false);
@@ -48,7 +48,7 @@ export function ManagerDashboard() {
     });
 
     return () => { cancelled = true; };
-  }, [tenantId, scope.entityIds, activePeriodId]);
+  }, [tenantId, scope.entityIds, scope.canSeeAll, activePeriodId]);
 
   const teamStats = useMemo(() => {
     if (!data || data.teamMembers.length === 0) return null;
@@ -85,7 +85,7 @@ export function ManagerDashboard() {
   return (
     <div className="space-y-6">
       {/* Hero Stats */}
-      <div className="bg-gradient-to-r from-amber-600/70 to-yellow-700/60 rounded-xl p-6 border border-amber-500/20">
+      <div className="bg-gradient-to-br from-amber-600/80 to-yellow-700/80 rounded-2xl p-6 border border-amber-500/20">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-amber-100/60 text-sm">Total del Equipo</p>
@@ -113,8 +113,8 @@ export function ManagerDashboard() {
       </div>
 
       {/* Team Members */}
-      <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
-        <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
+        <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">
           Miembros del Equipo (por logro)
         </h4>
         <div className="space-y-3">
@@ -153,8 +153,8 @@ export function ManagerDashboard() {
 
       {/* Acceleration Opportunities */}
       {data.accelerationOpportunities.length > 0 && (
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
-          <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
+          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">
             Oportunidades de Aceleracion ({data.accelerationOpportunities.length})
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

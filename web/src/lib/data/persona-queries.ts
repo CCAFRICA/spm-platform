@@ -175,12 +175,29 @@ export async function getAdminDashboardData(tenantId: string): Promise<AdminDash
 
 export async function getManagerDashboardData(
   tenantId: string,
-  entityIds: string[]
+  entityIds: string[],
+  canSeeAll = false
 ): Promise<ManagerDashboardData> {
   const supabase = createClient();
   const periodId = await getCurrentPeriodId(tenantId);
 
-  if (!periodId || entityIds.length === 0) {
+  if (!periodId) {
+    return emptyManagerData();
+  }
+
+  // When admin overrides to manager persona, entityIds is empty but canSeeAll is true
+  // In that case, fetch ALL entities for the tenant
+  let resolvedEntityIds = entityIds;
+  if (resolvedEntityIds.length === 0 && canSeeAll) {
+    const { data: allOutcomes } = await supabase
+      .from('entity_period_outcomes')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId);
+    resolvedEntityIds = Array.from(new Set((allOutcomes ?? []).map(o => o.entity_id)));
+  }
+
+  if (resolvedEntityIds.length === 0) {
     return emptyManagerData();
   }
 
@@ -190,7 +207,7 @@ export async function getManagerDashboardData(
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('period_id', periodId)
-    .in('entity_id', entityIds);
+    .in('entity_id', resolvedEntityIds);
 
   const safeOutcomes = outcomes ?? [];
 
@@ -198,14 +215,14 @@ export async function getManagerDashboardData(
   const { data: entities } = await supabase
     .from('entities')
     .select('id, display_name, external_id, entity_type')
-    .in('id', entityIds);
+    .in('id', resolvedEntityIds);
 
   // Fetch multi-period history for sparklines
   const { data: history } = await supabase
     .from('entity_period_outcomes')
     .select('entity_id, period_id, total_payout, attainment_summary')
     .eq('tenant_id', tenantId)
-    .in('entity_id', entityIds)
+    .in('entity_id', resolvedEntityIds)
     .order('materialized_at', { ascending: true });
 
   const historyByEntity = groupBy(history ?? [], 'entity_id');
@@ -236,7 +253,7 @@ export async function getManagerDashboardData(
 
 export async function getRepDashboardData(
   tenantId: string,
-  entityId: string
+  entityId: string | null
 ): Promise<RepDashboardData> {
   const supabase = createClient();
   const periodId = await getCurrentPeriodId(tenantId);
@@ -245,12 +262,31 @@ export async function getRepDashboardData(
     return emptyRepData();
   }
 
+  // When admin overrides to rep persona, entityId may be null
+  // Fall back to the top-performing entity for demo purposes
+  let resolvedEntityId = entityId;
+  if (!resolvedEntityId) {
+    const { data: topEntity } = await supabase
+      .from('entity_period_outcomes')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .order('total_payout', { ascending: false })
+      .limit(1)
+      .single();
+    resolvedEntityId = topEntity?.entity_id ?? null;
+  }
+
+  if (!resolvedEntityId) {
+    return emptyRepData();
+  }
+
   // Own outcome
   const { data: myOutcome } = await supabase
     .from('entity_period_outcomes')
     .select('*')
     .eq('tenant_id', tenantId)
-    .eq('entity_id', entityId)
+    .eq('entity_id', resolvedEntityId)
     .eq('period_id', periodId)
     .single();
 
@@ -259,7 +295,7 @@ export async function getRepDashboardData(
     .from('calculation_results')
     .select('components, total_payout, period_id, batch_id')
     .eq('tenant_id', tenantId)
-    .eq('entity_id', entityId)
+    .eq('entity_id', resolvedEntityId)
     .order('created_at', { ascending: false });
 
   // All outcomes for relative ranking
@@ -271,8 +307,8 @@ export async function getRepDashboardData(
     .order('total_payout', { ascending: false });
 
   const safeAll = allOutcomes ?? [];
-  const myRank = safeAll.findIndex(o => o.entity_id === entityId) + 1;
-  const neighbors = buildRelativeNeighbors(safeAll, entityId, myRank);
+  const myRank = safeAll.findIndex(o => o.entity_id === resolvedEntityId) + 1;
+  const neighbors = buildRelativeNeighbors(safeAll, resolvedEntityId, myRank);
 
   // Resolve period IDs to human-readable labels
   const resultPeriodIds = Array.from(new Set((myResults ?? []).map(r => r.period_id).filter(Boolean)));
