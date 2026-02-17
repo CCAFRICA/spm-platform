@@ -93,6 +93,38 @@ export interface OnboardingTenant {
   latestLifecycleState: string | null;
 }
 
+export interface IngestionMetricsData {
+  totalEvents: number;
+  committedCount: number;
+  quarantinedCount: number;
+  rejectedCount: number;
+  totalBytesIngested: number;
+  avgValidationPassRate: number;
+  classificationAccuracy: number;
+  perTenant: IngestionTenantMetrics[];
+  recentEvents: IngestionRecentEvent[];
+}
+
+export interface IngestionTenantMetrics {
+  tenantId: string;
+  tenantName: string;
+  totalEvents: number;
+  committed: number;
+  quarantined: number;
+  rejected: number;
+  bytesIngested: number;
+}
+
+export interface IngestionRecentEvent {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  fileName: string | null;
+  fileSize: number | null;
+  status: string;
+  createdAt: string;
+}
+
 // ──────────────────────────────────────────────
 // Fleet Overview
 // ──────────────────────────────────────────────

@@ -474,6 +474,7 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
                 <TooltipTrigger asChild>
                   <Link
                     href={route.path}
+                    prefetch={false}
                     className={cn(
                       'flex items-center justify-center w-10 h-8 rounded-md transition-all',
                       isActive
@@ -531,6 +532,7 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
               <Link
                 key={route.path}
                 href={route.path}
+                prefetch={false}
                 className={cn(
                   'flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs transition-all relative',
                   isActive

@@ -37,11 +37,8 @@ function getLifecycleDot(state: string | null): string {
 
 export function PeriodRibbon({ periods, activeKey, onSelect }: PeriodRibbonProps) {
   if (periods.length === 0) {
-    return (
-      <div className="px-6 py-2 border-b border-zinc-800/40 bg-zinc-950/40">
-        <p className="text-xs text-zinc-500">No hay periodos disponibles.</p>
-      </div>
-    );
+    // Don't show the banner at all — no periods is handled by dashboard empty state
+    return null;
   }
 
   return (

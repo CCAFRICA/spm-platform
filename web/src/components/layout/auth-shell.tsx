@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { PersonaProvider } from '@/contexts/persona-context';
 import { NavigationProvider, useNavigation } from '@/contexts/navigation-context';
+import { PeriodProvider } from '@/contexts/period-context';
 import { ChromeSidebar } from '@/components/navigation/ChromeSidebar';
 import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
 import { Navbar } from '@/components/navigation/Navbar';
@@ -136,10 +137,12 @@ function AuthShellProtected({ children }: AuthShellProps) {
   // Full app shell with Mission Control Rail
   return (
     <PersonaProvider>
-      <NavigationProvider>
-        <AuthShellInner>{children}</AuthShellInner>
-        <DemoPersonaSwitcher />
-      </NavigationProvider>
+      <PeriodProvider>
+        <NavigationProvider>
+          <AuthShellInner>{children}</AuthShellInner>
+          <DemoPersonaSwitcher />
+        </NavigationProvider>
+      </PeriodProvider>
     </PersonaProvider>
   );
 }

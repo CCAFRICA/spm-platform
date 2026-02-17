@@ -8,7 +8,7 @@
  * Own tab bar navigation (NOT ChromeSidebar).
  */
 
-import { useState } from 'react';
+import { useState, Suspense, lazy } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
 import {
@@ -17,17 +17,20 @@ import {
   Receipt,
   Server,
   Rocket,
+  Upload,
   LogOut,
+  Loader2,
 } from 'lucide-react';
 
-// Tab components (created in subsequent phases)
-import { ObservatoryTab } from './ObservatoryTab';
-import { AIIntelligenceTab } from './AIIntelligenceTab';
-import { BillingUsageTab } from './BillingUsageTab';
-import { InfrastructureTab } from './InfrastructureTab';
-import { OnboardingTab } from './OnboardingTab';
+// Lazy-load tab components to reduce initial bundle (Observatory loads only active tab)
+const ObservatoryTab = lazy(() => import('./ObservatoryTab').then(m => ({ default: m.ObservatoryTab })));
+const AIIntelligenceTab = lazy(() => import('./AIIntelligenceTab').then(m => ({ default: m.AIIntelligenceTab })));
+const BillingUsageTab = lazy(() => import('./BillingUsageTab').then(m => ({ default: m.BillingUsageTab })));
+const InfrastructureTab = lazy(() => import('./InfrastructureTab').then(m => ({ default: m.InfrastructureTab })));
+const OnboardingTab = lazy(() => import('./OnboardingTab').then(m => ({ default: m.OnboardingTab })));
+const IngestionTab = lazy(() => import('./IngestionTab').then(m => ({ default: m.IngestionTab })));
 
-type TabId = 'observatory' | 'ai' | 'billing' | 'infrastructure' | 'onboarding';
+type TabId = 'observatory' | 'ai' | 'billing' | 'infrastructure' | 'onboarding' | 'ingestion';
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'observatory', label: 'Observatory', icon: Activity },
@@ -35,6 +38,7 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: 
   { id: 'billing', label: 'Billing & Usage', icon: Receipt },
   { id: 'infrastructure', label: 'Infrastructure', icon: Server },
   { id: 'onboarding', label: 'Onboarding', icon: Rocket },
+  { id: 'ingestion', label: 'Ingestion', icon: Upload },
 ];
 
 export function PlatformObservatory() {
@@ -96,11 +100,14 @@ export function PlatformObservatory() {
 
       {/* Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {activeTab === 'observatory' && <ObservatoryTab />}
-        {activeTab === 'ai' && <AIIntelligenceTab />}
-        {activeTab === 'billing' && <BillingUsageTab />}
-        {activeTab === 'infrastructure' && <InfrastructureTab />}
-        {activeTab === 'onboarding' && <OnboardingTab />}
+        <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-violet-500" /></div>}>
+          {activeTab === 'observatory' && <ObservatoryTab />}
+          {activeTab === 'ai' && <AIIntelligenceTab />}
+          {activeTab === 'billing' && <BillingUsageTab />}
+          {activeTab === 'infrastructure' && <InfrastructureTab />}
+          {activeTab === 'onboarding' && <OnboardingTab />}
+          {activeTab === 'ingestion' && <IngestionTab />}
+        </Suspense>
       </main>
     </div>
   );

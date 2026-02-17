@@ -105,7 +105,7 @@ export function ObservatoryTab() {
 
       {/* Operations Queue */}
       <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
-        <h3 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-4">
+        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
           Operations Queue
         </h3>
         {queue.length === 0 ? (
@@ -138,7 +138,7 @@ export function ObservatoryTab() {
 
       {/* Tenant Fleet Cards */}
       <div>
-        <h3 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-4">
+        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
           Tenant Fleet ({tenantCards.length})
         </h3>
         <div className="grid gap-4 md:grid-cols-2">
@@ -242,7 +242,7 @@ function MetricCard({
     <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5">
       <div className="flex items-center gap-2 mb-2">
         <Icon className="h-4 w-4 text-violet-400" />
-        <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">{label}</span>
+        <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">{label}</span>
       </div>
       <p className="text-2xl font-bold text-white tabular-nums">{value.toLocaleString()}</p>
       {subtitle && <p className="text-[10px] text-zinc-500 mt-0.5">{subtitle}</p>}

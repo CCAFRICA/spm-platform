@@ -17,6 +17,7 @@ import type {
   TenantBillingData,
   RecentBatchActivity,
   OnboardingTenant,
+  IngestionMetricsData,
 } from '@/lib/data/platform-queries';
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceRoleClient>>;
@@ -63,6 +64,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(await fetchInfrastructureData(supabase));
       case 'onboarding':
         return NextResponse.json(await fetchOnboardingData(supabase));
+      case 'ingestion':
+        return NextResponse.json(await fetchIngestionMetrics(supabase));
       default:
         return NextResponse.json({ error: `Unknown tab: ${tab}` }, { status: 400 });
     }
@@ -477,6 +480,99 @@ async function fetchOnboardingData(supabase: ServiceClient): Promise<OnboardingT
       latestLifecycleState: latestLifecycle,
     };
   });
+}
+
+// ═══════════════════════════════════════════════
+// Ingestion Tab
+// ═══════════════════════════════════════════════
+
+async function fetchIngestionMetrics(supabase: ServiceClient): Promise<IngestionMetricsData> {
+  // Bulk fetch ingestion events and classification signals in parallel
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [eventsRes, signalsRes, tenantsRes] = await Promise.all([
+    supabase.from('ingestion_events')
+      .select('id, tenant_id, file_name, file_size_bytes, status, created_at')
+      .order('created_at', { ascending: false })
+      .limit(10000),
+    supabase.from('classification_signals')
+      .select('id, was_corrected')
+      .limit(10000),
+    supabase.from('tenants')
+      .select('id, name'),
+  ]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const events: any[] = eventsRes.data ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const signals: any[] = signalsRes.data ?? [];
+  const tenantNameMap = new Map((tenantsRes.data ?? []).map(t => [t.id, t.name]));
+
+  // Aggregate totals
+  let committedCount = 0;
+  let quarantinedCount = 0;
+  let rejectedCount = 0;
+  let totalBytes = 0;
+
+  // Per-tenant aggregation
+  const byTenant: Record<string, {
+    totalEvents: number; committed: number; quarantined: number;
+    rejected: number; bytes: number;
+  }> = {};
+
+  for (const e of events) {
+    const tid = e.tenant_id;
+    if (!byTenant[tid]) {
+      byTenant[tid] = { totalEvents: 0, committed: 0, quarantined: 0, rejected: 0, bytes: 0 };
+    }
+    byTenant[tid].totalEvents++;
+    const size = e.file_size_bytes ?? 0;
+    totalBytes += size;
+    byTenant[tid].bytes += size;
+
+    if (e.status === 'committed') { committedCount++; byTenant[tid].committed++; }
+    else if (e.status === 'quarantined') { quarantinedCount++; byTenant[tid].quarantined++; }
+    else if (e.status === 'rejected') { rejectedCount++; byTenant[tid].rejected++; }
+  }
+
+  // Classification accuracy: % of signals where AI was NOT corrected
+  const totalSignals = signals.length;
+  const correctSignals = signals.filter(s => !s.was_corrected).length;
+  const classificationAccuracy = totalSignals > 0 ? correctSignals / totalSignals : 0;
+
+  // Validation pass rate: committed / (committed + quarantined)
+  const validationTotal = committedCount + quarantinedCount;
+  const avgValidationPassRate = validationTotal > 0 ? committedCount / validationTotal : 0;
+
+  // Recent events (last 20)
+  const recentEvents = events.slice(0, 20).map(e => ({
+    id: e.id,
+    tenantId: e.tenant_id,
+    tenantName: tenantNameMap.get(e.tenant_id) ?? e.tenant_id,
+    fileName: e.file_name ?? null,
+    fileSize: e.file_size_bytes ?? null,
+    status: e.status,
+    createdAt: e.created_at,
+  }));
+
+  return {
+    totalEvents: events.length,
+    committedCount,
+    quarantinedCount,
+    rejectedCount,
+    totalBytesIngested: totalBytes,
+    avgValidationPassRate,
+    classificationAccuracy,
+    perTenant: Object.entries(byTenant).map(([tenantId, d]) => ({
+      tenantId,
+      tenantName: tenantNameMap.get(tenantId) ?? tenantId,
+      totalEvents: d.totalEvents,
+      committed: d.committed,
+      quarantined: d.quarantined,
+      rejected: d.rejected,
+      bytesIngested: d.bytes,
+    })),
+    recentEvents,
+  };
 }
 
 // ═══════════════════════════════════════════════

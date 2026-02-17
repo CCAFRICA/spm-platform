@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingButton } from '@/components/ui/loading-button';
-import { FileUpload } from '@/components/import/file-upload';
+import { UploadZone } from '@/components/ingestion/UploadZone';
 import { ColumnMapper } from '@/components/import/column-mapper';
 import { ValidationPreview } from '@/components/import/validation-preview';
 import {
@@ -353,12 +353,10 @@ export default function ImportPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <FileUpload
-                  onFileSelect={handleFileSelect}
-                  accept={isHospitality ? {
-                    'text/plain': ['.txt', '.tsv'],
-                    'text/tab-separated-values': ['.tsv'],
-                  } : undefined}
+                <UploadZone
+                  acceptCategories={isHospitality ? ['text'] : ['spreadsheets', 'text']}
+                  onFileContent={handleFileSelect}
+                  maxFiles={1}
                 />
 
                 <div className="flex items-center gap-4">
