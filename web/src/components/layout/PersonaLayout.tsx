@@ -3,30 +3,37 @@
 /**
  * PersonaLayout — Persona-aware layout wrapper
  *
- * Applies:
- *   - Background gradient from persona tokens (Wayfinder Layer 1)
- *   - 700ms transition animation when persona changes
- *   - Provides ambient visual identity to all children
+ * Applies persona-specific gradient backgrounds using INLINE STYLES
+ * (not Tailwind classes) to ensure they are never overridden.
  *
- * This component wraps ALL page content in the new design system.
- * Created as standalone (OB-46A) — wired into layout in OB-46B.
+ * DS-001: Each persona has a distinct color psychology:
+ *   - admin (indigo): analytical thinking, trust, governance
+ *   - manager (amber): warmth, mentorship, coaching
+ *   - rep (emerald): growth trajectory, progress, mastery
  */
 
 import type { ReactNode } from 'react';
-import { PERSONA_TOKENS, type PersonaKey } from '@/lib/design/tokens';
+import type { PersonaKey } from '@/lib/design/tokens';
+
+const PERSONA_GRADIENTS: Record<string, string> = {
+  admin: 'linear-gradient(to bottom, #020617, rgba(30, 27, 75, 0.4), #020617)',
+  manager: 'linear-gradient(to bottom, #020617, rgba(69, 26, 3, 0.25), #020617)',
+  rep: 'linear-gradient(to bottom, #020617, rgba(6, 78, 59, 0.25), #020617)',
+};
 
 interface PersonaLayoutProps {
   children: ReactNode;
   persona?: PersonaKey;
-  tokens?: typeof PERSONA_TOKENS[PersonaKey];
+  tokens?: Record<string, string>;
 }
 
-export function PersonaLayout({ children, persona = 'rep', tokens }: PersonaLayoutProps) {
-  const resolvedTokens = tokens ?? PERSONA_TOKENS[persona];
-
+export function PersonaLayout({ children, persona = 'rep' }: PersonaLayoutProps) {
   return (
     <div
-      className={`min-h-screen bg-gradient-to-b ${resolvedTokens.bg} text-white transition-all duration-700`}
+      style={{
+        background: PERSONA_GRADIENTS[persona] || PERSONA_GRADIENTS.admin,
+        minHeight: '100vh',
+      }}
     >
       {children}
     </div>

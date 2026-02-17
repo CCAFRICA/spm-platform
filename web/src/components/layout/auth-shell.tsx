@@ -41,7 +41,7 @@ function AuthShellInner({ children }: AuthShellProps) {
         )}
       >
         <Navbar />
-        <main className="workspace-content min-h-screen">{children}</main>
+        <main className="workspace-content min-h-screen" style={{ background: 'transparent' }}>{children}</main>
       </div>
       <CommandPalette />
     </>

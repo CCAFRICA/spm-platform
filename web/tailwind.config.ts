@@ -9,6 +9,9 @@ const config: Config = {
   ],
   theme: {
   	extend: {
+  		fontFamily: {
+  			sans: ['var(--font-dm-sans)', 'DM Sans', 'system-ui', 'sans-serif'],
+  		},
   		colors: {
   			navy: {
   				'50': '#eff6ff',
@@ -46,6 +49,14 @@ const config: Config = {
   				'700': '#047857',
   				'800': '#065f46',
   				'900': '#064e3b'
+  			},
+  			'ds-chart': {
+  				rose: '#f87171',
+  				amber: '#fbbf24',
+  				blue: '#60a5fa',
+  				emerald: '#34d399',
+  				purple: '#a78bfa',
+  				pink: '#f472b6',
   			},
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
