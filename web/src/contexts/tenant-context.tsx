@@ -13,6 +13,8 @@ import { useAuth } from './auth-context';
 import { createClient } from '@/lib/supabase/client';
 import type { TenantConfig, TenantSummary, TenantTerminology, Currency } from '@/types/tenant';
 import { DEFAULT_TERMINOLOGY, DEFAULT_FEATURES, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
+import { getDefaultWorkspaceForRole } from '@/lib/navigation/workspace-config';
+import type { UserRole } from '@/types/auth';
 
 interface TenantContextState {
   currentTenant: TenantConfig | null;
@@ -200,14 +202,17 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         sessionStorage.setItem('vialuce_admin_tenant', tenantId);
         document.cookie = `vialuce-tenant-id=${tenantId}; path=/; max-age=${60 * 60 * 24}; SameSite=Lax`;
       }
-      router.push('/');
+      // Route to the default workspace for the user's role (Operate for admin/vl_admin)
+      const role = (user?.role || 'admin') as UserRole;
+      const defaultWs = getDefaultWorkspaceForRole(role);
+      router.push(`/${defaultWs}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to switch tenant');
       throw err;
     } finally {
       setIsLoading(false);
     }
-  }, [router, loadTenant, isAdmin]);
+  }, [router, loadTenant, isAdmin, user]);
 
   const clearTenant = useCallback((): void => {
     setCurrentTenant(null);
@@ -274,10 +279,10 @@ export function useCurrency() {
 
   const symbols: Record<Currency, string> = {
     USD: '$',
-    MXN: '$',
+    MXN: 'MX$',
     EUR: '€',
     GBP: '£',
-    CAD: '$',
+    CAD: 'CA$',
   };
 
   return {

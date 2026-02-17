@@ -26,40 +26,43 @@ const PeriodContext = createContext<PeriodContextValue | undefined>(undefined);
 async function loadPeriods(tenantId: string): Promise<PeriodInfo[]> {
   const supabase = createClient();
 
-  const { data: periods } = await supabase
-    .from('periods')
-    .select('id, period_key, period_type, start_date, end_date, status')
-    .eq('tenant_id', tenantId)
-    .order('start_date', { ascending: false });
+  // Fetch periods and latest batches in parallel (2 queries instead of N+1)
+  const [periodsRes, batchesRes] = await Promise.all([
+    supabase
+      .from('periods')
+      .select('id, period_key, period_type, start_date, end_date, status')
+      .eq('tenant_id', tenantId)
+      .order('start_date', { ascending: false }),
+    supabase
+      .from('calculation_batches')
+      .select('period_id, lifecycle_state, created_at')
+      .eq('tenant_id', tenantId)
+      .is('superseded_by', null)
+      .order('created_at', { ascending: false })
+      .limit(1000),
+  ]);
 
+  const periods = periodsRes.data;
   if (!periods || periods.length === 0) return [];
 
-  const enriched = await Promise.all(
-    periods.map(async (p) => {
-      const { data: batch } = await supabase
-        .from('calculation_batches')
-        .select('lifecycle_state')
-        .eq('tenant_id', tenantId)
-        .eq('period_id', p.id)
-        .is('superseded_by', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+  // Build map of latest batch lifecycle per period
+  const latestBatchByPeriod = new Map<string, string>();
+  for (const b of (batchesRes.data ?? [])) {
+    if (!latestBatchByPeriod.has(b.period_id)) {
+      latestBatchByPeriod.set(b.period_id, b.lifecycle_state);
+    }
+  }
 
-      return {
-        periodId: p.id,
-        periodKey: p.period_key,
-        label: formatPeriodLabel(p.period_key, p.start_date),
-        status: p.status,
-        lifecycleState: batch?.lifecycle_state ?? null,
-        startDate: p.start_date,
-        endDate: p.end_date,
-        needsAttention: false,
-      };
-    })
-  );
-
-  return enriched;
+  return periods.map((p) => ({
+    periodId: p.id,
+    periodKey: p.period_key,
+    label: formatPeriodLabel(p.period_key, p.start_date),
+    status: p.status,
+    lifecycleState: latestBatchByPeriod.get(p.id) ?? null,
+    startDate: p.start_date,
+    endDate: p.end_date,
+    needsAttention: false,
+  }));
 }
 
 function formatPeriodLabel(periodKey: string, startDate: string): string {

@@ -14,7 +14,7 @@
  */
 
 import { usePersona } from '@/contexts/persona-context';
-import { PeriodProvider, usePeriod } from '@/contexts/period-context';
+import { usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
 import { PeriodRibbon } from '@/components/design-system/PeriodRibbon';
 import { AdminDashboard } from '@/components/dashboards/AdminDashboard';
@@ -71,9 +71,7 @@ function DashboardContent() {
 }
 
 export default function DashboardPage() {
-  return (
-    <PeriodProvider>
-      <DashboardContent />
-    </PeriodProvider>
-  );
+  // PeriodProvider is now in the shell layout (auth-shell.tsx)
+  // so all pages share the same period context
+  return <DashboardContent />;
 }

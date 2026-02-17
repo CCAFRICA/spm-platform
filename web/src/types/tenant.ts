@@ -132,11 +132,17 @@ export interface TenantRegistry {
 
 // Helper Functions
 export function formatTenantCurrency(amount: number, currency: Currency, locale: Locale): string {
-  return new Intl.NumberFormat(locale, {
+  const formatted = new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: currency,
     minimumFractionDigits: 2,
   }).format(amount);
+  // Distinguish MXN from USD — both use $ in native locales.
+  // Replace bare $ with MX$ for MXN to avoid ambiguity.
+  if (currency === 'MXN' && !formatted.includes('MX')) {
+    return formatted.replace('$', 'MX$');
+  }
+  return formatted;
 }
 
 export function formatTenantDate(date: string | Date, locale: Locale): string {

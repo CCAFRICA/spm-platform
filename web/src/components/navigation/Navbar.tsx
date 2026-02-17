@@ -41,6 +41,7 @@ import { useTenant } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
 import { useNavigation } from "@/contexts/navigation-context";
+import { usePeriod } from "@/contexts/period-context";
 import { WORKSPACES } from "@/lib/navigation/workspace-config";
 import type { WorkspaceId } from "@/types/navigation";
 import { toast } from "sonner";
@@ -63,9 +64,11 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
   const { locale } = useLocale();
   const { user } = useAuth();
   const { cycleState, queueItems } = useNavigation();
+  const { activePeriodLabel, availablePeriods, activePeriodKey } = usePeriod();
   const pathname = usePathname();
   const isSpanish = locale === 'es-MX';
   const pendingCount = queueItems.length;
+  const activePeriod = availablePeriods.find(p => p.periodKey === activePeriodKey);
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -233,12 +236,20 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
           ))}
         </nav>
 
-        {/* Status Chip — compact cycle/queue summary */}
-        {cycleState && (
+        {/* Status Chip — period name + lifecycle state + queue count */}
+        {currentTenant && (
           <div className="hidden md:flex items-center gap-1.5 ml-3 shrink-0">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/60 border border-zinc-700/50 text-[11px]">
               <Activity className="h-3 w-3 text-emerald-400" />
-              <span className="text-zinc-400">{cycleState.currentPhase}</span>
+              {activePeriodLabel && (
+                <span className="text-zinc-300 font-medium">{activePeriodLabel}</span>
+              )}
+              {activePeriod?.lifecycleState && (
+                <span className="text-zinc-500">{activePeriod.lifecycleState}</span>
+              )}
+              {!activePeriodLabel && cycleState && (
+                <span className="text-zinc-400">{cycleState.currentPhase}</span>
+              )}
               {pendingCount > 0 && (
                 <span className="flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-medium">
                   {pendingCount}
