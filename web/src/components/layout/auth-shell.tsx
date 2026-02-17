@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
+import { PersonaProvider } from '@/contexts/persona-context';
 import { NavigationProvider, useNavigation } from '@/contexts/navigation-context';
 import { MissionControlRail } from '@/components/navigation/mission-control';
 import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
@@ -123,9 +124,11 @@ function AuthShellProtected({ children }: AuthShellProps) {
 
   // Full app shell with Mission Control Rail
   return (
-    <NavigationProvider>
-      <AuthShellInner>{children}</AuthShellInner>
-      <DemoPersonaSwitcher />
-    </NavigationProvider>
+    <PersonaProvider>
+      <NavigationProvider>
+        <AuthShellInner>{children}</AuthShellInner>
+        <DemoPersonaSwitcher />
+      </NavigationProvider>
+    </PersonaProvider>
   );
 }
