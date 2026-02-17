@@ -365,12 +365,12 @@ export function getTrendArrow(trend: PulseTrend | undefined): string {
 export function getTrendColor(trend: PulseTrend | undefined): string {
   switch (trend) {
     case 'up':
-      return 'text-green-600';
+      return 'text-emerald-400';
     case 'down':
-      return 'text-red-600';
+      return 'text-rose-400';
     case 'flat':
     default:
-      return 'text-gray-500';
+      return 'text-zinc-500';
   }
 }
 
