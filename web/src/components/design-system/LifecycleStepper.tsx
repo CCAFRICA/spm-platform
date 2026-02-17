@@ -7,7 +7,6 @@ import {
   getPreviousAction,
   isDashboardState,
   toDashboardState,
-  type DashboardLifecycleState,
 } from '@/lib/lifecycle/lifecycle-service';
 
 interface LifecycleStepperProps {

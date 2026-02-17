@@ -28,7 +28,6 @@ export function PacingCone({ history, daysRemaining, daysTotal, tiers = [] }: Pa
     if (history.length === 0) return { pathD: '', optimistic: '', expected: '', pessimistic: '', tierLines: [] as { y: number; label: string }[], currentY: 0, svgW: w, svgH: h };
 
     const maxVal = Math.max(...history, ...tiers.map(t => t.threshold)) * 1.2 || 100;
-    const daysElapsed = daysTotal - daysRemaining;
     const totalSteps = history.length + Math.max(1, Math.round((daysRemaining / daysTotal) * history.length));
     const stepX = plotW / Math.max(totalSteps - 1, 1);
 

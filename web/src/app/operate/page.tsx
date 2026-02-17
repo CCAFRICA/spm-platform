@@ -46,7 +46,7 @@ export default function OperateCockpitPage() {
   const [lifecycleState, setLifecycleState] = useState<string | null>(null);
   const [readiness, setReadiness] = useState<DataReadiness>(defaultReadiness());
   const [calcSummary, setCalcSummary] = useState<CalcSummary | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [, setIsLoading] = useState(true);
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
