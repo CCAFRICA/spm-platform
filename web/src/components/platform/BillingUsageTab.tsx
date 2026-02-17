@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  getBillingData,
-  type TenantBillingData,
-  type RecentBatchActivity,
+import type {
+  TenantBillingData,
+  RecentBatchActivity,
 } from '@/lib/data/platform-queries';
 import { Loader2, Users, Calendar, Calculator, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -19,15 +18,22 @@ export function BillingUsageTab() {
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    getBillingData().then(result => {
-      if (!cancelled) {
-        setTenants(result.tenants);
-        setActivity(result.recentActivity);
-        setIsLoading(false);
-      }
-    }).catch(() => {
-      if (!cancelled) setIsLoading(false);
-    });
+    fetch('/api/platform/observatory?tab=billing')
+      .then(res => {
+        if (!res.ok) throw new Error(`Billing API: ${res.status}`);
+        return res.json();
+      })
+      .then((result: { tenants: TenantBillingData[]; recentActivity: RecentBatchActivity[] }) => {
+        if (!cancelled) {
+          setTenants(result.tenants);
+          setActivity(result.recentActivity);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error('[BillingUsageTab] Fetch failed:', err);
+        if (!cancelled) setIsLoading(false);
+      });
     return () => { cancelled = true; };
   }, []);
 

@@ -1,10 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  getAIIntelligenceData,
-  type AIIntelligenceData,
-} from '@/lib/data/platform-queries';
+import type { AIIntelligenceData } from '@/lib/data/platform-queries';
 import { Loader2, Sparkles, AlertTriangle, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,14 +26,21 @@ export function AIIntelligenceTab() {
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    getAIIntelligenceData().then(result => {
-      if (!cancelled) {
-        setData(result);
-        setIsLoading(false);
-      }
-    }).catch(() => {
-      if (!cancelled) setIsLoading(false);
-    });
+    fetch('/api/platform/observatory?tab=ai')
+      .then(res => {
+        if (!res.ok) throw new Error(`AI API: ${res.status}`);
+        return res.json();
+      })
+      .then((result: AIIntelligenceData) => {
+        if (!cancelled) {
+          setData(result);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error('[AIIntelligenceTab] Fetch failed:', err);
+        if (!cancelled) setIsLoading(false);
+      });
     return () => { cancelled = true; };
   }, []);
 

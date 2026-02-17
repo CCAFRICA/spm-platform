@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  getInfrastructureData,
-} from '@/lib/data/platform-queries';
+// Data fetched from /api/platform/observatory?tab=infra
 import {
   Loader2,
   Server,
@@ -28,14 +26,21 @@ export function InfrastructureTab() {
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    getInfrastructureData().then(result => {
-      if (!cancelled) {
-        setData(result);
-        setIsLoading(false);
-      }
-    }).catch(() => {
-      if (!cancelled) setIsLoading(false);
-    });
+    fetch('/api/platform/observatory?tab=infra')
+      .then(res => {
+        if (!res.ok) throw new Error(`Infra API: ${res.status}`);
+        return res.json();
+      })
+      .then((result: NonNullable<typeof data>) => {
+        if (!cancelled) {
+          setData(result);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error('[InfrastructureTab] Fetch failed:', err);
+        if (!cancelled) setIsLoading(false);
+      });
     return () => { cancelled = true; };
   }, []);
 
