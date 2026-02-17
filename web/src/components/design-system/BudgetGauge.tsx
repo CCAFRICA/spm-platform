@@ -7,7 +7,7 @@ interface BudgetGaugeProps {
   label?: string;
 }
 
-export function BudgetGauge({ actual, budget, currency = 'MX$', label }: BudgetGaugeProps) {
+export function BudgetGauge({ actual, budget, currency = '$', label }: BudgetGaugeProps) {
   const max = Math.max(actual, budget) * 1.15 || 1;
   const actualPercent = (actual / max) * 100;
   const budgetPercent = (budget / max) * 100;

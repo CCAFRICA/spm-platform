@@ -17,7 +17,7 @@ interface PeriodComparisonProps {
 export function PeriodComparison({
   period1,
   period2,
-  currency = 'MX$',
+  currency = '$',
   sortBy: initialSort = 'change',
 }: PeriodComparisonProps) {
   const [sortBy, setSortBy] = useState(initialSort);

@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { createClient } from '@/lib/supabase/client';
 import { PeriodRibbon, type PeriodInfo } from '@/components/design-system/PeriodRibbon';
 import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
@@ -39,6 +39,7 @@ interface CalcSummary {
 
 export default function OperateCockpitPage() {
   const { currentTenant } = useTenant();
+  const { symbol: currencySymbol } = useCurrency();
   const tenantId = currentTenant?.id ?? '';
 
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
@@ -245,7 +246,7 @@ export default function OperateCockpitPage() {
                   <div>
                     <p className="text-[11px] text-zinc-500">Pago Total</p>
                     <p className="text-lg font-bold text-zinc-100">
-                      $<AnimatedNumber value={calcSummary.totalPayout} />
+                      {currencySymbol}<AnimatedNumber value={calcSummary.totalPayout} />
                     </p>
                   </div>
                   <div>

@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
@@ -23,6 +23,7 @@ import {
 
 export function ManagerDashboard() {
   const { currentTenant } = useTenant();
+  const { symbol: currencySymbol } = useCurrency();
   const { scope } = usePersona();
   const { activePeriodId } = usePeriod();
   const tenantId = currentTenant?.id ?? '';
@@ -90,7 +91,7 @@ export function ManagerDashboard() {
           <div>
             <p className="text-amber-100/60 text-sm">Total del Equipo</p>
             <p className="text-3xl font-bold text-white mt-1">
-              $<AnimatedNumber value={data.teamTotal} />
+              {currencySymbol}<AnimatedNumber value={data.teamTotal} />
             </p>
             <div className="flex items-center gap-4 mt-2 text-sm text-amber-100/50">
               <span>{data.teamMembers.length} miembros</span>

@@ -39,7 +39,7 @@ function statePillColor(state?: string): 'emerald' | 'amber' | 'indigo' | 'zinc'
 
 export function PayrollSummary({
   rows,
-  currency = 'MX$',
+  currency = '$',
   groupBy,
   onRowClick,
 }: PayrollSummaryProps) {

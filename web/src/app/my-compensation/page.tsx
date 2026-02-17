@@ -91,7 +91,7 @@ function mapRole(role: string): 'vl_admin' | 'platform_admin' | 'manager' | 'sal
 export default function MyCompensationPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const { format: formatCurrency } = useCurrency();
+  const { format: formatCurrency, symbol: currencySymbol } = useCurrency();
   const [period, setPeriod] = useState<Period>('current');
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
   const [pendingDisputes, setPendingDisputes] = useState(0);
@@ -524,7 +524,7 @@ export default function MyCompensationPage() {
                           { label: comp.componentName, value: comp.outputValue, type: 'add' },
                           { label: 'Total', value: comp.outputValue, type: 'total' },
                         ] as WaterfallStep[]}
-                        currency={calculationResult.currency === 'MXN' ? 'MX$' : '$'}
+                        currency={currencySymbol}
                       />
                       <p className="text-xs text-slate-500">
                         {calculationResult.totalIncentive > 0

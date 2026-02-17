@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePeriod } from '@/contexts/period-context';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { StatusPill } from '@/components/design-system/StatusPill';
@@ -30,6 +30,7 @@ import {
 
 export function AdminDashboard() {
   const { currentTenant } = useTenant();
+  const { symbol: currencySymbol } = useCurrency();
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const tenantId = currentTenant?.id ?? '';
 
@@ -108,7 +109,7 @@ export function AdminDashboard() {
           <div>
             <p className="text-indigo-200/70 text-sm">Pago Total del Periodo</p>
             <p className="text-3xl font-bold text-white mt-1">
-              $<AnimatedNumber value={data.totalPayout} />
+              {currencySymbol}<AnimatedNumber value={data.totalPayout} />
             </p>
             <div className="flex items-center gap-4 mt-2 text-sm text-indigo-200/60">
               <span>{data.entityCount} entidades</span>
@@ -146,7 +147,7 @@ export function AdminDashboard() {
       {/* Budget Gauge */}
       <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
         <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Posicion Presupuestaria</h4>
-        <BudgetGauge actual={data.totalPayout} budget={budgetTotal} currency="MX$" />
+        <BudgetGauge actual={data.totalPayout} budget={budgetTotal} currency={currencySymbol} />
       </div>
 
       {/* Exceptions */}
@@ -171,7 +172,7 @@ export function AdminDashboard() {
       {/* Payroll Summary */}
       <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
         <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">Resumen de Nomina</h4>
-        <PayrollSummary rows={payrollRows} currency="MX$" />
+        <PayrollSummary rows={payrollRows} currency={currencySymbol} />
       </div>
     </div>
   );
