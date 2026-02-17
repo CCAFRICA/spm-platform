@@ -340,14 +340,32 @@ function groupBy<T extends Record<string, unknown>>(items: T[], key: string): Re
 
 export function extractAttainment(attainmentSummary: Json | null): number {
   if (!attainmentSummary) return 0;
-  if (typeof attainmentSummary === 'number') return attainmentSummary;
+  if (typeof attainmentSummary === 'number') return normalizeAttainment(attainmentSummary);
   if (typeof attainmentSummary === 'object' && attainmentSummary !== null && !Array.isArray(attainmentSummary)) {
     const obj = attainmentSummary as Record<string, Json | undefined>;
-    // Try common keys
-    const val = obj.overall ?? obj.attainment ?? obj.pct ?? obj.value;
-    if (typeof val === 'number') return val;
+    // Try common keys (overall, attainment, pct, value, store)
+    const val = obj.overall ?? obj.attainment ?? obj.pct ?? obj.value ?? obj.store;
+    if (typeof val === 'number') return normalizeAttainment(val);
+    // Fallback: average all numeric top-level values (component attainments)
+    const nums = Object.values(obj).filter((v): v is number => typeof v === 'number');
+    if (nums.length > 0) {
+      const avg = nums.reduce((s, n) => s + n, 0) / nums.length;
+      return normalizeAttainment(avg);
+    }
   }
   return 0;
+}
+
+/**
+ * Normalize attainment to percentage scale (0-200+).
+ * Seed data stores as decimals (1.05 = 105%). Values <= 3 are treated as
+ * decimal ratios and multiplied by 100.
+ */
+function normalizeAttainment(val: number): number {
+  if (val <= 0) return 0;
+  // Values in 0-3 range are decimal ratios (e.g., 1.05 = 105%)
+  if (val <= 3) return val * 100;
+  return val;
 }
 
 function parseComponents(components: Json | null): ComponentItem[] {
