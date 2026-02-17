@@ -39,6 +39,8 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import { CalculationWaterfall, type WaterfallStep } from '@/components/design-system/CalculationWaterfall';
+import { ComponentStack } from '@/components/design-system/ComponentStack';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { getByEmployee } from '@/lib/disputes/dispute-service';
@@ -483,6 +485,12 @@ export default function MyCompensationPage() {
             <TrendingUp className="h-5 w-5 text-slate-500" />
             Component Breakdown
           </h3>
+          {calculationResult.components.length > 1 && (
+            <ComponentStack
+              components={calculationResult.components.map(c => ({ name: c.componentName, value: c.outputValue }))}
+              total={calculationResult.totalIncentive}
+            />
+          )}
           <div className="grid gap-3 md:grid-cols-2">
             {calculationResult.components.map((comp) => (
               <Card
@@ -510,13 +518,18 @@ export default function MyCompensationPage() {
                     )}
                   </div>
                   {expandedComponent === comp.componentId && (
-                    <div className="mt-3 pt-3 border-t text-sm text-slate-600 space-y-1">
-                      <p><span className="font-medium">Calculation:</span> {comp.calculation}</p>
-                      <p>
-                        <span className="font-medium">Share of Total:</span>{' '}
+                    <div className="mt-3 pt-3 border-t space-y-2">
+                      <CalculationWaterfall
+                        steps={[
+                          { label: comp.componentName, value: comp.outputValue, type: 'add' },
+                          { label: 'Total', value: comp.outputValue, type: 'total' },
+                        ] as WaterfallStep[]}
+                        currency={calculationResult.currency === 'MXN' ? 'MX$' : '$'}
+                      />
+                      <p className="text-xs text-slate-500">
                         {calculationResult.totalIncentive > 0
                           ? Math.round((comp.outputValue / calculationResult.totalIncentive) * 100)
-                          : 0}%
+                          : 0}% del pago total
                       </p>
                     </div>
                   )}
