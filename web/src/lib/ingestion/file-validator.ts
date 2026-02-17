@@ -105,7 +105,7 @@ export function getAcceptString(categories?: FileCategory[]): string {
     mimes.push(...def.mimeTypes);
   }
 
-  return [...new Set([...extensions, ...mimes])].join(',');
+  return Array.from(new Set([...extensions, ...mimes])).join(',');
 }
 
 /**

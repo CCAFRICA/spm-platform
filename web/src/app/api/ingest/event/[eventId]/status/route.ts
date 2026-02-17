@@ -42,39 +42,45 @@ export async function POST(
 
     const supabase = await createServiceRoleClient();
 
-    // Fetch the original event
-    const { data: original, error: fetchError } = await supabase
+    // Fetch the original event (cast: DS-005 columns added via migration 007)
+    const { data: originalRaw, error: fetchError } = await supabase
       .from('ingestion_events')
       .select('*')
       .eq('id', eventId)
       .single();
 
-    if (fetchError || !original) {
+    if (fetchError || !originalRaw) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const original = originalRaw as any;
+
     // Create a NEW event that supersedes the original (immutable chain)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const insertPayload: any = {
+      tenant_id: original.tenant_id,
+      batch_id: original.batch_id,
+      uploaded_by: original.uploaded_by,
+      uploaded_by_email: original.uploaded_by_email,
+      uploaded_by_role: original.uploaded_by_role,
+      file_name: original.file_name,
+      file_size_bytes: original.file_size_bytes,
+      file_type: original.file_type,
+      file_hash_sha256: original.file_hash_sha256,
+      storage_path: original.storage_path,
+      uploaded_at: original.uploaded_at,
+      status: new_status,
+      classification_result: classification_result || original.classification_result,
+      validation_result: validation_result || original.validation_result,
+      record_count: record_count ?? original.record_count,
+      sheet_count: original.sheet_count,
+      supersedes_event_id: eventId,
+    };
+
     const { data: newEvent, error: insertError } = await supabase
       .from('ingestion_events')
-      .insert({
-        tenant_id: original.tenant_id,
-        batch_id: original.batch_id,
-        uploaded_by: original.uploaded_by,
-        uploaded_by_email: original.uploaded_by_email,
-        uploaded_by_role: original.uploaded_by_role,
-        file_name: original.file_name,
-        file_size_bytes: original.file_size_bytes,
-        file_type: original.file_type,
-        file_hash_sha256: original.file_hash_sha256,
-        storage_path: original.storage_path,
-        uploaded_at: original.uploaded_at,
-        status: new_status,
-        classification_result: classification_result || original.classification_result,
-        validation_result: validation_result || original.validation_result,
-        record_count: record_count ?? original.record_count,
-        sheet_count: original.sheet_count,
-        supersedes_event_id: eventId,
-      })
+      .insert(insertPayload)
       .select('id, status')
       .single();
 

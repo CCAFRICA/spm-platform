@@ -38,23 +38,27 @@ export async function POST(request: NextRequest) {
     // Use service role to bypass restrictive RLS on insert
     const supabase = await createServiceRoleClient();
 
+    // Cast: DS-005 columns added via migration 007, not yet in generated types
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const insertPayload: any = {
+      tenant_id,
+      batch_id: batch_id || null,
+      uploaded_by: profile.id,
+      uploaded_by_email: profile.email || user.email || 'unknown',
+      uploaded_by_role: profile.role,
+      file_name,
+      file_size_bytes,
+      file_type,
+      file_hash_sha256,
+      storage_path,
+      status: 'received',
+      uploaded_at: new Date().toISOString(),
+      sheet_count: sheet_count || null,
+    };
+
     const { data, error } = await supabase
       .from('ingestion_events')
-      .insert({
-        tenant_id,
-        batch_id: batch_id || null,
-        uploaded_by: profile.id,
-        uploaded_by_email: profile.email || user.email || 'unknown',
-        uploaded_by_role: profile.role,
-        file_name,
-        file_size_bytes,
-        file_type,
-        file_hash_sha256,
-        storage_path,
-        status: 'received',
-        uploaded_at: new Date().toISOString(),
-        sheet_count: sheet_count || null,
-      })
+      .insert(insertPayload)
       .select('id, status')
       .single();
 
@@ -91,7 +95,7 @@ export async function GET(request: NextRequest) {
       .from('ingestion_events')
       .select('*')
       .eq('tenant_id', tenantId)
-      .order('uploaded_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(limit);
 
     if (error) {
