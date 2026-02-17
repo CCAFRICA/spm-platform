@@ -51,7 +51,7 @@ export function DistributionChart({ data, benchmarkLine }: DistributionChartProp
                   }}
                 />
               </div>
-              <span className="text-[10px] text-zinc-500">{bucket.label}</span>
+              <span className="text-[10px] text-zinc-400">{bucket.label}</span>
             </div>
           );
         })}

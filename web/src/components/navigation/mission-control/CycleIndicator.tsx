@@ -61,8 +61,8 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
     return (
       <div className="px-3 py-4">
         <div className="animate-pulse">
-          <div className="h-4 bg-slate-200 rounded w-24 mb-2" />
-          <div className="h-8 bg-slate-200 rounded" />
+          <div className="h-4 bg-zinc-700 rounded w-24 mb-2" />
+          <div className="h-8 bg-zinc-700 rounded" />
         </div>
       </div>
     );
@@ -87,7 +87,7 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
         return 'bg-red-500 text-white';
       case 'not_started':
       default:
-        return 'bg-slate-200 text-slate-400';
+        return 'bg-zinc-700 text-zinc-400';
     }
   };
 
@@ -95,7 +95,7 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
     const status = cycleState.phaseStatuses[phase];
     if (status.state === 'completed') return 'bg-green-500';
     if (status.state === 'in_progress') return 'bg-blue-500';
-    return 'bg-slate-200';
+    return 'bg-zinc-700';
   };
 
   // Collapsed view - show only current phase
@@ -110,7 +110,7 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
           <TooltipTrigger asChild>
             <button
               onClick={() => handlePhaseClick(currentPhase)}
-              className="w-full flex flex-col items-center py-3 px-2 hover:bg-slate-50 rounded-lg transition-colors"
+              className="w-full flex flex-col items-center py-3 px-2 hover:bg-zinc-800/50 rounded-lg transition-colors"
             >
               <div className={cn('p-2 rounded-full', getPhaseColor(status))}>
                 <Icon className="h-4 w-4" />
@@ -147,7 +147,7 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
   return (
     <div className="px-3 py-4">
       <div className="mb-3">
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
           {isSpanish ? 'El Ciclo' : 'The Cycle'}
         </h3>
       </div>
@@ -170,7 +170,7 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
                         'relative flex items-center justify-center rounded-full transition-all',
                         isActive ? 'w-10 h-10' : 'w-8 h-8',
                         getPhaseColor(status),
-                        'hover:ring-2 hover:ring-offset-2 hover:ring-blue-300'
+                        'hover:ring-2 hover:ring-offset-1 hover:ring-offset-zinc-950 hover:ring-blue-400/50'
                       )}
                     >
                       <Icon className={cn('transition-all', isActive ? 'h-5 w-5' : 'h-4 w-4')} />
@@ -210,14 +210,14 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
 
       {/* Period and Next Action */}
       <div className="text-xs">
-        <p className="font-medium text-slate-700">{cycleState.periodLabel}</p>
+        <p className="font-medium text-zinc-300">{cycleState.periodLabel}</p>
         {nextAction ? (
-          <p className="text-blue-600 font-medium flex items-center gap-1 mt-0.5">
+          <p className="text-blue-400 font-medium flex items-center gap-1 mt-0.5">
             <ChevronRight className="h-3 w-3" />
             {nextAction}
           </p>
         ) : (
-          <p className="text-slate-500">
+          <p className="text-zinc-500">
             {isSpanish
               ? cycleState.phaseStatuses[cycleState.currentPhase].detailEs
               : cycleState.phaseStatuses[cycleState.currentPhase].detail}
@@ -228,10 +228,10 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
       {/* Progress Bar */}
       <div className="mt-3">
         <div className="flex items-center justify-between text-xs mb-1">
-          <span className="text-slate-500">{isSpanish ? 'Progreso' : 'Progress'}</span>
-          <span className="font-medium text-slate-700">{cycleState.completionPercentage}%</span>
+          <span className="text-zinc-500">{isSpanish ? 'Progreso' : 'Progress'}</span>
+          <span className="font-medium text-zinc-300">{cycleState.completionPercentage}%</span>
         </div>
-        <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+        <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-500"
             style={{ width: `${cycleState.completionPercentage}%` }}
@@ -271,19 +271,19 @@ function getLifecycleColor(state: string): string {
   switch (state) {
     case 'APPROVED':
     case 'PAID':
-      return 'bg-green-100 text-green-700';
+      return 'bg-green-500/15 text-green-400';
     case 'OFFICIAL':
     case 'PREVIEW':
-      return 'bg-blue-100 text-blue-700';
+      return 'bg-blue-500/15 text-blue-400';
     case 'PENDING_APPROVAL':
-      return 'bg-amber-100 text-amber-700';
+      return 'bg-amber-500/15 text-amber-400';
     case 'REJECTED':
-      return 'bg-red-100 text-red-700';
+      return 'bg-red-500/15 text-red-400';
     case 'DRAFT':
-      return 'bg-slate-100 text-slate-600';
+      return 'bg-zinc-700 text-zinc-400';
     case 'AWAITING_DATA':
     default:
-      return 'bg-slate-50 text-slate-500';
+      return 'bg-zinc-800 text-zinc-500';
   }
 }
 
@@ -294,8 +294,8 @@ function PeriodTimeline({ periods, isSpanish }: PeriodTimelineProps) {
   const displayPeriods = periods.slice(0, 4);
 
   return (
-    <div className="mt-3 pt-3 border-t border-slate-100">
-      <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+    <div className="mt-3 pt-3 border-t border-zinc-800">
+      <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">
         {isSpanish ? 'Periodos' : 'Periods'}
       </h4>
       <div className="space-y-1.5">
@@ -306,12 +306,12 @@ function PeriodTimeline({ periods, isSpanish }: PeriodTimelineProps) {
               key={period.period}
               className={cn(
                 'flex items-center justify-between text-[11px] px-2 py-1 rounded',
-                period.isActive ? 'bg-slate-50' : ''
+                period.isActive ? 'bg-zinc-800/50' : ''
               )}
             >
               <span className={cn(
                 'font-medium',
-                period.isActive ? 'text-slate-800' : 'text-slate-500'
+                period.isActive ? 'text-zinc-200' : 'text-zinc-500'
               )}>
                 {period.periodLabel}
               </span>

@@ -61,16 +61,16 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
       return (
         <div className="px-3 py-4">
           <div className="mb-3">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
               {isSpanish ? 'El Pulso' : 'The Pulse'}
             </h3>
           </div>
           <div className="text-center py-4">
-            <Activity className="h-6 w-6 mx-auto mb-2 text-slate-300" />
-            <p className="text-xs text-slate-400">
+            <Activity className="h-6 w-6 mx-auto mb-2 text-zinc-500" />
+            <p className="text-xs text-zinc-400">
               {isSpanish ? 'Sin metricas aun' : 'No metrics yet'}
             </p>
-            <p className="text-[10px] text-slate-400 mt-1">
+            <p className="text-[10px] text-zinc-500 mt-1">
               {isSpanish ? 'Ejecute calculos para ver metricas' : 'Run calculations to see metrics'}
             </p>
           </div>
@@ -81,9 +81,9 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
     return (
       <div className="px-3 py-4">
         <div className="animate-pulse space-y-3">
-          <div className="h-3 bg-slate-200 rounded w-16" />
-          <div className="h-12 bg-slate-200 rounded" />
-          <div className="h-12 bg-slate-200 rounded" />
+          <div className="h-3 bg-zinc-700 rounded w-16" />
+          <div className="h-12 bg-zinc-700 rounded" />
+          <div className="h-12 bg-zinc-700 rounded" />
         </div>
       </div>
     );
@@ -100,9 +100,9 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
           <TooltipTrigger asChild>
             <button
               onClick={() => handleMetricClick(primary)}
-              className="w-full flex flex-col items-center py-3 px-2 hover:bg-slate-50 rounded-lg transition-colors"
+              className="w-full flex flex-col items-center py-3 px-2 hover:bg-zinc-800/50 rounded-lg transition-colors"
             >
-              <span className="text-lg font-bold text-slate-800">
+              <span className="text-lg font-bold text-zinc-200">
                 {formatMetricValue(primary.value, primary.format, currency)}
               </span>
               {primary.trend && (
@@ -131,7 +131,7 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
   return (
     <div className="px-3 py-4">
       <div className="mb-3">
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
           {isSpanish ? 'El Pulso' : 'The Pulse'}
         </h3>
       </div>
@@ -144,14 +144,14 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
             disabled={!metric.route}
             className={cn(
               'w-full flex items-center justify-between p-2 rounded-lg transition-colors text-left',
-              metric.route ? 'hover:bg-slate-50 cursor-pointer' : 'cursor-default'
+              metric.route ? 'hover:bg-zinc-800/50 cursor-pointer' : 'cursor-default'
             )}
           >
             <div className="min-w-0">
-              <p className="text-xs text-slate-500 truncate">
+              <p className="text-xs text-zinc-500 truncate">
                 {isSpanish ? metric.labelEs : metric.label}
               </p>
-              <p className="text-lg font-semibold text-slate-800">
+              <p className="text-lg font-semibold text-zinc-200">
                 {formatMetricValue(metric.value, metric.format, currency)}
               </p>
             </div>
