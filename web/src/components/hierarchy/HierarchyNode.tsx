@@ -267,11 +267,11 @@ export function HierarchyNodeCompact({
         statusConfig.bg,
         isSelected
           ? 'ring-1 ring-sky-500'
-          : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+          : 'hover:bg-slate-800',
         className
       )}
     >
-      <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
+      <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
         <User className="h-3 w-3 text-slate-500" />
       </div>
       <div className="flex-1 min-w-0">
