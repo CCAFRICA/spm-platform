@@ -36,3 +36,8 @@ export * from './PacingCone';
 export * from './WhatIfSlider';
 export * from './CalculationWaterfall';
 export * from './BudgetGauge';
+
+// Advanced visualization components (OB-46B Phase 4)
+export * from './PeriodComparison';
+export * from './AnomalyMatrix';
+export * from './PayrollSummary';
