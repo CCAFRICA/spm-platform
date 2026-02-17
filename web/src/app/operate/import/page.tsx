@@ -64,7 +64,7 @@ export default function ImportPage() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="text-2xl font-bold text-zinc-100">
           {isSpanish ? 'Importar Datos' : 'Import Data'}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
@@ -81,22 +81,22 @@ export default function ImportPage() {
           return (
             <Card
               key={option.route}
-              className={`hover:border-slate-300 transition-colors cursor-pointer ${
-                option.primary ? 'border-purple-300 bg-purple-50/50' : ''
+              className={`hover:border-zinc-700 transition-colors cursor-pointer ${
+                option.primary ? 'border-purple-700 bg-purple-900/30' : ''
               }`}
               onClick={() => router.push(option.route)}
             >
               <CardContent className="p-6">
                 <div className="flex items-start gap-4">
                   <div className={`p-3 rounded-lg ${
-                    option.primary ? 'bg-purple-100' : 'bg-slate-100'
+                    option.primary ? 'bg-purple-900/30' : 'bg-zinc-800'
                   }`}>
                     <Icon className={`h-6 w-6 ${
                       option.primary ? 'text-purple-600' : 'text-slate-600'
                     }`} />
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium text-slate-900">{option.label}</p>
+                    <p className="font-medium text-zinc-100">{option.label}</p>
                     <p className="text-sm text-slate-500 mt-1">{option.description}</p>
                   </div>
                   <ArrowRight className="h-5 w-5 text-slate-400" />

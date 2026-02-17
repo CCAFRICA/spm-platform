@@ -231,7 +231,7 @@ export function ValidationPanel({ onValidationComplete }: ValidationPanelProps) 
                                   {isSpanish ? check.messageEs : check.message}
                                 </p>
                                 {check.details && Object.keys(check.details).length > 0 && (
-                                  <pre className="mt-2 text-xs bg-white/50 p-2 rounded overflow-auto">
+                                  <pre className="mt-2 text-xs bg-slate-800/50 p-2 rounded overflow-auto">
                                     {JSON.stringify(check.details, null, 2)}
                                   </pre>
                                 )}

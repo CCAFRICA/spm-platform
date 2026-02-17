@@ -353,7 +353,7 @@ export default function ResultsDashboardPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead
-                    className="cursor-pointer hover:bg-slate-50"
+                    className="cursor-pointer hover:bg-slate-800/50"
                     onClick={() => { setSortField('name'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}
                   >
                     Entity
@@ -365,7 +365,7 @@ export default function ResultsDashboardPage() {
                     </TableHead>
                   ))}
                   <TableHead
-                    className="text-right cursor-pointer hover:bg-slate-50"
+                    className="text-right cursor-pointer hover:bg-slate-800/50"
                     onClick={() => { setSortField('total'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}
                   >
                     Total
@@ -376,7 +376,7 @@ export default function ResultsDashboardPage() {
                 {filteredResults.slice(0, 100).map(row => (
                   <TableRow
                     key={row.entityId}
-                    className="cursor-pointer hover:bg-slate-50"
+                    className="cursor-pointer hover:bg-slate-800/50"
                     onClick={() => router.push(`/investigate/trace/${row.entityId}?from=results`)}
                   >
                     <TableCell>

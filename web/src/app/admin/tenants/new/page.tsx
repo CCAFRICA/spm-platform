@@ -545,7 +545,7 @@ export default function NewTenantPage() {
             </p>
             <div className="grid grid-cols-2 gap-4">
               {Object.entries(t.features).map(([key, label]) => (
-                <div key={key} className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-slate-50">
+                <div key={key} className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-zinc-800/50">
                   <Checkbox
                     id={key}
                     checked={!!formData.features[key as keyof TenantFeatures] || false}
@@ -598,7 +598,7 @@ export default function NewTenantPage() {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <h4 className="font-medium text-slate-900 mb-2">{t.steps.basic}</h4>
+                <h4 className="font-medium text-zinc-100 mb-2">{t.steps.basic}</h4>
                 <dl className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <dt className="text-slate-500">{t.fields.companyName}:</dt>
@@ -619,7 +619,7 @@ export default function NewTenantPage() {
                 </dl>
               </div>
               <div>
-                <h4 className="font-medium text-slate-900 mb-2">{t.steps.localization}</h4>
+                <h4 className="font-medium text-zinc-100 mb-2">{t.steps.localization}</h4>
                 <dl className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <dt className="text-slate-500">{t.fields.currency}:</dt>
@@ -637,7 +637,7 @@ export default function NewTenantPage() {
               </div>
             </div>
             <div>
-              <h4 className="font-medium text-slate-900 mb-2">{t.steps.modules}</h4>
+              <h4 className="font-medium text-zinc-100 mb-2">{t.steps.modules}</h4>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(formData.features)
                   .filter(([, enabled]) => enabled)
@@ -649,7 +649,7 @@ export default function NewTenantPage() {
               </div>
             </div>
             <div>
-              <h4 className="font-medium text-slate-900 mb-2">{t.steps.admin}</h4>
+              <h4 className="font-medium text-zinc-100 mb-2">{t.steps.admin}</h4>
               <dl className="space-y-1 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-slate-500">{t.fields.adminName}:</dt>
@@ -734,7 +734,7 @@ export default function NewTenantPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">{t.title}</h1>
+        <h1 className="text-2xl font-bold text-zinc-100">{t.title}</h1>
         <p className="text-slate-500">{t.subtitle}</p>
       </div>
 

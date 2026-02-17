@@ -58,10 +58,10 @@ export function EntityDetailPanel({ entityId, onClose }: EntityDetailPanelProps)
   const { entity, relationships, outcomes, ruleSetAssignments } = cardData;
 
   const statusColor = entity.status === 'active'
-    ? 'bg-emerald-500/20 text-emerald-700'
+    ? 'bg-emerald-500/20 text-emerald-400'
     : entity.status === 'proposed'
-      ? 'bg-amber-500/20 text-amber-700'
-      : 'bg-gray-500/20 text-gray-700';
+      ? 'bg-amber-500/20 text-amber-400'
+      : 'bg-gray-500/20 text-gray-400';
 
   const incomingRels = relationships.filter(r => r.target_entity_id === entityId);
   const outgoingRels = relationships.filter(r => r.source_entity_id === entityId);

@@ -152,7 +152,7 @@ export default function DesignPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-2xl font-bold text-zinc-100">
             {isSpanish ? 'Centro de Diseño' : 'Design Center'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -195,7 +195,7 @@ export default function DesignPage() {
                     <Badge variant="secondary">{tool.badge}</Badge>
                   )}
                 </div>
-                <p className="font-medium text-slate-900">{tool.label}</p>
+                <p className="font-medium text-zinc-100">{tool.label}</p>
                 <p className="text-sm text-slate-500 mt-1">{tool.description}</p>
               </CardContent>
             </Card>
@@ -217,10 +217,10 @@ export default function DesignPage() {
               {recentActivity.map((activity, index) => (
                 <div
                   key={index}
-                  className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg"
                 >
                   <div>
-                    <p className="font-medium text-slate-900">{activity.action}</p>
+                    <p className="font-medium text-zinc-100">{activity.action}</p>
                     <p className="text-sm text-slate-500">{activity.plan}</p>
                   </div>
                   <div className="text-right">

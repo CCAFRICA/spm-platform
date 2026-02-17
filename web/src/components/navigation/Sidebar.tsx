@@ -288,7 +288,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 z-50 flex h-screen w-64 flex-col border-r border-slate-200 bg-white transition-transform duration-300 dark:border-slate-800 dark:bg-slate-950 md:z-30 md:translate-x-0",
+          "fixed left-0 top-0 z-50 flex h-screen w-64 flex-col border-r border-slate-800 bg-slate-950 transition-transform duration-300 md:z-30 md:translate-x-0",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -315,7 +315,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             <DollarSign className="h-5 w-5 text-white" />
           </div>
           <div className="flex flex-col">
-            <span className="text-lg font-bold text-slate-900 dark:text-slate-50">
+            <span className="text-lg font-bold text-slate-50">
               {currentTenant?.displayName || "Vialuce"}
             </span>
             <span className="text-[10px] text-slate-500 -mt-1">
@@ -355,8 +355,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                         className={cn(
                           "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                           showAsActive
-                            ? "text-slate-900 dark:text-slate-50"
-                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-50"
+                            ? "text-slate-50"
+                            : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-50"
                         )}
                         style={showAsActive ? { backgroundColor: accentLight } : undefined}
                       >
@@ -386,7 +386,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                 "block rounded-md px-3 py-2 text-sm transition-all",
                                 pathname === child.href
                                   ? "font-medium"
-                                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-300"
+                                  : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-300"
                               )}
                               style={
                                 pathname === child.href
@@ -406,8 +406,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                         isItemActive
-                          ? "text-slate-900 dark:text-slate-50"
-                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-50"
+                          ? "text-slate-50"
+                          : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-50"
                       )}
                       style={isItemActive ? { backgroundColor: accentLight } : undefined}
                     >
@@ -437,7 +437,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 {isSpanish ? "Activo" : "Active"}
               </span>
             </div>
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+            <p className="text-sm font-semibold text-slate-50">
               {currentPeriod.name}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-500">

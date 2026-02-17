@@ -102,7 +102,7 @@ export function ImportHistory({ imports, onView, onRetry }: ImportHistoryProps) 
       <div className="border rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="bg-slate-50 dark:bg-slate-900">
+            <TableRow className="bg-slate-900">
               <TableHead>File</TableHead>
               <TableHead>Source</TableHead>
               <TableHead>Imported</TableHead>
@@ -118,7 +118,7 @@ export function ImportHistory({ imports, onView, onRetry }: ImportHistoryProps) 
                 key={job.id}
                 variants={itemVariants}
                 custom={index}
-                className="border-b hover:bg-slate-50 dark:hover:bg-slate-900"
+                className="border-b hover:bg-slate-900"
               >
                 <TableCell>
                   <div className="flex items-center gap-2">

@@ -342,7 +342,7 @@ export default function CalculatePage() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+          <h1 className="text-2xl font-bold text-slate-50">
             {t.title}{selectedPeriod ? `: ${selectedPeriod}` : ''}
           </h1>
           <p className="text-slate-600 dark:text-slate-400">{t.subtitle}</p>
@@ -367,7 +367,7 @@ export default function CalculatePage() {
                   size="sm"
                   onClick={() => handleActivateRuleSet(plan.id)}
                   disabled={isActivating}
-                  className="bg-white"
+                  className="bg-zinc-900"
                 >
                   <Play className="h-4 w-4 mr-2" />
                   {locale === 'es-MX' ? 'Activar' : 'Activate'}: {plan.name}
@@ -531,7 +531,7 @@ export default function CalculatePage() {
                   {paginatedResults.map((r) => (
                     <TableRow
                       key={r.id}
-                      className="cursor-pointer hover:bg-slate-50"
+                      className="cursor-pointer hover:bg-zinc-800/50"
                       onClick={() => router.push(`/investigate/trace/${r.entity_id}?from=calculate`)}
                     >
                       <TableCell className="text-sm">

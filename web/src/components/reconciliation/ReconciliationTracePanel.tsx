@@ -66,7 +66,7 @@ export function ReconciliationTracePanel({
 
   if (!trace && !loading) {
     return (
-      <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t">
+      <div className="p-4 bg-slate-800/50 border-t">
         <Button
           variant="outline"
           size="sm"
@@ -82,7 +82,7 @@ export function ReconciliationTracePanel({
 
   if (loading) {
     return (
-      <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t flex items-center gap-2">
+      <div className="p-4 bg-slate-800/50 border-t flex items-center gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />
         <span className="text-sm text-muted-foreground">Loading trace for {entityName}...</span>
       </div>
@@ -91,7 +91,7 @@ export function ReconciliationTracePanel({
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 dark:bg-red-900/20 border-t">
+      <div className="p-4 bg-red-900/20 border-t">
         <div className="flex items-center gap-2 text-red-600">
           <AlertTriangle className="h-4 w-4" />
           <span className="text-sm font-medium">Trace Error</span>
@@ -111,7 +111,7 @@ export function ReconciliationTracePanel({
   const isMatch = Math.abs(delta) < 0.01;
 
   return (
-    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t space-y-4">
+    <div className="p-4 bg-slate-800/50 border-t space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -194,13 +194,13 @@ function ComponentTraceCard({ component, expanded, onToggle, formatCurrency }: C
 
   return (
     <div className={cn(
-      'border rounded-lg bg-white dark:bg-slate-800',
+      'border rounded-lg bg-slate-800',
       hasWarnings && 'border-amber-300'
     )}>
       {/* Header - always visible */}
       <button
         onClick={onToggle}
-        className="w-full p-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+        className="w-full p-3 flex items-center justify-between hover:bg-slate-700/50 transition-colors"
       >
         <div className="flex items-center gap-3">
           {expanded ? (
@@ -244,7 +244,7 @@ function ComponentTraceCard({ component, expanded, onToggle, formatCurrency }: C
           {/* Formula */}
           <div className="pt-3">
             <div className="text-xs text-muted-foreground mb-1">Calculation</div>
-            <div className="font-mono text-sm bg-slate-100 dark:bg-slate-900 p-2 rounded">
+            <div className="font-mono text-sm bg-slate-900 p-2 rounded">
               {component.calculationFormula || 'No formula generated'}
             </div>
           </div>
@@ -255,7 +255,7 @@ function ComponentTraceCard({ component, expanded, onToggle, formatCurrency }: C
               <div className="text-xs text-muted-foreground mb-1">Lookup Details</div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 {Object.entries(component.lookupDetails).map(([key, value]) => (
-                  <div key={key} className="flex justify-between bg-slate-50 dark:bg-slate-900 p-2 rounded">
+                  <div key={key} className="flex justify-between bg-slate-900 p-2 rounded">
                     <span className="text-muted-foreground">{key}:</span>
                     <span className="font-mono">
                       {typeof value === 'number' ? value.toLocaleString() : String(value)}
@@ -272,7 +272,7 @@ function ComponentTraceCard({ component, expanded, onToggle, formatCurrency }: C
               <div className="text-xs text-muted-foreground mb-1">Extracted Metrics</div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 {Object.entries(component.extractedMetrics).map(([key, value]) => (
-                  <div key={key} className="flex justify-between bg-slate-50 dark:bg-slate-900 p-2 rounded">
+                  <div key={key} className="flex justify-between bg-slate-900 p-2 rounded">
                     <span className="text-muted-foreground">{key}:</span>
                     <span className="font-mono">{value.toLocaleString()}</span>
                   </div>
@@ -287,7 +287,7 @@ function ComponentTraceCard({ component, expanded, onToggle, formatCurrency }: C
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                 Raw sheet data ({Object.keys(component.rawSheetData).length} fields)
               </summary>
-              <pre className="mt-1 p-2 bg-slate-100 dark:bg-slate-900 rounded overflow-auto max-h-32 text-xs">
+              <pre className="mt-1 p-2 bg-slate-900 rounded overflow-auto max-h-32 text-xs">
                 {JSON.stringify(component.rawSheetData, null, 2)}
               </pre>
             </details>

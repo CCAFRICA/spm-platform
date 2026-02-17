@@ -127,7 +127,7 @@ export function TransactionTable({
       <div className="border rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="bg-slate-50 dark:bg-slate-900">
+            <TableRow className="bg-slate-900">
               {selectable && (
                 <TableHead className="w-12">
                   <Checkbox
@@ -157,9 +157,9 @@ export function TransactionTable({
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ delay: index * 0.02 }}
                   className={cn(
-                    'border-b transition-colors hover:bg-slate-50 dark:hover:bg-slate-900',
+                    'border-b transition-colors hover:bg-slate-900',
                     selectedIds.includes(transaction.id) &&
-                      'bg-sky-50/50 dark:bg-sky-950/20'
+                      'bg-sky-950/20'
                   )}
                 >
                   {selectable && (

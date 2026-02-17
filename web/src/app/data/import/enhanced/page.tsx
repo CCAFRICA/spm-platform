@@ -2268,7 +2268,7 @@ export default function DataPackageImportPage() {
         }}
       >
         <div className="flex items-start gap-3">
-          <div className="p-2 bg-white/50 rounded-lg">
+          <div className="p-2 bg-zinc-800/50 rounded-lg">
             <Icon className="h-5 w-5" />
           </div>
           <div className="flex-1 min-w-0">
@@ -3817,7 +3817,7 @@ export default function DataPackageImportPage() {
                     {/* Run Calculations */}
                     <a
                       href="/operate/calculate"
-                      className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                      className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
                     >
                       <div className="p-3 bg-primary/10 rounded-lg">
                         <Calculator className="h-6 w-6 text-primary" />
@@ -3840,7 +3840,7 @@ export default function DataPackageImportPage() {
                     {/* Review Data Quality */}
                     <a
                       href="/data/quality"
-                      className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                      className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
                     >
                       <div className="p-3 bg-primary/10 rounded-lg">
                         <BarChart3 className="h-6 w-6 text-primary" />
@@ -3863,7 +3863,7 @@ export default function DataPackageImportPage() {
                     {/* View Transactions */}
                     <a
                       href="/transactions"
-                      className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4"
+                      className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
                     >
                       <div className="p-3 bg-primary/10 rounded-lg">
                         <Database className="h-6 w-6 text-primary" />
@@ -3896,7 +3896,7 @@ export default function DataPackageImportPage() {
                         setImportComplete(false);
                         setImportId(null);
                       }}
-                      className="p-4 border rounded-lg hover:bg-white transition-colors flex items-start gap-4 text-left"
+                      className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4 text-left"
                     >
                       <div className="p-3 bg-primary/10 rounded-lg">
                         <Upload className="h-6 w-6 text-primary" />

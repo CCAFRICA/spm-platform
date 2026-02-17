@@ -46,7 +46,7 @@ export function ValidationPreview({ preview, targetFields }: ValidationPreviewPr
     >
       {/* Summary Stats */}
       <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg text-center">
+        <div className="p-4 bg-slate-900 rounded-lg text-center">
           <FileText className="h-6 w-6 mx-auto mb-2 text-slate-500" />
           <p className="text-2xl font-bold text-slate-700 dark:text-slate-200">
             {preview.totalRows}

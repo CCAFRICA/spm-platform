@@ -105,7 +105,7 @@ export default function PayPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-2xl font-bold text-zinc-100">
             {displaySpanish ? 'Nomina' : 'Outcomes'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -135,11 +135,11 @@ export default function PayPage() {
         <CardContent className="space-y-6">
           {/* Approval Gate */}
           {!isReadyForPay && (
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="p-4 bg-amber-900/30 border border-amber-800 rounded-lg">
               <div className="flex items-center gap-3">
                 <Clock className="h-5 w-5 text-amber-600" />
                 <div>
-                  <p className="font-medium text-amber-800">
+                  <p className="font-medium text-amber-300">
                     {displaySpanish ? 'Aprobaciones Pendientes' : 'Pending Approvals'}
                   </p>
                   <p className="text-sm text-amber-600">
@@ -163,11 +163,11 @@ export default function PayPage() {
 
           {/* Ready for Pay */}
           {isReadyForPay && payStatus?.state !== 'completed' && (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="p-4 bg-green-900/30 border border-green-800 rounded-lg">
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600" />
                 <div>
-                  <p className="font-medium text-green-800">
+                  <p className="font-medium text-green-300">
                     {displaySpanish ? 'Listo para Procesar' : 'Ready to Process'}
                   </p>
                   <p className="text-sm text-green-600">
@@ -182,7 +182,7 @@ export default function PayPage() {
 
           {/* Lifecycle state indicator */}
           {latestBatch && (
-            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+            <div className="flex items-center gap-3 p-3 bg-zinc-900/50 rounded-lg">
               <Scale className="h-4 w-4 text-slate-500" />
               <span className="text-sm text-slate-600">
                 {displaySpanish ? 'Estado del Ciclo' : 'Cycle State'}:
@@ -196,7 +196,7 @@ export default function PayPage() {
 
           {/* Payroll Summary */}
           <div className="grid grid-cols-3 gap-4">
-            <Card className="bg-slate-50">
+            <Card className="bg-zinc-900/50">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <Users className="h-8 w-8 text-blue-600" />
@@ -210,7 +210,7 @@ export default function PayPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-50">
+            <Card className="bg-zinc-900/50">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <DollarSign className="h-8 w-8 text-green-600" />
@@ -224,7 +224,7 @@ export default function PayPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-50">
+            <Card className="bg-zinc-900/50">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <FileText className="h-8 w-8 text-purple-600" />
@@ -256,11 +256,11 @@ export default function PayPage() {
       <div className="grid grid-cols-2 gap-4">
         <Card className="opacity-60">
           <CardContent className="p-6 flex items-center gap-4">
-            <div className="p-3 bg-blue-100 rounded-lg">
+            <div className="p-3 bg-blue-900/30 rounded-lg">
               <Calendar className="h-6 w-6 text-blue-600" />
             </div>
             <div>
-              <p className="font-medium text-slate-900">
+              <p className="font-medium text-zinc-100">
                 {displaySpanish ? 'Calendario de Nomina' : 'Outcome Calendar'}
               </p>
               <p className="text-sm text-slate-400">
@@ -272,11 +272,11 @@ export default function PayPage() {
 
         <Card className="opacity-60">
           <CardContent className="p-6 flex items-center gap-4">
-            <div className="p-3 bg-green-100 rounded-lg">
+            <div className="p-3 bg-green-900/30 rounded-lg">
               <FileText className="h-6 w-6 text-green-600" />
             </div>
             <div>
-              <p className="font-medium text-slate-900">
+              <p className="font-medium text-zinc-100">
                 {displaySpanish ? 'Historial de Pagos' : 'Payment History'}
               </p>
               <p className="text-sm text-slate-400">

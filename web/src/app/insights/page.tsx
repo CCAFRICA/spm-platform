@@ -137,7 +137,7 @@ export default function InsightsPage() {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
         <div className="container mx-auto px-6 py-8">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-50">
               Insights Dashboard
             </h1>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
@@ -176,7 +176,7 @@ export default function InsightsPage() {
       <div className="container mx-auto px-6 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+          <h1 className="text-3xl font-bold tracking-tight text-slate-50">
             Insights Dashboard
           </h1>
           <p className="mt-2 text-slate-600 dark:text-slate-400">
@@ -229,7 +229,7 @@ export default function InsightsPage() {
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
                       Entities Paid
                     </p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                    <p className="text-2xl font-bold text-slate-50 mt-1">
                       {insights.entityCount}
                     </p>
                   </div>
@@ -246,7 +246,7 @@ export default function InsightsPage() {
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
                       Average Earnings
                     </p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                    <p className="text-2xl font-bold text-slate-50 mt-1">
                       {format(insights.avgPayout)}
                     </p>
                   </div>
@@ -326,8 +326,8 @@ export default function InsightsPage() {
                       key={performer.entityId}
                       className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
                         idx < 3
-                          ? "bg-gradient-to-r from-amber-50 to-transparent dark:from-amber-950/20"
-                          : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                          ? "bg-gradient-to-r from-amber-950/20 to-transparent"
+                          : "hover:bg-slate-800/50"
                       }`}
                     >
                       <div
@@ -349,7 +349,7 @@ export default function InsightsPage() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-900 dark:text-slate-50 truncate">
+                        <p className="text-sm font-medium text-slate-50 truncate">
                           {performer.entityName || performer.entityId}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -357,7 +357,7 @@ export default function InsightsPage() {
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                        <p className="text-sm font-semibold text-slate-50">
                           {format(performer.totalIncentive || 0)}
                         </p>
                       </div>

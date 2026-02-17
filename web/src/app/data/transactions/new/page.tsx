@@ -57,7 +57,7 @@ export default function NewTransactionPage() {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Transactions
           </Button>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-50">
             New Transaction
           </h1>
           <p className="text-slate-500 mt-1">

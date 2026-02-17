@@ -126,8 +126,8 @@ export default function ReconciliationPage() {
     return (
       <div className="p-6">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 w-48 bg-slate-200 rounded" />
-          <div className="h-40 bg-slate-200 rounded" />
+          <div className="h-8 w-48 bg-zinc-800 rounded" />
+          <div className="h-40 bg-zinc-800 rounded" />
         </div>
       </div>
     );
@@ -157,7 +157,7 @@ export default function ReconciliationPage() {
             <Button variant="ghost" size="sm" onClick={() => router.push('/investigate')}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-2xl font-bold text-slate-900">Reconciliation Studio</h1>
+            <h1 className="text-2xl font-bold text-zinc-100">Reconciliation Studio</h1>
           </div>
           <p className="text-sm text-slate-500 mt-1 ml-10">
             {plan.name} · {components.length} components

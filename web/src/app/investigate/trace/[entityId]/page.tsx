@@ -92,9 +92,9 @@ export default function EmployeeTracePage() {
     return (
       <div className="p-6">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 w-48 bg-slate-200 rounded" />
-          <div className="h-40 bg-slate-200 rounded" />
-          <div className="h-60 bg-slate-200 rounded" />
+          <div className="h-8 w-48 bg-zinc-800 rounded" />
+          <div className="h-40 bg-zinc-800 rounded" />
+          <div className="h-60 bg-zinc-800 rounded" />
         </div>
       </div>
     );
@@ -138,7 +138,7 @@ export default function EmployeeTracePage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Entity Trace</h1>
+          <h1 className="text-2xl font-bold text-zinc-100">Entity Trace</h1>
           <p className="text-sm text-slate-500">
             Full calculation forensics for {trace.entityName}
             {fromConfig && (

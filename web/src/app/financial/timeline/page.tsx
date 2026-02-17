@@ -222,8 +222,8 @@ export default function RevenueTimelinePage() {
 
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Revenue Timeline</h1>
-        <p className="text-gray-600">Track financial performance over time</p>
+        <h1 className="text-2xl font-bold text-zinc-100">Revenue Timeline</h1>
+        <p className="text-zinc-400">Track financial performance over time</p>
       </div>
 
       {/* Summary Cards */}
@@ -235,7 +235,7 @@ export default function RevenueTimelinePage() {
                 <metricConfig.icon className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-zinc-400">
                   Total {metricConfig.label} ({granularity === 'day' ? 'Week' : granularity === 'week' ? 'Month' : '6 Months'})
                 </p>
                 <p className="text-2xl font-bold">
@@ -258,7 +258,7 @@ export default function RevenueTimelinePage() {
                 }
               </div>
               <div>
-                <p className="text-sm text-gray-600">Period Change</p>
+                <p className="text-sm text-zinc-400">Period Change</p>
                 <p className={`text-2xl font-bold ${stats.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {stats.change >= 0 ? '+' : ''}{stats.change.toFixed(1)}%
                 </p>
@@ -274,7 +274,7 @@ export default function RevenueTimelinePage() {
                 <TrendingUp className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Average per {granularity === 'day' ? 'Day' : granularity === 'week' ? 'Week' : 'Month'}</p>
+                <p className="text-sm text-zinc-400">Average per {granularity === 'day' ? 'Day' : granularity === 'week' ? 'Week' : 'Month'}</p>
                 <p className="text-2xl font-bold">{metricConfig.format(stats.avg)}</p>
               </div>
             </div>
@@ -328,7 +328,7 @@ export default function RevenueTimelinePage() {
             <ResponsiveContainer width="100%" height="100%">
               {scope === 'all' ? (
                 <AreaChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
                   <XAxis dataKey="label" stroke="#6b7280" />
                   <YAxis
                     stroke="#6b7280"
@@ -340,8 +340,8 @@ export default function RevenueTimelinePage() {
                   <Tooltip
                     formatter={(value: number) => [metricConfig.format(value), metricConfig.label]}
                     contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
+                      backgroundColor: '#18181b',
+                      border: '1px solid #3f3f46',
                       borderRadius: '8px',
                     }}
                   />
@@ -356,7 +356,7 @@ export default function RevenueTimelinePage() {
                 </AreaChart>
               ) : (
                 <LineChart data={brandChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
                   <XAxis dataKey="label" stroke="#6b7280" />
                   <YAxis
                     stroke="#6b7280"
@@ -368,8 +368,8 @@ export default function RevenueTimelinePage() {
                   <Tooltip
                     formatter={(value: number) => [metricConfig.format(value), '']}
                     contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
+                      backgroundColor: '#18181b',
+                      border: '1px solid #3f3f46',
                       borderRadius: '8px',
                     }}
                   />
@@ -405,11 +405,11 @@ export default function RevenueTimelinePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-2 font-medium text-gray-600">Period</th>
-                  <th className="text-right py-2 font-medium text-gray-600">Revenue</th>
-                  <th className="text-right py-2 font-medium text-gray-600">Checks</th>
-                  <th className="text-right py-2 font-medium text-gray-600">Avg Check</th>
-                  <th className="text-right py-2 font-medium text-gray-600">Tips</th>
+                  <th className="text-left py-2 font-medium text-zinc-400">Period</th>
+                  <th className="text-right py-2 font-medium text-zinc-400">Revenue</th>
+                  <th className="text-right py-2 font-medium text-zinc-400">Checks</th>
+                  <th className="text-right py-2 font-medium text-zinc-400">Avg Check</th>
+                  <th className="text-right py-2 font-medium text-zinc-400">Tips</th>
                 </tr>
               </thead>
               <tbody>

@@ -34,9 +34,9 @@ export function RevenueByProduct({ data }: RevenueByProductProps) {
     if (active && payload && payload.length) {
       const product = payload[0].payload;
       return (
-        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
+        <div className="bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-700">
           <p className="font-medium text-sm mb-2">{product.name}</p>
-          <div className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
+          <div className="space-y-1 text-sm text-slate-300">
             <p>Revenue: {formatCurrency(product.revenue)}</p>
             <p>Share: {formatPercent(product.percentage)}</p>
             <p>Deals: {product.deals}</p>
@@ -124,7 +124,7 @@ export function RevenueByProduct({ data }: RevenueByProductProps) {
                   className="w-3 h-3 rounded-full"
                   style={{ backgroundColor: COLORS[index % COLORS.length] }}
                 />
-                <span className="text-slate-600 dark:text-slate-300 truncate max-w-[150px]">
+                <span className="text-slate-300 truncate max-w-[150px]">
                   {product.name}
                 </span>
               </div>

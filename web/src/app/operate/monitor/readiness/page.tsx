@@ -79,7 +79,7 @@ export default function DataReadinessPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-2xl font-bold text-zinc-100">
             {isSpanish ? 'Preparación de Datos' : 'Data Readiness'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -116,13 +116,13 @@ export default function DataReadinessPage() {
           const progress = Math.round((category.count / category.expected) * 100);
 
           return (
-            <Card key={category.name} className={category.status === 'warning' ? 'border-amber-200' : ''}>
+            <Card key={category.name} className={category.status === 'warning' ? 'border-amber-800' : ''}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className={`p-2 rounded-lg ${
-                      category.status === 'ready' ? 'bg-green-100' :
-                      category.status === 'warning' ? 'bg-amber-100' : 'bg-red-100'
+                      category.status === 'ready' ? 'bg-green-900/30' :
+                      category.status === 'warning' ? 'bg-amber-900/30' : 'bg-red-900/30'
                     }`}>
                       <Icon className={`h-5 w-5 ${
                         category.status === 'ready' ? 'text-green-600' :

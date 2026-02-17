@@ -214,7 +214,7 @@ export default function ConfigurationPage() {
             <div className="rounded-lg border border-slate-200 dark:border-slate-800">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-slate-50 dark:bg-slate-800/50">
+                  <TableRow className="bg-slate-800/50">
                     <TableHead className="font-semibold">Entity</TableHead>
                     <TableHead className="font-semibold">Role</TableHead>
                     <TableHead className="font-semibold">Region</TableHead>
@@ -226,7 +226,7 @@ export default function ConfigurationPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredPersonnel.map((person) => (
-                    <TableRow key={person.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <TableRow key={person.id} className="hover:bg-slate-800/50">
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">

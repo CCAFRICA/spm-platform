@@ -179,7 +179,7 @@ function AuditPageContent() {
                 <Shield className="h-6 w-6 text-primary" />
               </motion.div>
               <div>
-                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-50">
                   Audit Log
                 </h1>
                 <p className="text-muted-foreground text-sm">

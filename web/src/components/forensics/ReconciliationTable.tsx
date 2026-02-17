@@ -138,7 +138,7 @@ export function ReconciliationTable({ session, onEmployeeClick }: Reconciliation
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="sticky left-0 bg-white z-10">Employee</TableHead>
+                <TableHead className="sticky left-0 bg-slate-950 z-10">Employee</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>
                   <Button variant="ghost" size="sm" onClick={() => handleSort('vlTotal')}>
@@ -167,7 +167,7 @@ export function ReconciliationTable({ session, onEmployeeClick }: Reconciliation
             <TableBody>
               {filtered.slice(0, 100).map(emp => (
                 <TableRow key={emp.entityId}>
-                  <TableCell className="sticky left-0 bg-white z-10 font-mono text-sm">
+                  <TableCell className="sticky left-0 bg-slate-950 z-10 font-mono text-sm">
                     {emp.entityId}
                     {emp.storeId && (
                       <span className="text-xs text-slate-400 ml-1">@{emp.storeId}</span>

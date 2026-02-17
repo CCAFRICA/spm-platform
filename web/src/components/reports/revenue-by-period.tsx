@@ -39,10 +39,10 @@ export function RevenueByPeriod({ monthlyData, quarterlyData }: RevenueByPeriodP
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
+        <div className="bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-700">
           <p className="font-medium text-sm mb-2">{label}</p>
           {payload.map((entry, index) => (
-            <p key={index} className="text-sm text-slate-600 dark:text-slate-300">
+            <p key={index} className="text-sm text-slate-300">
               {entry.name}: {formatCurrency(entry.value)}
             </p>
           ))}

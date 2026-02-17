@@ -80,7 +80,7 @@ export function SummaryCards({
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     {card.title}
                   </p>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                  <p className="text-2xl font-bold text-slate-50 mt-1">
                     {card.value}
                   </p>
                   {card.change !== undefined && (

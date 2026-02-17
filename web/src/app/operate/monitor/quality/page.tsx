@@ -76,7 +76,7 @@ export default function DataQualityPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-2xl font-bold text-zinc-100">
             {isSpanish ? 'Calidad de Datos' : 'Data Quality'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -134,7 +134,7 @@ export default function DataQualityPage() {
               <div
                 key={issue.id}
                 className={`flex items-center justify-between p-4 rounded-lg border ${
-                  issue.type === 'error' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'
+                  issue.type === 'error' ? 'border-red-800 bg-red-900/30' : 'border-amber-800 bg-amber-900/30'
                 }`}
               >
                 <div className="flex items-center gap-3">

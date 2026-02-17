@@ -195,7 +195,7 @@ export default function CompensationPage() {
           {/* Header */}
           <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+              <h1 className="text-3xl font-bold tracking-tight text-slate-50">
                 Outcome Overview
               </h1>
               <p className="mt-2 text-slate-600 dark:text-slate-400">
@@ -230,7 +230,7 @@ export default function CompensationPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-slate-500">Current Period</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                    <p className="text-2xl font-bold text-slate-50 mt-1">
                       {format(techCorpStatsData.currentPeriod)}
                     </p>
                     <div className="flex items-center gap-1 mt-2">
@@ -253,7 +253,7 @@ export default function CompensationPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-slate-500">Year-to-Date</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                    <p className="text-2xl font-bold text-slate-50 mt-1">
                       {format(techCorpStatsData.yearToDate)}
                     </p>
                     <div className="flex items-center gap-1 mt-2">
@@ -276,7 +276,7 @@ export default function CompensationPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-slate-500">Average per Entity</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                    <p className="text-2xl font-bold text-slate-50 mt-1">
                       {format(techCorpStatsData.avgPerRep)}
                     </p>
                     <p className="text-sm text-slate-500 mt-2">40 active entities</p>
@@ -293,7 +293,7 @@ export default function CompensationPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-slate-500">Budget Utilization</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
+                    <p className="text-2xl font-bold text-slate-50 mt-1">
                       {techCorpStatsData.budgetUtilization}%
                     </p>
                     <div className="mt-2 h-2 w-24 bg-slate-200 rounded-full overflow-hidden">
@@ -352,7 +352,7 @@ export default function CompensationPage() {
               <div className="rounded-lg border border-slate-200 dark:border-slate-800">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50 dark:bg-slate-800/50">
+                    <TableRow className="bg-slate-800/50">
                       <TableHead className="font-semibold">Date</TableHead>
                       <TableHead className="font-semibold">Entity</TableHead>
                       <TableHead className="font-semibold">Plan Type</TableHead>
@@ -362,11 +362,11 @@ export default function CompensationPage() {
                   </TableHeader>
                   <TableBody>
                     {techCorpPaymentHistory.map((payment) => (
-                      <TableRow key={payment.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <TableRow key={payment.id} className="hover:bg-slate-800/50">
                         <TableCell className="text-slate-600 dark:text-slate-400">
                           {new Date(payment.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </TableCell>
-                        <TableCell className="font-medium text-slate-900 dark:text-slate-50">{payment.employee}</TableCell>
+                        <TableCell className="font-medium text-slate-50">{payment.employee}</TableCell>
                         <TableCell>
                           <Badge variant="secondary" className={
                             payment.ruleSetType === 'Accelerator' ? 'bg-indigo-100 text-indigo-700' :
@@ -375,7 +375,7 @@ export default function CompensationPage() {
                             {payment.ruleSetType}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right font-semibold text-slate-900 dark:text-slate-50">
+                        <TableCell className="text-right font-semibold text-slate-50">
                           {format(payment.amount)}
                         </TableCell>
                         <TableCell>

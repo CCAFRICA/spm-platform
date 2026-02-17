@@ -59,7 +59,7 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
       {/* Rail */}
       <aside
         className={cn(
-          'fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out dark:border-slate-800 dark:bg-slate-950 md:z-30',
+          'fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-slate-800 bg-slate-950 transition-all duration-300 ease-in-out md:z-30',
           isRailCollapsed ? 'w-16' : 'w-[280px]',
           isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         )}
@@ -69,7 +69,7 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
           className={cn(
             'flex items-center border-b border-slate-200 dark:border-slate-800 shrink-0',
             isRailCollapsed ? 'h-16 justify-center px-2' : 'h-16 gap-2 px-4',
-            isUserVLAdmin && 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors'
+            isUserVLAdmin && 'cursor-pointer hover:bg-slate-900 transition-colors'
           )}
           onClick={isUserVLAdmin ? () => router.push('/select-tenant') : undefined}
           title={isUserVLAdmin ? 'Switch organization' : undefined}
@@ -79,7 +79,7 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
           </div>
           {!isRailCollapsed && (
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-lg font-bold text-slate-900 dark:text-slate-50 truncate">
+              <span className="text-lg font-bold text-slate-50 truncate">
                 Vialuce
               </span>
               <span className="text-[10px] text-slate-500 truncate -mt-0.5 flex items-center gap-1">

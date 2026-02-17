@@ -177,7 +177,7 @@ export function GlobalSearch() {
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => setIsOpen(true)}
         placeholder={placeholder}
-        className="w-full pl-10 pr-10 bg-slate-50 border-slate-200 focus:bg-white dark:bg-slate-900 dark:border-slate-700"
+        className="w-full pl-10 pr-10 bg-slate-900 border-slate-700 focus:bg-slate-800"
       />
       {query && (
         <button
