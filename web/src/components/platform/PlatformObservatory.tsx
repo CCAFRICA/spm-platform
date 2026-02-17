@@ -56,7 +56,7 @@ export function PlatformObservatory() {
             </div>
             <div>
               <span className="text-sm font-bold text-white">Platform Observatory</span>
-              <span className="text-[10px] text-zinc-500 ml-2">ViaLuce</span>
+              <span className="text-[10px] text-zinc-500 ml-2">Vialuce</span>
             </div>
           </div>
           <div className="flex items-center gap-4">

@@ -237,12 +237,12 @@ export function ChromeSidebar() {
             onClick={isUserVLAdmin ? () => router.push('/select-tenant') : undefined}
           >
             <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accentGrad}`}>
-              <DollarSign className="h-4 w-4 text-white" />
+              <span className="text-sm font-bold text-white">V</span>
             </div>
             {!isRailCollapsed && (
               <div className="flex flex-col min-w-0 flex-1">
                 <span className="text-sm font-bold text-zinc-100 truncate">
-                  ViaLuce
+                  Vialuce
                 </span>
                 <span className="text-[10px] text-zinc-500 truncate -mt-0.5 flex items-center gap-1">
                   {currentTenant?.displayName || 'Platform'}

@@ -80,7 +80,7 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
           {!isRailCollapsed && (
             <div className="flex flex-col min-w-0 flex-1">
               <span className="text-lg font-bold text-slate-900 dark:text-slate-50 truncate">
-                ViaLuce
+                Vialuce
               </span>
               <span className="text-[10px] text-slate-500 truncate -mt-0.5 flex items-center gap-1">
                 {currentTenant?.displayName || 'Platform'}

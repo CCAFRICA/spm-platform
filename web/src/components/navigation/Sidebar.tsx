@@ -316,7 +316,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
           </div>
           <div className="flex flex-col">
             <span className="text-lg font-bold text-slate-900 dark:text-slate-50">
-              {currentTenant?.displayName || "ViaLuce"}
+              {currentTenant?.displayName || "Vialuce"}
             </span>
             <span className="text-[10px] text-slate-500 -mt-1">
               {currentTenant?.industry || "Sales Performance"}

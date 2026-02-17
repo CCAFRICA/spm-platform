@@ -21,8 +21,8 @@ const dmMono = DM_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ViaLuce - Performance Management",
-  description: "Enterprise Performance Management Platform",
+  title: "Vialuce",
+  description: "Performance Intelligence Platform — See what you've earned.",
 };
 
 export default function RootLayout({
