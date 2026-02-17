@@ -14,7 +14,7 @@
  * OB-46C Phase 2
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -25,11 +25,8 @@ import { useAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
 import { WORKSPACES, getWorkspaceRoutesForRole } from '@/lib/navigation/workspace-config';
 import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
-import { CycleIndicator } from './mission-control/CycleIndicator';
-import { QueuePanel } from './mission-control/QueuePanel';
-import { PulseMetrics } from './mission-control/PulseMetrics';
 import { UserIdentity } from './mission-control/UserIdentity';
-import { Separator } from '@/components/ui/separator';
+// Separator removed — Cycle/Queue/Pulse panels moved to Navbar Status Chip
 import { Button } from '@/components/ui/button';
 import { PERSONA_TOKENS } from '@/lib/design/tokens';
 import type { WorkspaceId } from '@/types/navigation';
@@ -146,7 +143,6 @@ export function ChromeSidebar() {
   const { locale } = useLocale();
 
   const isSpanish = locale === 'es-MX';
-  const showCycle = userRole === 'vl_admin' || userRole === 'admin';
 
   // Section accordion state — tracks which section IDs are expanded
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
@@ -176,9 +172,12 @@ export function ChromeSidebar() {
 
   // Get sections for active workspace
   const activeWsConfig = WORKSPACES[activeWorkspace];
-  const activeSections = userRole
-    ? getWorkspaceRoutesForRole(activeWorkspace, userRole as UserRole)
-    : [];
+  const activeSections = useMemo(() =>
+    userRole
+      ? getWorkspaceRoutesForRole(activeWorkspace, userRole as UserRole)
+      : [],
+    [activeWorkspace, userRole]
+  );
 
   // Auto-expand section containing the active route
   useEffect(() => {
@@ -359,28 +358,6 @@ export function ChromeSidebar() {
             </nav>
           )}
 
-          <Separator className="bg-zinc-800/40" />
-
-          {/* Mission Control: Cycle */}
-          {showCycle && (
-            <>
-              <div className="mission-control-zone">
-                <CycleIndicator collapsed={isRailCollapsed} />
-              </div>
-              <Separator className="bg-zinc-800/40" />
-            </>
-          )}
-
-          {/* Mission Control: Queue */}
-          <div className="mission-control-zone">
-            <QueuePanel collapsed={isRailCollapsed} />
-          </div>
-          <Separator className="bg-zinc-800/40" />
-
-          {/* Mission Control: Pulse */}
-          <div className="mission-control-zone">
-            <PulseMetrics collapsed={isRailCollapsed} />
-          </div>
         </div>
 
         {/* ── Footer ── */}
