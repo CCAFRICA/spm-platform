@@ -55,9 +55,9 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
           <TooltipTrigger asChild>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center justify-center w-full py-3 hover:bg-slate-50 transition-colors">
+                <button className="flex items-center justify-center w-full py-3 hover:bg-zinc-800/50 transition-colors">
                   <Avatar className="h-8 w-8">
-                    <AvatarFallback className="bg-slate-200 text-slate-700 text-xs font-medium">
+                    <AvatarFallback className="bg-zinc-700 text-zinc-200 text-xs font-medium">
                       {initials}
                     </AvatarFallback>
                   </Avatar>
@@ -102,21 +102,21 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="w-full flex items-center gap-3 px-3 py-3 hover:bg-slate-50 transition-colors rounded-lg">
+        <button className="w-full flex items-center gap-3 px-3 py-3 hover:bg-zinc-800/50 transition-colors rounded-lg">
           <Avatar className="h-9 w-9">
-            <AvatarFallback className="bg-slate-200 text-slate-700 text-sm font-medium">
+            <AvatarFallback className="bg-zinc-700 text-zinc-200 text-sm font-medium">
               {initials}
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0 text-left">
-            <p className="text-sm font-medium text-slate-800 truncate">
+            <p className="text-sm font-medium text-zinc-200 truncate">
               {user.name}
             </p>
-            <p className="text-xs text-slate-500 truncate">
+            <p className="text-xs text-zinc-500 truncate">
               {displayRole}
             </p>
           </div>
-          <ChevronUp className="h-4 w-4 text-slate-400 shrink-0" />
+          <ChevronUp className="h-4 w-4 text-zinc-500 shrink-0" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="top" className="w-56">

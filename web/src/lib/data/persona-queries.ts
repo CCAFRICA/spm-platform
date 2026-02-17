@@ -257,7 +257,7 @@ export async function getRepDashboardData(
   // Detailed component breakdown from calculation_results
   const { data: myResults } = await supabase
     .from('calculation_results')
-    .select('components, total_payout, period_id')
+    .select('components, total_payout, period_id, batch_id')
     .eq('tenant_id', tenantId)
     .eq('entity_id', entityId)
     .order('created_at', { ascending: false });
@@ -274,6 +274,22 @@ export async function getRepDashboardData(
   const myRank = safeAll.findIndex(o => o.entity_id === entityId) + 1;
   const neighbors = buildRelativeNeighbors(safeAll, entityId, myRank);
 
+  // Resolve period IDs to human-readable labels
+  const resultPeriodIds = Array.from(new Set((myResults ?? []).map(r => r.period_id).filter(Boolean)));
+  let periodLabelMap = new Map<string, string>();
+  if (resultPeriodIds.length > 0) {
+    const { data: periodRows } = await supabase
+      .from('periods')
+      .select('id, period_key, start_date')
+      .in('id', resultPeriodIds as string[]);
+    if (periodRows) {
+      periodLabelMap = new Map(periodRows.map(p => {
+        const label = formatPeriodLabelFromDate(p.start_date);
+        return [p.id, label];
+      }));
+    }
+  }
+
   return {
     totalPayout: myOutcome?.total_payout ?? 0,
     components: parseComponents(myResults?.[0]?.components ?? null),
@@ -281,7 +297,7 @@ export async function getRepDashboardData(
     totalEntities: safeAll.length,
     neighbors,
     history: (myResults ?? []).map(r => ({
-      period: r.period_id ?? '',
+      period: periodLabelMap.get(r.period_id ?? '') ?? r.period_id ?? '',
       payout: r.total_payout,
     })),
     attainment: extractAttainment(myOutcome?.attainment_summary ?? null),
@@ -291,6 +307,17 @@ export async function getRepDashboardData(
 // ──────────────────────────────────────────────
 // Helper Functions
 // ──────────────────────────────────────────────
+
+function formatPeriodLabelFromDate(startDate: string): string {
+  try {
+    const d = new Date(startDate);
+    const month = d.toLocaleString('es-MX', { month: 'short' });
+    const year = d.getFullYear();
+    return `${month.charAt(0).toUpperCase() + month.slice(1)} ${year}`;
+  } catch {
+    return startDate;
+  }
+}
 
 function sum(values: number[]): number {
   return values.reduce((s, v) => s + (v || 0), 0);
@@ -313,14 +340,32 @@ function groupBy<T extends Record<string, unknown>>(items: T[], key: string): Re
 
 export function extractAttainment(attainmentSummary: Json | null): number {
   if (!attainmentSummary) return 0;
-  if (typeof attainmentSummary === 'number') return attainmentSummary;
+  if (typeof attainmentSummary === 'number') return normalizeAttainment(attainmentSummary);
   if (typeof attainmentSummary === 'object' && attainmentSummary !== null && !Array.isArray(attainmentSummary)) {
     const obj = attainmentSummary as Record<string, Json | undefined>;
-    // Try common keys
-    const val = obj.overall ?? obj.attainment ?? obj.pct ?? obj.value;
-    if (typeof val === 'number') return val;
+    // Try common keys (overall, attainment, pct, value, store)
+    const val = obj.overall ?? obj.attainment ?? obj.pct ?? obj.value ?? obj.store;
+    if (typeof val === 'number') return normalizeAttainment(val);
+    // Fallback: average all numeric top-level values (component attainments)
+    const nums = Object.values(obj).filter((v): v is number => typeof v === 'number');
+    if (nums.length > 0) {
+      const avg = nums.reduce((s, n) => s + n, 0) / nums.length;
+      return normalizeAttainment(avg);
+    }
   }
   return 0;
+}
+
+/**
+ * Normalize attainment to percentage scale (0-200+).
+ * Seed data stores as decimals (1.05 = 105%). Values <= 3 are treated as
+ * decimal ratios and multiplied by 100.
+ */
+function normalizeAttainment(val: number): number {
+  if (val <= 0) return 0;
+  // Values in 0-3 range are decimal ratios (e.g., 1.05 = 105%)
+  if (val <= 3) return val * 100;
+  return val;
 }
 
 function parseComponents(components: Json | null): ComponentItem[] {

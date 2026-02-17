@@ -83,7 +83,7 @@ export function QueuePanel({ collapsed = false }: QueuePanelProps) {
           <TooltipTrigger asChild>
             <div className="flex flex-col items-center py-3 px-2">
               <div className="relative">
-                <Bell className="h-5 w-5 text-slate-500" />
+                <Bell className="h-5 w-5 text-zinc-500" />
                 {unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
                     {unreadCount > 9 ? '9+' : unreadCount}
@@ -110,11 +110,11 @@ export function QueuePanel({ collapsed = false }: QueuePanelProps) {
     return (
       <div className="px-3 py-4">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
             {isSpanish ? 'La Cola' : 'The Queue'}
           </h3>
         </div>
-        <div className="text-center py-6 text-sm text-slate-500">
+        <div className="text-center py-6 text-sm text-zinc-500">
           <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
           <p>{isSpanish ? 'Todo en orden' : 'All clear'}</p>
         </div>
@@ -133,7 +133,7 @@ export function QueuePanel({ collapsed = false }: QueuePanelProps) {
   return (
     <div className="px-3 py-4">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
           {isSpanish ? 'La Cola' : 'The Queue'}
         </h3>
         <Badge variant="secondary" className="text-xs">
@@ -183,16 +183,16 @@ export function QueuePanel({ collapsed = false }: QueuePanelProps) {
                         onClick={() => handleItemClick(item)}
                         className={cn(
                           'w-full flex items-start gap-2 p-2 rounded-md text-left transition-colors',
-                          'hover:bg-slate-50',
-                          !item.read && 'bg-blue-50/50'
+                          'hover:bg-zinc-800/50',
+                          !item.read && 'bg-blue-950/30'
                         )}
                       >
                         <TypeIcon className={cn('h-4 w-4 mt-0.5 shrink-0', typeConfig.color)} />
                         <div className="flex-1 min-w-0">
-                          <p className={cn('text-xs font-medium text-slate-700 truncate', !item.read && 'font-semibold')}>
+                          <p className={cn('text-xs font-medium text-zinc-300 truncate', !item.read && 'font-semibold')}>
                             {isSpanish ? item.titleEs : item.title}
                           </p>
-                          <p className="text-[11px] text-slate-500 truncate">
+                          <p className="text-[11px] text-zinc-500 truncate">
                             {isSpanish ? item.descriptionEs : item.description}
                           </p>
                         </div>
@@ -207,7 +207,7 @@ export function QueuePanel({ collapsed = false }: QueuePanelProps) {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="w-full text-xs text-slate-500"
+                      className="w-full text-xs text-zinc-500"
                       onClick={() => router.push('/notifications')}
                     >
                       {isSpanish

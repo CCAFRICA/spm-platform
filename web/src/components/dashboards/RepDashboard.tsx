@@ -27,7 +27,7 @@ import {
 export function RepDashboard() {
   const { currentTenant } = useTenant();
   const { entityId } = usePersona();
-  const { activePeriodId, activePeriodKey } = usePeriod();
+  const { activePeriodId, activePeriodLabel } = usePeriod();
   const tenantId = currentTenant?.id ?? '';
 
   const [data, setData] = useState<RepDashboardData | null>(null);
@@ -105,7 +105,7 @@ export function RepDashboard() {
             </p>
             <p className="text-emerald-100/60 text-sm mt-1">Cada peso explicado</p>
             <div className="flex items-center gap-4 mt-2 text-sm text-emerald-100/50">
-              <span>{activePeriodKey}</span>
+              <span>{activePeriodLabel}</span>
               <span>Logro: {data.attainment.toFixed(1)}%</span>
               {data.rank > 0 && <span>Posicion: #{data.rank} de {data.totalEntities}</span>}
             </div>
