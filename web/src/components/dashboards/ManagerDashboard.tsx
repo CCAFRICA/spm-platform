@@ -115,9 +115,14 @@ export function ManagerDashboard() {
 
       {/* Team Members */}
       <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-        <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">
-          Miembros del Equipo (por logro)
-        </h4>
+        <div className="flex items-center justify-between">
+          <h4 className="text-[10px] font-medium text-zinc-500 uppercase tracking-widest">
+            Miembros del Equipo (por logro)
+          </h4>
+          <span className="text-[10px] text-zinc-500">
+            Promedio zona: {avgAttainment.toFixed(1)}%
+          </span>
+        </div>
         <div className="space-y-3">
           {sortedMembers.map(member => (
             <div key={member.entityId} className="flex items-center gap-3">
@@ -127,7 +132,7 @@ export function ManagerDashboard() {
               <div className="flex-1">
                 <BenchmarkBar
                   value={member.attainment}
-                  benchmark={100}
+                  benchmark={avgAttainment}
                   label=""
                   rightLabel={
                     <span className={`text-[11px] tabular-nums ${member.attainment >= 100 ? 'text-emerald-400' : member.attainment >= 70 ? 'text-amber-400' : 'text-rose-400'}`}>
@@ -145,7 +150,7 @@ export function ManagerDashboard() {
                 )}
               </div>
               <span className="text-[11px] text-zinc-500 tabular-nums w-20 text-right flex-shrink-0">
-                ${member.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                {currencySymbol}{member.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </span>
             </div>
           ))}
