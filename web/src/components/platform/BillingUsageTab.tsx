@@ -88,7 +88,7 @@ export function BillingUsageTab() {
                 <h4 className="text-sm font-bold text-white">{t.tenantName}</h4>
                 {t.totalPayout > 0 && (
                   <span className="text-xs text-zinc-400 tabular-nums">
-                    Total payout: ${t.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    Total payout: {t.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </span>
                 )}
               </div>
