@@ -27,6 +27,7 @@ import { GoalGradientBar } from '@/components/design-system/GoalGradientBar';
 import { WhatIfSlider, type TierConfig } from '@/components/design-system/WhatIfSlider';
 import { ComponentStack } from '@/components/design-system/ComponentStack';
 import { RelativeLeaderboard } from '@/components/design-system/RelativeLeaderboard';
+import { TrendArrow } from '@/components/design-system/TrendArrow';
 import {
   getRepDashboardData,
   type RepDashboardData,
@@ -113,6 +114,10 @@ export function RepDashboard() {
   const ringPct = Math.min(data.attainment, 200);
   const ringColor = data.attainment >= 100 ? '#34d399' : data.attainment >= 80 ? '#fbbf24' : '#f87171';
 
+  // Trend delta vs prior period
+  const priorPayout = data.history.length >= 2 ? data.history[data.history.length - 2].payout : 0;
+  const trendDelta = priorPayout > 0 ? ((data.totalPayout - priorPayout) / priorPayout) * 100 : 0;
+
   return (
     <div className="space-y-4">
       {/* ── Hero: Full width ── */}
@@ -122,9 +127,12 @@ export function RepDashboard() {
             <p style={{ color: 'rgba(167, 243, 208, 0.6)', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Mi Compensacion · {activePeriodLabel}
             </p>
-            <p className="text-4xl lg:text-5xl font-bold mt-2" style={{ color: '#ffffff' }}>
-              {currencySymbol}<AnimatedNumber value={data.totalPayout} />
-            </p>
+            <div className="flex items-baseline gap-3 mt-2">
+              <p className="text-4xl lg:text-5xl font-bold" style={{ color: '#ffffff' }}>
+                {currencySymbol}<AnimatedNumber value={data.totalPayout} />
+              </p>
+              {priorPayout > 0 && <TrendArrow delta={trendDelta} label="vs periodo anterior" />}
+            </div>
             {/* Pill badges */}
             <div className="flex flex-wrap gap-2 mt-3">
               {data.rank > 0 && data.totalEntities > 0 && (
