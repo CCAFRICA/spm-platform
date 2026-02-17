@@ -1,307 +1,314 @@
 'use client';
 
 /**
- * Operate Workspace Landing Page
+ * Operate Cockpit — Admin lifecycle control center
  *
- * The operations center for running the compensation cycle.
- * Shows current cycle status, pending actions, and quick access to cycle phases.
- *
- * Reads lifecycle state from Supabase calculation_batches.
+ * Shows: Period Ribbon, Lifecycle Stepper, Data Readiness,
+ * Calculation summary, Results preview, Next action bar.
  */
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useCycleState, useQueue } from '@/contexts/navigation-context';
+import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
-import { CYCLE_PHASE_LABELS } from '@/types/navigation';
-import { getRouteForPhase } from '@/lib/navigation/cycle-service';
-import { getStateLabel, getStateColor } from '@/lib/calculation/lifecycle-utils';
-import { listCalculationBatches } from '@/lib/supabase/calculation-service';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
+import { createClient } from '@/lib/supabase/client';
+import { PeriodRibbon, type PeriodInfo } from '@/components/design-system/PeriodRibbon';
+import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
+import { DataReadinessPanel, type DataReadiness } from '@/components/design-system/DataReadinessPanel';
+import { DistributionChart } from '@/components/design-system/DistributionChart';
+import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
+import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
+import { StatusPill } from '@/components/design-system/StatusPill';
 import {
-  Upload, Calculator, GitCompare, CheckCircle, Wallet,
-  AlertTriangle, ArrowRight, Activity, Database, ShieldCheck,
-  TrendingUp, Scale,
-} from 'lucide-react';
-import type { CyclePhase } from '@/types/navigation';
+  getCurrentLifecycleState,
+  transitionLifecycle,
+  toDashboardState,
+  LIFECYCLE_DISPLAY,
+  isDashboardState,
+} from '@/lib/lifecycle/lifecycle-service';
+import { extractAttainment } from '@/lib/data/persona-queries';
+import type { Json } from '@/lib/supabase/database.types';
 
-const PHASE_ICONS: Record<CyclePhase, React.ComponentType<{ className?: string }>> = {
-  import: Upload,
-  calculate: Calculator,
-  reconcile: GitCompare,
-  approve: CheckCircle,
-  pay: Wallet,
-  closed: CheckCircle,
-};
-
-interface BatchInfo {
-  id: string;
-  lifecycle_state: string;
-  period_id: string;
-  entity_count: number;
-  summary: Record<string, unknown> | null;
-  created_at: string;
+interface CalcSummary {
+  totalPayout: number;
+  entityCount: number;
+  componentCount: number;
+  lastRunAt: string | null;
+  attainmentDist: number[];
+  topEntities: { name: string; value: number }[];
+  bottomEntities: { name: string; value: number }[];
 }
 
-export default function OperatePage() {
-  const router = useRouter();
-  const { cycleState, nextAction, isSpanish } = useCycleState();
-  const { items } = useQueue();
+export default function OperateCockpitPage() {
   const { currentTenant } = useTenant();
-  const displaySpanish = isSpanish;
-  const hasFinancial = currentTenant?.features?.financial === true;
+  const tenantId = currentTenant?.id ?? '';
 
-  const [latestBatch, setLatestBatch] = useState<BatchInfo | null>(null);
+  const [periods, setPeriods] = useState<PeriodInfo[]>([]);
+  const [activeKey, setActiveKey] = useState('');
+  const [lifecycleState, setLifecycleState] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<DataReadiness>(defaultReadiness());
+  const [calcSummary, setCalcSummary] = useState<CalcSummary | null>(null);
+  const [, setIsLoading] = useState(true);
 
-  // Load latest batch from Supabase
+  const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
+
+  // Load periods
   useEffect(() => {
-    if (!currentTenant) return;
-    listCalculationBatches(currentTenant.id)
-      .then(batches => {
-        if (batches.length > 0) {
-          const b = batches[0];
-          setLatestBatch({
-            id: b.id,
-            lifecycle_state: b.lifecycle_state,
-            period_id: b.period_id,
-            entity_count: b.entity_count || 0,
-            summary: b.summary as Record<string, unknown> | null,
-            created_at: b.created_at,
+    if (!tenantId) return;
+    let cancelled = false;
+    async function load() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('periods')
+        .select('id, period_key, start_date, end_date, status')
+        .eq('tenant_id', tenantId)
+        .order('start_date', { ascending: false });
+
+      if (cancelled || !data) return;
+
+      const enriched: PeriodInfo[] = await Promise.all(
+        data.map(async (p) => {
+          const { data: batch } = await supabase
+            .from('calculation_batches')
+            .select('lifecycle_state')
+            .eq('tenant_id', tenantId)
+            .eq('period_id', p.id)
+            .is('superseded_by', null)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          return {
+            periodId: p.id,
+            periodKey: p.period_key,
+            label: formatLabel(p.start_date),
+            status: p.status,
+            lifecycleState: batch?.lifecycle_state ?? null,
+            startDate: p.start_date,
+            endDate: p.end_date,
+            needsAttention: false,
+          };
+        })
+      );
+
+      if (!cancelled) {
+        setPeriods(enriched);
+        const open = enriched.find(p => p.status === 'open') ?? enriched[0];
+        if (open) setActiveKey(open.periodKey);
+      }
+    }
+    load().finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  // Load lifecycle state + calc summary when period changes
+  useEffect(() => {
+    if (!tenantId || !activePeriodId) return;
+    let cancelled = false;
+
+    async function loadData() {
+      const supabase = createClient();
+
+      // Lifecycle state
+      const state = await getCurrentLifecycleState(tenantId, activePeriodId);
+      if (!cancelled) setLifecycleState(state);
+
+      // Data readiness
+      const [planData, importData, batchData] = await Promise.all([
+        supabase.from('rule_sets').select('id').eq('tenant_id', tenantId).eq('status', 'active').limit(1).maybeSingle(),
+        supabase.from('import_batches').select('id, status').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('calculation_batches').select('id, created_at').eq('tenant_id', tenantId).eq('period_id', activePeriodId).is('superseded_by', null).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      ]);
+
+      if (!cancelled) {
+        setReadiness({
+          plan: planData.data
+            ? { status: 'ready', label: 'Plan activo encontrado' }
+            : { status: 'missing', label: 'No hay plan activo', detail: 'Configura un rule set en estado activo' },
+          data: importData.data
+            ? { status: importData.data.status === 'completed' ? 'ready' : 'warning', label: 'Datos importados', detail: `Ultimo import: ${importData.data.status}` }
+            : { status: 'missing', label: 'No hay datos importados', detail: 'Importa datos de transacciones' },
+          mapping: { status: 'ready', label: 'Mapeo de entidades', detail: 'Basado en entity_relationships' },
+          validation: batchData.data
+            ? { status: 'ready', label: 'Calculo ejecutado', detail: `Ultimo: ${new Date(batchData.data.created_at).toLocaleString('es-MX')}` }
+            : { status: 'never', label: 'Sin calculos previos', detail: 'Ejecuta un calculo desde Vista Previa' },
+        });
+      }
+
+      // Calc summary
+      if (batchData.data) {
+        const { data: outcomes } = await supabase
+          .from('entity_period_outcomes')
+          .select('entity_id, total_payout, attainment_summary')
+          .eq('tenant_id', tenantId)
+          .eq('period_id', activePeriodId);
+
+        const { data: entities } = await supabase
+          .from('entities')
+          .select('id, display_name')
+          .eq('tenant_id', tenantId);
+
+        const entityNames = new Map((entities ?? []).map(e => [e.id, e.display_name]));
+        const safeOutcomes = outcomes ?? [];
+        const sorted = [...safeOutcomes].sort((a, b) => b.total_payout - a.total_payout);
+
+        if (!cancelled) {
+          setCalcSummary({
+            totalPayout: safeOutcomes.reduce((s, o) => s + o.total_payout, 0),
+            entityCount: safeOutcomes.length,
+            componentCount: 0,
+            lastRunAt: batchData.data.created_at,
+            attainmentDist: safeOutcomes.map(o => extractAttainment(o.attainment_summary as Json)),
+            topEntities: sorted.slice(0, 5).map(o => ({
+              name: entityNames.get(o.entity_id) ?? o.entity_id,
+              value: o.total_payout,
+            })),
+            bottomEntities: sorted.slice(-5).reverse().map(o => ({
+              name: entityNames.get(o.entity_id) ?? o.entity_id,
+              value: o.total_payout,
+            })),
           });
         }
-      })
-      .catch(err => console.warn('[Operate] Failed to load batches:', err));
-  }, [currentTenant]);
+      } else if (!cancelled) {
+        setCalcSummary(null);
+      }
+    }
 
-  const cyclePhases: CyclePhase[] = ['import', 'calculate', 'reconcile', 'approve', 'pay'];
-  const urgentItems = items.filter(i => i.urgency === 'critical' || i.urgency === 'high');
+    loadData();
+    return () => { cancelled = true; };
+  }, [tenantId, activePeriodId]);
+
+  const handleAdvance = useCallback(async (nextState: string) => {
+    if (!tenantId || !activePeriodId) return;
+    const result = await transitionLifecycle(tenantId, activePeriodId, nextState as never);
+    if (result.success) {
+      setLifecycleState(nextState);
+      setPeriods(prev => prev.map(p =>
+        p.periodId === activePeriodId ? { ...p, lifecycleState: nextState } : p
+      ));
+    }
+  }, [tenantId, activePeriodId]);
+
+  const dashState = lifecycleState && isDashboardState(lifecycleState)
+    ? lifecycleState
+    : lifecycleState ? toDashboardState(lifecycleState) : 'DRAFT';
+
+  const stateDisplay = LIFECYCLE_DISPLAY[dashState as keyof typeof LIFECYCLE_DISPLAY];
+
+  if (!tenantId) {
+    return (
+      <div className="p-8 text-center text-zinc-500">
+        <p>Selecciona un tenant para acceder al centro de operaciones.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            {displaySpanish ? 'Centro de Operaciones' : 'Operations Center'}
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {displaySpanish
-              ? 'Gestionar el ciclo de compensación actual'
-              : 'Manage the current outcome cycle'}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-sm font-medium text-slate-700">
-            {cycleState?.periodLabel || 'Loading...'}
-          </p>
-          <Badge variant={cycleState?.completionPercentage === 100 ? 'default' : 'secondary'}>
-            {cycleState?.completionPercentage || 0}% {displaySpanish ? 'completo' : 'complete'}
-          </Badge>
-          {nextAction && (
-            <p className="text-xs text-blue-600 mt-1 font-medium">
-              {displaySpanish ? 'Siguiente' : 'Next'}: {nextAction}
-            </p>
+    <div className="space-y-0">
+      {/* Period Ribbon */}
+      <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={setActiveKey} />
+
+      <div className="p-6 space-y-6 max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-zinc-100">Centro de Operaciones</h1>
+            <p className="text-sm text-zinc-500">Gestiona el ciclo de calculo para el periodo seleccionado</p>
+          </div>
+          {lifecycleState && stateDisplay && (
+            <StatusPill color={dashState === 'APPROVED' || dashState === 'POSTED' ? 'emerald' : dashState === 'PUBLISHED' ? 'indigo' : 'zinc'}>
+              {stateDisplay.labelEs}
+            </StatusPill>
           )}
         </div>
-      </div>
 
-      {/* Lifecycle State from Supabase */}
-      {latestBatch && (
-        <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Scale className="h-5 w-5 text-slate-500" />
-                <span className="text-sm font-medium text-slate-700">
-                  {displaySpanish ? 'Estado del Ciclo' : 'Cycle State'}:
-                </span>
-                <Badge className={getStateColor(latestBatch.lifecycle_state)}>
-                  {getStateLabel(latestBatch.lifecycle_state)}
-                </Badge>
-                <span className="text-xs text-slate-500">{latestBatch.period_id}</span>
-                {latestBatch.entity_count > 0 && (
-                  <span className="text-xs text-slate-400">
-                    {latestBatch.entity_count} {displaySpanish ? 'entidades' : 'entities'}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => router.push('/operate/calculate')}
-                className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
-              >
-                {displaySpanish ? 'Gestionar' : 'Manage'}
-                <ArrowRight className="h-3 w-3" />
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+        {/* Lifecycle Stepper */}
+        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5">
+          <LifecycleStepper
+            currentState={dashState}
+            onAdvance={handleAdvance}
+            onGoBack={handleAdvance}
+            canGoBack={true}
+          />
+        </div>
 
-      {/* Cycle Progress */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{displaySpanish ? 'El Ciclo' : 'The Cycle'}</CardTitle>
-          <CardDescription>
-            {displaySpanish
-              ? 'Progreso a través de las fases del ciclo de compensación'
-              : 'Progress through the outcome cycle phases'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <Progress value={cycleState?.completionPercentage || 0} className="h-2" />
-            <div className="grid grid-cols-5 gap-4">
-              {cyclePhases.map((phase) => {
-                const Icon = PHASE_ICONS[phase];
-                const status = cycleState?.phaseStatuses[phase];
-                const isActive = cycleState?.currentPhase === phase;
-                const isCompleted = status?.state === 'completed';
-
-                return (
-                  <button
-                    key={phase}
-                    onClick={() => router.push(getRouteForPhase(phase))}
-                    className={`
-                      relative p-4 rounded-lg border transition-all text-left
-                      ${isActive ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : ''}
-                      ${isCompleted ? 'border-green-500 bg-green-50' : 'border-slate-200'}
-                      ${!isActive && !isCompleted ? 'hover:border-slate-300 hover:bg-slate-50' : ''}
-                    `}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className={`
-                        p-1.5 rounded-full
-                        ${isCompleted ? 'bg-green-500 text-white' : ''}
-                        ${isActive ? 'bg-blue-500 text-white' : ''}
-                        ${!isActive && !isCompleted ? 'bg-slate-200 text-slate-500' : ''}
-                      `}>
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      {status?.actionCount && status.actionCount > 0 && (
-                        <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                          {status.actionCount}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="font-medium text-sm text-slate-900">
-                      {displaySpanish
-                        ? CYCLE_PHASE_LABELS[phase].es
-                        : CYCLE_PHASE_LABELS[phase].en}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {displaySpanish ? status?.detailEs : status?.detail}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
+        {/* Two-column grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left: Data Readiness */}
+          <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5">
+            <DataReadinessPanel readiness={readiness} />
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Urgent Actions */}
-      {urgentItems.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-amber-800">
-              <AlertTriangle className="h-5 w-5" />
-              {displaySpanish ? 'Acciones Urgentes' : 'Urgent Actions'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {urgentItems.slice(0, 3).map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => router.push(item.route)}
-                  className="w-full flex items-center justify-between p-3 bg-white rounded-lg border border-amber-200 hover:bg-amber-50 transition-colors"
-                >
-                  <div className="text-left">
-                    <p className="font-medium text-slate-900">
-                      {displaySpanish ? item.titleEs : item.title}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      {displaySpanish ? item.descriptionEs : item.description}
+          {/* Right: Calculation Summary */}
+          <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+            <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Resumen de Calculo</h4>
+            {calcSummary ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[11px] text-zinc-500">Pago Total</p>
+                    <p className="text-lg font-bold text-zinc-100">
+                      $<AnimatedNumber value={calcSummary.totalPayout} />
                     </p>
                   </div>
-                  <ArrowRight className="h-4 w-4 text-slate-400" />
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Quick Actions */}
-      <div className={`grid gap-4 ${hasFinancial ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
-        <Card className="hover:border-slate-300 transition-colors cursor-pointer" onClick={() => router.push('/operate/monitor/operations')}>
-          <CardContent className="p-6 flex items-center gap-4">
-            <div className="p-3 bg-purple-100 rounded-lg">
-              <Activity className="h-6 w-6 text-purple-600" />
-            </div>
-            <div>
-              <p className="font-medium text-slate-900">
-                {displaySpanish ? 'Operaciones Diarias' : 'Daily Operations'}
-              </p>
-              <p className="text-sm text-slate-500">
-                {displaySpanish ? 'Ver estado del sistema' : 'View system status'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:border-slate-300 transition-colors cursor-pointer" onClick={() => router.push('/operate/monitor/readiness')}>
-          <CardContent className="p-6 flex items-center gap-4">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <Database className="h-6 w-6 text-blue-600" />
-            </div>
-            <div>
-              <p className="font-medium text-slate-900">
-                {displaySpanish ? 'Preparacion de Datos' : 'Data Readiness'}
-              </p>
-              <p className="text-sm text-slate-500">
-                {displaySpanish ? 'Verificar datos' : 'Check data status'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:border-slate-300 transition-colors cursor-pointer" onClick={() => router.push('/operate/monitor/quality')}>
-          <CardContent className="p-6 flex items-center gap-4">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <ShieldCheck className="h-6 w-6 text-green-600" />
-            </div>
-            <div>
-              <p className="font-medium text-slate-900">
-                {displaySpanish ? 'Calidad de Datos' : 'Data Quality'}
-              </p>
-              <p className="text-sm text-slate-500">
-                {displaySpanish ? 'Revisar problemas' : 'Review issues'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {hasFinancial && (
-          <Card className="hover:border-orange-300 border-orange-200 transition-colors cursor-pointer" onClick={() => router.push('/financial')}>
-            <CardContent className="p-6 flex items-center gap-4">
-              <div className="p-3 bg-orange-100 rounded-lg">
-                <TrendingUp className="h-6 w-6 text-orange-600" />
+                  <div>
+                    <p className="text-[11px] text-zinc-500">Entidades</p>
+                    <p className="text-lg font-bold text-zinc-100">{calcSummary.entityCount}</p>
+                  </div>
+                </div>
+                {calcSummary.lastRunAt && (
+                  <p className="text-[11px] text-zinc-600">
+                    Ultimo calculo: {new Date(calcSummary.lastRunAt).toLocaleString('es-MX')}
+                  </p>
+                )}
               </div>
-              <div>
-                <p className="font-medium text-slate-900">
-                  {displaySpanish ? 'Modulo Financiero' : 'Financial Module'}
-                </p>
-                <p className="text-sm text-slate-500">
-                  {displaySpanish ? 'Datos POS y rendimiento' : 'POS data & performance'}
-                </p>
+            ) : (
+              <p className="text-sm text-zinc-500">No hay resultados de calculo para este periodo.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Results Preview */}
+        {calcSummary && calcSummary.attainmentDist.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Distribucion de Logro</h4>
+              <DistributionChart data={calcSummary.attainmentDist} benchmarkLine={100} />
+            </div>
+            <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-5 space-y-3">
+              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Top 5 Entidades</h4>
+              <div className="space-y-2">
+                {calcSummary.topEntities.map((e) => (
+                  <BenchmarkBar
+                    key={e.name}
+                    value={e.value}
+                    benchmark={calcSummary.totalPayout / calcSummary.entityCount}
+                    label={e.name}
+                    rightLabel={<span className="text-emerald-400 tabular-nums">${e.value.toLocaleString()}</span>}
+                    color="#10b981"
+                  />
+                ))}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
       </div>
     </div>
   );
+}
+
+function defaultReadiness(): DataReadiness {
+  return {
+    plan: { status: 'missing', label: 'Cargando...' },
+    data: { status: 'missing', label: 'Cargando...' },
+    mapping: { status: 'missing', label: 'Cargando...' },
+    validation: { status: 'never', label: 'Cargando...' },
+  };
+}
+
+function formatLabel(startDate: string): string {
+  try {
+    const d = new Date(startDate);
+    const month = d.toLocaleString('es-MX', { month: 'short' });
+    return `${month.charAt(0).toUpperCase() + month.slice(1)} ${d.getFullYear()}`;
+  } catch {
+    return startDate;
+  }
 }
