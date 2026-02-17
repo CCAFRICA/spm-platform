@@ -74,6 +74,14 @@
   transition: background-color 200ms ease;
 }
 
+/* Dark mode: workspace-content must be transparent so PersonaLayout's
+   dark gradient (from-slate-950 via-{persona}-950 to-slate-950) shows through.
+   The light-theme bg-tint values (98% lightness) produce a WHITE background
+   that bleeds through PersonaLayout's semi-transparent gradient stops. */
+.dark [data-workspace] .workspace-content {
+  background-color: transparent;
+}
+
 /* Workspace accent for active elements */
 [data-workspace] .workspace-accent {
   color: hsl(var(--workspace-accent));
