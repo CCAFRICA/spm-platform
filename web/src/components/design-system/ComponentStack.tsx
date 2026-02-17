@@ -15,7 +15,7 @@ export function ComponentStack({ components, total }: ComponentStackProps) {
   return (
     <div className="space-y-2">
       {/* Stacked bar */}
-      <div className="flex h-6 w-full rounded-full overflow-hidden bg-zinc-800/60">
+      <div className="flex h-5 w-full rounded-full overflow-hidden bg-zinc-800">
         {components.map((comp, i) => {
           const pct = effectiveTotal > 0 ? (comp.value / effectiveTotal) * 100 : 0;
           if (pct <= 0) return null;

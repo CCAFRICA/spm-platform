@@ -102,12 +102,12 @@ export type WorkspaceKey = keyof typeof WORKSPACE_TOKENS;
  * Designed for dark backgrounds with sufficient contrast between adjacent segments.
  */
 export const COMPONENT_PALETTE = [
-  '#6366f1', // Indigo
-  '#f59e0b', // Amber
-  '#10b981', // Emerald
-  '#ec4899', // Pink
-  '#06b6d4', // Cyan
-  '#8b5cf6', // Violet
+  '#818cf8', // Indigo-400
+  '#6ee7b7', // Emerald-300
+  '#fbbf24', // Amber-400
+  '#60a5fa', // Blue-400
+  '#f472b6', // Pink-400
+  '#a78bfa', // Violet-400
 ] as const;
 
 // ============================================

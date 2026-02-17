@@ -6,11 +6,11 @@ interface DistributionChartProps {
 }
 
 const BUCKETS = [
-  { label: '<70%', min: -Infinity, max: 70, color: '#f43f5e' },
-  { label: '70-85%', min: 70, max: 85, color: '#f59e0b' },
-  { label: '85-100%', min: 85, max: 100, color: '#6366f1' },
-  { label: '100-120%', min: 100, max: 120, color: '#10b981' },
-  { label: '120%+', min: 120, max: Infinity, color: '#84cc16' },
+  { label: '<70%', min: -Infinity, max: 70, color: '#f87171' },
+  { label: '70-85%', min: 70, max: 85, color: '#fbbf24' },
+  { label: '85-100%', min: 85, max: 100, color: '#60a5fa' },
+  { label: '100-120%', min: 100, max: 120, color: '#34d399' },
+  { label: '120%+', min: 120, max: Infinity, color: '#a78bfa' },
 ];
 
 function computeStats(data: number[]) {
@@ -40,14 +40,14 @@ export function DistributionChart({ data, benchmarkLine }: DistributionChartProp
           const heightPct = (bucket.count / maxCount) * 100;
           return (
             <div key={bucket.label} className="flex-1 flex flex-col items-center gap-1">
-              <span className="text-[10px] text-zinc-400 tabular-nums">{bucket.count}</span>
+              <span className="text-[9px] text-zinc-500 tabular-nums">{bucket.count}</span>
               <div className="w-full relative" style={{ height: '64px' }}>
                 <div
-                  className="absolute bottom-0 w-full rounded-t transition-all duration-500"
+                  className="absolute bottom-0 w-full rounded-t-md transition-all duration-500"
                   style={{
                     height: `${heightPct}%`,
                     backgroundColor: bucket.color,
-                    minHeight: bucket.count > 0 ? '2px' : '0px',
+                    minHeight: bucket.count > 0 ? '4px' : '0px',
                   }}
                 />
               </div>
