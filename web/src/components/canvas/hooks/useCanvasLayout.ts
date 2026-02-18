@@ -57,6 +57,7 @@ export function useCanvasLayout(
           entity: gn.entity,
           childCount: gn.childCount,
           depth: gn.depth,
+          zoomLevel,
         },
       };
     });

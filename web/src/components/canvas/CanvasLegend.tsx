@@ -2,38 +2,63 @@
 
 /**
  * CanvasLegend — Relationship type legend, confidence scale
+ * DS-001 inline styles.
  */
+
+const LINE_STYLE: React.CSSProperties = {
+  width: '24px',
+  height: 0,
+  borderTop: '2px solid',
+  flexShrink: 0,
+};
+
+const DOT_STYLE: React.CSSProperties = {
+  width: '8px',
+  height: '8px',
+  borderRadius: '50%',
+  flexShrink: 0,
+};
 
 export function CanvasLegend() {
   return (
-    <div className="absolute bottom-3 left-3 z-10 bg-card border rounded-md shadow-sm p-3 text-xs space-y-2">
-      <div className="font-medium text-muted-foreground">Legend</div>
+    <div style={{
+      position: 'absolute',
+      bottom: '12px',
+      left: '12px',
+      zIndex: 10,
+      background: 'rgba(15, 23, 42, 0.9)',
+      border: '1px solid rgba(99, 102, 241, 0.2)',
+      borderRadius: '8px',
+      backdropFilter: 'blur(8px)',
+      padding: '10px 14px',
+    }}>
+      <div style={{ color: '#71717a', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Legend</div>
 
       {/* Edge types */}
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-0 border-t-2 border-blue-500" />
-          <span>Confirmed</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ ...LINE_STYLE, borderColor: '#6366f1' }} />
+          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Confirmed</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-0 border-t-2 border-amber-500 border-dashed" />
-          <span>AI Proposed</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ ...LINE_STYLE, borderColor: '#f59e0b', borderTopStyle: 'dashed' }} />
+          <span style={{ color: '#94a3b8', fontSize: '11px' }}>AI Proposed</span>
         </div>
       </div>
 
       {/* Status */}
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          <span>Active</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ ...DOT_STYLE, background: '#34d399' }} />
+          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Active</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-amber-500" />
-          <span>Proposed</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ ...DOT_STYLE, background: '#fbbf24' }} />
+          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Proposed</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-gray-400" />
-          <span>Suspended</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ ...DOT_STYLE, background: '#71717a' }} />
+          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Suspended</span>
         </div>
       </div>
     </div>

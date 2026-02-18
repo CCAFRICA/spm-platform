@@ -5,6 +5,7 @@
  *
  * Solid = confirmed/imported. Dashed = AI proposed.
  * Confidence score label displayed on hover.
+ * DS-001 inline styles.
  */
 
 import { memo } from 'react';
@@ -42,7 +43,7 @@ function RelationshipEdgeComponent({
     targetY,
   });
 
-  const strokeColor = isConfirmed ? 'hsl(217, 91%, 60%)' : 'hsl(38, 92%, 50%)';
+  const strokeColor = isConfirmed ? '#6366f1' : '#f59e0b';
 
   return (
     <>
@@ -58,14 +59,20 @@ function RelationshipEdgeComponent({
       />
       <EdgeLabelRenderer>
         <div
-          className="absolute text-[9px] text-muted-foreground bg-background/90 px-1 rounded pointer-events-none"
           style={{
+            position: 'absolute',
+            fontSize: '9px',
+            color: '#71717a',
+            background: 'rgba(10, 14, 26, 0.9)',
+            padding: '1px 4px',
+            borderRadius: '3px',
+            pointerEvents: 'none',
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
           }}
         >
           {relationship.relationship_type}
           {!isConfirmed && (
-            <span className="ml-1 opacity-70">
+            <span style={{ marginLeft: '4px', opacity: 0.7 }}>
               {(confidence * 100).toFixed(0)}%
             </span>
           )}

@@ -1,12 +1,12 @@
 'use client';
 
 /**
- * CanvasToolbar — Zoom controls, layout toggle, search
+ * CanvasToolbar — Search, layout toggle, zoom controls
+ * DS-001 inline styles, floating glass panel
  */
 
 import { useState, useCallback } from 'react';
 import { useReactFlow } from '@xyflow/react';
-import { Button } from '@/components/ui/button';
 import {
   Search,
   ZoomIn,
@@ -14,6 +14,7 @@ import {
   Maximize2,
   Network,
   GitBranch,
+  Link2,
 } from 'lucide-react';
 import type { Entity } from '@/lib/supabase/database.types';
 import type { LayoutConfig } from '@/lib/canvas/layout-engine';
@@ -23,17 +24,60 @@ interface CanvasToolbarProps {
   onLayoutModeChange: (mode: LayoutConfig['mode']) => void;
   onSearch: (query: string) => Promise<Entity[]>;
   onSelectEntity: (entityId: string) => void;
+  isRelationshipMode: boolean;
+  onToggleRelationshipMode: () => void;
 }
+
+const TOOLBAR_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  top: '12px',
+  left: '12px',
+  zIndex: 10,
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+};
+
+const GROUP_STYLE: React.CSSProperties = {
+  display: 'flex',
+  background: 'rgba(15, 23, 42, 0.9)',
+  border: '1px solid rgba(99, 102, 241, 0.2)',
+  borderRadius: '8px',
+  backdropFilter: 'blur(8px)',
+  overflow: 'hidden',
+};
+
+const BTN_STYLE: React.CSSProperties = {
+  width: '32px',
+  height: '32px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: '#94a3b8',
+  transition: 'background 0.15s, color 0.15s',
+};
+
+const BTN_ACTIVE: React.CSSProperties = {
+  ...BTN_STYLE,
+  background: 'rgba(99, 102, 241, 0.2)',
+  color: '#818cf8',
+};
 
 export function CanvasToolbar({
   layoutMode,
   onLayoutModeChange,
   onSearch,
   onSelectEntity,
+  isRelationshipMode,
+  onToggleRelationshipMode,
 }: CanvasToolbarProps) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Entity[]>([]);
+
   const handleSearch = useCallback(async (query: string) => {
     setSearchQuery(query);
     if (query.trim().length < 2) {
@@ -55,31 +99,72 @@ export function CanvasToolbar({
   }, [onSelectEntity]);
 
   return (
-    <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+    <div style={TOOLBAR_STYLE}>
       {/* Search */}
-      <div className="relative">
-        <div className="flex items-center bg-card border rounded-md shadow-sm">
-          <Search className="h-3.5 w-3.5 text-muted-foreground ml-2" />
+      <div style={{ position: 'relative' }}>
+        <div style={{ ...GROUP_STYLE, padding: '0 4px' }}>
+          <Search size={14} style={{ color: '#64748b', marginLeft: '8px', flexShrink: 0 }} />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
             placeholder="Search entities..."
-            className="text-sm bg-transparent border-none outline-none px-2 py-1.5 w-48"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              color: '#e2e8f0',
+              fontSize: '13px',
+              padding: '8px',
+              width: '180px',
+            }}
           />
         </div>
         {searchResults.length > 0 && (
-          <div className="absolute top-full left-0 mt-1 w-64 bg-card border rounded-md shadow-lg max-h-60 overflow-y-auto">
+          <div
+            style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              marginTop: '4px',
+              width: '260px',
+              maxHeight: '240px',
+              overflowY: 'auto',
+              background: 'rgba(15, 23, 42, 0.95)',
+              border: '1px solid rgba(99, 102, 241, 0.2)',
+              borderRadius: '8px',
+              backdropFilter: 'blur(8px)',
+            }}
+          >
             {searchResults.map(entity => (
               <button
                 key={entity.id}
                 onClick={() => handleSelectResult(entity)}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 flex items-center gap-2"
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '8px 16px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: '1px solid rgba(30, 41, 59, 0.5)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'background 0.15s',
+                }}
               >
-                <span className="truncate">{entity.display_name}</span>
-                <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {entity.display_name}
+                </span>
+                <span style={{ color: '#64748b', fontSize: '10px', flexShrink: 0 }}>
                   {entity.entity_type}
                 </span>
+                {entity.external_id && (
+                  <span style={{ color: '#475569', fontSize: '10px', fontFamily: 'monospace', flexShrink: 0 }}>
+                    {entity.external_id}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -87,38 +172,45 @@ export function CanvasToolbar({
       </div>
 
       {/* Layout toggle */}
-      <div className="flex bg-card border rounded-md shadow-sm">
-        <Button
-          variant={layoutMode === 'hierarchical' ? 'secondary' : 'ghost'}
-          size="icon"
-          className="h-8 w-8"
+      <div style={GROUP_STYLE}>
+        <button
+          style={layoutMode === 'hierarchical' ? BTN_ACTIVE : BTN_STYLE}
           onClick={() => onLayoutModeChange('hierarchical')}
           title="Hierarchical layout"
         >
-          <GitBranch className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant={layoutMode === 'force-directed' ? 'secondary' : 'ghost'}
-          size="icon"
-          className="h-8 w-8"
+          <GitBranch size={14} />
+        </button>
+        <button
+          style={layoutMode === 'force-directed' ? BTN_ACTIVE : BTN_STYLE}
           onClick={() => onLayoutModeChange('force-directed')}
           title="Force-directed layout"
         >
-          <Network className="h-3.5 w-3.5" />
-        </Button>
+          <Network size={14} />
+        </button>
+      </div>
+
+      {/* Add Relationship mode */}
+      <div style={GROUP_STYLE}>
+        <button
+          style={isRelationshipMode ? BTN_ACTIVE : BTN_STYLE}
+          onClick={onToggleRelationshipMode}
+          title={isRelationshipMode ? 'Cancel relationship mode' : 'Add relationship (click two nodes)'}
+        >
+          <Link2 size={14} />
+        </button>
       </div>
 
       {/* Zoom controls */}
-      <div className="flex bg-card border rounded-md shadow-sm">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomIn()}>
-          <ZoomIn className="h-3.5 w-3.5" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomOut()}>
-          <ZoomOut className="h-3.5 w-3.5" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => fitView({ padding: 0.2 })}>
-          <Maximize2 className="h-3.5 w-3.5" />
-        </Button>
+      <div style={GROUP_STYLE}>
+        <button style={BTN_STYLE} onClick={() => zoomIn()} title="Zoom in">
+          <ZoomIn size={14} />
+        </button>
+        <button style={BTN_STYLE} onClick={() => zoomOut()} title="Zoom out">
+          <ZoomOut size={14} />
+        </button>
+        <button style={BTN_STYLE} onClick={() => fitView({ padding: 0.2 })} title="Fit view">
+          <Maximize2 size={14} />
+        </button>
       </div>
     </div>
   );

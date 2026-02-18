@@ -6,7 +6,7 @@
  */
 
 import { createClient } from '@/lib/supabase/client';
-import type { Entity, EntityRelationship } from '@/lib/supabase/database.types';
+import type { Entity, EntityRelationship, RelationshipType, RelationshipSource } from '@/lib/supabase/database.types';
 
 // ──────────────────────────────────────────────
 // Types
@@ -32,9 +32,16 @@ export interface EntityGraph {
   rootIds: string[];
 }
 
+export interface RelatedEntityInfo {
+  relationship: EntityRelationship;
+  relatedEntity: { id: string; display_name: string; entity_type: string } | null;
+  direction: 'incoming' | 'outgoing';
+}
+
 export interface EntityCardData {
   entity: Entity;
   relationships: EntityRelationship[];
+  relatedEntities: RelatedEntityInfo[];
   outcomes: {
     total_payout: number;
     component_breakdown: Record<string, unknown>[];
@@ -192,6 +199,33 @@ export async function getEntityCard(
   // Fetch relationships
   const relationships = await getEntityRelationships(tenantId, entityId);
 
+  // Resolve related entity names
+  const relatedIds = relationships.map(r =>
+    r.source_entity_id === entityId ? r.target_entity_id : r.source_entity_id
+  );
+  const uniqueRelatedIds = Array.from(new Set(relatedIds)).filter(Boolean);
+
+  const relatedEntityMap = new Map<string, { id: string; display_name: string; entity_type: string }>();
+  if (uniqueRelatedIds.length > 0) {
+    const { data: relatedRows } = await supabase
+      .from('entities')
+      .select('id, display_name, entity_type')
+      .in('id', uniqueRelatedIds);
+    for (const r of (relatedRows || [])) {
+      relatedEntityMap.set(r.id, r);
+    }
+  }
+
+  const relatedEntities: RelatedEntityInfo[] = relationships.map(r => {
+    const isOutgoing = r.source_entity_id === entityId;
+    const relatedId = isOutgoing ? r.target_entity_id : r.source_entity_id;
+    return {
+      relationship: r,
+      relatedEntity: relatedEntityMap.get(relatedId) || null,
+      direction: isOutgoing ? 'outgoing' : 'incoming',
+    };
+  });
+
   // Fetch latest outcomes
   const { data: outcomes } = await supabase
     .from('entity_period_outcomes')
@@ -217,6 +251,7 @@ export async function getEntityCard(
   return {
     entity: entity as Entity,
     relationships,
+    relatedEntities,
     outcomes: outcome,
     ruleSetAssignments: (assignments || []) as Array<{ rule_set_id: string; effective_from: string | null }>,
   };
@@ -238,4 +273,71 @@ export async function searchEntities(
     .limit(20);
   if (error) throw error;
   return (data || []) as Entity[];
+}
+
+/**
+ * Reassign an entity from one parent to another.
+ * Ends current containment/management relationship and creates a new one.
+ */
+export async function reassignEntity(
+  tenantId: string,
+  entityId: string,
+  newParentId: string,
+  effectiveDate: string,
+  relationshipType: RelationshipType = 'works_at'
+): Promise<void> {
+  const supabase = createClient();
+
+  // 1. Find and end current parent relationship
+  const { data: currentRels } = await supabase
+    .from('entity_relationships')
+    .select('id, relationship_type')
+    .eq('tenant_id', tenantId)
+    .or(`source_entity_id.eq.${entityId},target_entity_id.eq.${entityId}`)
+    .in('relationship_type', ['contains', 'manages', 'works_at', 'member_of'] satisfies RelationshipType[])
+    .is('effective_to', null);
+
+  // End old relationships
+  for (const rel of (currentRels || [])) {
+    await supabase
+      .from('entity_relationships')
+      .update({ effective_to: effectiveDate })
+      .eq('id', rel.id);
+  }
+
+  // 2. Create new relationship (new parent contains/manages this entity)
+  await supabase
+    .from('entity_relationships')
+    .insert({
+      tenant_id: tenantId,
+      source_entity_id: newParentId,
+      target_entity_id: entityId,
+      relationship_type: relationshipType,
+      confidence: 1.0,
+      source: 'human_confirmed' as RelationshipSource,
+      effective_from: effectiveDate,
+    });
+}
+
+/**
+ * Create a new relationship between two entities.
+ */
+export async function createRelationship(
+  tenantId: string,
+  sourceId: string,
+  targetId: string,
+  relationshipType: RelationshipType
+): Promise<void> {
+  const supabase = createClient();
+  await supabase
+    .from('entity_relationships')
+    .insert({
+      tenant_id: tenantId,
+      source_entity_id: sourceId,
+      target_entity_id: targetId,
+      relationship_type: relationshipType,
+      confidence: 1.0,
+      source: 'human_confirmed' as RelationshipSource,
+      effective_from: new Date().toISOString(),
+    });
 }
