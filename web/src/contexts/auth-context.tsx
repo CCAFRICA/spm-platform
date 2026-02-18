@@ -225,6 +225,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     setCapabilities([]);
+
+    // HF-043: Explicitly clear ALL auth-related cookies.
+    // signOut() asks Supabase to clear sb-* cookies, but we can't trust
+    // that it works in every browser. Force-clear everything.
+    if (typeof document !== 'undefined') {
+      // Clear tenant cookie
+      document.cookie = 'vialuce-tenant-id=; path=/; max-age=0';
+      // Force-clear all Supabase auth cookies
+      document.cookie.split(';').forEach(c => {
+        const name = c.trim().split('=')[0];
+        if (name.startsWith('sb-')) {
+          document.cookie = `${name}=; path=/; max-age=0`;
+        }
+      });
+    }
+    // Clear sessionStorage tenant selection
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('vialuce_admin_tenant');
+    }
+
     // Full page navigation — always works, always hits middleware
     window.location.href = '/login';
   }, []);
