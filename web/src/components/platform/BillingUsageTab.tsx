@@ -3,17 +3,14 @@
 import { useState, useEffect } from 'react';
 import type {
   TenantBillingData,
-  RecentBatchActivity,
   MeteringEvent,
 } from '@/lib/data/platform-queries';
 import { Loader2, Users, Calendar, Calculator, Activity, Zap } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 const DEFAULT_LIMITS = { entities: 100, batches: 50, users: 10 };
 
 export function BillingUsageTab() {
   const [tenants, setTenants] = useState<TenantBillingData[]>([]);
-  const [activity, setActivity] = useState<RecentBatchActivity[]>([]);
   const [metering, setMetering] = useState<MeteringEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -25,10 +22,9 @@ export function BillingUsageTab() {
         if (!res.ok) throw new Error(`Billing API: ${res.status}`);
         return res.json();
       })
-      .then((result: { tenants: TenantBillingData[]; recentActivity: RecentBatchActivity[]; meteringEvents?: MeteringEvent[] }) => {
+      .then((result: { tenants: TenantBillingData[]; meteringEvents?: MeteringEvent[] }) => {
         if (!cancelled) {
           setTenants(result.tenants);
-          setActivity(result.recentActivity);
           setMetering(result.meteringEvents ?? []);
           setIsLoading(false);
         }
@@ -140,32 +136,56 @@ export function BillingUsageTab() {
         </div>
       )}
 
-      {/* Recent Activity Feed */}
-      {activity.length > 0 && (
-        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-          <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
-            Recent Activity
-          </h3>
-          <div className="space-y-2">
-            {activity.map(a => (
-              <div key={a.batchId} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/30">
-                <Activity className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-                <span className="text-xs text-zinc-400">
-                  {new Date(a.createdAt).toLocaleDateString()} {new Date(a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                <span className="text-sm text-white font-medium">{a.tenantName}</span>
-                <span className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-full border',
-                  a.lifecycleState === 'POSTED' || a.lifecycleState === 'PAID' ? 'border-emerald-500/40 text-emerald-400' : 'border-zinc-700 text-zinc-400'
-                )}>
-                  {a.lifecycleState}
-                </span>
-                <span className="text-xs text-zinc-500 tabular-nums ml-auto">{a.entityCount} entities</span>
+      {/* Revenue & Growth (replaces Recent Activity — OB-53 Phase 7) */}
+      <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+        <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
+          Revenue & Growth
+        </h3>
+        {metering.length > 0 ? (
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <p style={{ color: '#a1a1aa', fontSize: '12px', marginBottom: '8px' }}>Metered Usage Trend</p>
+              <div className="flex items-end gap-1" style={{ height: '48px' }}>
+                {metering.slice(0, 8).map((m, i) => {
+                  const maxVal = Math.max(...metering.map(x => x.eventCount), 1);
+                  const heightPct = (m.eventCount / maxVal) * 100;
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                      <div
+                        className="w-full rounded-t"
+                        style={{
+                          height: `${Math.max(heightPct, 4)}%`,
+                          background: '#8b5cf6',
+                          minHeight: '2px',
+                        }}
+                      />
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+              <p style={{ color: '#52525b', fontSize: '10px', marginTop: '4px' }}>
+                Last {Math.min(metering.length, 8)} periods
+              </p>
+            </div>
+            <div>
+              <p style={{ color: '#a1a1aa', fontSize: '12px', marginBottom: '8px' }}>Tenant Growth</p>
+              <p className="text-2xl font-bold" style={{ color: '#ffffff' }}>{tenants.length}</p>
+              <p style={{ color: '#71717a', fontSize: '11px' }}>active tenants</p>
+              <p style={{ color: '#71717a', fontSize: '11px', marginTop: '4px' }}>
+                {totalEntities} billable entities
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="text-center py-6">
+            <Activity className="h-8 w-8 mx-auto mb-2" style={{ color: '#3f3f46' }} />
+            <p style={{ color: '#71717a', fontSize: '13px' }}>Enable billing metering to track revenue</p>
+            <p style={{ color: '#52525b', fontSize: '11px', marginTop: '4px' }}>
+              Usage events will appear once AI inference and platform operations are metered
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

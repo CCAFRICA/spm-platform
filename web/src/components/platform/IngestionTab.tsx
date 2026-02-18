@@ -143,29 +143,29 @@ export function IngestionTab() {
 
       {/* Per-Tenant Breakdown */}
       {data.perTenant.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-zinc-400 mb-3">Per-Tenant Breakdown</h3>
-          <div className="rounded-lg border border-[#1E293B] overflow-hidden">
-            <table className="w-full text-sm">
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+          <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>Per-Tenant Breakdown</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ fontSize: '13px' }}>
               <thead>
-                <tr className="bg-[#0F172A] text-[10px] uppercase tracking-wider text-zinc-500">
-                  <th className="text-left px-4 py-2.5 font-medium">Tenant</th>
-                  <th className="text-right px-4 py-2.5 font-medium">Events</th>
-                  <th className="text-right px-4 py-2.5 font-medium">Committed</th>
-                  <th className="text-right px-4 py-2.5 font-medium">Quarantined</th>
-                  <th className="text-right px-4 py-2.5 font-medium">Rejected</th>
-                  <th className="text-right px-4 py-2.5 font-medium">Data Volume</th>
+                <tr style={{ borderBottom: '1px solid #27272a' }}>
+                  <th style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'left', padding: '0 16px 8px 0' }}>Tenant</th>
+                  <th style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'right', padding: '0 16px 8px 0' }}>Events</th>
+                  <th style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'right', padding: '0 16px 8px 0' }}>Committed</th>
+                  <th style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'right', padding: '0 16px 8px 0' }}>Quarantined</th>
+                  <th style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'right', padding: '0 16px 8px 0' }}>Rejected</th>
+                  <th style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'right', padding: '0 0 8px 0' }}>Volume</th>
                 </tr>
               </thead>
               <tbody>
                 {data.perTenant.map(t => (
-                  <tr key={t.tenantId} className="border-t border-[#1E293B] hover:bg-[#0F172A]/50">
-                    <td className="px-4 py-2.5 text-zinc-200 font-medium">{t.tenantName}</td>
-                    <td className="px-4 py-2.5 text-right text-zinc-400">{t.totalEvents}</td>
-                    <td className="px-4 py-2.5 text-right text-emerald-400">{t.committed}</td>
-                    <td className="px-4 py-2.5 text-right text-amber-400">{t.quarantined}</td>
-                    <td className="px-4 py-2.5 text-right text-red-400">{t.rejected}</td>
-                    <td className="px-4 py-2.5 text-right text-zinc-400">{formatBytes(t.bytesIngested)}</td>
+                  <tr key={t.tenantId} style={{ borderBottom: '1px solid rgba(39, 39, 42, 0.4)' }}>
+                    <td style={{ color: '#e4e4e7', fontWeight: 500, padding: '10px 16px 10px 0' }}>{t.tenantName}</td>
+                    <td style={{ color: '#a1a1aa', textAlign: 'right', padding: '10px 16px 10px 0', fontVariantNumeric: 'tabular-nums' }}>{t.totalEvents}</td>
+                    <td style={{ color: '#34d399', textAlign: 'right', padding: '10px 16px 10px 0', fontVariantNumeric: 'tabular-nums' }}>{t.committed}</td>
+                    <td style={{ color: '#fbbf24', textAlign: 'right', padding: '10px 16px 10px 0', fontVariantNumeric: 'tabular-nums' }}>{t.quarantined}</td>
+                    <td style={{ color: '#f87171', textAlign: 'right', padding: '10px 16px 10px 0', fontVariantNumeric: 'tabular-nums' }}>{t.rejected}</td>
+                    <td style={{ color: '#a1a1aa', textAlign: 'right', padding: '10px 0', fontVariantNumeric: 'tabular-nums' }}>{formatBytes(t.bytesIngested)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -176,38 +176,43 @@ export function IngestionTab() {
 
       {/* Recent Events Feed */}
       {data.recentEvents.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-zinc-400 mb-3">Recent Ingestion Events</h3>
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+          <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>Recent Ingestion Events</h3>
           <div className="space-y-1.5">
-            {data.recentEvents.map(e => (
-              <div
-                key={e.id}
-                className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-[#0F172A] border border-[#1E293B]"
-              >
-                {e.status === 'committed' && <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
-                {e.status === 'quarantined' && <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />}
-                {e.status === 'rejected' && <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />}
-                {!['committed', 'quarantined', 'rejected'].includes(e.status) && (
-                  <Upload className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-                )}
-                <span className="text-xs text-zinc-300 truncate flex-1">
-                  {e.fileName || 'Unknown file'}
-                </span>
-                <span className="text-[10px] text-zinc-500 shrink-0">{e.tenantName}</span>
-                <span className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0',
-                  e.status === 'committed' && 'bg-emerald-900/30 text-emerald-400',
-                  e.status === 'quarantined' && 'bg-amber-900/30 text-amber-400',
-                  e.status === 'rejected' && 'bg-red-900/30 text-red-400',
-                  !['committed', 'quarantined', 'rejected'].includes(e.status) && 'bg-zinc-800 text-zinc-400',
-                )}>
-                  {e.status}
-                </span>
-                <span className="text-[10px] text-zinc-600 shrink-0">
-                  {new Date(e.createdAt).toLocaleString()}
-                </span>
-              </div>
-            ))}
+            {data.recentEvents.map(e => {
+              const statusColor = e.status === 'committed' ? '#34d399'
+                : e.status === 'quarantined' ? '#fbbf24'
+                : e.status === 'rejected' ? '#f87171'
+                : '#71717a';
+              const statusBg = e.status === 'committed' ? 'rgba(16, 185, 129, 0.15)'
+                : e.status === 'quarantined' ? 'rgba(245, 158, 11, 0.15)'
+                : e.status === 'rejected' ? 'rgba(239, 68, 68, 0.15)'
+                : 'rgba(63, 63, 70, 0.3)';
+              return (
+                <div
+                  key={e.id}
+                  className="flex items-center gap-3"
+                  style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid rgba(39, 39, 42, 0.4)', background: 'rgba(24, 24, 27, 0.4)' }}
+                >
+                  {e.status === 'committed' && <CheckCircle className="h-3.5 w-3.5 shrink-0" style={{ color: '#34d399' }} />}
+                  {e.status === 'quarantined' && <AlertTriangle className="h-3.5 w-3.5 shrink-0" style={{ color: '#fbbf24' }} />}
+                  {e.status === 'rejected' && <XCircle className="h-3.5 w-3.5 shrink-0" style={{ color: '#f87171' }} />}
+                  {!['committed', 'quarantined', 'rejected'].includes(e.status) && (
+                    <Upload className="h-3.5 w-3.5 shrink-0" style={{ color: '#71717a' }} />
+                  )}
+                  <span style={{ color: '#d4d4d8', fontSize: '12px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.fileName || 'Unknown file'}
+                  </span>
+                  <span style={{ color: '#52525b', fontSize: '10px', flexShrink: 0 }}>{e.tenantName}</span>
+                  <span style={{ color: statusColor, background: statusBg, fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: 500, flexShrink: 0 }}>
+                    {e.status}
+                  </span>
+                  <span style={{ color: '#3f3f46', fontSize: '10px', flexShrink: 0 }}>
+                    {new Date(e.createdAt).toLocaleString()}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
