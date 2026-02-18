@@ -328,7 +328,7 @@ export function ObservatoryTab() {
                     {selectingTenant === tenant.id ? (
                       <Loader2 style={{ width: '16px', height: '16px', color: '#7B7FD4', animation: 'spin 1s linear infinite' }} />
                     ) : (
-                      <ChevronRight style={{ width: '16px', height: '16px', color: '#475569' }} />
+                      <ChevronRight style={{ width: '16px', height: '16px', color: '#94A3B8' }} />
                     )}
                   </div>
                 </div>
@@ -388,7 +388,7 @@ export function ObservatoryTab() {
               justifyContent: 'center',
               gap: '12px',
               background: 'rgba(15, 23, 42, 0.4)',
-              border: '1px dashed #334155',
+              border: '1px dashed #475569',
               borderRadius: '12px',
               padding: '32px',
               cursor: 'pointer',
@@ -396,7 +396,7 @@ export function ObservatoryTab() {
               transition: 'border-color 0.15s',
             }}
           >
-            <PlusCircle style={{ width: '32px', height: '32px', color: '#475569' }} />
+            <PlusCircle style={{ width: '32px', height: '32px', color: '#94A3B8' }} />
             <div style={{ textAlign: 'center' }}>
               <p style={{ color: '#94A3B8', fontSize: '14px', fontWeight: 600, margin: 0 }}>Create New Tenant</p>
               <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>Provision a new customer environment</p>
