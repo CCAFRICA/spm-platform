@@ -8,6 +8,8 @@
  */
 
 import { getAIService } from '@/lib/ai/ai-service';
+import { createClient } from '@/lib/supabase/client';
+import type { Json } from '@/lib/supabase/database.types';
 
 export interface ApprovalItem {
   itemId: string;
@@ -182,25 +184,85 @@ export async function generateRiskAssessment(
 }
 
 /**
- * List pending approval items for a tenant (returns empty, localStorage removed).
+ * List approval items for a tenant from Supabase calculation_batches.
+ * Reads PENDING_APPROVAL + recently APPROVED/REJECTED batches.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function listApprovalItems(_tenantId: string, _status?: string): ApprovalItem[] {
-  return [];
+export async function listApprovalItemsAsync(tenantId: string): Promise<ApprovalItem[]> {
+  const supabase = createClient();
+
+  const { data: batches } = await supabase
+    .from('calculation_batches')
+    .select('id, period_id, lifecycle_state, entity_count, summary, created_at')
+    .eq('tenant_id', tenantId)
+    .in('lifecycle_state', ['PENDING_APPROVAL', 'APPROVED', 'REJECTED'])
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (!batches || batches.length === 0) return [];
+
+  // Resolve period keys
+  const periodIds = Array.from(new Set(batches.map(b => b.period_id).filter(Boolean))) as string[];
+  const periodMap = new Map<string, string>();
+  if (periodIds.length > 0) {
+    const { data: periods } = await supabase
+      .from('periods')
+      .select('id, period_key')
+      .in('id', periodIds);
+    for (const p of (periods ?? [])) {
+      periodMap.set(p.id, p.period_key);
+    }
+  }
+
+  return batches.map(batch => {
+    const summary = (batch.summary ?? {}) as Record<string, Json | undefined>;
+    const status: ApprovalItem['status'] =
+      batch.lifecycle_state === 'PENDING_APPROVAL' ? 'pending' :
+      batch.lifecycle_state === 'APPROVED' ? 'approved' : 'rejected';
+
+    return {
+      itemId: batch.id,
+      tenantId,
+      type: 'calculation_approval' as const,
+      cycleId: batch.id,
+      period: periodMap.get(batch.period_id) ?? batch.period_id,
+      submittedBy: (summary.submittedBy as string) ?? 'Unknown',
+      submittedAt: (summary.submittedAt as string) ?? batch.created_at,
+      status,
+      summary: {
+        totalPayout: (summary.total_payout as number) ?? (summary.totalPayout as number) ?? 0,
+        entityCount: batch.entity_count ?? 0,
+        componentTotals: (summary.componentTotals as Record<string, number>) ?? {},
+      },
+      resolution: status !== 'pending' ? {
+        resolvedBy: (summary.approvedBy as string) ?? (summary.rejectedBy as string) ?? 'Unknown',
+        resolvedAt: (summary.approvedAt as string) ?? (summary.rejectedAt as string) ?? '',
+        action: status as 'approved' | 'rejected',
+        comments: (summary.approvalComments as string) ?? (summary.rejectionReason as string) ?? '',
+      } : undefined,
+    };
+  });
 }
 
 /**
- * Save an approval item (no-op, localStorage removed).
+ * Synchronous compatibility wrapper (returns empty, use listApprovalItemsAsync).
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function listApprovalItems(_tenantId: string): ApprovalItem[] {
+  return []; // Use listApprovalItemsAsync for Supabase data
+}
+
+/**
+ * Save is handled via lifecycle transitions — no separate persistence needed.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function saveApprovalItem(_item: ApprovalItem): void {
-  // No-op: localStorage removed
+  // Persistence handled by transitionBatchLifecycle in calculation-service
 }
 
 /**
  * Get a single approval item by ID.
  */
-export function getApprovalItem(tenantId: string, itemId: string): ApprovalItem | null {
-  const items = listApprovalItems(tenantId);
-  return items.find(i => i.itemId === itemId) || null;
+export async function getApprovalItemAsync(tenantId: string, batchId: string): Promise<ApprovalItem | null> {
+  const items = await listApprovalItemsAsync(tenantId);
+  return items.find(i => i.itemId === batchId) ?? null;
 }

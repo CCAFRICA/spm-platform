@@ -527,6 +527,9 @@ export async function loadAggregatedDataAsync(
 
 /**
  * Direct commit import data — creates import batch + committed data rows.
+ *
+ * OB-55: Now resolves entities (auto-creates if missing), detects/creates periods,
+ * and creates rule_set_assignments for entities with active rule sets.
  */
 export async function directCommitImportDataAsync(
   tenantId: string,
@@ -539,14 +542,131 @@ export async function directCommitImportDataAsync(
   }>,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _providedBatchId?: string
-): Promise<{ batchId: string; recordCount: number }> {
-  // Create batch and write committed data
+): Promise<{ batchId: string; recordCount: number; entityCount: number; periodId: string | null }> {
+  const supabase = createClient();
+
+  // Create batch
   const batch = await createImportBatch(tenantId, {
     fileName,
     fileType: fileName.split('.').pop() || 'xlsx',
     uploadedBy: userId,
   });
 
+  // ── Step 1: Collect unique external IDs across all sheets ──
+  const entityIdMap = new Map<string, string>(); // externalId → supabase uuid
+  const externalIdFieldNames = ['entityId', 'entity_id', 'employeeId', 'employee_id', 'external_id', 'externalId', 'repId', 'rep_id', 'id_empleado'];
+
+  for (const sheet of sheetData) {
+    if (!sheet.mappings) continue;
+    // Find columns mapped to entityId
+    const entityCols = Object.entries(sheet.mappings)
+      .filter(([, target]) => externalIdFieldNames.includes(target))
+      .map(([source]) => source);
+
+    for (const row of sheet.rows) {
+      for (const col of entityCols) {
+        const val = row[col];
+        if (val != null && String(val).trim()) {
+          entityIdMap.set(String(val).trim(), '');
+        }
+      }
+    }
+  }
+
+  // ── Step 2: Resolve entities (auto-create if missing) ──
+  for (const externalId of Array.from(entityIdMap.keys())) {
+    try {
+      const entity = await findOrCreateEntity(tenantId, externalId, {
+        display_name: externalId,
+        entity_type: 'individual',
+      });
+      entityIdMap.set(externalId, entity.id);
+    } catch (err) {
+      console.warn(`[DataService] Entity resolution failed for ${externalId}:`, err);
+    }
+  }
+  console.log(`[DataService] Resolved ${entityIdMap.size} entities (auto-created as needed)`);
+
+  // ── Step 3: Detect period from data ──
+  let resolvedPeriodId: string | null = null;
+  const periodFieldNames = ['period', 'period_key', 'periodKey', 'date', 'fecha', 'periodo'];
+
+  for (const sheet of sheetData) {
+    if (!sheet.mappings || resolvedPeriodId) break;
+    const periodCols = Object.entries(sheet.mappings)
+      .filter(([, target]) => periodFieldNames.includes(target))
+      .map(([source]) => source);
+
+    if (periodCols.length === 0) continue;
+    const firstRow = sheet.rows[0];
+    if (!firstRow) continue;
+
+    let detectedYear: number | null = null;
+    let detectedMonth: number | null = null;
+
+    for (const col of periodCols) {
+      const value = firstRow[col];
+      if (value == null) continue;
+      const numValue = typeof value === 'number' ? value : parseInt(String(value), 10);
+
+      // Excel serial date
+      if (typeof value === 'number' && value > 25000 && value < 100000) {
+        const d = new Date((value - 25569) * 86400 * 1000);
+        if (!isNaN(d.getTime())) {
+          detectedYear = d.getUTCFullYear();
+          detectedMonth = d.getUTCMonth() + 1;
+          break;
+        }
+      }
+      if (!isNaN(numValue)) {
+        if (numValue >= 2020 && numValue <= 2030) detectedYear = numValue;
+        else if (numValue >= 1 && numValue <= 12) detectedMonth = numValue;
+      }
+    }
+
+    if (detectedYear && detectedMonth) {
+      const periodKey = `${detectedYear}-${String(detectedMonth).padStart(2, '0')}`;
+      const startDate = `${detectedYear}-${String(detectedMonth).padStart(2, '0')}-01`;
+      const lastDay = new Date(detectedYear, detectedMonth, 0).getDate();
+      const endDate = `${detectedYear}-${String(detectedMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      // Check if period exists in Supabase
+      const { data: existing } = await supabase
+        .from('periods')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('period_key', periodKey)
+        .maybeSingle();
+
+      if (existing) {
+        resolvedPeriodId = existing.id;
+        console.log(`[DataService] Found existing period: ${periodKey} (${existing.id})`);
+      } else {
+        // Create period in Supabase
+        const { data: newPeriod, error: pErr } = await supabase
+          .from('periods')
+          .insert({
+            tenant_id: tenantId,
+            period_key: periodKey,
+            period_type: 'monthly',
+            start_date: startDate,
+            end_date: endDate,
+            status: 'open',
+          })
+          .select('id')
+          .single();
+
+        if (!pErr && newPeriod) {
+          resolvedPeriodId = newPeriod.id;
+          console.log(`[DataService] Created period: ${periodKey} (${newPeriod.id})`);
+        } else {
+          console.warn(`[DataService] Period creation failed:`, pErr);
+        }
+      }
+    }
+  }
+
+  // ── Step 4: Build committed rows with entity_id and period_id ──
   const committedRows: Array<{
     entityId: string | null;
     periodId: string | null;
@@ -556,10 +676,15 @@ export async function directCommitImportDataAsync(
   }> = [];
 
   for (const sheet of sheetData) {
+    // Find entity ID column for this sheet
+    const entityCol = sheet.mappings
+      ? Object.entries(sheet.mappings).find(([, target]) => externalIdFieldNames.includes(target))?.[0]
+      : null;
+
     for (let i = 0; i < sheet.rows.length; i++) {
       const row = sheet.rows[i];
 
-      // Apply field mappings if provided
+      // Apply field mappings
       let content = { ...row };
       if (sheet.mappings) {
         const mapped: Record<string, unknown> = {};
@@ -573,9 +698,15 @@ export async function directCommitImportDataAsync(
         content = mapped;
       }
 
+      // Resolve entity UUID from external ID
+      let entityId: string | null = null;
+      if (entityCol && row[entityCol] != null) {
+        entityId = entityIdMap.get(String(row[entityCol]).trim()) || null;
+      }
+
       committedRows.push({
-        entityId: null,
-        periodId: null,
+        entityId,
+        periodId: resolvedPeriodId,
         dataType: sheet.sheetName,
         rowData: { ...content, _sheetName: sheet.sheetName, _rowIndex: i },
         metadata: { source_sheet: sheet.sheetName },
@@ -585,8 +716,54 @@ export async function directCommitImportDataAsync(
 
   const { count } = await writeCommittedData(tenantId, batch.id, committedRows);
 
+  // ── Step 5: Create rule_set_assignments for resolved entities ──
+  try {
+    const { data: activeRuleSet } = await supabase
+      .from('rule_sets')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (activeRuleSet) {
+      const entityUuids = Array.from(new Set(
+        Array.from(entityIdMap.values()).filter(Boolean)
+      ));
+
+      // Check existing assignments
+      const { data: existingAssignments } = await supabase
+        .from('rule_set_assignments')
+        .select('entity_id')
+        .eq('tenant_id', tenantId)
+        .eq('rule_set_id', activeRuleSet.id)
+        .in('entity_id', entityUuids.length > 0 ? entityUuids : ['__none__']);
+
+      const assignedSet = new Set((existingAssignments ?? []).map(a => a.entity_id));
+      const newAssignments = entityUuids
+        .filter(id => !assignedSet.has(id))
+        .map(entityId => ({
+          tenant_id: tenantId,
+          entity_id: entityId,
+          rule_set_id: activeRuleSet.id,
+          effective_start: new Date().toISOString().split('T')[0],
+        }));
+
+      if (newAssignments.length > 0) {
+        const CHUNK = 500;
+        for (let i = 0; i < newAssignments.length; i += CHUNK) {
+          await supabase.from('rule_set_assignments').insert(newAssignments.slice(i, i + CHUNK));
+        }
+        console.log(`[DataService] Created ${newAssignments.length} rule_set_assignments`);
+      }
+    }
+  } catch (assignErr) {
+    console.warn('[DataService] Rule set assignment failed (non-blocking):', assignErr);
+  }
+
   // Update batch status
   await updateImportBatchStatus(tenantId, batch.id, 'completed');
 
-  return { batchId: batch.id, recordCount: count };
+  return { batchId: batch.id, recordCount: count, entityCount: entityIdMap.size, periodId: resolvedPeriodId };
 }

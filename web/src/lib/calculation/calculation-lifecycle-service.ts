@@ -76,11 +76,14 @@ const TRANSITION_CAPABILITIES: Record<string, string[]> = {
   'PREVIEW->RECONCILE': ['manage_rule_sets'],
   'RECONCILE->OFFICIAL': ['manage_rule_sets'],
   'RECONCILE->PREVIEW': ['manage_rule_sets'],
+  'OFFICIAL->PREVIEW': ['manage_rule_sets'],
   'OFFICIAL->PENDING_APPROVAL': ['manage_rule_sets'],
   'OFFICIAL->SUPERSEDED': ['manage_rule_sets'],
+  'PENDING_APPROVAL->OFFICIAL': ['manage_rule_sets'],
   'PENDING_APPROVAL->APPROVED': ['approve_outcomes'],
   'PENDING_APPROVAL->REJECTED': ['approve_outcomes'],
   'REJECTED->OFFICIAL': ['manage_rule_sets'],
+  'APPROVED->OFFICIAL': ['manage_rule_sets'],
   'APPROVED->POSTED': ['manage_rule_sets'],
   'POSTED->CLOSED': ['manage_rule_sets'],
   'CLOSED->PAID': ['manage_rule_sets'],
@@ -328,6 +331,21 @@ export async function performLifecycleTransition(
 
   const currentState = batch.lifecycle_state as CalculationState;
 
+  // Validate transition is allowed
+  if (!canTransition(currentState, targetState)) {
+    console.warn(`[LifecycleService] Invalid transition: ${currentState} -> ${targetState}`);
+    return null;
+  }
+
+  // Separation of duties: approver must be different from submitter
+  if (targetState === 'APPROVED') {
+    const summary = batch.summary as Record<string, unknown> | null;
+    const submitterId = summary?.submitted_by_id as string | undefined;
+    if (submitterId && submitterId === actor.profileId) {
+      throw new Error('Separation of duties: approver must be different from submitter');
+    }
+  }
+
   // Build summary updates based on transition
   const summaryUpdates: Record<string, unknown> = {
     ...(batch.summary as Record<string, unknown> || {}),
@@ -335,6 +353,7 @@ export async function performLifecycleTransition(
 
   if (targetState === 'PENDING_APPROVAL') {
     summaryUpdates.submittedBy = actor.name;
+    summaryUpdates.submitted_by_id = actor.profileId;
     summaryUpdates.submittedAt = new Date().toISOString();
   }
 
@@ -353,6 +372,7 @@ export async function performLifecycleTransition(
   if (targetState === 'PAID') {
     summaryUpdates.paymentReference = options?.paymentReference || '';
     summaryUpdates.paidAt = new Date().toISOString();
+    summaryUpdates.payment_date = new Date().toISOString();
     summaryUpdates.paidBy = actor.name;
   }
 
@@ -369,6 +389,17 @@ export async function performLifecycleTransition(
   if (targetState === 'CLOSED') {
     summaryUpdates.closedAt = new Date().toISOString();
     summaryUpdates.closedBy = actor.name;
+    // Side effect: update period status to 'closed'
+    try {
+      const supabase = createClient();
+      await supabase
+        .from('periods')
+        .update({ status: 'closed' })
+        .eq('id', batch.period_id)
+        .eq('tenant_id', tenantId);
+    } catch (err) {
+      console.warn('[LifecycleService] Failed to close period:', err);
+    }
   }
 
   // Handle supersession separately

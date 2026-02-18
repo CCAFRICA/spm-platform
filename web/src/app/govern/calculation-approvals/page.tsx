@@ -14,7 +14,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import {
-  listApprovalItems,
+  listApprovalItemsAsync,
   resolveApproval,
   type ApprovalItem,
 } from '@/lib/governance/approval-service';
@@ -45,7 +45,7 @@ export default function CalculationApprovalPage() {
 
   useEffect(() => {
     if (!tenantId) return;
-    setItems(listApprovalItems(tenantId));
+    listApprovalItemsAsync(tenantId).then(setItems).catch(() => setItems([]));
   }, [tenantId]);
 
   const pendingItems = items.filter(i => i.status === 'pending');
@@ -74,7 +74,8 @@ export default function CalculationApprovalPage() {
       } catch (lcErr) {
         setError(`Approval saved but lifecycle transition failed: ${lcErr instanceof Error ? lcErr.message : 'Unknown error'}`);
       }
-      setItems(listApprovalItems(tenantId));
+      const refreshed = await listApprovalItemsAsync(tenantId);
+      setItems(refreshed);
       setSelectedItem(null);
       setComments('');
     } catch (e) {

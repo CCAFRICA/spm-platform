@@ -42,7 +42,7 @@ export const VALID_TRANSITIONS: Record<DashboardLifecycleState, DashboardLifecyc
   DRAFT: ['PREVIEW'],
   PREVIEW: ['RECONCILE', 'DRAFT'],
   RECONCILE: ['OFFICIAL', 'PREVIEW'],
-  OFFICIAL: ['APPROVED', 'RECONCILE'],
+  OFFICIAL: ['APPROVED', 'PREVIEW'],
   APPROVED: ['POSTED', 'OFFICIAL'],
   POSTED: ['CLOSED'],
   CLOSED: ['PAID'],
