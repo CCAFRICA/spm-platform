@@ -3,78 +3,103 @@
 /**
  * Platform Observatory — VL Admin Command Center
  *
- * OB-47: Scope-based experience at /select-tenant.
- * Platform-scope users see the full Observatory with 5 tabs.
- * Own tab bar navigation (NOT ChromeSidebar).
+ * OB-60 Phase 5: Consolidated from 6 tabs to 3:
+ *   - Command Center: fleet health, operations queue, tenant cards
+ *   - Intelligence: AI metrics, classification accuracy, data quality
+ *   - Revenue: MRR breakdown, per-tenant billing, usage metering
+ *
+ * Infrastructure → merged into Command Center (issues show as queue items)
+ * Onboarding → merged into Command Center (progress shows on tenant cards)
+ * Ingestion → merged into Intelligence (data quality is part of AI story)
  */
 
 import { useState, Suspense, lazy } from 'react';
 import { useAuth } from '@/contexts/auth-context';
-import { cn } from '@/lib/utils';
 import {
   Activity,
   Sparkles,
   Receipt,
-  Server,
-  Rocket,
-  Upload,
   LogOut,
   Loader2,
 } from 'lucide-react';
 
-// Lazy-load tab components to reduce initial bundle (Observatory loads only active tab)
+// Lazy-load tab components
 const ObservatoryTab = lazy(() => import('./ObservatoryTab').then(m => ({ default: m.ObservatoryTab })));
 const AIIntelligenceTab = lazy(() => import('./AIIntelligenceTab').then(m => ({ default: m.AIIntelligenceTab })));
 const BillingUsageTab = lazy(() => import('./BillingUsageTab').then(m => ({ default: m.BillingUsageTab })));
-const InfrastructureTab = lazy(() => import('./InfrastructureTab').then(m => ({ default: m.InfrastructureTab })));
-const OnboardingTab = lazy(() => import('./OnboardingTab').then(m => ({ default: m.OnboardingTab })));
-const IngestionTab = lazy(() => import('./IngestionTab').then(m => ({ default: m.IngestionTab })));
 
-type TabId = 'observatory' | 'ai' | 'billing' | 'infrastructure' | 'onboarding' | 'ingestion';
+type TabId = 'command-center' | 'intelligence' | 'revenue';
 
-const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'observatory', label: 'Observatory', icon: Activity },
-  { id: 'ai', label: 'AI Intelligence', icon: Sparkles },
-  { id: 'billing', label: 'Billing & Usage', icon: Receipt },
-  { id: 'infrastructure', label: 'Infrastructure', icon: Server },
-  { id: 'onboarding', label: 'Onboarding', icon: Rocket },
-  { id: 'ingestion', label: 'Ingestion', icon: Upload },
+const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: React.CSSProperties }> }[] = [
+  { id: 'command-center', label: 'Command Center', icon: Activity },
+  { id: 'intelligence', label: 'Intelligence', icon: Sparkles },
+  { id: 'revenue', label: 'Revenue', icon: Receipt },
 ];
 
 export function PlatformObservatory() {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabId>('observatory');
+  const [activeTab, setActiveTab] = useState<TabId>('command-center');
 
   return (
-    <div className="min-h-screen bg-[#0A0E1A] text-white">
+    <div style={{ minHeight: '100vh', background: '#020617', color: '#E2E8F0', fontSize: '14px' }}>
       {/* Top bar */}
-      <header className="sticky top-0 z-50 border-b border-[#1E293B] bg-[#0A0E1A]/95 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center">
-              <span className="text-sm font-bold text-white">V</span>
+      <header style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
+        borderBottom: '1px solid #1E293B',
+        background: 'rgba(2, 6, 23, 0.95)',
+        backdropFilter: 'blur(8px)',
+      }}>
+        <div style={{
+          maxWidth: '1280px',
+          margin: '0 auto',
+          padding: '0 24px',
+          height: '56px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, #2D2F8F, #4845E4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: '#FFFFFF' }}>V</span>
             </div>
             <div>
-              <span className="text-sm font-bold text-white">Platform Observatory</span>
+              <span style={{ fontSize: '14px', fontWeight: 700, color: '#F8FAFC' }}>Platform Observatory</span>
               <span style={{ color: '#94A3B8', fontSize: '13px', marginLeft: '8px' }}>Vialuce</span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-zinc-400">{user?.email}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span style={{ color: '#94A3B8', fontSize: '14px' }}>{user?.email}</span>
             <button
               onClick={logout}
-              className="text-zinc-500 hover:text-zinc-300 transition-colors p-1.5 rounded-md hover:bg-white/5"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94A3B8',
+                cursor: 'pointer',
+                padding: '6px',
+                borderRadius: '6px',
+              }}
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut style={{ width: '16px', height: '16px' }} />
             </button>
           </div>
         </div>
       </header>
 
       {/* Tab navigation */}
-      <div className="border-b border-[#1E293B]">
-        <div className="max-w-7xl mx-auto px-6">
-          <nav className="flex gap-1 -mb-px">
+      <div style={{ borderBottom: '1px solid #1E293B' }}>
+        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 24px' }}>
+          <nav style={{ display: 'flex', gap: '4px' }}>
             {TABS.map(tab => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -82,14 +107,23 @@ export function PlatformObservatory() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={cn(
-                    'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
-                    isActive
-                      ? 'border-violet-500 text-white'
-                      : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
-                  )}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '12px 16px',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    border: 'none',
+                    background: 'none',
+                    cursor: 'pointer',
+                    borderBottom: `2px solid ${isActive ? '#E8A838' : 'transparent'}`,
+                    color: isActive ? '#F8FAFC' : '#94A3B8',
+                    transition: 'color 0.15s, border-color 0.15s',
+                    marginBottom: '-1px',
+                  }}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon style={{ width: '16px', height: '16px' }} />
                   {tab.label}
                 </button>
               );
@@ -99,14 +133,15 @@ export function PlatformObservatory() {
       </div>
 
       {/* Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-violet-500" /></div>}>
-          {activeTab === 'observatory' && <ObservatoryTab />}
-          {activeTab === 'ai' && <AIIntelligenceTab />}
-          {activeTab === 'billing' && <BillingUsageTab />}
-          {activeTab === 'infrastructure' && <InfrastructureTab />}
-          {activeTab === 'onboarding' && <OnboardingTab />}
-          {activeTab === 'ingestion' && <IngestionTab />}
+      <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '32px 24px' }}>
+        <Suspense fallback={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
+            <Loader2 style={{ width: '24px', height: '24px', color: '#7B7FD4', animation: 'spin 1s linear infinite' }} />
+          </div>
+        }>
+          {activeTab === 'command-center' && <ObservatoryTab />}
+          {activeTab === 'intelligence' && <AIIntelligenceTab />}
+          {activeTab === 'revenue' && <BillingUsageTab />}
         </Suspense>
       </main>
     </div>
