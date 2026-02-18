@@ -77,9 +77,10 @@ function AuthShellProtected({ children }: AuthShellProps) {
   useEffect(() => {
     if (isLoading || tenantLoading) return;
 
-    // Not authenticated → full page navigation to /login (always works)
+    // Not authenticated → full page navigation to /login (always works).
+    // Use replace() so unauthenticated visit doesn't pollute browser history.
     if (!isAuthenticated) {
-      window.location.href = `/login?redirect=${encodeURIComponent(pathname)}`;
+      window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
 

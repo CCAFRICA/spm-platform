@@ -88,8 +88,17 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Refresh session and get user — may trigger setAll (token refresh)
-  const { data: { user } } = await supabase.auth.getUser();
+  // Refresh session and get user — may trigger setAll (token refresh).
+  // CRITICAL: Wrap in try/catch. If Supabase is unreachable, the middleware
+  // must NOT crash (which would let the request pass through unguarded).
+  let user = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch (err) {
+    console.error('[Middleware] getUser() failed — treating as unauthenticated:', err);
+    // Fall through with user=null → will redirect to /landing or /login
+  }
 
   const pathname = request.nextUrl.pathname;
 
