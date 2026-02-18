@@ -70,6 +70,10 @@ export async function POST(request: NextRequest) {
     if (!tenantId) {
       return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
     }
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(tenantId)) {
+      return NextResponse.json({ error: `Invalid tenantId: expected UUID, received "${String(tenantId).substring(0, 50)}"` }, { status: 400 });
+    }
 
     const template = ROLE_TEMPLATES[roleTemplate] || ROLE_TEMPLATES.individual;
 

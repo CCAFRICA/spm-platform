@@ -48,6 +48,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // CLT-59: Validate tenantId is a UUID — prevents cryptic Postgres errors
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(planConfig.tenantId)) {
+      return NextResponse.json(
+        { error: `Invalid tenantId: expected UUID, received "${String(planConfig.tenantId).substring(0, 50)}"` },
+        { status: 400 }
+      );
+    }
+
     // 3. Service role client (bypasses RLS)
     const supabase = await createServiceRoleClient();
 

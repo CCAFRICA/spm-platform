@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { ReactFlowProvider } from '@xyflow/react';
 import { OrganizationalCanvas } from '@/components/canvas/OrganizationalCanvas';
 import { Button } from '@/components/ui/button';
 import { Network, Table2, Users } from 'lucide-react';
@@ -56,11 +57,13 @@ export default function PeopleConfigurePage() {
 
       {/* Content */}
       {viewMode === 'canvas' ? (
-        <OrganizationalCanvas
-          entityTypeFilter="individual"
-          initialZoom={0.8}
-          className="flex-1"
-        />
+        <ReactFlowProvider>
+          <OrganizationalCanvas
+            entityTypeFilter="individual"
+            initialZoom={0.8}
+            className="flex-1"
+          />
+        </ReactFlowProvider>
       ) : (
         <div className="flex-1 overflow-y-auto">
           {/* Inline the legacy table view for personnel */}
