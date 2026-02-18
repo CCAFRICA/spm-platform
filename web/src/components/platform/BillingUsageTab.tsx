@@ -309,7 +309,7 @@ export function BillingUsageTab() {
                   <span style={{ ...TEXT.secondary, fontSize: '13px' }} className="truncate">{m.metricName.replace(/_/g, ' ')}</span>
                 </div>
                 <p style={{ ...TEXT.body, fontSize: '18px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{m.eventCount}</p>
-                <span style={{ color: '#64748B', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{m.periodKey}</span>
+                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{m.periodKey}</span>
               </div>
             ))}
           </div>

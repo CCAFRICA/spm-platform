@@ -111,7 +111,7 @@ export function InfrastructureTab() {
             <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '2px' }}>
               total rows ({data.committedDataCount.toLocaleString()} data + {data.totalOutcomes.toLocaleString()} outcomes)
             </p>
-            <p style={{ color: '#64748B', fontSize: '13px', marginTop: '4px' }}>
+            <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
               {data.tenantCount} tenant{data.tenantCount !== 1 ? 's' : ''} connected
             </p>
           </div>
@@ -135,11 +135,11 @@ export function InfrastructureTab() {
               Edge deployment healthy
             </p>
             {data.lastDeployTimestamp ? (
-              <p style={{ color: '#64748B', fontSize: '13px', marginTop: '4px' }}>
+              <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
                 Last activity: {new Date(data.lastDeployTimestamp).toLocaleDateString()}
               </p>
             ) : (
-              <p style={{ color: '#64748B', fontSize: '13px', marginTop: '4px' }}>
+              <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
                 Serving {data.tenantCount} tenant{data.tenantCount !== 1 ? 's' : ''}
               </p>
             )}
@@ -171,7 +171,7 @@ export function InfrastructureTab() {
                 <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '2px' }}>
                   API calls this period
                 </p>
-                <p style={{ color: '#64748B', fontSize: '13px', marginTop: '4px' }}>
+                <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
                   {aiErrorRate}% error rate
                 </p>
               </>
@@ -267,7 +267,7 @@ export function InfrastructureTab() {
             </tfoot>
           </table>
         </div>
-        <p style={{ color: '#64748B', fontSize: '13px', marginTop: '12px' }}>
+        <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '12px' }}>
           Estimates based on current usage patterns. Actual costs may vary.
         </p>
       </div>

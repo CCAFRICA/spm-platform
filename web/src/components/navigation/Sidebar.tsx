@@ -318,7 +318,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             <span className="text-lg font-bold text-slate-50">
               {currentTenant?.displayName || "Vialuce"}
             </span>
-            <span className="text-[10px] text-slate-500 -mt-1">
+            <span className="-mt-1" style={{ color: '#94A3B8', fontSize: '13px' }}>
               {currentTenant?.industry || "Sales Performance"}
             </span>
           </div>
@@ -353,12 +353,14 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                       <button
                         onClick={() => toggleExpand(item.name)}
                         className={cn(
-                          "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
-                          showAsActive
-                            ? "text-slate-50"
-                            : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-50"
+                          "flex w-full items-center justify-between rounded-lg px-3 py-2.5 font-medium transition-all",
+                          !showAsActive && "hover:bg-slate-800/50"
                         )}
-                        style={showAsActive ? { backgroundColor: accentLight } : undefined}
+                        style={{
+                          color: showAsActive ? '#F8FAFC' : '#CBD5E1',
+                          fontSize: '14px',
+                          ...(showAsActive ? { backgroundColor: accentLight } : {}),
+                        }}
                       >
                         <div className="flex items-center gap-3">
                           <item.icon
@@ -368,9 +370,9 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                           {item.name}
                         </div>
                         {isExpanded ? (
-                          <ChevronDown className="h-4 w-4 text-slate-400" />
+                          <ChevronDown className="h-4 w-4" style={{ color: '#94A3B8' }} />
                         ) : (
-                          <ChevronRight className="h-4 w-4 text-slate-400" />
+                          <ChevronRight className="h-4 w-4" style={{ color: '#94A3B8' }} />
                         )}
                       </button>
                       {isExpanded && (
@@ -383,16 +385,16 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                               key={child.href}
                               href={child.href}
                               className={cn(
-                                "block rounded-md px-3 py-2 text-sm transition-all",
-                                pathname === child.href
-                                  ? "font-medium"
-                                  : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-300"
+                                "block rounded-md px-3 py-2 transition-all",
+                                pathname !== child.href && "hover:bg-slate-800/50"
                               )}
-                              style={
-                                pathname === child.href
+                              style={{
+                                fontSize: '13px',
+                                fontWeight: pathname === child.href ? 500 : 400,
+                                ...(pathname === child.href
                                   ? { backgroundColor: accentLight, color: moduleToken?.accentDark || accentColor }
-                                  : undefined
-                              }
+                                  : { color: '#CBD5E1' }),
+                              }}
                             >
                               {child.name}
                             </Link>
@@ -404,16 +406,18 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     <Link
                       href={item.href}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
-                        isItemActive
-                          ? "text-slate-50"
-                          : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-50"
+                        "flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium transition-all",
+                        !isItemActive && "hover:bg-slate-800/50"
                       )}
-                      style={isItemActive ? { backgroundColor: accentLight } : undefined}
+                      style={{
+                        fontSize: '14px',
+                        color: isItemActive ? '#F8FAFC' : '#CBD5E1',
+                        ...(isItemActive ? { backgroundColor: accentLight } : {}),
+                      }}
                     >
                       <item.icon
                         className="h-5 w-5 transition-colors"
-                        style={{ color: isItemActive ? accentColor : undefined }}
+                        style={{ color: isItemActive ? accentColor : '#94A3B8' }}
                       />
                       {item.name}
                     </Link>
@@ -430,23 +434,23 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         <div className="p-4">
           <div className="rounded-lg bg-gradient-to-br from-navy-50 to-sky-50 p-4 dark:from-navy-900/30 dark:to-sky-900/30">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+              <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500 }}>
                 {isSpanish ? "Período Actual" : "Current Period"}
               </p>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">
+              <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium" style={{ fontSize: '13px' }}>
                 {isSpanish ? "Activo" : "Active"}
               </span>
             </div>
             <p className="text-sm font-semibold text-slate-50">
               {currentPeriod.name}
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-500">
+            <p style={{ color: '#94A3B8', fontSize: '13px' }}>
               {currentPeriod.dateRange}
             </p>
             <div className="mt-3">
               <div className="flex items-center justify-between text-xs mb-1">
-                <span className="text-slate-500">{isSpanish ? "Progreso" : "Progress"}</span>
-                <span className="font-medium text-slate-700 dark:text-slate-300">{currentPeriod.progress}%</span>
+                <span style={{ color: '#94A3B8', fontSize: '13px' }}>{isSpanish ? "Progreso" : "Progress"}</span>
+                <span style={{ color: '#CBD5E1', fontSize: '13px', fontWeight: 500 }}>{currentPeriod.progress}%</span>
               </div>
               <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden dark:bg-slate-700">
                 <div

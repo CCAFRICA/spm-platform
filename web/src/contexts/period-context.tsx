@@ -9,7 +9,6 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { useTenant } from './tenant-context';
-import { createClient } from '@/lib/supabase/client';
 import type { PeriodInfo } from '@/components/design-system/PeriodRibbon';
 
 interface PeriodContextValue {
@@ -24,30 +23,22 @@ interface PeriodContextValue {
 const PeriodContext = createContext<PeriodContextValue | undefined>(undefined);
 
 async function loadPeriods(tenantId: string): Promise<PeriodInfo[]> {
-  const supabase = createClient();
+  // Use API route (service role bypasses RLS) — OB-58 fix
+  const res = await fetch(`/api/periods?tenant_id=${encodeURIComponent(tenantId)}`);
+  if (!res.ok) {
+    console.warn('[PeriodContext] API returned', res.status);
+    return [];
+  }
+  const { periods, batches } = await res.json() as {
+    periods: Array<{ id: string; period_key: string; period_type: string; start_date: string; end_date: string; status: string }>;
+    batches: Array<{ period_id: string; lifecycle_state: string; created_at: string }>;
+  };
 
-  // Fetch periods and latest batches in parallel (2 queries instead of N+1)
-  const [periodsRes, batchesRes] = await Promise.all([
-    supabase
-      .from('periods')
-      .select('id, period_key, period_type, start_date, end_date, status')
-      .eq('tenant_id', tenantId)
-      .order('start_date', { ascending: false }),
-    supabase
-      .from('calculation_batches')
-      .select('period_id, lifecycle_state, created_at')
-      .eq('tenant_id', tenantId)
-      .is('superseded_by', null)
-      .order('created_at', { ascending: false })
-      .limit(1000),
-  ]);
-
-  const periods = periodsRes.data;
   if (!periods || periods.length === 0) return [];
 
   // Build map of latest batch lifecycle per period
   const latestBatchByPeriod = new Map<string, string>();
-  for (const b of (batchesRes.data ?? [])) {
+  for (const b of (batches ?? [])) {
     if (!latestBatchByPeriod.has(b.period_id)) {
       latestBatchByPeriod.set(b.period_id, b.lifecycle_state);
     }

@@ -255,15 +255,15 @@ export function OnboardingTab() {
                   <div>
                     <p style={{ ...TEXT.body, fontWeight: 600 }} className="truncate">{tenant.name}</p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span style={{ ...TEXT.secondary, fontSize: '12px' }}>{tenant.userCount} users</span>
-                      <span style={{ color: '#64748B', fontSize: '12px' }}>{tenant.dataCount} rows</span>
+                      <span style={{ ...TEXT.secondary, fontSize: '13px' }}>{tenant.userCount} users</span>
+                      <span style={{ color: '#94A3B8', fontSize: '13px' }}>{tenant.dataCount} rows</span>
                       {tenant.latestLifecycleState && (
                         <span className={cn(
                           'px-1.5 py-0.5 rounded-full border',
                           tenant.latestLifecycleState === 'POSTED' || tenant.latestLifecycleState === 'PAID'
                             ? 'border-emerald-500/40 text-emerald-400'
                             : 'border-zinc-700 text-zinc-400'
-                        )} style={{ fontSize: '12px' }}>
+                        )} style={{ fontSize: '13px' }}>
                           {tenant.latestLifecycleState}
                         </span>
                       )}
@@ -337,7 +337,7 @@ export function OnboardingTab() {
 
                     <div className="grid grid-cols-[1fr_1fr_140px_auto] gap-2 items-end">
                       <div>
-                        <label style={{ ...TEXT.label, fontSize: '12px', display: 'block', marginBottom: '4px' }}>Email</label>
+                        <label style={{ ...TEXT.label, fontSize: '13px', display: 'block', marginBottom: '4px' }}>Email</label>
                         <input
                           type="email"
                           value={inviteForm.email}
@@ -348,7 +348,7 @@ export function OnboardingTab() {
                         />
                       </div>
                       <div>
-                        <label style={{ ...TEXT.label, fontSize: '12px', display: 'block', marginBottom: '4px' }}>Name</label>
+                        <label style={{ ...TEXT.label, fontSize: '13px', display: 'block', marginBottom: '4px' }}>Name</label>
                         <input
                           type="text"
                           value={inviteForm.displayName}
@@ -359,7 +359,7 @@ export function OnboardingTab() {
                         />
                       </div>
                       <div>
-                        <label style={{ ...TEXT.label, fontSize: '12px', display: 'block', marginBottom: '4px' }}>Role</label>
+                        <label style={{ ...TEXT.label, fontSize: '13px', display: 'block', marginBottom: '4px' }}>Role</label>
                         <select
                           value={inviteForm.role}
                           onChange={(e) => setInviteForm(f => ({ ...f, role: e.target.value }))}
@@ -549,7 +549,7 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
             >
               {i < stepIndex ? <Check className="h-4 w-4" /> : i + 1}
             </div>
-            <span style={{ ...TEXT.secondary, color: i === stepIndex ? '#E2E8F0' : '#64748B', fontSize: '13px' }}>{s.label}</span>
+            <span style={{ ...TEXT.secondary, color: i === stepIndex ? '#E2E8F0' : '#94A3B8', fontSize: '13px' }}>{s.label}</span>
             {i < WIZARD_STEPS.length - 1 && <div style={{ width: '24px', height: '2px', background: i < stepIndex ? '#34d399' : '#27272a' }} />}
           </div>
         ))}
@@ -679,7 +679,7 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
                   </div>
                   <div className="text-right">
                     <span style={{ color: '#a5b4fc', fontSize: '14px', fontWeight: 600 }}>{TIER_LABELS[opt.tier]}</span>
-                    <span style={{ ...TEXT.secondary, display: 'block', fontSize: '12px' }}>${PLATFORM_FEES[opt.tier].toLocaleString()}/mo platform</span>
+                    <span style={{ ...TEXT.secondary, display: 'block', fontSize: '13px' }}>${PLATFORM_FEES[opt.tier].toLocaleString()}/mo platform</span>
                   </div>
                 </button>
               ))}
@@ -816,7 +816,7 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
                       <div>
                         <p style={{ ...TEXT.body, fontWeight: 600 }}>{info.name}</p>
                         <p style={TEXT.secondary}>{info.description}</p>
-                        {restricted && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '4px' }}>Requires {TIER_LABELS[info.restriction as TenantTier]}+ tier</p>}
+                        {restricted && <p style={{ color: '#f87171', fontSize: '13px', marginTop: '4px' }}>Requires {TIER_LABELS[info.restriction as TenantTier]}+ tier</p>}
                       </div>
                     </div>
                     <span style={{ color: info.rate === 0 ? '#34d399' : '#a5b4fc', fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -1102,7 +1102,7 @@ function PostCreationScreen({ tenantName, tenantId, onDone }: { tenantName: stri
                     <div key={i} className="flex items-center gap-2">
                       <CheckCircle className="h-4 w-4" style={{ color: '#34d399' }} />
                       <span style={TEXT.body}>{u.email}</span>
-                      <span style={{ ...TEXT.secondary, fontSize: '12px' }}>({u.role})</span>
+                      <span style={{ ...TEXT.secondary, fontSize: '13px' }}>({u.role})</span>
                     </div>
                   ))}
                 </div>

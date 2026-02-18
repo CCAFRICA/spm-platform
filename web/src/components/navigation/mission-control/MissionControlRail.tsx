@@ -13,6 +13,7 @@ import { useNavigation, useCommandPalette } from '@/contexts/navigation-context'
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import { CycleIndicator } from './CycleIndicator';
 import { QueuePanel } from './QueuePanel';
 import { PulseMetrics } from './PulseMetrics';
@@ -35,16 +36,17 @@ interface MissionControlRailProps {
 
 export function MissionControlRail({ isOpen = true, onClose }: MissionControlRailProps) {
   const router = useRouter();
-  const { isRailCollapsed, toggleRailCollapsed, userRole } = useNavigation();
+  const { isRailCollapsed, toggleRailCollapsed } = useNavigation();
   const { setOpen: setCommandPaletteOpen } = useCommandPalette();
   const { currentTenant } = useTenant();
   const { isVLAdmin: isUserVLAdmin } = useAuth();
   const { locale } = useLocale();
+  const { persona } = usePersona();
 
   const isSpanish = locale === 'es-MX';
 
-  // Check if user is admin/vl_admin to show cycle
-  const showCycle = userRole === 'vl_admin' || userRole === 'admin';
+  // Respect persona override for cycle visibility (admin-only feature)
+  const showCycle = persona === 'admin';
 
   return (
     <>
@@ -82,7 +84,7 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
               <span className="text-lg font-bold text-slate-50 truncate">
                 Vialuce
               </span>
-              <span className="text-[10px] text-slate-500 truncate -mt-0.5 flex items-center gap-1">
+              <span className="truncate -mt-0.5 flex items-center gap-1" style={{ color: '#94A3B8', fontSize: '13px' }}>
                 {currentTenant?.displayName || 'Platform'}
                 {isUserVLAdmin && <ArrowLeftRight className="h-2.5 w-2.5 text-slate-400" />}
               </span>

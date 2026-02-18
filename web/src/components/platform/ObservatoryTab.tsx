@@ -153,7 +153,7 @@ export function ObservatoryTab() {
                       <span style={{ color: '#94A3B8', fontSize: '13px' }}>{tenant.industry}</span>
                     )}
                     {tenant.country && (
-                      <span style={{ color: '#64748B', fontSize: '13px' }}>{tenant.country}</span>
+                      <span style={{ color: '#94A3B8', fontSize: '13px' }}>{tenant.country}</span>
                     )}
                   </div>
                 </div>
@@ -197,7 +197,7 @@ export function ObservatoryTab() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-1 mt-3" style={{ color: '#64748B', fontSize: '13px' }}>
+              <div className="flex items-center gap-1 mt-3" style={{ color: '#94A3B8', fontSize: '13px' }}>
                 Last activity: {new Date(tenant.lastActivity).toLocaleDateString()}
               </div>
             </button>
@@ -212,7 +212,7 @@ export function ObservatoryTab() {
             <PlusCircle className="h-8 w-8 text-zinc-600 group-hover:text-violet-400 transition-colors" />
             <div className="text-center">
               <p style={{ color: '#94A3B8', fontSize: '14px', fontWeight: 500 }} className="group-hover:text-violet-300 transition-colors">Create New Tenant</p>
-              <p style={{ color: '#64748B', fontSize: '13px', marginTop: '4px' }}>Provision a new customer environment</p>
+              <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>Provision a new customer environment</p>
             </div>
           </button>
         </div>

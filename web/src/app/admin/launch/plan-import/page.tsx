@@ -6,8 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
-import { saveRuleSet, activateRuleSet } from '@/lib/supabase/rule-set-service';
-import { createClient } from '@/lib/supabase/client';
+// Plan import uses /api/plan/import route (service role) instead of browser client
 import { parseFile } from '@/lib/import-pipeline/file-parser';
 import {
   interpretPlanDocument,
@@ -673,40 +672,21 @@ export default function PlanImportPage() {
         };
       }
 
-      // Save the plan (as draft first) via Supabase
-      console.log('[handleImport] Saving plan:', planConfig.id, planConfig.name);
-      await saveRuleSet(currentTenant.id, planConfig);
-      console.log('[handleImport] Plan saved to Supabase');
+      // Save and activate via server API route (service role bypasses RLS)
+      console.log('[handleImport] Saving plan via API:', planConfig.id, planConfig.name);
+      const response = await fetch('/api/plan/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planConfig, activate: true }),
+      });
 
-      // Activate the plan immediately so calculation engine can use it
-      const activatedPlan = await activateRuleSet(currentTenant.id, planConfig.id);
-      if (!activatedPlan) {
-        console.warn('[handleImport] Failed to activate plan, but plan was saved as draft');
-      } else {
-        console.log('[handleImport] Plan activated successfully:', activatedPlan.id);
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || `Plan import failed: ${response.status}`);
       }
 
-      // Write metering event for plan_import (non-blocking)
-      try {
-        const supabase = createClient();
-        const now = new Date();
-        const periodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        await supabase.from('usage_metering').insert({
-          tenant_id: currentTenant.id,
-          metric_name: 'plan_import',
-          metric_value: 1,
-          period_key: periodKey,
-          metadata: {
-            rule_set_id: planConfig.id,
-            rule_set_name: planConfig.name,
-            component_count: parsedPlan.components.length,
-            source_format: parsedPlan.detectedFormat || 'unknown',
-          },
-        });
-        console.log('[handleImport] Metering event written: plan_import');
-      } catch (meterErr) {
-        console.warn('[handleImport] Metering failed (non-blocking):', meterErr);
-      }
+      const { ruleSet } = await response.json();
+      console.log('[handleImport] Plan saved and activated via API:', ruleSet.id);
 
       setImportResult({ success: true, ruleSetId: planConfig.id });
       console.log('[handleImport] SUCCESS - Import complete');
@@ -748,6 +728,19 @@ export default function PlanImportPage() {
     );
   }
 
+  // Determine current subway step
+  const currentStep = importResult?.success
+    ? 'confirm'
+    : parsedPlan
+      ? 'review'
+      : 'upload';
+
+  const STEPS = [
+    { key: 'upload', label: locale === 'es-MX' ? 'Subir Documento' : 'Upload Plan Document' },
+    { key: 'review', label: locale === 'es-MX' ? 'Revisar Interpretacion' : 'Review AI Interpretation' },
+    { key: 'confirm', label: locale === 'es-MX' ? 'Confirmar y Guardar' : 'Confirm & Save' },
+  ];
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -761,6 +754,35 @@ export default function PlanImportPage() {
           </h1>
           <p className="text-slate-600 dark:text-slate-400">{t.subtitle}</p>
         </div>
+      </div>
+
+      {/* Subway Progress Indicator — OB-58 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0' }}>
+        {STEPS.map((step, i) => {
+          const isCurrent = step.key === currentStep;
+          const stepIndex = STEPS.findIndex(s => s.key === currentStep);
+          const isPast = stepIndex > i;
+          return (
+            <div key={step.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: i < STEPS.length - 1 ? 1 : undefined }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                <div style={{
+                  width: '28px', height: '28px', borderRadius: '50%',
+                  background: isPast ? '#10B981' : isCurrent ? '#6366F1' : '#1E293B',
+                  color: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '13px', fontWeight: 600,
+                }}>
+                  {isPast ? '\u2713' : i + 1}
+                </div>
+                <span style={{ fontSize: '14px', color: isCurrent ? '#E2E8F0' : isPast ? '#10B981' : '#94A3B8', fontWeight: isCurrent ? 500 : 400 }}>
+                  {step.label}
+                </span>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div style={{ flex: 1, height: '2px', background: isPast ? '#10B981' : '#1E293B', marginLeft: '8px' }} />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Import Success */}

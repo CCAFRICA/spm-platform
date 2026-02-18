@@ -56,7 +56,7 @@ export function PlatformObservatory() {
             </div>
             <div>
               <span className="text-sm font-bold text-white">Platform Observatory</span>
-              <span style={{ color: '#64748B', fontSize: '13px', marginLeft: '8px' }}>Vialuce</span>
+              <span style={{ color: '#94A3B8', fontSize: '13px', marginLeft: '8px' }}>Vialuce</span>
             </div>
           </div>
           <div className="flex items-center gap-4">

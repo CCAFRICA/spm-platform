@@ -18,12 +18,15 @@ import {
   formatLocalizedPercent,
 } from '@/lib/i18n';
 import { audit } from '@/lib/audit-service';
+import { createClient } from '@/lib/supabase/client';
 
-// Get tenant locale (no localStorage)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function getTenantLocale(): Locale | null {
-  return null;
-}
+/** Map profiles.locale column value to Locale code */
+const LANG_TO_LOCALE: Record<string, Locale> = {
+  es: 'es-MX',
+  en: 'en-US',
+  'es-MX': 'es-MX',
+  'en-US': 'en-US',
+};
 
 interface LocaleContextType {
   locale: Locale;
@@ -76,26 +79,29 @@ export function LocaleProvider({
     loadAllTranslations();
   }, [locale]);
 
-  // Initialize with default locale (no localStorage)
+  // Initialize from profile language stored in Supabase (OB-58)
   useEffect(() => {
-    // Fall back to tenant locale if available
-    const tenantLocale = getTenantLocale();
-    if (tenantLocale) {
-      setLocaleState(tenantLocale);
-    }
-  }, []);
+    async function loadProfileLanguage() {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
-  // Listen for tenant changes
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const tenantLocale = getTenantLocale();
-      if (tenantLocale) {
-        setLocaleState(tenantLocale);
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('locale')
+          .eq('auth_user_id', user.id)
+          .limit(1)
+          .maybeSingle();
+
+        if (profile?.locale && LANG_TO_LOCALE[profile.locale]) {
+          setLocaleState(LANG_TO_LOCALE[profile.locale]);
+        }
+      } catch {
+        // Non-blocking — use default locale
       }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    }
+    loadProfileLanguage();
   }, []);
 
   const setLocale = useCallback((newLocale: Locale) => {

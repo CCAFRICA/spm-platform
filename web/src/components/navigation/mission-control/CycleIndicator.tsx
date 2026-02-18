@@ -147,7 +147,7 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
   return (
     <div className="px-3 py-4">
       <div className="mb-3">
-        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+        <h3 style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {isSpanish ? 'El Ciclo' : 'The Cycle'}
         </h3>
       </div>
@@ -209,15 +209,15 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
       </div>
 
       {/* Period and Next Action */}
-      <div className="text-xs">
-        <p className="font-medium text-zinc-300">{cycleState.periodLabel}</p>
+      <div>
+        <p style={{ color: '#CBD5E1', fontSize: '13px', fontWeight: 500 }}>{cycleState.periodLabel}</p>
         {nextAction ? (
-          <p className="text-blue-400 font-medium flex items-center gap-1 mt-0.5">
+          <p className="flex items-center gap-1" style={{ color: '#60A5FA', fontSize: '13px', fontWeight: 500, marginTop: '2px' }}>
             <ChevronRight className="h-3 w-3" />
             {nextAction}
           </p>
         ) : (
-          <p className="text-zinc-500">
+          <p style={{ color: '#94A3B8', fontSize: '13px' }}>
             {isSpanish
               ? cycleState.phaseStatuses[cycleState.currentPhase].detailEs
               : cycleState.phaseStatuses[cycleState.currentPhase].detail}
@@ -227,9 +227,9 @@ export function CycleIndicator({ collapsed = false }: CycleIndicatorProps) {
 
       {/* Progress Bar */}
       <div className="mt-3">
-        <div className="flex items-center justify-between text-xs mb-1">
-          <span className="text-zinc-500">{isSpanish ? 'Progreso' : 'Progress'}</span>
-          <span className="font-medium text-zinc-300">{cycleState.completionPercentage}%</span>
+        <div className="flex items-center justify-between mb-1">
+          <span style={{ color: '#94A3B8', fontSize: '13px' }}>{isSpanish ? 'Progreso' : 'Progress'}</span>
+          <span style={{ color: '#CBD5E1', fontSize: '13px', fontWeight: 500 }}>{cycleState.completionPercentage}%</span>
         </div>
         <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
           <div
@@ -295,7 +295,7 @@ function PeriodTimeline({ periods, isSpanish }: PeriodTimelineProps) {
 
   return (
     <div className="mt-3 pt-3 border-t border-zinc-800">
-      <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+      <h4 style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
         {isSpanish ? 'Periodos' : 'Periods'}
       </h4>
       <div className="space-y-1.5">
@@ -305,20 +305,18 @@ function PeriodTimeline({ periods, isSpanish }: PeriodTimelineProps) {
             <div
               key={period.period}
               className={cn(
-                'flex items-center justify-between text-[11px] px-2 py-1 rounded',
+                'flex items-center justify-between px-2 py-1 rounded',
                 period.isActive ? 'bg-zinc-800/50' : ''
               )}
+              style={{ fontSize: '13px' }}
             >
-              <span className={cn(
-                'font-medium',
-                period.isActive ? 'text-zinc-200' : 'text-zinc-500'
-              )}>
+              <span style={{ fontWeight: 500, color: period.isActive ? '#E2E8F0' : '#94A3B8' }}>
                 {period.periodLabel}
               </span>
               <span className={cn(
-                'px-1.5 py-0.5 rounded text-[10px] font-medium',
+                'px-1.5 py-0.5 rounded font-medium',
                 getLifecycleColor(period.lifecycleState)
-              )}>
+              )} style={{ fontSize: '11px' }}>
                 {stateLabel
                   ? (isSpanish ? stateLabel.es : stateLabel.en)
                   : period.lifecycleState}
