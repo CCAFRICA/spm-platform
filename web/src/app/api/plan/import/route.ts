@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import type { RuleSetStatus, Json } from '@/lib/supabase/database.types';
+import { emitEvent } from '@/lib/events/emitter';
 
 export async function POST(request: NextRequest) {
   try {
@@ -137,6 +138,14 @@ export async function POST(request: NextRequest) {
     } catch (meterErr) {
       console.error('[POST /api/plan/import] Metering failed (non-blocking):', meterErr);
     }
+
+    // Emit plan.imported event (fire-and-forget)
+    emitEvent({
+      tenant_id: planConfig.tenantId,
+      event_type: 'plan.imported',
+      actor_id: user.id,
+      payload: { rule_set_id: planConfig.id, rule_set_name: planConfig.name },
+    }).catch(() => {});
 
     return NextResponse.json({
       ruleSet: { id: planConfig.id, name: planConfig.name, status: activate ? 'active' : (planConfig.status || 'draft') },

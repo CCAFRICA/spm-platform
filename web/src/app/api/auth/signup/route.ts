@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { emitEvent } from '@/lib/events/emitter';
 
 export async function POST(request: NextRequest) {
   try {
@@ -165,6 +166,13 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[POST /api/auth/signup] Signup complete: ${email} → ${tenant.name} (${tenant.slug})`);
+
+    // Emit user.signed_up event (fire-and-forget)
+    emitEvent({
+      tenant_id: tenant.id,
+      event_type: 'user.signed_up',
+      payload: { email, org_name: tenant.name },
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,
