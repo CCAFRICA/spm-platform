@@ -30,15 +30,29 @@ const VALID_TRANSITIONS: Record<CalculationState, CalculationState[]> = {
   DRAFT: ['PREVIEW'],
   PREVIEW: ['DRAFT', 'RECONCILE', 'OFFICIAL'],
   RECONCILE: ['PREVIEW', 'OFFICIAL'],
-  OFFICIAL: ['PENDING_APPROVAL', 'SUPERSEDED'],
-  PENDING_APPROVAL: ['APPROVED', 'REJECTED'],
-  APPROVED: ['POSTED'],
+  OFFICIAL: ['PREVIEW', 'PENDING_APPROVAL', 'SUPERSEDED'],
+  PENDING_APPROVAL: ['OFFICIAL', 'APPROVED', 'REJECTED'],
+  APPROVED: ['OFFICIAL', 'POSTED'],
   REJECTED: ['OFFICIAL'],
   SUPERSEDED: [],  // Terminal: old batch superseded by new one
   POSTED: ['CLOSED'],
   CLOSED: ['PAID'],
   PAID: ['PUBLISHED'],
   PUBLISHED: [],
+};
+
+/** Required capability for transitioning TO each state */
+export const TRANSITION_CAPABILITIES: Record<string, string> = {
+  PREVIEW:            'run_calculation',
+  RECONCILE:          'run_calculation',
+  OFFICIAL:           'run_calculation',
+  PENDING_APPROVAL:   'run_calculation',      // submitter
+  APPROVED:           'approve_results',      // must be DIFFERENT user from submitter
+  REJECTED:           'approve_results',
+  POSTED:             'approve_results',
+  CLOSED:             'close_period',
+  PAID:               'confirm_payroll',
+  PUBLISHED:          'close_period',
 };
 
 type UserRole = 'vl_admin' | 'platform_admin' | 'manager' | 'sales_rep' | 'approver' | 'admin';
