@@ -5,6 +5,15 @@ import type { AIIntelligenceData } from '@/lib/data/platform-queries';
 import { Loader2, Sparkles, AlertTriangle, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/* ──── STYLES ──── */
+const LABEL_STYLE: React.CSSProperties = {
+  color: '#94A3B8',
+  fontSize: '13px',
+  fontWeight: 500,
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+};
+
 const SIGNAL_TYPE_DESCRIPTIONS: Record<string, string> = {
   sheet_classification: 'Tracks accuracy of AI sheet type detection',
   field_mapping: 'Tracks accuracy of AI column-to-semantic field mapping',
@@ -58,21 +67,27 @@ export function AIIntelligenceTab() {
   if (!data.tableExists || data.totalSignals === 0) {
     return (
       <div className="space-y-8">
+        {/* Tab heading */}
+        <div>
+          <h2 style={{ color: '#E2E8F0', fontSize: '18px', fontWeight: 600 }}>AI Intelligence</h2>
+          <p style={{ color: '#94A3B8', fontSize: '14px' }}>Classification accuracy, signal tracking, and confidence metrics</p>
+        </div>
+
         {/* Hero metrics — empty state */}
         <div className="grid grid-cols-2 gap-4">
           <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="h-4 w-4 text-violet-400" />
-              <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Total Signals</span>
+              <span style={LABEL_STYLE}>Total Signals</span>
             </div>
-            <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>0</p>
+            <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>0</p>
           </div>
           <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
             <div className="flex items-center gap-2 mb-2">
               <BarChart3 className="h-4 w-4 text-violet-400" />
-              <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Avg Confidence</span>
+              <span style={LABEL_STYLE}>Avg Confidence</span>
             </div>
-            <p className="text-2xl font-bold" style={{ color: '#52525b' }}>—</p>
+            <p style={{ color: '#64748B', fontSize: '28px', fontWeight: 700 }}>—</p>
           </div>
         </div>
 
@@ -81,8 +96,8 @@ export function AIIntelligenceTab() {
           <div className="flex items-start gap-3 mb-4">
             <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-sm font-medium text-white mb-1">AI signal tracking not yet active</h3>
-              <p className="text-xs text-zinc-400">
+              <h3 style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500, marginBottom: '4px' }}>AI signal tracking not yet active</h3>
+              <p style={{ color: '#94A3B8', fontSize: '14px' }}>
                 Signals will appear here once the AI pipeline captures classification and mapping data
                 during file imports and plan interpretation.
               </p>
@@ -92,17 +107,17 @@ export function AIIntelligenceTab() {
 
         {/* Architectural intent */}
         <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-          <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
+          <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>
             Classification Accuracy By Type (Planned)
           </h3>
           <div className="space-y-3">
             {PLANNED_SIGNAL_TYPES.map(st => (
               <div key={st.type} className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-zinc-800 bg-zinc-900/30">
                 <div>
-                  <p className="text-sm text-zinc-300">{st.label}</p>
-                  <p className="text-[10px] text-zinc-600">{SIGNAL_TYPE_DESCRIPTIONS[st.type]}</p>
+                  <p style={{ color: '#E2E8F0', fontSize: '14px' }}>{st.label}</p>
+                  <p style={{ color: '#94A3B8', fontSize: '13px' }}>{SIGNAL_TYPE_DESCRIPTIONS[st.type]}</p>
                 </div>
-                <span className="text-[10px] text-zinc-600">Not yet configured</span>
+                <span style={{ color: '#64748B', fontSize: '13px' }}>Not yet configured</span>
               </div>
             ))}
           </div>
@@ -114,35 +129,41 @@ export function AIIntelligenceTab() {
   // Real signal data exists
   return (
     <div className="space-y-8">
+      {/* Tab heading */}
+      <div>
+        <h2 style={{ color: '#E2E8F0', fontSize: '18px', fontWeight: 600 }}>AI Intelligence</h2>
+        <p style={{ color: '#94A3B8', fontSize: '14px' }}>Classification accuracy, signal tracking, and confidence metrics</p>
+      </div>
+
       {/* Hero metrics */}
       <div className="grid grid-cols-2 gap-4">
         <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <Sparkles className="h-4 w-4 text-violet-400" />
-            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Total Signals</span>
+            <span style={LABEL_STYLE}>Total Signals</span>
           </div>
-          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{data.totalSignals.toLocaleString()}</p>
+          <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{data.totalSignals.toLocaleString()}</p>
         </div>
         <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <BarChart3 className="h-4 w-4 text-violet-400" />
-            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Avg Confidence</span>
+            <span style={LABEL_STYLE}>Avg Confidence</span>
           </div>
-          <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{(data.avgConfidence * 100).toFixed(1)}%</p>
+          <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{(data.avgConfidence * 100).toFixed(1)}%</p>
         </div>
       </div>
 
       {/* By Type */}
       <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-        <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
+        <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>
           Classification Accuracy By Type
         </h3>
         <div className="space-y-3">
           {data.signalsByType.map(st => (
             <div key={st.signalType} className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-zinc-800 bg-zinc-900/30">
               <div>
-                <p className="text-sm text-zinc-300">{st.signalType.replace(/_/g, ' ')}</p>
-                <p className="text-[10px] text-zinc-600">{st.count} signals</p>
+                <p style={{ color: '#E2E8F0', fontSize: '14px' }}>{st.signalType.replace(/_/g, ' ')}</p>
+                <p style={{ color: '#94A3B8', fontSize: '13px' }}>{st.count} signals</p>
               </div>
               <ConfidenceBadge value={st.avgConfidence} />
             </div>
@@ -153,14 +174,14 @@ export function AIIntelligenceTab() {
       {/* Per Tenant */}
       {data.perTenant.length > 0 && (
         <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-          <h3 style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
+          <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>
             Per-Tenant AI Health
           </h3>
           <div className="space-y-2">
             {data.perTenant.map(t => (
               <div key={t.tenantId} className="flex items-center gap-4 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/30">
-                <span className="text-sm text-white font-medium flex-1">{t.tenantName}</span>
-                <span className="text-xs text-zinc-400 tabular-nums">{t.signalCount} signals</span>
+                <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500, flex: 1 }}>{t.tenantName}</span>
+                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{t.signalCount} signals</span>
                 <ConfidenceBadge value={t.avgConfidence} />
               </div>
             ))}

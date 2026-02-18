@@ -1,0 +1,16 @@
+-- Migration 008: Commercial billing data for tenants
+-- OB-57: Tenant tier, experience tier, and billing configuration
+--
+-- NOTE: Due to access constraints, billing data is stored in the existing
+-- settings JSONB column as settings.tier, settings.experience_tier, and
+-- settings.billing. This avoids requiring a DDL migration while keeping
+-- all data persisted and queryable via JSONB operators.
+--
+-- If standalone columns are later preferred, run:
+-- ALTER TABLE tenants ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'inicio';
+-- ALTER TABLE tenants ADD COLUMN IF NOT EXISTS experience_tier TEXT DEFAULT 'self_service';
+-- ALTER TABLE tenants ADD COLUMN IF NOT EXISTS billing JSONB DEFAULT '{}';
+--
+-- settings.tier: inicio|crecimiento|profesional|empresarial|corporativo
+-- settings.experience_tier: self_service|guided|strategic
+-- settings.billing: { modules, platform_fee, mcp_included, mcp_overage_rate }
