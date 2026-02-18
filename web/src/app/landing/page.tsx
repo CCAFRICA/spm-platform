@@ -142,11 +142,11 @@ export default function LandingPage() {
         <h3 style={{ fontSize: '24px', fontWeight: 700, color: '#F8FAFC', textAlign: 'center', marginBottom: '32px' }}>
           How Vialuce Compares
         </h3>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
+        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px', minWidth: '500px' }}>
             <thead>
               <tr style={{ background: '#1E293B' }}>
-                <th style={{ padding: '12px 16px', textAlign: 'left', color: '#94A3B8', fontWeight: 600 }}>Feature</th>
+                <th style={{ padding: '12px 16px', textAlign: 'left', color: '#94A3B8', fontWeight: 600, position: 'sticky', left: 0, background: '#1E293B', zIndex: 1 }}>Feature</th>
                 <th style={{ padding: '12px 16px', textAlign: 'left', color: '#94A3B8', fontWeight: 600 }}>Industry Standard</th>
                 <th style={{ padding: '12px 16px', textAlign: 'left', color: '#E8A838', fontWeight: 600 }}>Vialuce</th>
               </tr>
@@ -161,7 +161,7 @@ export default function LandingPage() {
                 ['Pricing transparency', '"Contact Sales"', 'Visible on this page'],
               ].map(([feature, industry, vialuce], i) => (
                 <tr key={feature} style={{ background: i % 2 === 0 ? '#0F172A' : '#0B1120', borderBottom: '1px solid #1E293B' }}>
-                  <td style={{ padding: '12px 16px', color: '#CBD5E1', fontWeight: 500 }}>{feature}</td>
+                  <td style={{ padding: '12px 16px', color: '#CBD5E1', fontWeight: 500, position: 'sticky', left: 0, background: i % 2 === 0 ? '#0F172A' : '#0B1120', zIndex: 1 }}>{feature}</td>
                   <td style={{ padding: '12px 16px', color: '#94A3B8' }}>{industry}</td>
                   <td style={{ padding: '12px 16px', color: '#10B981', fontWeight: 600 }}>{vialuce}</td>
                 </tr>
