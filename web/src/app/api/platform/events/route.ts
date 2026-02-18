@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { runAgentLoop } from '@/lib/agents/runner';
 import type { PlatformEventType } from '@/lib/events/emitter';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,10 +42,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Fire-and-forget: trigger agent loop (Phase 5 will wire this)
-    // runAgentLoop(event.tenant_id, event.event_type).catch(err =>
-    //   console.error('Agent loop failed:', err)
-    // );
+    // Fire-and-forget: trigger agent loop
+    runAgentLoop(event.tenant_id, event.event_type).catch(err =>
+      console.error('[POST /api/platform/events] Agent loop failed:', err)
+    );
 
     return NextResponse.json({ success: true });
   } catch (err) {
