@@ -3,9 +3,10 @@
 /**
  * Admin Dashboard — "Gobernar"
  *
- * DS-001 Admin View layout (7 distinct visual forms):
+ * DS-001 Admin View layout (8 distinct visual forms):
  *   Row 1: Hero (col-5) + Distribution (col-4) + Lifecycle (col-3)
  *   Row 2: Locations vs Budget (col-7) + Components + Exceptions (col-5)
+ *   Row 3: Period Readiness Checklist (full width)
  *
  * Cognitive Fit Test:
  *   1. Total payout → HeroMetric (AnimNum) — identification
@@ -15,6 +16,8 @@
  *   5. Component composition → StackedBar (part-of-whole) — part-of-whole
  *   6. Exceptions → PrioritySortedList (severity-coded) — selection/triage
  *   7. Trend vs prior period → TrendArrow — monitoring
+ *   8. AI Assessment → AssessmentPanel — intelligence
+ *   9. Period Readiness → Checklist — planning/progress
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -29,6 +32,7 @@ import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
 import { QueueItem } from '@/components/design-system/QueueItem';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
 import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
+import { AlertTriangle, CheckCircle2, Circle } from 'lucide-react';
 import {
   getAdminDashboardData,
   type AdminDashboardData,
@@ -100,6 +104,109 @@ export function AdminDashboard() {
     return { avg, median, stdDev };
   }, [data]);
 
+  // Outlier detection for store breakdown (4D)
+  const storeOutliers = useMemo(() => {
+    if (!data || data.storeBreakdown.length < 3) return new Set<string>();
+    const deltas = data.storeBreakdown.map(store => {
+      const storeBudget = budgetTotal > 0
+        ? (store.totalPayout / data.totalPayout) * budgetTotal
+        : store.totalPayout * 1.1;
+      return {
+        entityId: store.entityId,
+        delta: storeBudget > 0 ? ((store.totalPayout - storeBudget) / storeBudget) * 100 : 0,
+      };
+    });
+    const deltaValues = deltas.map(d => d.delta);
+    const mean = deltaValues.reduce((s, v) => s + v, 0) / deltaValues.length;
+    const variance = deltaValues.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / deltaValues.length;
+    const stdDev = Math.sqrt(variance);
+
+    const outlierSet = new Set<string>();
+
+    // Flag entities > 2 std devs from mean
+    if (stdDev > 0) {
+      for (const d of deltas) {
+        if (Math.abs(d.delta - mean) > 2 * stdDev) {
+          outlierSet.add(d.entityId);
+        }
+      }
+    }
+
+    // Flag if all deltas are identical (uniform delta investigation)
+    const allSame = deltaValues.length > 1 && deltaValues.every(v => Math.abs(v - deltaValues[0]) < 0.01);
+    if (allSame) {
+      for (const d of deltas) outlierSet.add(d.entityId);
+    }
+
+    return outlierSet;
+  }, [data, budgetTotal]);
+
+  // Uniform delta flag
+  const isUniformDelta = useMemo(() => {
+    if (!data || data.storeBreakdown.length < 2) return false;
+    const deltas = data.storeBreakdown.map(store => {
+      const storeBudget = budgetTotal > 0
+        ? (store.totalPayout / data.totalPayout) * budgetTotal
+        : store.totalPayout * 1.1;
+      return storeBudget > 0 ? ((store.totalPayout - storeBudget) / storeBudget) * 100 : 0;
+    });
+    return deltas.every(v => Math.abs(v - deltas[0]) < 0.01);
+  }, [data, budgetTotal]);
+
+  // Period Readiness criteria (4E)
+  const readinessCriteria = useMemo(() => {
+    if (!data) return [];
+    const criteria = [
+      {
+        label: 'Data imported',
+        labelEs: 'Datos importados',
+        met: data.entityCount > 0,
+        detail: data.entityCount > 0 ? `${data.entityCount} entities` : 'No data',
+      },
+      {
+        label: 'Calculations run',
+        labelEs: 'Calculos ejecutados',
+        met: data.totalPayout > 0,
+        detail: data.totalPayout > 0 ? `${currencySymbol}${data.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'Not run',
+      },
+      {
+        label: 'All entities covered',
+        labelEs: 'Todas las entidades cubiertas',
+        met: data.entityCount > 0 && data.storeBreakdown.length > 0,
+        detail: `${data.storeBreakdown.length}/${data.entityCount} locations`,
+      },
+      {
+        label: 'Distribution within bounds',
+        labelEs: 'Distribucion dentro de limites',
+        met: distStats !== null && distStats.stdDev < 40,
+        detail: distStats ? `StdDev: ${distStats.stdDev.toFixed(1)}%` : 'No data',
+      },
+      {
+        label: 'Exceptions resolved',
+        labelEs: 'Excepciones resueltas',
+        met: data.exceptions.filter(e => e.severity === 'critical').length === 0,
+        detail: data.exceptions.filter(e => e.severity === 'critical').length === 0
+          ? 'No critical issues'
+          : `${data.exceptions.filter(e => e.severity === 'critical').length} critical`,
+      },
+      {
+        label: 'Budget within threshold',
+        labelEs: 'Presupuesto dentro del umbral',
+        met: budgetPct >= 85 && budgetPct <= 115,
+        detail: `${budgetPct}% of budget`,
+      },
+      {
+        label: 'Component composition valid',
+        labelEs: 'Composicion de componentes valida',
+        met: data.componentComposition.length > 0,
+        detail: `${data.componentComposition.length} components`,
+      },
+    ];
+    return criteria;
+  }, [data, distStats, budgetPct, currencySymbol]);
+
+  const readinessMet = readinessCriteria.filter(c => c.met).length;
+
   // Build assessment payload (must be before early returns for hooks rule)
   const assessmentData = useMemo(() => {
     if (!data) return {};
@@ -135,6 +242,8 @@ export function AdminDashboard() {
     );
   }
 
+  const isPreview = data.lifecycleState === 'PREVIEW' || data.lifecycleState === 'preview';
+
   return (
     <div className="space-y-4">
       <AssessmentPanel
@@ -146,13 +255,16 @@ export function AdminDashboard() {
       />
       {/* ── Row 1: Hero (5) + Distribution (4) + Lifecycle (3) ── */}
       <div className="grid grid-cols-12 gap-4">
-        {/* Hero Card */}
+        {/* Hero Card — 4A: budget context + advance button */}
         <div className="col-span-12 lg:col-span-5" style={HERO_STYLE}>
           <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
             Total Compensacion · {activePeriodLabel}
           </p>
           <p className="text-4xl font-bold mt-2" style={{ color: '#ffffff' }}>
             {currencySymbol}<AnimatedNumber value={data.totalPayout} />
+          </p>
+          <p style={{ color: 'rgba(199, 210, 254, 0.8)', fontSize: '12px', marginTop: '4px' }}>
+            {budgetPct}% of budget ({currencySymbol}{budgetTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })})
           </p>
           <div className="mt-1">
             <TrendArrow delta={3.2} label="vs periodo anterior" size="sm" />
@@ -171,6 +283,20 @@ export function AdminDashboard() {
               <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '10px' }}>excepciones</p>
             </div>
           </div>
+          {isPreview && (
+            <button
+              className="mt-4 w-full py-2 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: 'rgba(255,255,255,0.15)',
+                color: '#ffffff',
+                border: '1px solid rgba(255,255,255,0.2)',
+              }}
+              onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.25)'; }}
+              onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.15)'; }}
+            >
+              Advance to Official &rarr;
+            </button>
+          )}
         </div>
 
         {/* Distribution Histogram */}
@@ -203,7 +329,7 @@ export function AdminDashboard() {
           )}
         </div>
 
-        {/* Lifecycle */}
+        {/* Lifecycle — 4C: ensure all phases visible */}
         <div className="col-span-12 lg:col-span-3" style={CARD_STYLE}>
           <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
             Ciclo de Vida
@@ -216,11 +342,19 @@ export function AdminDashboard() {
 
       {/* ── Row 2: Locations vs Budget (7) + Components + Exceptions (5) ── */}
       <div className="grid grid-cols-12 gap-4">
-        {/* Locations vs Budget */}
+        {/* Locations vs Budget — 4D: outlier flags */}
         <div className="col-span-12 lg:col-span-7" style={CARD_STYLE}>
-          <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
-            Ubicaciones vs Presupuesto
-          </p>
+          <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
+            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Ubicaciones vs Presupuesto
+            </p>
+            {isUniformDelta && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.3)' }}>
+                <AlertTriangle size={12} style={{ color: '#fbbf24' }} />
+                <span style={{ color: '#fbbf24', fontSize: '10px', fontWeight: 500 }}>Uniform delta — investigate data source</span>
+              </span>
+            )}
+          </div>
           <div className="space-y-3">
             {data.storeBreakdown.length > 0 ? (
               data.storeBreakdown.slice(0, 10).map(store => {
@@ -233,21 +367,28 @@ export function AdminDashboard() {
                 const barColor = store.totalPayout >= storeBudget ? '#34d399'
                   : store.totalPayout >= storeBudget * 0.85 ? '#fbbf24'
                   : '#f87171';
+                const isOutlier = storeOutliers.has(store.entityId);
 
                 return (
-                  <BenchmarkBar
-                    key={store.entityId}
-                    value={store.totalPayout}
-                    benchmark={storeBudget}
-                    label={store.entityName}
-                    sublabel={`${currencySymbol}${store.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ${currencySymbol}${storeBudget.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-                    rightLabel={
-                      <span className="tabular-nums font-medium" style={{ color: deltaPct >= 0 ? '#34d399' : '#f87171', fontSize: '12px' }}>
-                        {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%
-                      </span>
-                    }
-                    color={barColor}
-                  />
+                  <div key={store.entityId} className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <BenchmarkBar
+                        value={store.totalPayout}
+                        benchmark={storeBudget}
+                        label={store.entityName}
+                        sublabel={`${currencySymbol}${store.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ${currencySymbol}${storeBudget.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                        rightLabel={
+                          <span className="tabular-nums font-medium" style={{ color: deltaPct >= 0 ? '#34d399' : '#f87171', fontSize: '12px' }}>
+                            {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%
+                          </span>
+                        }
+                        color={barColor}
+                      />
+                    </div>
+                    {isOutlier && !isUniformDelta && (
+                      <AlertTriangle size={14} style={{ color: '#fbbf24', flexShrink: 0 }} />
+                    )}
+                  </div>
                 );
               })
             ) : (
@@ -291,6 +432,68 @@ export function AdminDashboard() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ── Row 3: Period Readiness Checklist (4E) ── */}
+      <div style={CARD_STYLE}>
+        <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
+          <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            Period Readiness
+          </p>
+          <span style={{
+            fontSize: '12px',
+            fontWeight: 600,
+            color: readinessMet === readinessCriteria.length ? '#34d399' : '#fbbf24',
+          }}>
+            {readinessMet}/{readinessCriteria.length} criteria met
+          </span>
+        </div>
+        {/* Progress bar */}
+        <div style={{ height: '4px', background: 'rgba(39,39,42,0.8)', borderRadius: '2px', marginBottom: '16px' }}>
+          <div style={{
+            height: '4px',
+            borderRadius: '2px',
+            width: `${(readinessMet / readinessCriteria.length) * 100}%`,
+            background: readinessMet === readinessCriteria.length
+              ? 'linear-gradient(90deg, #34d399, #10b981)'
+              : 'linear-gradient(90deg, #fbbf24, #f59e0b)',
+            transition: 'width 0.5s ease',
+          }} />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {readinessCriteria.map((criterion, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 px-3 py-2 rounded-lg"
+              style={{ background: criterion.met ? 'rgba(52, 211, 153, 0.05)' : 'rgba(251, 191, 36, 0.05)' }}
+            >
+              {criterion.met ? (
+                <CheckCircle2 size={16} style={{ color: '#34d399', flexShrink: 0 }} />
+              ) : (
+                <Circle size={16} style={{ color: '#71717a', flexShrink: 0 }} />
+              )}
+              <div className="flex-1 min-w-0">
+                <p style={{ color: criterion.met ? '#d4d4d8' : '#a1a1aa', fontSize: '13px' }}>
+                  {criterion.label}
+                </p>
+                <p style={{ color: '#71717a', fontSize: '11px' }}>{criterion.detail}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        {readinessMet === readinessCriteria.length && (
+          <button
+            className="mt-4 w-full py-2.5 rounded-xl text-sm font-medium transition-all"
+            style={{
+              background: 'linear-gradient(90deg, #4f46e5, #6d28d9)',
+              color: '#ffffff',
+            }}
+            onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.opacity = '0.9'; }}
+            onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.opacity = '1'; }}
+          >
+            Advance to Official &rarr;
+          </button>
+        )}
       </div>
     </div>
   );
