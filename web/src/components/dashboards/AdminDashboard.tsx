@@ -40,6 +40,7 @@ import {
 } from '@/lib/data/persona-queries';
 import { TrialGate } from '@/components/trial/TrialGate';
 import { useTrialStatus } from '@/hooks/useTrialStatus';
+import { AgentInbox } from '@/components/agents/AgentInbox';
 
 /** Dynamic lifecycle transition labels (OB-58) */
 const TRANSITION_LABELS: Record<string, { label: string; labelEs: string; next: string }> = {
@@ -331,6 +332,7 @@ export function AdminDashboard() {
           </button>
         </div>
       )}
+      <AgentInbox tenantId={currentTenant?.id} persona="admin" />
       <AssessmentPanel
         persona="admin"
         data={assessmentData}

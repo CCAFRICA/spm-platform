@@ -32,6 +32,7 @@ import {
   getManagerDashboardData,
   type ManagerDashboardData,
 } from '@/lib/data/persona-queries';
+import { AgentInbox } from '@/components/agents/AgentInbox';
 
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(217, 119, 6, 0.7), rgba(161, 98, 7, 0.6))',
@@ -213,6 +214,7 @@ export function ManagerDashboard() {
 
   return (
     <div className="space-y-4">
+      <AgentInbox tenantId={currentTenant?.id} persona="manager" />
       <AssessmentPanel
         persona="manager"
         data={assessmentData}

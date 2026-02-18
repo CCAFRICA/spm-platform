@@ -38,6 +38,7 @@ import {
   getRepDashboardData,
   type RepDashboardData,
 } from '@/lib/data/persona-queries';
+import { AgentInbox } from '@/components/agents/AgentInbox';
 
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(5, 150, 105, 0.7), rgba(13, 148, 136, 0.7))',
@@ -208,6 +209,7 @@ export function RepDashboard() {
 
   return (
     <div className="space-y-4">
+      <AgentInbox tenantId={currentTenant?.id} persona="rep" />
       <AssessmentPanel
         persona="rep"
         data={assessmentData}
