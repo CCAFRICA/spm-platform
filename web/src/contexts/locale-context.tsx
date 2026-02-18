@@ -8,6 +8,7 @@ import {
   useCallback,
   ReactNode,
 } from 'react';
+import { usePathname } from 'next/navigation';
 import {
   Locale,
   DEFAULT_LOCALE,
@@ -19,6 +20,8 @@ import {
 } from '@/lib/i18n';
 import { audit } from '@/lib/audit-service';
 import { createClient } from '@/lib/supabase/client';
+
+const PUBLIC_ROUTES = ['/landing', '/login', '/signup', '/auth/callback'];
 
 /** Map profiles.locale column value to Locale code */
 const LANG_TO_LOCALE: Record<string, Locale> = {
@@ -51,6 +54,8 @@ export function LocaleProvider({
   children,
   defaultLocale = DEFAULT_LOCALE,
 }: LocaleProviderProps) {
+  const pathname = usePathname();
+  const isPublicRoute = PUBLIC_ROUTES.some(r => pathname?.startsWith(r));
   const [locale, setLocaleState] = useState<Locale>(defaultLocale);
   const [translations, setTranslations] = useState<Record<string, unknown>>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -81,8 +86,11 @@ export function LocaleProvider({
     loadAllTranslations();
   }, [locale]);
 
-  // Initialize from profile language stored in Supabase (OB-58)
+  // Initialize from profile language stored in Supabase (OB-58).
+  // Skip on public routes — no Supabase calls needed for /landing, /login, /signup.
   useEffect(() => {
+    if (isPublicRoute) return;
+
     async function loadProfileLanguage() {
       try {
         const supabase = createClient();
@@ -104,7 +112,7 @@ export function LocaleProvider({
       }
     }
     loadProfileLanguage();
-  }, []);
+  }, [isPublicRoute]);
 
   const setLocale = useCallback((newLocale: Locale) => {
     setLocaleState(newLocale);

@@ -13,7 +13,8 @@
  * Period switching in PeriodRibbon updates all dashboard content.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/contexts/auth-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
@@ -106,7 +107,21 @@ function DashboardContent() {
 }
 
 export default function DashboardPage() {
-  // PeriodProvider is now in the shell layout (auth-shell.tsx)
-  // so all pages share the same period context
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+
+  // Defense-in-depth: if AuthShellProtected's auth gate was somehow bypassed
+  // (e.g., middleware crash, Supabase unreachable, race condition), catch it
+  // here and redirect to /landing. This is a LAST RESORT — AuthShellProtected
+  // is the primary gate. This prevents the dashboard from ever rendering
+  // for unauthenticated users regardless of what happens upstream.
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      window.location.replace('/landing');
+    }
+  }, [authLoading, isAuthenticated]);
+
+  if (authLoading) return null;
+  if (!isAuthenticated) return null;
+
   return <DashboardContent />;
 }

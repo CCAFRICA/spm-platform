@@ -202,8 +202,8 @@ export function GPVWizard({ tenantId, tenantName }: GPVWizardProps) {
       const planConfig = result.planConfig ? {
         ...result.planConfig,
         tenantId,
-        createdBy: user?.name || 'system',
-        updatedBy: user?.name || 'system',
+        createdBy: user?.id || 'system',
+        updatedBy: user?.id || 'system',
         createdAt: now,
         updatedAt: now,
       } : {
@@ -217,8 +217,8 @@ export function GPVWizard({ tenantId, tenantName }: GPVWizardProps) {
         endDate: null,
         eligibleRoles: [],
         configuration: { components: interpretation.components || [] },
-        createdBy: user?.name || 'system',
-        updatedBy: user?.name || 'system',
+        createdBy: user?.id || 'system',
+        updatedBy: user?.id || 'system',
         createdAt: now,
         updatedAt: now,
       };

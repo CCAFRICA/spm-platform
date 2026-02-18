@@ -127,7 +127,7 @@ export default function PeriodsPage() {
         startDate: startDate.toISOString().split('T')[0],
         endDate: endDate.toISOString().split('T')[0],
         payDate: payDate.toISOString().split('T')[0],
-        createdBy: user.name || user.id,
+        createdBy: user.id,
       });
 
       loadPeriods();
@@ -149,7 +149,7 @@ export default function PeriodsPage() {
       const newPeriods = processor.generateYearPeriods(
         newPeriodYear,
         newPeriodType,
-        user.name || user.id
+        user.id
       );
 
       loadPeriods();
@@ -176,7 +176,7 @@ export default function PeriodsPage() {
       const result = await processor.transitionStatus(
         selectedPeriod.id,
         newStatus,
-        user.name || user.id
+        user.id
       );
 
       if (result.success) {
