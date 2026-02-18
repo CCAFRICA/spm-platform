@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { Json } from '@/lib/supabase/database.types';
+import { emitEvent } from '@/lib/events/emitter';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_STEPS = ['plan_uploaded', 'plan_confirmed', 'data_uploaded', 'data_confirmed', 'first_calculation'];
@@ -85,6 +86,20 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Emit event for GPV step advancement (fire-and-forget)
+    const eventMap: Record<string, string> = {
+      plan_confirmed: 'plan.confirmed',
+      data_confirmed: 'data.committed',
+      first_calculation: 'calculation.completed',
+    };
+    if (eventMap[step]) {
+      emitEvent({
+        tenant_id: tenantId,
+        event_type: eventMap[step] as import('@/lib/events/emitter').PlatformEventType,
+        payload: { source: 'gpv', step },
+      }).catch(() => {});
     }
 
     return NextResponse.json({ success: true, gpv });

@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getStripe } from '@/lib/stripe/server';
 import { STRIPE_CONFIG } from '@/lib/stripe/config';
+import { emitEvent } from '@/lib/events/emitter';
 import type { Json } from '@/lib/supabase/database.types';
 import type Stripe from 'stripe';
 
@@ -70,6 +71,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     activated_at: new Date().toISOString(),
     trial_end: null,
   });
+
+  // Emit billing event
+  emitEvent({
+    tenant_id: tenantId,
+    event_type: 'billing.subscription_activated',
+    payload: { tier: session.metadata?.tier, modules: session.metadata?.modules },
+  }).catch(() => {});
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
