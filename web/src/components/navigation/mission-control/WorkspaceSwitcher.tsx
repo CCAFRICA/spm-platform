@@ -83,7 +83,7 @@ export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps)
     <div className={cn('py-2', collapsed ? 'px-2' : 'px-3')}>
       {!collapsed && (
         <div className="mb-3">
-          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          <h3 style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             {isSpanish ? 'Espacios de Trabajo' : 'Workspaces'}
           </h3>
         </div>
@@ -105,10 +105,10 @@ export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps)
                       className={cn(
                         'relative flex items-center justify-center w-10 h-10 rounded-lg transition-all',
                         isActive
-                          ? 'bg-slate-800 text-slate-50'
-                          : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-300'
+                          ? 'bg-slate-800'
+                          : 'hover:bg-slate-800/50'
                       )}
-                      style={isActive ? { color: workspace.accentColor } : undefined}
+                      style={{ color: isActive ? workspace.accentColor : '#CBD5E1' }}
                     >
                       {/* Active indicator bar */}
                       {isActive && (
@@ -140,15 +140,14 @@ export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps)
               key={wsId}
               onClick={() => navigateToWorkspace(wsId)}
               className={cn(
-                'relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
-                isActive
-                  ? 'text-slate-50'
-                  : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-50'
+                'relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all',
+                !isActive && 'hover:bg-slate-800/50'
               )}
-              style={isActive ? {
-                backgroundColor: `${workspace.accentColor}15`,
-                color: workspace.accentColor,
-              } : undefined}
+              style={{
+                backgroundColor: isActive ? `${workspace.accentColor}15` : undefined,
+                color: isActive ? workspace.accentColor : '#CBD5E1',
+                fontSize: '14px',
+              }}
             >
               {/* Active indicator bar */}
               {isActive && (

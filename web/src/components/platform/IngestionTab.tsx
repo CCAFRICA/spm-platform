@@ -170,11 +170,11 @@ export function IngestionTab() {
                   <span style={{ color: '#E2E8F0', fontSize: '14px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {e.fileName || 'Unknown file'}
                   </span>
-                  <span style={{ color: '#64748B', fontSize: '13px', flexShrink: 0 }}>{e.tenantName}</span>
-                  <span style={{ color: statusColor, background: statusBg, fontSize: '12px', padding: '2px 6px', borderRadius: '4px', fontWeight: 500, flexShrink: 0 }}>
+                  <span style={{ color: '#94A3B8', fontSize: '13px', flexShrink: 0 }}>{e.tenantName}</span>
+                  <span style={{ color: statusColor, background: statusBg, fontSize: '13px', padding: '2px 6px', borderRadius: '4px', fontWeight: 500, flexShrink: 0 }}>
                     {e.status}
                   </span>
-                  <span style={{ color: '#64748B', fontSize: '13px', flexShrink: 0 }}>
+                  <span style={{ color: '#94A3B8', fontSize: '13px', flexShrink: 0 }}>
                     {new Date(e.createdAt).toLocaleString()}
                   </span>
                 </div>
@@ -187,9 +187,9 @@ export function IngestionTab() {
       {/* Empty state */}
       {data.totalEvents === 0 && (
         <div className="text-center py-12 rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
-          <Upload className="h-10 w-10 mx-auto mb-3" style={{ color: '#64748B' }} />
+          <Upload className="h-10 w-10 mx-auto mb-3" style={{ color: '#94A3B8' }} />
           <p style={{ color: '#94A3B8', fontSize: '14px', fontWeight: 500 }}>No ingestion events yet</p>
-          <p style={{ color: '#64748B', fontSize: '14px', marginTop: '4px' }}>
+          <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>
             Files will appear here once tenants start importing data
           </p>
         </div>
@@ -257,7 +257,7 @@ function StatusCard({ icon: Icon, label, count, total, color }: {
           style={{ width: `${Math.min(pctValue, 100)}%` }}
         />
       </div>
-      <div style={{ color: '#64748B', fontSize: '13px', marginTop: '6px' }}>
+      <div style={{ color: '#94A3B8', fontSize: '13px', marginTop: '6px' }}>
         {pctValue.toFixed(1)}% of {total.toLocaleString()} total
       </div>
     </div>

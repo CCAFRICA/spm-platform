@@ -88,14 +88,14 @@ export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <Lightbulb size={18} style={{ color: accentColor }} />
-          <span style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 600 }}>
+          <span style={{ color: '#E2E8F0', fontSize: '16px', fontWeight: 600 }}>
             {title}
           </span>
           <span
             style={{
               background: `${accentColor}22`,
               color: accentColor,
-              fontSize: '10px',
+              fontSize: '11px',
               padding: '2px 8px',
               borderRadius: '4px',
               fontWeight: 500,
@@ -136,7 +136,7 @@ export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#
                   <div className="animate-spin h-3 w-3 border-2 border-t-transparent rounded-full" style={{ borderColor: `${accentColor}60`, borderTopColor: 'transparent' }} />
                 </div>
               )}
-              <p style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-line' }}>
+              <p style={{ color: '#CBD5E1', fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-line' }}>
                 {assessment}
               </p>
             </div>

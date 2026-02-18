@@ -87,7 +87,7 @@ export function AIIntelligenceTab() {
               <BarChart3 className="h-4 w-4 text-violet-400" />
               <span style={LABEL_STYLE}>Avg Confidence</span>
             </div>
-            <p style={{ color: '#64748B', fontSize: '28px', fontWeight: 700 }}>—</p>
+            <p style={{ color: '#94A3B8', fontSize: '28px', fontWeight: 700 }}>—</p>
           </div>
         </div>
 
@@ -117,7 +117,7 @@ export function AIIntelligenceTab() {
                   <p style={{ color: '#E2E8F0', fontSize: '14px' }}>{st.label}</p>
                   <p style={{ color: '#94A3B8', fontSize: '13px' }}>{SIGNAL_TYPE_DESCRIPTIONS[st.type]}</p>
                 </div>
-                <span style={{ color: '#64748B', fontSize: '13px' }}>Not yet configured</span>
+                <span style={{ color: '#94A3B8', fontSize: '13px' }}>Not yet configured</span>
               </div>
             ))}
           </div>

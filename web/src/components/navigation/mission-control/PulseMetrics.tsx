@@ -61,16 +61,16 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
       return (
         <div className="px-3 py-4">
           <div className="mb-3">
-            <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+            <h3 style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               {isSpanish ? 'El Pulso' : 'The Pulse'}
             </h3>
           </div>
           <div className="text-center py-4">
             <Activity className="h-6 w-6 mx-auto mb-2 text-zinc-500" />
-            <p className="text-xs text-zinc-400">
+            <p style={{ color: '#CBD5E1', fontSize: '13px' }}>
               {isSpanish ? 'Sin metricas aun' : 'No metrics yet'}
             </p>
-            <p className="text-[10px] text-zinc-500 mt-1">
+            <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
               {isSpanish ? 'Ejecute calculos para ver metricas' : 'Run calculations to see metrics'}
             </p>
           </div>
@@ -106,7 +106,7 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
                 {formatMetricValue(primary.value, primary.format, currency)}
               </span>
               {primary.trend && (
-                <span className={cn('text-[10px]', getTrendColor(primary.trend))}>
+                <span className={cn(getTrendColor(primary.trend))} style={{ fontSize: '13px' }}>
                   {getTrendArrow(primary.trend)}
                 </span>
               )}
@@ -148,10 +148,10 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
             )}
           >
             <div className="min-w-0">
-              <p className="text-xs text-zinc-500 truncate">
+              <p style={{ color: '#94A3B8', fontSize: '13px' }} className="truncate">
                 {isSpanish ? metric.labelEs : metric.label}
               </p>
-              <p className="text-lg font-semibold text-zinc-200">
+              <p style={{ color: '#F8FAFC', fontSize: '18px', fontWeight: 600 }}>
                 {formatMetricValue(metric.value, metric.format, currency)}
               </p>
             </div>
@@ -159,7 +159,7 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
             {metric.trend && (
               <div className={cn('flex items-center gap-1', getTrendColor(metric.trend))}>
                 <TrendIcon trend={metric.trend} />
-                <span className="text-[10px] whitespace-nowrap">
+                <span className="whitespace-nowrap" style={{ fontSize: '13px' }}>
                   {isSpanish ? metric.trendValueEs : metric.trendValue}
                 </span>
               </div>

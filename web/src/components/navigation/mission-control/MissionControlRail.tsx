@@ -84,7 +84,7 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
               <span className="text-lg font-bold text-slate-50 truncate">
                 Vialuce
               </span>
-              <span className="text-[10px] text-slate-500 truncate -mt-0.5 flex items-center gap-1">
+              <span className="truncate -mt-0.5 flex items-center gap-1" style={{ color: '#94A3B8', fontSize: '13px' }}>
                 {currentTenant?.displayName || 'Platform'}
                 {isUserVLAdmin && <ArrowLeftRight className="h-2.5 w-2.5 text-slate-400" />}
               </span>
