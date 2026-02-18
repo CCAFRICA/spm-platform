@@ -20,11 +20,11 @@
  *   9. Period Readiness → Checklist — planning/progress
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePeriod } from '@/contexts/period-context';
 import { useLocale } from '@/contexts/locale-context';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { DistributionChart } from '@/components/design-system/DistributionChart';
 import { ComponentStack } from '@/components/design-system/ComponentStack';
@@ -80,7 +80,6 @@ export function AdminDashboard() {
   const { checkGate } = useTrialStatus(currentTenant?.id);
   const lifecycleGate = checkGate('lifecycle');
   const searchParams = useSearchParams();
-  const router = useRouter();
 
   const [data, setData] = useState<AdminDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -99,22 +98,6 @@ export function AdminDashboard() {
       return () => clearTimeout(timer);
     }
   }, [searchParams]);
-
-  // Billing portal handler
-  const handleManageBilling = useCallback(async () => {
-    if (!currentTenant?.id) return;
-    try {
-      const res = await fetch('/api/billing/portal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId: currentTenant.id }),
-      });
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-    } catch (err) {
-      console.error('Failed to open billing portal:', err);
-    }
-  }, [currentTenant?.id]);
 
   useEffect(() => {
     if (!tenantId) return;
