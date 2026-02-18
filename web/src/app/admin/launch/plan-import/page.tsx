@@ -728,6 +728,19 @@ export default function PlanImportPage() {
     );
   }
 
+  // Determine current subway step
+  const currentStep = importResult?.success
+    ? 'confirm'
+    : parsedPlan
+      ? 'review'
+      : 'upload';
+
+  const STEPS = [
+    { key: 'upload', label: locale === 'es-MX' ? 'Subir Documento' : 'Upload Plan Document' },
+    { key: 'review', label: locale === 'es-MX' ? 'Revisar Interpretacion' : 'Review AI Interpretation' },
+    { key: 'confirm', label: locale === 'es-MX' ? 'Confirmar y Guardar' : 'Confirm & Save' },
+  ];
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -741,6 +754,35 @@ export default function PlanImportPage() {
           </h1>
           <p className="text-slate-600 dark:text-slate-400">{t.subtitle}</p>
         </div>
+      </div>
+
+      {/* Subway Progress Indicator — OB-58 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0' }}>
+        {STEPS.map((step, i) => {
+          const isCurrent = step.key === currentStep;
+          const stepIndex = STEPS.findIndex(s => s.key === currentStep);
+          const isPast = stepIndex > i;
+          return (
+            <div key={step.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: i < STEPS.length - 1 ? 1 : undefined }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                <div style={{
+                  width: '28px', height: '28px', borderRadius: '50%',
+                  background: isPast ? '#10B981' : isCurrent ? '#6366F1' : '#1E293B',
+                  color: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '13px', fontWeight: 600,
+                }}>
+                  {isPast ? '\u2713' : i + 1}
+                </div>
+                <span style={{ fontSize: '14px', color: isCurrent ? '#E2E8F0' : isPast ? '#10B981' : '#94A3B8', fontWeight: isCurrent ? 500 : 400 }}>
+                  {step.label}
+                </span>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div style={{ flex: 1, height: '2px', background: isPast ? '#10B981' : '#1E293B', marginLeft: '8px' }} />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Import Success */}
