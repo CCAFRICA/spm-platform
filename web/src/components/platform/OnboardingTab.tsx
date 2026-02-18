@@ -516,23 +516,14 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
     else onClose();
   };
 
-  // Post-creation success screen
+  // Post-creation success screen with invite form
   if (createResult?.success) {
     return (
-      <div style={CARD_STYLE} className="text-center py-12 space-y-4">
-        <CheckCircle className="h-16 w-16 mx-auto" style={{ color: '#34d399' }} />
-        <h2 style={TEXT.heading}>Tenant Created</h2>
-        <p style={TEXT.body}>{wizard.name} is ready for onboarding.</p>
-        <div className="flex items-center justify-center gap-3 mt-6">
-          <button
-            onClick={onCreated}
-            className="px-5 py-2.5 rounded-lg font-medium transition-colors"
-            style={{ background: '#7c3aed', color: '#fff', fontSize: '14px' }}
-          >
-            Back to Pipeline
-          </button>
-        </div>
-      </div>
+      <PostCreationScreen
+        tenantName={wizard.name}
+        tenantId={createResult.tenantId || ''}
+        onDone={onCreated}
+      />
     );
   }
 
@@ -947,6 +938,189 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
             )}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ──── POST-CREATION SCREEN WITH INVITE ──── */
+function PostCreationScreen({ tenantName, tenantId, onDone }: { tenantName: string; tenantId: string; onDone: () => void }) {
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteName, setInviteName] = useState('');
+  const [inviteRole, setInviteRole] = useState('tenant_admin');
+  const [inviteLang, setInviteLang] = useState('es');
+  const [inviteStatus, setInviteStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isInviting, setIsInviting] = useState(false);
+  const [invitedUsers, setInvitedUsers] = useState<Array<{ email: string; role: string }>>([]);
+
+  const handleInvite = async () => {
+    if (!inviteEmail || !inviteName) return;
+    setIsInviting(true);
+    setInviteStatus(null);
+
+    try {
+      const res = await fetch('/api/platform/users/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: inviteEmail,
+          displayName: inviteName,
+          tenantId,
+          roleTemplate: inviteRole,
+          language: inviteLang,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setInviteStatus({ type: 'error', message: data.error || 'Invite failed' });
+      } else {
+        setInviteStatus({ type: 'success', message: `${inviteEmail} invited as ${data.user.role}` });
+        setInvitedUsers(prev => [...prev, { email: inviteEmail, role: data.user.role }]);
+        setInviteEmail('');
+        setInviteName('');
+      }
+    } catch {
+      setInviteStatus({ type: 'error', message: 'Network error' });
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Success banner */}
+      <div style={CARD_STYLE} className="text-center py-8">
+        <CheckCircle className="h-14 w-14 mx-auto" style={{ color: '#34d399' }} />
+        <h2 style={{ ...TEXT.heading, marginTop: '12px' }}>Tenant Created</h2>
+        <p style={{ ...TEXT.body, marginTop: '4px' }}>{tenantName} is ready for onboarding.</p>
+      </div>
+
+      {/* Invite admin form */}
+      <div style={CARD_STYLE}>
+        {!showInvite ? (
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 style={TEXT.heading}>Invite First Admin</h3>
+              <p style={TEXT.secondary}>Create the initial admin user for this tenant.</p>
+            </div>
+            <button
+              onClick={() => setShowInvite(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium"
+              style={{ background: '#7c3aed', color: '#fff', fontSize: '14px' }}
+            >
+              <UserPlus className="h-4 w-4" /> Invite Admin
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <h3 style={TEXT.heading}>Invite User to {tenantName}</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label style={{ ...TEXT.label, display: 'block', marginBottom: '6px' }}>Email *</label>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="admin@company.com"
+                  className="w-full h-10 px-3 rounded-lg bg-zinc-900 border border-zinc-700 text-white placeholder-zinc-600 focus:border-violet-500 focus:outline-none"
+                  style={{ fontSize: '14px' }}
+                />
+              </div>
+              <div>
+                <label style={{ ...TEXT.label, display: 'block', marginBottom: '6px' }}>Display Name *</label>
+                <input
+                  type="text"
+                  value={inviteName}
+                  onChange={(e) => setInviteName(e.target.value)}
+                  placeholder="Jane Doe"
+                  className="w-full h-10 px-3 rounded-lg bg-zinc-900 border border-zinc-700 text-white placeholder-zinc-600 focus:border-violet-500 focus:outline-none"
+                  style={{ fontSize: '14px' }}
+                />
+              </div>
+              <div>
+                <label style={{ ...TEXT.label, display: 'block', marginBottom: '6px' }}>Role</label>
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  className="w-full h-10 px-3 rounded-lg bg-zinc-900 border border-zinc-700 text-white focus:border-violet-500 focus:outline-none"
+                  style={{ fontSize: '14px' }}
+                >
+                  <option value="tenant_admin">Admin</option>
+                  <option value="manager">Manager</option>
+                  <option value="individual">Rep</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ ...TEXT.label, display: 'block', marginBottom: '6px' }}>Language</label>
+                <select
+                  value={inviteLang}
+                  onChange={(e) => setInviteLang(e.target.value)}
+                  className="w-full h-10 px-3 rounded-lg bg-zinc-900 border border-zinc-700 text-white focus:border-violet-500 focus:outline-none"
+                  style={{ fontSize: '14px' }}
+                >
+                  <option value="es">Español</option>
+                  <option value="en">English</option>
+                  <option value="pt">Português</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleInvite}
+                disabled={isInviting || !inviteEmail || !inviteName}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
+                style={{
+                  background: inviteEmail && inviteName ? '#7c3aed' : '#27272a',
+                  color: inviteEmail && inviteName ? '#fff' : '#52525b',
+                  fontSize: '14px',
+                  cursor: inviteEmail && inviteName ? 'pointer' : 'not-allowed',
+                }}
+              >
+                {isInviting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {isInviting ? 'Inviting...' : 'Send Invite'}
+              </button>
+            </div>
+            {inviteStatus && (
+              <div
+                className="px-4 py-2 rounded-lg"
+                style={{
+                  background: inviteStatus.type === 'success' ? 'rgba(52,211,153,0.1)' : 'rgba(239,68,68,0.1)',
+                  border: `1px solid ${inviteStatus.type === 'success' ? 'rgba(52,211,153,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                  color: inviteStatus.type === 'success' ? '#34d399' : '#f87171',
+                  fontSize: '14px',
+                }}
+              >
+                {inviteStatus.message}
+              </div>
+            )}
+            {invitedUsers.length > 0 && (
+              <div className="mt-3">
+                <span style={TEXT.label}>Invited Users</span>
+                <div className="mt-2 space-y-1">
+                  {invitedUsers.map((u, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4" style={{ color: '#34d399' }} />
+                      <span style={TEXT.body}>{u.email}</span>
+                      <span style={{ ...TEXT.secondary, fontSize: '12px' }}>({u.role})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Done button */}
+      <div className="flex justify-end">
+        <button
+          onClick={onDone}
+          className="px-5 py-2.5 rounded-lg font-medium"
+          style={{ background: '#34d399', color: '#0A0E1A', fontSize: '14px' }}
+        >
+          Done — Back to Pipeline
+        </button>
       </div>
     </div>
   );
