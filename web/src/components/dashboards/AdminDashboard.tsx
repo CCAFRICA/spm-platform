@@ -94,10 +94,15 @@ export function AdminDashboard() {
     return () => { cancelled = true; };
   }, [tenantId, activePeriodId]);
 
+  // CLT-56: Budget is estimated as 110% of actual payout since no real budget
+  // field exists in entity_period_outcomes. This produces a tautological -9.1%
+  // delta (=-1/11) for all entities. When a real budget_target column is added,
+  // this should read from the database instead.
   const budgetTotal = useMemo(() => {
     if (!data) return 0;
     return data.totalPayout * 1.1;
   }, [data]);
+  const isBudgetEstimated = true; // No real budget source yet
 
   const budgetPct = useMemo(() => {
     if (!budgetTotal || !data) return 0;
@@ -280,8 +285,8 @@ export function AdminDashboard() {
           <p className="text-4xl font-bold mt-2" style={{ color: '#ffffff' }}>
             {currencySymbol}<AnimatedNumber value={data.totalPayout} />
           </p>
-          <p style={{ color: 'rgba(199, 210, 254, 0.8)', fontSize: '12px', marginTop: '4px' }}>
-            {budgetPct}% of budget ({currencySymbol}{budgetTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })})
+          <p style={{ color: 'rgba(199, 210, 254, 0.8)', fontSize: '13px', marginTop: '4px' }}>
+            {budgetPct}% of {isBudgetEstimated ? 'est. ' : ''}budget ({currencySymbol}{budgetTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })})
           </p>
           <div className="mt-1">
             <TrendArrow delta={3.2} label="vs periodo anterior" size="sm" />
@@ -362,13 +367,18 @@ export function AdminDashboard() {
         {/* Locations vs Budget — 4D: outlier flags */}
         <div className="col-span-12 lg:col-span-7" style={CARD_STYLE}>
           <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
-            <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              Locations vs Budget
-            </p>
-            {isUniformDelta && (
+            <div className="flex items-center gap-2">
+              <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                Locations vs Budget
+              </p>
+              {isBudgetEstimated && (
+                <span style={{ color: '#94A3B8', fontSize: '13px', fontStyle: 'italic' }}>(estimated)</span>
+              )}
+            </div>
+            {isUniformDelta && isBudgetEstimated && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.3)' }}>
                 <AlertTriangle size={12} style={{ color: '#fbbf24' }} />
-                <span style={{ color: '#fbbf24', fontSize: '13px', fontWeight: 500 }}>Uniform delta — investigate data source</span>
+                <span style={{ color: '#fbbf24', fontSize: '13px', fontWeight: 500 }}>No real budget — using 110% estimate</span>
               </span>
             )}
           </div>
