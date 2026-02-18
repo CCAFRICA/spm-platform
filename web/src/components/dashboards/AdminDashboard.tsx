@@ -286,7 +286,7 @@ export function AdminDashboard() {
           <div className="mt-1">
             <TrendArrow delta={3.2} label="vs periodo anterior" size="sm" />
           </div>
-          <div className="grid grid-cols-3 gap-3 mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
             <div>
               <p className="text-lg font-bold" style={{ color: '#ffffff' }}>{data.entityCount}</p>
               <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>entidades</p>

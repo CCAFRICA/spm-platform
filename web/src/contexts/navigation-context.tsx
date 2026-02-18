@@ -67,6 +67,10 @@ interface NavigationContextType extends NavigationState {
   toggleRailCollapsed: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
 
+  // Mobile sidebar
+  isMobileOpen: boolean;
+  toggleMobileOpen: () => void;
+
   // Actions
   navigateToWorkspace: (workspace: WorkspaceId) => void;
   refreshData: () => void;
@@ -107,6 +111,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   // Core state
   const [activeWorkspace, setActiveWorkspaceState] = useState<WorkspaceId>('perform');
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [cycleState, setCycleState] = useState<CycleState | null>(null);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
@@ -220,11 +225,18 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Toggle rail collapsed (in-memory only)
   const toggleRailCollapsed = useCallback(() => {
-    setIsRailCollapsed(prev => {
-      const newValue = !prev;
-      return newValue;
-    });
+    setIsRailCollapsed(prev => !prev);
   }, []);
+
+  // Toggle mobile sidebar
+  const toggleMobileOpen = useCallback(() => {
+    setIsMobileOpen(prev => !prev);
+  }, []);
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setIsMobileOpen(false);
+  }, [pathname]);
 
   // Navigate to workspace
   const navigateToWorkspace = useCallback((workspace: WorkspaceId) => {
@@ -242,12 +254,14 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     activeWorkspace,
     isRailCollapsed,
     isCommandPaletteOpen,
+    isMobileOpen,
     cycleState,
     queueItems,
     pulseMetrics,
     recentPages,
     setActiveWorkspace,
     toggleRailCollapsed,
+    toggleMobileOpen,
     setCommandPaletteOpen,
     navigateToWorkspace,
     refreshData,

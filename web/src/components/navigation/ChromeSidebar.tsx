@@ -132,6 +132,8 @@ export function ChromeSidebar() {
   const {
     isRailCollapsed,
     toggleRailCollapsed,
+    isMobileOpen,
+    toggleMobileOpen,
     activeWorkspace,
     navigateToWorkspace,
     userRole,
@@ -208,21 +210,24 @@ export function ChromeSidebar() {
 
   return (
     <>
-      {/* Mobile overlay */}
+      {/* Mobile overlay — shown when sidebar is open on mobile */}
       <div
         className={cn(
           'fixed inset-0 z-40 bg-black/50 md:hidden transition-opacity',
-          isRailCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          isMobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
-        onClick={toggleRailCollapsed}
+        onClick={toggleMobileOpen}
       />
 
-      {/* Sidebar */}
+      {/* Sidebar — hidden on mobile by default, slide in when toggled */}
       <aside
         className={cn(
-          'fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-zinc-800/60 bg-zinc-950 transition-all duration-300 ease-in-out md:z-30',
+          'fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-zinc-800/60 bg-zinc-950 transition-all duration-300 ease-in-out',
+          // Desktop: always visible, width based on collapsed state
+          'md:z-30 md:translate-x-0',
           isRailCollapsed ? 'w-16' : 'w-[264px]',
-          'translate-x-0'
+          // Mobile: slide in/out based on isMobileOpen
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         )}
       >
         {/* ── Header: Persona accent stripe + Tenant identity ── */}
