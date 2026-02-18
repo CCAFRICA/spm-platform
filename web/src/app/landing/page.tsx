@@ -52,6 +52,24 @@ export default function LandingPage() {
 
   return (
     <div style={{ background: '#020617', color: '#E2E8F0', fontFamily: 'Inter, system-ui, sans-serif', minHeight: '100vh' }}>
+      {/* ─── TOP NAV ─── */}
+      <nav style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
+        background: 'rgba(2, 6, 23, 0.95)',
+        backdropFilter: 'blur(8px)',
+        borderBottom: '1px solid #1E293B',
+      }}>
+        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '0 24px', height: '56px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '16px', fontWeight: 800, color: '#2D2F8F' }}>VIALUCE</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <Link href="/login" style={{ color: '#CBD5E1', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Log In</Link>
+            <Link href="/signup" style={{ background: '#2D2F8F', color: '#FFFFFF', fontSize: '14px', fontWeight: 600, padding: '8px 20px', borderRadius: '6px', textDecoration: 'none' }}>Start Free</Link>
+          </div>
+        </div>
+      </nav>
+
       {/* ─── HERO ─── */}
       <section
         style={{
