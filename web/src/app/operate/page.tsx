@@ -10,7 +10,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
-import { createClient } from '@/lib/supabase/client';
 import { PeriodRibbon, type PeriodInfo } from '@/components/design-system/PeriodRibbon';
 import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
 import { DataReadinessPanel, type DataReadiness } from '@/components/design-system/DataReadinessPanel';
@@ -19,13 +18,13 @@ import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { StatusPill } from '@/components/design-system/StatusPill';
 import {
-  getCurrentLifecycleState,
   transitionLifecycle,
   toDashboardState,
   LIFECYCLE_DISPLAY,
   isDashboardState,
 } from '@/lib/lifecycle/lifecycle-service';
 import { extractAttainment } from '@/lib/data/persona-queries';
+import { loadOperatePageData } from '@/lib/data/page-loaders';
 import type { Json } from '@/lib/supabase/database.types';
 
 interface CalcSummary {
@@ -54,130 +53,74 @@ export default function OperateCockpitPage() {
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
-  // Load periods
+  // Single batched load — no inline Supabase queries
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
+
     async function load() {
-      const supabase = createClient();
-      const { data } = await supabase
-        .from('periods')
-        .select('id, period_key, start_date, end_date, status')
-        .eq('tenant_id', tenantId)
-        .order('start_date', { ascending: false });
+      const data = await loadOperatePageData(tenantId);
+      if (cancelled) return;
 
-      if (cancelled || !data) return;
+      const enriched: PeriodInfo[] = data.periods.map(p => ({
+        periodId: p.id,
+        periodKey: p.period_key,
+        label: formatLabel(p.start_date),
+        status: p.status,
+        lifecycleState: p.lifecycleState,
+        startDate: p.start_date,
+        endDate: p.end_date,
+        needsAttention: false,
+      }));
 
-      const enriched: PeriodInfo[] = await Promise.all(
-        data.map(async (p) => {
-          const { data: batch } = await supabase
-            .from('calculation_batches')
-            .select('lifecycle_state')
-            .eq('tenant_id', tenantId)
-            .eq('period_id', p.id)
-            .is('superseded_by', null)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          return {
-            periodId: p.id,
-            periodKey: p.period_key,
-            label: formatLabel(p.start_date),
-            status: p.status,
-            lifecycleState: batch?.lifecycle_state ?? null,
-            startDate: p.start_date,
-            endDate: p.end_date,
-            needsAttention: false,
-          };
-        })
-      );
-
-      if (!cancelled) {
-        setPeriods(enriched);
-        const open = enriched.find(p => p.status === 'open') ?? enriched[0];
-        if (open) setActiveKey(open.periodKey);
-      }
-    }
-    load().finally(() => { if (!cancelled) setIsLoading(false); });
-    return () => { cancelled = true; };
-  }, [tenantId]);
-
-  // Load lifecycle state + calc summary when period changes
-  useEffect(() => {
-    if (!tenantId || !activePeriodId) return;
-    let cancelled = false;
-
-    async function loadData() {
-      const supabase = createClient();
+      setPeriods(enriched);
+      const open = enriched.find(p => p.status === 'open') ?? enriched[0];
+      if (open) setActiveKey(open.periodKey);
 
       // Lifecycle state
-      const state = await getCurrentLifecycleState(tenantId, activePeriodId);
-      if (!cancelled) setLifecycleState(state);
+      setLifecycleState(data.lifecycleState);
 
       // Data readiness
-      const [planData, importData, batchData] = await Promise.all([
-        supabase.from('rule_sets').select('id').eq('tenant_id', tenantId).eq('status', 'active').limit(1).maybeSingle(),
-        supabase.from('import_batches').select('id, status').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-        supabase.from('calculation_batches').select('id, created_at').eq('tenant_id', tenantId).eq('period_id', activePeriodId).is('superseded_by', null).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-      ]);
+      setReadiness({
+        plan: data.hasActivePlan
+          ? { status: 'ready', label: isSpanish ? 'Plan activo encontrado' : 'Active plan found' }
+          : { status: 'missing', label: isSpanish ? 'No hay plan activo' : 'No active plan', detail: isSpanish ? 'Configura un rule set en estado activo' : 'Configure an active rule set' },
+        data: data.lastImportStatus
+          ? { status: data.lastImportStatus === 'completed' ? 'ready' : 'warning', label: isSpanish ? 'Datos importados' : 'Data imported', detail: `${isSpanish ? 'Ultimo import' : 'Last import'}: ${data.lastImportStatus}` }
+          : { status: 'missing', label: isSpanish ? 'No hay datos importados' : 'No data imported', detail: isSpanish ? 'Importa datos de transacciones' : 'Import transaction data' },
+        mapping: { status: 'ready', label: isSpanish ? 'Mapeo de entidades' : 'Entity mapping', detail: isSpanish ? 'Basado en entity_relationships' : 'Based on entity_relationships' },
+        validation: data.lastBatchCreatedAt
+          ? { status: 'ready', label: isSpanish ? 'Calculo ejecutado' : 'Calculation executed', detail: `${isSpanish ? 'Ultimo' : 'Last'}: ${new Date(data.lastBatchCreatedAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}` }
+          : { status: 'never', label: isSpanish ? 'Sin calculos previos' : 'No previous calculations', detail: isSpanish ? 'Ejecuta un calculo desde Vista Previa' : 'Run a calculation from Preview' },
+      });
 
-      if (!cancelled) {
-        setReadiness({
-          plan: planData.data
-            ? { status: 'ready', label: 'Plan activo encontrado' }
-            : { status: 'missing', label: 'No hay plan activo', detail: 'Configura un rule set en estado activo' },
-          data: importData.data
-            ? { status: importData.data.status === 'completed' ? 'ready' : 'warning', label: 'Datos importados', detail: `Ultimo import: ${importData.data.status}` }
-            : { status: 'missing', label: 'No hay datos importados', detail: 'Importa datos de transacciones' },
-          mapping: { status: 'ready', label: 'Mapeo de entidades', detail: 'Basado en entity_relationships' },
-          validation: batchData.data
-            ? { status: 'ready', label: 'Calculo ejecutado', detail: `Ultimo: ${new Date(batchData.data.created_at).toLocaleString('es-MX')}` }
-            : { status: 'never', label: 'Sin calculos previos', detail: 'Ejecuta un calculo desde Vista Previa' },
-        });
-      }
-
-      // Calc summary
-      if (batchData.data) {
-        const { data: outcomes } = await supabase
-          .from('entity_period_outcomes')
-          .select('entity_id, total_payout, attainment_summary')
-          .eq('tenant_id', tenantId)
-          .eq('period_id', activePeriodId);
-
-        const { data: entities } = await supabase
-          .from('entities')
-          .select('id, display_name')
-          .eq('tenant_id', tenantId);
-
-        const entityNames = new Map((entities ?? []).map(e => [e.id, e.display_name]));
-        const safeOutcomes = outcomes ?? [];
+      // Calc summary from preloaded outcomes
+      if (data.outcomes.length > 0) {
+        const safeOutcomes = data.outcomes;
         const sorted = [...safeOutcomes].sort((a, b) => b.total_payout - a.total_payout);
-
-        if (!cancelled) {
-          setCalcSummary({
-            totalPayout: safeOutcomes.reduce((s, o) => s + o.total_payout, 0),
-            entityCount: safeOutcomes.length,
-            componentCount: 0,
-            lastRunAt: batchData.data.created_at,
-            attainmentDist: safeOutcomes.map(o => extractAttainment(o.attainment_summary as Json)),
-            topEntities: sorted.slice(0, 5).map(o => ({
-              name: entityNames.get(o.entity_id) ?? o.entity_id,
-              value: o.total_payout,
-            })),
-            bottomEntities: sorted.slice(-5).reverse().map(o => ({
-              name: entityNames.get(o.entity_id) ?? o.entity_id,
-              value: o.total_payout,
-            })),
-          });
-        }
-      } else if (!cancelled) {
+        setCalcSummary({
+          totalPayout: safeOutcomes.reduce((s, o) => s + o.total_payout, 0),
+          entityCount: safeOutcomes.length,
+          componentCount: 0,
+          lastRunAt: data.lastBatchCreatedAt,
+          attainmentDist: safeOutcomes.map(o => extractAttainment(o.attainment_summary as Json)),
+          topEntities: sorted.slice(0, 5).map(o => ({
+            name: data.entityNames.get(o.entity_id) ?? o.entity_id,
+            value: o.total_payout,
+          })),
+          bottomEntities: sorted.slice(-5).reverse().map(o => ({
+            name: data.entityNames.get(o.entity_id) ?? o.entity_id,
+            value: o.total_payout,
+          })),
+        });
+      } else {
         setCalcSummary(null);
       }
     }
 
-    loadData();
+    load().finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, activePeriodId]);
+  }, [tenantId, isSpanish]);
 
   const handleAdvance = useCallback(async (nextState: string) => {
     if (!tenantId || !activePeriodId) return;
@@ -229,7 +172,7 @@ export default function OperateCockpitPage() {
           </div>
           {lifecycleState && stateDisplay && (
             <StatusPill color={dashState === 'APPROVED' || dashState === 'POSTED' ? 'emerald' : dashState === 'PUBLISHED' ? 'indigo' : 'zinc'}>
-              {stateDisplay.labelEs}
+              {isSpanish ? stateDisplay.labelEs : stateDisplay.label}
             </StatusPill>
           )}
         </div>
