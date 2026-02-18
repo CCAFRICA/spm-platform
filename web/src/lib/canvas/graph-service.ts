@@ -32,9 +32,16 @@ export interface EntityGraph {
   rootIds: string[];
 }
 
+export interface RelatedEntityInfo {
+  relationship: EntityRelationship;
+  relatedEntity: { id: string; display_name: string; entity_type: string } | null;
+  direction: 'incoming' | 'outgoing';
+}
+
 export interface EntityCardData {
   entity: Entity;
   relationships: EntityRelationship[];
+  relatedEntities: RelatedEntityInfo[];
   outcomes: {
     total_payout: number;
     component_breakdown: Record<string, unknown>[];
@@ -192,6 +199,33 @@ export async function getEntityCard(
   // Fetch relationships
   const relationships = await getEntityRelationships(tenantId, entityId);
 
+  // Resolve related entity names
+  const relatedIds = relationships.map(r =>
+    r.source_entity_id === entityId ? r.target_entity_id : r.source_entity_id
+  );
+  const uniqueRelatedIds = Array.from(new Set(relatedIds)).filter(Boolean);
+
+  const relatedEntityMap = new Map<string, { id: string; display_name: string; entity_type: string }>();
+  if (uniqueRelatedIds.length > 0) {
+    const { data: relatedRows } = await supabase
+      .from('entities')
+      .select('id, display_name, entity_type')
+      .in('id', uniqueRelatedIds);
+    for (const r of (relatedRows || [])) {
+      relatedEntityMap.set(r.id, r);
+    }
+  }
+
+  const relatedEntities: RelatedEntityInfo[] = relationships.map(r => {
+    const isOutgoing = r.source_entity_id === entityId;
+    const relatedId = isOutgoing ? r.target_entity_id : r.source_entity_id;
+    return {
+      relationship: r,
+      relatedEntity: relatedEntityMap.get(relatedId) || null,
+      direction: isOutgoing ? 'outgoing' : 'incoming',
+    };
+  });
+
   // Fetch latest outcomes
   const { data: outcomes } = await supabase
     .from('entity_period_outcomes')
@@ -217,6 +251,7 @@ export async function getEntityCard(
   return {
     entity: entity as Entity,
     relationships,
+    relatedEntities,
     outcomes: outcome,
     ruleSetAssignments: (assignments || []) as Array<{ rule_set_id: string; effective_from: string | null }>,
   };

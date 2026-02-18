@@ -1,25 +1,24 @@
 'use client';
 
 /**
- * EntityDetailPanel — Right panel showing full entity details (Zoom Level 4)
+ * EntityDetailPanel — Right panel showing full entity details
  *
- * Identity, mini-graph, attributes, rule set assignments, timeline, actions.
+ * Identity, relationships (clickable → navigate), outcomes, rule sets.
+ * DS-001 inline styles throughout.
  */
 
 import { useState, useEffect } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
 import { getEntityCard, type EntityCardData } from '@/lib/canvas/graph-service';
-import { X, ExternalLink, GitBranch, Clock, Shield } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { X, ExternalLink, GitBranch, Clock, Shield, ArrowUpRight } from 'lucide-react';
 
 interface EntityDetailPanelProps {
   entityId: string;
   onClose: () => void;
+  onNavigateToEntity?: (entityId: string) => void;
 }
 
-export function EntityDetailPanel({ entityId, onClose }: EntityDetailPanelProps) {
+export function EntityDetailPanel({ entityId, onClose, onNavigateToEntity }: EntityDetailPanelProps) {
   const { currentTenant } = useTenant();
   const [cardData, setCardData] = useState<EntityCardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -36,180 +35,177 @@ export function EntityDetailPanel({ entityId, onClose }: EntityDetailPanelProps)
 
   if (isLoading) {
     return (
-      <div className="w-80 border-l bg-card p-4 flex items-center justify-center">
-        <div className="animate-pulse text-sm text-muted-foreground">Loading...</div>
+      <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: '#0a0e1a', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: '#71717a', fontSize: '13px' }}>Loading...</div>
       </div>
     );
   }
 
   if (!cardData) {
     return (
-      <div className="w-80 border-l bg-card p-4">
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-sm text-muted-foreground">Entity not found</span>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
+      <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: '#0a0e1a', padding: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ color: '#71717a', fontSize: '13px' }}>Entity not found</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+            <X size={16} style={{ color: '#71717a' }} />
+          </button>
         </div>
       </div>
     );
   }
 
-  const { entity, relationships, outcomes, ruleSetAssignments } = cardData;
+  const { entity, relatedEntities, outcomes, ruleSetAssignments } = cardData;
 
   const statusColor = entity.status === 'active'
-    ? 'bg-emerald-500/20 text-emerald-400'
+    ? '#34d399'
     : entity.status === 'proposed'
-      ? 'bg-amber-500/20 text-amber-400'
-      : 'bg-gray-500/20 text-gray-400';
+      ? '#fbbf24'
+      : '#71717a';
 
-  const incomingRels = relationships.filter(r => r.target_entity_id === entityId);
-  const outgoingRels = relationships.filter(r => r.source_entity_id === entityId);
+  const statusBg = entity.status === 'active'
+    ? 'rgba(16, 185, 129, 0.15)'
+    : entity.status === 'proposed'
+      ? 'rgba(245, 158, 11, 0.15)'
+      : 'rgba(113, 113, 122, 0.15)';
 
   return (
-    <div className="w-80 border-l bg-card overflow-y-auto">
+    <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: '#0a0e1a', overflowY: 'auto' }}>
       {/* Header */}
-      <div className="sticky top-0 bg-card border-b p-4 z-10">
-        <div className="flex justify-between items-start">
+      <div style={{ position: 'sticky', top: 0, background: '#0a0e1a', borderBottom: '1px solid rgba(39, 39, 42, 0.6)', padding: '16px', zIndex: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h3 className="font-semibold text-base">{entity.display_name}</h3>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant="outline" className="text-[10px]">
+            <h3 style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>{entity.display_name}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+              <span style={{ color: '#818cf8', fontSize: '10px', fontWeight: 500, padding: '2px 8px', border: '1px solid rgba(99, 102, 241, 0.3)', borderRadius: '4px' }}>
                 {entity.entity_type}
-              </Badge>
-              <Badge className={`text-[10px] ${statusColor}`}>
+              </span>
+              <span style={{ color: statusColor, fontSize: '10px', fontWeight: 500, padding: '2px 8px', background: statusBg, borderRadius: '4px' }}>
                 {entity.status}
-              </Badge>
+              </span>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+            <X size={16} style={{ color: '#71717a' }} />
+          </button>
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {/* Identity */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-              <ExternalLink className="h-3 w-3" />
-              Identity
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1.5 text-sm">
-            {entity.external_id && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">External ID</span>
-                <span className="font-mono text-xs">{entity.external_id}</span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Type</span>
-              <span>{entity.entity_type}</span>
+        <div style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', borderRadius: '8px', padding: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+            <ExternalLink size={12} style={{ color: '#71717a' }} />
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Identity</span>
+          </div>
+          {entity.external_id && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ color: '#71717a', fontSize: '12px' }}>External ID</span>
+              <span style={{ color: '#e2e8f0', fontSize: '11px', fontFamily: 'monospace' }}>{entity.external_id}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Status</span>
-              <span>{entity.status}</span>
-            </div>
-          </CardContent>
-        </Card>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+            <span style={{ color: '#71717a', fontSize: '12px' }}>Type</span>
+            <span style={{ color: '#e2e8f0', fontSize: '12px' }}>{entity.entity_type}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: '#71717a', fontSize: '12px' }}>Status</span>
+            <span style={{ color: statusColor, fontSize: '12px' }}>{entity.status}</span>
+          </div>
+        </div>
 
-        {/* Relationships */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-              <GitBranch className="h-3 w-3" />
-              Relationships ({relationships.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1.5">
-            {incomingRels.length > 0 && (
-              <div>
-                <div className="text-[10px] text-muted-foreground mb-1">Incoming</div>
-                {incomingRels.map(rel => (
-                  <div key={rel.id} className="text-xs flex justify-between items-center py-0.5">
-                    <span className="text-muted-foreground">{rel.relationship_type}</span>
-                    <div className="flex items-center gap-1">
-                      <span className="font-mono text-[10px]">
-                        {(rel.confidence * 100).toFixed(0)}%
-                      </span>
-                      {rel.source === 'ai_inferred' && (
-                        <span className="text-amber-500 text-[9px]">AI</span>
-                      )}
+        {/* Relationships — clickable to navigate */}
+        <div style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', borderRadius: '8px', padding: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+            <GitBranch size={12} style={{ color: '#71717a' }} />
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Relationships ({relatedEntities.length})
+            </span>
+          </div>
+          {relatedEntities.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {relatedEntities.map((rel, i) => {
+                const isAI = rel.relationship.source === 'ai_inferred';
+                return (
+                  <button
+                    key={i}
+                    onClick={() => rel.relatedEntity && onNavigateToEntity?.(rel.relatedEntity.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 8px',
+                      borderRadius: '4px',
+                      background: 'rgba(15, 23, 42, 0.5)',
+                      border: '1px solid rgba(39, 39, 42, 0.3)',
+                      cursor: rel.relatedEntity ? 'pointer' : 'default',
+                      textAlign: 'left',
+                      width: '100%',
+                      transition: 'background 0.15s',
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: '#e2e8f0', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {rel.relatedEntity?.display_name || 'Unknown'}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                        <span style={{ color: '#71717a', fontSize: '10px' }}>
+                          {rel.direction === 'outgoing' ? '→' : '←'} {rel.relationship.relationship_type}
+                        </span>
+                        {isAI && (
+                          <span style={{ color: '#fbbf24', fontSize: '9px', fontWeight: 500 }}>
+                            AI {(rel.relationship.confidence * 100).toFixed(0)}%
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {outgoingRels.length > 0 && (
-              <div>
-                <div className="text-[10px] text-muted-foreground mb-1">Outgoing</div>
-                {outgoingRels.map(rel => (
-                  <div key={rel.id} className="text-xs flex justify-between items-center py-0.5">
-                    <span className="text-muted-foreground">{rel.relationship_type}</span>
-                    <div className="flex items-center gap-1">
-                      <span className="font-mono text-[10px]">
-                        {(rel.confidence * 100).toFixed(0)}%
-                      </span>
-                      {rel.source === 'ai_inferred' && (
-                        <span className="text-amber-500 text-[9px]">AI</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {relationships.length === 0 && (
-              <div className="text-xs text-muted-foreground">No relationships</div>
-            )}
-          </CardContent>
-        </Card>
+                    {rel.relatedEntity && (
+                      <ArrowUpRight size={12} style={{ color: '#52525b', flexShrink: 0 }} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ color: '#52525b', fontSize: '12px' }}>No relationships</div>
+          )}
+        </div>
 
         {/* Outcomes */}
         {outcomes && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                <Clock className="h-3 w-3" />
-                Latest Outcomes
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1.5 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total</span>
-                <span className="font-semibold">
-                  ${outcomes.total_payout.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Period</span>
-                <span className="text-xs">{outcomes.period_id}</span>
-              </div>
-            </CardContent>
-          </Card>
+          <div style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', borderRadius: '8px', padding: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+              <Clock size={12} style={{ color: '#71717a' }} />
+              <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Latest Outcomes</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ color: '#71717a', fontSize: '12px' }}>Total Payout</span>
+              <span style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                ${outcomes.total_payout.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#71717a', fontSize: '12px' }}>Period</span>
+              <span style={{ color: '#94a3b8', fontSize: '11px' }}>{outcomes.period_id.slice(0, 8)}</span>
+            </div>
+          </div>
         )}
 
         {/* Rule Set Assignments */}
         {ruleSetAssignments.length > 0 && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                <Shield className="h-3 w-3" />
-                Rule Set Assignments
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1">
-              {ruleSetAssignments.map((a, i) => (
-                <div key={i} className="text-xs flex justify-between">
-                  <span className="font-mono truncate">{a.rule_set_id.slice(0, 8)}</span>
-                  {a.effective_from && (
-                    <span className="text-muted-foreground">{a.effective_from}</span>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          <div style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', borderRadius: '8px', padding: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+              <Shield size={12} style={{ color: '#71717a' }} />
+              <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Rule Set Assignments</span>
+            </div>
+            {ruleSetAssignments.map((a, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                <span style={{ color: '#94a3b8', fontSize: '11px', fontFamily: 'monospace' }}>{a.rule_set_id.slice(0, 8)}</span>
+                {a.effective_from && (
+                  <span style={{ color: '#52525b', fontSize: '11px' }}>{a.effective_from}</span>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

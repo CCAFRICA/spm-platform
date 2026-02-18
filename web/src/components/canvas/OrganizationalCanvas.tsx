@@ -192,6 +192,7 @@ export function OrganizationalCanvas({
         <EntityDetailPanel
           entityId={selectedEntityId}
           onClose={() => setSelectedEntityId(null)}
+          onNavigateToEntity={handleSelectEntity}
         />
       )}
 
