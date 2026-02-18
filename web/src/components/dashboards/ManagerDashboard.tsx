@@ -233,7 +233,7 @@ export function ManagerDashboard() {
           <div className="mt-1">
             <TrendArrow delta={0} label="vs periodo anterior" size="sm" />
           </div>
-          <div className="grid grid-cols-3 gap-2 mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4">
             <div>
               <p className="text-lg font-bold" style={{ color: '#ffffff' }}>{avgAttainment.toFixed(0)}%</p>
               <p style={{ color: 'rgba(254, 243, 199, 0.6)', fontSize: '10px' }}>promedio</p>

@@ -1,8 +1,9 @@
-export type Locale = 'en-US' | 'es-MX';
+export type Locale = 'en-US' | 'es-MX' | 'pt-BR';
 
 export const SUPPORTED_LOCALES: { code: Locale; name: string; flag: string }[] = [
   { code: 'en-US', name: 'English', flag: '🇺🇸' },
   { code: 'es-MX', name: 'Español', flag: '🇲🇽' },
+  { code: 'pt-BR', name: 'Português', flag: '🇧🇷' },
 ];
 
 export const DEFAULT_LOCALE: Locale = 'en-US';

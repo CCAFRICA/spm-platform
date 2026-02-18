@@ -45,8 +45,8 @@ function TeamNodeComponent({ data }: NodeProps) {
   return (
     <div
       style={{
-        background: 'rgba(24, 24, 27, 0.9)',
-        border: '1px solid rgba(99, 102, 241, 0.25)',
+        background: 'rgba(15, 23, 42, 0.9)',
+        border: '1px solid rgba(232, 168, 56, 0.25)',
         borderRadius: '6px',
         padding: isEntityZoom ? '10px 12px' : '8px 12px',
         minWidth: isEntityZoom ? '180px' : '150px',
@@ -63,13 +63,13 @@ function TeamNodeComponent({ data }: NodeProps) {
             width: isEntityZoom ? '32px' : '28px',
             height: isEntityZoom ? '32px' : '28px',
             borderRadius: '50%',
-            background: 'rgba(99, 102, 241, 0.15)',
+            background: 'rgba(232, 168, 56, 0.15)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: isEntityZoom ? '12px' : '11px',
             fontWeight: 600,
-            color: '#818cf8',
+            color: '#E8A838',
             flexShrink: 0,
           }}
         >
@@ -80,7 +80,7 @@ function TeamNodeComponent({ data }: NodeProps) {
             {entity.display_name}
           </div>
           {typeLabel && (
-            <div style={{ color: '#71717a', fontSize: '10px' }}>{typeLabel}</div>
+            <div style={{ color: '#94A3B8', fontSize: '13px' }}>{typeLabel}</div>
           )}
         </div>
         <span
@@ -98,12 +98,12 @@ function TeamNodeComponent({ data }: NodeProps) {
       {isEntityZoom && (
         <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid rgba(63, 63, 70, 0.4)' }}>
           {entity.external_id && (
-            <div style={{ color: '#52525b', fontSize: '10px', fontFamily: 'monospace' }}>
+            <div style={{ color: '#94A3B8', fontSize: '13px', fontFamily: 'monospace' }}>
               ID: {entity.external_id}
             </div>
           )}
           {childCount > 0 && (
-            <div style={{ color: '#71717a', fontSize: '10px', marginTop: '2px' }}>
+            <div style={{ color: '#94A3B8', fontSize: '13px', marginTop: '2px' }}>
               {childCount} reports
             </div>
           )}
@@ -111,7 +111,7 @@ function TeamNodeComponent({ data }: NodeProps) {
       )}
 
       {!isEntityZoom && childCount > 0 && (
-        <div style={{ color: '#71717a', fontSize: '10px', marginTop: '4px' }}>
+        <div style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
           {childCount} reports
         </div>
       )}

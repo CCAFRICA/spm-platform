@@ -276,7 +276,7 @@ export function RepDashboard() {
 
       {/* ── Scenario Cards (6B) ── */}
       {scenarios && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Current Pace */}
           <div style={{ ...CARD_STYLE, padding: '16px', borderColor: 'rgba(52, 211, 153, 0.3)' }}>
             <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>

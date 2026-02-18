@@ -28,7 +28,7 @@ interface AuthShellProps {
  * Applies data-workspace attribute for Wayfinder ambient identity.
  */
 function AuthShellInner({ children }: AuthShellProps) {
-  const { isRailCollapsed, activeWorkspace } = useNavigation();
+  const { isRailCollapsed, activeWorkspace, isMobileOpen, toggleMobileOpen } = useNavigation();
 
   return (
     <>
@@ -40,7 +40,7 @@ function AuthShellInner({ children }: AuthShellProps) {
           isRailCollapsed ? 'md:pl-16' : 'md:pl-[264px]'
         )}
       >
-        <Navbar />
+        <Navbar onMenuToggle={toggleMobileOpen} isMobileMenuOpen={isMobileOpen} />
         <main className="workspace-content min-h-screen" style={{ background: 'transparent' }}>{children}</main>
       </div>
       <CommandPalette />

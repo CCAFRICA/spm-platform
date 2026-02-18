@@ -42,8 +42,8 @@ function UnitNodeComponent({ data }: NodeProps) {
   return (
     <div
       style={{
-        background: 'rgba(24, 24, 27, 0.9)',
-        border: '1px solid rgba(99, 102, 241, 0.3)',
+        background: 'rgba(15, 23, 42, 0.9)',
+        border: '1px solid rgba(232, 168, 56, 0.3)',
         borderRadius: '8px',
         padding: '12px 16px',
         minWidth: '180px',
@@ -73,13 +73,13 @@ function UnitNodeComponent({ data }: NodeProps) {
 
       {childCount > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
-          <Users size={12} style={{ color: '#71717a' }} />
-          <span style={{ color: '#71717a', fontSize: '11px' }}>{childCount} entities</span>
+          <Users size={12} style={{ color: '#94A3B8' }} />
+          <span style={{ color: '#94A3B8', fontSize: '13px' }}>{childCount} entities</span>
         </div>
       )}
 
       {entity.external_id && (
-        <div style={{ color: '#52525b', fontSize: '10px', marginTop: '4px', fontFamily: 'monospace' }}>
+        <div style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px', fontFamily: 'monospace' }}>
           {entity.external_id}
         </div>
       )}

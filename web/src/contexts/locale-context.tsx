@@ -24,8 +24,10 @@ import { createClient } from '@/lib/supabase/client';
 const LANG_TO_LOCALE: Record<string, Locale> = {
   es: 'es-MX',
   en: 'en-US',
+  pt: 'pt-BR',
   'es-MX': 'es-MX',
   'en-US': 'en-US',
+  'pt-BR': 'pt-BR',
 };
 
 interface LocaleContextType {

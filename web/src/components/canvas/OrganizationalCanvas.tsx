@@ -265,7 +265,7 @@ export function OrganizationalCanvas({
   if (isLoading) {
     return (
       <div className={className || ''} style={EMPTY_CONTAINER}>
-        <div style={{ color: '#71717a', fontSize: '13px' }}>Loading organizational graph...</div>
+        <div style={{ color: '#94A3B8', fontSize: '13px' }}>Loading organizational graph...</div>
       </div>
     );
   }
@@ -282,8 +282,8 @@ export function OrganizationalCanvas({
     return (
       <div className={className || ''} style={EMPTY_CONTAINER}>
         <div style={{ textAlign: 'center' }}>
-          <p style={{ color: '#71717a', fontSize: '13px' }}>No entities found</p>
-          <p style={{ color: '#52525b', fontSize: '12px', marginTop: '4px' }}>Import data to populate the organizational canvas</p>
+          <p style={{ color: '#94A3B8', fontSize: '13px' }}>No entities found</p>
+          <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>Import data to populate the organizational canvas</p>
         </div>
       </div>
     );
