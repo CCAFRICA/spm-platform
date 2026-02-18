@@ -21,7 +21,6 @@ interface LandscapeNodeData {
 function LandscapeNodeComponent({ data }: NodeProps) {
   const { entity, childCount } = data as unknown as LandscapeNodeData;
   const density = Math.min(1, childCount / 20);
-  const bgOpacity = 0.15 + density * 0.35;
 
   const statusColor = entity.status === 'active'
     ? '#34d399'
