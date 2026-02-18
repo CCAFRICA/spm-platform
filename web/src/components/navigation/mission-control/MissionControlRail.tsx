@@ -13,6 +13,7 @@ import { useNavigation, useCommandPalette } from '@/contexts/navigation-context'
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import { CycleIndicator } from './CycleIndicator';
 import { QueuePanel } from './QueuePanel';
 import { PulseMetrics } from './PulseMetrics';
@@ -35,16 +36,17 @@ interface MissionControlRailProps {
 
 export function MissionControlRail({ isOpen = true, onClose }: MissionControlRailProps) {
   const router = useRouter();
-  const { isRailCollapsed, toggleRailCollapsed, userRole } = useNavigation();
+  const { isRailCollapsed, toggleRailCollapsed } = useNavigation();
   const { setOpen: setCommandPaletteOpen } = useCommandPalette();
   const { currentTenant } = useTenant();
   const { isVLAdmin: isUserVLAdmin } = useAuth();
   const { locale } = useLocale();
+  const { persona } = usePersona();
 
   const isSpanish = locale === 'es-MX';
 
-  // Check if user is admin/vl_admin to show cycle
-  const showCycle = userRole === 'vl_admin' || userRole === 'admin';
+  // Respect persona override for cycle visibility (admin-only feature)
+  const showCycle = persona === 'admin';
 
   return (
     <>
