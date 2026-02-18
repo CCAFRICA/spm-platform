@@ -48,7 +48,7 @@ export function TrialGate({ message, allowed, children }: TrialGateProps) {
             {message}
           </div>
           <button
-            onClick={() => window.open('/landing#pricing', '_blank')}
+            onClick={() => window.location.href = '/upgrade'}
             style={{
               background: '#2D2F8F',
               color: 'white',

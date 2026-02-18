@@ -20,10 +20,11 @@
  *   9. Period Readiness → Checklist — planning/progress
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePeriod } from '@/contexts/period-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { DistributionChart } from '@/components/design-system/DistributionChart';
 import { ComponentStack } from '@/components/design-system/ComponentStack';
@@ -77,9 +78,42 @@ export function AdminDashboard() {
   const tenantId = currentTenant?.id ?? '';
   const { checkGate } = useTrialStatus(currentTenant?.id);
   const lifecycleGate = checkGate('lifecycle');
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   const [data, setData] = useState<AdminDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showUpgradeToast, setShowUpgradeToast] = useState(false);
+
+  // Post-upgrade success toast
+  useEffect(() => {
+    if (searchParams.get('upgraded') === 'true') {
+      setShowUpgradeToast(true);
+      // Remove query param
+      const url = new URL(window.location.href);
+      url.searchParams.delete('upgraded');
+      window.history.replaceState({}, '', url.pathname);
+      // Auto-dismiss after 8 seconds
+      const timer = setTimeout(() => setShowUpgradeToast(false), 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams]);
+
+  // Billing portal handler
+  const handleManageBilling = useCallback(async () => {
+    if (!currentTenant?.id) return;
+    try {
+      const res = await fetch('/api/billing/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: currentTenant.id }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } catch (err) {
+      console.error('Failed to open billing portal:', err);
+    }
+  }, [currentTenant?.id]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -272,6 +306,31 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-4">
+      {/* Post-upgrade success toast */}
+      {showUpgradeToast && (
+        <div style={{
+          background: 'rgba(34, 197, 94, 0.1)',
+          border: '1px solid rgba(34, 197, 94, 0.4)',
+          borderRadius: '8px',
+          padding: '12px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ color: '#22C55E', fontSize: '18px' }}>&#10003;</span>
+            <span style={{ color: '#22C55E', fontSize: '14px', fontWeight: 600 }}>
+              Subscription activated! Your team now has full access.
+            </span>
+          </div>
+          <button
+            onClick={() => setShowUpgradeToast(false)}
+            style={{ background: 'none', border: 'none', color: '#22C55E', cursor: 'pointer', fontSize: '16px' }}
+          >
+            &times;
+          </button>
+        </div>
+      )}
       <AssessmentPanel
         persona="admin"
         data={assessmentData}
