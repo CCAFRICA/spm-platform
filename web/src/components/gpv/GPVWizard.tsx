@@ -408,6 +408,9 @@ export function GPVWizard({ tenantId, tenantName }: GPVWizardProps) {
   };
 
   const handleSkip = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('gpv_skipped', 'true');
+    }
     router.push('/');
   };
 

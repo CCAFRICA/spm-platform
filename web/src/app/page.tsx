@@ -21,27 +21,21 @@ import { PeriodRibbon } from '@/components/design-system/PeriodRibbon';
 import { AdminDashboard } from '@/components/dashboards/AdminDashboard';
 import { ManagerDashboard } from '@/components/dashboards/ManagerDashboard';
 import { RepDashboard } from '@/components/dashboards/RepDashboard';
-import { WelcomeCard } from '@/components/dashboards/WelcomeCard';
+import { GPVWizard } from '@/components/gpv/GPVWizard';
+import { useGPV } from '@/hooks/useGPV';
 import { useTenant } from '@/contexts/tenant-context';
 
 function DashboardContent() {
   const { persona, tokens } = usePersona();
   const { availablePeriods, activePeriodKey, setActivePeriod, isLoading } = usePeriod();
   const { currentTenant } = useTenant();
-  const [showWelcome, setShowWelcome] = useState(false);
-  const [welcomeChecked, setWelcomeChecked] = useState(false);
-
-  // Check if this is a new tenant with no data — show Welcome Card instead of empty dashboard
-  useEffect(() => {
-    if (!currentTenant || welcomeChecked || isLoading) return;
-
-    // New tenants with no periods have no data imported yet
-    const hasPeriods = availablePeriods.length > 0;
-    if (!hasPeriods) {
-      setShowWelcome(true);
+  const { loading: gpvLoading, isComplete: gpvComplete, currentStep } = useGPV(currentTenant?.id);
+  const [skippedGPV, setSkippedGPV] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('gpv_skipped') === 'true';
     }
-    setWelcomeChecked(true);
-  }, [currentTenant, availablePeriods, isLoading, welcomeChecked]);
+    return false;
+  });
 
   if (!currentTenant) {
     return (
@@ -51,18 +45,28 @@ function DashboardContent() {
     );
   }
 
-  // Show Welcome Card for brand-new self-service tenants
-  if (showWelcome) {
+  // Show loading while GPV state resolves
+  if (gpvLoading) {
     return (
-      <PersonaLayout persona={persona}>
-        <div className="p-6 max-w-6xl mx-auto" style={{ paddingTop: '40px' }}>
-          <WelcomeCard
-            hasPlans={false}
-            hasData={false}
-            hasResults={false}
-          />
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#020617' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div className="animate-spin h-6 w-6 border-2 border-zinc-500 border-t-transparent rounded-full mx-auto" />
+          <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '12px' }}>Loading...</p>
         </div>
-      </PersonaLayout>
+      </div>
+    );
+  }
+
+  // Existing tenants with calculation data skip GPV automatically
+  const hasCalculationData = availablePeriods.length > 0;
+
+  // Show GPV wizard for new tenants that haven't completed activation
+  if (!gpvComplete && !hasCalculationData && !skippedGPV && currentStep < 4) {
+    return (
+      <GPVWizard
+        tenantId={currentTenant.id}
+        tenantName={currentTenant.displayName || currentTenant.name}
+      />
     );
   }
 
