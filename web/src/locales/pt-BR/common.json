@@ -1,0 +1,139 @@
+{
+  "app": {
+    "name": "ViaLuce",
+    "tagline": "Gestao de Desempenho de Vendas"
+  },
+  "common": {
+    "export": "Exportar",
+    "exporting": "Exportando...",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "all": "Todos",
+    "allOrders": "Todos os Pedidos"
+  },
+  "orders": {
+    "title": "Pedidos",
+    "subtitle": "Visualizar e gerenciar todos os pedidos de transacoes",
+    "searchPlaceholder": "Buscar pedidos...",
+    "orderId": "ID do Pedido",
+    "date": "Data",
+    "customer": "Cliente",
+    "product": "Produto",
+    "salesRep": "Representante",
+    "amount": "Valor",
+    "commission": "Comissao",
+    "status": "Status",
+    "exportSuccess": "Exportacao Concluida",
+    "exportDescription": "Exportados {{count}} pedidos para CSV"
+  },
+  "nav": {
+    "dashboard": "Painel",
+    "transactions": "Transacoes",
+    "orders": "Pedidos",
+    "performance": "Desempenho",
+    "goals": "Metas",
+    "plans": "Planos",
+    "approvals": "Aprovacoes",
+    "acceleration": "Aceleracao",
+    "insights": "Analises",
+    "data": "Dados",
+    "import": "Importar",
+    "configuration": "Configuracao",
+    "terminology": "Terminologia",
+    "admin": "Admin",
+    "auditLog": "Registro de Auditoria"
+  },
+  "actions": {
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "submit": "Enviar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "view": "Visualizar",
+    "export": "Exportar",
+    "import": "Importar",
+    "refresh": "Atualizar",
+    "reset": "Redefinir",
+    "approve": "Aprovar",
+    "reject": "Rejeitar",
+    "close": "Fechar",
+    "continue": "Continuar",
+    "back": "Voltar",
+    "next": "Proximo",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "clear": "Limpar"
+  },
+  "status": {
+    "pending": "Pendente",
+    "approved": "Aprovado",
+    "rejected": "Rejeitado",
+    "completed": "Concluido",
+    "cancelled": "Cancelado",
+    "active": "Ativo",
+    "inactive": "Inativo",
+    "draft": "Rascunho"
+  },
+  "time": {
+    "today": "Hoje",
+    "yesterday": "Ontem",
+    "thisWeek": "Esta Semana",
+    "thisMonth": "Este Mes",
+    "thisQuarter": "Este Trimestre",
+    "thisYear": "Este Ano",
+    "allTime": "Todo o Tempo"
+  },
+  "messages": {
+    "loading": "Carregando...",
+    "saving": "Salvando...",
+    "success": "Sucesso!",
+    "error": "Ocorreu um erro",
+    "noData": "Nenhum dado disponivel",
+    "noResults": "Nenhum resultado encontrado",
+    "confirmDelete": "Tem certeza de que deseja excluir?",
+    "unsavedChanges": "Voce tem alteracoes nao salvas"
+  },
+  "auth": {
+    "signIn": "Entrar",
+    "login": "Entrar",
+    "logout": "Sair",
+    "profile": "Perfil",
+    "settings": "Configuracoes",
+    "selectUser": "Selecionar Usuario Demo",
+    "selectUserDesc": "Escolha um perfil para explorar diferentes niveis de permissao",
+    "continueAs": "Continuar como {{name}}",
+    "welcomeBack": "Bem-vindo, {{name}}!",
+    "loggedInAs": "Conectado como {{role}}",
+    "loggedOut": "Sessao encerrada",
+    "seeYou": "Ate a proxima!"
+  },
+  "language": {
+    "select": "Selecionar Idioma",
+    "english": "Ingles",
+    "spanish": "Espanhol",
+    "portuguese": "Portugues"
+  },
+  "workspaces": {
+    "operate": "Operar",
+    "perform": "Desempenho",
+    "investigate": "Investigar",
+    "design": "Projetar",
+    "configure": "Configurar",
+    "govern": "Governar",
+    "financial": "Financeiro"
+  },
+  "dashboard": {
+    "title": "Painel",
+    "totalPayout": "Pagamento Total",
+    "entities": "Entidades",
+    "activePlans": "Planos Ativos",
+    "currentPeriod": "Periodo Atual",
+    "progress": "Progresso",
+    "recentActivity": "Atividade Recente",
+    "teamPerformance": "Desempenho da Equipe",
+    "myCompensation": "Minha Compensacao",
+    "goalAttainment": "Atingimento de Metas",
+    "leaderboard": "Classificacao",
+    "organizationalStructure": "Estrutura Organizacional"
+  }
+}

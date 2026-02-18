@@ -110,6 +110,30 @@
   "language": {
     "select": "Select Language",
     "english": "English",
-    "spanish": "Spanish"
+    "spanish": "Spanish",
+    "portuguese": "Portuguese"
+  },
+  "workspaces": {
+    "operate": "Operate",
+    "perform": "Perform",
+    "investigate": "Investigate",
+    "design": "Design",
+    "configure": "Configure",
+    "govern": "Govern",
+    "financial": "Financial"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "totalPayout": "Total Payout",
+    "entities": "Entities",
+    "activePlans": "Active Plans",
+    "currentPeriod": "Current Period",
+    "progress": "Progress",
+    "recentActivity": "Recent Activity",
+    "teamPerformance": "Team Performance",
+    "myCompensation": "My Compensation",
+    "goalAttainment": "Goal Attainment",
+    "leaderboard": "Leaderboard",
+    "organizationalStructure": "Organizational Structure"
   }
 }

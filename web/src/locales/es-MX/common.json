@@ -110,6 +110,30 @@
   "language": {
     "select": "Seleccionar Idioma",
     "english": "Inglés",
-    "spanish": "Español"
+    "spanish": "Español",
+    "portuguese": "Portugués"
+  },
+  "workspaces": {
+    "operate": "Operar",
+    "perform": "Desempeño",
+    "investigate": "Investigar",
+    "design": "Diseñar",
+    "configure": "Configurar",
+    "govern": "Gobernar",
+    "financial": "Financiero"
+  },
+  "dashboard": {
+    "title": "Panel",
+    "totalPayout": "Pago Total",
+    "entities": "Entidades",
+    "activePlans": "Planes Activos",
+    "currentPeriod": "Periodo Actual",
+    "progress": "Progreso",
+    "recentActivity": "Actividad Reciente",
+    "teamPerformance": "Rendimiento del Equipo",
+    "myCompensation": "Mi Compensación",
+    "goalAttainment": "Logro de Metas",
+    "leaderboard": "Tabla de Clasificación",
+    "organizationalStructure": "Estructura Organizacional"
   }
 }

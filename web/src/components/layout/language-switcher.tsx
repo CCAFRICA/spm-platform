@@ -17,7 +17,7 @@ import { createClient } from '@/lib/supabase/client';
 import { SUPPORTED_LOCALES, Locale } from '@/lib/i18n';
 
 /** Map locale code to profiles.language column value */
-const LOCALE_TO_LANG: Record<string, string> = {
+const LOCALE_TO_LANG: Record<Locale, string> = {
   'es-MX': 'es',
   'en-US': 'en',
   'pt-BR': 'pt',
