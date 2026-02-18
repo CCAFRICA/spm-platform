@@ -81,10 +81,10 @@ export async function POST(request: NextRequest) {
       metadata: {
         plan_type: planConfig.ruleSetType || 'additive_lookup',
         previous_version_id: planConfig.previousVersionId || null,
-        updated_by: planConfig.updatedBy || user.email || 'system',
+        updated_by: planConfig.updatedBy || user.id,
         approved_at: planConfig.approvedAt || null,
       } as unknown as Json,
-      created_by: planConfig.createdBy || user.email || 'system',
+      created_by: planConfig.createdBy || user.id,
     };
 
     // 5. Upsert rule set
