@@ -11,7 +11,7 @@
  * - Layout mode toggle (hierarchical / force-directed)
  */
 
-import { useCallback } from 'react';
+import { useCallback, useState, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -21,9 +21,12 @@ import {
   useReactFlow,
   type Viewport,
   type NodeMouseHandler,
+  type Node,
+  type OnNodeDrag,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
+import { useTenant } from '@/contexts/tenant-context';
 import { useCanvasData } from './hooks/useCanvasData';
 import { useCanvasLayout } from './hooks/useCanvasLayout';
 import { useCanvasZoom } from './hooks/useCanvasZoom';
@@ -36,8 +39,8 @@ import { CanvasToolbar } from './CanvasToolbar';
 import { CanvasLegend } from './CanvasLegend';
 import { EntityDetailPanel } from './panels/EntityDetailPanel';
 import { ImpactPreviewPanel } from './panels/ImpactPreviewPanel';
+import { reassignEntity } from '@/lib/canvas/graph-service';
 import type { LayoutConfig } from '@/lib/canvas/layout-engine';
-import { useState } from 'react';
 
 // Register custom node types
 const nodeTypes = {
@@ -65,8 +68,9 @@ export function OrganizationalCanvas({
   initialZoom = 0.5,
   className,
 }: OrganizationalCanvasProps) {
+  const { currentTenant } = useTenant();
   const [layoutMode, setLayoutMode] = useState<LayoutConfig['mode']>('hierarchical');
-  const { graph, isLoading, error, search } = useCanvasData(
+  const { graph, isLoading, error, search, refresh } = useCanvasData(
     entityTypeFilter ? { entityType: entityTypeFilter } : undefined
   );
   const { zoomLevel, onZoomChange } = useCanvasZoom(initialZoom);
@@ -75,9 +79,13 @@ export function OrganizationalCanvas({
     selectedEntityId,
     setSelectedEntityId,
     reassignmentDraft,
+    startReassignment,
     cancelReassignment,
     updateReassignmentDraft,
   } = useCanvasActions();
+
+  // Track drag start position for proximity detection
+  const dragStartPos = useRef<{ x: number; y: number } | null>(null);
 
   // Track viewport changes for zoom level
   useOnViewportChange({
@@ -117,11 +125,80 @@ export function OrganizationalCanvas({
     setSelectedEntityId(entityId);
   }, [flowNodes, setCenter, setSelectedEntityId]);
 
-  // Handle reassignment confirm
+  // Drag start — record initial position
+  const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
+    dragStartPos.current = { x: node.position.x, y: node.position.y };
+  }, []);
+
+  // Drag stop — detect drop target by proximity
+  const onNodeDragStop: OnNodeDrag = useCallback((_event, node) => {
+    const start = dragStartPos.current;
+    dragStartPos.current = null;
+    if (!start || !graph) return;
+
+    // Only trigger if actually moved (> 40px)
+    const dx = node.position.x - start.x;
+    const dy = node.position.y - start.y;
+    if (Math.sqrt(dx * dx + dy * dy) < 40) return;
+
+    // Find closest other node within 120px proximity
+    const DROP_RADIUS = 120;
+    let closestNode: Node | null = null;
+    let closestDist = Infinity;
+
+    for (const fn of flowNodes) {
+      if (fn.id === node.id) continue;
+      const fdx = fn.position.x - node.position.x;
+      const fdy = fn.position.y - node.position.y;
+      const dist = Math.sqrt(fdx * fdx + fdy * fdy);
+      if (dist < DROP_RADIUS && dist < closestDist) {
+        closestDist = dist;
+        closestNode = fn;
+      }
+    }
+
+    if (!closestNode) return;
+
+    // Find the entity data for the dragged node
+    const draggedGraphNode = graph.nodes.find(n => n.id === node.id);
+    if (!draggedGraphNode) return;
+
+    // Find current parent from graph edges
+    const parentEdge = graph.edges.find(
+      e => e.targetId === node.id &&
+        (e.relationship.relationship_type === 'contains' ||
+         e.relationship.relationship_type === 'manages' ||
+         e.relationship.relationship_type === 'works_at')
+    );
+
+    startReassignment(
+      draggedGraphNode.entity,
+      parentEdge?.sourceId || null,
+      closestNode.id
+    );
+  }, [graph, flowNodes, startReassignment]);
+
+  // Handle reassignment confirm — persist to Supabase
   const handleConfirmReassignment = useCallback(async () => {
-    // Future: call createReassignmentEvent via entity-service
-    cancelReassignment();
-  }, [cancelReassignment]);
+    if (!reassignmentDraft || !currentTenant?.id) {
+      cancelReassignment();
+      return;
+    }
+
+    try {
+      await reassignEntity(
+        currentTenant.id,
+        reassignmentDraft.entity.id,
+        reassignmentDraft.toParentId,
+        reassignmentDraft.effectiveDate,
+      );
+      cancelReassignment();
+      await refresh();
+    } catch {
+      // On error, just cancel and let user retry
+      cancelReassignment();
+    }
+  }, [reassignmentDraft, currentTenant?.id, cancelReassignment, refresh]);
 
   if (isLoading) {
     return (
@@ -162,6 +239,9 @@ export function OrganizationalCanvas({
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodeClick={onNodeClick}
+          onNodeDragStart={onNodeDragStart}
+          onNodeDragStop={onNodeDragStop}
+          nodesDraggable
           defaultViewport={{ x: 0, y: 0, zoom: initialZoom }}
           fitView
           fitViewOptions={{ padding: 0.2 }}
@@ -199,6 +279,10 @@ export function OrganizationalCanvas({
       {reassignmentDraft && (
         <ImpactPreviewPanel
           draft={reassignmentDraft}
+          targetName={
+            graph?.nodes.find(n => n.id === reassignmentDraft.toParentId)?.entity.display_name
+            || reassignmentDraft.toParentId.slice(0, 8)
+          }
           onConfirm={handleConfirmReassignment}
           onCancel={cancelReassignment}
           onUpdate={updateReassignmentDraft}

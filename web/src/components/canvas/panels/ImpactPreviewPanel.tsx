@@ -3,16 +3,16 @@
 /**
  * ImpactPreviewPanel — Slides in when drag-to-reassign initiated
  *
- * Shows source, target, impact preview, credit model selector, effective date.
+ * Shows source entity, target entity (by name), impact preview,
+ * credit model selector, effective date. DS-001 inline styles.
  */
 
 import type { ReassignmentDraft } from '../hooks/useCanvasActions';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowRight, Calendar, AlertCircle } from 'lucide-react';
+import { ArrowRight, Calendar, AlertTriangle } from 'lucide-react';
 
 interface ImpactPreviewPanelProps {
   draft: ReassignmentDraft;
+  targetName: string;
   onConfirm: () => void;
   onCancel: () => void;
   onUpdate: (updates: Partial<ReassignmentDraft>) => void;
@@ -24,100 +24,135 @@ const CREDIT_MODELS = [
   { value: 'no_credit' as const, label: 'No credit transfer' },
 ];
 
+const CARD_STYLE: React.CSSProperties = {
+  background: 'rgba(24, 24, 27, 0.8)',
+  border: '1px solid rgba(39, 39, 42, 0.6)',
+  borderRadius: '8px',
+  padding: '12px',
+};
+
 export function ImpactPreviewPanel({
   draft,
+  targetName,
   onConfirm,
   onCancel,
   onUpdate,
 }: ImpactPreviewPanelProps) {
   return (
-    <div className="w-80 border-l bg-card overflow-y-auto">
-      <div className="sticky top-0 bg-card border-b p-4 z-10">
-        <h3 className="font-semibold text-sm flex items-center gap-2">
-          <AlertCircle className="h-4 w-4 text-amber-500" />
-          Reassignment Preview
-        </h3>
+    <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: '#0a0e1a', overflowY: 'auto' }}>
+      {/* Header */}
+      <div style={{ position: 'sticky', top: 0, background: '#0a0e1a', borderBottom: '1px solid rgba(39, 39, 42, 0.6)', padding: '16px', zIndex: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <AlertTriangle size={16} style={{ color: '#fbbf24' }} />
+          <h3 style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 600, margin: 0 }}>Reassignment Preview</h3>
+        </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {/* Move details */}
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 text-sm">
-              <div className="flex-1">
-                <div className="text-xs text-muted-foreground">Moving</div>
-                <div className="font-medium truncate">{draft.entity.display_name}</div>
-              </div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div className="flex-1 text-right">
-                <div className="text-xs text-muted-foreground">To</div>
-                <div className="font-medium truncate">{draft.toParentId.slice(0, 8)}...</div>
-              </div>
+        <div style={CARD_STYLE}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: '#71717a', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Moving</div>
+              <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 500, marginTop: '2px' }}>{draft.entity.display_name}</div>
             </div>
-          </CardContent>
-        </Card>
+            <ArrowRight size={16} style={{ color: '#52525b', flexShrink: 0 }} />
+            <div style={{ flex: 1, textAlign: 'right' }}>
+              <div style={{ color: '#71717a', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>To</div>
+              <div style={{ color: '#818cf8', fontSize: '13px', fontWeight: 500, marginTop: '2px' }}>{targetName}</div>
+            </div>
+          </div>
+        </div>
 
         {/* Impact */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Impact</CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground space-y-1">
-            <p>This will change reporting structure.</p>
-            <p>Rule set assignments will be reviewed.</p>
-          </CardContent>
-        </Card>
+        <div style={CARD_STYLE}>
+          <div style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Impact</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ color: '#94a3b8', fontSize: '12px' }}>• Change reporting structure</div>
+            <div style={{ color: '#94a3b8', fontSize: '12px' }}>• Update entity_relationships</div>
+            <div style={{ color: '#94a3b8', fontSize: '12px' }}>• Rule set assignments reviewed</div>
+          </div>
+        </div>
 
         {/* Credit model */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Credit Model</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div style={CARD_STYLE}>
+          <div style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Credit Model</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {CREDIT_MODELS.map(model => (
               <label
                 key={model.value}
-                className="flex items-center gap-2 text-xs cursor-pointer"
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: '#e2e8f0' }}
               >
                 <input
                   type="radio"
                   name="creditModel"
                   checked={draft.creditModel === model.value}
                   onChange={() => onUpdate({ creditModel: model.value })}
-                  className="text-primary"
+                  style={{ accentColor: '#818cf8' }}
                 />
                 {model.label}
               </label>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* Effective date */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-              <Calendar className="h-3 w-3" />
-              Effective Date
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <input
-              type="date"
-              value={draft.effectiveDate}
-              onChange={(e) => onUpdate({ effectiveDate: e.target.value })}
-              className="w-full text-sm border rounded px-2 py-1 bg-background"
-            />
-          </CardContent>
-        </Card>
+        <div style={CARD_STYLE}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+            <Calendar size={12} style={{ color: '#71717a' }} />
+            <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Effective Date</span>
+          </div>
+          <input
+            type="date"
+            value={draft.effectiveDate}
+            onChange={(e) => onUpdate({ effectiveDate: e.target.value })}
+            style={{
+              width: '100%',
+              padding: '8px',
+              fontSize: '13px',
+              color: '#e2e8f0',
+              background: 'rgba(15, 23, 42, 0.5)',
+              border: '1px solid rgba(39, 39, 42, 0.6)',
+              borderRadius: '6px',
+              outline: 'none',
+            }}
+          />
+        </div>
 
         {/* Actions */}
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={onCancel} className="flex-1" size="sm">
+        <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+          <button
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              padding: '8px',
+              fontSize: '13px',
+              fontWeight: 500,
+              color: '#a1a1aa',
+              background: 'none',
+              border: '1px solid rgba(63, 63, 70, 0.6)',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
             Cancel
-          </Button>
-          <Button onClick={onConfirm} className="flex-1" size="sm">
-            Confirm
-          </Button>
+          </button>
+          <button
+            onClick={onConfirm}
+            style={{
+              flex: 1,
+              padding: '8px',
+              fontSize: '13px',
+              fontWeight: 500,
+              color: '#ffffff',
+              background: 'linear-gradient(to right, #6366f1, #8b5cf6)',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            Confirm Move
+          </button>
         </div>
       </div>
     </div>
