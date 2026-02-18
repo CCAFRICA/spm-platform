@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/auth-context';
@@ -39,7 +40,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4"
-         style={{ backgroundColor: '#0A0E1A' }}>
+         style={{ backgroundColor: '#020617' }}>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -53,11 +54,10 @@ export default function LoginPage() {
           transition={{ delay: 0.1 }}
           className="text-center mb-12"
         >
-          <h1 className="text-4xl font-bold tracking-tight"
-              style={{ color: '#F1F5F9', letterSpacing: '-0.02em' }}>
-            Vialuce
+          <h1 style={{ fontSize: '36px', fontWeight: 800, color: '#2D2F8F', letterSpacing: '-0.02em', margin: 0 }}>
+            VIALUCE
           </h1>
-          <p className="text-sm mt-2" style={{ color: '#A5B4FC', fontWeight: 500, letterSpacing: '0.05em' }}>
+          <p style={{ fontSize: '14px', color: '#E8A838', fontWeight: 600, marginTop: '6px', letterSpacing: '0.06em' }}>
             Intelligence. Acceleration. Performance.
           </p>
         </motion.div>
@@ -130,14 +130,22 @@ export default function LoginPage() {
               type="submit"
               disabled={!emailInput || !passwordInput || isLoading}
               className="w-full py-2.5 rounded-xl text-sm font-medium text-white transition-colors disabled:opacity-50"
-              style={{ backgroundColor: '#4F46E5' }}
-              onMouseEnter={(e) => { if (!isLoading) (e.target as HTMLButtonElement).style.backgroundColor = '#6366F1'; }}
-              onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#4F46E5'}
+              style={{ backgroundColor: '#2D2F8F' }}
+              onMouseEnter={(e) => { if (!isLoading) (e.target as HTMLButtonElement).style.backgroundColor = '#3D3FAF'; }}
+              onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#2D2F8F'}
             >
               {isLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
         </div>
+
+        {/* Signup link */}
+        <p style={{ textAlign: 'center', marginTop: '24px', fontSize: '14px', color: '#94A3B8' }}>
+          Don&apos;t have an account?{' '}
+          <Link href="/signup" style={{ color: '#E8A838', textDecoration: 'none', fontWeight: 600 }}>
+            Start Free &rarr;
+          </Link>
+        </p>
 
         {/* Footer */}
         <motion.p
@@ -145,7 +153,7 @@ export default function LoginPage() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4 }}
           className="text-center mt-8"
-          style={{ color: '#475569', fontSize: '12px' }}
+          style={{ color: '#475569', fontSize: '13px' }}
         >
           vialuce.ai
         </motion.p>

@@ -56,7 +56,7 @@ function AuthShellInner({ children }: AuthShellProps) {
 export function AuthShell({ children }: AuthShellProps) {
   const pathname = usePathname();
 
-  if (pathname === '/login' || pathname.startsWith('/api/auth')) {
+  if (pathname === '/login' || pathname === '/landing' || pathname === '/signup' || pathname.startsWith('/api/auth')) {
     return <>{children}</>;
   }
 
@@ -120,17 +120,9 @@ function AuthShellProtected({ children }: AuthShellProps) {
 
   // Authenticated user - show with or without shell based on route
   if (!showShell) {
-    // On shell-excluded routes (e.g. /select-tenant), still show the
-    // DemoPersonaSwitcher for VL Admin with a tenant context so they
-    // can switch persona views before navigating into the tenant.
-    if (isVLAdmin && currentTenant) {
-      return (
-        <PersonaProvider>
-          {children}
-          <DemoPersonaSwitcher />
-        </PersonaProvider>
-      );
-    }
+    // OB-60: No DemoPersonaSwitcher on Observatory (/select-tenant).
+    // The Observatory is exclusively for VL Platform Admin — persona
+    // switching only makes sense inside a tenant context on regular pages.
     return <>{children}</>;
   }
 

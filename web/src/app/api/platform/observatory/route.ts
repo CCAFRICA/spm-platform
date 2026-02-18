@@ -55,6 +55,8 @@ export async function GET(request: NextRequest) {
           fetchTenantFleetCards(supabase),
           fetchOperationsQueue(supabase),
         ]);
+        // Populate attention items count from queue
+        overview.openAttentionItems = queue.filter(q => q.severity !== 'info').length;
         return NextResponse.json({ overview, tenantCards, queue });
       }
       case 'ai':
@@ -83,26 +85,86 @@ export async function GET(request: NextRequest) {
 // Fleet Tab
 // ═══════════════════════════════════════════════
 
+// ── MRR lookup by tier ──
+const TIER_MRR: Record<string, number> = {
+  Inicio: 299, Crecimiento: 999, Profesional: 2999, Empresarial: 7999,
+};
+
 async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOverview> {
-  const [tenantRes, entityRes, batchRes, periodRes] = await Promise.all([
-    supabase.from('tenants').select('id', { count: 'exact', head: false }),
+  const [tenantRes, entityRes, batchRes, periodRes, signalsRes] = await Promise.all([
+    supabase.from('tenants').select('id, settings, created_at'),
     supabase.from('entities').select('*', { count: 'exact', head: true }),
-    supabase.from('calculation_batches').select('*', { count: 'exact', head: true }),
+    supabase.from('calculation_batches').select('id, tenant_id, lifecycle_state, created_at, updated_at'),
     supabase.from('periods').select('*', { count: 'exact', head: true }).neq('status', 'closed'),
+    supabase.from('classification_signals').select('confidence').limit(1000),
   ]);
 
   if (tenantRes.error) {
     console.error('[fetchFleetOverview] tenants query error:', tenantRes.error);
   }
 
-  const tenantCount = tenantRes.count ?? (tenantRes.data?.length ?? 0);
+  const tenants = tenantRes.data ?? [];
+  const batches = batchRes.data ?? [];
+  const signals = signalsRes.data ?? [];
+  const tenantCount = tenants.length;
+
+  // Active tenants: had a calculation in the last 30 days
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const activeTenantIds = new Set<string>();
+  for (const b of batches) {
+    if (new Date(b.created_at).getTime() > thirtyDaysAgo) {
+      activeTenantIds.add(b.tenant_id);
+    }
+  }
+
+  // MRR: sum tier prices across all tenants
+  let mrr = 0;
+  for (const t of tenants) {
+    const settings = (t.settings || {}) as Record<string, unknown>;
+    const billing = (settings.billing || {}) as Record<string, string>;
+    const tier = billing.tier || 'Inicio';
+    mrr += TIER_MRR[tier] ?? 299;
+  }
+
+  // Lifecycle throughput: batches that reached PAID or PUBLISHED this month
+  const thisMonth = new Date();
+  const firstOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+  let lifecycleThroughput = 0;
+  for (const b of batches) {
+    if (['PAID', 'PUBLISHED'].includes(b.lifecycle_state) && new Date(b.created_at) >= firstOfMonth) {
+      lifecycleThroughput++;
+    }
+  }
+
+  // Avg days in lifecycle: from created_at to updated_at for completed batches
+  let totalDays = 0;
+  let completedCount = 0;
+  for (const b of batches) {
+    if (['PAID', 'PUBLISHED', 'CLOSED'].includes(b.lifecycle_state) && b.updated_at) {
+      const days = (new Date(b.updated_at).getTime() - new Date(b.created_at).getTime()) / (1000 * 60 * 60 * 24);
+      totalDays += days;
+      completedCount++;
+    }
+  }
+
+  // AI confidence average
+  let totalConf = 0;
+  let confCount = 0;
+  for (const s of signals) {
+    if (s.confidence != null) { totalConf += s.confidence; confCount++; }
+  }
 
   return {
     tenantCount,
-    activeTenantCount: tenantCount, // all tenants are active (no status column)
+    activeTenantCount: activeTenantIds.size || tenantCount,
     totalEntities: entityRes.count ?? 0,
-    totalBatches: batchRes.count ?? 0,
+    totalBatches: batches.length,
     activePeriodsCount: periodRes.count ?? 0,
+    mrr,
+    openAttentionItems: 0, // filled after queue is computed
+    lifecycleThroughput,
+    avgDaysInLifecycle: completedCount > 0 ? Math.round(totalDays / completedCount) : 0,
+    avgAiConfidence: confCount > 0 ? totalConf / confCount : 0,
   };
 }
 
@@ -216,12 +278,14 @@ async function fetchOperationsQueue(supabase: ServiceClient): Promise<Operations
 
   for (const t of tenants) {
     if ((entityCounts.get(t.id) ?? 0) === 0) {
+      const daysSinceCreation = Math.floor((Date.now() - new Date(t.created_at).getTime()) / (24 * 60 * 60 * 1000));
       items.push({
         tenantId: t.id,
         tenantName: t.name,
-        message: `No data imported yet (created ${new Date(t.created_at).toLocaleDateString()})`,
-        severity: 'warning',
+        message: `No data imported yet (created ${daysSinceCreation}d ago)`,
+        severity: daysSinceCreation > 2 ? 'warning' : 'info',
         timestamp: t.created_at,
+        action: { label: 'View Tenant', href: `/select-tenant` },
       });
       continue;
     }
@@ -231,9 +295,10 @@ async function fetchOperationsQueue(supabase: ServiceClient): Promise<Operations
       items.push({
         tenantId: t.id,
         tenantName: t.name,
-        message: 'No calculations run yet',
+        message: 'Data imported but no calculations run yet',
         severity: 'info',
         timestamp: t.created_at,
+        action: { label: 'Run Calculation', href: `/select-tenant` },
       });
       continue;
     }
@@ -243,14 +308,17 @@ async function fetchOperationsQueue(supabase: ServiceClient): Promise<Operations
       batchAge > STALL_THRESHOLD &&
       latest.lifecycle_state !== 'POSTED' &&
       latest.lifecycle_state !== 'CLOSED' &&
-      latest.lifecycle_state !== 'PAID'
+      latest.lifecycle_state !== 'PAID' &&
+      latest.lifecycle_state !== 'PUBLISHED'
     ) {
+      const stalledDays = Math.floor(batchAge / (24 * 60 * 60 * 1000));
       items.push({
         tenantId: t.id,
         tenantName: t.name,
-        message: `Lifecycle stalled at ${latest.lifecycle_state} for ${Math.floor(batchAge / (24 * 60 * 60 * 1000))}d`,
-        severity: 'critical',
+        message: `Lifecycle stalled at ${latest.lifecycle_state} for ${stalledDays}d`,
+        severity: stalledDays > 3 ? 'critical' : 'warning',
         timestamp: latest.created_at,
+        action: { label: 'Resume', href: `/select-tenant` },
       });
     }
   }
