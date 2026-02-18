@@ -6,8 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
-import { saveRuleSet, activateRuleSet } from '@/lib/supabase/rule-set-service';
-import { createClient } from '@/lib/supabase/client';
+// Plan import uses /api/plan/import route (service role) instead of browser client
 import { parseFile } from '@/lib/import-pipeline/file-parser';
 import {
   interpretPlanDocument,
@@ -673,40 +672,21 @@ export default function PlanImportPage() {
         };
       }
 
-      // Save the plan (as draft first) via Supabase
-      console.log('[handleImport] Saving plan:', planConfig.id, planConfig.name);
-      await saveRuleSet(currentTenant.id, planConfig);
-      console.log('[handleImport] Plan saved to Supabase');
+      // Save and activate via server API route (service role bypasses RLS)
+      console.log('[handleImport] Saving plan via API:', planConfig.id, planConfig.name);
+      const response = await fetch('/api/plan/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planConfig, activate: true }),
+      });
 
-      // Activate the plan immediately so calculation engine can use it
-      const activatedPlan = await activateRuleSet(currentTenant.id, planConfig.id);
-      if (!activatedPlan) {
-        console.warn('[handleImport] Failed to activate plan, but plan was saved as draft');
-      } else {
-        console.log('[handleImport] Plan activated successfully:', activatedPlan.id);
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || `Plan import failed: ${response.status}`);
       }
 
-      // Write metering event for plan_import (non-blocking)
-      try {
-        const supabase = createClient();
-        const now = new Date();
-        const periodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        await supabase.from('usage_metering').insert({
-          tenant_id: currentTenant.id,
-          metric_name: 'plan_import',
-          metric_value: 1,
-          period_key: periodKey,
-          metadata: {
-            rule_set_id: planConfig.id,
-            rule_set_name: planConfig.name,
-            component_count: parsedPlan.components.length,
-            source_format: parsedPlan.detectedFormat || 'unknown',
-          },
-        });
-        console.log('[handleImport] Metering event written: plan_import');
-      } catch (meterErr) {
-        console.warn('[handleImport] Metering failed (non-blocking):', meterErr);
-      }
+      const { ruleSet } = await response.json();
+      console.log('[handleImport] Plan saved and activated via API:', ruleSet.id);
 
       setImportResult({ success: true, ruleSetId: planConfig.id });
       console.log('[handleImport] SUCCESS - Import complete');
