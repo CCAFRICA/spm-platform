@@ -23,6 +23,15 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/* ──── STYLES ──── */
+const LABEL_STYLE: React.CSSProperties = {
+  color: '#94A3B8',
+  fontSize: '13px',
+  fontWeight: 500,
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+};
+
 export function ObservatoryTab() {
   const router = useRouter();
   const { setTenant } = useTenant();
@@ -76,40 +85,27 @@ export function ObservatoryTab() {
 
   return (
     <div className="space-y-8">
+      {/* Tab heading */}
+      <div>
+        <h2 style={{ color: '#E2E8F0', fontSize: '18px', fontWeight: 600 }}>Fleet Observatory</h2>
+        <p style={{ color: '#94A3B8', fontSize: '14px' }}>Real-time monitoring of tenant fleet, operations, and health</p>
+      </div>
+
       {/* Hero Metrics */}
       {overview && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard
-            icon={Building2}
-            label="Active Tenants"
-            value={overview.activeTenantCount}
-            subtitle={`${overview.tenantCount} total`}
-          />
-          <MetricCard
-            icon={Users}
-            label="Total Entities"
-            value={overview.totalEntities}
-          />
-          <MetricCard
-            icon={Calculator}
-            label="Calculation Runs"
-            value={overview.totalBatches}
-          />
-          <MetricCard
-            icon={Calendar}
-            label="Active Periods"
-            value={overview.activePeriodsCount}
-          />
+          <MetricCard icon={Building2} label="Active Tenants" value={overview.activeTenantCount} subtitle={`${overview.tenantCount} total`} />
+          <MetricCard icon={Users} label="Total Entities" value={overview.totalEntities} />
+          <MetricCard icon={Calculator} label="Calculation Runs" value={overview.totalBatches} />
+          <MetricCard icon={Calendar} label="Active Periods" value={overview.activePeriodsCount} />
         </div>
       )}
 
       {/* Operations Queue */}
       <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
-          Operations Queue
-        </h3>
+        <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>Operations Queue</h3>
         {queue.length === 0 ? (
-          <div className="flex items-center gap-2 py-3 text-sm text-emerald-400">
+          <div className="flex items-center gap-2 py-3" style={{ color: '#34d399', fontSize: '14px' }}>
             <CheckCircle className="h-4 w-4" />
             All tenants healthy — no items require attention
           </div>
@@ -128,8 +124,8 @@ export function ObservatoryTab() {
                 {item.severity === 'critical' && <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />}
                 {item.severity === 'warning' && <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />}
                 {item.severity === 'info' && <Info className="h-4 w-4 text-zinc-400 shrink-0" />}
-                <span className="text-sm text-white font-medium">{item.tenantName}</span>
-                <span className="text-xs text-zinc-400 flex-1">{item.message}</span>
+                <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500 }}>{item.tenantName}</span>
+                <span style={{ color: '#94A3B8', fontSize: '14px', flex: 1 }}>{item.message}</span>
               </div>
             ))}
           </div>
@@ -138,9 +134,7 @@ export function ObservatoryTab() {
 
       {/* Tenant Fleet Cards */}
       <div>
-        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
-          Tenant Fleet ({tenantCards.length})
-        </h3>
+        <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>Tenant Fleet ({tenantCards.length})</h3>
         <div className="grid gap-4 md:grid-cols-2">
           {tenantCards.map(tenant => (
             <button
@@ -151,22 +145,22 @@ export function ObservatoryTab() {
             >
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <h4 className="text-sm font-bold text-white group-hover:text-violet-300 transition-colors">
+                  <h4 style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 700 }} className="group-hover:text-violet-300 transition-colors">
                     {tenant.name}
                   </h4>
                   <div className="flex items-center gap-2 mt-0.5">
                     {tenant.industry && (
-                      <span className="text-[10px] text-zinc-500">{tenant.industry}</span>
+                      <span style={{ color: '#94A3B8', fontSize: '13px' }}>{tenant.industry}</span>
                     )}
                     {tenant.country && (
-                      <span className="text-[10px] text-zinc-600">{tenant.country}</span>
+                      <span style={{ color: '#64748B', fontSize: '13px' }}>{tenant.country}</span>
                     )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {tenant.latestLifecycleState && (
                     <span className={cn(
-                      'text-[10px] px-2 py-0.5 rounded-full border',
+                      'text-xs px-2 py-0.5 rounded-full border',
                       lifecycleColor(tenant.latestLifecycleState)
                     )}>
                       {tenant.latestLifecycleState}
@@ -182,20 +176,20 @@ export function ObservatoryTab() {
 
               <div className="grid grid-cols-4 gap-3">
                 <div>
-                  <p className="text-[10px] text-zinc-500">Entities</p>
-                  <p className="text-sm font-bold text-white tabular-nums">{tenant.entityCount}</p>
+                  <p style={{ color: '#94A3B8', fontSize: '13px' }}>Entities</p>
+                  <p style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{tenant.entityCount}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-zinc-500">Users</p>
-                  <p className="text-sm font-bold text-white tabular-nums">{tenant.userCount}</p>
+                  <p style={{ color: '#94A3B8', fontSize: '13px' }}>Users</p>
+                  <p style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{tenant.userCount}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-zinc-500">Period</p>
-                  <p className="text-xs text-zinc-300 truncate">{tenant.latestPeriodLabel || '—'}</p>
+                  <p style={{ color: '#94A3B8', fontSize: '13px' }}>Period</p>
+                  <p style={{ color: '#CBD5E1', fontSize: '13px' }} className="truncate">{tenant.latestPeriodLabel || '—'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-zinc-500">Payout</p>
-                  <p className="text-sm font-bold text-white tabular-nums">
+                  <p style={{ color: '#94A3B8', fontSize: '13px' }}>Payout</p>
+                  <p style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                     {tenant.latestBatchPayout > 0
                       ? `${(tenant.latestBatchPayout / 1000).toFixed(0)}k`
                       : '—'}
@@ -203,7 +197,7 @@ export function ObservatoryTab() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-1 mt-3 text-[10px] text-zinc-600">
+              <div className="flex items-center gap-1 mt-3" style={{ color: '#64748B', fontSize: '13px' }}>
                 Last activity: {new Date(tenant.lastActivity).toLocaleDateString()}
               </div>
             </button>
@@ -217,8 +211,8 @@ export function ObservatoryTab() {
           >
             <PlusCircle className="h-8 w-8 text-zinc-600 group-hover:text-violet-400 transition-colors" />
             <div className="text-center">
-              <p className="text-sm font-medium text-zinc-400 group-hover:text-violet-300 transition-colors">Create New Tenant</p>
-              <p className="text-[10px] text-zinc-600 mt-0.5">Provision a new customer environment</p>
+              <p style={{ color: '#94A3B8', fontSize: '14px', fontWeight: 500 }} className="group-hover:text-violet-300 transition-colors">Create New Tenant</p>
+              <p style={{ color: '#64748B', fontSize: '13px', marginTop: '4px' }}>Provision a new customer environment</p>
             </div>
           </button>
         </div>
@@ -244,10 +238,10 @@ function MetricCard({
     <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
       <div className="flex items-center gap-2 mb-2">
         <Icon className="h-4 w-4 text-violet-400" />
-        <span style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</span>
+        <span style={LABEL_STYLE}>{label}</span>
       </div>
-      <p className="text-2xl font-bold tabular-nums" style={{ color: '#ffffff' }}>{value.toLocaleString()}</p>
-      {subtitle && <p style={{ color: '#71717a', fontSize: '10px', marginTop: '2px' }}>{subtitle}</p>}
+      <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value.toLocaleString()}</p>
+      {subtitle && <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '2px' }}>{subtitle}</p>}
     </div>
   );
 }
