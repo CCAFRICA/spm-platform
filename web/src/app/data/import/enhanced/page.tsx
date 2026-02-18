@@ -90,7 +90,7 @@ interface AIImportContext {
 function storeImportContext(ctx: AIImportContext) { console.log('[Import] Context stored:', ctx.sheets.length, 'sheets'); }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function storeFieldMappings(_tenantId: string, _batchId: string, _mappings: unknown[]) { /* stored in batch metadata */ }
-import { getPeriodProcessor } from '@/lib/payroll/period-processor';
+import { createClient } from '@/lib/supabase/client';
 import { classifyFile, recordClassificationFeedback } from '@/lib/ai/file-classifier';
 import { AI_CONFIDENCE } from '@/lib/ai/types';
 
@@ -2018,114 +2018,29 @@ export default function DataPackageImportPage() {
       console.log(`[Import] Committed ${result.recordCount} records, batch: ${result.batchId}`);
       console.log(`[Import] TenantId used: ${tenantId}`);
 
-      console.log(`[Import] Data committed successfully`);
+      console.log(`[Import] Data committed: ${result.recordCount} records, ${result.entityCount} entities, period: ${result.periodId ?? 'none'}`);
 
-      // OB-13A: Auto-detect and create period from imported data
+      // Write data_import metering event (non-blocking)
       try {
-        // Look for year/month data in any sheet with 'period' field mapped
-        let detectedYear: number | null = null;
-        let detectedMonth: number | null = null;
-
-        for (const sheetInfo of sheetData) {
-          if (!sheetInfo.mappings) continue;
-
-          // Find columns mapped to 'period' (could be Ano, Mes, Year, Month)
-          const periodColumns = Object.entries(sheetInfo.mappings)
-            .filter(([, target]) => target === 'period')
-            .map(([source]) => source);
-
-          // Check first row for period data
-          const firstRow = sheetInfo.rows[0];
-          if (!firstRow) continue;
-
-          for (const col of periodColumns) {
-            const value = firstRow[col];
-            if (!value) continue;
-
-            const numValue = typeof value === 'number' ? value : parseInt(String(value), 10);
-            if (isNaN(numValue)) continue;
-
-            // Detect if it's a year (2020-2030) or month (1-12)
-            if (numValue >= 2020 && numValue <= 2030) {
-              detectedYear = numValue;
-            } else if (numValue >= 1 && numValue <= 12) {
-              detectedMonth = numValue;
-            }
-          }
-
-          // Also check for date fields
-          const dateColumns = Object.entries(sheetInfo.mappings)
-            .filter(([, target]) => target === 'date')
-            .map(([source]) => source);
-
-          for (const col of dateColumns) {
-            const value = firstRow[col];
-            if (!value) continue;
-
-            // OB-16A: Handle Excel serial dates (values > 25000 are likely Excel serial dates)
-            // Excel uses January 1, 1900 as day 1; 25569 is offset between Excel/Unix epochs
-            if (typeof value === 'number' && value > 25000) {
-              const excelDate = new Date((value - 25569) * 86400 * 1000);
-              if (!isNaN(excelDate.getTime())) {
-                detectedYear = excelDate.getFullYear();
-                detectedMonth = excelDate.getMonth() + 1; // 1-indexed
-                console.log(`[Import] Excel serial date ${value} -> ${excelDate.toISOString().split('T')[0]}`);
-                break;
-              }
-            }
-
-            // Try to parse as date string
-            const dateVal = new Date(String(value));
-            if (!isNaN(dateVal.getTime())) {
-              detectedYear = dateVal.getFullYear();
-              detectedMonth = dateVal.getMonth() + 1; // 1-indexed
-              break;
-            }
-          }
-
-          if (detectedYear && detectedMonth) break;
-        }
-
-        // If we detected a period, auto-create it
-        if (detectedYear && detectedMonth) {
-          const monthNames = [
-            'January', 'February', 'March', 'April', 'May', 'June',
-            'July', 'August', 'September', 'October', 'November', 'December'
-          ];
-          const periodName = `${monthNames[detectedMonth - 1]} ${detectedYear}`;
-          const startDate = new Date(detectedYear, detectedMonth - 1, 1).toISOString().split('T')[0];
-          const lastDay = new Date(detectedYear, detectedMonth, 0).getDate();
-          const endDate = new Date(detectedYear, detectedMonth - 1, lastDay).toISOString().split('T')[0];
-
-          console.log(`[Import] Detected period: ${periodName} (${startDate} to ${endDate})`);
-
-          // Check if period already exists
-          const processor = getPeriodProcessor(tenantId);
-          const existingPeriods = processor.getPeriods();
-          const periodExists = existingPeriods.some(p =>
-            p.startDate === startDate || p.name === periodName
-          );
-
-          if (!periodExists) {
-            // Create the period
-            const newPeriod = processor.createPeriod({
-              name: periodName,
-              periodType: 'monthly',
-              startDate,
-              endDate,
-              payDate: endDate, // Default pay date to end of period
-              createdBy: userId,
-            });
-            console.log(`[Import] Auto-created period: ${newPeriod.id} (${newPeriod.name})`);
-          } else {
-            console.log(`[Import] Period already exists: ${periodName}`);
-          }
-        } else {
-          console.log('[Import] Could not auto-detect period from data');
-        }
-      } catch (periodErr) {
-        console.warn('[Import] Period auto-creation failed (non-blocking):', periodErr);
-        // Non-blocking - import succeeded even if period creation fails
+        const supabase = createClient();
+        const now = new Date();
+        const periodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        await supabase.from('usage_metering').insert({
+          tenant_id: tenantId,
+          metric_name: 'data_import',
+          metric_value: result.recordCount,
+          period_key: periodKey,
+          metadata: {
+            batch_id: result.batchId,
+            entity_count: result.entityCount,
+            period_id: result.periodId,
+            file_name: uploadedFile.name,
+            sheet_count: sheetData.length,
+          },
+        });
+        console.log('[Import] Metering event written: data_import');
+      } catch (meterErr) {
+        console.warn('[Import] Metering failed (non-blocking):', meterErr);
       }
 
       setImportId(result.batchId);
