@@ -37,6 +37,8 @@ import {
   getAdminDashboardData,
   type AdminDashboardData,
 } from '@/lib/data/persona-queries';
+import { TrialGate } from '@/components/trial/TrialGate';
+import { useTrialStatus } from '@/hooks/useTrialStatus';
 
 /** Dynamic lifecycle transition labels (OB-58) */
 const TRANSITION_LABELS: Record<string, { label: string; labelEs: string; next: string }> = {
@@ -73,6 +75,8 @@ export function AdminDashboard() {
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
+  const { checkGate } = useTrialStatus(currentTenant?.id);
+  const lifecycleGate = checkGate('lifecycle');
 
   const [data, setData] = useState<AdminDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -306,18 +310,20 @@ export function AdminDashboard() {
             </div>
           </div>
           {hasNextTransition && (
-            <button
-              className="mt-4 w-full py-2 rounded-lg text-sm font-medium transition-all"
-              style={{
-                background: 'rgba(255,255,255,0.15)',
-                color: '#ffffff',
-                border: '1px solid rgba(255,255,255,0.2)',
-              }}
-              onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.25)'; }}
-              onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.15)'; }}
-            >
-              {isSpanish ? transition.labelEs : transition.label} &rarr;
-            </button>
+            <TrialGate allowed={lifecycleGate.allowed} message={lifecycleGate.message}>
+              <button
+                className="mt-4 w-full py-2 rounded-lg text-sm font-medium transition-all"
+                style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  color: '#ffffff',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                }}
+                onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.25)'; }}
+                onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.15)'; }}
+              >
+                {isSpanish ? transition.labelEs : transition.label} &rarr;
+              </button>
+            </TrialGate>
           )}
         </div>
 

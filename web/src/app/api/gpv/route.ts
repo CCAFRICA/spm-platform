@@ -39,7 +39,9 @@ export async function GET(request: NextRequest) {
     completed_at: null,
   };
 
-  return NextResponse.json({ gpv });
+  // Also return raw settings for trial status computation
+  const rawSettings = (tenant?.settings || {}) as Record<string, unknown>;
+  return NextResponse.json({ gpv, _settings: rawSettings });
 }
 
 export async function POST(request: NextRequest) {
