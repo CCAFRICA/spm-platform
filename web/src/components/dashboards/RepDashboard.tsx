@@ -3,21 +3,25 @@
 /**
  * Rep Dashboard — "Crecer"
  *
- * DS-001 Rep View layout (7 distinct visual forms):
+ * DS-001 Rep View layout (10 distinct visual forms):
  *   Hero: Full width (emerald gradient + Ring gauge + GoalGradient + Pill badges)
- *   Row 2: Components (col-7) + Leaderboard + Trajectory + Actions (col-5)
+ *   Row 2: Scenario Cards (3-col)
+ *   Row 3: Components + Opportunity Map (col-7) + Leaderboard + Pace Clock + Trajectory (col-5)
  *
  * Cognitive Fit Test:
  *   1. Personal payout → HeroMetric (AnimNum, 5xl) — identification
  *   2. Attainment → Ring gauge — monitoring
  *   3. Tier progress → GoalGradient (multi-tier progress bar) — progress
- *   4. Component breakdown → StackedBar + expandable list — part-of-whole
- *   5. Relative position → RelativeLeaderboard (neighbors) — ranking
- *   6. Trajectory → Small multiples (5 months) — comparison over time
- *   7. Actions → Card buttons (Simulador, Mi Plan) — selection
+ *   4. Scenario Cards → 3 futures (current/stretch/max) — projection
+ *   5. Component breakdown → StackedBar + expandable list — part-of-whole
+ *   6. Component Opportunity Map → headroom bars — opportunity
+ *   7. Relative position → RelativeLeaderboard (neighbors) — ranking
+ *   8. Pace Clock → circular days + run rate — temporal urgency
+ *   9. Trajectory → Small multiples (5 months) — comparison over time
+ *  10. AI Assessment → AssessmentPanel — intelligence
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
@@ -28,6 +32,8 @@ import { WhatIfSlider, type TierConfig } from '@/components/design-system/WhatIf
 import { ComponentStack } from '@/components/design-system/ComponentStack';
 import { RelativeLeaderboard } from '@/components/design-system/RelativeLeaderboard';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
+import { useLocale } from '@/contexts/locale-context';
+import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
   getRepDashboardData,
   type RepDashboardData,
@@ -47,11 +53,23 @@ const CARD_STYLE = {
   padding: '20px',
 };
 
+// Calculate payout for a given attainment using tiers
+function calculatePayout(attainment: number, tiers: TierConfig[]): number {
+  let payout = 0;
+  for (const t of tiers) {
+    if (attainment <= t.min) continue;
+    const applicable = Math.min(attainment, t.max) - t.min;
+    if (applicable > 0) payout += applicable * t.rate;
+  }
+  return payout;
+}
+
 export function RepDashboard() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol } = useCurrency();
   const { entityId } = usePersona();
   const { activePeriodId, activePeriodLabel } = usePeriod();
+  const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
 
   const [data, setData] = useState<RepDashboardData | null>(null);
@@ -77,6 +95,65 @@ export function RepDashboard() {
 
     return () => { cancelled = true; };
   }, [tenantId, entityId, activePeriodId]);
+
+  // Build assessment payload (must be before early returns for hooks rule)
+  const assessmentData = useMemo(() => {
+    if (!data) return {};
+    const priorP = data.history.length >= 2 ? data.history[data.history.length - 2].payout : 0;
+    const delta = priorP > 0 ? ((data.totalPayout - priorP) / priorP) * 100 : 0;
+    return {
+      totalPayout: data.totalPayout,
+      attainment: data.attainment,
+      rank: data.rank,
+      totalEntities: data.totalEntities,
+      components: data.components.map(c => ({ name: c.name, value: c.value })),
+      trendDelta: delta,
+      historyMonths: data.history.length,
+      tierPosition: data.attainment >= 120 ? 'Accelerator' : data.attainment >= 80 ? 'Target' : 'Base',
+    };
+  }, [data]);
+
+  // Scenario cards data (6B) — must be before early returns
+  const scenarios = useMemo(() => {
+    if (!data) return null;
+    const rawTiers: TierConfig[] = [
+      { min: 0, max: 80, rate: 0.5, label: 'Base' },
+      { min: 80, max: 120, rate: 1.0, label: 'Target' },
+      { min: 120, max: 250, rate: 1.5, label: 'Acelerador' },
+    ];
+    let rawPay = 0;
+    for (const t of rawTiers) {
+      if (data.attainment <= t.min) continue;
+      const applicable = Math.min(data.attainment, t.max) - t.min;
+      if (applicable > 0) rawPay += applicable * t.rate;
+    }
+    const sf = rawPay > 0 ? data.totalPayout / rawPay : 1;
+    const scaledTiers = rawTiers.map(t => ({ ...t, rate: t.rate * sf }));
+
+    const stretchAtt = Math.min(data.attainment * 1.1, 150);
+    const maxAtt = Math.min(data.attainment * 1.25, 200);
+
+    return {
+      current: { attainment: data.attainment, payout: data.totalPayout },
+      stretch: { attainment: stretchAtt, payout: calculatePayout(stretchAtt, scaledTiers) },
+      maximum: { attainment: maxAtt, payout: calculatePayout(maxAtt, scaledTiers) },
+      stretchTier: stretchAtt >= 120 ? 'Acelerador' : stretchAtt >= 100 ? 'Premium' : 'Base',
+      maxTier: maxAtt >= 120 ? 'Acelerador' : maxAtt >= 100 ? 'Premium' : 'Base',
+    };
+  }, [data]);
+
+  // Pace clock data (6C) — must be before early returns
+  const paceClock = useMemo(() => {
+    if (!data) return null;
+    const daysPassed = 15;
+    const daysInPeriod = 30;
+    const daysRemaining = daysInPeriod - daysPassed;
+    const targetGap = 100 - data.attainment;
+    const dailyRateNeeded = daysRemaining > 0 && targetGap > 0
+      ? (data.totalPayout * (targetGap / data.attainment)) / daysRemaining
+      : 0;
+    return { daysPassed, daysInPeriod, daysRemaining, dailyRateNeeded, timePct: (daysPassed / daysInPeriod) * 100 };
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -118,8 +195,26 @@ export function RepDashboard() {
   const priorPayout = data.history.length >= 2 ? data.history[data.history.length - 2].payout : 0;
   const trendDelta = priorPayout > 0 ? ((data.totalPayout - priorPayout) / priorPayout) * 100 : 0;
 
+  // Component opportunity map data (6D)
+  const opportunityMap = data.components.length > 0
+    ? [...data.components]
+        .map(c => {
+          const compPct = data.totalPayout > 0 ? (c.value / data.totalPayout) * 100 : 0;
+          const headroom = Math.max(100 - compPct * (data.components.length), 0);
+          return { name: c.name, value: c.value, pct: compPct, headroom };
+        })
+        .sort((a, b) => b.headroom - a.headroom)
+    : [];
+
   return (
     <div className="space-y-4">
+      <AssessmentPanel
+        persona="rep"
+        data={assessmentData}
+        locale={locale === 'es-MX' ? 'es' : 'en'}
+        accentColor="#10b981"
+        tenantId={tenantId}
+      />
       {/* ── Hero: Full width ── */}
       <div style={HERO_STYLE}>
         <div className="flex items-start justify-between gap-6">
@@ -179,46 +274,131 @@ export function RepDashboard() {
         </div>
       </div>
 
-      {/* ── Row 2: Components (7) + Leaderboard + Trajectory + Actions (5) ── */}
+      {/* ── Scenario Cards (6B) ── */}
+      {scenarios && (
+        <div className="grid grid-cols-3 gap-3">
+          {/* Current Pace */}
+          <div style={{ ...CARD_STYLE, padding: '16px', borderColor: 'rgba(52, 211, 153, 0.3)' }}>
+            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Ritmo Actual
+            </p>
+            <p className="text-2xl font-bold mt-2" style={{ color: '#ffffff' }}>
+              {currencySymbol}{scenarios.current.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </p>
+            <p style={{ color: '#a1a1aa', fontSize: '11px', marginTop: '4px' }}>
+              {scenarios.current.attainment.toFixed(0)}% logro
+            </p>
+          </div>
+          {/* Stretch */}
+          <div style={{ ...CARD_STYLE, padding: '16px', borderColor: 'rgba(99, 102, 241, 0.3)' }}>
+            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Estiramiento
+            </p>
+            <p className="text-2xl font-bold mt-2" style={{ color: '#a5b4fc' }}>
+              {currencySymbol}{scenarios.stretch.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </p>
+            <p style={{ color: '#a1a1aa', fontSize: '11px', marginTop: '4px' }}>
+              {scenarios.stretch.attainment.toFixed(0)}% · {scenarios.stretchTier}
+            </p>
+          </div>
+          {/* Maximum */}
+          <div style={{ ...CARD_STYLE, padding: '16px', borderColor: 'rgba(234, 179, 8, 0.3)' }}>
+            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Maximo
+            </p>
+            <p className="text-2xl font-bold mt-2" style={{ color: '#facc15' }}>
+              {currencySymbol}{scenarios.maximum.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </p>
+            <p style={{ color: '#a1a1aa', fontSize: '11px', marginTop: '4px' }}>
+              {scenarios.maximum.attainment.toFixed(0)}% · {scenarios.maxTier}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Row 3: Components + Opportunity (7) + Right Column (5) ── */}
       <div className="grid grid-cols-12 gap-4">
-        {/* Component breakdown */}
-        <div className="col-span-12 lg:col-span-7" style={CARD_STYLE}>
-          <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
-            Cada Peso Explicado
-          </p>
-          {data.components.length > 0 ? (
-            <div className="space-y-3">
-              <ComponentStack components={data.components} total={data.totalPayout} />
-              <div className="space-y-1 mt-3">
-                {data.components.map(c => (
-                  <button
-                    key={c.name}
-                    onClick={() => setExpandedComponent(expandedComponent === c.name ? null : c.name)}
-                    className="w-full flex items-center justify-between py-2 px-2 rounded-lg transition-colors"
-                    style={{
-                      background: expandedComponent === c.name ? 'rgba(52, 211, 153, 0.08)' : 'transparent',
-                    }}
-                  >
-                    <span className="text-xs" style={{ color: '#d4d4d8' }}>{c.name}</span>
-                    <span className="text-xs tabular-nums font-medium" style={{ color: '#a1a1aa' }}>
-                      {currencySymbol}{c.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+        {/* Left: Component breakdown + Opportunity Map */}
+        <div className="col-span-12 lg:col-span-7 space-y-4">
+          {/* Component breakdown */}
+          <div style={CARD_STYLE}>
+            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+              Cada Peso Explicado
+            </p>
+            {data.components.length > 0 ? (
+              <div className="space-y-3">
+                <ComponentStack components={data.components} total={data.totalPayout} />
+                <div className="space-y-1 mt-3">
+                  {data.components.map(c => (
+                    <button
+                      key={c.name}
+                      onClick={() => setExpandedComponent(expandedComponent === c.name ? null : c.name)}
+                      className="w-full flex items-center justify-between py-2 px-2 rounded-lg transition-colors"
+                      style={{
+                        background: expandedComponent === c.name ? 'rgba(52, 211, 153, 0.08)' : 'transparent',
+                      }}
+                    >
+                      <span className="text-xs" style={{ color: '#d4d4d8' }}>{c.name}</span>
+                      <span className="text-xs tabular-nums font-medium" style={{ color: '#a1a1aa' }}>
+                        {currencySymbol}{c.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </span>
+                    </button>
+                  ))}
+                  <div className="flex items-center justify-between pt-2 mt-2" style={{ borderTop: '1px solid rgba(39, 39, 42, 0.6)' }}>
+                    <span className="text-xs font-medium" style={{ color: '#e4e4e7' }}>Total</span>
+                    <span className="text-sm font-bold tabular-nums" style={{ color: '#ffffff' }}>
+                      {currencySymbol}{data.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </span>
-                  </button>
-                ))}
-                <div className="flex items-center justify-between pt-2 mt-2" style={{ borderTop: '1px solid rgba(39, 39, 42, 0.6)' }}>
-                  <span className="text-xs font-medium" style={{ color: '#e4e4e7' }}>Total</span>
-                  <span className="text-sm font-bold tabular-nums" style={{ color: '#ffffff' }}>
-                    {currencySymbol}{data.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
+                  </div>
                 </div>
               </div>
+            ) : (
+              <p className="text-sm" style={{ color: '#71717a' }}>Sin desglose de componentes.</p>
+            )}
+          </div>
+
+          {/* Component Opportunity Map (6D) */}
+          {opportunityMap.length > 0 && (
+            <div style={CARD_STYLE}>
+              <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+                Mapa de Oportunidad
+              </p>
+              <div className="space-y-3">
+                {opportunityMap.map(comp => {
+                  const fillPct = Math.min(comp.pct * data.components.length, 100);
+                  const headroomPct = Math.max(100 - fillPct, 0);
+                  return (
+                    <div key={comp.name}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span style={{ color: '#d4d4d8', fontSize: '12px' }}>{comp.name}</span>
+                        <span style={{ color: '#71717a', fontSize: '10px' }}>
+                          {headroomPct > 0 && `${headroomPct.toFixed(0)}% headroom`}
+                        </span>
+                      </div>
+                      <div style={{ height: '8px', background: 'rgba(39,39,42,0.8)', borderRadius: '4px', display: 'flex', overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${fillPct}%`,
+                          background: '#34d399',
+                          borderRadius: '4px 0 0 4px',
+                          transition: 'width 0.5s ease',
+                        }} />
+                        {headroomPct > 0 && (
+                          <div style={{
+                            width: `${headroomPct}%`,
+                            background: 'rgba(52, 211, 153, 0.15)',
+                            transition: 'width 0.5s ease',
+                          }} />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ) : (
-            <p className="text-sm" style={{ color: '#71717a' }}>Sin desglose de componentes.</p>
           )}
         </div>
 
-        {/* Right column: Leaderboard + Trajectory + Actions */}
+        {/* Right column: Leaderboard + Pace Clock + Trajectory + What-If */}
         <div className="col-span-12 lg:col-span-5 space-y-4">
           {/* Relative Leaderboard */}
           {data.neighbors.length > 0 && (
@@ -231,6 +411,55 @@ export function RepDashboard() {
                 yourName="Tu"
                 neighbors={data.neighbors}
               />
+            </div>
+          )}
+
+          {/* Pace Clock (6C) */}
+          {paceClock && (
+            <div style={CARD_STYLE}>
+              <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+                Reloj de Ritmo
+              </p>
+              <div className="flex items-center gap-4">
+                {/* Circular progress */}
+                <div style={{ position: 'relative', width: '80px', height: '80px', flexShrink: 0 }}>
+                  <svg width="80" height="80" viewBox="0 0 80 80">
+                    {/* Background circle */}
+                    <circle cx="40" cy="40" r="32" fill="none" stroke="rgba(39,39,42,0.8)" strokeWidth="6" />
+                    {/* Progress arc */}
+                    <circle
+                      cx="40" cy="40" r="32" fill="none"
+                      stroke={data.attainment >= paceClock.timePct ? '#34d399' : '#fbbf24'}
+                      strokeWidth="6"
+                      strokeLinecap="round"
+                      strokeDasharray={`${(paceClock.timePct / 100) * 201} 201`}
+                      transform="rotate(-90 40 40)"
+                    />
+                  </svg>
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                    <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>{data.attainment.toFixed(0)}%</span>
+                    <span style={{ color: '#71717a', fontSize: '9px' }}>logro</span>
+                  </div>
+                </div>
+                {/* Stats */}
+                <div className="flex-1 space-y-2">
+                  <div className="flex justify-between">
+                    <span style={{ color: '#71717a', fontSize: '11px' }}>Dias restantes</span>
+                    <span style={{ color: '#e4e4e7', fontSize: '11px', fontWeight: 600 }}>{paceClock.daysRemaining}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span style={{ color: '#71717a', fontSize: '11px' }}>Dia {paceClock.daysPassed}/{paceClock.daysInPeriod}</span>
+                    <span style={{ color: '#a1a1aa', fontSize: '11px' }}>{paceClock.timePct.toFixed(0)}%</span>
+                  </div>
+                  {paceClock.dailyRateNeeded > 0 && (
+                    <div style={{ background: 'rgba(52, 211, 153, 0.08)', borderRadius: '8px', padding: '8px', marginTop: '4px' }}>
+                      <p style={{ color: '#34d399', fontSize: '11px', fontWeight: 500 }}>
+                        {currencySymbol}{paceClock.dailyRateNeeded.toLocaleString(undefined, { maximumFractionDigits: 0 })}/dia para meta
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -264,34 +493,6 @@ export function RepDashboard() {
               tiers={defaultTiers}
               currency={currencySymbol}
             />
-          </div>
-
-          {/* Action Buttons */}
-          <div className="grid grid-cols-2 gap-3">
-            <div
-              className="cursor-pointer transition-all"
-              style={{
-                ...CARD_STYLE,
-                padding: '14px',
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(52, 211, 153, 0.3)'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(39, 39, 42, 0.6)'; }}
-            >
-              <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>Simulador</p>
-              <p style={{ color: '#71717a', fontSize: '10px', marginTop: '4px' }}>Proyecta escenarios</p>
-            </div>
-            <div
-              className="cursor-pointer transition-all"
-              style={{
-                ...CARD_STYLE,
-                padding: '14px',
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(52, 211, 153, 0.3)'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(39, 39, 42, 0.6)'; }}
-            >
-              <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>Mi Plan</p>
-              <p style={{ color: '#71717a', fontSize: '10px', marginTop: '4px' }}>Revisa tu plan</p>
-            </div>
           </div>
         </div>
       </div>

@@ -3,17 +3,19 @@
 /**
  * Manager Dashboard — "Acelerar"
  *
- * DS-001 Manager View layout (6 distinct visual forms):
- *   Row 1: Zone Hero (col-4) + Acceleration Opportunities (col-8)
- *   Row 2: Team Performance (full width)
+ * DS-001 Manager View layout (8 distinct visual forms):
+ *   Row 1: Zone Hero (col-4) + Pacing (col-3) + Acceleration Opportunities (col-5)
+ *   Row 2: Team Performance with Momentum (full width)
  *
  * Cognitive Fit Test:
  *   1. Zone total → HeroMetric (AnimNum) — identification
- *   2. Acceleration opportunities → Prescriptive action cards — selection/decision
- *   3. Team performance → BenchBar per person — comparison
- *   4. Individual trajectory → Sparkline — monitoring
- *   5. Streak recognition → Pill badge — identification (achievement)
- *   6. Trend delta → TrendArrow — monitoring
+ *   2. Pacing indicator → progress + run rate — monitoring
+ *   3. Acceleration opportunities → Prescriptive action cards — selection/decision
+ *   4. Team performance → BenchBar per person — comparison
+ *   5. Individual trajectory → Sparkline — monitoring
+ *   6. Momentum index → Weighted arrows — trend
+ *   7. Streak recognition → Pill badge — identification (achievement)
+ *   8. AI Assessment → AssessmentPanel — intelligence
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -24,6 +26,8 @@ import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
 import { Sparkline } from '@/components/design-system/Sparkline';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
+import { useLocale } from '@/contexts/locale-context';
+import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
   getManagerDashboardData,
   type ManagerDashboardData,
@@ -47,13 +51,37 @@ const SEVERITY_STYLES: Record<string, { bg: string; border: string; accent: stri
   opportunity: { bg: 'rgba(16, 185, 129, 0.1)', border: 'rgba(16, 185, 129, 0.3)', accent: '#34d399' },
   watch: { bg: 'rgba(245, 158, 11, 0.1)', border: 'rgba(245, 158, 11, 0.3)', accent: '#fbbf24' },
   critical: { bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)', accent: '#f87171' },
+  proximity: { bg: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.4)', accent: '#fbbf24' },
 };
+
+// Tier thresholds for proximity detection
+const TIER_THRESHOLDS = [
+  { pct: 80, label: 'Base', labelEs: 'Base' },
+  { pct: 100, label: 'Premium', labelEs: 'Premium' },
+  { pct: 120, label: 'Accelerator', labelEs: 'Acelerador' },
+];
+
+// Compute momentum index: weighted 3-period delta (most recent 3x, middle 2x, oldest 1x)
+function computeMomentum(trend: number[]): { symbol: string; color: string; label: string } | null {
+  if (trend.length < 3) return null;
+  const recent = trend.slice(-3);
+  const d1 = recent[2] - recent[1]; // most recent delta
+  const d2 = recent[1] - recent[0]; // middle delta
+  const weighted = (d1 * 3 + d2 * 2) / 5;
+
+  if (weighted > 5) return { symbol: '↑↑', color: '#34d399', label: 'Strong improving' };
+  if (weighted > 1) return { symbol: '↑', color: '#34d399', label: 'Improving' };
+  if (weighted > -1) return { symbol: '→', color: '#fbbf24', label: 'Stable' };
+  if (weighted > -5) return { symbol: '↓', color: '#f87171', label: 'Declining' };
+  return { symbol: '↓↓', color: '#f87171', label: 'Rapid decline' };
+}
 
 export function ManagerDashboard() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol } = useCurrency();
   const { scope } = usePersona();
   const { activePeriodId } = usePeriod();
+  const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
 
   const [data, setData] = useState<ManagerDashboardData | null>(null);
@@ -91,6 +119,69 @@ export function ManagerDashboard() {
     return data.teamMembers.reduce((s, m) => s + m.attainment, 0) / data.teamMembers.length;
   }, [data]);
 
+  // Tier proximity alerts (5A)
+  const tierProximityAlerts = useMemo(() => {
+    if (!data) return [];
+    const alerts: Array<{ entityName: string; attainment: number; tierLabel: string; distance: number }> = [];
+    for (const member of data.teamMembers) {
+      for (const tier of TIER_THRESHOLDS) {
+        const distance = tier.pct - member.attainment;
+        if (distance > 0 && distance <= 10) {
+          alerts.push({
+            entityName: member.entityName,
+            attainment: member.attainment,
+            tierLabel: tier.label,
+            distance,
+          });
+          break; // only closest tier
+        }
+      }
+    }
+    return alerts.sort((a, b) => a.distance - b.distance).slice(0, 3);
+  }, [data]);
+
+  // Pacing indicator (5C)
+  const pacing = useMemo(() => {
+    if (!data || data.teamMembers.length === 0) return null;
+    // Estimate: assume we're midway through the period
+    const daysPassed = 15;
+    const daysInPeriod = 30;
+    const dailyRate = data.teamTotal / Math.max(daysPassed, 1);
+    const targetTotal = data.teamTotal * (100 / Math.max(avgAttainment, 1));
+    const targetDailyRate = targetTotal / daysInPeriod;
+    const projectedPct = daysInPeriod > 0 ? (dailyRate * daysInPeriod / Math.max(targetTotal, 1)) * 100 : 0;
+    const isOnPace = avgAttainment >= (daysPassed / daysInPeriod) * 100 * 0.95;
+    return {
+      isOnPace,
+      dailyRate,
+      targetDailyRate,
+      projectedPct: Math.min(projectedPct, 200),
+      daysPassed,
+      daysInPeriod,
+      daysRemaining: daysInPeriod - daysPassed,
+    };
+  }, [data, avgAttainment]);
+
+  // Build assessment payload (must be before early returns for hooks rule)
+  const assessmentData = useMemo(() => {
+    if (!data || data.teamMembers.length === 0) return {};
+    return {
+      teamTotal: data.teamTotal,
+      avgAttainment,
+      onTarget: teamStats?.onTarget ?? 0,
+      coaching: teamStats?.coaching ?? 0,
+      teamSize: data.teamMembers.length,
+      accelerationSignals: data.accelerationOpportunities.length,
+      members: data.teamMembers.map(m => ({
+        name: m.entityName,
+        attainment: m.attainment,
+        payout: m.totalPayout,
+        trendLength: m.trend.length,
+        streak: m.trend.length >= 3 && m.trend.every(v => v >= 100) ? m.trend.length : 0,
+      })),
+    };
+  }, [data, avgAttainment, teamStats]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -110,9 +201,26 @@ export function ManagerDashboard() {
 
   const sortedMembers = [...data.teamMembers].sort((a, b) => b.attainment - a.attainment);
 
+  // Merge tier proximity into acceleration opportunities
+  const allOpportunities = [
+    ...tierProximityAlerts.map(alert => ({
+      entityName: alert.entityName,
+      opportunity: `${alert.distance.toFixed(0)}% from ${alert.tierLabel} tier. Focus coaching this week.`,
+      severity: 'proximity' as const,
+    })),
+    ...data.accelerationOpportunities.slice(0, 4 - tierProximityAlerts.length),
+  ].slice(0, 4);
+
   return (
     <div className="space-y-4">
-      {/* ── Row 1: Zone Hero (4) + Acceleration Opportunities (8) ── */}
+      <AssessmentPanel
+        persona="manager"
+        data={assessmentData}
+        locale={locale === 'es-MX' ? 'es' : 'en'}
+        accentColor="#f59e0b"
+        tenantId={tenantId}
+      />
+      {/* ── Row 1: Zone Hero (4) + Pacing (3) + Acceleration (5) ── */}
       <div className="grid grid-cols-12 gap-4">
         {/* Zone Hero */}
         <div className="col-span-12 lg:col-span-4" style={HERO_STYLE}>
@@ -141,16 +249,74 @@ export function ManagerDashboard() {
           </div>
         </div>
 
-        {/* Acceleration Opportunities */}
-        <div className="col-span-12 lg:col-span-8" style={CARD_STYLE}>
+        {/* Pacing Indicator (5C) */}
+        {pacing && (
+          <div className="col-span-12 lg:col-span-3" style={CARD_STYLE}>
+            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+              Pacing
+            </p>
+            <div className="flex items-center gap-2 mb-3">
+              <span
+                className="px-2 py-0.5 rounded-md text-xs font-semibold"
+                style={{
+                  background: pacing.isOnPace ? 'rgba(52,211,153,0.15)' : 'rgba(251,191,36,0.15)',
+                  color: pacing.isOnPace ? '#34d399' : '#fbbf24',
+                  border: `1px solid ${pacing.isOnPace ? 'rgba(52,211,153,0.3)' : 'rgba(251,191,36,0.3)'}`,
+                }}
+              >
+                {pacing.isOnPace ? 'On Pace' : 'Behind Pace'}
+              </span>
+            </div>
+            {/* Days progress bar */}
+            <div style={{ marginBottom: '12px' }}>
+              <div className="flex justify-between mb-1">
+                <span style={{ color: '#71717a', fontSize: '10px' }}>Day {pacing.daysPassed}/{pacing.daysInPeriod}</span>
+                <span style={{ color: '#a1a1aa', fontSize: '10px' }}>{pacing.daysRemaining}d left</span>
+              </div>
+              <div style={{ height: '4px', background: 'rgba(39,39,42,0.8)', borderRadius: '2px' }}>
+                <div style={{
+                  height: '4px',
+                  borderRadius: '2px',
+                  width: `${(pacing.daysPassed / pacing.daysInPeriod) * 100}%`,
+                  background: pacing.isOnPace ? '#34d399' : '#fbbf24',
+                  transition: 'width 0.5s ease',
+                }} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span style={{ color: '#71717a', fontSize: '11px' }}>Run rate</span>
+                <span style={{ color: '#e4e4e7', fontSize: '11px', fontWeight: 500 }}>
+                  {currencySymbol}{pacing.dailyRate.toLocaleString(undefined, { maximumFractionDigits: 0 })}/day
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: '#71717a', fontSize: '11px' }}>Target</span>
+                <span style={{ color: '#a1a1aa', fontSize: '11px' }}>
+                  {currencySymbol}{pacing.targetDailyRate.toLocaleString(undefined, { maximumFractionDigits: 0 })}/day
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: '#71717a', fontSize: '11px' }}>Projected</span>
+                <span style={{ color: pacing.projectedPct >= 100 ? '#34d399' : '#fbbf24', fontSize: '11px', fontWeight: 500 }}>
+                  {pacing.projectedPct.toFixed(0)}% of target
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Acceleration Opportunities (with tier proximity 5A) */}
+        <div className={`col-span-12 ${pacing ? 'lg:col-span-5' : 'lg:col-span-8'}`} style={CARD_STYLE}>
           <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
             Oportunidades de Aceleracion
           </p>
-          {data.accelerationOpportunities.length > 0 ? (
+          {allOpportunities.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {data.accelerationOpportunities.slice(0, 4).map((signal, i) => {
+              {allOpportunities.map((signal, i) => {
                 const sev = SEVERITY_STYLES[signal.severity] || SEVERITY_STYLES.watch;
                 const actionLabel = signal.severity === 'opportunity' ? 'Agendar'
+                  : signal.severity === 'proximity' ? 'Focus'
                   : signal.severity === 'watch' ? 'Coaching'
                   : 'Plan';
                 return (
@@ -181,7 +347,7 @@ export function ManagerDashboard() {
         </div>
       </div>
 
-      {/* ── Row 2: Team Performance (full width) ── */}
+      {/* ── Row 2: Team Performance with Momentum (full width) ── */}
       <div style={CARD_STYLE}>
         <div className="flex items-center justify-between mb-4">
           <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
@@ -199,6 +365,7 @@ export function ManagerDashboard() {
             const streak = member.trend.length >= 3 && member.trend.every(v => v >= 100)
               ? member.trend.length
               : 0;
+            const momentum = computeMomentum(member.trend);
             return (
               <div key={member.entityId} className="flex items-center gap-3">
                 {/* Rank */}
@@ -225,6 +392,16 @@ export function ManagerDashboard() {
                     }
                     color={member.attainment >= 100 ? '#34d399' : member.attainment >= 85 ? '#fbbf24' : '#f87171'}
                   />
+                </div>
+                {/* Momentum (5B) */}
+                <div className="w-8 flex-shrink-0 text-center">
+                  {momentum ? (
+                    <span style={{ color: momentum.color, fontSize: '13px', fontWeight: 600 }} title={momentum.label}>
+                      {momentum.symbol}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#52525b', fontSize: '10px' }}>—</span>
+                  )}
                 </div>
                 {/* Sparkline */}
                 <div className="w-16 flex-shrink-0">

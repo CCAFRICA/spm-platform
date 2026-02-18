@@ -30,7 +30,7 @@ export function LifecycleStepper({
   return (
     <div className="space-y-4">
       {/* Stepper track */}
-      <div className="flex items-center gap-0 overflow-x-auto pb-2">
+      <div className="flex items-center gap-0 flex-wrap pb-2">
         {LIFECYCLE_STATES.map((state, i) => {
           const display = LIFECYCLE_DISPLAY[state];
           const isCompleted = i < currentIdx;
@@ -40,7 +40,7 @@ export function LifecycleStepper({
           return (
             <div key={state} className="flex items-center">
               {/* Step */}
-              <div className="flex flex-col items-center min-w-[72px]">
+              <div className="flex flex-col items-center" style={{ minWidth: '56px' }}>
                 <div
                   className={`
                     w-5 h-5 rounded-full flex items-center justify-center transition-all
@@ -56,7 +56,7 @@ export function LifecycleStepper({
                   )}
                 </div>
                 <span className={`mt-1.5 text-[10px] whitespace-nowrap ${isCurrent ? 'text-zinc-200 font-medium' : 'text-zinc-500'}`}>
-                  {display.labelEs}
+                  {display.label}
                 </span>
               </div>
               {/* Connector line */}
@@ -87,7 +87,7 @@ export function LifecycleStepper({
           </button>
         )}
         {!nextAction && (
-          <span className="text-xs text-zinc-500">Ciclo completo</span>
+          <span className="text-xs text-zinc-500">Cycle complete</span>
         )}
       </div>
     </div>

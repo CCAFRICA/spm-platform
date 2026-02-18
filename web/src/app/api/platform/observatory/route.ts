@@ -410,12 +410,32 @@ async function fetchInfrastructureData(supabase: ServiceClient): Promise<{
   committedDataCount: number;
   totalOutcomes: number;
   hasAnthropicKey: boolean;
+  aiCallsThisPeriod: number;
+  aiErrorCount: number;
+  meteringConfigured: boolean;
+  lastDeployTimestamp: string | null;
 }> {
-  const [tenantRes, dataRes, outcomeRes] = await Promise.all([
+  const [tenantRes, dataRes, outcomeRes, meteringRes] = await Promise.all([
     supabase.from('tenants').select('*', { count: 'exact', head: true }),
     supabase.from('committed_data').select('*', { count: 'exact', head: true }),
     supabase.from('entity_period_outcomes').select('*', { count: 'exact', head: true }),
+    supabase.from('usage_metering').select('metric_name, metric_value, period_key, created_at')
+      .order('created_at', { ascending: false }).limit(10000),
   ]);
+
+  const meteringRows = meteringRes.data ?? [];
+  const meteringConfigured = meteringRows.length > 0;
+
+  // Count AI inference calls and errors from metering
+  let aiCallsThisPeriod = 0;
+  let aiErrorCount = 0;
+  for (const m of meteringRows) {
+    if (m.metric_name === 'ai_inference') aiCallsThisPeriod += (m.metric_value ?? 1);
+    if (m.metric_name === 'ai_error') aiErrorCount += (m.metric_value ?? 1);
+  }
+
+  // Use latest metering event as proxy for "last deploy" activity
+  const lastDeployTimestamp = meteringRows.length > 0 ? meteringRows[0].created_at : null;
 
   return {
     supabaseHealthy: !tenantRes.error,
@@ -423,6 +443,10 @@ async function fetchInfrastructureData(supabase: ServiceClient): Promise<{
     committedDataCount: dataRes.count ?? 0,
     totalOutcomes: outcomeRes.count ?? 0,
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+    aiCallsThisPeriod,
+    aiErrorCount,
+    meteringConfigured,
+    lastDeployTimestamp,
   };
 }
 

@@ -124,14 +124,14 @@ export function getNextAction(
   state: DashboardLifecycleState
 ): { label: string; nextState: DashboardLifecycleState } | null {
   const actions: Partial<Record<DashboardLifecycleState, { label: string; nextState: DashboardLifecycleState }>> = {
-    DRAFT: { label: 'Ejecutar Vista Previa', nextState: 'PREVIEW' },
-    PREVIEW: { label: 'Iniciar Reconciliacion', nextState: 'RECONCILE' },
-    RECONCILE: { label: 'Marcar como Oficial', nextState: 'OFFICIAL' },
-    OFFICIAL: { label: 'Aprobar Resultados', nextState: 'APPROVED' },
-    APPROVED: { label: 'Publicar a Entidades', nextState: 'POSTED' },
-    POSTED: { label: 'Cerrar Periodo', nextState: 'CLOSED' },
-    CLOSED: { label: 'Confirmar Pago', nextState: 'PAID' },
-    PAID: { label: 'Publicar Resultados', nextState: 'PUBLISHED' },
+    DRAFT: { label: 'Run Preview', nextState: 'PREVIEW' },
+    PREVIEW: { label: 'Start Reconciliation', nextState: 'RECONCILE' },
+    RECONCILE: { label: 'Mark as Official', nextState: 'OFFICIAL' },
+    OFFICIAL: { label: 'Approve Results', nextState: 'APPROVED' },
+    APPROVED: { label: 'Publish to Entities', nextState: 'POSTED' },
+    POSTED: { label: 'Close Period', nextState: 'CLOSED' },
+    CLOSED: { label: 'Confirm Payment', nextState: 'PAID' },
+    PAID: { label: 'Publish Results', nextState: 'PUBLISHED' },
   };
   return actions[state] ?? null;
 }
@@ -140,10 +140,10 @@ export function getPreviousAction(
   state: DashboardLifecycleState
 ): { label: string; prevState: DashboardLifecycleState } | null {
   const actions: Partial<Record<DashboardLifecycleState, { label: string; prevState: DashboardLifecycleState }>> = {
-    PREVIEW: { label: 'Regresar a Borrador', prevState: 'DRAFT' },
-    RECONCILE: { label: 'Regresar a Vista Previa', prevState: 'PREVIEW' },
-    OFFICIAL: { label: 'Regresar a Reconciliacion', prevState: 'RECONCILE' },
-    APPROVED: { label: 'Regresar a Oficial', prevState: 'OFFICIAL' },
+    PREVIEW: { label: 'Back to Draft', prevState: 'DRAFT' },
+    RECONCILE: { label: 'Back to Preview', prevState: 'PREVIEW' },
+    OFFICIAL: { label: 'Back to Reconciliation', prevState: 'RECONCILE' },
+    APPROVED: { label: 'Back to Official', prevState: 'OFFICIAL' },
   };
   return actions[state] ?? null;
 }
