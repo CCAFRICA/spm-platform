@@ -56,7 +56,7 @@ function AuthShellInner({ children }: AuthShellProps) {
 export function AuthShell({ children }: AuthShellProps) {
   const pathname = usePathname();
 
-  if (pathname === '/login' || pathname.startsWith('/api/auth')) {
+  if (pathname === '/login' || pathname === '/landing' || pathname === '/signup' || pathname.startsWith('/api/auth')) {
     return <>{children}</>;
   }
 
