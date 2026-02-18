@@ -26,6 +26,13 @@ import {
   Clock,
   Inbox,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { ReactFlowProvider } from '@xyflow/react';
+
+const OrganizationalCanvas = dynamic(
+  () => import('@/components/canvas/OrganizationalCanvas').then(m => ({ default: m.OrganizationalCanvas })),
+  { ssr: false, loading: () => <div style={{ height: '400px', background: '#0a0e1a', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', fontSize: '13px' }}>Loading canvas...</div> }
+);
 
 export default function DesignPage() {
   const router = useRouter();
@@ -202,6 +209,26 @@ export default function DesignPage() {
           );
         })}
       </div>
+
+      {/* Organizational Canvas */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="h-5 w-5" style={{ color: '#E8A838' }} />
+            {isSpanish ? 'Estructura Organizacional' : 'Organizational Structure'}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div style={{ height: '400px' }}>
+            <ReactFlowProvider>
+              <OrganizationalCanvas
+                className="rounded-lg overflow-hidden"
+                initialZoom={0.4}
+              />
+            </ReactFlowProvider>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Recent Activity */}
       <Card>

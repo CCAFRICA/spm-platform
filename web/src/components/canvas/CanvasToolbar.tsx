@@ -103,7 +103,7 @@ export function CanvasToolbar({
       {/* Search */}
       <div style={{ position: 'relative' }}>
         <div style={{ ...GROUP_STYLE, padding: '0 4px' }}>
-          <Search size={14} style={{ color: '#64748b', marginLeft: '8px', flexShrink: 0 }} />
+          <Search size={14} style={{ color: '#94A3B8', marginLeft: '8px', flexShrink: 0 }} />
           <input
             type="text"
             value={searchQuery}
@@ -157,11 +157,11 @@ export function CanvasToolbar({
                 <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {entity.display_name}
                 </span>
-                <span style={{ color: '#64748b', fontSize: '10px', flexShrink: 0 }}>
+                <span style={{ color: '#94A3B8', fontSize: '13px', flexShrink: 0 }}>
                   {entity.entity_type}
                 </span>
                 {entity.external_id && (
-                  <span style={{ color: '#475569', fontSize: '10px', fontFamily: 'monospace', flexShrink: 0 }}>
+                  <span style={{ color: '#94A3B8', fontSize: '13px', fontFamily: 'monospace', flexShrink: 0 }}>
                     {entity.external_id}
                   </span>
                 )}

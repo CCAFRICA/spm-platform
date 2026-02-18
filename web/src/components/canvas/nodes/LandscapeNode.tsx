@@ -32,8 +32,8 @@ function LandscapeNodeComponent({ data }: NodeProps) {
   return (
     <div
       style={{
-        background: `rgba(99, 102, 241, ${bgOpacity})`,
-        border: '2px solid rgba(99, 102, 241, 0.5)',
+        background: `rgba(15, 23, 42, ${0.8 + density * 0.15})`,
+        border: '2px solid rgba(232, 168, 56, 0.4)',
         borderRadius: '12px',
         padding: '16px 24px',
         minWidth: '200px',
@@ -45,12 +45,12 @@ function LandscapeNodeComponent({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <Building2 size={24} style={{ color: '#818cf8', flexShrink: 0 }} />
+        <Building2 size={24} style={{ color: '#E8A838', flexShrink: 0 }} />
         <div>
           <div style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 600 }}>
             {entity.display_name}
           </div>
-          <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px' }}>
+          <div style={{ color: '#94a3b8', fontSize: '13px', marginTop: '2px' }}>
             {entity.entity_type}
           </div>
         </div>
@@ -58,7 +58,7 @@ function LandscapeNodeComponent({ data }: NodeProps) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
         <Users size={14} style={{ color: '#94a3b8' }} />
-        <span style={{ color: '#94a3b8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ color: '#94a3b8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
           {childCount}
         </span>
         <span

@@ -32,17 +32,17 @@ export function CanvasLegend() {
       backdropFilter: 'blur(8px)',
       padding: '10px 14px',
     }}>
-      <div style={{ color: '#71717a', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Legend</div>
+      <div style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Legend</div>
 
       {/* Edge types */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{ ...LINE_STYLE, borderColor: '#6366f1' }} />
-          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Confirmed</span>
+          <span style={{ color: '#94a3b8', fontSize: '13px' }}>Confirmed</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{ ...LINE_STYLE, borderColor: '#f59e0b', borderTopStyle: 'dashed' }} />
-          <span style={{ color: '#94a3b8', fontSize: '11px' }}>AI Proposed</span>
+          <span style={{ color: '#94a3b8', fontSize: '13px' }}>AI Proposed</span>
         </div>
       </div>
 
@@ -50,15 +50,15 @@ export function CanvasLegend() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{ ...DOT_STYLE, background: '#34d399' }} />
-          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Active</span>
+          <span style={{ color: '#94a3b8', fontSize: '13px' }}>Active</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{ ...DOT_STYLE, background: '#fbbf24' }} />
-          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Proposed</span>
+          <span style={{ color: '#94a3b8', fontSize: '13px' }}>Proposed</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{ ...DOT_STYLE, background: '#71717a' }} />
-          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Suspended</span>
+          <span style={{ color: '#94a3b8', fontSize: '13px' }}>Suspended</span>
         </div>
       </div>
     </div>
