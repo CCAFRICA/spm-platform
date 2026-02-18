@@ -18,6 +18,12 @@ export interface FleetOverview {
   totalEntities: number;
   totalBatches: number;
   activePeriodsCount: number;
+  // OB-60: actionable metrics
+  mrr: number;
+  openAttentionItems: number;
+  lifecycleThroughput: number;
+  avgDaysInLifecycle: number;
+  avgAiConfidence: number;
 }
 
 export interface TenantFleetCard {
@@ -44,6 +50,7 @@ export interface OperationsQueueItem {
   message: string;
   severity: 'info' | 'warning' | 'critical';
   timestamp: string;
+  action?: { label: string; href: string };
 }
 
 export interface AIIntelligenceData {
@@ -155,6 +162,11 @@ export async function getFleetOverview(): Promise<FleetOverview> {
     totalEntities: entityRes.count ?? 0,
     totalBatches: batchRes.count ?? 0,
     activePeriodsCount: periodRes.count ?? 0,
+    mrr: 0,
+    openAttentionItems: 0,
+    lifecycleThroughput: 0,
+    avgDaysInLifecycle: 0,
+    avgAiConfidence: 0,
   };
 }
 

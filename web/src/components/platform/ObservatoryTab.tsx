@@ -1,5 +1,14 @@
 'use client';
 
+/**
+ * ObservatoryTab — Command Center for VL Platform Admin
+ *
+ * OB-60 Phase 4: Redesigned with 6 actionable metrics (no vanity metrics)
+ * and expanded Operations Queue as the primary surface.
+ *
+ * Every metric answers "what do I DO with this information?"
+ */
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
@@ -9,27 +18,32 @@ import type {
   OperationsQueueItem,
 } from '@/lib/data/platform-queries';
 import {
+  TrendingUp,
   Building2,
-  Users,
-  Calculator,
-  Calendar,
   AlertTriangle,
-  Info,
+  Zap,
+  Clock,
+  Sparkles,
   AlertCircle,
+  Info,
   ChevronRight,
   Loader2,
   CheckCircle,
   PlusCircle,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
-/* ──── STYLES ──── */
-const LABEL_STYLE: React.CSSProperties = {
-  color: '#94A3B8',
-  fontSize: '13px',
-  fontWeight: 500,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
+/* ──── Lifecycle next actions ──── */
+const NEXT_ACTIONS: Record<string, string> = {
+  DRAFT: 'Run preview calculation',
+  PREVIEW: 'Review and reconcile',
+  RECONCILE: 'Advance to Official',
+  OFFICIAL: 'Submit for approval',
+  PENDING_APPROVAL: 'Awaiting approval',
+  APPROVED: 'Post results',
+  POSTED: 'Close period',
+  CLOSED: 'Mark as paid',
+  PAID: 'Publish to reps',
+  PUBLISHED: 'Period complete',
 };
 
 export function ObservatoryTab() {
@@ -77,141 +91,314 @@ export function ObservatoryTab() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
+        <Loader2 style={{ width: '24px', height: '24px', color: '#7B7FD4', animation: 'spin 1s linear infinite' }} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      {/* Tab heading */}
-      <div>
-        <h2 style={{ color: '#E2E8F0', fontSize: '18px', fontWeight: 600 }}>Fleet Observatory</h2>
-        <p style={{ color: '#94A3B8', fontSize: '14px' }}>Real-time monitoring of tenant fleet, operations, and health</p>
+    <div style={{ fontSize: '14px', color: '#E2E8F0', lineHeight: '1.5' }}>
+      {/* ── Section: Heading ── */}
+      <div style={{ marginBottom: '24px' }}>
+        <h2 style={{ color: '#F8FAFC', fontSize: '18px', fontWeight: 700, margin: 0 }}>Command Center</h2>
+        <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>Actionable fleet intelligence — every metric drives a decision</p>
       </div>
 
-      {/* Hero Metrics */}
+      {/* ── Section: 6 Actionable Metrics ── */}
       {overview && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard icon={Building2} label="Active Tenants" value={overview.activeTenantCount} subtitle={`${overview.tenantCount} total`} />
-          <MetricCard icon={Users} label="Total Entities" value={overview.totalEntities} />
-          <MetricCard icon={Calculator} label="Calculation Runs" value={overview.totalBatches} />
-          <MetricCard icon={Calendar} label="Active Periods" value={overview.activePeriodsCount} />
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '16px',
+          marginBottom: '32px',
+        }}>
+          <ActionMetricCard
+            icon={TrendingUp}
+            iconColor="#10B981"
+            label="MRR"
+            value={`$${overview.mrr.toLocaleString()}`}
+            subtitle="Monthly recurring"
+          />
+          <ActionMetricCard
+            icon={Building2}
+            iconColor="#7B7FD4"
+            label="ACTIVE / TOTAL"
+            value={`${overview.activeTenantCount} / ${overview.tenantCount}`}
+            subtitle="Tenants with activity"
+          />
+          <ActionMetricCard
+            icon={AlertTriangle}
+            iconColor={overview.openAttentionItems > 0 ? '#F59E0B' : '#10B981'}
+            label="ATTENTION ITEMS"
+            value={String(overview.openAttentionItems)}
+            subtitle={overview.openAttentionItems === 0 ? 'All clear' : 'Need review'}
+          />
+          <ActionMetricCard
+            icon={Zap}
+            iconColor="#E8A838"
+            label="THROUGHPUT"
+            value={String(overview.lifecycleThroughput)}
+            subtitle="Completed this month"
+          />
+          <ActionMetricCard
+            icon={Clock}
+            iconColor="#94A3B8"
+            label="AVG DAYS"
+            value={overview.avgDaysInLifecycle > 0 ? `${overview.avgDaysInLifecycle}d` : '--'}
+            subtitle="Draft to Paid"
+          />
+          <ActionMetricCard
+            icon={Sparkles}
+            iconColor="#7B7FD4"
+            label="AI CONFIDENCE"
+            value={overview.avgAiConfidence > 0 ? `${(overview.avgAiConfidence * 100).toFixed(0)}%` : '--'}
+            subtitle="Classification accuracy"
+          />
         </div>
       )}
 
-      {/* Operations Queue */}
-      <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-        <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>Operations Queue</h3>
+      {/* ── Section: Operations Queue (PRIMARY SURFACE) ── */}
+      <div style={{
+        background: '#0F172A',
+        border: '1px solid #1E293B',
+        borderRadius: '12px',
+        padding: '24px',
+        marginBottom: '32px',
+      }}>
+        <h3 style={{
+          color: '#F8FAFC',
+          fontSize: '16px',
+          fontWeight: 700,
+          margin: '0 0 16px',
+        }}>
+          Operations Queue
+          {queue.length > 0 && (
+            <span style={{
+              marginLeft: '8px',
+              fontSize: '13px',
+              color: '#94A3B8',
+              fontWeight: 500,
+            }}>
+              ({queue.length} {queue.length === 1 ? 'item' : 'items'})
+            </span>
+          )}
+        </h3>
+
         {queue.length === 0 ? (
-          <div className="flex items-center gap-2 py-3" style={{ color: '#34d399', fontSize: '14px' }}>
-            <CheckCircle className="h-4 w-4" />
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '16px',
+            color: '#10B981',
+            fontSize: '16px',
+          }}>
+            <CheckCircle style={{ width: '20px', height: '20px' }} />
             All tenants healthy — no items require attention
           </div>
         ) : (
-          <div className="space-y-2">
-            {queue.map((item, i) => (
-              <div
-                key={`${item.tenantId}-${i}`}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg border',
-                  item.severity === 'critical' && 'border-red-500/30 bg-red-500/5',
-                  item.severity === 'warning' && 'border-amber-500/30 bg-amber-500/5',
-                  item.severity === 'info' && 'border-zinc-700 bg-zinc-800/30',
-                )}
-              >
-                {item.severity === 'critical' && <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />}
-                {item.severity === 'warning' && <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />}
-                {item.severity === 'info' && <Info className="h-4 w-4 text-zinc-400 shrink-0" />}
-                <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500 }}>{item.tenantName}</span>
-                <span style={{ color: '#94A3B8', fontSize: '14px', flex: 1 }}>{item.message}</span>
-              </div>
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {queue.map((item, i) => {
+              const severityStyles = {
+                critical: { borderLeft: '4px solid #EF4444', background: 'rgba(239, 68, 68, 0.06)' },
+                warning: { borderLeft: '4px solid #F59E0B', background: 'rgba(245, 158, 11, 0.06)' },
+                info: { borderLeft: '4px solid #3B82F6', background: '#0F172A' },
+              };
+              const style = severityStyles[item.severity];
+
+              return (
+                <div
+                  key={`${item.tenantId}-${i}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    ...style,
+                  }}
+                >
+                  {item.severity === 'critical' && <AlertCircle style={{ width: '16px', height: '16px', color: '#EF4444', flexShrink: 0 }} />}
+                  {item.severity === 'warning' && <AlertTriangle style={{ width: '16px', height: '16px', color: '#F59E0B', flexShrink: 0 }} />}
+                  {item.severity === 'info' && <Info style={{ width: '16px', height: '16px', color: '#3B82F6', flexShrink: 0 }} />}
+
+                  <span style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {item.tenantName}
+                  </span>
+                  <span style={{ color: '#CBD5E1', fontSize: '14px', flex: 1 }}>
+                    {item.message}
+                  </span>
+
+                  {item.action && (
+                    <button
+                      onClick={() => handleSelectTenant(item.tenantId)}
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: '#7B7FD4',
+                        background: 'rgba(123, 127, 212, 0.1)',
+                        border: '1px solid rgba(123, 127, 212, 0.3)',
+                        borderRadius: '6px',
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        transition: 'background 0.15s',
+                      }}
+                    >
+                      {item.action.label}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Tenant Fleet Cards */}
+      {/* ── Section: Tenant Fleet Cards ── */}
       <div>
-        <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>Tenant Fleet ({tenantCards.length})</h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          {tenantCards.map(tenant => (
-            <button
-              key={tenant.id}
-              onClick={() => handleSelectTenant(tenant.id)}
-              className="text-left rounded-2xl hover:border-violet-500/40 transition-all group"
-              style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h4 style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 700 }} className="group-hover:text-violet-300 transition-colors">
-                    {tenant.name}
-                  </h4>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {tenant.industry && (
-                      <span style={{ color: '#94A3B8', fontSize: '13px' }}>{tenant.industry}</span>
+        <h3 style={{
+          color: '#F8FAFC',
+          fontSize: '16px',
+          fontWeight: 700,
+          margin: '0 0 16px',
+        }}>
+          Tenant Fleet ({tenantCards.length})
+        </h3>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: '16px',
+        }}>
+          {tenantCards.map(tenant => {
+            const healthColor = tenant.latestLifecycleState
+              ? (['POSTED', 'CLOSED', 'PAID', 'PUBLISHED'].includes(tenant.latestLifecycleState) ? '#10B981' : '#F59E0B')
+              : (tenant.entityCount > 0 ? '#F59E0B' : '#EF4444');
+
+            const nextAction = tenant.latestLifecycleState
+              ? (NEXT_ACTIONS[tenant.latestLifecycleState] || 'Continue lifecycle')
+              : (tenant.entityCount > 0 ? 'Run first calculation' : 'Upload data');
+
+            const lastCalcDays = tenant.lastActivity
+              ? Math.floor((Date.now() - new Date(tenant.lastActivity).getTime()) / (1000 * 60 * 60 * 24))
+              : null;
+
+            return (
+              <button
+                key={tenant.id}
+                onClick={() => handleSelectTenant(tenant.id)}
+                style={{
+                  textAlign: 'left',
+                  background: '#0F172A',
+                  border: '1px solid #1E293B',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s',
+                  width: '100%',
+                }}
+              >
+                {/* Header row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      backgroundColor: healthColor,
+                      flexShrink: 0,
+                    }} />
+                    <span style={{ color: '#F8FAFC', fontSize: '16px', fontWeight: 700 }}>
+                      {tenant.name}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {tenant.latestLifecycleState && (
+                      <span style={{
+                        fontSize: '13px',
+                        padding: '2px 10px',
+                        borderRadius: '12px',
+                        fontWeight: 600,
+                        ...lifecycleBadgeStyle(tenant.latestLifecycleState),
+                      }}>
+                        {tenant.latestLifecycleState}
+                      </span>
                     )}
-                    {tenant.country && (
-                      <span style={{ color: '#94A3B8', fontSize: '13px' }}>{tenant.country}</span>
+                    {selectingTenant === tenant.id ? (
+                      <Loader2 style={{ width: '16px', height: '16px', color: '#7B7FD4', animation: 'spin 1s linear infinite' }} />
+                    ) : (
+                      <ChevronRight style={{ width: '16px', height: '16px', color: '#475569' }} />
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {tenant.latestLifecycleState && (
-                    <span className={cn(
-                      'text-xs px-2 py-0.5 rounded-full border',
-                      lifecycleColor(tenant.latestLifecycleState)
-                    )}>
-                      {tenant.latestLifecycleState}
-                    </span>
-                  )}
-                  {selectingTenant === tenant.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-violet-400" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 text-zinc-600 group-hover:text-violet-400 transition-colors" />
-                  )}
-                </div>
-              </div>
 
-              <div className="grid grid-cols-4 gap-3">
-                <div>
-                  <p style={{ color: '#94A3B8', fontSize: '13px' }}>Entities</p>
-                  <p style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{tenant.entityCount}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#94A3B8', fontSize: '13px' }}>Users</p>
-                  <p style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{tenant.userCount}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#94A3B8', fontSize: '13px' }}>Period</p>
-                  <p style={{ color: '#CBD5E1', fontSize: '13px' }} className="truncate">{tenant.latestPeriodLabel || '—'}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#94A3B8', fontSize: '13px' }}>Payout</p>
-                  <p style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                    {tenant.latestBatchPayout > 0
-                      ? `${(tenant.latestBatchPayout / 1000).toFixed(0)}k`
-                      : '—'}
+                {/* Industry / Country */}
+                {(tenant.industry || tenant.country) && (
+                  <p style={{ color: '#94A3B8', fontSize: '13px', margin: '0 0 12px' }}>
+                    {[tenant.industry, tenant.country].filter(Boolean).join(' \u00B7 ')}
                   </p>
-                </div>
-              </div>
+                )}
 
-              <div className="flex items-center gap-1 mt-3" style={{ color: '#94A3B8', fontSize: '13px' }}>
-                Last activity: {new Date(tenant.lastActivity).toLocaleDateString()}
-              </div>
-            </button>
-          ))}
+                {/* Stats row */}
+                <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <span style={{ color: '#94A3B8', fontSize: '13px' }}>Entities</span>
+                    <p style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{tenant.entityCount}</p>
+                  </div>
+                  <div>
+                    <span style={{ color: '#94A3B8', fontSize: '13px' }}>Users</span>
+                    <p style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{tenant.userCount}</p>
+                  </div>
+                  <div>
+                    <span style={{ color: '#94A3B8', fontSize: '13px' }}>Period</span>
+                    <p style={{ color: '#CBD5E1', fontSize: '14px', margin: '2px 0 0' }}>{tenant.latestPeriodLabel || '\u2014'}</p>
+                  </div>
+                  {lastCalcDays !== null && (
+                    <div>
+                      <span style={{ color: '#94A3B8', fontSize: '13px' }}>Last calc</span>
+                      <p style={{ color: '#CBD5E1', fontSize: '14px', margin: '2px 0 0' }}>{lastCalcDays === 0 ? 'Today' : `${lastCalcDays}d ago`}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Next action */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: '#E8A838',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                }}>
+                  <span>&rarr;</span>
+                  <span>{nextAction}</span>
+                </div>
+              </button>
+            );
+          })}
 
           {/* Create New Tenant */}
           <button
             onClick={() => router.push('/admin/tenants/new')}
-            className="flex flex-col items-center justify-center gap-3 rounded-2xl hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group min-h-[160px]"
-            style={{ background: 'rgba(24, 24, 27, 0.4)', border: '1px dashed rgba(63, 63, 70, 0.6)', padding: '32px' }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              background: 'rgba(15, 23, 42, 0.4)',
+              border: '1px dashed #334155',
+              borderRadius: '12px',
+              padding: '32px',
+              cursor: 'pointer',
+              minHeight: '160px',
+              transition: 'border-color 0.15s',
+            }}
           >
-            <PlusCircle className="h-8 w-8 text-zinc-600 group-hover:text-violet-400 transition-colors" />
-            <div className="text-center">
-              <p style={{ color: '#94A3B8', fontSize: '14px', fontWeight: 500 }} className="group-hover:text-violet-300 transition-colors">Create New Tenant</p>
+            <PlusCircle style={{ width: '32px', height: '32px', color: '#475569' }} />
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ color: '#94A3B8', fontSize: '14px', fontWeight: 600, margin: 0 }}>Create New Tenant</p>
               <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>Provision a new customer environment</p>
             </div>
           </button>
@@ -221,46 +408,72 @@ export function ObservatoryTab() {
   );
 }
 
-// ── Sub-components ──
+/* ── Helpers ── */
 
-function MetricCard({
+function ActionMetricCard({
   icon: Icon,
+  iconColor,
   label,
   value,
   subtitle,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ style?: React.CSSProperties }>;
+  iconColor: string;
   label: string;
-  value: number;
-  subtitle?: string;
+  value: string;
+  subtitle: string;
 }) {
   return (
-    <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className="h-4 w-4 text-violet-400" />
-        <span style={LABEL_STYLE}>{label}</span>
+    <div style={{
+      background: '#0F172A',
+      border: '1px solid #1E293B',
+      borderRadius: '10px',
+      padding: '20px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+        <Icon style={{ width: '16px', height: '16px', color: iconColor }} />
+        <span style={{
+          color: '#94A3B8',
+          fontSize: '13px',
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+        }}>
+          {label}
+        </span>
       </div>
-      <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value.toLocaleString()}</p>
-      {subtitle && <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '2px' }}>{subtitle}</p>}
+      <p style={{
+        color: '#F8FAFC',
+        fontSize: '28px',
+        fontWeight: 700,
+        fontVariantNumeric: 'tabular-nums',
+        margin: 0,
+      }}>
+        {value}
+      </p>
+      <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
+        {subtitle}
+      </p>
     </div>
   );
 }
 
-function lifecycleColor(state: string): string {
+function lifecycleBadgeStyle(state: string): React.CSSProperties {
   switch (state) {
     case 'POSTED':
     case 'CLOSED':
     case 'PAID':
-      return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400';
+    case 'PUBLISHED':
+      return { background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)' };
     case 'APPROVED':
     case 'OFFICIAL':
-      return 'border-blue-500/40 bg-blue-500/10 text-blue-400';
+      return { background: 'rgba(59, 130, 246, 0.15)', color: '#60A5FA', border: '1px solid rgba(59, 130, 246, 0.3)' };
     case 'PREVIEW':
     case 'DRAFT':
-      return 'border-zinc-600 bg-zinc-800/50 text-zinc-400';
+      return { background: 'rgba(148, 163, 184, 0.15)', color: '#94A3B8', border: '1px solid rgba(148, 163, 184, 0.3)' };
     case 'REJECTED':
-      return 'border-red-500/40 bg-red-500/10 text-red-400';
+      return { background: 'rgba(239, 68, 68, 0.15)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.3)' };
     default:
-      return 'border-amber-500/40 bg-amber-500/10 text-amber-400';
+      return { background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B', border: '1px solid rgba(245, 158, 11, 0.3)' };
   }
 }
