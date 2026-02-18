@@ -39,7 +39,9 @@ import { CanvasToolbar } from './CanvasToolbar';
 import { CanvasLegend } from './CanvasLegend';
 import { EntityDetailPanel } from './panels/EntityDetailPanel';
 import { ImpactPreviewPanel } from './panels/ImpactPreviewPanel';
-import { reassignEntity } from '@/lib/canvas/graph-service';
+import { NewRelationshipPanel } from './panels/NewRelationshipPanel';
+import { reassignEntity, createRelationship } from '@/lib/canvas/graph-service';
+import type { RelationshipType } from '@/lib/supabase/database.types';
 import type { LayoutConfig } from '@/lib/canvas/layout-engine';
 
 // Register custom node types
@@ -82,10 +84,18 @@ export function OrganizationalCanvas({
     startReassignment,
     cancelReassignment,
     updateReassignmentDraft,
+    newRelDraft,
+    startNewRelationship,
+    cancelNewRelationship,
+    updateNewRelDraft,
   } = useCanvasActions();
 
   // Track drag start position for proximity detection
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
+
+  // Relationship creation mode: click two nodes to create a link
+  const [isRelationshipMode, setIsRelationshipMode] = useState(false);
+  const relationshipSourceId = useRef<string | null>(null);
 
   // Track viewport changes for zoom level
   useOnViewportChange({
@@ -96,8 +106,24 @@ export function OrganizationalCanvas({
 
   const { setCenter } = useReactFlow();
 
-  // Handle node click -> zoom in at landscape/unit, select at team/entity
+  // Handle node click -> relationship mode, zoom, or select
   const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
+    // Relationship creation mode: click two nodes
+    if (isRelationshipMode) {
+      if (!relationshipSourceId.current) {
+        // First click — select source
+        relationshipSourceId.current = node.id;
+        return;
+      }
+      // Second click — select target, open panel
+      if (node.id !== relationshipSourceId.current) {
+        startNewRelationship(relationshipSourceId.current, node.id);
+      }
+      relationshipSourceId.current = null;
+      setIsRelationshipMode(false);
+      return;
+    }
+
     if (zoomLevel === 'landscape' || zoomLevel === 'unit') {
       // Zoom in one level and center on clicked node
       const targetZoom = zoomLevel === 'landscape' ? 0.6 : 1.2;
@@ -110,7 +136,7 @@ export function OrganizationalCanvas({
       // At team/entity zoom, open detail panel
       setSelectedEntityId(node.id);
     }
-  }, [zoomLevel, setCenter, setSelectedEntityId]);
+  }, [zoomLevel, setCenter, setSelectedEntityId, isRelationshipMode, startNewRelationship]);
 
   // Handle search result -> pan to node and open detail
   const handleSelectEntity = useCallback((entityId: string) => {
@@ -177,6 +203,34 @@ export function OrganizationalCanvas({
       closestNode.id
     );
   }, [graph, flowNodes, startReassignment]);
+
+  // Toggle relationship creation mode
+  const handleToggleRelationshipMode = useCallback(() => {
+    setIsRelationshipMode(prev => {
+      if (prev) relationshipSourceId.current = null;
+      return !prev;
+    });
+  }, []);
+
+  // Handle new relationship confirm — persist to Supabase
+  const handleConfirmNewRelationship = useCallback(async () => {
+    if (!newRelDraft || !currentTenant?.id) {
+      cancelNewRelationship();
+      return;
+    }
+    try {
+      await createRelationship(
+        currentTenant.id,
+        newRelDraft.sourceId,
+        newRelDraft.targetId,
+        newRelDraft.relationshipType as RelationshipType,
+      );
+      cancelNewRelationship();
+      await refresh();
+    } catch {
+      cancelNewRelationship();
+    }
+  }, [newRelDraft, currentTenant?.id, cancelNewRelationship, refresh]);
 
   // Handle reassignment confirm — persist to Supabase
   const handleConfirmReassignment = useCallback(async () => {
@@ -262,7 +316,30 @@ export function OrganizationalCanvas({
           onLayoutModeChange={setLayoutMode}
           onSearch={search}
           onSelectEntity={handleSelectEntity}
+          isRelationshipMode={isRelationshipMode}
+          onToggleRelationshipMode={handleToggleRelationshipMode}
         />
+
+        {/* Relationship mode indicator */}
+        {isRelationshipMode && (
+          <div style={{
+            position: 'absolute',
+            top: '52px',
+            left: '12px',
+            zIndex: 10,
+            background: 'rgba(99, 102, 241, 0.15)',
+            border: '1px solid rgba(99, 102, 241, 0.4)',
+            borderRadius: '6px',
+            padding: '6px 12px',
+            fontSize: '12px',
+            color: '#818cf8',
+            backdropFilter: 'blur(8px)',
+          }}>
+            {relationshipSourceId.current
+              ? 'Click target entity...'
+              : 'Click source entity...'}
+          </div>
+        )}
 
         <CanvasLegend />
       </div>
@@ -286,6 +363,23 @@ export function OrganizationalCanvas({
           onConfirm={handleConfirmReassignment}
           onCancel={cancelReassignment}
           onUpdate={updateReassignmentDraft}
+        />
+      )}
+
+      {newRelDraft && (
+        <NewRelationshipPanel
+          draft={newRelDraft}
+          sourceName={
+            graph?.nodes.find(n => n.id === newRelDraft.sourceId)?.entity.display_name
+            || newRelDraft.sourceId.slice(0, 8)
+          }
+          targetName={
+            graph?.nodes.find(n => n.id === newRelDraft.targetId)?.entity.display_name
+            || newRelDraft.targetId.slice(0, 8)
+          }
+          onConfirm={handleConfirmNewRelationship}
+          onCancel={cancelNewRelationship}
+          onUpdate={updateNewRelDraft}
         />
       )}
     </div>

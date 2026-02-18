@@ -14,6 +14,7 @@ import {
   Maximize2,
   Network,
   GitBranch,
+  Link2,
 } from 'lucide-react';
 import type { Entity } from '@/lib/supabase/database.types';
 import type { LayoutConfig } from '@/lib/canvas/layout-engine';
@@ -23,6 +24,8 @@ interface CanvasToolbarProps {
   onLayoutModeChange: (mode: LayoutConfig['mode']) => void;
   onSearch: (query: string) => Promise<Entity[]>;
   onSelectEntity: (entityId: string) => void;
+  isRelationshipMode: boolean;
+  onToggleRelationshipMode: () => void;
 }
 
 const TOOLBAR_STYLE: React.CSSProperties = {
@@ -68,6 +71,8 @@ export function CanvasToolbar({
   onLayoutModeChange,
   onSearch,
   onSelectEntity,
+  isRelationshipMode,
+  onToggleRelationshipMode,
 }: CanvasToolbarProps) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const [searchQuery, setSearchQuery] = useState('');
@@ -181,6 +186,17 @@ export function CanvasToolbar({
           title="Force-directed layout"
         >
           <Network size={14} />
+        </button>
+      </div>
+
+      {/* Add Relationship mode */}
+      <div style={GROUP_STYLE}>
+        <button
+          style={isRelationshipMode ? BTN_ACTIVE : BTN_STYLE}
+          onClick={onToggleRelationshipMode}
+          title={isRelationshipMode ? 'Cancel relationship mode' : 'Add relationship (click two nodes)'}
+        >
+          <Link2 size={14} />
         </button>
       </div>
 
