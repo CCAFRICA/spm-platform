@@ -193,6 +193,93 @@ const complianceAgent: AgentDefinition = {
 };
 
 // ---------------------------------------------------------------------------
+// 5. Expansion Agent
+// ---------------------------------------------------------------------------
+
+const expansionAgent: AgentDefinition = {
+  id: 'expansion',
+  name: 'Expansion Agent',
+  description: 'Detects usage patterns suggesting readiness for upgrades or new modules',
+  observes: [
+    'calculation.completed',
+    'user.feature_used',
+    'data.committed',
+    'user.first_login',
+  ],
+  enabled: true,
+
+  async evaluate(ctx: AgentContext): Promise<AgentAction[]> {
+    const actions: AgentAction[] = [];
+    const billing = (ctx.tenantSettings.billing || {}) as Record<string, unknown>;
+    const currentTier = (billing.tier as string) || 'free';
+    const currentModules = (billing.modules as string[]) || [];
+
+    // Signal 1: Entity count approaching tier limit (80%)
+    const calcEvents = ctx.recentEvents.filter(e => e.event_type === 'calculation.completed');
+    if (calcEvents.length > 0) {
+      const latestCalc = calcEvents[0];
+      const entityCount = (latestCalc.payload?.entity_count as number) || 0;
+
+      const tierLimits: Record<string, number> = {
+        free: 10, inicio: 50, crecimiento: 200, profesional: 1000, empresarial: 10000,
+      };
+      const limit = tierLimits[currentTier] || 50;
+
+      if (entityCount > 0 && entityCount >= limit * 0.8) {
+        const tierNames: Record<string, string> = {
+          free: 'Inicio', inicio: 'Crecimiento', crecimiento: 'Profesional', profesional: 'Empresarial',
+        };
+        const nextTier = tierNames[currentTier];
+        if (nextTier) {
+          actions.push({
+            agentId: 'expansion',
+            type: 'recommendation',
+            title: `Approaching ${currentTier} entity limit`,
+            description: `You're using ${entityCount} of ${limit} entities (${Math.round((entityCount / limit) * 100)}%). Consider upgrading to ${nextTier} for room to grow.`,
+            severity: entityCount >= limit * 0.95 ? 'warning' : 'info',
+            actionUrl: '/upgrade',
+            actionLabel: 'View Plans',
+            persona: 'admin',
+          });
+        }
+      }
+
+      // Signal 2: Multiple calculations but no Manager module
+      if (calcEvents.length >= 3 && !currentModules.includes('manager')) {
+        actions.push({
+          agentId: 'expansion',
+          type: 'recommendation',
+          title: 'Unlock Coaching for your managers',
+          description: `You've run ${calcEvents.length} calculations. The Manager Acceleration module gives your managers coaching insights and 1:1 preparation tools.`,
+          severity: 'info',
+          actionUrl: '/upgrade',
+          actionLabel: 'Add Module',
+          persona: 'admin',
+        });
+      }
+    }
+
+    // Signal 3: Many active users but no Dispute module
+    const userEvents = ctx.recentEvents.filter(e => e.event_type === 'user.first_login');
+    const uniqueUsers = new Set(userEvents.map(e => e.actor_id).filter(Boolean));
+    if (uniqueUsers.size >= 5 && !currentModules.includes('dispute')) {
+      actions.push({
+        agentId: 'expansion',
+        type: 'recommendation',
+        title: 'Consider Dispute Resolution',
+        description: `You have ${uniqueUsers.size} active users. The Dispute Resolution module provides structured workflows for commission inquiries.`,
+        severity: 'info',
+        actionUrl: '/upgrade',
+        actionLabel: 'Add Module',
+        persona: 'admin',
+      });
+    }
+
+    return actions;
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -201,6 +288,7 @@ const AGENTS: AgentDefinition[] = [
   coachingAgent,
   resolutionAgent,
   complianceAgent,
+  expansionAgent,
 ];
 
 export function getAgent(agentId: string): AgentDefinition | undefined {
