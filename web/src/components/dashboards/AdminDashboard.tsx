@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Admin Dashboard — "Gobernar"
+ * Admin Dashboard — Govern
  *
  * DS-001 Admin View layout (8 distinct visual forms):
  *   Row 1: Hero (col-5) + Distribution (col-4) + Lifecycle (col-3)
@@ -346,7 +346,7 @@ export function AdminDashboard() {
         <div className="col-span-12 lg:col-span-7" style={CARD_STYLE}>
           <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
             <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              Ubicaciones vs Presupuesto
+              Locations vs Budget
             </p>
             {isUniformDelta && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.3)' }}>

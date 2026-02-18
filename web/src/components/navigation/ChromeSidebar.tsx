@@ -142,7 +142,9 @@ export function ChromeSidebar() {
   const { isVLAdmin: isUserVLAdmin } = useAuth();
   const { locale } = useLocale();
 
-  const isSpanish = locale === 'es-MX';
+  // Standing Rule 3: Admin interfaces always English
+  const isAdminPersona = persona === 'admin';
+  const isSpanish = !isAdminPersona && locale === 'es-MX';
 
   // Section accordion state — tracks which section IDs are expanded
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());

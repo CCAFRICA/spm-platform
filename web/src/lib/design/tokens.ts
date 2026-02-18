@@ -25,7 +25,7 @@ export const PERSONA_TOKENS = {
     heroShadow: 'shadow-indigo-950/50',
     heroTextMuted: 'text-indigo-200/60',
     heroTextLabel: 'text-indigo-200/70',
-    intent: 'Gobernar',
+    intent: 'Govern',
     intentDescription: 'Governance & System Health',
   },
   manager: {
