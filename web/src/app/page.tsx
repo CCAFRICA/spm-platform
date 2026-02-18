@@ -13,7 +13,7 @@
  * Period switching in PeriodRibbon updates all dashboard content.
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
@@ -30,7 +30,7 @@ function DashboardContent() {
   const { availablePeriods, activePeriodKey, setActivePeriod, isLoading } = usePeriod();
   const { currentTenant } = useTenant();
   const { loading: gpvLoading, isComplete: gpvComplete, currentStep } = useGPV(currentTenant?.id);
-  const [skippedGPV, setSkippedGPV] = useState(() => {
+  const [skippedGPV] = useState(() => {
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('gpv_skipped') === 'true';
     }

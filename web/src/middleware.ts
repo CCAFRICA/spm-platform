@@ -45,16 +45,22 @@ function clearSbCookies(request: NextRequest, response: NextResponse): void {
 
 export async function middleware(request: NextRequest) {
   // If Supabase is not configured, auth enforcement is impossible.
-  // Log a warning so this is never silent — a missing env var should
-  // never silently disable the entire auth layer.
+  // FAIL-CLOSED: redirect to /landing instead of passing through.
+  // A missing env var must NEVER silently disable the entire auth layer.
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   ) {
-    console.warn(
-      '[Middleware] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY missing — auth enforcement disabled'
+    console.error(
+      '[Middleware] CRITICAL: NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY missing — blocking access'
     );
-    return NextResponse.next();
+    const pathname = request.nextUrl.pathname;
+    // Allow public paths through so /landing, /login, /signup still render
+    if (isPublicPath(pathname)) {
+      return NextResponse.next({ request });
+    }
+    // Everything else → redirect to /landing (fail-closed)
+    return NextResponse.redirect(new URL('/landing', request.url));
   }
 
   // Response object for authenticated pass-through (carries cookie refresh).

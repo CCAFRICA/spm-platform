@@ -15,7 +15,6 @@ import {
   PLATFORM_TIERS,
   MODULE_PRICES,
   calculateMonthlyTotal,
-  recommendTier,
   getBundleDiscount,
 } from '@/lib/stripe/config';
 

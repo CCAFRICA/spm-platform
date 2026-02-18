@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createServiceRoleClient();
     // platform_events table created via SQL migration — not yet in generated types
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (supabase as any)
       .from('platform_events')
       .insert({
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createServiceRoleClient();
   // platform_events table created via SQL migration — not yet in generated types
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query = (supabase as any)
     .from('platform_events')
     .select('*')
