@@ -28,6 +28,7 @@ import {
   getStateColor,
   type CalculationState,
 } from '@/lib/calculation/lifecycle-utils';
+import { runCalculation } from '@/lib/calculation/run-calculation';
 import {
   type CalculationCycle,
   performLifecycleTransition,
@@ -37,6 +38,7 @@ import {
 import { LifecycleSubway } from '@/components/lifecycle/LifecycleSubway';
 import { LifecycleActionBar } from '@/components/lifecycle/LifecycleActionBar';
 import { getPipelineConfig, type LifecyclePipelineConfig } from '@/lib/lifecycle/lifecycle-pipeline';
+import { createClient } from '@/lib/supabase/client';
 import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -120,6 +122,8 @@ export default function CalculatePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [dbPeriods, setDbPeriods] = useState<Array<{ id: string; period_key: string }>>([]);
 
   const { locale } = useAdminLocale();
   const t = labels[locale];
@@ -151,13 +155,27 @@ export default function CalculatePage() {
           draftPlans: draftRS,
         });
 
-        // Load recent batches
-        const batches = await listCalculationBatches(currentTenant.id);
+        // Load recent batches + periods from Supabase
+        const supabase = createClient();
+        const [batches, periodsRes] = await Promise.all([
+          listCalculationBatches(currentTenant.id),
+          supabase
+            .from('periods')
+            .select('id, period_key')
+            .eq('tenant_id', currentTenant.id)
+            .order('start_date', { ascending: false }),
+        ]);
         setRecentBatches(batches.slice(0, 10));
+        setDbPeriods(periodsRes.data ?? []);
 
-        // Derive available periods from batches
-        if (batches.length > 0 && !selectedPeriod) {
-          setSelectedPeriod(batches[0].period_id);
+        // Default to first period (from DB or from batches)
+        if (!selectedPeriod) {
+          const firstPeriod = periodsRes.data?.[0];
+          if (firstPeriod) {
+            setSelectedPeriod(firstPeriod.id);
+          } else if (batches.length > 0) {
+            setSelectedPeriod(batches[0].period_id);
+          }
         }
       } catch (err) {
         console.warn('[Calculate] Failed to load data:', err);
@@ -219,6 +237,45 @@ export default function CalculatePage() {
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : `Failed to transition to ${targetState}`);
+    }
+  };
+
+  // Run calculation
+  const handleRunCalculation = async () => {
+    if (!currentTenant || !selectedPeriod || !planStatus.activeRuleSetId || !user) return;
+    setIsCalculating(true);
+    try {
+      const result = await runCalculation({
+        tenantId: currentTenant.id,
+        periodId: selectedPeriod,
+        ruleSetId: planStatus.activeRuleSetId,
+        userId: user.id,
+      });
+
+      if (!result.success) {
+        alert(`Calculation failed: ${result.error}`);
+        return;
+      }
+
+      // Refresh batches and results
+      const batches = await listCalculationBatches(currentTenant.id);
+      setRecentBatches(batches.slice(0, 10));
+
+      // Load the new batch
+      const batch = await getActiveBatch(currentTenant.id, selectedPeriod);
+      setActiveBatch(batch);
+      if (batch) {
+        const [results, cycle] = await Promise.all([
+          getCalculationResults(currentTenant.id, batch.id),
+          batchToCycle(batch, currentTenant.id),
+        ]);
+        setBatchResults(results);
+        setActiveCycle(cycle);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Calculation failed');
+    } finally {
+      setIsCalculating(false);
     }
   };
 
@@ -284,14 +341,17 @@ export default function CalculatePage() {
     URL.revokeObjectURL(url);
   };
 
-  // Available periods from batches
-  const availablePeriods = Array.from(new Set(recentBatches.map(b => b.period_id))).sort().reverse();
-
-  // Add current month if no periods
-  if (availablePeriods.length === 0) {
-    const now = new Date();
-    availablePeriods.push(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+  // Merge periods from DB and from batches
+  const periodMap = new Map<string, string>();
+  for (const p of dbPeriods) {
+    periodMap.set(p.id, p.period_key);
   }
+  for (const b of recentBatches) {
+    if (!periodMap.has(b.period_id)) {
+      periodMap.set(b.period_id, b.period_id);
+    }
+  }
+  const availablePeriods = Array.from(periodMap.entries()).map(([id, key]) => ({ id, key }));
 
   // Filtered results for table
   const filteredResults = batchResults.filter(r => {
@@ -332,7 +392,7 @@ export default function CalculatePage() {
         <Link href="/operate" className="hover:text-foreground">Operate</Link>
         <ChevronRight className="h-4 w-4 mx-1" />
         <span className="text-foreground font-medium">
-          {t.title}{selectedPeriod ? `: ${selectedPeriod}` : ''}
+          {t.title}{selectedPeriod ? `: ${periodMap.get(selectedPeriod) || selectedPeriod}` : ''}
         </span>
       </nav>
 
@@ -343,7 +403,7 @@ export default function CalculatePage() {
         </Button>
         <div>
           <h1 className="text-2xl font-bold text-slate-50">
-            {t.title}{selectedPeriod ? `: ${selectedPeriod}` : ''}
+            {t.title}{selectedPeriod ? `: ${periodMap.get(selectedPeriod) || selectedPeriod}` : ''}
           </h1>
           <p className="text-slate-600 dark:text-slate-400">{t.subtitle}</p>
         </div>
@@ -401,7 +461,7 @@ export default function CalculatePage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex flex-col md:flex-row gap-4 items-end">
             <div className="flex-1">
               <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
                 <SelectTrigger>
@@ -409,11 +469,28 @@ export default function CalculatePage() {
                 </SelectTrigger>
                 <SelectContent>
                   {availablePeriods.map(p => (
-                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                    <SelectItem key={p.id} value={p.id}>{p.key}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+            <Button
+              onClick={handleRunCalculation}
+              disabled={isCalculating || !planStatus.hasActivePlan || !selectedPeriod}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {isCalculating ? (
+                <>
+                  <Clock className="h-4 w-4 mr-2 animate-spin" />
+                  {locale === 'es-MX' ? 'Calculando...' : 'Calculating...'}
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 mr-2" />
+                  {locale === 'es-MX' ? 'Ejecutar Calculo' : 'Run Calculation'}
+                </>
+              )}
+            </Button>
           </div>
         </CardContent>
       </Card>
