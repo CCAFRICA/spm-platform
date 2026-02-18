@@ -254,39 +254,45 @@ export function OrganizationalCanvas({
     }
   }, [reassignmentDraft, currentTenant?.id, cancelReassignment, refresh]);
 
+  const EMPTY_CONTAINER: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+    background: '#0a0e1a',
+  };
+
   if (isLoading) {
     return (
-      <div className={`flex items-center justify-center h-full ${className || ''}`}>
-        <div className="animate-pulse text-sm text-muted-foreground">
-          Loading organizational graph...
-        </div>
+      <div className={className || ''} style={EMPTY_CONTAINER}>
+        <div style={{ color: '#71717a', fontSize: '13px' }}>Loading organizational graph...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className={`flex items-center justify-center h-full ${className || ''}`}>
-        <div className="text-sm text-destructive">{error}</div>
+      <div className={className || ''} style={EMPTY_CONTAINER}>
+        <div style={{ color: '#ef4444', fontSize: '13px' }}>{error}</div>
       </div>
     );
   }
 
   if (!graph || graph.nodes.length === 0) {
     return (
-      <div className={`flex items-center justify-center h-full ${className || ''}`}>
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground">No entities found</p>
-          <p className="text-xs text-muted-foreground mt-1">Import data to populate the organizational canvas</p>
+      <div className={className || ''} style={EMPTY_CONTAINER}>
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ color: '#71717a', fontSize: '13px' }}>No entities found</p>
+          <p style={{ color: '#52525b', fontSize: '12px', marginTop: '4px' }}>Import data to populate the organizational canvas</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`flex h-full ${className || ''}`}>
+    <div className={className || ''} style={{ display: 'flex', height: '100%', background: '#0a0e1a' }}>
       {/* Canvas */}
-      <div className="flex-1 relative">
+      <div style={{ flex: 1, position: 'relative' }}>
         <ReactFlow
           nodes={flowNodes}
           edges={flowEdges}
@@ -303,11 +309,11 @@ export function OrganizationalCanvas({
           maxZoom={3}
           proOptions={{ hideAttribution: true }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(99, 102, 241, 0.08)" />
           <MiniMap
             nodeStrokeWidth={3}
-            className="!bg-background/80 !border"
-            maskColor="hsla(0, 0%, 0%, 0.08)"
+            style={{ background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '8px' }}
+            maskColor="rgba(0, 0, 0, 0.15)"
           />
         </ReactFlow>
 
