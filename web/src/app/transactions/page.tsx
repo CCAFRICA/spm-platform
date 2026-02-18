@@ -323,8 +323,8 @@ export default function TransactionsPage() {
           <Button size="sm" onClick={() => {
             toast.info(
               isSpanish
-                ? `La creación manual de ${transactionSingular.toLowerCase()} estará disponible próximamente. Usa la importación por ahora.`
-                : `Manual ${transactionSingular.toLowerCase()} creation coming soon. Use import for now.`
+                ? `Usa la función de importación para crear registros de ${transactionSingular.toLowerCase()}.`
+                : `Use the import function to create ${transactionSingular.toLowerCase()} records.`
             );
           }}>
             <Plus className="mr-2 h-4 w-4" />

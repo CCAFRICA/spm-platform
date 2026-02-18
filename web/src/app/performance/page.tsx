@@ -20,7 +20,7 @@ export default function PerformancePage() {
             <CardDescription>Your performance breakdown and trends</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-slate-500">Performance dashboard coming soon...</p>
+            <p className="text-slate-500">Select a category from the sidebar to view performance data.</p>
           </CardContent>
         </Card>
       </div>

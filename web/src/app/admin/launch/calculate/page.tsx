@@ -38,7 +38,7 @@ import {
 import { LifecycleSubway } from '@/components/lifecycle/LifecycleSubway';
 import { LifecycleActionBar } from '@/components/lifecycle/LifecycleActionBar';
 import { getPipelineConfig, type LifecyclePipelineConfig } from '@/lib/lifecycle/lifecycle-pipeline';
-import { createClient } from '@/lib/supabase/client';
+import { loadTenantPeriods } from '@/lib/data/page-loaders';
 import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -155,22 +155,17 @@ export default function CalculatePage() {
           draftPlans: draftRS,
         });
 
-        // Load recent batches + periods from Supabase
-        const supabase = createClient();
-        const [batches, periodsRes] = await Promise.all([
+        // Load recent batches + periods from page loader
+        const [batches, periods] = await Promise.all([
           listCalculationBatches(currentTenant.id),
-          supabase
-            .from('periods')
-            .select('id, period_key')
-            .eq('tenant_id', currentTenant.id)
-            .order('start_date', { ascending: false }),
+          loadTenantPeriods(currentTenant.id),
         ]);
         setRecentBatches(batches.slice(0, 10));
-        setDbPeriods(periodsRes.data ?? []);
+        setDbPeriods(periods);
 
         // Default to first period (from DB or from batches)
         if (!selectedPeriod) {
-          const firstPeriod = periodsRes.data?.[0];
+          const firstPeriod = periods[0];
           if (firstPeriod) {
             setSelectedPeriod(firstPeriod.id);
           } else if (batches.length > 0) {

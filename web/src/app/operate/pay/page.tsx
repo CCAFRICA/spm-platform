@@ -254,33 +254,39 @@ export default function PayPage() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-2 gap-4">
-        <Card className="opacity-60">
+        <Card
+          className="cursor-pointer hover:bg-zinc-800/50 transition-colors"
+          onClick={() => router.push('/admin/launch/calculate')}
+        >
           <CardContent className="p-6 flex items-center gap-4">
             <div className="p-3 bg-blue-900/30 rounded-lg">
               <Calendar className="h-6 w-6 text-blue-600" />
             </div>
             <div>
               <p className="font-medium text-zinc-100">
-                {displaySpanish ? 'Calendario de Nomina' : 'Outcome Calendar'}
+                {displaySpanish ? 'Cierre de Periodo' : 'Period Close'}
               </p>
               <p className="text-sm text-slate-400">
-                {displaySpanish ? 'Proximamente' : 'Coming Soon'}
+                {displaySpanish ? 'Calcular y cerrar periodo' : 'Calculate and close period'}
               </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="opacity-60">
+        <Card
+          className="cursor-pointer hover:bg-zinc-800/50 transition-colors"
+          onClick={() => router.push('/govern/calculation-approvals')}
+        >
           <CardContent className="p-6 flex items-center gap-4">
             <div className="p-3 bg-green-900/30 rounded-lg">
               <FileText className="h-6 w-6 text-green-600" />
             </div>
             <div>
               <p className="font-medium text-zinc-100">
-                {displaySpanish ? 'Historial de Pagos' : 'Payment History'}
+                {displaySpanish ? 'Aprobaciones' : 'Approvals'}
               </p>
               <p className="text-sm text-slate-400">
-                {displaySpanish ? 'Proximamente' : 'Coming Soon'}
+                {displaySpanish ? 'Revisar aprobaciones pendientes' : 'Review pending approvals'}
               </p>
             </div>
           </CardContent>

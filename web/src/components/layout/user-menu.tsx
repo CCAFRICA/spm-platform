@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -110,7 +109,7 @@ export function UserMenu() {
 
             <DropdownMenuItem
               className="cursor-pointer"
-              onClick={() => toast.info('Profile page coming soon!')}
+              onClick={() => router.push('/configure')}
             >
               <User className="mr-2 h-4 w-4" />
               Profile

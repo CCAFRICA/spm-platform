@@ -86,6 +86,20 @@ export interface CalculatePageData {
 }
 
 // ──────────────────────────────────────────────
+// Tenant Periods Loader (reusable across pages)
+// ──────────────────────────────────────────────
+
+export async function loadTenantPeriods(tenantId: string): Promise<Array<{ id: string; period_key: string }>> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from('periods')
+    .select('id, period_key')
+    .eq('tenant_id', tenantId)
+    .order('start_date', { ascending: false });
+  return data ?? [];
+}
+
+// ──────────────────────────────────────────────
 // Operate Page Loader
 // ──────────────────────────────────────────────
 

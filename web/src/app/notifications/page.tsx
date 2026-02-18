@@ -441,7 +441,7 @@ export default function NotificationsPage() {
                           </Label>
                           {!config.available && (
                             <Badge variant="outline" className="ml-2 text-xs">
-                              {isSpanish ? 'Pr\u00f3ximamente' : 'Coming soon'}
+                              {isSpanish ? 'No disponible' : 'Unavailable'}
                             </Badge>
                           )}
                         </div>

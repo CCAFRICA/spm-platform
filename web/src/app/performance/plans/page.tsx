@@ -119,9 +119,9 @@ export default function PlansPage() {
             Configure and manage rule set structures
           </p>
         </div>
-        <Button disabled className="opacity-60" title="Coming Soon">
+        <Button onClick={() => router.push('/admin/launch/plan-import')}>
           <Plus className="h-4 w-4 mr-2" />
-          Create Plan (Coming Soon)
+          Import Plan
         </Button>
       </div>
 
@@ -202,9 +202,9 @@ export default function PlansPage() {
                   : 'No plans match your search criteria.'}
               </div>
               {plans.length === 0 && (
-                <Button className="mt-4 opacity-60" disabled title="Coming Soon">
+                <Button className="mt-4" onClick={() => router.push('/admin/launch/plan-import')}>
                   <Plus className="h-4 w-4 mr-2" />
-                  Create First Plan (Coming Soon)
+                  Import First Plan
                 </Button>
               )}
             </div>

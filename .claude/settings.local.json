@@ -98,7 +98,9 @@
       "Bash(cd /Users/AndrewAfrica/spm-platform echo \"=== FINAL RENDERING CHAIN ===\" echo \"1. html:\" grep \"className\\\\|class=\" web/src/app/layout.tsx)",
       "Bash(HF-039_OB51_RETROACTIVE_REPORT.md:*)",
       "Bash(sort:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(OB-55_PROMPT.md:*)",
+      "Bash(done)"
     ]
   }
 }

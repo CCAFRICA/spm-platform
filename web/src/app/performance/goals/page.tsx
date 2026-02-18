@@ -35,11 +35,11 @@ export default function GoalsPage() {
             <div className="text-center">
               <Target className="h-16 w-16 text-blue-500 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                Goals Module Coming Soon
+                No Goals Configured
               </h3>
               <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">
-                Goal tracking and management will be available in a future release.
-                For now, goals are managed through rule set configurations.
+                Goals are managed through rule set configurations.
+                Import a plan to define goal structures for your team.
               </p>
             </div>
           </CardContent>
