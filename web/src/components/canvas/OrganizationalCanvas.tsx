@@ -18,6 +18,7 @@ import {
   BackgroundVariant,
   MiniMap,
   useOnViewportChange,
+  useReactFlow,
   type Viewport,
   type NodeMouseHandler,
 } from '@xyflow/react';
@@ -85,15 +86,36 @@ export function OrganizationalCanvas({
     }, [onZoomChange]),
   });
 
-  // Handle node click -> select entity
-  const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
-    setSelectedEntityId(node.id);
-  }, [setSelectedEntityId]);
+  const { setCenter } = useReactFlow();
 
-  // Handle search result -> pan to node
+  // Handle node click -> zoom in at landscape/unit, select at team/entity
+  const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
+    if (zoomLevel === 'landscape' || zoomLevel === 'unit') {
+      // Zoom in one level and center on clicked node
+      const targetZoom = zoomLevel === 'landscape' ? 0.6 : 1.2;
+      setCenter(
+        node.position.x + 100,
+        node.position.y + 40,
+        { zoom: targetZoom, duration: 500 }
+      );
+    } else {
+      // At team/entity zoom, open detail panel
+      setSelectedEntityId(node.id);
+    }
+  }, [zoomLevel, setCenter, setSelectedEntityId]);
+
+  // Handle search result -> pan to node and open detail
   const handleSelectEntity = useCallback((entityId: string) => {
+    const node = flowNodes.find(n => n.id === entityId);
+    if (node) {
+      setCenter(
+        node.position.x + 100,
+        node.position.y + 40,
+        { zoom: 1.5, duration: 500 }
+      );
+    }
     setSelectedEntityId(entityId);
-  }, [setSelectedEntityId]);
+  }, [flowNodes, setCenter, setSelectedEntityId]);
 
   // Handle reassignment confirm
   const handleConfirmReassignment = useCallback(async () => {

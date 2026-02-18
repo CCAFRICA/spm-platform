@@ -21,46 +21,58 @@ interface LandscapeNodeData {
 function LandscapeNodeComponent({ data }: NodeProps) {
   const { entity, childCount } = data as unknown as LandscapeNodeData;
   const density = Math.min(1, childCount / 20);
-  const bgOpacity = 0.1 + density * 0.4;
+  const bgOpacity = 0.15 + density * 0.35;
 
   const statusColor = entity.status === 'active'
-    ? 'hsl(142, 71%, 45%)'
+    ? '#34d399'
     : entity.status === 'proposed'
-      ? 'hsl(38, 92%, 50%)'
-      : 'hsl(0, 0%, 60%)';
+      ? '#fbbf24'
+      : '#71717a';
 
   return (
     <div
-      className="rounded-xl border-2 px-6 py-4 min-w-[200px] cursor-pointer transition-shadow hover:shadow-lg"
       style={{
-        backgroundColor: `hsla(217, 91%, 60%, ${bgOpacity})`,
-        borderColor: 'hsl(217, 91%, 60%)',
+        background: `rgba(99, 102, 241, ${bgOpacity})`,
+        border: '2px solid rgba(99, 102, 241, 0.5)',
+        borderRadius: '12px',
+        padding: '16px 24px',
+        minWidth: '200px',
+        cursor: 'pointer',
+        backdropFilter: 'blur(8px)',
+        transition: 'box-shadow 0.2s, border-color 0.2s',
       }}
     >
-      <Handle type="target" position={Position.Top} className="opacity-0" />
+      <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
 
-      <div className="flex items-center gap-3">
-        <Building2 className="h-6 w-6 text-blue-600" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <Building2 size={24} style={{ color: '#818cf8', flexShrink: 0 }} />
         <div>
-          <div className="font-semibold text-sm text-foreground">
+          <div style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 600 }}>
             {entity.display_name}
           </div>
-          <div className="text-xs text-muted-foreground">
+          <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px' }}>
             {entity.entity_type}
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mt-2">
-        <Users className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">{childCount}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+        <Users size={14} style={{ color: '#94a3b8' }} />
+        <span style={{ color: '#94a3b8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>
+          {childCount}
+        </span>
         <span
-          className="ml-auto h-2 w-2 rounded-full"
-          style={{ backgroundColor: statusColor }}
+          style={{
+            marginLeft: 'auto',
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: statusColor,
+          }}
         />
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="opacity-0" />
+      <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
     </div>
   );
 }
