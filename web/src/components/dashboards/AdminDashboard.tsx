@@ -38,6 +38,20 @@ import {
   type AdminDashboardData,
 } from '@/lib/data/persona-queries';
 
+/** Dynamic lifecycle transition labels (OB-58) */
+const TRANSITION_LABELS: Record<string, { label: string; labelEs: string; next: string }> = {
+  DRAFT:              { label: 'Run Preview',          labelEs: 'Ejecutar Vista Previa',     next: 'PREVIEW' },
+  PREVIEW:            { label: 'Run Reconciliation',   labelEs: 'Ejecutar Reconciliacion',   next: 'RECONCILE' },
+  RECONCILE:          { label: 'Advance to Official',  labelEs: 'Avanzar a Oficial',         next: 'OFFICIAL' },
+  OFFICIAL:           { label: 'Submit for Approval',  labelEs: 'Enviar para Aprobacion',    next: 'PENDING_APPROVAL' },
+  PENDING_APPROVAL:   { label: 'Awaiting Approval',    labelEs: 'Esperando Aprobacion',      next: '' },
+  APPROVED:           { label: 'Post Results',         labelEs: 'Publicar Resultados',       next: 'POSTED' },
+  POSTED:             { label: 'Close Period',         labelEs: 'Cerrar Periodo',            next: 'CLOSED' },
+  CLOSED:             { label: 'Mark as Paid',         labelEs: 'Marcar como Pagado',        next: 'PAID' },
+  PAID:               { label: 'Publish',              labelEs: 'Publicar',                  next: 'PUBLISHED' },
+  PUBLISHED:          { label: 'Complete',             labelEs: 'Completado',                next: '' },
+};
+
 // DS-001 inline styles
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(79, 70, 229, 0.8), rgba(109, 40, 217, 0.8))',
@@ -242,7 +256,10 @@ export function AdminDashboard() {
     );
   }
 
-  const isPreview = data.lifecycleState === 'PREVIEW' || data.lifecycleState === 'preview';
+  const currentState = (data.lifecycleState || 'DRAFT').toUpperCase();
+  const transition = TRANSITION_LABELS[currentState];
+  const isSpanish = locale === 'es-MX';
+  const hasNextTransition = transition && transition.next !== '';
 
   return (
     <div className="space-y-4">
@@ -257,7 +274,7 @@ export function AdminDashboard() {
       <div className="grid grid-cols-12 gap-4">
         {/* Hero Card — 4A: budget context + advance button */}
         <div className="col-span-12 lg:col-span-5" style={HERO_STYLE}>
-          <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
             Total Compensacion · {activePeriodLabel}
           </p>
           <p className="text-4xl font-bold mt-2" style={{ color: '#ffffff' }}>
@@ -272,18 +289,18 @@ export function AdminDashboard() {
           <div className="grid grid-cols-3 gap-3 mt-4">
             <div>
               <p className="text-lg font-bold" style={{ color: '#ffffff' }}>{data.entityCount}</p>
-              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '10px' }}>entidades</p>
+              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>entidades</p>
             </div>
             <div>
               <p className="text-lg font-bold" style={{ color: '#ffffff' }}>{budgetPct}%</p>
-              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '10px' }}>presupuesto</p>
+              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>presupuesto</p>
             </div>
             <div>
               <p className="text-lg font-bold" style={{ color: '#ffffff' }}>{data.exceptions.length}</p>
-              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '10px' }}>excepciones</p>
+              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>excepciones</p>
             </div>
           </div>
-          {isPreview && (
+          {hasNextTransition && (
             <button
               className="mt-4 w-full py-2 rounded-lg text-sm font-medium transition-all"
               style={{
@@ -294,14 +311,14 @@ export function AdminDashboard() {
               onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.25)'; }}
               onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.15)'; }}
             >
-              Advance to Official &rarr;
+              {isSpanish ? transition.labelEs : transition.label} &rarr;
             </button>
           )}
         </div>
 
         {/* Distribution Histogram */}
         <div className="col-span-12 lg:col-span-4" style={CARD_STYLE}>
-          <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+          <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
             Distribucion
           </p>
           {data.attainmentDistribution.length > 0 ? (
@@ -310,28 +327,28 @@ export function AdminDashboard() {
               {distStats && (
                 <div className="flex gap-4 mt-3">
                   <div>
-                    <p style={{ color: '#71717a', fontSize: '10px' }}>Promedio</p>
+                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>Promedio</p>
                     <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{distStats.avg.toFixed(0)}%</p>
                   </div>
                   <div>
-                    <p style={{ color: '#71717a', fontSize: '10px' }}>Mediana</p>
+                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>Mediana</p>
                     <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{distStats.median.toFixed(0)}%</p>
                   </div>
                   <div>
-                    <p style={{ color: '#71717a', fontSize: '10px' }}>Desv.Est</p>
+                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>Desv.Est</p>
                     <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{distStats.stdDev.toFixed(1)}%</p>
                   </div>
                 </div>
               )}
             </>
           ) : (
-            <p className="text-sm" style={{ color: '#71717a' }}>Sin datos de distribucion.</p>
+            <p className="text-sm" style={{ color: '#94A3B8' }}>Sin datos de distribucion.</p>
           )}
         </div>
 
         {/* Lifecycle — 4C: ensure all phases visible */}
         <div className="col-span-12 lg:col-span-3" style={CARD_STYLE}>
-          <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+          <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
             Ciclo de Vida
           </p>
           <LifecycleStepper
@@ -345,13 +362,13 @@ export function AdminDashboard() {
         {/* Locations vs Budget — 4D: outlier flags */}
         <div className="col-span-12 lg:col-span-7" style={CARD_STYLE}>
           <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
-            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Locations vs Budget
             </p>
             {isUniformDelta && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.3)' }}>
                 <AlertTriangle size={12} style={{ color: '#fbbf24' }} />
-                <span style={{ color: '#fbbf24', fontSize: '10px', fontWeight: 500 }}>Uniform delta — investigate data source</span>
+                <span style={{ color: '#fbbf24', fontSize: '13px', fontWeight: 500 }}>Uniform delta — investigate data source</span>
               </span>
             )}
           </div>
@@ -392,7 +409,7 @@ export function AdminDashboard() {
                 );
               })
             ) : (
-              <p className="text-sm" style={{ color: '#71717a' }}>Sin datos de ubicacion.</p>
+              <p className="text-sm" style={{ color: '#94A3B8' }}>Sin datos de ubicacion.</p>
             )}
           </div>
         </div>
@@ -401,19 +418,19 @@ export function AdminDashboard() {
         <div className="col-span-12 lg:col-span-5 space-y-4">
           {/* Component Stack */}
           <div style={CARD_STYLE}>
-            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+            <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
               Composicion de Componentes
             </p>
             {data.componentComposition.length > 0 ? (
               <ComponentStack components={data.componentComposition} total={data.totalPayout} />
             ) : (
-              <p className="text-sm" style={{ color: '#71717a' }}>Sin datos de componentes.</p>
+              <p className="text-sm" style={{ color: '#94A3B8' }}>Sin datos de componentes.</p>
             )}
           </div>
 
           {/* Exceptions */}
           <div style={CARD_STYLE}>
-            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+            <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
               Excepciones Activas ({data.exceptions.length})
             </p>
             {data.exceptions.length > 0 ? (
@@ -428,7 +445,7 @@ export function AdminDashboard() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm" style={{ color: '#71717a' }}>Sin excepciones activas.</p>
+              <p className="text-sm" style={{ color: '#94A3B8' }}>Sin excepciones activas.</p>
             )}
           </div>
         </div>
@@ -437,7 +454,7 @@ export function AdminDashboard() {
       {/* ── Row 3: Period Readiness Checklist (4E) ── */}
       <div style={CARD_STYLE}>
         <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
-          <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
             Period Readiness
           </p>
           <span style={{
@@ -470,18 +487,18 @@ export function AdminDashboard() {
               {criterion.met ? (
                 <CheckCircle2 size={16} style={{ color: '#34d399', flexShrink: 0 }} />
               ) : (
-                <Circle size={16} style={{ color: '#71717a', flexShrink: 0 }} />
+                <Circle size={16} style={{ color: '#94A3B8', flexShrink: 0 }} />
               )}
               <div className="flex-1 min-w-0">
                 <p style={{ color: criterion.met ? '#d4d4d8' : '#a1a1aa', fontSize: '13px' }}>
                   {criterion.label}
                 </p>
-                <p style={{ color: '#71717a', fontSize: '11px' }}>{criterion.detail}</p>
+                <p style={{ color: '#94A3B8', fontSize: '13px' }}>{criterion.detail}</p>
               </div>
             </div>
           ))}
         </div>
-        {readinessMet === readinessCriteria.length && (
+        {readinessMet === readinessCriteria.length && hasNextTransition && (
           <button
             className="mt-4 w-full py-2.5 rounded-xl text-sm font-medium transition-all"
             style={{
@@ -491,7 +508,7 @@ export function AdminDashboard() {
             onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.opacity = '0.9'; }}
             onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.opacity = '1'; }}
           >
-            Advance to Official &rarr;
+            {isSpanish ? transition.labelEs : transition.label} &rarr;
           </button>
         )}
       </div>
