@@ -584,6 +584,7 @@ const FIELD_ID_MAPPINGS: Record<string, string> = {
   'mes': 'period',
   'month': 'period',
   'ano': 'period',
+  'año': 'period',
   'year': 'period',
   'pay_period': 'period',
   'fiscal_period': 'period',
@@ -1287,7 +1288,19 @@ export default function DataPackageImportPage() {
         // Tier 1 (auto): ≥85% — pre-selected and confirmed, no user action needed
         // Tier 2 (suggested): 60-84% — pre-selected but flagged for review
         // Tier 3 (unresolved): <60% — requires human selection
-        console.log('[Field Mapping] Target fields available:', targetFields.length, targetFields.map(f => f.id));
+
+        // HF-046 FIX: Guard against stale closure where targetFields is empty.
+        // If getRuleSets hasn't resolved yet (race condition), compute base fields inline.
+        // Without this, normalizeAISuggestionToFieldId returns null for EVERY field
+        // because targetFields.some() always returns false on an empty array.
+        let effectiveTargetFields = targetFields;
+        if (effectiveTargetFields.length === 0) {
+          console.warn('[Field Mapping] targetFields is empty — using inline base fields fallback');
+          effectiveTargetFields = extractTargetFieldsFromPlan(activePlan);
+          // Also update the state so Step 3 rendering has the fields for dropdowns
+          setTargetFields(effectiveTargetFields);
+        }
+        console.log('[Field Mapping] Target fields available:', effectiveTargetFields.length, effectiveTargetFields.map(f => f.id));
 
         let tier1Count = 0, tier2Count = 0, tier3Count = 0;
         let patternMatchCount = 0;
@@ -1308,7 +1321,7 @@ export default function DataPackageImportPage() {
               // Normalize AI suggestion to a valid dropdown option ID
               const normalizedTargetField = normalizeAISuggestionToFieldId(
                 suggestion?.targetField || null,
-                targetFields
+                effectiveTargetFields
               );
 
               // CLT-08 FIX 2: If AI didn't provide a mapping, try compound pattern matching
@@ -1317,7 +1330,7 @@ export default function DataPackageImportPage() {
               let usedPatternMatch = false;
 
               if (!normalizedTargetField) {
-                const patternResult = normalizeFieldWithPatterns(header, targetFields);
+                const patternResult = normalizeFieldWithPatterns(header, effectiveTargetFields);
                 if (patternResult.targetField) {
                   effectiveTargetField = patternResult.targetField;
                   effectiveConfidence = patternResult.confidence * 100; // Convert to percentage
@@ -1349,7 +1362,7 @@ export default function DataPackageImportPage() {
                 tier3Count++;
               }
 
-              const isRequired = targetFields.find(f => f.id === effectiveTargetField)?.isRequired || false;
+              const isRequired = effectiveTargetFields.find(f => f.id === effectiveTargetField)?.isRequired || false;
 
               // Debug logging for all tiers
               if (tier !== 'unresolved') {
@@ -1369,7 +1382,7 @@ export default function DataPackageImportPage() {
 
             // Check if required fields are mapped
             const hasRequiredMappings = sheetMappings.some(m =>
-              m.targetField && targetFields.find(f => f.id === m.targetField)?.isRequired
+              m.targetField && effectiveTargetFields.find(f => f.id === m.targetField)?.isRequired
             );
 
             return {
@@ -1395,7 +1408,7 @@ export default function DataPackageImportPage() {
               analyzedSheets,
               mappings,
               activePlan,
-              targetFields,
+              effectiveTargetFields,
               tenantId
             );
 
@@ -1592,20 +1605,22 @@ export default function DataPackageImportPage() {
 
         const mappedFields = sheet.mappings.filter(m => m.targetField);
         const requiredMapped = mappedFields.filter(m => m.isRequired);
+        const totalRequired = targetFields.filter(f => f.isRequired).length;
         const issues: QualityIssue[] = [];
 
-        // Calculate completeness (required fields with values)
+        // HF-046 FIX: Calculate completeness dynamically based on required field coverage
+        // Instead of hardcoded 50%, compute from the ratio of mapped required fields
         let completenessScore = 100;
-        if (requiredMapped.length === 0) {
-          completenessScore = 50;
+        if (totalRequired > 0 && requiredMapped.length < totalRequired) {
+          completenessScore = Math.round((requiredMapped.length / totalRequired) * 100);
           issues.push({
             type: 'missing',
-            severity: 'warning',
+            severity: requiredMapped.length === 0 ? 'warning' : 'info',
             field: 'Required Fields',
             rowCount: 0,
             description: isSpanish
-              ? 'No se han mapeado campos requeridos'
-              : 'No required fields have been mapped',
+              ? `${requiredMapped.length}/${totalRequired} campos requeridos mapeados`
+              : `${requiredMapped.length}/${totalRequired} required fields mapped`,
           });
         }
 
@@ -1944,7 +1959,7 @@ export default function DataPackageImportPage() {
       // Get user ID
       const userId = user?.id || 'system';
 
-      // OB-24 FIX: Generate batchId BEFORE calling directCommitImportData
+      // OB-24 FIX: Generate batchId BEFORE server-side commit
       // This allows us to store import context BEFORE aggregation runs
       const batchId = crypto.randomUUID();
 
