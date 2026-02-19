@@ -13,7 +13,7 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import type { User, TenantUser, VLAdminUser } from '@/types/auth';
 import { isVLAdmin } from '@/types/auth';
 import {
@@ -23,6 +23,7 @@ import {
   getSession,
   getAuthUser,
   onAuthStateChange,
+  clearSupabaseLocalStorage,
   type AuthProfile,
 } from '@/lib/supabase/auth-service';
 
@@ -108,8 +109,14 @@ function mapProfileToUser(profile: AuthProfile): User {
 // Provider
 // ──────────────────────────────────────────────
 
+// HF-050: Routes where initAuth should NOT run.
+// On these routes, there is no expectation of an active session.
+// Running initAuth on /login can resurrect stale localStorage tokens.
+const AUTH_SKIP_ROUTES = ['/login', '/landing', '/signup'];
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [capabilities, setCapabilities] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -120,6 +127,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function initAuth() {
       try {
+        // HF-050: Skip auth initialization on public routes.
+        // On /login, /landing, /signup there is no valid session to recover.
+        // Running initAuth here can resurrect stale localStorage tokens.
+        if (AUTH_SKIP_ROUTES.includes(pathname)) {
+          return; // isLoading set false in finally
+        }
+
         // 1. Check local session first (no network request).
         //    If no session cookie exists, skip everything.
         const session = await getSession();
@@ -172,7 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
     return () => unsubscribe?.();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pathname]);
 
   // ── Login ──
   const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
@@ -244,6 +258,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (typeof sessionStorage !== 'undefined') {
       sessionStorage.removeItem('vialuce_admin_tenant');
     }
+
+    // HF-050: Clear ALL Supabase keys from localStorage.
+    // signOut() already calls clearSupabaseLocalStorage(), but call again
+    // here as belt-and-suspenders in case signOut() threw above.
+    clearSupabaseLocalStorage();
 
     // Full page navigation — always works, always hits middleware
     window.location.href = '/login';
