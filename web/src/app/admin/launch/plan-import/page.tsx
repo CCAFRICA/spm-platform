@@ -583,7 +583,7 @@ export default function PlanImportPage() {
       } else {
         // Fallback: Build plan configuration from detected components
         planConfig = {
-          id: `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          id: crypto.randomUUID(),
           tenantId: currentTenant.id,
           name: ruleSetName,
           description: planDescription,
