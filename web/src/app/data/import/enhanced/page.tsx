@@ -1911,57 +1911,51 @@ export default function DataPackageImportPage() {
     setError(null);
 
     try {
-      // Parse ALL rows from the workbook (not just samples)
-      const arrayBuffer = await uploadedFile.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, {
-        type: 'array',
-        cellFormula: false,
-        cellNF: false,
-        cellStyles: false,
-      });
-
-      // Build sheet data with all rows and field mappings
-      const sheetData: Array<{
-        sheetName: string;
-        rows: Record<string, unknown>[];
-        mappings?: Record<string, string>;
-      }> = [];
-
-      for (const sheetName of workbook.SheetNames) {
-        const sheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-          defval: null,
-          raw: true,
-        });
-
-        // Skip empty sheets
-        if (jsonData.length === 0) continue;
-
-        // Get field mappings for this sheet
-        const sheetMapping = fieldMappings.find(m => m.sheetName === sheetName);
-        const mappings: Record<string, string> = {};
-
-        if (sheetMapping) {
-          sheetMapping.mappings.forEach(m => {
-            if (m.targetField) {
-              mappings[m.sourceColumn] = m.targetField;
-            }
-          });
-        }
-
-        sheetData.push({
-          sheetName,
-          rows: jsonData,
-          mappings: Object.keys(mappings).length > 0 ? mappings : undefined,
-        });
-      }
-
-      // Get user ID
       const userId = user?.id || 'system';
 
-      // OB-24 FIX: Generate batchId BEFORE server-side commit
-      // This allows us to store import context BEFORE aggregation runs
-      const batchId = crypto.randomUUID();
+      // ── HF-047: FILE-BASED IMPORT PIPELINE ──
+      // Step 1: Get signed upload URL from server
+      console.log('[Import] Step 1: Preparing file upload...');
+      const prepareResponse = await fetch('/api/import/prepare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, fileName: uploadedFile.name }),
+      });
+
+      if (!prepareResponse.ok) {
+        const errData = await prepareResponse.json().catch(() => ({}));
+        throw new Error(errData.error || errData.details || `Upload prepare failed (${prepareResponse.status})`);
+      }
+
+      const { storagePath, signedUrl, batchId: preparedBatchId } = await prepareResponse.json();
+      const batchId = preparedBatchId;
+
+      // Step 2: Upload file directly to Supabase Storage (bypasses Vercel 4.5MB limit)
+      console.log(`[Import] Step 2: Uploading ${uploadedFile.name} (${(uploadedFile.size / 1024 / 1024).toFixed(1)}MB) to storage...`);
+      const uploadResponse = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': uploadedFile.type || 'application/octet-stream' },
+        body: uploadedFile,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`File upload failed (${uploadResponse.status})`);
+      }
+      console.log(`[Import] Step 2: File uploaded to ${storagePath}`);
+
+      // Step 3: Build field mappings metadata (tiny payload ~2KB)
+      const sheetMappings: Record<string, Record<string, string>> = {};
+      for (const fm of fieldMappings) {
+        const mappings: Record<string, string> = {};
+        fm.mappings.forEach(m => {
+          if (m.targetField) {
+            mappings[m.sourceColumn] = m.targetField;
+          }
+        });
+        if (Object.keys(mappings).length > 0) {
+          sheetMappings[fm.sheetName] = mappings;
+        }
+      }
 
       // OB-24 FIX: Store import context BEFORE commit so storeAggregatedData can use it
       // CLT-08 FIX: Use USER-CONFIRMED fieldMappings, not original AI suggestions
@@ -1973,20 +1967,17 @@ export default function DataPackageImportPage() {
           rosterSheet: analysis.rosterDetected?.sheetName || null,
           rosterEmployeeIdColumn: analysis.rosterDetected?.entityIdColumn || null,
           sheets: analysis.sheets.map(sheet => {
-            // CLT-08: Find user-confirmed mappings for this sheet
             const confirmedMapping = fieldMappings.find(fm => fm.sheetName === sheet.name);
-
-            // CLT-08: Build fieldMappings from user-confirmed state, not AI suggestions
             const sheetFieldMappings = confirmedMapping
               ? confirmedMapping.mappings
-                  .filter(m => m.targetField) // Only include mapped fields
+                  .filter(m => m.targetField)
                   .map(m => ({
                     sourceColumn: m.sourceColumn,
-                    semanticType: m.targetField!, // User-confirmed semantic type
+                    semanticType: m.targetField!,
                     confidence: m.confidence,
                   }))
               : sheet.suggestedFieldMappings
-                  .filter(fm => fm.targetField) // Fallback to AI if no confirmed mappings
+                  .filter(fm => fm.targetField)
                   .map(fm => ({
                     sourceColumn: fm.sourceColumn,
                     semanticType: fm.targetField!,
@@ -2008,8 +1999,8 @@ export default function DataPackageImportPage() {
         console.log(`[Import] Stored AI import context BEFORE commit: ${importContext.sheets.length} sheets`);
       }
 
-      // Commit data via server-side API route (bulk inserts, service role client)
-      console.log(`[Import] Sending ${sheetData.reduce((n, s) => n + s.rows.length, 0)} rows to /api/import/commit`);
+      // Step 4: Send metadata-only request to commit API (< 50KB payload)
+      console.log(`[Import] Step 4: Processing import server-side...`);
 
       const response = await fetch('/api/import/commit', {
         method: 'POST',
@@ -2018,7 +2009,8 @@ export default function DataPackageImportPage() {
           tenantId,
           userId,
           fileName: uploadedFile.name,
-          sheetData,
+          storagePath,
+          sheetMappings,
         }),
       });
 
@@ -2029,7 +2021,7 @@ export default function DataPackageImportPage() {
 
       const result = await response.json();
 
-      // Store field mappings in batch metadata (logged for now)
+      // Store field mappings in batch metadata
       const mappingsToStore = fieldMappings.map(m => ({
         sheetName: m.sheetName,
         mappings: Object.fromEntries(

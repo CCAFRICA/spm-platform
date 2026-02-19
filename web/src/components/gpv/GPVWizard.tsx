@@ -22,7 +22,7 @@ import { runCalculation, type CalculationRunResult } from '@/lib/calculation/run
 import { getCalculationResults } from '@/lib/supabase/calculation-service';
 import { useGPV } from '@/hooks/useGPV';
 import { Check, Upload, Loader2, FileSpreadsheet, BarChart3, ChevronRight } from 'lucide-react';
-import * as XLSX from 'xlsx';
+// XLSX import removed — HF-047: server-side parsing via file-based pipeline
 
 interface GPVWizardProps {
   tenantId: string;
@@ -262,44 +262,47 @@ export function GPVWizard({ tenantId, tenantName }: GPVWizardProps) {
     }
   }, [planResult, advanceStep]);
 
-  // ─── Step 2: Data Upload & Commit ───
+  // ─── Step 2: Data Upload & Commit (HF-047: file-based pipeline) ───
   const handleDataFile = useCallback(async (file: File) => {
     setDataLoading(true);
     setDataError(null);
     setDataProgress(10);
 
     try {
-      // Read all sheets from Excel
+      // Step 1: Get signed upload URL
       setDataProgress(20);
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array' });
+      const prepareResponse = await fetch('/api/import/prepare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, fileName: file.name }),
+      });
 
-      const sheetData: Array<{ sheetName: string; rows: Record<string, unknown>[]; mappings?: Record<string, string> }> = [];
-
-      for (const sheetName of workbook.SheetNames) {
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
-        if (jsonRows.length > 0) {
-          // Auto-map: use column names as-is (directCommitImportDataAsync handles entity ID detection)
-          const headers = Object.keys(jsonRows[0]);
-          const mappings: Record<string, string> = {};
-          for (const h of headers) {
-            mappings[h] = h; // identity mapping — data-service auto-detects entity ID fields
-          }
-          sheetData.push({ sheetName, rows: jsonRows, mappings });
-        }
+      if (!prepareResponse.ok) {
+        const errData = await prepareResponse.json().catch(() => ({}));
+        throw new Error(errData.error || errData.details || `Upload prepare failed (${prepareResponse.status})`);
       }
 
-      if (sheetData.length === 0) {
-        throw new Error('No data rows found in uploaded file');
+      const { storagePath, signedUrl } = await prepareResponse.json();
+
+      // Step 2: Upload file directly to Supabase Storage (bypasses Vercel limit)
+      setDataProgress(40);
+      const uploadResponse = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`File upload failed (${uploadResponse.status})`);
       }
 
       setDataProgress(50);
       await advanceStep('data_uploaded');
 
-      // Commit data via server-side API route
+      // Step 3: Send metadata-only commit request
       setDataProgress(70);
 
+      // GPV Wizard uses identity mappings (auto-detect on server)
       const response = await fetch('/api/import/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -307,7 +310,8 @@ export function GPVWizard({ tenantId, tenantName }: GPVWizardProps) {
           tenantId,
           userId: user?.id || 'system',
           fileName: file.name,
-          sheetData,
+          storagePath,
+          sheetMappings: {}, // GPV: server auto-detects mappings
         }),
       });
 

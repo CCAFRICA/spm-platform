@@ -14,12 +14,8 @@ if (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && !process.env.NEXT_PUBLIC_SUPABA
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Allow large request bodies for import API (119K+ records as JSON)
-  experimental: {
-    serverActions: {
-      bodySizeLimit: '100mb',
-    },
-  },
+  // HF-047: Removed 100mb bodySizeLimit — import now uses file-based pipeline
+  // (file uploaded to Supabase Storage, API receives metadata only < 50KB)
   async redirects() {
     return [
       // Redirect old data/transactions to new transactions page
