@@ -1605,20 +1605,22 @@ export default function DataPackageImportPage() {
 
         const mappedFields = sheet.mappings.filter(m => m.targetField);
         const requiredMapped = mappedFields.filter(m => m.isRequired);
+        const totalRequired = targetFields.filter(f => f.isRequired).length;
         const issues: QualityIssue[] = [];
 
-        // Calculate completeness (required fields with values)
+        // HF-046 FIX: Calculate completeness dynamically based on required field coverage
+        // Instead of hardcoded 50%, compute from the ratio of mapped required fields
         let completenessScore = 100;
-        if (requiredMapped.length === 0) {
-          completenessScore = 50;
+        if (totalRequired > 0 && requiredMapped.length < totalRequired) {
+          completenessScore = Math.round((requiredMapped.length / totalRequired) * 100);
           issues.push({
             type: 'missing',
-            severity: 'warning',
+            severity: requiredMapped.length === 0 ? 'warning' : 'info',
             field: 'Required Fields',
             rowCount: 0,
             description: isSpanish
-              ? 'No se han mapeado campos requeridos'
-              : 'No required fields have been mapped',
+              ? `${requiredMapped.length}/${totalRequired} campos requeridos mapeados`
+              : `${requiredMapped.length}/${totalRequired} required fields mapped`,
           });
         }
 
