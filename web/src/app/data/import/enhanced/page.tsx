@@ -1948,7 +1948,7 @@ export default function DataPackageImportPage() {
 
       // OB-24 FIX: Generate batchId BEFORE calling directCommitImportData
       // This allows us to store import context BEFORE aggregation runs
-      const batchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const batchId = crypto.randomUUID();
 
       // OB-24 FIX: Store import context BEFORE commit so storeAggregatedData can use it
       // CLT-08 FIX: Use USER-CONFIRMED fieldMappings, not original AI suggestions
