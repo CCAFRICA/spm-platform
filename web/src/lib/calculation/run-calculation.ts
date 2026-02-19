@@ -33,7 +33,7 @@ interface CalculationInput {
   userId: string;
 }
 
-interface ComponentResult {
+export interface ComponentResult {
   componentId: string;
   componentName: string;
   componentType: string;
@@ -54,7 +54,7 @@ export interface CalculationRunResult {
 // Component Evaluators
 // ──────────────────────────────────────────────
 
-function evaluateTierLookup(config: TierConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
+export function evaluateTierLookup(config: TierConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
   const metricValue = metrics[config.metric] ?? metrics['attainment'] ?? 0;
 
   for (const tier of config.tiers) {
@@ -79,7 +79,7 @@ function evaluateTierLookup(config: TierConfig, metrics: Record<string, number>)
   return { payout: 0, details: { metric: config.metric, metricValue, matchedTier: 'none' } };
 }
 
-function evaluatePercentage(config: PercentageConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
+export function evaluatePercentage(config: PercentageConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
   const base = metrics[config.appliedTo] ?? metrics['amount'] ?? 0;
   let payout = base * config.rate;
 
@@ -101,7 +101,7 @@ function evaluatePercentage(config: PercentageConfig, metrics: Record<string, nu
   };
 }
 
-function evaluateMatrixLookup(config: MatrixConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
+export function evaluateMatrixLookup(config: MatrixConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
   const rowValue = metrics[config.rowMetric] ?? 0;
   const colValue = metrics[config.columnMetric] ?? 0;
 
@@ -145,7 +145,7 @@ function evaluateMatrixLookup(config: MatrixConfig, metrics: Record<string, numb
   };
 }
 
-function evaluateConditionalPercentage(config: ConditionalConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
+export function evaluateConditionalPercentage(config: ConditionalConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
   const base = metrics[config.appliedTo] ?? metrics['amount'] ?? 0;
 
   for (const condition of config.conditions) {
@@ -173,7 +173,7 @@ function evaluateConditionalPercentage(config: ConditionalConfig, metrics: Recor
   return { payout: 0, details: { appliedTo: config.appliedTo, baseAmount: base, matchedCondition: 'none' } };
 }
 
-function evaluateComponent(component: PlanComponent, metrics: Record<string, number>): ComponentResult {
+export function evaluateComponent(component: PlanComponent, metrics: Record<string, number>): ComponentResult {
   let payout = 0;
   let details: Record<string, unknown> = {};
 
@@ -233,7 +233,7 @@ function evaluateComponent(component: PlanComponent, metrics: Record<string, num
 // Metric Aggregation from committed_data
 // ──────────────────────────────────────────────
 
-function aggregateMetrics(
+export function aggregateMetrics(
   rows: Array<{ row_data: Json }>
 ): Record<string, number> {
   const result: Record<string, number> = {};
