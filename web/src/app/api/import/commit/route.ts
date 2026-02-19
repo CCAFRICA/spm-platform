@@ -31,10 +31,12 @@ interface CommitRequest {
   sheetMappings: Record<string, Record<string, string>>;
 }
 
-// Entity ID field names (shared with data-service.ts)
+// Entity ID field names — auto-detect fallback when no field mappings provided
+// These are normalized to lowercase for matching against raw column headers
 const ENTITY_ID_FIELDS = [
-  'entityId', 'entity_id', 'employeeId', 'employee_id',
-  'external_id', 'externalId', 'repId', 'rep_id', 'id_empleado',
+  'entityid', 'entity_id', 'employeeid', 'employee_id',
+  'external_id', 'externalid', 'repid', 'rep_id', 'id_empleado',
+  'num_empleado', 'numero_empleado',
 ];
 
 // Period detection field names
@@ -167,15 +169,14 @@ export async function POST(request: NextRequest) {
     for (const sheet of sheetData) {
       if (!sheet.mappings) continue;
       const entityCols = Object.entries(sheet.mappings)
-        .filter(([, target]) => ENTITY_ID_FIELDS.includes(target))
+        .filter(([, target]) => ENTITY_ID_FIELDS.includes(target.toLowerCase()))
         .map(([source]) => source);
 
-      // Also auto-detect entity ID columns by raw header name
+      // Auto-detect fallback: match raw header names against ENTITY_ID_FIELDS
       if (entityCols.length === 0 && sheet.rows[0]) {
         for (const key of Object.keys(sheet.rows[0])) {
           const lower = key.toLowerCase().replace(/[\s_-]+/g, '_').trim();
-          if (ENTITY_ID_FIELDS.some(f => f.toLowerCase() === lower) ||
-              lower === 'num_empleado' || lower === 'numero_empleado') {
+          if (ENTITY_ID_FIELDS.includes(lower)) {
             entityCols.push(key);
           }
         }
@@ -267,12 +268,12 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Auto-detect via raw column headers
+      // Auto-detect fallback: match raw header names against YEAR_FIELDS/MONTH_FIELDS
       if (yearCols.length === 0 && sheet.rows[0]) {
         for (const key of Object.keys(sheet.rows[0])) {
           const lower = key.toLowerCase().trim();
-          if (YEAR_FIELDS.includes(lower) || lower === 'año' || lower === 'ano') yearCols.push(key);
-          if (MONTH_FIELDS.includes(lower) || lower === 'mes') monthCols.push(key);
+          if (YEAR_FIELDS.includes(lower)) yearCols.push(key);
+          if (MONTH_FIELDS.includes(lower)) monthCols.push(key);
         }
       }
 
@@ -407,8 +408,8 @@ export async function POST(request: NextRequest) {
       if (yearCols.length === 0 && row) {
         for (const key of Object.keys(row)) {
           const lower = key.toLowerCase().trim();
-          if (YEAR_FIELDS.includes(lower) || lower === 'año' || lower === 'ano') yearCols.push(key);
-          if (MONTH_FIELDS.includes(lower) || lower === 'mes') monthCols.push(key);
+          if (YEAR_FIELDS.includes(lower)) yearCols.push(key);
+          if (MONTH_FIELDS.includes(lower)) monthCols.push(key);
         }
       }
 
@@ -453,16 +454,15 @@ export async function POST(request: NextRequest) {
 
     for (const sheet of sheetData) {
       const entityCol = sheet.mappings
-        ? Object.entries(sheet.mappings).find(([, target]) => ENTITY_ID_FIELDS.includes(target))?.[0]
+        ? Object.entries(sheet.mappings).find(([, target]) => ENTITY_ID_FIELDS.includes(target.toLowerCase()))?.[0]
         : null;
 
-      // Also auto-detect entity ID column by header name
+      // Auto-detect fallback: match raw header names against ENTITY_ID_FIELDS
       let effectiveEntityCol = entityCol;
       if (!effectiveEntityCol && sheet.rows[0]) {
         for (const key of Object.keys(sheet.rows[0])) {
           const lower = key.toLowerCase().replace(/[\s_-]+/g, '_').trim();
-          if (ENTITY_ID_FIELDS.some(f => f.toLowerCase() === lower) ||
-              lower === 'num_empleado' || lower === 'numero_empleado') {
+          if (ENTITY_ID_FIELDS.includes(lower)) {
             effectiveEntityCol = key;
             break;
           }

@@ -93,7 +93,7 @@ export async function PATCH(
       metric_name: enabled ? 'module_enabled' : 'module_disabled',
       metric_value: 1,
       period_key: periodKey,
-      metadata: { module },
+      dimensions: { module },
     });
     // Non-blocking metering — errors don't affect the response
 

@@ -434,7 +434,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       metric_name: 'calculation_run',
       metric_value: entityResults.length,
       period_key: meterPeriodKey,
-      metadata: {
+      dimensions: {
         batch_id: batch.id,
         rule_set_id: ruleSetId,
         period_id: periodId,

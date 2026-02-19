@@ -487,8 +487,8 @@ async function fetchInfrastructureData(supabase: ServiceClient): Promise<{
     supabase.from('tenants').select('*', { count: 'exact', head: true }),
     supabase.from('committed_data').select('*', { count: 'exact', head: true }),
     supabase.from('entity_period_outcomes').select('*', { count: 'exact', head: true }),
-    supabase.from('usage_metering').select('metric_name, metric_value, period_key, created_at')
-      .order('created_at', { ascending: false }).limit(10000),
+    supabase.from('usage_metering').select('metric_name, metric_value, period_key, recorded_at')
+      .order('recorded_at', { ascending: false }).limit(10000),
   ]);
 
   const meteringRows = meteringRes.data ?? [];
@@ -503,7 +503,7 @@ async function fetchInfrastructureData(supabase: ServiceClient): Promise<{
   }
 
   // Use latest metering event as proxy for "last deploy" activity
-  const lastDeployTimestamp = meteringRows.length > 0 ? meteringRows[0].created_at : null;
+  const lastDeployTimestamp = meteringRows.length > 0 ? meteringRows[0].recorded_at : null;
 
   return {
     supabaseHealthy: !tenantRes.error,
