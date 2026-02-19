@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/client';
+import { clearSupabaseLocalStorage } from '@/lib/supabase/auth-service';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -16,6 +17,15 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  // HF-050: Clear stale auth state on login page mount.
+  // If the user arrives at /login (via logout, direct navigation, or bookmark),
+  // ensure no stale Supabase tokens remain in localStorage or cookies.
+  // This is the Chrome/Firefox recovery path — even if logout failed to clean up,
+  // arriving at /login guarantees a clean slate.
+  useEffect(() => {
+    clearSupabaseLocalStorage();
+  }, []);
 
   const handleLogin = async () => {
     if (!emailInput || !passwordInput) return;
@@ -44,10 +54,10 @@ export default function LoginPage() {
     setGoogleLoading(true);
     setLoginError(null);
     try {
-      const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      );
+      // HF-050: Use singleton client instead of creating a separate instance.
+      // A separate client can write to different storage locations, making
+      // cleanup unreliable. Single client = single cleanup path.
+      const supabase = createClient();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {

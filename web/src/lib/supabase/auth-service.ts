@@ -58,11 +58,39 @@ export async function signUpWithEmail(email: string, password: string) {
  * Uses 'local' scope to clear the browser session without
  * revoking the refresh token server-side (avoids network errors
  * blocking logout). Cookie cleanup is handled by the caller.
+ *
+ * HF-050: Also clears ALL sb-* keys from localStorage.
+ * @supabase/ssr uses cookie-backed storage, but edge cases (token refresh,
+ * OAuth callbacks) may write to localStorage. If these survive logout,
+ * a fresh browser session can reconstruct an authenticated state.
  */
 export async function signOut() {
   const supabase = createClient();
   const { error } = await supabase.auth.signOut({ scope: 'local' });
+
+  // HF-050: Clear ALL Supabase auth keys from localStorage.
+  // Defense-in-depth — even if @supabase/ssr uses cookies, clear localStorage
+  // to prevent stale tokens from surviving across sessions.
+  clearSupabaseLocalStorage();
+
   if (error) throw error;
+}
+
+/**
+ * HF-050: Remove all Supabase auth keys from localStorage.
+ * Keys follow the pattern: sb-<project-ref>-auth-token
+ * Safe to call in any environment (SSR-safe).
+ */
+export function clearSupabaseLocalStorage(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('sb-')) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key));
 }
 
 /**
