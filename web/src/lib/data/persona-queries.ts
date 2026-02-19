@@ -132,7 +132,7 @@ export async function getAdminDashboardData(tenantId: string): Promise<AdminDash
     return emptyAdminData();
   }
 
-  // Fetch all entity outcomes for this period
+  // Fetch all entity outcomes for this period (materialized on OFFICIAL+)
   const { data: outcomes } = await supabase
     .from('entity_period_outcomes')
     .select('*')
@@ -140,6 +140,63 @@ export async function getAdminDashboardData(tenantId: string): Promise<AdminDash
     .eq('period_id', periodId);
 
   const safeOutcomes = outcomes ?? [];
+
+  // Lifecycle state from latest calculation batch
+  const lifecycleState = await getLifecycleState(tenantId, periodId);
+
+  // If no materialized outcomes, fall back to latest calculation_results
+  // This shows data for PREVIEW/DRAFT batches before OFFICIAL promotion
+  if (safeOutcomes.length === 0) {
+    const { data: latestBatch } = await supabase
+      .from('calculation_batches')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .is('superseded_by', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestBatch) {
+      const { data: calcResults } = await supabase
+        .from('calculation_results')
+        .select('entity_id, total_payout, components, attainment, metadata')
+        .eq('tenant_id', tenantId)
+        .eq('batch_id', latestBatch.id);
+
+      const safeResults = calcResults ?? [];
+      if (safeResults.length > 0) {
+        // Build entity map
+        const entityIds = safeResults.map(r => r.entity_id);
+        const { data: entities } = await supabase
+          .from('entities')
+          .select('id, display_name, entity_type')
+          .in('id', entityIds.length > 0 ? entityIds : ['__none__']);
+        const entityMap = new Map((entities ?? []).map(e => [e.id, e]));
+
+        // Convert calculation_results to dashboard data format
+        return {
+          totalPayout: sum(safeResults.map(r => r.total_payout ?? 0)),
+          entityCount: safeResults.length,
+          attainmentDistribution: safeResults.map(r => extractAttainment(r.attainment)),
+          storeBreakdown: safeResults.map(r => {
+            const meta = r.metadata as Record<string, unknown> | null;
+            return {
+              entityId: r.entity_id,
+              entityName: (meta?.entityName as string) ?? entityMap.get(r.entity_id)?.display_name ?? r.entity_id,
+              totalPayout: r.total_payout ?? 0,
+              entityType: entityMap.get(r.entity_id)?.entity_type ?? 'individual',
+            };
+          }),
+          lifecycleState,
+          exceptions: [],
+          componentComposition: aggregateComponentsFromResults(safeResults),
+        };
+      }
+    }
+
+    return { ...emptyAdminData(), lifecycleState };
+  }
 
   // Fetch entities for names
   const entityIds = safeOutcomes.map(o => o.entity_id);
@@ -149,9 +206,6 @@ export async function getAdminDashboardData(tenantId: string): Promise<AdminDash
     .in('id', entityIds.length > 0 ? entityIds : ['__none__']);
 
   const entityMap = new Map((entities ?? []).map(e => [e.id, e]));
-
-  // Lifecycle state from latest calculation batch
-  const lifecycleState = await getLifecycleState(tenantId, periodId);
 
   return {
     totalPayout: sum(safeOutcomes.map(o => o.total_payout)),
@@ -433,6 +487,25 @@ function aggregateComponents(
     const components = parseComponents(outcome.component_breakdown);
     for (const comp of components) {
       totals[comp.name] = (totals[comp.name] ?? 0) + comp.value;
+    }
+  }
+  return Object.entries(totals).map(([name, value]) => ({ name, value }));
+}
+
+/** Aggregate components from calculation_results (fallback for pre-OFFICIAL batches) */
+function aggregateComponentsFromResults(
+  results: Array<{ components: Json }>
+): ComponentItem[] {
+  const totals: Record<string, number> = {};
+  for (const result of results) {
+    const comps = result.components;
+    if (!Array.isArray(comps)) continue;
+    for (const c of comps) {
+      const comp = c as Record<string, unknown>;
+      const name = String(comp.componentName ?? comp.name ?? 'Unknown');
+      const value = typeof comp.payout === 'number' ? comp.payout
+        : typeof comp.value === 'number' ? comp.value : 0;
+      totals[name] = (totals[name] ?? 0) + value;
     }
   }
   return Object.entries(totals).map(([name, value]) => ({ name, value }));
