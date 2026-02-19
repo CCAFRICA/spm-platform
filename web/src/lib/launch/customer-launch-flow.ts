@@ -406,7 +406,7 @@ export class CustomerLaunchFlow {
       const now = new Date().toISOString();
       const fullPlan: RuleSetConfig = {
         ...plan,
-        id: `plan-${Date.now()}`,
+        id: crypto.randomUUID(),
         tenantId: this.launch.tenantId,
         createdAt: now,
         updatedAt: now,

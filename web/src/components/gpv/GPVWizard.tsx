@@ -197,7 +197,7 @@ export function GPVWizard({ tenantId, tenantName }: GPVWizardProps) {
 
       // Build planConfig for saving
       const now = new Date().toISOString();
-      const ruleSetId = result.planConfig?.id || `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const ruleSetId = result.planConfig?.id || crypto.randomUUID();
 
       const planConfig = result.planConfig ? {
         ...result.planConfig,

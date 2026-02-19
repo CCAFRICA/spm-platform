@@ -1186,7 +1186,7 @@ export async function interpretPlanDocument(
 
     // Build a minimal plan config from heuristics
     const now = new Date().toISOString();
-    const ruleSetId = `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const ruleSetId = crypto.randomUUID();
 
     const planConfig: RuleSetConfig = {
       id: ruleSetId,
