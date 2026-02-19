@@ -922,8 +922,8 @@ export interface Database {
           metric_name: string;
           metric_value: number;
           period_key: string;
-          metadata: Json;
-          created_at: string;
+          dimensions: Json;
+          recorded_at: string;
         };
         Insert: {
           id?: string;
@@ -931,12 +931,12 @@ export interface Database {
           metric_name: string;
           metric_value: number;
           period_key: string;
-          metadata?: Json;
-          created_at?: string;
+          dimensions?: Json;
+          recorded_at?: string;
         };
         Update: {
           metric_value?: number;
-          metadata?: Json;
+          dimensions?: Json;
         };
         Relationships: [];
       };

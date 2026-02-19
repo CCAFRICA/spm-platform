@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
         metric_name: 'plan_import',
         metric_value: 1,
         period_key: periodKey,
-        metadata: {
+        dimensions: {
           rule_set_id: planConfig.id,
           rule_set_name: planConfig.name,
           imported_by: user.email || 'system',

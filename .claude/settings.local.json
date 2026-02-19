@@ -105,7 +105,8 @@
       "Bash(wc -l __NEW_LINE_1cb24487a4ff4b4d__ echo \"\" echo \"=== PG-10: Wizard has 3 steps ===\" grep -c \"Upload Plan\\\\|Upload Data\\\\|See Results\\\\|step.*1\\\\|step.*2\\\\|step.*3\" web/src/components/gpv/GPVWizard.tsx __NEW_LINE_1cb24487a4ff4b4d__ echo \"\" echo \"=== PG-11: Drop zone exists ===\" grep -c \"drop\\\\|Drop\\\\|dragover\\\\|onDrop\\\\|file.*input\" web/src/components/gpv/GPVWizard.tsx __NEW_LINE_1cb24487a4ff4b4d__ echo \"\" echo \"=== PG-12: Results display exists ===\" grep -c \"totalPayout\\\\|Preview Complete\\\\|calculation.*result\\\\|calcResult\" web/src/components/gpv/GPVWizard.tsx)",
       "Bash(OB-62_63_PROMPT.md:*)",
       "Bash(HF-041_PROMPT.md:*)",
-      "Bash(HF-045_PROMPT.md:*)"
+      "Bash(HF-045_PROMPT.md:*)",
+      "Bash(HF-046_PROMPT.md:*)"
     ]
   }
 }

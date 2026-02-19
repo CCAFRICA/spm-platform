@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
           metric_name: 'user_invited',
           metric_value: 1,
           period_key: periodKey,
-          metadata: {
+          dimensions: {
             email,
             role: roleTemplate || 'individual',
             method,

@@ -5,9 +5,7 @@
  * localStorage removed -- all operations return zero/false (no-ops).
  */
 
-// Legacy prefixes (migration complete — all localStorage removed)
-// const OLD_PREFIX = 'clearcomp_';
-// const NEW_PREFIX = 'vialuce_';
+// Legacy prefixes removed — all localStorage operations are no-ops
 
 /**
  * Migrate all localStorage keys from legacy prefix to vialuce_ prefix.

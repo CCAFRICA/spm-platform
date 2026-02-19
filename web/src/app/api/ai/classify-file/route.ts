@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
           metric_name: 'ai_inference',
           metric_value: 1,
           period_key: periodKey,
-          metadata: {
+          dimensions: {
             endpoint: 'classify-file',
             model: response.model,
             latencyMs: response.latencyMs,

@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
           metric_name: 'tenant_created',
           metric_value: 1,
           period_key: periodKey,
-          metadata: {
+          dimensions: {
             created_by: user.email || 'vl_admin',
             industry: settings?.industry || null,
             admin_email: adminEmail || null,

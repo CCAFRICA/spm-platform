@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
           metric_name: 'ai_inference',
           metric_value: 1,
           period_key: periodKey,
-          metadata: { endpoint: 'assessment', persona, model: 'claude-sonnet-4-20250514' },
+          dimensions: { endpoint: 'assessment', persona, model: 'claude-sonnet-4-20250514' },
         });
       } catch {
         // Non-blocking — metering failure should not affect the response
