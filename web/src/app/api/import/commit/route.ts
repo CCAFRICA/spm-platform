@@ -1,22 +1,23 @@
 /**
  * POST /api/import/commit
  *
- * Server-side import commit — replaces browser-side directCommitImportDataAsync.
- * Uses service role client for bulk inserts (bypasses RLS, faster writes).
+ * HF-047: File-based import pipeline.
+ * Receives metadata only (< 50KB). Downloads file from Supabase Storage,
+ * parses Excel server-side, applies field mappings, bulk inserts to DB.
  *
- * Receives: { tenantId, userId, fileName, sheetData[] }
+ * Receives: { tenantId, userId, fileName, storagePath, sheetMappings }
  * Returns:  { success, batchId, recordCount, entityCount, periodId, periods[] }
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import type { Json } from '@/lib/supabase/database.types';
+import * as XLSX from 'xlsx';
 
-// App Router: increase body size limit for large datasets
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 minutes max
 
-interface SheetInput {
+interface SheetData {
   sheetName: string;
   rows: Record<string, unknown>[];
   mappings?: Record<string, string>;
@@ -26,7 +27,8 @@ interface CommitRequest {
   tenantId: string;
   userId: string;
   fileName: string;
-  sheetData: SheetInput[];
+  storagePath: string;
+  sheetMappings: Record<string, Record<string, string>>;
 }
 
 // Entity ID field names (shared with data-service.ts)
@@ -51,18 +53,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // ── Step 1: Parse request body ──
+    // ── Step 1: Parse request body (metadata only — < 50KB) ──
     const body: CommitRequest = await request.json();
-    const { tenantId, userId, fileName, sheetData } = body;
+    const { tenantId, userId, fileName, storagePath, sheetMappings } = body;
 
-    if (!tenantId || !fileName || !sheetData?.length) {
+    if (!tenantId || !fileName || !storagePath) {
       return NextResponse.json(
-        { error: 'Missing required fields: tenantId, fileName, sheetData' },
+        { error: 'Missing required fields: tenantId, fileName, storagePath' },
         { status: 400 }
       );
     }
 
-    console.log(`[ImportCommit] Starting: ${fileName}, ${sheetData.length} sheets, tenant=${tenantId}`);
+    console.log(`[ImportCommit] Starting file-based import: ${fileName}, storage=${storagePath}, tenant=${tenantId}`);
 
     // ── Step 2: Get service role client ──
     let supabase;
@@ -73,7 +75,68 @@ export async function POST(request: NextRequest) {
       supabase = authClient;
     }
 
-    // ── Step 3: Create import batch ──
+    // ── Step 3: Download file from Supabase Storage ──
+    console.log(`[ImportCommit] Downloading file from storage: ${storagePath}`);
+    const { data: fileBlob, error: downloadError } = await supabase.storage
+      .from('imports')
+      .download(storagePath);
+
+    if (downloadError || !fileBlob) {
+      console.error('[ImportCommit] File download failed:', downloadError);
+      return NextResponse.json(
+        { error: 'File download failed', details: downloadError?.message || 'File not found' },
+        { status: 500 }
+      );
+    }
+
+    const fileSizeMB = (fileBlob.size / 1024 / 1024).toFixed(1);
+    console.log(`[ImportCommit] File downloaded: ${fileSizeMB}MB`);
+
+    // ── Step 4: Parse Excel server-side ──
+    const buffer = Buffer.from(await fileBlob.arrayBuffer());
+    const workbook = XLSX.read(buffer, {
+      type: 'buffer',
+      cellFormula: false,
+      cellNF: false,
+      cellStyles: false,
+    });
+
+    const sheetData: SheetData[] = [];
+    for (const sheetName of workbook.SheetNames) {
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+        defval: null,
+        raw: true,
+      });
+
+      if (rows.length === 0) continue;
+
+      // Apply field mappings from client metadata
+      const mappings = sheetMappings?.[sheetName];
+
+      // If no explicit mappings, auto-detect via raw column headers
+      if (!mappings || Object.keys(mappings).length === 0) {
+        const headers = Object.keys(rows[0]);
+        const autoMappings: Record<string, string> = {};
+        for (const h of headers) {
+          autoMappings[h] = h; // identity mapping — entity ID fields auto-detected below
+        }
+        sheetData.push({ sheetName, rows, mappings: autoMappings });
+      } else {
+        sheetData.push({ sheetName, rows, mappings });
+      }
+    }
+
+    console.log(`[ImportCommit] Parsed ${sheetData.length} sheets, ${sheetData.reduce((n, s) => n + s.rows.length, 0)} total rows`);
+
+    if (sheetData.length === 0) {
+      return NextResponse.json(
+        { error: 'No data rows found in file' },
+        { status: 400 }
+      );
+    }
+
+    // ── Step 5: Create import batch ──
     const { data: batch, error: batchErr } = await supabase
       .from('import_batches')
       .insert({
@@ -98,8 +161,7 @@ export async function POST(request: NextRequest) {
     const batchId = batch.id;
     console.log(`[ImportCommit] Batch created: ${batchId}`);
 
-    // ── Step 4: Bulk entity resolution ──
-    // Collect ALL unique external IDs across all sheets
+    // ── Step 6: Bulk entity resolution ──
     const externalIds = new Set<string>();
 
     for (const sheet of sheetData) {
@@ -107,6 +169,17 @@ export async function POST(request: NextRequest) {
       const entityCols = Object.entries(sheet.mappings)
         .filter(([, target]) => ENTITY_ID_FIELDS.includes(target))
         .map(([source]) => source);
+
+      // Also auto-detect entity ID columns by raw header name
+      if (entityCols.length === 0 && sheet.rows[0]) {
+        for (const key of Object.keys(sheet.rows[0])) {
+          const lower = key.toLowerCase().replace(/[\s_-]+/g, '_').trim();
+          if (ENTITY_ID_FIELDS.some(f => f.toLowerCase() === lower) ||
+              lower === 'num_empleado' || lower === 'numero_empleado') {
+            entityCols.push(key);
+          }
+        }
+      }
 
       for (const row of sheet.rows) {
         for (const col of entityCols) {
@@ -120,12 +193,10 @@ export async function POST(request: NextRequest) {
 
     console.log(`[ImportCommit] Unique external IDs: ${externalIds.size}`);
 
-    // Fetch ALL existing entities for this tenant in one query
     const entityIdMap = new Map<string, string>(); // externalId → UUID
     const allExternalIds = Array.from(externalIds);
 
     if (allExternalIds.length > 0) {
-      // Fetch existing in batches of 1000 (Supabase IN clause limit)
       const FETCH_BATCH = 1000;
       for (let i = 0; i < allExternalIds.length; i += FETCH_BATCH) {
         const slice = allExternalIds.slice(i, i + FETCH_BATCH);
@@ -142,7 +213,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Bulk INSERT new entities (ones not found)
       const newEntityExternalIds = allExternalIds.filter(eid => !entityIdMap.has(eid));
       if (newEntityExternalIds.length > 0) {
         const newEntities = newEntityExternalIds.map(eid => ({
@@ -155,7 +225,6 @@ export async function POST(request: NextRequest) {
           metadata: {} as Record<string, Json>,
         }));
 
-        // Insert in batches of 5000
         const INSERT_BATCH = 5000;
         for (let i = 0; i < newEntities.length; i += INSERT_BATCH) {
           const slice = newEntities.slice(i, i + INSERT_BATCH);
@@ -166,7 +235,6 @@ export async function POST(request: NextRequest) {
 
           if (entErr) {
             console.error(`[ImportCommit] Entity bulk insert failed:`, entErr);
-            // Mark batch as failed
             await supabase.from('import_batches').update({ status: 'failed', error_summary: { step: 'entities', error: entErr.message } }).eq('id', batchId);
             return NextResponse.json({ error: 'Entity creation failed', details: entErr.message }, { status: 500 });
           }
@@ -181,16 +249,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`[ImportCommit] Entity map: ${entityIdMap.size} total (${allExternalIds.length - Array.from(entityIdMap.keys()).filter(k => allExternalIds.includes(k) && entityIdMap.has(k)).length} existing, rest new)`);
+    console.log(`[ImportCommit] Entity map: ${entityIdMap.size} total`);
 
-    // ── Step 5: Period deduplication ──
-    // Extract ALL unique (year, month) combinations from ALL rows
+    // ── Step 7: Period deduplication ──
     const uniquePeriods = new Map<string, { year: number; month: number }>();
 
     for (const sheet of sheetData) {
       if (!sheet.mappings && !sheet.rows[0]) continue;
 
-      // Find year/month columns via mappings
       const yearCols: string[] = [];
       const monthCols: string[] = [];
 
@@ -201,7 +267,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Also check raw column headers
+      // Auto-detect via raw column headers
       if (yearCols.length === 0 && sheet.rows[0]) {
         for (const key of Object.keys(sheet.rows[0])) {
           const lower = key.toLowerCase().trim();
@@ -210,7 +276,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Check for combined period columns
       const periodCols: string[] = [];
       if (sheet.mappings) {
         for (const [source, target] of Object.entries(sheet.mappings)) {
@@ -218,7 +283,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Scan ALL rows for unique periods (not just the first row)
       for (const row of sheet.rows) {
         let year: number | null = null;
         let month: number | null = null;
@@ -269,12 +333,10 @@ export async function POST(request: NextRequest) {
 
     console.log(`[ImportCommit] Unique periods found: ${uniquePeriods.size} (${Array.from(uniquePeriods.keys()).join(', ')})`);
 
-    // Check which periods already exist
     const periodKeyMap = new Map<string, string>(); // periodKey → UUID
     const periodKeys = Array.from(uniquePeriods.keys());
 
     if (periodKeys.length > 0) {
-      // Try period_key first, fall back to canonical_key
       const { data: existingPeriods } = await supabase
         .from('periods')
         .select('id, period_key')
@@ -288,7 +350,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Create missing periods
       const newPeriods = periodKeys
         .filter(key => !periodKeyMap.has(key))
         .map(key => {
@@ -314,7 +375,6 @@ export async function POST(request: NextRequest) {
 
         if (pErr) {
           console.warn(`[ImportCommit] Period creation failed:`, pErr);
-          // Non-fatal — rows will have null period_id
         } else if (inserted) {
           for (const p of inserted) {
             if (p.period_key) {
@@ -327,8 +387,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Helper: resolve period_id for a given row
-    const resolvePeriodId = (row: Record<string, unknown>, sheet: SheetInput): string | null => {
-      // Find year/month from this row
+    const resolvePeriodId = (row: Record<string, unknown>, sheet: SheetData): string | null => {
       const yearCols: string[] = [];
       const monthCols: string[] = [];
       const periodCols: string[] = [];
@@ -340,7 +399,6 @@ export async function POST(request: NextRequest) {
           if (PERIOD_FIELDS.includes(target)) periodCols.push(source);
         }
       }
-      // Also check raw headers
       if (yearCols.length === 0 && row) {
         for (const key of Object.keys(row)) {
           const lower = key.toLowerCase().trim();
@@ -379,24 +437,34 @@ export async function POST(request: NextRequest) {
         return periodKeyMap.get(key) || null;
       }
 
-      // Fall back to first available period
       if (periodKeyMap.size > 0) {
         return Array.from(periodKeyMap.values())[0];
       }
       return null;
     };
 
-    // ── Step 6: Build and bulk-insert committed_data ──
+    // ── Step 8: Build and bulk-insert committed_data ──
     let totalRecords = 0;
 
     for (const sheet of sheetData) {
-      // Find entity ID column for this sheet
       const entityCol = sheet.mappings
         ? Object.entries(sheet.mappings).find(([, target]) => ENTITY_ID_FIELDS.includes(target))?.[0]
         : null;
 
+      // Also auto-detect entity ID column by header name
+      let effectiveEntityCol = entityCol;
+      if (!effectiveEntityCol && sheet.rows[0]) {
+        for (const key of Object.keys(sheet.rows[0])) {
+          const lower = key.toLowerCase().replace(/[\s_-]+/g, '_').trim();
+          if (ENTITY_ID_FIELDS.some(f => f.toLowerCase() === lower) ||
+              lower === 'num_empleado' || lower === 'numero_empleado') {
+            effectiveEntityCol = key;
+            break;
+          }
+        }
+      }
+
       const insertRows = sheet.rows.map((row, i) => {
-        // Apply field mappings
         let content = { ...row };
         if (sheet.mappings) {
           const mapped: Record<string, unknown> = {};
@@ -410,13 +478,11 @@ export async function POST(request: NextRequest) {
           content = mapped;
         }
 
-        // Resolve entity UUID
         let entityId: string | null = null;
-        if (entityCol && row[entityCol] != null) {
-          entityId = entityIdMap.get(String(row[entityCol]).trim()) || null;
+        if (effectiveEntityCol && row[effectiveEntityCol] != null) {
+          entityId = entityIdMap.get(String(row[effectiveEntityCol]).trim()) || null;
         }
 
-        // Resolve period ID per row
         const periodId = resolvePeriodId(row, sheet);
 
         return {
@@ -430,7 +496,6 @@ export async function POST(request: NextRequest) {
         };
       });
 
-      // Bulk insert with 5,000-row chunks (much larger than old 500)
       const CHUNK = 5000;
       for (let i = 0; i < insertRows.length; i += CHUNK) {
         const slice = insertRows.slice(i, i + CHUNK);
@@ -440,7 +505,6 @@ export async function POST(request: NextRequest) {
 
         if (insertErr) {
           console.error(`[ImportCommit] committed_data insert failed at chunk ${Math.floor(i / CHUNK)}:`, insertErr);
-          // Mark batch as failed
           await supabase.from('import_batches').update({
             status: 'failed',
             error_summary: { step: 'committed_data', sheet: sheet.sheetName, chunk: Math.floor(i / CHUNK), error: insertErr.message },
@@ -459,7 +523,7 @@ export async function POST(request: NextRequest) {
       console.log(`[ImportCommit] Sheet "${sheet.sheetName}": ${insertRows.length} rows inserted`);
     }
 
-    // ── Step 7: Rule set assignments ──
+    // ── Step 9: Rule set assignments ──
     let assignmentCount = 0;
     try {
       const { data: activeRuleSet } = await supabase
@@ -477,7 +541,6 @@ export async function POST(request: NextRequest) {
         ));
 
         if (entityUuids.length > 0) {
-          // Check existing assignments in bulk
           const existingSet = new Set<string>();
           const CHECK_BATCH = 1000;
           for (let i = 0; i < entityUuids.length; i += CHECK_BATCH) {
@@ -518,7 +581,7 @@ export async function POST(request: NextRequest) {
       console.warn('[ImportCommit] Rule set assignment failed (non-blocking):', assignErr);
     }
 
-    // ── Step 8: Update batch status ──
+    // ── Step 10: Update batch status ──
     await supabase.from('import_batches').update({
       status: 'completed',
       row_count: totalRecords,

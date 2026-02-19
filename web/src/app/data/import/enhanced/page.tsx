@@ -1927,7 +1927,7 @@ export default function DataPackageImportPage() {
         throw new Error(errData.error || errData.details || `Upload prepare failed (${prepareResponse.status})`);
       }
 
-      const { storagePath, signedUrl, token, batchId: preparedBatchId } = await prepareResponse.json();
+      const { storagePath, signedUrl, batchId: preparedBatchId } = await prepareResponse.json();
       const batchId = preparedBatchId;
 
       // Step 2: Upload file directly to Supabase Storage (bypasses Vercel 4.5MB limit)

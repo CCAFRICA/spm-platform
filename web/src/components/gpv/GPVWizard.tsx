@@ -22,7 +22,7 @@ import { runCalculation, type CalculationRunResult } from '@/lib/calculation/run
 import { getCalculationResults } from '@/lib/supabase/calculation-service';
 import { useGPV } from '@/hooks/useGPV';
 import { Check, Upload, Loader2, FileSpreadsheet, BarChart3, ChevronRight } from 'lucide-react';
-import * as XLSX from 'xlsx';
+// XLSX import removed — HF-047: server-side parsing via file-based pipeline
 
 interface GPVWizardProps {
   tenantId: string;
