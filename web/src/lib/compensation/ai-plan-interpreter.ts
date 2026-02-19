@@ -421,7 +421,7 @@ export function interpretationToPlanConfig(
   userId: string
 ): RuleSetConfig {
   const now = new Date().toISOString();
-  const ruleSetId = `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  const ruleSetId = crypto.randomUUID();
 
   // Build variants from employee types
   const employeeTypes = interpretation.employeeTypes || [];
