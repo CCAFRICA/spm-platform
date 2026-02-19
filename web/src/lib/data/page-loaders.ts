@@ -28,7 +28,8 @@ function extractTotalPayoutFromSummary(summary: Json): number {
 
 export interface PeriodRecord {
   id: string;
-  period_key: string;
+  canonical_key: string;
+  label?: string;
   start_date: string;
   end_date: string;
   status: string;
@@ -60,7 +61,7 @@ export interface ReconciliationPageData {
     total_payout: number;
     created_at: string;
     period_label: string | null;
-    period_key: string | null;
+    canonical_key: string | null;
   }>;
   ruleSetComponents: Json | null;
   ruleSetName: string | null;
@@ -89,11 +90,11 @@ export interface CalculatePageData {
 // Tenant Periods Loader (reusable across pages)
 // ──────────────────────────────────────────────
 
-export async function loadTenantPeriods(tenantId: string): Promise<Array<{ id: string; period_key: string }>> {
+export async function loadTenantPeriods(tenantId: string): Promise<Array<{ id: string; canonical_key: string; label?: string }>> {
   const supabase = createClient();
   const { data } = await supabase
     .from('periods')
-    .select('id, period_key')
+    .select('id, canonical_key, label')
     .eq('tenant_id', tenantId)
     .order('start_date', { ascending: false });
   return data ?? [];
@@ -110,7 +111,7 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
   const [periodsRes, planRes, importRes] = await Promise.all([
     supabase
       .from('periods')
-      .select('id, period_key, start_date, end_date, status')
+      .select('id, canonical_key, label, start_date, end_date, status')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false }),
     supabase
@@ -134,7 +135,7 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
   // Find the active (open) period, or fall back to the most recent
   const activePeriod = rawPeriods.find(p => p.status === 'open') ?? rawPeriods[0] ?? null;
   const activePeriodId = activePeriod?.id ?? null;
-  const activePeriodKey = activePeriod?.period_key ?? null;
+  const activePeriodKey = activePeriod?.canonical_key ?? null;
 
   // Round 2: batch lifecycle states + outcomes + entity names (parallel, no conditional)
   const periodIds = rawPeriods.map(p => p.id);
@@ -191,7 +192,8 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
   return {
     periods: rawPeriods.map(p => ({
       id: p.id,
-      period_key: p.period_key,
+      canonical_key: p.canonical_key,
+      label: p.label,
       start_date: p.start_date,
       end_date: p.end_date,
       status: p.status,
@@ -218,7 +220,7 @@ export async function loadCalculatePageData(tenantId: string, periodKey?: string
 
   // Round 1: rule set + period + entities + assignments + committed data + batches
   const periodQuery = periodKey
-    ? supabase.from('periods').select('*').eq('tenant_id', tenantId).eq('period_key', periodKey).single()
+    ? supabase.from('periods').select('*').eq('tenant_id', tenantId).eq('canonical_key', periodKey).single()
     : supabase.from('periods').select('*').eq('tenant_id', tenantId).eq('status', 'open').order('start_date', { ascending: false }).limit(1).maybeSingle();
 
   const [ruleSetRes, periodRes, entityCountRes, batchesRes] = await Promise.all([
@@ -239,8 +241,8 @@ export async function loadCalculatePageData(tenantId: string, periodKey?: string
     const assignRes = await supabase.from('rule_set_assignments').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('rule_set_id', ruleSet.id);
     assignmentCount = assignRes.count ?? 0;
   }
-  if (period?.period_key) {
-    const committedRes = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('period_key', period.period_key);
+  if (period?.id) {
+    const committedRes = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('period_id', period.id);
     committedDataCount = committedRes.count ?? 0;
   }
 
@@ -249,8 +251,8 @@ export async function loadCalculatePageData(tenantId: string, periodKey?: string
     ruleSetName: ruleSet?.name ?? null,
     ruleSetComponents: ruleSet?.components ?? null,
     periodId: period?.id ?? null,
-    periodKey: period?.period_key ?? null,
-    periodLabel: period?.period_key ?? null,
+    periodKey: period?.canonical_key ?? null,
+    periodLabel: period?.label ?? period?.canonical_key ?? null,
     entityCount: entityCountRes.count ?? 0,
     assignmentCount,
     committedDataCount,
@@ -292,14 +294,14 @@ export async function loadReconciliationPageData(tenantId: string): Promise<Reco
 
   // Resolve period labels for batches
   const periodIds = Array.from(new Set(rawBatches.map(b => b.period_id).filter(Boolean)));
-  let periodMap = new Map<string, { label: string | null; period_key: string | null }>();
+  let periodMap = new Map<string, { label: string | null; canonical_key: string | null }>();
 
   if (periodIds.length > 0) {
     const { data: periods } = await supabase
       .from('periods')
-      .select('id, period_key')
+      .select('id, canonical_key, label')
       .in('id', periodIds as string[]);
-    periodMap = new Map((periods ?? []).map(p => [p.id, { label: p.period_key, period_key: p.period_key }]));
+    periodMap = new Map((periods ?? []).map(p => [p.id, { label: p.label || p.canonical_key, canonical_key: p.canonical_key }]));
   }
 
   return {
@@ -310,7 +312,7 @@ export async function loadReconciliationPageData(tenantId: string): Promise<Reco
       total_payout: extractTotalPayoutFromSummary(b.summary),
       created_at: b.created_at,
       period_label: periodMap.get(b.period_id ?? '')?.label ?? null,
-      period_key: periodMap.get(b.period_id ?? '')?.period_key ?? null,
+      canonical_key: periodMap.get(b.period_id ?? '')?.canonical_key ?? null,
     })),
     ruleSetComponents: ruleSetRes.data?.components ?? null,
     ruleSetName: ruleSetRes.data?.name ?? null,

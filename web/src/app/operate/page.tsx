@@ -64,7 +64,7 @@ export default function OperateCockpitPage() {
 
       const enriched: PeriodInfo[] = data.periods.map(p => ({
         periodId: p.id,
-        periodKey: p.period_key,
+        periodKey: p.canonical_key,
         label: formatLabel(p.start_date),
         status: p.status,
         lifecycleState: p.lifecycleState,

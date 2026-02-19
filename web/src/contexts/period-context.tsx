@@ -30,7 +30,7 @@ async function loadPeriods(tenantId: string): Promise<PeriodInfo[]> {
     return [];
   }
   const { periods, batches } = await res.json() as {
-    periods: Array<{ id: string; period_key: string; period_type: string; start_date: string; end_date: string; status: string }>;
+    periods: Array<{ id: string; canonical_key: string; label?: string; period_type: string; start_date: string; end_date: string; status: string }>;
     batches: Array<{ period_id: string; lifecycle_state: string; created_at: string }>;
   };
 
@@ -46,8 +46,8 @@ async function loadPeriods(tenantId: string): Promise<PeriodInfo[]> {
 
   return periods.map((p) => ({
     periodId: p.id,
-    periodKey: p.period_key,
-    label: formatPeriodLabel(p.period_key, p.start_date),
+    periodKey: p.canonical_key,
+    label: p.label || formatPeriodLabel(p.canonical_key, p.start_date),
     status: p.status,
     lifecycleState: latestBatchByPeriod.get(p.id) ?? null,
     startDate: p.start_date,

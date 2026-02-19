@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     // 4. Fetch periods (primary query — must succeed)
     const periodsRes = await supabase
       .from('periods')
-      .select('id, period_key, period_type, start_date, end_date, status')
+      .select('id, canonical_key, label, period_type, start_date, end_date, status')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
 

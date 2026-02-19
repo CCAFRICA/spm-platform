@@ -680,7 +680,7 @@ export async function directCommitImportDataAsync(
         .from('periods')
         .select('id')
         .eq('tenant_id', tenantId)
-        .eq('period_key', periodKey)
+        .eq('canonical_key', periodKey)
         .maybeSingle();
 
       if (existing) {
@@ -688,15 +688,19 @@ export async function directCommitImportDataAsync(
         console.log(`[DataService] Found existing period: ${periodKey} (${existing.id})`);
       } else {
         // Create period in Supabase
+        const MONTH_NAMES = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'];
         const { data: newPeriod, error: pErr } = await supabase
           .from('periods')
           .insert({
             tenant_id: tenantId,
-            period_key: periodKey,
+            canonical_key: periodKey,
+            label: `${MONTH_NAMES[detectedMonth]} ${detectedYear}`,
             period_type: 'monthly',
             start_date: startDate,
             end_date: endDate,
             status: 'open',
+            metadata: { year: detectedYear, month: detectedMonth },
           })
           .select('id')
           .single();

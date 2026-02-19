@@ -370,7 +370,7 @@ export async function getRepDashboardData(
   if (resultPeriodIds.length > 0) {
     const { data: periodRows } = await supabase
       .from('periods')
-      .select('id, period_key, start_date')
+      .select('id, canonical_key, label, start_date')
       .in('id', resultPeriodIds as string[]);
     if (periodRows) {
       periodLabelMap = new Map(periodRows.map(p => {
