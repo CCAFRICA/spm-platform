@@ -69,9 +69,7 @@ import { cn } from '@/lib/utils';
 import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import type { RuleSetConfig, PlanComponent } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
-import {
-  directCommitImportDataAsync,
-} from '@/lib/supabase/data-service';
+// directCommitImportDataAsync removed — now uses server-side /api/import/commit
 
 interface AIImportContext {
   tenantId: string;
@@ -90,7 +88,7 @@ interface AIImportContext {
 function storeImportContext(ctx: AIImportContext) { console.log('[Import] Context stored:', ctx.sheets.length, 'sheets'); }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function storeFieldMappings(_tenantId: string, _batchId: string, _mappings: unknown[]) { /* stored in batch metadata */ }
-import { createClient } from '@/lib/supabase/client';
+// createClient removed — import commit now uses server-side API route
 import { classifyFile, recordClassificationFeedback } from '@/lib/ai/file-classifier';
 import { AI_CONFIDENCE } from '@/lib/ai/types';
 
@@ -1995,14 +1993,26 @@ export default function DataPackageImportPage() {
         console.log(`[Import] Stored AI import context BEFORE commit: ${importContext.sheets.length} sheets`);
       }
 
-      // Commit data to Supabase (pass pre-generated batchId)
-      const result = await directCommitImportDataAsync(
-        tenantId,
-        userId,
-        uploadedFile.name,
-        sheetData,
-        batchId
-      );
+      // Commit data via server-side API route (bulk inserts, service role client)
+      console.log(`[Import] Sending ${sheetData.reduce((n, s) => n + s.rows.length, 0)} rows to /api/import/commit`);
+
+      const response = await fetch('/api/import/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          userId,
+          fileName: uploadedFile.name,
+          sheetData,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || errData.details || `Import failed (${response.status})`);
+      }
+
+      const result = await response.json();
 
       // Store field mappings in batch metadata (logged for now)
       const mappingsToStore = fieldMappings.map(m => ({
@@ -2015,33 +2025,7 @@ export default function DataPackageImportPage() {
       }));
       storeFieldMappings(tenantId, result.batchId, mappingsToStore);
 
-      console.log(`[Import] Committed ${result.recordCount} records, batch: ${result.batchId}`);
-      console.log(`[Import] TenantId used: ${tenantId}`);
-
-      console.log(`[Import] Data committed: ${result.recordCount} records, ${result.entityCount} entities, period: ${result.periodId ?? 'none'}`);
-
-      // Write data_import metering event (non-blocking)
-      try {
-        const supabase = createClient();
-        const now = new Date();
-        const periodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        await supabase.from('usage_metering').insert({
-          tenant_id: tenantId,
-          metric_name: 'data_import',
-          metric_value: result.recordCount,
-          period_key: periodKey,
-          metadata: {
-            batch_id: result.batchId,
-            entity_count: result.entityCount,
-            period_id: result.periodId,
-            file_name: uploadedFile.name,
-            sheet_count: sheetData.length,
-          },
-        });
-        console.log('[Import] Metering event written: data_import');
-      } catch (meterErr) {
-        console.warn('[Import] Metering failed (non-blocking):', meterErr);
-      }
+      console.log(`[Import] Server commit complete: ${result.recordCount} records, ${result.entityCount} entities, ${result.periodCount} periods in ${result.elapsedSeconds}s`);
 
       setImportId(result.batchId);
       setIsImporting(false);
