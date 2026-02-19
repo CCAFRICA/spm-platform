@@ -60,6 +60,13 @@ export function useGPV(tenantId: string | undefined) {
 
   const isComplete = gpv?.completed_at !== null && gpv?.completed_at !== undefined;
 
+  // HF-051: Check if GPV was explicitly started (any step advanced).
+  // When the API returns default state (all false), the tenant never started the wizard.
+  // Treat "never started" as "complete" so the wizard doesn't block the dashboard.
+  const hasStarted = gpv
+    ? (gpv.plan_uploaded || gpv.plan_confirmed || gpv.data_uploaded || gpv.data_confirmed || gpv.first_calculation)
+    : false;
+
   // Step progression: 1=upload plan, 2=upload data, 3=see results, 4=complete
   const currentStep = !gpv ? 0
     : !gpv.plan_confirmed ? 1
@@ -67,5 +74,5 @@ export function useGPV(tenantId: string | undefined) {
     : !gpv.first_calculation ? 3
     : 4;
 
-  return { gpv, loading, advanceStep, isComplete, currentStep };
+  return { gpv, loading, advanceStep, isComplete, hasStarted, currentStep };
 }

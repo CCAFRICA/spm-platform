@@ -30,7 +30,7 @@ function DashboardContent() {
   const { persona, tokens } = usePersona();
   const { availablePeriods, activePeriodKey, setActivePeriod, isLoading } = usePeriod();
   const { currentTenant } = useTenant();
-  const { loading: gpvLoading, isComplete: gpvComplete, currentStep } = useGPV(currentTenant?.id);
+  const { loading: gpvLoading, isComplete: gpvComplete, hasStarted: gpvStarted, currentStep } = useGPV(currentTenant?.id);
   const [skippedGPV] = useState(() => {
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('gpv_skipped') === 'true';
@@ -61,8 +61,10 @@ function DashboardContent() {
   // Existing tenants with calculation data skip GPV automatically
   const hasCalculationData = availablePeriods.length > 0;
 
-  // Show GPV wizard for new tenants that haven't completed activation
-  if (!gpvComplete && !hasCalculationData && !skippedGPV && currentStep < 4) {
+  // HF-051: Only show GPV wizard if the tenant has EXPLICITLY started the wizard.
+  // Previously, all tenants without calculation data saw the wizard by default.
+  // Now: GPV only shows if gpvStarted=true (at least one step was advanced).
+  if (gpvStarted && !gpvComplete && !hasCalculationData && !skippedGPV && currentStep < 4) {
     return (
       <GPVWizard
         tenantId={currentTenant.id}
