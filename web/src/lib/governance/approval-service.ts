@@ -206,10 +206,10 @@ export async function listApprovalItemsAsync(tenantId: string): Promise<Approval
   if (periodIds.length > 0) {
     const { data: periods } = await supabase
       .from('periods')
-      .select('id, period_key')
+      .select('id, canonical_key, label')
       .in('id', periodIds);
     for (const p of (periods ?? [])) {
-      periodMap.set(p.id, p.period_key);
+      periodMap.set(p.id, p.label || p.canonical_key);
     }
   }
 

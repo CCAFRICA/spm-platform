@@ -123,7 +123,7 @@ export default function CalculatePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [isCalculating, setIsCalculating] = useState(false);
-  const [dbPeriods, setDbPeriods] = useState<Array<{ id: string; period_key: string }>>([]);
+  const [dbPeriods, setDbPeriods] = useState<Array<{ id: string; canonical_key: string; label?: string }>>([]);
 
   const { locale } = useAdminLocale();
   const t = labels[locale];
@@ -339,7 +339,7 @@ export default function CalculatePage() {
   // Merge periods from DB and from batches
   const periodMap = new Map<string, string>();
   for (const p of dbPeriods) {
-    periodMap.set(p.id, p.period_key);
+    periodMap.set(p.id, p.label || p.canonical_key);
   }
   for (const b of recentBatches) {
     if (!periodMap.has(b.period_id)) {

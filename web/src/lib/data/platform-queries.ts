@@ -190,7 +190,7 @@ export async function getTenantFleetCards(): Promise<TenantFleetCard[]> {
   const [allEntities, allProfiles, allPeriods, allBatches, allOutcomes] = await Promise.all([
     supabase.from('entities').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
     supabase.from('profiles').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
-    supabase.from('periods').select('id, tenant_id, period_key, start_date, status')
+    supabase.from('periods').select('id, tenant_id, canonical_key, label, start_date, status')
       .in('tenant_id', tenantIds).order('start_date', { ascending: false }).limit(10000),
     supabase.from('calculation_batches').select('tenant_id, lifecycle_state, entity_count, created_at')
       .in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(10000),
@@ -201,10 +201,10 @@ export async function getTenantFleetCards(): Promise<TenantFleetCard[]> {
   const entityCounts = countByField(allEntities.data ?? [], 'tenant_id');
   const profileCounts = countByField(allProfiles.data ?? [], 'tenant_id');
 
-  const latestPeriodByTenant = new Map<string, { id: string; period_key: string; status: string }>();
+  const latestPeriodByTenant = new Map<string, { id: string; canonical_key: string; label: string; status: string }>();
   for (const p of (allPeriods.data ?? [])) {
     if (!latestPeriodByTenant.has(p.tenant_id)) {
-      latestPeriodByTenant.set(p.tenant_id, { id: p.id, period_key: p.period_key, status: p.status });
+      latestPeriodByTenant.set(p.tenant_id, { id: p.id, canonical_key: p.canonical_key, label: p.label, status: p.status });
     }
   }
 
@@ -238,7 +238,7 @@ export async function getTenantFleetCards(): Promise<TenantFleetCard[]> {
       entityCount: entityCounts.get(t.id) ?? 0,
       userCount: profileCounts.get(t.id) ?? 0,
       periodCount: 0,
-      latestPeriodLabel: latestPeriod?.period_key ?? null,
+      latestPeriodLabel: latestPeriod?.label ?? latestPeriod?.canonical_key ?? null,
       latestPeriodStatus: latestPeriod?.status ?? null,
       latestLifecycleState: latestBatch?.lifecycle_state ?? null,
       latestBatchPayout: payoutByTenant.get(t.id) ?? 0,

@@ -339,16 +339,19 @@ export async function POST(request: NextRequest) {
     if (periodKeys.length > 0) {
       const { data: existingPeriods } = await supabase
         .from('periods')
-        .select('id, period_key')
+        .select('id, canonical_key')
         .eq('tenant_id', tenantId);
 
       if (existingPeriods) {
         for (const p of existingPeriods) {
-          if (p.period_key) {
-            periodKeyMap.set(p.period_key, p.id);
+          if (p.canonical_key) {
+            periodKeyMap.set(p.canonical_key, p.id);
           }
         }
       }
+
+      const MONTH_NAMES = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'];
 
       const newPeriods = periodKeys
         .filter(key => !periodKeyMap.has(key))
@@ -359,11 +362,13 @@ export async function POST(request: NextRequest) {
           const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
           return {
             tenant_id: tenantId,
-            period_key: key,
+            canonical_key: key,
+            label: `${MONTH_NAMES[month]} ${year}`,
             period_type: 'monthly' as const,
             start_date: startDate,
             end_date: endDate,
             status: 'open' as const,
+            metadata: { year, month } as unknown as Json,
           };
         });
 
@@ -371,14 +376,14 @@ export async function POST(request: NextRequest) {
         const { data: inserted, error: pErr } = await supabase
           .from('periods')
           .insert(newPeriods)
-          .select('id, period_key');
+          .select('id, canonical_key');
 
         if (pErr) {
           console.warn(`[ImportCommit] Period creation failed:`, pErr);
         } else if (inserted) {
           for (const p of inserted) {
-            if (p.period_key) {
-              periodKeyMap.set(p.period_key, p.id);
+            if (p.canonical_key) {
+              periodKeyMap.set(p.canonical_key, p.id);
             }
           }
           console.log(`[ImportCommit] Created ${newPeriods.length} new periods`);

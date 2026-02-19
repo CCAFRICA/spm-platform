@@ -313,7 +313,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   // ── 3. Fetch period info ──
   const { data: period } = await supabase
     .from('periods')
-    .select('id, period_key')
+    .select('id, canonical_key')
     .eq('id', periodId)
     .single();
 

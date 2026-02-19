@@ -432,37 +432,37 @@ export interface Database {
         Row: {
           id: string;
           tenant_id: string;
-          period_key: string;
+          canonical_key: string;
+          label: string;
           period_type: PeriodType;
           start_date: string;
           end_date: string;
-          parent_period_id: string | null;
-          payment_date: string | null;
           status: PeriodStatus;
+          metadata: Json;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           tenant_id: string;
-          period_key: string;
+          canonical_key: string;
+          label: string;
           period_type: PeriodType;
           start_date: string;
           end_date: string;
-          parent_period_id?: string | null;
-          payment_date?: string | null;
           status?: PeriodStatus;
+          metadata?: Json;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
-          period_key?: string;
+          canonical_key?: string;
+          label?: string;
           period_type?: PeriodType;
           start_date?: string;
           end_date?: string;
-          parent_period_id?: string | null;
-          payment_date?: string | null;
           status?: PeriodStatus;
+          metadata?: Json;
           updated_at?: string;
         };
         Relationships: [];
