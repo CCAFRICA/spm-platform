@@ -12,8 +12,8 @@
  * authenticated → redirects from /login back to / → dashboard renders.
  *
  * Fix: All redirect responses are fresh NextResponse.redirect() objects.
- * When user is NOT authenticated, stale sb-* cookies are explicitly cleared
- * on the redirect response so the browser arrives at /login with a clean slate.
+ * When user is NOT authenticated, ALL auth cookies (sb-* AND vialuce-tenant-id)
+ * are explicitly cleared on the redirect response so the browser arrives clean.
  */
 
 import { createServerClient } from '@supabase/ssr';
@@ -27,12 +27,13 @@ function isPublicPath(pathname: string): boolean {
 }
 
 /**
- * Clear all Supabase auth cookies (sb-*) on a response.
+ * Clear ALL auth-related cookies on a response.
+ * Clears: sb-* (Supabase auth tokens) + vialuce-tenant-id (tenant selection).
  * Sets each cookie to empty with maxAge=0 so the browser deletes them.
  */
-function clearSbCookies(request: NextRequest, response: NextResponse): void {
+function clearAuthCookies(request: NextRequest, response: NextResponse): void {
   request.cookies.getAll().forEach(cookie => {
-    if (cookie.name.startsWith('sb-')) {
+    if (cookie.name.startsWith('sb-') || cookie.name === 'vialuce-tenant-id') {
       response.cookies.set({
         name: cookie.name,
         value: '',
@@ -108,7 +109,7 @@ export async function middleware(request: NextRequest) {
     if (pathname === '/') {
       const landingUrl = new URL('/landing', request.url);
       const redirectResponse = NextResponse.redirect(landingUrl);
-      clearSbCookies(request, redirectResponse);
+      clearAuthCookies(request, redirectResponse);
       return redirectResponse;
     }
 
@@ -119,7 +120,7 @@ export async function middleware(request: NextRequest) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       const redirectResponse = NextResponse.redirect(loginUrl);
-      clearSbCookies(request, redirectResponse);
+      clearAuthCookies(request, redirectResponse);
       return redirectResponse;
     }
 
@@ -127,7 +128,7 @@ export async function middleware(request: NextRequest) {
     // This prevents: GET /login with stale cookies → getUser() refreshes
     // on a subsequent request → middleware thinks user is authenticated.
     const passThrough = NextResponse.next({ request });
-    clearSbCookies(request, passThrough);
+    clearAuthCookies(request, passThrough);
     return passThrough;
   }
 

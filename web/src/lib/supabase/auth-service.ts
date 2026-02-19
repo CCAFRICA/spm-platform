@@ -55,10 +55,13 @@ export async function signUpWithEmail(email: string, password: string) {
 
 /**
  * Sign out via Supabase Auth.
+ * Uses 'local' scope to clear the browser session without
+ * revoking the refresh token server-side (avoids network errors
+ * blocking logout). Cookie cleanup is handled by the caller.
  */
 export async function signOut() {
   const supabase = createClient();
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: 'local' });
   if (error) throw error;
 }
 
