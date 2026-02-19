@@ -590,20 +590,49 @@ export async function directCommitImportDataAsync(
   // ── Step 3: Detect period from data ──
   let resolvedPeriodId: string | null = null;
   const periodFieldNames = ['period', 'period_key', 'periodKey', 'date', 'fecha', 'periodo'];
+  // Year/month field names for separate-column detection (Año/Mes pattern)
+  const yearFieldNames = ['year', 'año', 'ano', 'anio'];
+  const monthFieldNames = ['month', 'mes'];
 
   for (const sheet of sheetData) {
     if (!sheet.mappings || resolvedPeriodId) break;
+
+    // Strategy A: Look for combined period/date columns
     const periodCols = Object.entries(sheet.mappings)
       .filter(([, target]) => periodFieldNames.includes(target))
       .map(([source]) => source);
 
-    if (periodCols.length === 0) continue;
+    // Strategy B: Look for separate year + month columns (Año/Mes pattern)
+    const yearCols = Object.entries(sheet.mappings)
+      .filter(([, target]) => yearFieldNames.includes(target.toLowerCase()))
+      .map(([source]) => source);
+    const monthCols = Object.entries(sheet.mappings)
+      .filter(([, target]) => monthFieldNames.includes(target.toLowerCase()))
+      .map(([source]) => source);
+
+    // Also check raw column headers for Año/Mes even if not mapped
+    if (yearCols.length === 0) {
+      for (const row of [sheet.rows[0]]) {
+        if (!row) break;
+        for (const key of Object.keys(row)) {
+          const lower = key.toLowerCase().trim();
+          if (yearFieldNames.includes(lower) || lower === 'año' || lower === 'ano') {
+            yearCols.push(key);
+          }
+          if (monthFieldNames.includes(lower) || lower === 'mes') {
+            monthCols.push(key);
+          }
+        }
+      }
+    }
+
     const firstRow = sheet.rows[0];
     if (!firstRow) continue;
 
     let detectedYear: number | null = null;
     let detectedMonth: number | null = null;
 
+    // Strategy A: Combined period columns
     for (const col of periodCols) {
       const value = firstRow[col];
       if (value == null) continue;
@@ -621,6 +650,22 @@ export async function directCommitImportDataAsync(
       if (!isNaN(numValue)) {
         if (numValue >= 2020 && numValue <= 2030) detectedYear = numValue;
         else if (numValue >= 1 && numValue <= 12) detectedMonth = numValue;
+      }
+    }
+
+    // Strategy B: Separate year + month columns (e.g., Año=2024, Mes=1)
+    if (!detectedYear && yearCols.length > 0) {
+      const yearVal = firstRow[yearCols[0]];
+      if (yearVal != null) {
+        const num = typeof yearVal === 'number' ? yearVal : parseInt(String(yearVal), 10);
+        if (!isNaN(num) && num >= 2020 && num <= 2030) detectedYear = num;
+      }
+    }
+    if (!detectedMonth && monthCols.length > 0) {
+      const monthVal = firstRow[monthCols[0]];
+      if (monthVal != null) {
+        const num = typeof monthVal === 'number' ? monthVal : parseInt(String(monthVal), 10);
+        if (!isNaN(num) && num >= 1 && num <= 12) detectedMonth = num;
       }
     }
 
