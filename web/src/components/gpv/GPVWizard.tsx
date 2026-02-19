@@ -17,7 +17,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { parseFile, type ParsedFile } from '@/lib/import-pipeline/file-parser';
 import { interpretPlanDocument } from '@/lib/compensation/plan-interpreter';
-import { directCommitImportDataAsync } from '@/lib/supabase/data-service';
+// directCommitImportDataAsync removed — now uses server-side /api/import/commit
 import { runCalculation, type CalculationRunResult } from '@/lib/calculation/run-calculation';
 import { getCalculationResults } from '@/lib/supabase/calculation-service';
 import { useGPV } from '@/hooks/useGPV';
@@ -297,14 +297,26 @@ export function GPVWizard({ tenantId, tenantName }: GPVWizardProps) {
       setDataProgress(50);
       await advanceStep('data_uploaded');
 
-      // Commit data
+      // Commit data via server-side API route
       setDataProgress(70);
-      const result = await directCommitImportDataAsync(
-        tenantId,
-        user?.id || 'system',
-        file.name,
-        sheetData
-      );
+
+      const response = await fetch('/api/import/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          userId: user?.id || 'system',
+          fileName: file.name,
+          sheetData,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || errData.details || `Import failed (${response.status})`);
+      }
+
+      const result = await response.json();
 
       setDataProgress(100);
       await advanceStep('data_confirmed');
