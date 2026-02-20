@@ -10,11 +10,12 @@
  * OB-60 Phase 2: Frictionless 60-second signup.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { createBrowserClient } from '@supabase/ssr';
 
 export default function SignupPage() {
+  const [signupEnabled, setSignupEnabled] = useState<boolean | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [orgName, setOrgName] = useState('');
@@ -24,6 +25,14 @@ export default function SignupPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  // Check public_signup_enabled flag
+  useEffect(() => {
+    fetch('/api/platform/flags')
+      .then(r => r.json())
+      .then(flags => setSignupEnabled(flags.public_signup_enabled === true))
+      .catch(() => setSignupEnabled(false));
+  }, []);
 
   const handleGoogleSignUp = async () => {
     setGoogleLoading(true);
@@ -124,6 +133,74 @@ export default function SignupPage() {
       setIsLoading(false);
     }
   };
+
+  // Loading state while flag resolves
+  if (signupEnabled === null) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#020617',
+      }}>
+        <div className="animate-spin h-6 w-6 border-2 border-zinc-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  // Signup disabled — show coming soon
+  if (!signupEnabled) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px',
+        backgroundColor: '#020617',
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}>
+        <div style={{ width: '100%', maxWidth: '440px', textAlign: 'center' }}>
+          <h1 style={{ fontSize: '36px', fontWeight: 800, color: '#2D2F8F', margin: 0, letterSpacing: '-0.02em' }}>
+            VIALUCE
+          </h1>
+          <p style={{ fontSize: '14px', color: '#E8A838', fontWeight: 600, marginTop: '6px', letterSpacing: '0.06em' }}>
+            Intelligence. Acceleration. Performance.
+          </p>
+          <div style={{
+            marginTop: '40px',
+            background: 'rgba(15, 23, 42, 0.8)',
+            border: '1px solid rgba(30, 41, 59, 0.8)',
+            borderRadius: '16px',
+            padding: '40px 32px',
+          }}>
+            <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#F1F5F9', margin: '0 0 12px' }}>
+              Coming Soon
+            </h2>
+            <p style={{ fontSize: '14px', color: '#94A3B8', margin: '0 0 24px', lineHeight: '1.6' }}>
+              Self-service signup is not yet available. Contact us to get started with Vialuce.
+            </p>
+            <Link
+              href="/login"
+              style={{
+                display: 'inline-block',
+                padding: '10px 24px',
+                borderRadius: '10px',
+                background: '#2D2F8F',
+                color: '#FFFFFF',
+                fontSize: '14px',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              Go to Login
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{

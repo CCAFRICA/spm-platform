@@ -105,10 +105,24 @@ export async function middleware(request: NextRequest) {
 
   // ── NOT AUTHENTICATED ──
   if (!user) {
-    // Root path without auth → show public landing page
+    // Root path without auth → route based on landing_page_enabled flag
     if (pathname === '/') {
-      const landingUrl = new URL('/landing', request.url);
-      const redirectResponse = NextResponse.redirect(landingUrl);
+      let landingEnabled = false;
+      try {
+        const flagsResponse = await fetch(new URL('/api/platform/flags', request.url));
+        if (flagsResponse.ok) {
+          const flags = await flagsResponse.json();
+          landingEnabled = flags.landing_page_enabled === true;
+        }
+      } catch {
+        // On error, default to login (safe default)
+        landingEnabled = false;
+      }
+
+      const targetUrl = landingEnabled
+        ? new URL('/landing', request.url)
+        : new URL('/login', request.url);
+      const redirectResponse = NextResponse.redirect(targetUrl);
       clearAuthCookies(request, redirectResponse);
       return redirectResponse;
     }
