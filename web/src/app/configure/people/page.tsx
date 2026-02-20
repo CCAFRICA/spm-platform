@@ -9,12 +9,13 @@
 import { useState } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { OrganizationalCanvas } from '@/components/canvas/OrganizationalCanvas';
+import { RequireRole } from '@/components/auth/RequireRole';
 import { Button } from '@/components/ui/button';
 import { Network, Table2, Users } from 'lucide-react';
 import { useLocale } from '@/contexts/locale-context';
 import { useRouter } from 'next/navigation';
 
-export default function PeopleConfigurePage() {
+function PeopleConfigurePageInner() {
   const [viewMode, setViewMode] = useState<'canvas' | 'table'>('canvas');
   const { locale } = useLocale();
   const router = useRouter();
@@ -78,5 +79,13 @@ export default function PeopleConfigurePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PeopleConfigurePage() {
+  return (
+    <RequireRole roles={['vl_admin', 'admin']}>
+      <PeopleConfigurePageInner />
+    </RequireRole>
   );
 }

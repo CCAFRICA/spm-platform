@@ -22,6 +22,7 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
+import { RequireRole } from '@/components/auth/RequireRole';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -1101,7 +1102,7 @@ async function runSecondPassClassification(
   return updatedMappings;
 }
 
-export default function DataPackageImportPage() {
+function DataPackageImportPageInner() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth(); // For authentication check
@@ -3937,5 +3938,13 @@ export default function DataPackageImportPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function DataPackageImportPage() {
+  return (
+    <RequireRole roles={['vl_admin', 'admin']}>
+      <DataPackageImportPageInner />
+    </RequireRole>
   );
 }

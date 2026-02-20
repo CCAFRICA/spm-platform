@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
+import { RequireRole } from '@/components/auth/RequireRole';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 // Plan import uses /api/plan/import route (service role) instead of browser client
 import { parseFile } from '@/lib/import-pipeline/file-parser';
@@ -229,7 +230,7 @@ interface ParsedPlan {
   rawApiResponse?: string;
 }
 
-export default function PlanImportPage() {
+function PlanImportPageInner() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
@@ -1530,5 +1531,13 @@ export default function PlanImportPage() {
       </Dialog>
 
     </div>
+  );
+}
+
+export default function PlanImportPage() {
+  return (
+    <RequireRole roles={['vl_admin', 'admin']}>
+      <PlanImportPageInner />
+    </RequireRole>
   );
 }

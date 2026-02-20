@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
+import { RequireRole } from '@/components/auth/RequireRole';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import {
   getRuleSets,
@@ -104,7 +105,7 @@ interface RuleSetStatus {
   draftPlans: Array<{ id: string; name: string }>;
 }
 
-export default function CalculatePage() {
+function CalculatePageInner() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
@@ -704,5 +705,13 @@ export default function CalculatePage() {
         </Card>
       </Collapsible>
     </div>
+  );
+}
+
+export default function CalculatePage() {
+  return (
+    <RequireRole roles={['vl_admin', 'admin']}>
+      <CalculatePageInner />
+    </RequireRole>
   );
 }

@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
+import { RequireRole } from '@/components/auth/RequireRole';
 import {
   listCalculationBatches,
   getCalculationResults,
@@ -48,7 +49,7 @@ interface ResultRow {
   components: Array<{ componentId: string; componentName: string; outputValue: number }>;
 }
 
-export default function ResultsDashboardPage() {
+function ResultsDashboardPageInner() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
@@ -409,5 +410,13 @@ export default function ResultsDashboardPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function ResultsDashboardPage() {
+  return (
+    <RequireRole roles={['vl_admin', 'admin']}>
+      <ResultsDashboardPageInner />
+    </RequireRole>
   );
 }

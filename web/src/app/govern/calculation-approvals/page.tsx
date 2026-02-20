@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
+import { RequireRole } from '@/components/auth/RequireRole';
 import {
   listApprovalItemsAsync,
   resolveApproval,
@@ -31,7 +32,7 @@ import {
   Users, Clock, ShieldAlert, ExternalLink,
 } from 'lucide-react';
 
-export default function CalculationApprovalPage() {
+function CalculationApprovalPageInner() {
   const { user } = useAuth();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
@@ -288,5 +289,13 @@ export default function CalculationApprovalPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CalculationApprovalPage() {
+  return (
+    <RequireRole roles={['vl_admin', 'admin']}>
+      <CalculationApprovalPageInner />
+    </RequireRole>
   );
 }
