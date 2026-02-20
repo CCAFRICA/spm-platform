@@ -1832,7 +1832,17 @@ export default function DataPackageImportPage() {
       if (firstDataSheet && firstDataMapping && activePlan) {
         const employeeMapping = firstDataMapping.mappings.find(m => m.targetField === 'entityId');
 
-        firstDataSheet.sampleRows.slice(0, 3).forEach((row, idx) => {
+        // HF-053: Use matched entities (in roster AND in data), not just first 3 sample rows
+        const allFirstSheetRows = fullSheetData[firstDataSheet.name] || firstDataSheet.sampleRows;
+        const previewRows = allFirstSheetRows
+          .filter(row => {
+            if (!employeeMapping) return true;
+            const id = String(row[employeeMapping.sourceColumn] || '');
+            return entityIds.size === 0 || entityIds.has(id); // Use matched entities if available
+          })
+          .slice(0, 3); // Preview first 3 matched
+
+        previewRows.forEach((row, idx) => {
           const entityId = employeeMapping
             ? String(row[employeeMapping.sourceColumn] || `EMP-${idx + 1}`)
             : `EMP-${idx + 1}`;
@@ -1843,7 +1853,7 @@ export default function DataPackageImportPage() {
 
           if (activePlan.configuration && isAdditiveLookupConfig(activePlan.configuration)) {
             const variant = activePlan.configuration.variants[0];
-            variant?.components?.slice(0, 3).forEach(comp => {
+            variant?.components?.forEach(comp => {
               let inputValue = 0;
               let lookupResult = 0;
 
