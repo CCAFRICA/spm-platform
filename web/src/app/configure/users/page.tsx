@@ -9,7 +9,6 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { RequireRole } from '@/components/auth/RequireRole';
 import { createClient } from '@/lib/supabase/client';
@@ -64,7 +63,6 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 function UsersPageInner() {
-  const { user } = useAuth();
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id || '';
 

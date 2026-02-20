@@ -27,6 +27,8 @@ import { useAuth } from "@/contexts/auth-context";
 import { isVLAdmin } from "@/types/auth";
 import { accessControl, type AppModule } from "@/lib/access-control";
 import { MODULE_TOKENS, type ModuleId } from "@/lib/design-system/tokens";
+import { getPageStatus, type PageStatus } from "@/lib/navigation/page-status";
+import { canAccessWorkspace } from "@/lib/auth/role-permissions";
 
 interface NavChild {
   name: string;
@@ -275,6 +277,33 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   const filteredNavigation = filterNavigation(navigation);
 
+  // OB-67: Resolve page status with role override
+  const resolveStatus = (href: string): PageStatus => {
+    const userRole = user?.role || 'viewer';
+    if (!canAccessWorkspace(userRole, href)) return 'restricted';
+    return getPageStatus(href);
+  };
+
+  // OB-67: Render status indicator dot
+  const StatusBadge = ({ href }: { href: string }) => {
+    const status = resolveStatus(href);
+    if (status === 'active') return null;
+    if (status === 'preview') {
+      return <span className="w-1.5 h-1.5 rounded-full bg-blue-400 ml-1.5 flex-shrink-0" title="Preview — demo data" />;
+    }
+    if (status === 'coming') {
+      return <span className="w-1.5 h-1.5 rounded-full border border-slate-500 ml-1.5 flex-shrink-0" title="Coming soon" />;
+    }
+    if (status === 'restricted') {
+      return (
+        <svg className="w-3 h-3 text-slate-500 ml-1.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" title="Restricted">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+      );
+    }
+    return null;
+  };
+
   return (
     <>
       {/* Overlay for mobile */}
@@ -396,7 +425,10 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                   : { color: '#CBD5E1' }),
                               }}
                             >
-                              {child.name}
+                              <span className="flex items-center">
+                                {child.name}
+                                <StatusBadge href={child.href} />
+                              </span>
                             </Link>
                           ))}
                         </div>
@@ -420,6 +452,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                         style={{ color: isItemActive ? accentColor : '#94A3B8' }}
                       />
                       {item.name}
+                      <StatusBadge href={item.href} />
                     </Link>
                   )}
                 </div>

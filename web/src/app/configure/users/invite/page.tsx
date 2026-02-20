@@ -9,7 +9,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { RequireRole } from '@/components/auth/RequireRole';
 import { createClient } from '@/lib/supabase/client';
