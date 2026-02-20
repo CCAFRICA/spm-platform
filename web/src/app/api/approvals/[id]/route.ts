@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { writeAuditLog } from '@/lib/audit/audit-logger';
 import type { LifecycleState } from '@/lib/supabase/database.types';
+import { isValidTransition } from '@/lib/supabase/calculation-service';
 
 export async function PATCH(
   request: NextRequest,
@@ -101,7 +102,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'Batch does not belong to your tenant' }, { status: 403 });
     }
 
-    const beforeState = batch.lifecycle_state;
+    const beforeState = batch.lifecycle_state as LifecycleState;
+
+    // Validate lifecycle transition is allowed
+    if (!isValidTransition(beforeState, targetState)) {
+      return NextResponse.json({
+        error: `Invalid lifecycle transition: ${beforeState} → ${targetState}`,
+      }, { status: 409 });
+    }
 
     // Merge summary
     const existingSummary = (batch.summary || {}) as Record<string, unknown>;
