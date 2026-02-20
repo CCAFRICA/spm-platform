@@ -9,11 +9,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import type { Capability } from '@/lib/supabase/database.types';
 
 const VALID_ROLES = ['vl_admin', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'];
 
-const ROLE_CAPABILITIES: Record<string, string[]> = {
-  vl_admin: ['full_access'],
+const ROLE_CAPABILITIES: Record<string, Capability[]> = {
+  vl_admin: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments', 'import_data', 'view_audit', 'manage_tenants', 'manage_profiles'],
   admin: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments', 'import_data', 'view_audit'],
   tenant_admin: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments'],
   manager: ['view_outcomes', 'approve_outcomes', 'export_results'],
