@@ -38,6 +38,7 @@ Commit payload includes detectedPeriods → Server creates period records
 |------|--------|
 | `web/src/lib/import/period-detector.ts` | NEW: Client-side period detection utility using field mappings exclusively |
 | `web/src/app/data/import/enhanced/page.tsx` | Added year/month target fields, fullSheetData storage, period detection UI, entity count fix, preview fix |
+| `web/src/app/api/import/commit/route.ts` | Removed hardcoded Spanish field arrays (AP-5/AP-6), generic targets only |
 | `web/src/app/api/platform/settings/route.ts` | Fixed profile column bug (scope_level → role, updated_by FK) |
 | `HF-053_DIAGNOSTIC.md` | Comprehensive diagnostic of all root causes |
 
@@ -54,9 +55,10 @@ Commit payload includes detectedPeriods → Server creates period records
 | PG-7 | All plan components in preview | 6 components shown, not 3 | PASS — removed .slice(0, 3) limiter |
 | PG-8 | Preview uses matched entities | Real entity IDs from roster+data intersection | PASS — filters by entityIds set |
 | PG-9 | Detected periods in commit payload | Server receives period data | PASS — detectedPeriods added to payload |
-| PG-10 | Server mapping path works | YEAR_FIELDS.includes('year') matches | PASS — verified alignment in commit route |
+| PG-10 | Server mapping path works | YEAR_TARGETS.includes('year') matches | PASS — verified alignment in commit route |
 | PG-11 | No hardcoded language labels | AP-5/AP-6 compliant | PASS — target fields use English-only identifiers |
-| PG-12 | Build clean | npm run build exit 0 | PASS — zero errors, zero warnings |
+| PG-12 | Server arrays language-clean | No Spanish in YEAR/MONTH/ENTITY arrays | PASS — removed año/mes/fecha/id_empleado etc. |
+| PG-13 | Build clean | npm run build exit 0 | PASS — zero errors, zero warnings |
 
 ## Phase History
 
@@ -67,6 +69,7 @@ Commit payload includes detectedPeriods → Server creates period records
 | 1 | 4a787de | Architecture decision — client-side period detection |
 | 2 | 993f7e3 | Client-side period detection: utility + UI + target fields + commit payload |
 | 3 | 509b96e | Calculation preview: matched entities + all components |
+| AP-fix | 763a50c | Remove hardcoded Spanish field arrays from server commit route |
 
 ## Anti-Pattern Compliance
 
