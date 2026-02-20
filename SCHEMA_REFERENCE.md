@@ -214,6 +214,63 @@
 | metadata | jsonb |
 | materialized_at | timestamptz |
 
+## disputes
+| Column | Type |
+|--------|------|
+| id | uuid PK |
+| tenant_id | uuid FK → tenants.id |
+| entity_id | uuid FK → entities.id |
+| period_id | uuid FK → periods.id |
+| batch_id | uuid FK → calculation_batches.id |
+| category | text |
+| status | text (CHECK: open, investigating, resolved, rejected, escalated) |
+| description | text NOT NULL |
+| resolution | text |
+| amount_disputed | numeric(15,2) |
+| amount_resolved | numeric(15,2) |
+| filed_by | uuid FK → profiles.id |
+| resolved_by | uuid FK → profiles.id |
+| created_at | timestamptz |
+| updated_at | timestamptz |
+| resolved_at | timestamptz |
+
+**NOTE: `filed_by` NOT `submitted_by`. `resolution` is TEXT not JSONB. Status values: open, investigating, resolved, rejected, escalated.**
+
+## approval_requests
+| Column | Type |
+|--------|------|
+| id | uuid PK |
+| tenant_id | uuid FK → tenants.id |
+| batch_id | uuid FK → calculation_batches.id |
+| period_id | uuid FK → periods.id |
+| request_type | text NOT NULL DEFAULT 'calculation_approval' |
+| status | text (CHECK: pending, approved, rejected, recalled) |
+| requested_by | uuid FK → profiles.id |
+| decided_by | uuid FK → profiles.id |
+| decision_notes | text |
+| requested_at | timestamptz |
+| decided_at | timestamptz |
+| created_at | timestamptz |
+| updated_at | timestamptz |
+
+**NOTE: Created by OB-68 migration 013. Must be applied via Supabase SQL Editor.**
+
+## audit_logs
+| Column | Type |
+|--------|------|
+| id | uuid PK |
+| tenant_id | uuid FK → tenants.id |
+| profile_id | uuid FK → profiles.id |
+| action | text NOT NULL |
+| resource_type | text NOT NULL |
+| resource_id | uuid |
+| changes | jsonb NOT NULL DEFAULT '{}' |
+| metadata | jsonb NOT NULL DEFAULT '{}' |
+| ip_address | inet |
+| created_at | timestamptz |
+
+**NOTE: `profile_id` NOT `actor_id`. `resource_type`/`resource_id` NOT `entity_type`/`entity_id`. `changes` (single JSONB) NOT `before_state`/`after_state`.**
+
 ---
 
 ## KEY SCHEMA DISCOVERIES (vs TypeScript types)
