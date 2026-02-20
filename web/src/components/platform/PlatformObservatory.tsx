@@ -19,6 +19,7 @@ import {
   Activity,
   Sparkles,
   Receipt,
+  Settings,
   LogOut,
   Loader2,
 } from 'lucide-react';
@@ -27,13 +28,15 @@ import {
 const ObservatoryTab = lazy(() => import('./ObservatoryTab').then(m => ({ default: m.ObservatoryTab })));
 const AIIntelligenceTab = lazy(() => import('./AIIntelligenceTab').then(m => ({ default: m.AIIntelligenceTab })));
 const BillingUsageTab = lazy(() => import('./BillingUsageTab').then(m => ({ default: m.BillingUsageTab })));
+const FeatureFlagsTab = lazy(() => import('./FeatureFlagsTab').then(m => ({ default: m.FeatureFlagsTab })));
 
-type TabId = 'command-center' | 'intelligence' | 'revenue';
+type TabId = 'command-center' | 'intelligence' | 'revenue' | 'settings';
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: React.CSSProperties }> }[] = [
   { id: 'command-center', label: 'Command Center', icon: Activity },
   { id: 'intelligence', label: 'Intelligence', icon: Sparkles },
   { id: 'revenue', label: 'Revenue', icon: Receipt },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
 export function PlatformObservatory() {
@@ -142,6 +145,7 @@ export function PlatformObservatory() {
           {activeTab === 'command-center' && <ObservatoryTab />}
           {activeTab === 'intelligence' && <AIIntelligenceTab />}
           {activeTab === 'revenue' && <BillingUsageTab />}
+          {activeTab === 'settings' && <FeatureFlagsTab />}
         </Suspense>
       </main>
     </div>
