@@ -22,9 +22,10 @@ import {
 // DISPUTE CRUD
 // ============================================
 
-export function getAllDisputes(tenantId: string): Dispute[] {
-  const defaults = getDefaultDisputes();
-  return defaults.filter((d) => d.tenantId === tenantId);
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function getAllDisputes(_tenantId: string): Dispute[] {
+  // OB-68: Demo data removed. Use getDisputesAsync() for Supabase reads.
+  return [];
 }
 
 export function getDispute(disputeId: string): Dispute | null {
@@ -352,92 +353,119 @@ export function getDisputeStats(tenantId: string): {
 // ============================================
 
 function getAllDisputesInternal(): Dispute[] {
-  return getDefaultDisputes();
+  // OB-68: No more demo data. Returns empty — use async functions for Supabase reads.
+  return [];
 }
 
-// Pre-populated disputes for demo
-function getDefaultDisputes(): Dispute[] {
-  const now = new Date();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+// ============================================
+// SUPABASE-BACKED ASYNC FUNCTIONS (OB-68)
+// ============================================
 
-  return [
-    // Draft dispute for Maria (can continue through flow)
-    {
-      id: 'dispute-maria-txn0147',
-      tenantId: 'retailco',
-      transactionId: 'TXN-2025-0147',
-      entityId: 'maria-rodriguez',
-      entityName: 'Maria Rodriguez',
-      storeId: 'store-101',
-      storeName: 'Downtown Flagship',
-      status: 'draft',
-      category: 'wrong_attribution',
-      component: 'comp-insurance',
-      stepsCompleted: 0,
-      resolvedAtStep: null,
-      stepTimestamps: {
-        step1StartedAt: now.toISOString(),
-      },
-      expectedAmount: 42.5,
-      actualAmount: 0,
-      difference: 42.5,
-      justification: '',
-      attachedTransactionIds: ['TXN-2025-0147'],
-      attributionDetails: {
-        shouldBeCreditedTo: 'maria-rodriguez',
-        shouldBeCreditedToName: 'Maria Rodriguez',
-        currentlyCreditedTo: 'james-wilson',
-        currentlyCreditedToName: 'James Wilson',
-        requestedSplit: { 'maria-rodriguez': 0.5, 'james-wilson': 0.5 },
-      },
-      resolution: null,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      submittedAt: null,
-      resolvedAt: null,
-    },
-    // Submitted dispute (for manager to review)
-    {
-      id: 'dispute-maria-txn0098',
-      tenantId: 'retailco',
-      transactionId: 'TXN-2025-0098',
-      entityId: 'maria-rodriguez',
-      entityName: 'Maria Rodriguez',
-      storeId: 'store-101',
-      storeName: 'Downtown Flagship',
-      status: 'submitted',
-      category: 'wrong_attribution',
-      component: 'comp-insurance',
-      stepsCompleted: 3,
-      resolvedAtStep: null,
-      stepTimestamps: {
-        step1StartedAt: twoDaysAgo.toISOString(),
-        step1CompletedAt: twoDaysAgo.toISOString(),
-        step2StartedAt: twoDaysAgo.toISOString(),
-        step2CompletedAt: yesterday.toISOString(),
-        step3StartedAt: yesterday.toISOString(),
-        step3CompletedAt: yesterday.toISOString(),
-      },
-      expectedAmount: 42.5,
-      actualAmount: 0,
-      difference: 42.5,
-      justification: 'I assisted the customer for 20 minutes with product demo and needs assessment before James completed the sale. Per store policy for assisted sales, I should receive 50% credit for this transaction.',
-      attachedTransactionIds: ['TXN-2025-0098'],
-      attributionDetails: {
-        shouldBeCreditedTo: 'maria-rodriguez',
-        shouldBeCreditedToName: 'Maria Rodriguez',
-        currentlyCreditedTo: 'james-wilson',
-        currentlyCreditedToName: 'James Wilson',
-        requestedSplit: { 'maria-rodriguez': 0.5, 'james-wilson': 0.5 },
-      },
-      resolution: null,
-      createdAt: twoDaysAgo.toISOString(),
-      updatedAt: yesterday.toISOString(),
-      submittedAt: yesterday.toISOString(),
-      resolvedAt: null,
-    },
-  ];
+/**
+ * Create a dispute in Supabase via API route.
+ * Returns the DB row or null on failure.
+ */
+export async function createDisputeAsync(params: {
+  entity_id: string;
+  period_id?: string;
+  batch_id?: string;
+  category: string;
+  description: string;
+  amount_disputed?: number;
+}): Promise<Record<string, unknown> | null> {
+  try {
+    const response = await fetch('/api/disputes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      console.error('[DisputeService] Create failed:', err.error);
+      return null;
+    }
+
+    const data = await response.json();
+    return data.dispute;
+  } catch (err) {
+    console.error('[DisputeService] Create error:', err);
+    return null;
+  }
+}
+
+/**
+ * Update dispute status/resolution via API route.
+ */
+export async function updateDisputeAsync(
+  disputeId: string,
+  updates: {
+    status?: string;
+    resolution?: string;
+    amount_resolved?: number;
+  }
+): Promise<Record<string, unknown> | null> {
+  try {
+    const response = await fetch(`/api/disputes/${disputeId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      console.error('[DisputeService] Update failed:', err.error);
+      return null;
+    }
+
+    const data = await response.json();
+    return data.dispute;
+  } catch (err) {
+    console.error('[DisputeService] Update error:', err);
+    return null;
+  }
+}
+
+/**
+ * Fetch disputes from Supabase via API route.
+ */
+export async function getDisputesAsync(filters?: {
+  status?: string;
+  entity_id?: string;
+}): Promise<Record<string, unknown>[]> {
+  try {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.entity_id) params.set('entity_id', filters.entity_id);
+
+    const url = `/api/disputes${params.toString() ? '?' + params.toString() : ''}`;
+    const response = await fetch(url);
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    return data.disputes || [];
+  } catch (err) {
+    console.error('[DisputeService] Fetch error:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetch a single dispute by ID from Supabase via API route.
+ */
+export async function getDisputeAsync(
+  disputeId: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    const response = await fetch(`/api/disputes/${disputeId}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.dispute || null;
+  } catch (err) {
+    console.error('[DisputeService] Fetch single error:', err);
+    return null;
+  }
 }
 
 // ============================================

@@ -16,13 +16,8 @@ import { isVLAdmin } from '@/types/auth';
 import { RequireRole } from '@/components/auth/RequireRole';
 import {
   listApprovalItemsAsync,
-  resolveApproval,
   type ApprovalItem,
 } from '@/lib/governance/approval-service';
-import {
-  transitionBatchLifecycle,
-  listCalculationBatches,
-} from '@/lib/supabase/calculation-service';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -59,22 +54,23 @@ function CalculationApprovalPageInner() {
     }
     setError(null);
     try {
-      resolveApproval(selectedItem, user.name, action, comments);
-      // Update lifecycle state via Supabase
-      try {
-        const batches = await listCalculationBatches(tenantId, { periodId: selectedItem.period });
-        const batch = batches[0];
-        if (batch) {
-          const targetState = action === 'approved' ? 'APPROVED' : 'REJECTED';
-          await transitionBatchLifecycle(tenantId, batch.id, targetState as import('@/lib/supabase/database.types').LifecycleState, {
-            summary: action === 'approved'
-              ? { approvalComments: comments }
-              : { rejectionReason: comments },
-          });
-        }
-      } catch (lcErr) {
-        setError(`Approval saved but lifecycle transition failed: ${lcErr instanceof Error ? lcErr.message : 'Unknown error'}`);
+      // OB-68: Use API route for atomic approval + lifecycle transition + audit logging
+      const response = await fetch(`/api/approvals/${selectedItem.itemId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: action,
+          decision_notes: comments,
+          batch_id: selectedItem.cycleId,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        setError(err.error || 'Failed to process approval');
+        return;
       }
+
       const refreshed = await listApprovalItemsAsync(tenantId);
       setItems(refreshed);
       setSelectedItem(null);
