@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 
     // 2. Parse request body
     const body = await request.json();
-    const { email, displayName, tenantId, roleTemplate } = body;
+    const { email, displayName, tenantId, roleTemplate, entityId } = body;
 
     if (!email || !email.includes('@')) {
       return NextResponse.json({ error: 'Valid email is required' }, { status: 400 });
@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
         data: {
           display_name: displayName,
           tenant_id: tenantId,
+          role: template.role,  // OB-67: Store role in user_metadata for middleware JWT access
         },
         redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/login`,
       }
@@ -119,6 +120,7 @@ export async function POST(request: NextRequest) {
         user_metadata: {
           display_name: displayName,
           tenant_id: tenantId,
+          role: template.role,  // OB-67: Store role in user_metadata for middleware JWT access
         },
       });
 
@@ -154,10 +156,33 @@ export async function POST(request: NextRequest) {
 
     if (profileError) {
       console.error('[POST /api/platform/users/invite] Profile creation failed:', profileError.message);
+      // OB-67: Atomic cleanup — delete auth user if profile creation fails
+      await supabase.auth.admin.deleteUser(authUserId).catch(cleanupErr => {
+        console.error('[POST /api/platform/users/invite] Auth user cleanup failed:', cleanupErr);
+      });
       return NextResponse.json(
         { error: `Profile creation failed: ${profileError.message}` },
         { status: 500 }
       );
+    }
+
+    // 6b. OB-67: Link to entity if provided (entities.profile_id → profiles.id)
+    if (entityId) {
+      // Get the newly created profile ID
+      const { data: newProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('auth_user_id', authUserId)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (newProfile) {
+        await supabase
+          .from('entities')
+          .update({ profile_id: newProfile.id })
+          .eq('id', entityId)
+          .eq('tenant_id', tenantId);
+      }
     }
 
     // 7. Write metering event

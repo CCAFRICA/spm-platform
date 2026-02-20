@@ -16,6 +16,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
+import { RequireRole } from '@/components/auth/RequireRole';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { listCalculationBatches, getCalculationResults } from '@/lib/supabase/calculation-service';
 import {
@@ -298,7 +299,7 @@ interface CalculationBatch {
   entitiesProcessed: number;
 }
 
-export default function ReconciliationPage() {
+function ReconciliationPageInner() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
@@ -1583,5 +1584,13 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function ReconciliationPage() {
+  return (
+    <RequireRole roles={['vl_admin']}>
+      <ReconciliationPageInner />
+    </RequireRole>
   );
 }

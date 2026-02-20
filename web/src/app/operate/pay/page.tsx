@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCycleState } from '@/contexts/navigation-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { RequireRole } from '@/components/auth/RequireRole';
 import { getStateLabel, getStateColor } from '@/lib/calculation/lifecycle-utils';
 import {
   listCalculationBatches,
@@ -33,7 +34,7 @@ interface BatchInfo {
   summary: Record<string, unknown> | null;
 }
 
-export default function PayPage() {
+function PayPageInner() {
   const router = useRouter();
   const { cycleState, isSpanish } = useCycleState();
   const { currentTenant } = useTenant();
@@ -293,5 +294,13 @@ export default function PayPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function PayPage() {
+  return (
+    <RequireRole roles={['vl_admin', 'admin']}>
+      <PayPageInner />
+    </RequireRole>
   );
 }

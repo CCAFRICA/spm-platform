@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useCurrency } from '@/contexts/tenant-context';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import { isVLAdmin } from '@/types/auth';
+import { RequireRole } from '@/components/auth/RequireRole';
 import {
   getCustomerLaunches,
   createCustomerLaunch,
@@ -194,7 +195,7 @@ function getStatusIcon(status: LaunchStep['status']) {
   }
 }
 
-export default function CustomerLaunchDashboard() {
+function CustomerLaunchDashboardInner() {
   const router = useRouter();
   const { user } = useAuth();
   const { format: fmt } = useCurrency();
@@ -797,5 +798,13 @@ export default function CustomerLaunchDashboard() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function CustomerLaunchDashboard() {
+  return (
+    <RequireRole roles={['vl_admin']}>
+      <CustomerLaunchDashboardInner />
+    </RequireRole>
   );
 }
