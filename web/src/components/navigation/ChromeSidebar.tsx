@@ -283,7 +283,7 @@ export function ChromeSidebar() {
         {/* ── Workspace Switcher ── */}
         <div className={cn('shrink-0 border-b border-zinc-800/40', isRailCollapsed ? 'py-2 px-1' : 'py-2 px-3')}>
           {!isRailCollapsed && (
-            <p style={{ fontSize: '11px', color: '#71717a', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
+            <p style={{ fontSize: '12px', color: '#71717a', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
               {isSpanish ? 'Espacios' : 'Workspaces'}
             </p>
           )}
@@ -330,7 +330,7 @@ export function ChromeSidebar() {
                       : 'hover:bg-zinc-800/50'
                   )}
                   style={{
-                    fontSize: '13px',
+                    fontSize: '14px',
                     ...(isActive
                       ? { backgroundColor: `${ws.accentColor}25`, color: ws.accentColor }
                       : { color: '#a1a1aa' }),
@@ -350,7 +350,7 @@ export function ChromeSidebar() {
           {activeSections.length > 0 && (
             <nav className={cn('py-3', isRailCollapsed ? 'px-1' : 'px-3')}>
               {!isRailCollapsed && (
-                <p style={{ fontSize: '11px', color: '#71717a', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
+                <p style={{ fontSize: '12px', color: '#71717a', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
                   {isSpanish ? activeWsConfig?.labelEs : activeWsConfig?.label}
                 </p>
               )}
@@ -394,8 +394,8 @@ export function ChromeSidebar() {
                         <span className="flex-1 text-left text-sm">
                           {isSpanish ? 'Buscar...' : 'Search...'}
                         </span>
-                        <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 font-mono font-medium sm:flex" style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                          <span style={{ fontSize: '12px' }}>⌘</span>K
+                        <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 font-mono font-medium sm:flex" style={{ fontSize: '12px', color: '#a1a1aa' }}>
+                          <span style={{ fontSize: '13px' }}>⌘</span>K
                         </kbd>
                       </>
                     )}
@@ -525,7 +525,7 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
             isActive ? 'font-medium' : 'hover:bg-zinc-800/50'
           )}
           style={{
-            fontSize: '13px',
+            fontSize: '14px',
             ...(isActive
               ? { backgroundColor: `${wsAccent}20`, color: wsAccent }
               : { color: '#a1a1aa' }),
@@ -550,13 +550,13 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
             : 'hover:bg-zinc-800/30'
         )}
         style={{
-          fontSize: '11px',
+          fontSize: '12px',
           color: hasActiveRoute ? '#d4d4d8' : '#71717a',
         }}
       >
         <span>{isSpanish ? section.labelEs : section.label}</span>
         <span className="flex items-center gap-1">
-          <span style={{ fontSize: '10px', color: hasActiveRoute ? '#71717a' : '#3f3f46' }} className="font-normal tabular-nums">
+          <span style={{ fontSize: '12px', color: hasActiveRoute ? '#71717a' : '#3f3f46' }} className="font-normal tabular-nums">
             {routeCount}
           </span>
           {isExpanded ? (
@@ -582,7 +582,7 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
                     : 'hover:bg-zinc-800/50'
                 )}
                 style={{
-                  fontSize: '13px',
+                  fontSize: '14px',
                   ...(isActive
                     ? { backgroundColor: `${wsAccent}20`, color: wsAccent }
                     : { color: '#a1a1aa' }),

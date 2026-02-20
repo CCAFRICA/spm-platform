@@ -1,7 +1,7 @@
 /**
  * Supabase Database Types — ViaLuce Entity Model Schema
  *
- * 23 tables: 17 MDS v2 + 6 entity model (incl. 3 materializations)
+ * 24 tables: 17 MDS v2 + 6 entity model (incl. 3 materializations) + 1 platform
  * Domain-agnostic naming throughout: rule_sets NOT compensation_plans,
  * entity_id NOT entity_id.
  *
@@ -1055,6 +1055,38 @@ export interface Database {
         };
         Relationships: [];
       };
+
+      // ──────────────────────────────────────────────
+      // TABLE 24: platform_settings (HF-052)
+      // ──────────────────────────────────────────────
+      platform_settings: {
+        Row: {
+          id: string;
+          key: string;
+          value: Json;
+          description: string | null;
+          updated_by: string | null;
+          updated_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          key: string;
+          value?: Json;
+          description?: string | null;
+          updated_by?: string | null;
+          updated_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          key?: string;
+          value?: Json;
+          description?: string | null;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -1105,3 +1137,4 @@ export type UsageMeter = Tables<'usage_metering'>;
 export type PeriodEntityState = Tables<'period_entity_state'>;
 export type ProfileScope = Tables<'profile_scope'>;
 export type EntityPeriodOutcome = Tables<'entity_period_outcomes'>;
+export type PlatformSetting = Tables<'platform_settings'>;

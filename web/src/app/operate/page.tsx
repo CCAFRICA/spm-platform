@@ -147,13 +147,36 @@ export default function OperateCockpitPage() {
     );
   }
 
-  if (isLoading && periods.length === 0) {
+  if (isLoading) {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-zinc-500">{isSpanish ? 'Cargando periodos...' : 'Loading periods...'}</p>
         </div>
+      </div>
+    );
+  }
+
+  if (periods.length === 0) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center min-h-[400px] text-center">
+        <div className="text-4xl mb-4">📋</div>
+        <h3 className="text-lg font-semibold text-zinc-200 mb-2">
+          {isSpanish ? 'No hay periodos configurados' : 'No periods configured'}
+        </h3>
+        <p className="text-sm text-zinc-500 max-w-md mb-6">
+          {isSpanish
+            ? 'Crea tu primer periodo para comenzar a gestionar el ciclo de operaciones.'
+            : 'Create your first period to start managing the operations lifecycle.'}
+        </p>
+        <button
+          onClick={() => window.location.href = '/configure/periods'}
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+          style={{ backgroundColor: '#7c3aed' }}
+        >
+          {isSpanish ? 'Configurar Periodos' : 'Configure Periods'}
+        </button>
       </div>
     );
   }

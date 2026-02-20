@@ -30,13 +30,22 @@ function DashboardContent() {
   const { persona, tokens } = usePersona();
   const { availablePeriods, activePeriodKey, setActivePeriod, isLoading } = usePeriod();
   const { currentTenant } = useTenant();
-  const { loading: gpvLoading, isComplete: gpvComplete, currentStep } = useGPV(currentTenant?.id);
+  const { loading: gpvLoading, isComplete: gpvComplete, hasStarted: gpvStarted, currentStep } = useGPV(currentTenant?.id);
+  const [gpvFlagEnabled, setGpvFlagEnabled] = useState(false);
   const [skippedGPV] = useState(() => {
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('gpv_skipped') === 'true';
     }
     return false;
   });
+
+  // Fetch the GPV platform flag
+  useEffect(() => {
+    fetch('/api/platform/flags')
+      .then(r => r.json())
+      .then(flags => setGpvFlagEnabled(flags.gpv_enabled === true))
+      .catch(() => setGpvFlagEnabled(false));
+  }, []);
 
   if (!currentTenant) {
     return (
@@ -61,8 +70,12 @@ function DashboardContent() {
   // Existing tenants with calculation data skip GPV automatically
   const hasCalculationData = availablePeriods.length > 0;
 
-  // Show GPV wizard for new tenants that haven't completed activation
-  if (!gpvComplete && !hasCalculationData && !skippedGPV && currentStep < 4) {
+  // HF-052: GPV shows ONLY when ALL conditions are met:
+  // 1. gpv_enabled flag is ON in platform_settings (primary control)
+  // 2. Tenant has explicitly started the wizard (hasStarted from HF-051, defense-in-depth)
+  // 3. Wizard is not complete
+  // 4. Tenant has no calculation data
+  if (gpvFlagEnabled && gpvStarted && !gpvComplete && !hasCalculationData && !skippedGPV && currentStep < 4) {
     return (
       <GPVWizard
         tenantId={currentTenant.id}
