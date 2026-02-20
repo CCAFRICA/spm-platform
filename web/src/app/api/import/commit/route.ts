@@ -31,18 +31,15 @@ interface CommitRequest {
   sheetMappings: Record<string, Record<string, string>>;
 }
 
-// Entity ID field names — auto-detect fallback when no field mappings provided
-// These are normalized to lowercase for matching against raw column headers
-const ENTITY_ID_FIELDS = [
-  'entityid', 'entity_id', 'employeeid', 'employee_id',
-  'external_id', 'externalid', 'repid', 'rep_id', 'id_empleado',
-  'num_empleado', 'numero_empleado',
-];
+// Entity ID — generic target field IDs only (AP-5/AP-6: no hardcoded language-specific names)
+// The AI field mapper on the client maps source columns (ID Empleado, Num Empleado, etc.) to these generic targets.
+const ENTITY_ID_TARGETS = ['entityid', 'entity_id', 'employeeid', 'employee_id', 'external_id', 'externalid', 'repid', 'rep_id'];
 
-// Period detection field names
-const PERIOD_FIELDS = ['period', 'period_key', 'periodKey', 'date', 'fecha', 'periodo'];
-const YEAR_FIELDS = ['year', 'año', 'ano', 'anio'];
-const MONTH_FIELDS = ['month', 'mes'];
+// Period detection — generic target field IDs only (AP-5/AP-6: no hardcoded language-specific names)
+// The AI field mapper on the client maps source columns (Año, Mes, Fecha, etc.) to these generic targets.
+const PERIOD_TARGETS = ['period', 'period_key', 'periodKey', 'date', 'period_date'];
+const YEAR_TARGETS = ['year', 'period_year'];
+const MONTH_TARGETS = ['month', 'period_month'];
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -169,14 +166,14 @@ export async function POST(request: NextRequest) {
     for (const sheet of sheetData) {
       if (!sheet.mappings) continue;
       const entityCols = Object.entries(sheet.mappings)
-        .filter(([, target]) => ENTITY_ID_FIELDS.includes(target.toLowerCase()))
+        .filter(([, target]) => ENTITY_ID_TARGETS.includes(target.toLowerCase()))
         .map(([source]) => source);
 
-      // Auto-detect fallback: match raw header names against ENTITY_ID_FIELDS
+      // Auto-detect fallback: match raw header names against ENTITY_ID_TARGETS
       if (entityCols.length === 0 && sheet.rows[0]) {
         for (const key of Object.keys(sheet.rows[0])) {
           const lower = key.toLowerCase().replace(/[\s_-]+/g, '_').trim();
-          if (ENTITY_ID_FIELDS.includes(lower)) {
+          if (ENTITY_ID_TARGETS.includes(lower)) {
             entityCols.push(key);
           }
         }
@@ -263,24 +260,16 @@ export async function POST(request: NextRequest) {
 
       if (sheet.mappings) {
         for (const [source, target] of Object.entries(sheet.mappings)) {
-          if (YEAR_FIELDS.includes(target.toLowerCase())) yearCols.push(source);
-          if (MONTH_FIELDS.includes(target.toLowerCase())) monthCols.push(source);
-        }
-      }
-
-      // Auto-detect fallback: match raw header names against YEAR_FIELDS/MONTH_FIELDS
-      if (yearCols.length === 0 && sheet.rows[0]) {
-        for (const key of Object.keys(sheet.rows[0])) {
-          const lower = key.toLowerCase().trim();
-          if (YEAR_FIELDS.includes(lower)) yearCols.push(key);
-          if (MONTH_FIELDS.includes(lower)) monthCols.push(key);
+          const t = target.toLowerCase();
+          if (YEAR_TARGETS.includes(t)) yearCols.push(source);
+          if (MONTH_TARGETS.includes(t)) monthCols.push(source);
         }
       }
 
       const periodCols: string[] = [];
       if (sheet.mappings) {
         for (const [source, target] of Object.entries(sheet.mappings)) {
-          if (PERIOD_FIELDS.includes(target)) periodCols.push(source);
+          if (PERIOD_TARGETS.includes(target)) periodCols.push(source);
         }
       }
 
@@ -400,16 +389,10 @@ export async function POST(request: NextRequest) {
 
       if (sheet.mappings) {
         for (const [source, target] of Object.entries(sheet.mappings)) {
-          if (YEAR_FIELDS.includes(target.toLowerCase())) yearCols.push(source);
-          if (MONTH_FIELDS.includes(target.toLowerCase())) monthCols.push(source);
-          if (PERIOD_FIELDS.includes(target)) periodCols.push(source);
-        }
-      }
-      if (yearCols.length === 0 && row) {
-        for (const key of Object.keys(row)) {
-          const lower = key.toLowerCase().trim();
-          if (YEAR_FIELDS.includes(lower)) yearCols.push(key);
-          if (MONTH_FIELDS.includes(lower)) monthCols.push(key);
+          const t = target.toLowerCase();
+          if (YEAR_TARGETS.includes(t)) yearCols.push(source);
+          if (MONTH_TARGETS.includes(t)) monthCols.push(source);
+          if (PERIOD_TARGETS.includes(target)) periodCols.push(source);
         }
       }
 
@@ -454,15 +437,15 @@ export async function POST(request: NextRequest) {
 
     for (const sheet of sheetData) {
       const entityCol = sheet.mappings
-        ? Object.entries(sheet.mappings).find(([, target]) => ENTITY_ID_FIELDS.includes(target.toLowerCase()))?.[0]
+        ? Object.entries(sheet.mappings).find(([, target]) => ENTITY_ID_TARGETS.includes(target.toLowerCase()))?.[0]
         : null;
 
-      // Auto-detect fallback: match raw header names against ENTITY_ID_FIELDS
+      // Auto-detect fallback: match raw header names against ENTITY_ID_TARGETS
       let effectiveEntityCol = entityCol;
       if (!effectiveEntityCol && sheet.rows[0]) {
         for (const key of Object.keys(sheet.rows[0])) {
           const lower = key.toLowerCase().replace(/[\s_-]+/g, '_').trim();
-          if (ENTITY_ID_FIELDS.includes(lower)) {
+          if (ENTITY_ID_TARGETS.includes(lower)) {
             effectiveEntityCol = key;
             break;
           }
