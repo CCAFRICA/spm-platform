@@ -70,6 +70,7 @@ import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import type { RuleSetConfig, PlanComponent } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 // directCommitImportDataAsync removed — now uses server-side /api/import/commit
+import { detectPeriods, type PeriodDetectionResult } from '@/lib/import/period-detector';
 
 interface AIImportContext {
   tenantId: string;
@@ -237,6 +238,7 @@ interface ValidationResult {
   overallScore: number;
   sheetScores: SheetQualityScore[];
   periodInfo: PeriodValidation;
+  detectedPeriods: PeriodDetectionResult | null; // HF-053: detailed period detection
   crossSheetValidation: CrossSheetValidation;
   anomalies: DataAnomaly[];
   calculationPreview: CalculationPreviewResult[];
@@ -735,6 +737,12 @@ const COMPOUND_PATTERNS: Array<{ pattern: RegExp; semanticType: string; confiden
   // Date patterns
   { pattern: /\bfecha\b/i, semanticType: 'date', confidence: 0.85 },
 
+  // Year/Month patterns (HF-053: period detection)
+  { pattern: /^a[ñn]o$/i, semanticType: 'year', confidence: 0.95 },
+  { pattern: /\byear\b/i, semanticType: 'year', confidence: 0.90 },
+  { pattern: /^mes$/i, semanticType: 'month', confidence: 0.95 },
+  { pattern: /\bmonth\b/i, semanticType: 'month', confidence: 0.90 },
+
   // Quantity patterns
   { pattern: /\bcliente\b/i, semanticType: 'quantity', confidence: 0.70 },
   { pattern: /\bcustomer\b/i, semanticType: 'quantity', confidence: 0.70 },
@@ -821,6 +829,8 @@ function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] 
     { id: 'storeId', label: 'Store ID', labelEs: 'ID Tienda', isRequired: false, category: 'identifier' },
     { id: 'date', label: 'Date', labelEs: 'Fecha', isRequired: true, category: 'date' },
     { id: 'period', label: 'Period', labelEs: 'Período', isRequired: false, category: 'date' },
+    { id: 'year', label: 'Year', labelEs: 'Year', isRequired: false, category: 'date' },
+    { id: 'month', label: 'Month', labelEs: 'Month', isRequired: false, category: 'date' },
     { id: 'role', label: 'Role/Position', labelEs: 'Puesto', isRequired: false, category: 'identifier' },
     // HOTFIX: Core metric types - ALWAYS valid for AI classification
     { id: 'amount', label: 'Amount', labelEs: 'Monto', isRequired: false, category: 'amount' },
@@ -1193,6 +1203,9 @@ export default function DataPackageImportPage() {
     return fieldMappings.find(m => m.sheetName === currentMappingSheet.name) || null;
   }, [fieldMappings, currentMappingSheet]);
 
+  // HF-053: Store full row data per sheet for validation (period detection + entity counts)
+  const [fullSheetData, setFullSheetData] = useState<Record<string, Record<string, unknown>[]>>({});
+
   // Parse all sheets from the workbook with formula resolution
   const parseAllSheets = useCallback(async (file: File): Promise<Array<{
     name: string;
@@ -1209,7 +1222,9 @@ export default function DataPackageImportPage() {
       cellStyles: false,   // Don't extract styles
     });
 
-    return workbook.SheetNames.map((name) => {
+    const fullData: Record<string, Record<string, unknown>[]> = {};
+
+    const result = workbook.SheetNames.map((name) => {
       const sheet = workbook.Sheets[name];
       // raw: true gets the computed values; defval ensures empty cells get null
       const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
@@ -1219,6 +1234,9 @@ export default function DataPackageImportPage() {
 
       const headers = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
 
+      // HF-053: Store ALL rows for validation scanning
+      fullData[name] = jsonData;
+
       return {
         name,
         headers,
@@ -1226,6 +1244,10 @@ export default function DataPackageImportPage() {
         sampleRows: jsonData.slice(0, 5),
       };
     });
+
+    // HF-053: Save full data for validation use (period detection, entity counts)
+    setFullSheetData(fullData);
+    return result;
   }, []);
 
   // Analyze the workbook with AI
@@ -1694,17 +1716,33 @@ export default function DataPackageImportPage() {
         };
       });
 
-      // Period detection from analysis
+      // HF-053: Period detection using field mappings + full row data
+      const sheetsForDetection = fieldMappings.map(fm => ({
+        name: fm.sheetName,
+        rows: fullSheetData[fm.sheetName] || [],
+        mappings: fm.mappings.filter(m => m.targetField).map(m => ({
+          sourceColumn: m.sourceColumn,
+          targetField: m.targetField,
+        })),
+      }));
+      const periodDetectionResult = detectPeriods(sheetsForDetection);
+
+      // Build periodInfo from detection result
       const periodInfo: PeriodValidation = {
-        detected: analysis.periodDetected.found,
-        periodType: (analysis.periodDetected.periodType || 'monthly') as 'monthly' | 'bi-weekly' | 'weekly' | 'custom',
-        startDate: analysis.periodDetected.dateRange?.start || null,
-        endDate: analysis.periodDetected.dateRange?.end || null,
-        confirmedStart: analysis.periodDetected.dateRange?.start || null,
-        confirmedEnd: analysis.periodDetected.dateRange?.end || null,
+        detected: periodDetectionResult.periods.length > 0,
+        periodType: periodDetectionResult.frequency === 'unknown' ? 'custom'
+          : periodDetectionResult.frequency as 'monthly' | 'bi-weekly' | 'weekly' | 'custom',
+        startDate: periodDetectionResult.periods.length > 0
+          ? periodDetectionResult.periods[0].startDate : null,
+        endDate: periodDetectionResult.periods.length > 0
+          ? periodDetectionResult.periods[periodDetectionResult.periods.length - 1].endDate : null,
+        confirmedStart: periodDetectionResult.periods.length > 0
+          ? periodDetectionResult.periods[0].startDate : null,
+        confirmedEnd: periodDetectionResult.periods.length > 0
+          ? periodDetectionResult.periods[periodDetectionResult.periods.length - 1].endDate : null,
       };
 
-      // Cross-sheet validation
+      // HF-053: Cross-sheet validation using FULL row data (not 5-row sample)
       const rosterSheet = analysis.sheets.find(s => s.classification === 'roster');
       const dataSheets = analysis.sheets.filter(s => s.classification === 'component_data');
 
@@ -1712,7 +1750,10 @@ export default function DataPackageImportPage() {
       const dataEmployeeIds = new Set<string>();
 
       if (rosterSheet) {
-        const employeeCol = rosterSheet.headers.find(h =>
+        // Use field mappings to find entity ID column in roster
+        const rosterMapping = fieldMappings.find(m => m.sheetName === rosterSheet.name);
+        const rosterEntityMapping = rosterMapping?.mappings.find(m => m.targetField === 'entityId');
+        const employeeCol = rosterEntityMapping?.sourceColumn || rosterSheet.headers.find(h =>
           h && (
             h.toLowerCase().includes('empleado') ||
             h.toLowerCase().includes('employee') ||
@@ -1720,7 +1761,9 @@ export default function DataPackageImportPage() {
           )
         );
         if (employeeCol) {
-          rosterSheet.sampleRows.forEach(row => {
+          // HF-053: Scan ALL rows, not just sampleRows
+          const allRosterRows = fullSheetData[rosterSheet.name] || rosterSheet.sampleRows;
+          allRosterRows.forEach(row => {
             const id = row[employeeCol];
             if (id) entityIds.add(String(id));
           });
@@ -1731,7 +1774,9 @@ export default function DataPackageImportPage() {
         const mapping = fieldMappings.find(m => m.sheetName === sheet.name);
         const employeeMapping = mapping?.mappings.find(m => m.targetField === 'entityId');
         if (employeeMapping) {
-          sheet.sampleRows.forEach(row => {
+          // HF-053: Scan ALL rows, not just sampleRows
+          const allRows = fullSheetData[sheet.name] || sheet.sampleRows;
+          allRows.forEach(row => {
             const id = row[employeeMapping.sourceColumn];
             if (id) dataEmployeeIds.add(String(id));
           });
@@ -1746,7 +1791,7 @@ export default function DataPackageImportPage() {
           rosterCount: entityIds.size,
           dataSheetCount: dataEmployeeIds.size,
           matchedCount: matchedEmployees.size,
-          unmatchedIds: unmatchedEmployees.slice(0, 5),
+          unmatchedIds: unmatchedEmployees.slice(0, 10),
         },
         storeIdMatch: {
           referenceCount: 0,
@@ -1787,7 +1832,17 @@ export default function DataPackageImportPage() {
       if (firstDataSheet && firstDataMapping && activePlan) {
         const employeeMapping = firstDataMapping.mappings.find(m => m.targetField === 'entityId');
 
-        firstDataSheet.sampleRows.slice(0, 3).forEach((row, idx) => {
+        // HF-053: Use matched entities (in roster AND in data), not just first 3 sample rows
+        const allFirstSheetRows = fullSheetData[firstDataSheet.name] || firstDataSheet.sampleRows;
+        const previewRows = allFirstSheetRows
+          .filter(row => {
+            if (!employeeMapping) return true;
+            const id = String(row[employeeMapping.sourceColumn] || '');
+            return entityIds.size === 0 || entityIds.has(id); // Use matched entities if available
+          })
+          .slice(0, 3); // Preview first 3 matched
+
+        previewRows.forEach((row, idx) => {
           const entityId = employeeMapping
             ? String(row[employeeMapping.sourceColumn] || `EMP-${idx + 1}`)
             : `EMP-${idx + 1}`;
@@ -1798,7 +1853,7 @@ export default function DataPackageImportPage() {
 
           if (activePlan.configuration && isAdditiveLookupConfig(activePlan.configuration)) {
             const variant = activePlan.configuration.variants[0];
-            variant?.components?.slice(0, 3).forEach(comp => {
+            variant?.components?.forEach(comp => {
               let inputValue = 0;
               let lookupResult = 0;
 
@@ -1886,6 +1941,7 @@ export default function DataPackageImportPage() {
         overallScore,
         sheetScores,
         periodInfo,
+        detectedPeriods: periodDetectionResult,
         crossSheetValidation,
         anomalies,
         calculationPreview,
@@ -1894,7 +1950,7 @@ export default function DataPackageImportPage() {
       setIsValidating(false);
       setValidationComplete(true);
     }, 1500);
-  }, [analysis, fieldMappings, isSpanish, activePlan, currency]);
+  }, [analysis, fieldMappings, fullSheetData, isSpanish, activePlan, currency]);
 
   // Submit import handler - ACTUALLY PERSISTS DATA
   const handleSubmitImport = useCallback(async () => {
@@ -2011,6 +2067,7 @@ export default function DataPackageImportPage() {
           fileName: uploadedFile.name,
           storagePath,
           sheetMappings,
+          detectedPeriods: validationResult?.detectedPeriods?.periods || [],
         }),
       });
 
@@ -3142,48 +3199,58 @@ export default function DataPackageImportPage() {
                     ))}
                   </div>
 
-                  {/* Period Detection */}
-                  {validationResult.periodInfo.detected && (
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-base flex items-center gap-2">
-                          <Calendar className="h-4 w-4" />
-                          {isSpanish ? 'Período Detectado' : 'Detected Period'}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center gap-4">
-                          <div className="flex-1 p-3 bg-muted rounded-lg">
-                            <p className="text-xs text-muted-foreground mb-1">
-                              {isSpanish ? 'Inicio' : 'Start'}
-                            </p>
-                            <p className="font-medium">
-                              {validationResult.periodInfo.startDate
-                                ? new Date(validationResult.periodInfo.startDate).toLocaleDateString()
-                                : (isSpanish ? 'No detectado' : 'Not detected')}
-                            </p>
-                          </div>
-                          <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                          <div className="flex-1 p-3 bg-muted rounded-lg">
-                            <p className="text-xs text-muted-foreground mb-1">
-                              {isSpanish ? 'Fin' : 'End'}
-                            </p>
-                            <p className="font-medium">
-                              {validationResult.periodInfo.endDate
-                                ? new Date(validationResult.periodInfo.endDate).toLocaleDateString()
-                                : (isSpanish ? 'No detectado' : 'Not detected')}
-                            </p>
-                          </div>
-                          <Badge variant="outline">
-                            {validationResult.periodInfo.periodType === 'monthly' ? (isSpanish ? 'Mensual' : 'Monthly') :
-                             validationResult.periodInfo.periodType === 'bi-weekly' ? (isSpanish ? 'Quincenal' : 'Bi-weekly') :
-                             validationResult.periodInfo.periodType === 'weekly' ? (isSpanish ? 'Semanal' : 'Weekly') :
-                             (isSpanish ? 'Personalizado' : 'Custom')}
+                  {/* Period Detection — HF-053: Shows actual detected periods from field mappings */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        {isSpanish ? 'Períodos Detectados' : 'Detected Periods'}
+                        {validationResult.detectedPeriods && validationResult.detectedPeriods.periods.length > 0 && (
+                          <Badge variant="default" className="ml-2">
+                            {validationResult.detectedPeriods.periods.length}
                           </Badge>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {validationResult.detectedPeriods && validationResult.detectedPeriods.periods.length > 0 ? (
+                        <div>
+                          <div className="grid grid-cols-3 gap-3 mb-3">
+                            {validationResult.detectedPeriods.periods.map(p => (
+                              <div key={p.canonicalKey} className="p-3 bg-muted rounded-lg border">
+                                <p className="text-sm font-medium">{p.label}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {p.recordCount.toLocaleString()} {isSpanish ? 'registros' : 'records'}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {p.sheetsPresent.length} {isSpanish ? 'hojas' : 'sheets'}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span>
+                              {isSpanish ? 'Frecuencia' : 'Frequency'}: {
+                                validationResult.detectedPeriods.frequency === 'monthly' ? (isSpanish ? 'Mensual' : 'Monthly') :
+                                validationResult.detectedPeriods.frequency === 'quarterly' ? (isSpanish ? 'Trimestral' : 'Quarterly') :
+                                validationResult.detectedPeriods.frequency === 'annual' ? (isSpanish ? 'Anual' : 'Annual') :
+                                (isSpanish ? 'Desconocido' : 'Unknown')
+                              }
+                            </span>
+                            <span>
+                              {isSpanish ? 'Confianza' : 'Confidence'}: {validationResult.detectedPeriods.confidence}%
+                            </span>
+                          </div>
                         </div>
-                      </CardContent>
-                    </Card>
-                  )}
+                      ) : (
+                        <p className="text-sm text-amber-500">
+                          {isSpanish
+                            ? 'No se detectaron períodos. Verifique que las columnas de mes/año o fecha estén mapeadas.'
+                            : 'No periods detected. Check that month/year or date columns are mapped in the Field Mapping step.'}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
 
                   {/* Cross-Sheet Validation */}
                   <Card>

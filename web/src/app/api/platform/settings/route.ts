@@ -13,7 +13,7 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
 // GET: Return all platform settings (platform admin only)
 export async function GET() {
   try {
-    // Verify caller is platform admin
+    // Verify caller is platform admin (matches observatory route pattern)
     const authClient = await createServerSupabaseClient();
     const { data: { user } } = await authClient.auth.getUser();
     if (!user) {
@@ -23,11 +23,11 @@ export async function GET() {
     const serviceClient = await createServiceRoleClient();
     const { data: profile } = await serviceClient
       .from('profiles')
-      .select('scope_level')
+      .select('id, role')
       .eq('auth_user_id', user.id)
       .single();
 
-    if (profile?.scope_level !== 'platform') {
+    if (!profile || profile.role !== 'vl_admin') {
       return NextResponse.json({ error: 'Forbidden — platform admin only' }, { status: 403 });
     }
 
@@ -59,11 +59,11 @@ export async function PATCH(request: NextRequest) {
     const serviceClient = await createServiceRoleClient();
     const { data: profile } = await serviceClient
       .from('profiles')
-      .select('scope_level')
+      .select('id, role')
       .eq('auth_user_id', user.id)
       .single();
 
-    if (profile?.scope_level !== 'platform') {
+    if (!profile || profile.role !== 'vl_admin') {
       return NextResponse.json({ error: 'Forbidden — platform admin only' }, { status: 403 });
     }
 
@@ -78,7 +78,7 @@ export async function PATCH(request: NextRequest) {
       .from('platform_settings')
       .update({
         value: JSON.stringify(value),
-        updated_by: user.id,
+        updated_by: profile.id, // profile.id (FK to profiles), NOT auth user.id
         updated_at: new Date().toISOString(),
       })
       .eq('key', key)
