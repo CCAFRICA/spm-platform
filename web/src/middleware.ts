@@ -1,9 +1,10 @@
 /**
- * Next.js Middleware — Auth Enforcement + Session Refresh
+ * Next.js Middleware — Auth Enforcement + Session Refresh + Workspace Authorization
  *
  * 1. Refreshes the Supabase auth session on every request.
  * 2. Redirects unauthenticated users to /login.
  * 3. Redirects platform admins without a selected tenant to /select-tenant.
+ * 4. OB-67: Checks workspace-level role access — redirects unauthorized to /unauthorized.
  *
  * CRITICAL: When redirecting unauthenticated users, the redirect response
  * must NOT carry Set-Cookie headers from the Supabase client. Otherwise,
@@ -20,7 +21,40 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 // Paths that don't require authentication
-const PUBLIC_PATHS = ['/login', '/signup', '/landing', '/auth/callback', '/api/auth', '/api/health', '/api/calculation/run', '/api/platform/flags'];
+const PUBLIC_PATHS = ['/login', '/signup', '/landing', '/auth/callback', '/api/auth', '/api/health', '/api/calculation/run', '/api/platform/flags', '/unauthorized'];
+
+// OB-67: Workspace-level access (only restricted workspaces listed)
+// Paths not listed here are open to all authenticated users.
+const RESTRICTED_WORKSPACES: Record<string, string[]> = {
+  '/admin':         ['vl_admin'],
+  '/operate':       ['vl_admin', 'admin', 'tenant_admin'],
+  '/configure':     ['vl_admin', 'admin', 'tenant_admin'],
+  '/configuration': ['vl_admin', 'admin', 'tenant_admin'],
+  '/govern':        ['vl_admin', 'admin', 'tenant_admin'],
+  '/data':          ['vl_admin', 'admin', 'tenant_admin'],
+  '/financial':     ['vl_admin', 'admin', 'tenant_admin', 'manager'],
+};
+
+/**
+ * Check if a path falls in a restricted workspace and whether the role is allowed.
+ * Returns true if access is allowed, false if denied.
+ * Paths not in any restricted workspace are always allowed.
+ */
+function checkWorkspaceAccess(pathname: string, role: string): boolean {
+  const matchedWorkspace = Object.keys(RESTRICTED_WORKSPACES)
+    .filter(prefix => pathname.startsWith(prefix))
+    .sort((a, b) => b.length - a.length)[0];
+
+  if (!matchedWorkspace) return true;
+  return RESTRICTED_WORKSPACES[matchedWorkspace].includes(role);
+}
+
+/**
+ * Check if a path is in a restricted workspace (needs role check).
+ */
+function isRestrictedWorkspace(pathname: string): boolean {
+  return Object.keys(RESTRICTED_WORKSPACES).some(prefix => pathname.startsWith(prefix));
+}
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(p => pathname.startsWith(p));
@@ -164,6 +198,35 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/select-tenant', request.url));
     }
     return NextResponse.redirect(new URL('/', request.url));
+  }
+
+  // ── OB-67: WORKSPACE AUTHORIZATION ──
+  // Only check role for restricted workspaces (admin, operate, configure, etc.)
+  // Open workspaces (insights, transactions, performance, etc.) skip this check.
+  if (isRestrictedWorkspace(pathname)) {
+    // Try to get role from user_metadata first (zero DB calls)
+    let role = user.user_metadata?.role as string | undefined
+      || user.app_metadata?.role as string | undefined;
+
+    // If role not in metadata, query profiles table (one DB call)
+    if (!role) {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('auth_user_id', user.id)
+          .single();
+        role = profile?.role || undefined;
+      } catch {
+        // If profile query fails, allow through (client-side HOC will catch)
+      }
+    }
+
+    // If we have a role and it's not allowed, redirect to /unauthorized
+    if (role && !checkWorkspaceAccess(pathname, role)) {
+      return NextResponse.redirect(new URL('/unauthorized', request.url));
+    }
+    // If no role found, allow through — client-side RequireRole HOC will catch
   }
 
   // Authenticated user on protected route → pass through WITH cookie refresh.
