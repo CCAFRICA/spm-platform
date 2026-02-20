@@ -144,7 +144,6 @@ export interface Database {
           id: string;
           auth_user_id: string;
           tenant_id: string;
-          entity_id: string | null;
           display_name: string;
           email: string;
           role: string;
@@ -162,7 +161,6 @@ export interface Database {
           id?: string;
           auth_user_id: string;
           tenant_id: string;
-          entity_id?: string | null;
           display_name: string;
           email: string;
           role: string;
@@ -177,7 +175,6 @@ export interface Database {
           updated_at?: string;
         };
         Update: {
-          entity_id?: string | null;
           display_name?: string;
           email?: string;
           role?: string;

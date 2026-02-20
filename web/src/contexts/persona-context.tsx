@@ -95,17 +95,29 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       try {
         const supabase = createClient();
 
-        // Get the user's profile row to find profile_id and entity_id
+        // Get the user's profile row to find profile_id
         const { data: profile } = await supabase
           .from('profiles')
-          .select('id, entity_id')
+          .select('id')
           .eq('auth_user_id', user!.id)
           .eq('tenant_id', currentTenant!.id)
           .single();
 
+        let linkedEntityId: string | null = null;
+
         if (profile) {
           setProfileId(profile.id);
-          setEntityId(profile.entity_id);
+
+          // Profile→entity linkage goes through entities.profile_id (not profiles.entity_id)
+          const { data: linkedEntity } = await supabase
+            .from('entities')
+            .select('id')
+            .eq('profile_id', profile.id)
+            .eq('tenant_id', currentTenant!.id)
+            .maybeSingle();
+
+          linkedEntityId = linkedEntity?.id ?? null;
+          setEntityId(linkedEntityId);
         }
 
         // Admin sees all — no need to query profile_scope
@@ -129,9 +141,9 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
               canSeeAll: false,
             });
           } else {
-            // No scope row — for non-admin, scope to own entity only
+            // No scope row — for non-admin, scope to own linked entity only
             setScope({
-              entityIds: profile.entity_id ? [profile.entity_id] : [],
+              entityIds: linkedEntityId ? [linkedEntityId] : [],
               canSeeAll: false,
             });
           }
