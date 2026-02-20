@@ -106,7 +106,10 @@
       "Bash(OB-62_63_PROMPT.md:*)",
       "Bash(HF-041_PROMPT.md:*)",
       "Bash(HF-045_PROMPT.md:*)",
-      "Bash(HF-046_PROMPT.md:*)"
+      "Bash(HF-046_PROMPT.md:*)",
+      "Bash(HF-050_PROMPT.md:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr edit:*)"
     ]
   }
 }
