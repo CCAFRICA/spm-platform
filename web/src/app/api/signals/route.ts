@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       query = query.eq('signal_type', signalType);
     }
 
-    const { data, error, count } = await query;
+    const { data, error } = await query;
 
     if (error) {
       console.error('[Signals API] Query failed:', error.message);

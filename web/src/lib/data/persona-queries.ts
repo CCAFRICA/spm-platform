@@ -398,10 +398,10 @@ export async function getRepDashboardData(
 // Helper Functions
 // ──────────────────────────────────────────────
 
-function formatPeriodLabelFromDate(startDate: string): string {
+function formatPeriodLabelFromDate(startDate: string, locale: string = 'es-MX'): string {
   try {
     const d = new Date(startDate);
-    const month = d.toLocaleString('es-MX', { month: 'short' });
+    const month = d.toLocaleString(locale, { month: 'short' });
     const year = d.getFullYear();
     return `${month.charAt(0).toUpperCase() + month.slice(1)} ${year}`;
   } catch {

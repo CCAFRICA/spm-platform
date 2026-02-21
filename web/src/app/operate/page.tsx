@@ -25,6 +25,7 @@ import {
 } from '@/lib/lifecycle/lifecycle-service';
 import { extractAttainment } from '@/lib/data/persona-queries';
 import { loadOperatePageData } from '@/lib/data/page-loaders';
+import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import type { Json } from '@/lib/supabase/database.types';
 
 interface CalcSummary {
@@ -68,7 +69,7 @@ export default function OperateCockpitPage() {
       const enriched: PeriodInfo[] = data.periods.map(p => ({
         periodId: p.id,
         periodKey: p.canonical_key,
-        label: formatLabel(p.start_date),
+        label: formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
         status: p.status,
         lifecycleState: p.lifecycleState,
         startDate: p.start_date,
@@ -136,7 +137,7 @@ export default function OperateCockpitPage() {
     const enriched: PeriodInfo[] = data.periods.map(p => ({
       periodId: p.id,
       periodKey: p.canonical_key,
-      label: formatLabel(p.start_date),
+      label: formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
       status: p.status,
       lifecycleState: p.lifecycleState,
       startDate: p.start_date,
@@ -366,6 +367,26 @@ export default function OperateCockpitPage() {
             </div>
           </div>
         )}
+
+        {/* OB-71: AI Governance Assessment — visible when calculation results exist */}
+        {calcSummary && (
+          <AssessmentPanel
+            persona="admin"
+            data={{
+              totalPayout: calcSummary.totalPayout,
+              entityCount: calcSummary.entityCount,
+              avgPayout: calcSummary.entityCount > 0 ? calcSummary.totalPayout / calcSummary.entityCount : 0,
+              lifecycleState: lifecycleState,
+              lastRunAt: calcSummary.lastRunAt,
+              topEntities: calcSummary.topEntities,
+              bottomEntities: calcSummary.bottomEntities,
+              attainmentDistribution: calcSummary.attainmentDist,
+            }}
+            locale={isSpanish ? 'es' : 'en'}
+            accentColor="#7c3aed"
+            tenantId={tenantId}
+          />
+        )}
       </div>
     </div>
   );
@@ -380,10 +401,10 @@ function defaultReadiness(): DataReadiness {
   };
 }
 
-function formatLabel(startDate: string): string {
+function formatLabel(startDate: string, locale: string = 'es-MX'): string {
   try {
     const d = new Date(startDate);
-    const month = d.toLocaleString('es-MX', { month: 'short' });
+    const month = d.toLocaleString(locale, { month: 'short' });
     return `${month.charAt(0).toUpperCase() + month.slice(1)} ${d.getFullYear()}`;
   } catch {
     return startDate;

@@ -1,50 +1,17 @@
 /**
  * API Route: AI Dashboard Assessment
  *
- * Generates persona-aware intelligence assessments for each dashboard.
- * Uses the Anthropic API directly (same pattern as anthropic-adapter.ts).
+ * OB-71: Routes through AIService (not direct Anthropic call).
+ * AIService provides: provider abstraction, signal capture, consistent error handling.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getAIService } from '@/lib/ai/ai-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { persistSignal } from '@/lib/ai/signal-persistence';
-
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_VERSION = '2023-06-01';
-
-const SYSTEM_PROMPTS: Record<string, (locale: string) => string> = {
-  admin: (locale) => `You are a governance advisor for a compensation platform. Analyze the data and provide:
-1. A 2-sentence summary of the current state
-2. Any anomalies or patterns detected (e.g., identical deltas, missing data, outliers)
-3. A specific recommended next action
-Keep response under 100 words. Use ${locale === 'en' ? 'English' : 'Spanish'}.`,
-
-  manager: (locale) => `You are a coaching advisor for a sales manager. Analyze team performance data and provide:
-1. A 1-sentence team summary
-2. Top coaching opportunity (who needs attention and why)
-3. A quick win (who is closest to a breakthrough)
-4. A specific recommended action for this week
-Keep response under 120 words. Use ${locale === 'en' ? 'English' : 'Spanish'}.`,
-
-  rep: (locale) => `You are a personal performance coach for a sales representative. Analyze their compensation data and provide:
-1. A 1-sentence congratulatory or motivational opening based on their performance
-2. Their strongest component and why
-3. Their biggest growth opportunity with a specific dollar impact estimate
-4. One specific action they can take today
-Keep response under 100 words. Use ${locale === 'en' ? 'English' : 'Spanish'}.`,
-};
 
 export async function POST(request: NextRequest) {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { assessment: null, error: 'ANTHROPIC_API_KEY not configured' },
-        { status: 500 }
-      );
-    }
-
-    const { persona, data, locale, tenantId } = await request.json();
+    const { persona, data, locale, tenantId, anomalies } = await request.json();
 
     if (!persona || !data) {
       return NextResponse.json(
@@ -53,63 +20,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const systemPrompt = (SYSTEM_PROMPTS[persona] || SYSTEM_PROMPTS.admin)(locale || 'es');
+    const aiService = getAIService();
+    const response = await aiService.generateAssessment(
+      persona,
+      data,
+      locale || 'es',
+      anomalies,
+      { tenantId: tenantId || 'unknown', userId: 'api' }
+    );
 
-    const response = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': ANTHROPIC_VERSION,
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 300,
-        system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: `Analyze this dashboard data and provide your assessment:\n\n${JSON.stringify(data, null, 2)}`,
-          },
-        ],
-      }),
-    });
+    // Extract assessment text from AIService result
+    const assessment = typeof response.result.assessment === 'string'
+      ? response.result.assessment
+      : response.result.rawContent
+        ? String(response.result.rawContent)
+        : null;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Anthropic API error:', response.status, errorText);
+    if (!assessment) {
       return NextResponse.json(
-        { assessment: null, error: 'AI provider returned an error' },
+        { assessment: null, error: 'AI did not return an assessment' },
         { status: 502 }
       );
-    }
-
-    const result = await response.json();
-    const text = result.content
-      ?.filter((block: { type: string }) => block.type === 'text')
-      ?.map((block: { text: string }) => block.text)
-      ?.join('\n') || '';
-
-    // HF-055: Persist assessment signal (non-blocking)
-    if (tenantId) {
-      persistSignal({
-        tenantId,
-        signalType: 'assessment',
-        signalValue: {
-          persona,
-          assessmentLength: text.length,
-          model: 'claude-sonnet-4-20250514',
-        },
-        confidence: 0.8, // Default confidence for assessment generation
-        source: 'ai_prediction',
-        context: {
-          locale: locale || 'es',
-          inputTokens: result.usage?.input_tokens,
-          outputTokens: result.usage?.output_tokens,
-        },
-      }).catch(err => {
-        console.warn('[Assessment] Signal persist failed:', err);
-      });
     }
 
     // Meter the AI inference (non-blocking)
@@ -123,14 +54,19 @@ export async function POST(request: NextRequest) {
           metric_name: 'ai_inference',
           metric_value: 1,
           period_key: periodKey,
-          dimensions: { endpoint: 'assessment', persona, model: 'claude-sonnet-4-20250514' },
+          dimensions: {
+            endpoint: 'assessment',
+            persona,
+            model: response.model,
+            tokens: response.tokenUsage,
+          },
         });
       } catch {
         // Non-blocking — metering failure should not affect the response
       }
     }
 
-    return NextResponse.json({ assessment: text });
+    return NextResponse.json({ assessment });
   } catch (error) {
     console.error('Assessment API error:', error);
     return NextResponse.json(
