@@ -23,6 +23,9 @@ export const PAGE_STATUS: Record<string, PageStatus> = {
   '/login':                        'active',
   '/operate/import/history':       'active',
   '/configure/users':              'active',
+  '/configure/people':             'active',
+  '/transactions/disputes':        'active',
+  '/insights/disputes':            'active',
 
   // PREVIEW — renders with seed data
   '/my-compensation':              'preview',
@@ -31,7 +34,6 @@ export const PAGE_STATUS: Record<string, PageStatus> = {
   '/insights/performance':         'preview',
   '/insights/my-team':             'preview',
   '/insights/compensation':        'preview',
-  '/insights/disputes':            'preview',
   '/insights/trends':              'preview',
   '/financial':                    'preview',
   '/financial/performance':        'preview',
@@ -50,7 +52,6 @@ export const PAGE_STATUS: Record<string, PageStatus> = {
 
   // COMING — stubs or placeholders
   '/insights/sales-finance':       'coming',
-  '/transactions/disputes':        'coming',
   '/transactions/inquiries':       'coming',
   '/performance':                  'coming',
   '/performance/goals':            'coming',
