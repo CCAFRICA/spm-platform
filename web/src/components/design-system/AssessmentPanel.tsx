@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Lightbulb, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 
 interface AssessmentPanelProps {
@@ -140,9 +141,9 @@ export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#
                   <div className="animate-spin h-3 w-3 border-2 border-t-transparent rounded-full" style={{ borderColor: `${accentColor}60`, borderTopColor: 'transparent' }} />
                 </div>
               )}
-              <p style={{ color: '#CBD5E1', fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-line' }}>
-                {assessment}
-              </p>
+              <div style={{ color: '#CBD5E1', fontSize: '14px', lineHeight: '1.6' }} className="prose prose-sm prose-invert max-w-none [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:my-0.5 [&_p]:my-1 [&_strong]:text-zinc-200 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-zinc-200 [&_h3]:mt-3 [&_h3]:mb-1">
+                <ReactMarkdown>{assessment}</ReactMarkdown>
+              </div>
             </div>
           )}
         </div>

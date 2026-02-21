@@ -968,7 +968,8 @@ export function getCalculationResultsForReconciliation(
  * Parse legacy CSV data for reconciliation
  */
 export function parseLegacyCSV(csvContent: string): LegacyRecord[] {
-  const lines = csvContent.trim().split('\n');
+  // OB-73 Mission 5 / F-33: Null guard — csvContent could be null/undefined
+  const lines = (csvContent || '').trim().split('\n');
   if (lines.length < 2) return [];
 
   // Parse header
