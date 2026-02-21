@@ -85,6 +85,7 @@ function ResultsDashboardPageInner() {
   const [sortField, setSortField] = useState<string>('total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [batchId, setBatchId] = useState<string>('');
+  const [batchLabel, setBatchLabel] = useState<string>('');
   const [isLoaded, setIsLoaded] = useState(false);
   const [anomalyReport, setAnomalyReport] = useState<AnomalyReport | null>(null);
   const [expandedEntity, setExpandedEntity] = useState<string | null>(null);
@@ -107,6 +108,19 @@ function ResultsDashboardPageInner() {
 
         const batch = batches[0];
         setBatchId(batch.id);
+
+        // OB-73 Mission 4 / F-67: Generate human-readable batch label
+        // Format: {TENANT_SHORT}-{YYYY}{MM}-{SEQ}
+        const tenantShort = (currentTenant?.name || 'BATCH')
+          .replace(/[^A-Za-z0-9]/g, '')
+          .toUpperCase()
+          .slice(0, 6);
+        const batchDate = new Date(batch.created_at);
+        const yyyy = batchDate.getFullYear();
+        const mm = String(batchDate.getMonth() + 1).padStart(2, '0');
+        // Sequence: position of this batch among all batches (1-indexed from newest)
+        const seq = String(batches.indexOf(batch) + 1).padStart(2, '0');
+        setBatchLabel(`${tenantShort}-${yyyy}${mm}-${seq}`);
 
         // Get results for this batch
         const calcResults = await getCalculationResults(tenantId, batch.id);
@@ -273,7 +287,7 @@ function ResultsDashboardPageInner() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Results Proof View</h1>
           <p className="text-slate-500 text-sm">
-            {entityCount} entities | Batch: {batchId.slice(0, 8)}
+            {entityCount} entities | Batch: {batchLabel || batchId.slice(0, 8)}
           </p>
         </div>
       </div>

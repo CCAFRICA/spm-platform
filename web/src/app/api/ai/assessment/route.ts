@@ -22,6 +22,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // OB-73 Mission 1 / F-38 / AP-18: SAFETY GATE — Never generate assessment on empty data.
+    // If the tenant has zero calculation_results, return a structured "no data" response
+    // instead of calling the AI (which would fabricate confident analysis with made-up numbers).
+    if (tenantId) {
+      try {
+        const supabase = await createServiceRoleClient();
+        const { count } = await supabase
+          .from('calculation_results')
+          .select('*', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId);
+
+        if (!count || count === 0) {
+          return NextResponse.json({
+            assessment: null,
+            generated: false,
+            dataPoints: 0,
+            message: locale === 'es'
+              ? 'No hay datos de calculo disponibles para este periodo. Importa datos y ejecuta calculos antes de solicitar una evaluacion.'
+              : 'No calculation data available for this period. Import data and run calculations before requesting an assessment.',
+          });
+        }
+      } catch (err) {
+        console.warn('[Assessment API] Safety gate check failed:', err);
+      }
+    }
+
     // OB-72: Auto-invoke anomaly detection if payout data is available
     let anomalies = clientAnomalies;
     if (!anomalies && data) {

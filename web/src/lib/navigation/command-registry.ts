@@ -219,7 +219,8 @@ export function searchCommands(
   query: string,
   limit: number = 10
 ): CommandItem[] {
-  if (!query.trim()) {
+  // OB-73 Mission 5 / F-33: Null guard on query
+  if (!query || !query.trim()) {
     return commands.slice(0, limit);
   }
 

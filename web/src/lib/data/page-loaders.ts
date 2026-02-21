@@ -152,27 +152,17 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
         .order('created_at', { ascending: false })
     : null;
 
-  const outcomeQuery = activePeriodId
-    ? supabase
-        .from('entity_period_outcomes')
-        .select('entity_id, total_payout, attainment_summary')
-        .eq('tenant_id', tenantId)
-        .eq('period_id', activePeriodId)
-    : null;
-
   const entityQuery = supabase
     .from('entities')
     .select('id, display_name, external_id')
     .eq('tenant_id', tenantId);
 
-  const [batchesRes, outcomesRes, entitiesRes] = await Promise.all([
+  const [batchesRes, entitiesRes] = await Promise.all([
     batchQuery,
-    outcomeQuery,
     entityQuery,
   ]);
 
   const allBatches = batchesRes?.data ?? [];
-  const outcomes = outcomesRes?.data ?? [];
   const entities = entitiesRes.data ?? [];
 
   // Build period → latest batch lifecycle state map
@@ -187,6 +177,23 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
   const activeBatch = activePeriodId
     ? allBatches.find((b) => b.period_id === activePeriodId)
     : null;
+
+  // OB-73 Mission 4 / F-56: Load from calculation_results (source of truth), not entity_period_outcomes.
+  // entity_period_outcomes only materializes at OFFICIAL+ state, so can be stale.
+  // calculation_results always reflects the current batch's actual computed data.
+  let outcomes: Array<{ entity_id: string; total_payout: number; attainment_summary: Json }> = [];
+  if (activeBatch?.id) {
+    const { data: calcResults } = await supabase
+      .from('calculation_results')
+      .select('entity_id, total_payout, attainment')
+      .eq('tenant_id', tenantId)
+      .eq('batch_id', activeBatch.id);
+    outcomes = (calcResults ?? []).map(r => ({
+      entity_id: r.entity_id,
+      total_payout: r.total_payout || 0,
+      attainment_summary: (r.attainment ?? {}) as Json,
+    }));
+  }
 
   const entityNames = new Map(entities.map(e => [
     e.id,

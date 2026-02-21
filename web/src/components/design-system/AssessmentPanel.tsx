@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Lightbulb, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 
 interface AssessmentPanelProps {
@@ -38,6 +39,9 @@ export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#
       const result = await res.json();
       if (result.assessment) {
         setAssessment(result.assessment);
+      } else if (result.generated === false && result.message) {
+        // OB-73 Mission 1: Safety gate — show informative message, not fabricated AI
+        setAssessment(result.message);
       } else {
         setError(true);
       }
@@ -56,10 +60,11 @@ export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#
     fetchAssessment();
   }, [data, fetchAssessment]);
 
+  // OB-73 Mission 6 / F-17: Contextual assessment titles per persona
   const titles: Record<string, Record<string, string>> = {
-    admin: { en: 'Governance Assessment', es: 'Evaluacion de Gobernanza' },
+    admin: { en: 'Performance Governance', es: 'Gobernanza de Rendimiento' },
     manager: { en: 'Coaching Intelligence', es: 'Inteligencia de Coaching' },
-    rep: { en: 'Personal Performance Insight', es: 'Evaluacion de Rendimiento' },
+    rep: { en: 'My Performance Summary', es: 'Mi Resumen de Rendimiento' },
   };
 
   const lang = locale === 'en' ? 'en' : 'es';
@@ -136,9 +141,9 @@ export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#
                   <div className="animate-spin h-3 w-3 border-2 border-t-transparent rounded-full" style={{ borderColor: `${accentColor}60`, borderTopColor: 'transparent' }} />
                 </div>
               )}
-              <p style={{ color: '#CBD5E1', fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-line' }}>
-                {assessment}
-              </p>
+              <div style={{ color: '#CBD5E1', fontSize: '14px', lineHeight: '1.6' }} className="prose prose-sm prose-invert max-w-none [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:my-0.5 [&_p]:my-1 [&_strong]:text-zinc-200 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-zinc-200 [&_h3]:mt-3 [&_h3]:mb-1">
+                <ReactMarkdown>{assessment}</ReactMarkdown>
+              </div>
             </div>
           )}
         </div>
