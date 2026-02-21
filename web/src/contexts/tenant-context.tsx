@@ -87,7 +87,7 @@ async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
       .from('tenants')
       .select('*')
       .eq('id', normalizedId)
-      .single();
+      .maybeSingle();
     if (byId) row = byId as Record<string, unknown>;
 
     if (!row) {
@@ -95,7 +95,7 @@ async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
         .from('tenants')
         .select('*')
         .eq('slug', normalizedId)
-        .single();
+        .maybeSingle();
       if (bySlug) row = bySlug as Record<string, unknown>;
     }
 

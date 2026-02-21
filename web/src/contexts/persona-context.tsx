@@ -133,7 +133,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
             .select('visible_entity_ids')
             .eq('profile_id', profile.id)
             .eq('tenant_id', currentTenant!.id)
-            .single();
+            .maybeSingle();
 
           if (scopeData?.visible_entity_ids) {
             setScope({
