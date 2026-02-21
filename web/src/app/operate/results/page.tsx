@@ -3,10 +3,12 @@
 /**
  * Results Dashboard — Five Layers of Proof
  *
- * OB-72 Mission 1: L5 Outcome (aggregate stats + anomaly) + L4 Population (expandable entity rows)
+ * OB-72 Missions 1+2: Five Layers of Proof
  *
- * Layer 5 — Outcome: Total, mean, median, min, max, anomaly count
- * Layer 4 — Population: Per-entity expandable rows with component breakdown
+ * Layer 5 — Outcome: Total, mean, median, components, anomaly count + detail
+ * Layer 4 — Population: Per-entity expandable rows with chevron toggle
+ * Layer 3 — Component: Goal, actual, attainment, formula, rate per component
+ * Layer 2 — Metric: Raw metric values from JSONB, per-component metrics
  *
  * All data comes from Supabase calculation_batches + calculation_results.
  */
@@ -46,12 +48,29 @@ interface ComponentTotal {
   entityCount: number;
 }
 
+interface ComponentDetail {
+  componentId: string;
+  componentName: string;
+  componentType: string;
+  outputValue: number;
+  // L3: Component-level detail
+  goal?: number;
+  actual?: number;
+  attainment?: number;
+  formula?: string;
+  rate?: number;
+  // L2: Raw metric values
+  metrics?: Record<string, unknown>;
+}
+
 interface ResultRow {
   entityId: string;
   entityName: string;
   storeId: string;
   totalPayout: number;
-  components: Array<{ componentId: string; componentName: string; outputValue: number }>;
+  overallAttainment: number | null;
+  components: ComponentDetail[];
+  rawMetrics: Record<string, unknown>;
 }
 
 function ResultsDashboardPageInner() {
@@ -92,20 +111,34 @@ function ResultsDashboardPageInner() {
         // Get results for this batch
         const calcResults = await getCalculationResults(tenantId, batch.id);
 
-        // Map to display format
+        // Map to display format — extract L3 (component detail) and L2 (metrics)
         const rows: ResultRow[] = calcResults.map((r: CalcResultRow) => {
           const comps = Array.isArray(r.components) ? r.components : [];
+          const rawMetrics = (r.metrics && typeof r.metrics === 'object' ? r.metrics : {}) as Record<string, unknown>;
+          const attainmentData = (r.attainment && typeof r.attainment === 'object' ? r.attainment : {}) as Record<string, unknown>;
+          const overallAtt = typeof attainmentData.overall === 'number' ? attainmentData.overall : null;
+
           return {
             entityId: r.entity_id,
             entityName: (r.metadata as Record<string, unknown>)?.entityName as string || r.entity_id,
             storeId: (r.metadata as Record<string, unknown>)?.storeId as string || '',
             totalPayout: r.total_payout || 0,
+            overallAttainment: overallAtt,
+            rawMetrics,
             components: comps.map((c: unknown) => {
               const comp = c as Record<string, unknown>;
+              const details = (comp.details && typeof comp.details === 'object' ? comp.details : {}) as Record<string, unknown>;
               return {
                 componentId: String(comp.componentId || comp.component_id || ''),
                 componentName: String(comp.componentName || comp.component_name || ''),
-                outputValue: Number(comp.outputValue || comp.output_value || 0),
+                componentType: String(comp.componentType || comp.component_type || ''),
+                outputValue: Number(comp.outputValue || comp.output_value || comp.payout || 0),
+                goal: typeof details.goal === 'number' ? details.goal : typeof comp.goal === 'number' ? comp.goal : undefined,
+                actual: typeof details.actual === 'number' ? details.actual : typeof comp.actual === 'number' ? comp.actual : undefined,
+                attainment: typeof details.attainment === 'number' ? details.attainment : typeof comp.attainment === 'number' ? comp.attainment : undefined,
+                formula: typeof details.formula === 'string' ? details.formula : typeof comp.formula === 'string' ? comp.formula : undefined,
+                rate: typeof details.rate === 'number' ? details.rate : typeof comp.rate === 'number' ? comp.rate : undefined,
+                metrics: (details.metrics && typeof details.metrics === 'object' ? details.metrics : undefined) as Record<string, unknown> | undefined,
               };
             }),
           };
@@ -473,15 +506,27 @@ function ResultsDashboardPageInner() {
                           {formatCurrency(row.totalPayout)}
                         </TableCell>
                       </TableRow>
-                      {/* L4: Expanded entity detail — component breakdown + trace link */}
+                      {/* L4/L3/L2: Expanded entity detail — component + metric drill-down */}
                       {isExpanded && (
                         <TableRow className="bg-slate-900/50">
                           <TableCell colSpan={componentTotals.length + 3} className="p-0">
-                            <div className="px-8 py-4 space-y-3">
+                            <div className="px-8 py-4 space-y-4">
+                              {/* Header with attainment + trace link */}
                               <div className="flex items-center justify-between">
-                                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-                                  Component Breakdown — {row.entityName}
-                                </p>
+                                <div className="flex items-center gap-4">
+                                  <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                                    Proof Detail — {row.entityName}
+                                  </p>
+                                  {row.overallAttainment !== null && (
+                                    <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                                      row.overallAttainment >= 100 ? 'bg-emerald-500/10 text-emerald-400' :
+                                      row.overallAttainment >= 80 ? 'bg-amber-500/10 text-amber-400' :
+                                      'bg-red-500/10 text-red-400'
+                                    }`}>
+                                      {row.overallAttainment.toFixed(1)}% attainment
+                                    </span>
+                                  )}
+                                </div>
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -491,33 +536,96 @@ function ResultsDashboardPageInner() {
                                   Full Trace →
                                 </Button>
                               </div>
+
+                              {/* L3: Component detail cards */}
                               {row.components.length > 0 ? (
-                                <div className="grid gap-2">
+                                <div className="space-y-3">
                                   {row.components.map(c => {
                                     const pct = row.totalPayout > 0 ? (c.outputValue / row.totalPayout) * 100 : 0;
+                                    const hasL3 = c.goal !== undefined || c.actual !== undefined || c.attainment !== undefined || c.formula;
+                                    const hasL2 = c.metrics && Object.keys(c.metrics).length > 0;
                                     return (
-                                      <div key={c.componentId} className="flex items-center gap-3">
-                                        <span className="text-sm w-40 truncate" title={c.componentName}>
-                                          {c.componentName}
-                                        </span>
-                                        <div className="flex-1 bg-slate-800 rounded-full h-4 relative overflow-hidden">
-                                          <div
-                                            className="bg-blue-500/60 h-4 rounded-full transition-all"
-                                            style={{ width: `${pct}%` }}
-                                          />
+                                      <div key={c.componentId} className="rounded-lg border border-slate-700/50 p-3 space-y-2">
+                                        {/* Component bar */}
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-sm font-medium w-40 truncate" title={c.componentName}>
+                                            {c.componentName}
+                                          </span>
+                                          <div className="flex-1 bg-slate-800 rounded-full h-4 relative overflow-hidden">
+                                            <div
+                                              className="bg-blue-500/60 h-4 rounded-full transition-all"
+                                              style={{ width: `${pct}%` }}
+                                            />
+                                          </div>
+                                          <span className="text-sm font-medium w-24 text-right">
+                                            {formatCurrency(c.outputValue)}
+                                          </span>
+                                          <span className="text-xs text-slate-500 w-12 text-right">
+                                            {pct.toFixed(0)}%
+                                          </span>
                                         </div>
-                                        <span className="text-sm font-medium w-24 text-right">
-                                          {formatCurrency(c.outputValue)}
-                                        </span>
-                                        <span className="text-xs text-slate-500 w-12 text-right">
-                                          {pct.toFixed(0)}%
-                                        </span>
+
+                                        {/* L3: Goal / Actual / Attainment / Formula */}
+                                        {hasL3 && (
+                                          <div className="flex flex-wrap gap-x-6 gap-y-1 pl-1 text-xs">
+                                            {c.componentType && (
+                                              <span className="text-slate-500">Type: <span className="text-slate-300">{c.componentType}</span></span>
+                                            )}
+                                            {c.goal !== undefined && (
+                                              <span className="text-slate-500">Goal: <span className="text-slate-300 font-mono">{c.goal.toLocaleString()}</span></span>
+                                            )}
+                                            {c.actual !== undefined && (
+                                              <span className="text-slate-500">Actual: <span className="text-slate-300 font-mono">{c.actual.toLocaleString()}</span></span>
+                                            )}
+                                            {c.attainment !== undefined && (
+                                              <span className="text-slate-500">Attainment: <span className={`font-mono ${c.attainment >= 100 ? 'text-emerald-400' : 'text-amber-400'}`}>{c.attainment.toFixed(1)}%</span></span>
+                                            )}
+                                            {c.rate !== undefined && (
+                                              <span className="text-slate-500">Rate: <span className="text-slate-300 font-mono">{(c.rate * 100).toFixed(1)}%</span></span>
+                                            )}
+                                            {c.formula && (
+                                              <span className="text-slate-500">Formula: <span className="text-slate-300 font-mono">{c.formula}</span></span>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {/* L2: Metric values */}
+                                        {hasL2 && (
+                                          <div className="pl-1 pt-1 border-t border-slate-700/30">
+                                            <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Metrics</p>
+                                            <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                                              {Object.entries(c.metrics!).map(([key, val]) => (
+                                                <span key={key} className="text-slate-500">
+                                                  {key}: <span className="text-slate-300 font-mono">
+                                                    {typeof val === 'number' ? val.toLocaleString() : String(val)}
+                                                  </span>
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   })}
                                 </div>
                               ) : (
                                 <p className="text-sm text-slate-500">No component details available.</p>
+                              )}
+
+                              {/* L2: Raw metrics from calculation_results.metrics JSONB */}
+                              {Object.keys(row.rawMetrics).length > 0 && (
+                                <div className="pt-2 border-t border-slate-700/30">
+                                  <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-2">Raw Metrics</p>
+                                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                                    {Object.entries(row.rawMetrics).map(([key, val]) => (
+                                      <span key={key} className="text-slate-500">
+                                        {key}: <span className="text-slate-300 font-mono">
+                                          {typeof val === 'number' ? val.toLocaleString() : typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
                               )}
                             </div>
                           </TableCell>
