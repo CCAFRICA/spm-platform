@@ -94,7 +94,7 @@ async function seed() {
       tenant_id: TENANT_ID,
       display_name: 'Pipeline Admin',
       email: ADMIN_EMAIL,
-      role: 'admin',
+      role: 'vl_admin',
       locale: 'es-MX',
     });
 
