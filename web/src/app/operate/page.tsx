@@ -64,7 +64,16 @@ export default function OperateCockpitPage() {
     let cancelled = false;
 
     async function load() {
-      const data = await loadOperatePageData(tenantId);
+      // OB-73 Mission 6 / F-39: Wrap in try/catch so "Loading periods..."
+      // never gets stuck. If loadOperatePageData throws (RLS, empty tenant),
+      // we fall through to the empty state instead of infinite spinner.
+      let data;
+      try {
+        data = await loadOperatePageData(tenantId);
+      } catch (err) {
+        console.warn('[Operate] Failed to load page data:', err);
+        return; // isLoading will be set to false in .finally()
+      }
       if (cancelled) return;
 
       const enriched: PeriodInfo[] = data.periods.map(p => ({
