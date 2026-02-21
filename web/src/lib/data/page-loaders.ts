@@ -185,13 +185,13 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
   if (activeBatch?.id) {
     const { data: calcResults } = await supabase
       .from('calculation_results')
-      .select('entity_id, total_payout, attainment_summary')
+      .select('entity_id, total_payout, attainment')
       .eq('tenant_id', tenantId)
       .eq('batch_id', activeBatch.id);
     outcomes = (calcResults ?? []).map(r => ({
       entity_id: r.entity_id,
       total_payout: r.total_payout || 0,
-      attainment_summary: r.attainment_summary ?? ({} as Json),
+      attainment_summary: (r.attainment ?? {}) as Json,
     }));
   }
 

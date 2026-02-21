@@ -108,7 +108,7 @@ export default function AdjustmentsPage() {
     }
 
     // Fetch filer names
-    const filerIds = Array.from(new Set((data || []).map(d => d.filed_by).filter(Boolean)));
+    const filerIds = Array.from(new Set((data || []).map(d => d.filed_by).filter((id): id is string => !!id)));
     let filerNames = new Map<string, string>();
     if (filerIds.length > 0) {
       const { data: profiles } = await supabase
@@ -127,9 +127,9 @@ export default function AdjustmentsPage() {
       period: d.period_id || '',
       status: d.status || 'open',
       category: d.category || 'adjustment',
-      requestedBy: filerNames.get(d.filed_by) || 'Unknown',
+      requestedBy: (d.filed_by ? filerNames.get(d.filed_by) : null) || 'Unknown',
       requestedAt: d.created_at,
-      resolvedBy: d.resolved_by ? filerNames.get(d.resolved_by) || d.resolved_by : undefined,
+      resolvedBy: d.resolved_by ? (filerNames.get(d.resolved_by) || d.resolved_by) : undefined,
       resolvedAt: d.resolved_at || undefined,
       resolution: d.resolution || undefined,
     })));
@@ -218,11 +218,16 @@ export default function AdjustmentsPage() {
       .limit(1)
       .maybeSingle();
 
+    if (!entity?.id) {
+      setProcessing(null);
+      return;
+    }
+
     const { error } = await supabase
       .from('disputes')
       .insert({
         tenant_id: tenantId,
-        entity_id: entity?.id || null,
+        entity_id: entity.id,
         period_id: period?.id || null,
         category: 'adjustment',
         status: 'open',
