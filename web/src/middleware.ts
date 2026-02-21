@@ -162,6 +162,15 @@ export async function middleware(request: NextRequest) {
     }
 
     if (!isPublicPath(pathname)) {
+      // HF-056: API routes return 401 JSON, not 307 redirect.
+      // API clients expect JSON error responses, not HTML redirects.
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: 'Unauthorized', message: 'Authentication required' },
+          { status: 401 }
+        );
+      }
+
       // Protected path, no user → redirect to /login.
       // CRITICAL: Fresh NextResponse.redirect() — NOT supabaseResponse.
       // Clear all stale sb-* cookies so the browser arrives at /login clean.
