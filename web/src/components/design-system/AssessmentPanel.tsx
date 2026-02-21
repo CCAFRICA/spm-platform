@@ -38,6 +38,9 @@ export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#
       const result = await res.json();
       if (result.assessment) {
         setAssessment(result.assessment);
+      } else if (result.generated === false && result.message) {
+        // OB-73 Mission 1: Safety gate — show informative message, not fabricated AI
+        setAssessment(result.message);
       } else {
         setError(true);
       }
@@ -56,10 +59,11 @@ export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#
     fetchAssessment();
   }, [data, fetchAssessment]);
 
+  // OB-73 Mission 6 / F-17: Contextual assessment titles per persona
   const titles: Record<string, Record<string, string>> = {
-    admin: { en: 'Governance Assessment', es: 'Evaluacion de Gobernanza' },
+    admin: { en: 'Performance Governance', es: 'Gobernanza de Rendimiento' },
     manager: { en: 'Coaching Intelligence', es: 'Inteligencia de Coaching' },
-    rep: { en: 'Personal Performance Insight', es: 'Evaluacion de Rendimiento' },
+    rep: { en: 'My Performance Summary', es: 'Mi Resumen de Rendimiento' },
   };
 
   const lang = locale === 'en' ? 'en' : 'es';
