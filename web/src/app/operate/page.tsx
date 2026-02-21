@@ -54,6 +54,7 @@ export default function OperateCockpitPage() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [ruleSetId, setRuleSetId] = useState<string | null>(null);
+  const [zeroPayoutConfirm, setZeroPayoutConfirm] = useState<{ nextState: string } | null>(null);
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
@@ -215,8 +216,28 @@ export default function OperateCockpitPage() {
       setPeriods(prev => prev.map(p =>
         p.periodId === activePeriodId ? { ...p, lifecycleState: nextState } : p
       ));
+    } else if (result.requiresConfirmation) {
+      // OB-73 Mission 4 / F-63: All payouts are $0 — ask for confirmation
+      setZeroPayoutConfirm({ nextState });
+    } else if (result.error) {
+      setCalcError(result.error);
     }
   }, [tenantId, activePeriodId, ruleSetId, lifecycleState, isSpanish, reloadData]);
+
+  // OB-73 Mission 4 / F-63: Handle $0 payout confirmation override
+  const handleZeroPayoutConfirm = useCallback(async () => {
+    if (!zeroPayoutConfirm || !tenantId || !activePeriodId) return;
+    setZeroPayoutConfirm(null);
+    const result = await transitionLifecycle(tenantId, activePeriodId, zeroPayoutConfirm.nextState as never, { forceZeroPayout: true });
+    if (result.success) {
+      setLifecycleState(zeroPayoutConfirm.nextState);
+      setPeriods(prev => prev.map(p =>
+        p.periodId === activePeriodId ? { ...p, lifecycleState: zeroPayoutConfirm.nextState } : p
+      ));
+    } else if (result.error) {
+      setCalcError(result.error);
+    }
+  }, [zeroPayoutConfirm, tenantId, activePeriodId]);
 
   const dashState = lifecycleState && isDashboardState(lifecycleState)
     ? lifecycleState
@@ -303,6 +324,35 @@ export default function OperateCockpitPage() {
           {calcError && (
             <div className="mt-3 px-3 py-2 rounded-lg text-sm text-red-300" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
               {calcError}
+            </div>
+          )}
+          {/* OB-73 Mission 4 / F-63: Zero payout confirmation dialog */}
+          {zeroPayoutConfirm && (
+            <div className="mt-3 px-4 py-3 rounded-lg text-sm" style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+              <p className="text-amber-300 font-medium mb-2">
+                {isSpanish ? 'Todos los pagos son $0' : 'All entity payouts are $0'}
+              </p>
+              <p className="text-zinc-400 text-xs mb-3">
+                {isSpanish
+                  ? 'Todos los resultados de calculo muestran pago $0. ¿Deseas avanzar de todas formas?'
+                  : 'All calculation results show $0 payout. Do you want to advance anyway?'}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleZeroPayoutConfirm}
+                  className="px-3 py-1.5 rounded text-xs font-medium text-white"
+                  style={{ backgroundColor: '#d97706' }}
+                >
+                  {isSpanish ? 'Si, avanzar' : 'Yes, advance'}
+                </button>
+                <button
+                  onClick={() => setZeroPayoutConfirm(null)}
+                  className="px-3 py-1.5 rounded text-xs font-medium text-zinc-400 hover:text-zinc-200"
+                  style={{ backgroundColor: 'rgba(39, 39, 42, 0.8)' }}
+                >
+                  {isSpanish ? 'Cancelar' : 'Cancel'}
+                </button>
+              </div>
             </div>
           )}
         </div>

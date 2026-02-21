@@ -200,8 +200,9 @@ export function toDashboardState(state: LifecycleState | string): DashboardLifec
 export async function transitionLifecycle(
   tenantId: string,
   periodId: string,
-  newState: DashboardLifecycleState
-): Promise<{ success: boolean; error?: string }> {
+  newState: DashboardLifecycleState,
+  options?: { forceZeroPayout?: boolean }
+): Promise<{ success: boolean; error?: string; requiresConfirmation?: boolean }> {
   const supabase = createClient();
 
   // Get current state from latest non-superseded batch
@@ -226,6 +227,35 @@ export async function transitionLifecycle(
       success: false,
       error: `Cannot transition from ${currentDashboardState} to ${newState}`,
     };
+  }
+
+  // OB-73 Mission 4 / F-63 / AP-20: Payout validation gate
+  // Before advancing beyond DRAFT, verify that results exist and have non-zero payouts.
+  // Prevents accidentally publishing $0 payouts to all entities.
+  const forwardStates: DashboardLifecycleState[] = ['PREVIEW', 'RECONCILE', 'OFFICIAL', 'APPROVED', 'POSTED'];
+  if (forwardStates.includes(newState) && !options?.forceZeroPayout) {
+    try {
+      const { data: results } = await supabase
+        .from('calculation_results')
+        .select('total_payout')
+        .eq('batch_id', batch.id)
+        .eq('tenant_id', tenantId);
+
+      if (!results || results.length === 0) {
+        return { success: false, error: 'Cannot advance: no calculation results found for this batch.' };
+      }
+
+      const hasNonZero = results.some(r => (r.total_payout || 0) > 0);
+      if (!hasNonZero) {
+        return {
+          success: false,
+          error: 'Cannot advance: all entity payouts are $0. Override with confirmation if intentional.',
+          requiresConfirmation: true,
+        };
+      }
+    } catch (err) {
+      console.warn('[Lifecycle] Payout validation check failed:', err);
+    }
   }
 
   // Update the batch

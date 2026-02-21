@@ -93,7 +93,7 @@ export function PayoutBatchCard({
             <div>
               <CardTitle className="text-lg">{batch.periodLabel} Payout</CardTitle>
               <p className="text-sm text-muted-foreground mt-1">
-                {batch.id} • Created {formatDistanceToNow(new Date(batch.createdAt), { addSuffix: true })}
+                {batch.id.slice(0, 8)} • Created {formatDistanceToNow(new Date(batch.createdAt), { addSuffix: true })}
               </p>
             </div>
             {getStatusBadge(batch.status)}
