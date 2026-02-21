@@ -27,7 +27,7 @@ export async function POST(
       .from('profiles')
       .select('id, role, email')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });

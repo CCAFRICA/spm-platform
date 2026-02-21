@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       .from('profiles')
       .select('role')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (!profile || profile.role !== 'vl_admin') {
       return NextResponse.json({ error: 'Forbidden — VL Admin required' }, { status: 403 });
@@ -174,7 +174,7 @@ export async function POST(request: NextRequest) {
         .select('id')
         .eq('auth_user_id', authUserId)
         .eq('tenant_id', tenantId)
-        .single();
+        .maybeSingle();
 
       if (newProfile) {
         await supabase

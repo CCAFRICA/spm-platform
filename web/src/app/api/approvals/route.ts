@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       .from('profiles')
       .select('id, tenant_id, role')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
       .from('profiles')
       .select('id, tenant_id')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 403 });

@@ -101,7 +101,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
           .select('id')
           .eq('auth_user_id', user!.id)
           .eq('tenant_id', currentTenant!.id)
-          .single();
+          .maybeSingle();
 
         let linkedEntityId: string | null = null;
 

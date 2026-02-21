@@ -189,7 +189,7 @@ export async function middleware(request: NextRequest) {
       .from('profiles')
       .select('role, capabilities')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
 
     const capabilities = (profile?.capabilities as string[]) || [];
     const isPlatformAdmin = profile?.role === 'vl_admin' || capabilities.includes('manage_tenants');
@@ -215,7 +215,7 @@ export async function middleware(request: NextRequest) {
           .from('profiles')
           .select('role')
           .eq('auth_user_id', user.id)
-          .single();
+          .maybeSingle();
         role = profile?.role || undefined;
       } catch {
         // If profile query fails, allow through (client-side HOC will catch)

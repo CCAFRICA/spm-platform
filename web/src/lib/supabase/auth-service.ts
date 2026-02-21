@@ -136,7 +136,7 @@ export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
       .from('profiles')
       .select('*')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (error || !data) return null;
 

@@ -36,7 +36,7 @@ export async function PATCH(
       .from('profiles')
       .select('id, tenant_id, role, display_name')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
