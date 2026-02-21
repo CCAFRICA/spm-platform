@@ -6,6 +6,7 @@
  */
 
 import { createClient, requireTenantId } from './client';
+import { writeAuditLog } from '@/lib/audit/audit-logger';
 import type { Database, Json, LifecycleState, BatchType } from './database.types';
 
 // ──────────────────────────────────────────────
@@ -79,6 +80,21 @@ export async function createCalculationBatch(
     .select()
     .single();
   if (error) throw error;
+
+  // OB-72: Audit log batch creation
+  writeAuditLog(supabase, {
+    tenant_id: tenantId,
+    profile_id: params.createdBy || null,
+    action: 'batch.created',
+    resource_type: 'calculation_batch',
+    resource_id: data.id,
+    changes: {
+      period_id: params.periodId,
+      batch_type: params.batchType || 'standard',
+      entity_count: params.entityCount || 0,
+    },
+  }).catch(() => {});
+
   return data as CalcBatchRow;
 }
 
@@ -225,6 +241,22 @@ export async function transitionBatchLifecycle(
     .select()
     .single();
   if (error) return null;
+
+  // OB-72: Audit log lifecycle transitions
+  writeAuditLog(supabase, {
+    tenant_id: tenantId,
+    profile_id: null,
+    action: `lifecycle.${currentState.toLowerCase()}_to_${targetState.toLowerCase()}`,
+    resource_type: 'calculation_batch',
+    resource_id: batchId,
+    changes: {
+      before_state: currentState,
+      after_state: targetState,
+      period_id: batch.period_id,
+    },
+  }).catch(() => {
+    // Non-blocking — audit failure should not affect transition
+  });
 
   // Trigger materialization on key transitions
   if (['OFFICIAL', 'APPROVED', 'POSTED', 'PUBLISHED'].includes(targetState)) {
