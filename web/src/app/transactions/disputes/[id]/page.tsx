@@ -20,9 +20,8 @@ import {
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import {
-  getDispute,
-  startReview,
-  resolveDispute,
+  getDisputeAsync,
+  updateDisputeAsync,
 } from '@/lib/disputes/dispute-service';
 import { SystemAnalyzer, DisputeResolutionForm } from '@/components/disputes';
 import type { AnalysisResult } from '@/components/disputes/SystemAnalyzer';
@@ -41,16 +40,62 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
   const [isLoading, setIsLoading] = useState(true);
   const [showResolutionForm, setShowResolutionForm] = useState(false);
 
-  const loadDispute = useCallback(() => {
-    const loaded = getDispute(disputeId);
-    if (loaded) {
-      setDispute(loaded);
+  const loadDispute = useCallback(async () => {
+    try {
+      const loaded = await getDisputeAsync(disputeId);
+      if (loaded) {
+        // Map Supabase row shape to Dispute type
+        // Map Supabase status to client Dispute status
+        const dbStatus = String(loaded.status || 'open');
+        const clientStatus: Dispute['status'] =
+          dbStatus === 'open' ? 'submitted' :
+          dbStatus === 'investigating' ? 'in_review' :
+          dbStatus === 'resolved' || dbStatus === 'rejected' ? 'resolved' :
+          'submitted';
 
-      // Start review if not already in review
-      if (loaded.status === 'submitted') {
-        startReview(disputeId);
-        setDispute({ ...loaded, status: 'in_review' });
+        const mapped: Dispute = {
+          id: String(loaded.id),
+          tenantId: String(loaded.tenant_id || ''),
+          transactionId: String(loaded.batch_id || loaded.id),
+          entityId: String(loaded.entity_id || ''),
+          entityName: String(loaded.entity_id || '').slice(0, 8),
+          storeId: '',
+          storeName: '',
+          status: clientStatus,
+          category: (loaded.category as Dispute['category']) || 'other',
+          component: '',
+          stepsCompleted: 0,
+          resolvedAtStep: null,
+          stepTimestamps: {},
+          expectedAmount: Number(loaded.amount_disputed || 0),
+          actualAmount: 0,
+          difference: Number(loaded.amount_disputed || 0),
+          justification: String(loaded.description || ''),
+          attachedTransactionIds: [],
+          resolution: loaded.resolution ? {
+            outcome: loaded.status === 'resolved' ? 'approved' : 'denied',
+            adjustmentAmount: Number(loaded.amount_resolved || 0),
+            explanation: String(loaded.resolution),
+            resolvedBy: String(loaded.resolved_by || ''),
+            resolvedByName: String(loaded.resolved_by || '').slice(0, 8),
+            resolvedAt: String(loaded.resolved_at || ''),
+            adjustmentApplied: false,
+          } : null,
+          createdAt: String(loaded.created_at || ''),
+          updatedAt: String(loaded.updated_at || loaded.created_at || ''),
+          submittedAt: loaded.status !== 'open' ? String(loaded.created_at || '') : null,
+          resolvedAt: loaded.resolved_at ? String(loaded.resolved_at) : null,
+        };
+        setDispute(mapped);
+
+        // Start review if newly submitted (mapped from 'open')
+        if (dbStatus === 'open') {
+          await updateDisputeAsync(disputeId, { status: 'investigating' });
+          setDispute({ ...mapped, status: 'in_review' });
+        }
       }
+    } catch (err) {
+      console.error('[DisputeDetail] Load error:', err);
     }
     setIsLoading(false);
   }, [disputeId]);
@@ -66,13 +111,11 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
   const handleResolve = async (outcome: DisputeOutcome, amount: number, explanation: string) => {
     if (!dispute || !user) return;
 
-    const result = resolveDispute(dispute.id, {
-      outcome,
-      adjustmentAmount: amount,
-      explanation,
-      resolvedBy: user.id,
-      resolvedByName: user.name,
-      adjustmentApplied: false,
+    const status = outcome === 'approved' || outcome === 'partial' ? 'resolved' : 'rejected';
+    const result = await updateDisputeAsync(dispute.id, {
+      status,
+      resolution: explanation,
+      amount_resolved: amount,
     });
 
     if (result) {

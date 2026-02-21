@@ -2,22 +2,55 @@
  * API Route: AI Dashboard Assessment
  *
  * OB-71: Routes through AIService (not direct Anthropic call).
+ * OB-72: Auto-invokes anomaly detection when payout data is present.
  * AIService provides: provider abstraction, signal capture, consistent error handling.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAIService } from '@/lib/ai/ai-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { detectAnomalies } from '@/lib/intelligence/anomaly-detection';
 
 export async function POST(request: NextRequest) {
   try {
-    const { persona, data, locale, tenantId, anomalies } = await request.json();
+    const { persona, data, locale, tenantId, anomalies: clientAnomalies } = await request.json();
 
     if (!persona || !data) {
       return NextResponse.json(
         { assessment: null, error: 'persona and data are required' },
         { status: 400 }
       );
+    }
+
+    // OB-72: Auto-invoke anomaly detection if payout data is available
+    let anomalies = clientAnomalies;
+    if (!anomalies && data) {
+      try {
+        // Try to extract payout records from various data shapes
+        const records: Array<{ entityId: string; totalPayout: number }> = [];
+        if (Array.isArray(data.storeBreakdown)) {
+          for (const s of data.storeBreakdown) {
+            if (s.entityId && typeof s.totalPayout === 'number') {
+              records.push({ entityId: s.entityId, totalPayout: s.totalPayout });
+            }
+          }
+        }
+        if (Array.isArray(data.teamMembers)) {
+          for (const m of data.teamMembers) {
+            if (m.entityId && typeof m.totalPayout === 'number') {
+              records.push({ entityId: m.entityId, totalPayout: m.totalPayout });
+            }
+          }
+        }
+        if (records.length >= 3) {
+          const report = detectAnomalies(records);
+          if (report.anomalies.length > 0) {
+            anomalies = report.anomalies;
+          }
+        }
+      } catch {
+        // Non-blocking — anomaly detection failure should not affect assessment
+      }
     }
 
     const aiService = getAIService();
