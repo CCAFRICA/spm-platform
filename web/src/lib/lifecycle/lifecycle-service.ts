@@ -213,7 +213,7 @@ export async function transitionLifecycle(
     .is('superseded_by', null)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (!batch) {
     return { success: false, error: 'No active calculation batch found for this period' };
@@ -280,7 +280,7 @@ export async function getCurrentLifecycleState(
     .is('superseded_by', null)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (!data) return null;
   return toDashboardState(data.lifecycle_state);

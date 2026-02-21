@@ -220,7 +220,7 @@ export async function loadCalculatePageData(tenantId: string, periodKey?: string
 
   // Round 1: rule set + period + entities + assignments + committed data + batches
   const periodQuery = periodKey
-    ? supabase.from('periods').select('*').eq('tenant_id', tenantId).eq('canonical_key', periodKey).single()
+    ? supabase.from('periods').select('*').eq('tenant_id', tenantId).eq('canonical_key', periodKey).maybeSingle()
     : supabase.from('periods').select('*').eq('tenant_id', tenantId).eq('status', 'open').order('start_date', { ascending: false }).limit(1).maybeSingle();
 
   const [ruleSetRes, periodRes, entityCountRes, batchesRes] = await Promise.all([

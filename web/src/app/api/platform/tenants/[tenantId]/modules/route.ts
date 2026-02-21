@@ -25,7 +25,7 @@ export async function PATCH(
       .from('profiles')
       .select('role')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
     if (!profile || profile.role !== 'vl_admin') {
       return NextResponse.json({ error: 'Forbidden — VL Admin required' }, { status: 403 });
     }

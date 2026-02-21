@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     .from('profiles')
     .select('id, tenant_id')
     .eq('auth_user_id', session.user.id)
-    .single();
+    .maybeSingle();
 
   if (!profile) {
     // New Google SSO user — create tenant + profile

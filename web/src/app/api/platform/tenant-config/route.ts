@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       .from('profiles')
       .select('role')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (!profile || profile.role !== 'vl_admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

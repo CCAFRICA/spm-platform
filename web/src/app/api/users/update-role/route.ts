@@ -35,7 +35,7 @@ export async function PATCH(request: NextRequest) {
       .from('profiles')
       .select('role, tenant_id')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (!callerProfile || !['vl_admin', 'admin'].includes(callerProfile.role)) {
       return NextResponse.json({ error: 'Forbidden — admin required' }, { status: 403 });
@@ -64,7 +64,7 @@ export async function PATCH(request: NextRequest) {
       .from('profiles')
       .select('id, auth_user_id, tenant_id, role')
       .eq('id', profileId)
-      .single();
+      .maybeSingle();
 
     if (!targetProfile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });

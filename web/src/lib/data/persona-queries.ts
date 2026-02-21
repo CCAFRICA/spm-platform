@@ -104,7 +104,7 @@ export async function getCurrentPeriodId(tenantId: string): Promise<string | nul
     .eq('status', 'open')
     .order('start_date', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (openPeriod) return openPeriod.id;
 
@@ -115,7 +115,7 @@ export async function getCurrentPeriodId(tenantId: string): Promise<string | nul
     .eq('tenant_id', tenantId)
     .order('start_date', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   return latestPeriod?.id ?? null;
 }
@@ -327,7 +327,7 @@ export async function getRepDashboardData(
       .eq('period_id', periodId)
       .order('total_payout', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
     resolvedEntityId = topEntity?.entity_id ?? null;
   }
 
@@ -342,7 +342,7 @@ export async function getRepDashboardData(
     .eq('tenant_id', tenantId)
     .eq('entity_id', resolvedEntityId)
     .eq('period_id', periodId)
-    .single();
+    .maybeSingle();
 
   // Detailed component breakdown from calculation_results
   const { data: myResults } = await supabase
@@ -565,7 +565,7 @@ async function getLifecycleState(tenantId: string, periodId: string): Promise<st
     .is('superseded_by', null)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   return data?.lifecycle_state ?? null;
 }
