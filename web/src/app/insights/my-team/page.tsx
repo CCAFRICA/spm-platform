@@ -208,7 +208,7 @@ export default function MyTeamPage() {
           Mi Equipo - Todas las Franquicias
         </h1>
         <p className="text-muted-foreground">
-          Vista de rendimiento regional ({data.franchiseStats.length} franquicias, {data.serverStats.length} meseros)
+          Regional performance view ({data.franchiseStats.length} franchises, {data.serverStats.length} servers)
         </p>
       </div>
 
@@ -218,7 +218,7 @@ export default function MyTeamPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Ventas Totales</p>
+                <p className="text-sm text-muted-foreground">Total Sales</p>
                 <p className="text-2xl font-bold">{format(data.totalSales)}</p>
                 <p className="text-xs text-muted-foreground mt-1">{data.totalChecks} cheques</p>
               </div>
@@ -231,7 +231,7 @@ export default function MyTeamPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Ticket Promedio</p>
+                <p className="text-sm text-muted-foreground">Avg Ticket</p>
                 <p className="text-2xl font-bold">{format(data.avgTicket)}</p>
               </div>
               <Target className="h-10 w-10 text-blue-500/50" />
@@ -243,7 +243,7 @@ export default function MyTeamPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Propinas</p>
+                <p className="text-sm text-muted-foreground">Total Tips</p>
                 <p className="text-2xl font-bold text-green-600">{format(data.totalTips)}</p>
               </div>
               <Trophy className="h-10 w-10 text-green-500/50" />
@@ -255,7 +255,7 @@ export default function MyTeamPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Comisiones</p>
+                <p className="text-sm text-muted-foreground">Total Commission</p>
                 <p className="text-2xl font-bold text-purple-600">{format(data.totalCommission)}</p>
               </div>
               <Users className="h-10 w-10 text-purple-500/50" />
@@ -271,7 +271,7 @@ export default function MyTeamPage() {
             <Building2 className="h-5 w-5" />
             Rendimiento por Franquicia
           </CardTitle>
-          <CardDescription>Comparación contra ticket promedio objetivo</CardDescription>
+          <CardDescription>Comparison against target average ticket</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {data.franchiseStats.map((f) => (
@@ -299,7 +299,7 @@ export default function MyTeamPage() {
               />
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>Ticket: {format(f.avgTicket)}</span>
-                <span>Objetivo: {format(f.franquicia.target_avg_ticket)}</span>
+                <span>Target: {format(f.franquicia.target_avg_ticket)}</span>
               </div>
             </div>
           ))}
@@ -387,12 +387,12 @@ export default function MyTeamPage() {
           subtitle: f.franquicia.ciudad,
           change: f.vsTarget,
         }))}
-        title="Ranking de Franquicias por Ventas"
+        title="Franchise Ranking by Sales"
         showChange={true}
       />
 
       {/* Sales History */}
-      <SalesHistoryChart data={data.historyData} title="Histórico de Ventas - Todas las Franquicias" />
+      <SalesHistoryChart data={data.historyData} title="Sales History - All Franchises" />
     </div>
   );
 }
