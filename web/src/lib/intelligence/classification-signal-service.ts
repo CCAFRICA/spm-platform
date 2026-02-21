@@ -4,9 +4,9 @@
  * Focused facade for persisting and retrieving classification signals per tenant.
  * Scoped by tenantId + data domain (e.g., "employee_data", "compensation_results").
  *
- * Integrates with:
- * - TrainingSignalService (AI-captured signals)
- * - Smart-mapper mapping history (usage-based signals)
+ * HF-055: Wired to Supabase via signal-persistence.ts.
+ * Writes fire-and-forget to classification_signals table.
+ * Reads query Supabase for historical signals (closed-loop learning).
  *
  * Confidence escalation:
  * - ai_initial: 0.60-0.80 (raw AI classification)
@@ -15,6 +15,8 @@
  *
  * Korean Test: No hardcoded field names. Works with any language/encoding.
  */
+
+import { persistSignal, persistSignalBatch, getTrainingSignals } from '@/lib/ai/signal-persistence';
 
 // ============================================
 // TYPES
@@ -43,45 +45,40 @@ export interface ConfidentMapping {
 }
 
 // ============================================
-// STORAGE
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const STORAGE_KEY = (tenantId: string) => `vialuce_classification_signals_${tenantId}`;
-const MAX_SIGNALS_PER_TENANT = 5000;
-
-// ============================================
 // PUBLIC API
 // ============================================
 
 /**
  * Record a classification signal for a field mapping.
+ * Persists to Supabase via fire-and-forget (non-blocking).
  */
 export function recordSignal(signal: Omit<ClassificationSignal, 'id' | 'timestamp'>): string {
   if (typeof window === 'undefined') return '';
 
   const id = `cs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const fullSignal: ClassificationSignal = {
-    ...signal,
-    id,
-    timestamp: new Date().toISOString(),
-  };
 
-  const signals = loadSignals(signal.tenantId);
-  signals.push(fullSignal);
+  // HF-055: Fire-and-forget persist to Supabase
+  persistSignal({
+    tenantId: signal.tenantId,
+    signalType: signal.domain,
+    signalValue: {
+      fieldName: signal.fieldName,
+      semanticType: signal.semanticType,
+    },
+    confidence: signal.confidence,
+    source: signal.source,
+    context: signal.metadata ?? {},
+  }).catch(err => {
+    console.warn('[ClassificationSignalService] Persist failed:', err);
+  });
 
-  // Prune if over limit (keep most recent)
-  if (signals.length > MAX_SIGNALS_PER_TENANT) {
-    signals.splice(0, signals.length - MAX_SIGNALS_PER_TENANT);
-  }
-
-  saveSignals(signal.tenantId, signals);
   return id;
 }
 
 /**
  * Record multiple signals from an AI classification batch.
  * Convenience wrapper for recording all mappings from a single file classification.
+ * Persists entire batch to Supabase in one call.
  */
 export function recordAIClassificationBatch(
   tenantId: string,
@@ -89,17 +86,30 @@ export function recordAIClassificationBatch(
   mappings: Array<{ fieldName: string; semanticType: string; confidence: number }>,
   metadata?: Record<string, unknown>,
 ): string[] {
-  return mappings.map((m) =>
-    recordSignal({
-      tenantId,
-      domain,
+  if (typeof window === 'undefined') return [];
+
+  const ids = mappings.map(() =>
+    `cs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  );
+
+  // HF-055: Batch persist to Supabase
+  const signals = mappings.map(m => ({
+    tenantId,
+    signalType: domain,
+    signalValue: {
       fieldName: m.fieldName,
       semanticType: m.semanticType,
-      confidence: m.confidence,
-      source: 'ai',
-      metadata,
-    })
-  );
+    },
+    confidence: m.confidence,
+    source: 'ai' as const,
+    context: metadata ?? {},
+  }));
+
+  persistSignalBatch(signals).catch(err => {
+    console.warn('[ClassificationSignalService] Batch persist failed:', err);
+  });
+
+  return ids;
 }
 
 /**
@@ -148,30 +158,41 @@ export function recordUserCorrection(
 
 /**
  * Get all signals for a tenant, optionally filtered by domain.
+ * HF-055: Now reads from Supabase instead of returning [].
  */
-export function getSignals(tenantId: string, domain?: string): ClassificationSignal[] {
-  const signals = loadSignals(tenantId);
-  if (domain) {
-    return signals.filter((s) => s.domain === domain);
-  }
-  return signals;
+export async function getSignals(tenantId: string, domain?: string): Promise<ClassificationSignal[]> {
+  const rows = await getTrainingSignals(tenantId, domain, 500);
+
+  return rows.map(row => ({
+    id: `db-${Date.now()}`,
+    tenantId: row.tenantId,
+    domain: row.signalType,
+    fieldName: (row.signalValue as Record<string, unknown>)?.fieldName as string || '',
+    semanticType: (row.signalValue as Record<string, unknown>)?.semanticType as string || '',
+    confidence: row.confidence ?? 0,
+    source: (row.source as SignalSource) || 'ai',
+    timestamp: new Date().toISOString(),
+    metadata: row.context,
+  }));
 }
 
 /**
  * Get confident mappings for a tenant.
  * Returns the best mapping per normalized field name, with confidence >= threshold.
  * Aggregates across all signals, picking the highest-confidence source.
+ * HF-055: Now async — reads from Supabase.
  */
-export function getConfidentMappings(
+export async function getConfidentMappings(
   tenantId: string,
   threshold: number = 0.85,
   domain?: string,
-): ConfidentMapping[] {
-  const signals = getSignals(tenantId, domain);
+): Promise<ConfidentMapping[]> {
+  const signals = await getSignals(tenantId, domain);
 
   // Group by normalized field name
   const grouped = new Map<string, ClassificationSignal[]>();
   for (const signal of signals) {
+    if (!signal.fieldName) continue;
     const key = normalizeFieldName(signal.fieldName);
     const existing = grouped.get(key) || [];
     existing.push(signal);
@@ -216,14 +237,15 @@ export function getConfidentMappings(
 /**
  * Boost an AI-generated confidence using prior signals.
  * Returns the effective confidence: max(aiConfidence, priorConfidence).
+ * HF-055: Now async — reads from Supabase.
  */
-export function boostConfidence(
+export async function boostConfidence(
   tenantId: string,
   fieldName: string,
   aiConfidence: number,
   domain?: string,
-): { effectiveConfidence: number; source: SignalSource; boosted: boolean } {
-  const signals = getSignals(tenantId, domain);
+): Promise<{ effectiveConfidence: number; source: SignalSource; boosted: boolean }> {
+  const signals = await getSignals(tenantId, domain);
   const normalized = normalizeFieldName(fieldName);
 
   // Find the best prior signal for this field
@@ -252,11 +274,11 @@ export function boostConfidence(
 }
 
 /**
- * Clear all signals for a tenant (no-op, localStorage removed).
+ * Clear all signals for a tenant.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function clearSignals(_tenantId: string): void {
-  // No-op: localStorage removed
+  // Supabase signals are persistent — clearing requires admin action
 }
 
 // ============================================
@@ -265,14 +287,4 @@ export function clearSignals(_tenantId: string): void {
 
 function normalizeFieldName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F\u1100-\u11FF\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/g, '').trim();
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function loadSignals(_tenantId: string): ClassificationSignal[] {
-  return [];
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function saveSignals(_tenantId: string, _signals: ClassificationSignal[]): void {
-  // No-op: localStorage removed
 }

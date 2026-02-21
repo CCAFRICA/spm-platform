@@ -494,9 +494,9 @@ function ReconciliationPageInner() {
 
       if (result.aiAvailable && result.mappings.length > 0) {
         // OB-39: Boost AI confidence with prior classification signals
-        const boostedMappings = result.mappings.map(m => {
+        const boostedMappings = await Promise.all(result.mappings.map(async m => {
           if (m.mappedTo === 'unmapped' || m.confidence === 0) return m;
-          const boost = boostConfidence(currentTenant.id, m.sourceColumn, m.confidence);
+          const boost = await boostConfidence(currentTenant.id, m.sourceColumn, m.confidence);
           if (boost.boosted) {
             return {
               ...m,
@@ -505,7 +505,7 @@ function ReconciliationPageInner() {
             };
           }
           return m;
-        });
+        }));
 
         setAiMappings(boostedMappings);
 
@@ -526,7 +526,7 @@ function ReconciliationPageInner() {
         }
       } else {
         // AI unavailable -- check if prior signals can map fields directly
-        const priorMappings = getConfidentMappings(currentTenant.id, 0.85);
+        const priorMappings = await getConfidentMappings(currentTenant.id, 0.85);
         if (priorMappings.length > 0) {
           const empSignal = priorMappings.find(m => m.semanticType === 'entity_id');
           const amtSignal = priorMappings.find(m => m.semanticType === 'total_amount');
