@@ -67,33 +67,38 @@ function PeopleConfigurePageInner() {
   const fetchEntities = useCallback(async () => {
     if (!tenantId) return;
     setLoading(true);
-    const supabase = createClient();
+    try {
+      const supabase = createClient();
 
-    let query = supabase
-      .from('entities')
-      .select('id, external_id, display_name, entity_type, status, created_at', { count: 'exact' })
-      .eq('tenant_id', tenantId);
+      let query = supabase
+        .from('entities')
+        .select('id, external_id, display_name, entity_type, status, created_at', { count: 'exact' })
+        .eq('tenant_id', tenantId);
 
-    if (search) {
-      query = query.or(`display_name.ilike.%${search}%,external_id.ilike.%${search}%`);
+      if (search) {
+        query = query.or(`display_name.ilike.%${search}%,external_id.ilike.%${search}%`);
+      }
+      if (typeFilter !== 'all') {
+        query = query.eq('entity_type', typeFilter as EntityType);
+      }
+      if (statusFilter !== 'all') {
+        query = query.eq('status', statusFilter as EntityStatus);
+      }
+
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      const { data, count } = await query
+        .order('display_name')
+        .range(from, to);
+
+      setEntities((data ?? []) as EntityRow[]);
+      setTotalCount(count ?? 0);
+    } catch (err) {
+      console.error('[Personnel] Fetch error:', err);
+    } finally {
+      setLoading(false);
     }
-    if (typeFilter !== 'all') {
-      query = query.eq('entity_type', typeFilter as EntityType);
-    }
-    if (statusFilter !== 'all') {
-      query = query.eq('status', statusFilter as EntityStatus);
-    }
-
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
-    const { data, count } = await query
-      .order('display_name')
-      .range(from, to);
-
-    setEntities((data ?? []) as EntityRow[]);
-    setTotalCount(count ?? 0);
-    setLoading(false);
   }, [tenantId, page, search, typeFilter, statusFilter]);
 
   useEffect(() => {
