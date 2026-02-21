@@ -541,229 +541,25 @@ function translateColumn(column: string): string | null {
   return COLUMN_TRANSLATIONS[normalized] || null;
 }
 
-// Helper: Map AI-suggested field names to dropdown option IDs
-// OB-13A: Expanded to 80+ entries to handle all AI suggestions from CLT-05 console logs
-const FIELD_ID_MAPPINGS: Record<string, string> = {
-  // ========== Employee identifiers ==========
-  'entity_id': 'entityId',
-  'employeeid': 'entityId',
-  'emp_id': 'entityId',
-  'empid': 'entityId',
-  'num_empleado': 'entityId',
-  'numero_empleado': 'entityId',
-  'id_empleado': 'entityId',
-  'rep_id': 'entityId',
-  'repid': 'entityId',
-  'sales_rep_id': 'entityId',
-  'worker_id': 'entityId',
-  'staff_id': 'entityId',
-  'associate_id': 'entityId',
+/**
+ * OB-72 Korean Test: Field mapping is AI-first.
+ *
+ * REMOVED: FIELD_ID_MAPPINGS (80+ hardcoded entries) and COMPOUND_PATTERNS (30+ regex rules).
+ * The AI classifier handles any language. These functions now only do language-agnostic
+ * targetField matching (id, label, labelEs) which works regardless of input language.
+ *
+ * Flow: Source header → AI classifier → normalizeAISuggestionToFieldId() → dropdown selection
+ * Fallback: Source header → normalizeFieldWithPatterns() → targetField direct match only
+ */
 
-  // ========== Store/Location identifiers ==========
-  'store_id': 'storeId',
-  'storeid': 'storeId',
-  'no_tienda': 'storeId',
-  'id_tienda': 'storeId',
-  'tienda': 'storeId',
-  'location_id': 'storeId',
-  'locationid': 'storeId',
-  'branch_id': 'storeId',
-  'site_id': 'storeId',
-  'franchise_id': 'storeId',
-
-  // ========== Date fields ==========
-  'date': 'date',
-  'fecha': 'date',
-  'transaction_date': 'date',
-  'fecha_corte': 'date',
-  'fecha_transaccion': 'date',
-  'order_date': 'date',
-  'sale_date': 'date',
-  'period_date': 'date',
-
-  // ========== Period fields ==========
-  'period': 'period',
-  'periodo': 'period',
-  'mes': 'period',
-  'month': 'period',
-  'ano': 'period',
-  'año': 'period',
-  'year': 'period',
-  'pay_period': 'period',
-  'fiscal_period': 'period',
-  'reporting_period': 'period',
-
-  // ========== Amount/Sales Actual fields ==========
-  'amount': 'amount',
-  'monto': 'amount',
-  'total': 'amount',
-  'value': 'amount',
-  'venta': 'amount',
-  'revenue': 'amount',
-  'sales_actual': 'amount',
-  'sales_amount': 'amount',
-  'actual_sales': 'amount',
-  'venta_individual': 'amount',
-  'venta_real': 'amount',
-  'store_sales_actual': 'amount',
-  'store_revenue': 'amount',
-  'store_sales_amount': 'amount',
-  'collections_actual': 'amount',
-  'collections_amount': 'amount',
-  'amount_collected': 'amount',
-  'recovery_amount': 'amount',
-  'monto_recuperado': 'amount',
-  'monto_recuperado_actual': 'amount',
-  'protection_club_amount': 'amount',
-  'insurance_amount': 'amount',
-  'insurance_sales': 'amount',
-  'extended_warranty_amount': 'amount',
-  'warranty_amount': 'amount',
-  'warranty_sales': 'amount',
-  'total_amount': 'amount',
-  'actual_amount': 'amount',
-  'real': 'amount',
-  'actual': 'amount',
-
-  // ========== Attainment/Achievement fields ==========
-  'attainment': 'attainment',
-  'cumplimiento': 'attainment',
-  'porcentaje': 'attainment',
-  'percentage': 'attainment',
-  'pct_cumplimiento': 'attainment',
-  'achievement_percentage': 'attainment',
-  'attainment_percentage': 'attainment',
-  'attainment_rate': 'attainment',
-  'percent_attainment': 'attainment',
-  'completion_rate': 'attainment',
-  'pct_achievement': 'attainment',
-  'percent_complete': 'attainment',
-
-  // ========== Goal/Target fields ==========
-  'goal': 'goal',
-  'meta': 'goal',
-  'target': 'goal',
-  'quota': 'goal',
-  'cuota': 'goal',
-  'sales_target': 'goal',
-  'meta_individual': 'goal',
-  'store_sales_target': 'goal',
-  'target_sales': 'goal',
-  'new_customers_target': 'goal',
-  'customers_target': 'goal',
-  'collections_target': 'goal',
-  'monto_recuperado_meta': 'goal',
-  'protection_club_count_target': 'goal',
-  'target_amount': 'goal',
-  'target_count': 'goal',
-  'objetivo': 'goal',
-
-  // ========== Quantity/Count fields ==========
-  'quantity': 'quantity',
-  'cantidad': 'quantity',
-  'count': 'quantity',
-  'units': 'quantity',
-  'new_customers_actual': 'quantity',
-  'new_customers_count': 'quantity',
-  'customer_count': 'quantity',
-  'customers_actual': 'quantity',
-  'clientes_actuales': 'quantity',
-  'protection_club_count_actual': 'quantity',
-  'insurance_count': 'quantity',
-  'warranty_count': 'quantity',
-  'actual_count': 'quantity',
-  'units_sold': 'quantity',
-
-  // ========== Role/Position fields (9th target field) ==========
-  'role': 'role',
-  'position': 'role',
-  'job_title': 'role',
-  'puesto': 'role',
-  'cargo': 'role',
-  'titulo': 'role',
-  'job_role': 'role',
-
-  // ========== Name fields (CLT-08 FIX) ==========
-  'name': 'name',
-  'nombre': 'name',
-  'full_name': 'name',
-  'fullname': 'name',
-  'employee_name': 'name',
-  'employeename': 'name',
-  'rep_name': 'name',
-  'sales_rep_name': 'name',
-  'nombre_empleado': 'name',
-  'nombre_completo': 'name',
-  'first_name': 'name',
-  'firstname': 'name',
-  'last_name': 'name',
-  'lastname': 'name',
-  'apellido': 'name',
-  'nombre_apellido': 'name',
-};
-
-// CLT-08 FIX 2: Compound pattern matching for multi-word field names
-// These patterns are heuristic assists - they produce Tier 2 (suggested), not Tier 1 (auto)
-const COMPOUND_PATTERNS: Array<{ pattern: RegExp; semanticType: string; confidence: number }> = [
-  // Goal/Target patterns
-  { pattern: /\bmeta\b/i, semanticType: 'goal', confidence: 0.80 },
-  { pattern: /\bobjetivo\b/i, semanticType: 'goal', confidence: 0.80 },
-  { pattern: /\btarget\b/i, semanticType: 'goal', confidence: 0.85 },
-  { pattern: /\bquota\b/i, semanticType: 'goal', confidence: 0.85 },
-  { pattern: /\bcuota\b/i, semanticType: 'goal', confidence: 0.80 },
-
-  // Amount/Sales patterns
-  { pattern: /\bventa\b/i, semanticType: 'amount', confidence: 0.75 },
-  { pattern: /\bmonto\b/i, semanticType: 'amount', confidence: 0.85 },
-  { pattern: /\breal\b/i, semanticType: 'amount', confidence: 0.70 },
-  { pattern: /\bactual\b/i, semanticType: 'amount', confidence: 0.75 },
-  { pattern: /\brevenue\b/i, semanticType: 'amount', confidence: 0.85 },
-  { pattern: /\bsales\b/i, semanticType: 'amount', confidence: 0.80 },
-  { pattern: /\bvalor\b/i, semanticType: 'amount', confidence: 0.70 },
-
-  // Attainment patterns
-  { pattern: /\bcumplimiento\b/i, semanticType: 'attainment', confidence: 0.95 },
-  { pattern: /\bachievement\b/i, semanticType: 'attainment', confidence: 0.90 },
-  { pattern: /\battainment\b/i, semanticType: 'attainment', confidence: 0.95 },
-  { pattern: /\bporcentaje\b/i, semanticType: 'attainment', confidence: 0.70 },
-
-  // Identity patterns
-  { pattern: /\btienda\b/i, semanticType: 'storeId', confidence: 0.70 },
-  { pattern: /\bempleado\b/i, semanticType: 'entityId', confidence: 0.85 },
-  { pattern: /\bvendedor\b/i, semanticType: 'entityId', confidence: 0.80 },
-  { pattern: /\bnombre\b/i, semanticType: 'name', confidence: 0.80 },
-  { pattern: /\bpuesto\b|\bcargo\b|\bposicion\b/i, semanticType: 'role', confidence: 0.85 },
-  { pattern: /\brango\b/i, semanticType: 'storeRange', confidence: 0.75 },
-
-  // Date patterns
-  { pattern: /\bfecha\b/i, semanticType: 'date', confidence: 0.85 },
-
-  // Year/Month patterns (HF-053: period detection)
-  { pattern: /^a[ñn]o$/i, semanticType: 'year', confidence: 0.95 },
-  { pattern: /\byear\b/i, semanticType: 'year', confidence: 0.90 },
-  { pattern: /^mes$/i, semanticType: 'month', confidence: 0.95 },
-  { pattern: /\bmonth\b/i, semanticType: 'month', confidence: 0.90 },
-
-  // Quantity patterns
-  { pattern: /\bcliente\b/i, semanticType: 'quantity', confidence: 0.70 },
-  { pattern: /\bcustomer\b/i, semanticType: 'quantity', confidence: 0.70 },
-  { pattern: /\bcount\b|\bqty\b/i, semanticType: 'quantity', confidence: 0.75 },
-];
-
-// Returns { targetField, confidence } - confidence < 1.0 means pattern match (Tier 2)
+// Returns { targetField, confidence } — language-agnostic targetField matching only
 function normalizeFieldWithPatterns(
   sourceName: string,
   targetFields: TargetField[]
 ): { targetField: string | null; confidence: number } {
   const normalized = sourceName.toLowerCase().replace(/[\s_-]+/g, '_').trim();
 
-  // Step 1: Exact match (highest confidence)
-  const exactMatch = FIELD_ID_MAPPINGS[normalized];
-  if (exactMatch && targetFields.some(f => f.id === exactMatch)) {
-    return { targetField: exactMatch, confidence: 1.0 };
-  }
-
-  // Step 2: Try matching against targetFields directly
+  // Match against targetField id, label, and labelEs (language-agnostic)
   for (const field of targetFields) {
     if (!field?.id || !field?.label) continue;
     const fieldNorm = field.id.toLowerCase();
@@ -775,15 +571,7 @@ function normalizeFieldWithPatterns(
     }
   }
 
-  // Step 3: Compound pattern matching (Tier 2 - user should review)
-  for (const rule of COMPOUND_PATTERNS) {
-    if (rule.pattern.test(sourceName)) {
-      if (targetFields.some(f => f.id === rule.semanticType)) {
-        return { targetField: rule.semanticType, confidence: rule.confidence };
-      }
-    }
-  }
-
+  // No match — let AI classifier handle it
   return { targetField: null, confidence: 0 };
 }
 
@@ -792,13 +580,7 @@ function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields:
 
   const normalized = suggestion.toLowerCase().replace(/[\s_-]+/g, '_').trim();
 
-  // First try direct mapping
-  const directMatch = FIELD_ID_MAPPINGS[normalized];
-  if (directMatch && targetFields.some(f => f.id === directMatch)) {
-    return directMatch;
-  }
-
-  // Try matching against targetFields directly
+  // Match against targetField id, label, and labelEs
   for (const field of targetFields) {
     if (!field?.id || !field?.label) continue;
     const fieldNorm = field.id.toLowerCase();
@@ -809,7 +591,7 @@ function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields:
       return field.id;
     }
 
-    // Partial match - suggestion contains field ID or vice versa
+    // Partial match — suggestion contains field ID or vice versa
     if (normalized.includes(fieldNorm) || fieldNorm.includes(normalized)) {
       return field.id;
     }
