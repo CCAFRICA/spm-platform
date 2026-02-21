@@ -41,6 +41,7 @@ export interface OperatePageData {
   activePeriodId: string | null;
   activePeriodKey: string | null;
   hasActivePlan: boolean;
+  ruleSetId: string | null;
   lastImportStatus: string | null;
   lastBatchId: string | null;
   lastBatchCreatedAt: string | null;
@@ -202,6 +203,7 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
     activePeriodId,
     activePeriodKey,
     hasActivePlan: !!planRes.data,
+    ruleSetId: planRes.data?.id ?? null,
     lastImportStatus: importRes.data?.status ?? null,
     lastBatchId: activeBatch?.id ?? null,
     lastBatchCreatedAt: activeBatch?.created_at ?? null,
