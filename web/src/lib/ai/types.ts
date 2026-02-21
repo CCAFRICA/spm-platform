@@ -57,7 +57,8 @@ export type AITaskType =
   | 'entity_extraction'             // Extract entities (people, places, orgs) from data
   | 'anomaly_detection'             // Flag outliers in financial/compensation data
   | 'recommendation'                // Generate actionable recommendation
-  | 'natural_language_query';       // Answer question about platform data
+  | 'natural_language_query'        // Answer question about platform data
+  | 'dashboard_assessment';         // OB-71: Persona-driven dashboard intelligence
 
 // === TASK-SPECIFIC TYPES ===
 

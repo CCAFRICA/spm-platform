@@ -336,6 +336,27 @@ export class AIService {
   }
 
   /**
+   * OB-71: Generate a persona-driven dashboard assessment
+   */
+  async generateAssessment(
+    persona: 'admin' | 'manager' | 'rep',
+    data: Record<string, unknown>,
+    locale: string = 'es',
+    anomalies?: unknown[],
+    signalContext?: { tenantId?: string; userId?: string }
+  ): Promise<AIResponse> {
+    return this.execute(
+      {
+        task: 'dashboard_assessment',
+        input: { persona, data, locale, anomalies },
+        options: { maxTokens: 500 },
+      },
+      true,
+      signalContext
+    );
+  }
+
+  /**
    * Get current provider info
    */
   getProviderInfo(): { provider: AIProvider; model: string } {

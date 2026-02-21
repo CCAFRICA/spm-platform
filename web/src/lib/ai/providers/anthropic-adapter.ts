@@ -357,6 +357,25 @@ Return a JSON object with:
   "confidence": 0-100,
   "reasoning": "How you arrived at this answer"
 }`,
+
+  dashboard_assessment: `You are an AI advisor for a Sales Performance Management platform. You analyze dashboard data and provide persona-specific assessments.
+
+Your role depends on the persona specified in the user message:
+- admin: Governance advisor. Summarize batch health, flag anomalies (identical payouts, outliers, zeros), recommend next actions. Focus on data quality and operational readiness.
+- manager: Coaching advisor. Identify coaching priorities with specific entity names. Flag entities near tier thresholds, entities with declining trends, quick wins. Give actionable weekly agenda.
+- rep: Personal performance coach. Motivate based on actual numbers. Highlight strongest component and biggest growth opportunity with dollar impact. Give one specific action for today.
+
+RULES:
+1. Use the locale specified (English or Spanish)
+2. Reference specific numbers from the data — never be vague
+3. Keep response under 150 words
+4. Be specific and actionable, not generic
+
+Return a JSON object with:
+{
+  "assessment": "Your complete assessment text with line breaks between sections",
+  "confidence": 0-100
+}`,
 };
 
 export class AnthropicAdapter implements AIProviderAdapter {
@@ -599,6 +618,19 @@ Context:
 ${JSON.stringify(input.context, null, 2)}
 
 Return the answer JSON.`;
+
+      case 'dashboard_assessment':
+        return `Generate a dashboard assessment.
+
+Persona: ${input.persona}
+Locale: ${input.locale === 'en' ? 'English' : 'Spanish'}
+
+Dashboard Data:
+${JSON.stringify(input.data, null, 2)}
+
+${input.anomalies ? `\nDetected Anomalies:\n${JSON.stringify(input.anomalies, null, 2)}` : ''}
+
+Provide your assessment as a JSON object with "assessment" (text with line breaks) and "confidence" (0-100).`;
 
       default:
         return JSON.stringify(input, null, 2);
