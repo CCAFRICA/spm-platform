@@ -191,9 +191,8 @@ export async function middleware(request: NextRequest) {
 
   // ── AUTHENTICATED ──
 
-  // Authenticated user on /login → redirect to app
-  if (pathname === '/login') {
-    // Check if this is a platform admin (has manage_tenants capability)
+  // OB-73 Mission 3 / F-14, F-22: Authenticated user on /login or / → redirect to role-appropriate workspace
+  if (pathname === '/login' || pathname === '/') {
     const { data: profile } = await supabase
       .from('profiles')
       .select('role, capabilities')
@@ -206,7 +205,19 @@ export async function middleware(request: NextRequest) {
     if (isPlatformAdmin) {
       return NextResponse.redirect(new URL('/select-tenant', request.url));
     }
-    return NextResponse.redirect(new URL('/', request.url));
+
+    // Role-based default landing pages
+    const roleDefaults: Record<string, string> = {
+      admin: '/operate',
+      tenant_admin: '/operate',
+      manager: '/insights',
+      viewer: '/my-compensation',
+      sales_rep: '/my-compensation',
+      support: '/investigate',
+    };
+
+    const defaultPath = roleDefaults[profile?.role || ''] || '/insights';
+    return NextResponse.redirect(new URL(defaultPath, request.url));
   }
 
   // ── OB-67: WORKSPACE AUTHORIZATION ──

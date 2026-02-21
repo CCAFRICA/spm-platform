@@ -14,7 +14,8 @@ export interface TrialStatus {
 
 export function getTrialStatus(tenantSettings: Record<string, unknown> | null | undefined): TrialStatus {
   if (!tenantSettings) {
-    return { isTrialing: false, daysRemaining: 0, expired: true, isPaid: false };
+    // OB-73 Mission 3 / F-18: No settings at all = demo tenant, allow everything
+    return { isTrialing: false, daysRemaining: 0, expired: false, isPaid: true };
   }
 
   const billing = tenantSettings.billing as Record<string, unknown> | undefined;
@@ -25,7 +26,13 @@ export function getTrialStatus(tenantSettings: Record<string, unknown> | null | 
     return { isTrialing: false, daysRemaining: 0, expired: false, isPaid: true };
   }
 
-  // No trial info — treat as expired
+  // OB-73 Mission 3 / F-18: No trial info AND no billing info = demo/provisioned tenant.
+  // These should not see trial gates. Only tenants that explicitly started a trial get gated.
+  if (!trial?.started_at && !billing) {
+    return { isTrialing: false, daysRemaining: 0, expired: false, isPaid: true };
+  }
+
+  // No trial start but has billing section = genuinely expired
   if (!trial?.started_at) {
     return { isTrialing: false, daysRemaining: 0, expired: true, isPaid: false };
   }

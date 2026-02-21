@@ -22,9 +22,10 @@ export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
 // DEFAULT WORKSPACES BY ROLE
 // =============================================================================
 
+// OB-73 Mission 3 / F-14, F-22: Role-appropriate default workspaces
 export const DEFAULT_WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceId> = {
-  vl_admin: 'perform',
-  admin: 'perform',
+  vl_admin: 'operate',
+  admin: 'operate',
   manager: 'perform',
   sales_rep: 'perform',
 };
