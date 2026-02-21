@@ -179,7 +179,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       moduleId: "configuration",
       children: [
         { name: isSpanish ? "Resumen" : "Overview", href: "/configuration", module: "configuration" },
-        { name: isSpanish ? "Personal" : "Personnel", href: "/configuration/personnel", module: "personnel" },
+        { name: isSpanish ? "Personal" : "Personnel", href: "/configure/people", module: "personnel" },
+        { name: isSpanish ? "Usuarios" : "Users", href: "/configure/users", module: "configuration" },
         { name: isSpanish ? "Equipos" : "Teams", href: "/configuration/teams", module: "teams" },
         { name: locationTerm || (isSpanish ? "Franquicias" : "Locations"), href: "/configuration/locations", module: "configuration" },
         { name: isSpanish ? "Terminología" : "Terminology", href: "/configuration/terminology", module: "configuration" },

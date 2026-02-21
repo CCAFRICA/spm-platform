@@ -50,6 +50,9 @@ export default function OperateCockpitPage() {
   const [readiness, setReadiness] = useState<DataReadiness>(defaultReadiness());
   const [calcSummary, setCalcSummary] = useState<CalcSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [calcError, setCalcError] = useState<string | null>(null);
+  const [ruleSetId, setRuleSetId] = useState<string | null>(null);
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
@@ -76,6 +79,9 @@ export default function OperateCockpitPage() {
       setPeriods(enriched);
       const open = enriched.find(p => p.status === 'open') ?? enriched[0];
       if (open) setActiveKey(open.periodKey);
+
+      // Rule set ID for calculation trigger
+      setRuleSetId(data.ruleSetId);
 
       // Lifecycle state
       setLifecycleState(data.lifecycleState);
@@ -122,8 +128,86 @@ export default function OperateCockpitPage() {
     return () => { cancelled = true; };
   }, [tenantId, isSpanish]);
 
+  // Reload page data after calculation or transition
+  const reloadData = useCallback(async () => {
+    if (!tenantId) return;
+    const data = await loadOperatePageData(tenantId);
+
+    const enriched: PeriodInfo[] = data.periods.map(p => ({
+      periodId: p.id,
+      periodKey: p.canonical_key,
+      label: formatLabel(p.start_date),
+      status: p.status,
+      lifecycleState: p.lifecycleState,
+      startDate: p.start_date,
+      endDate: p.end_date,
+      needsAttention: false,
+    }));
+
+    setPeriods(enriched);
+    setLifecycleState(data.lifecycleState);
+    setRuleSetId(data.ruleSetId);
+
+    if (data.outcomes.length > 0) {
+      const sorted = [...data.outcomes].sort((a, b) => b.total_payout - a.total_payout);
+      setCalcSummary({
+        totalPayout: data.outcomes.reduce((s, o) => s + o.total_payout, 0),
+        entityCount: data.outcomes.length,
+        componentCount: 0,
+        lastRunAt: data.lastBatchCreatedAt,
+        attainmentDist: data.outcomes.map(o => extractAttainment(o.attainment_summary as Json)),
+        topEntities: sorted.slice(0, 5).map(o => ({
+          name: data.entityNames.get(o.entity_id) ?? o.entity_id,
+          value: o.total_payout,
+        })),
+        bottomEntities: sorted.slice(-5).reverse().map(o => ({
+          name: data.entityNames.get(o.entity_id) ?? o.entity_id,
+          value: o.total_payout,
+        })),
+      });
+    } else {
+      setCalcSummary(null);
+    }
+  }, [tenantId]);
+
   const handleAdvance = useCallback(async (nextState: string) => {
     if (!tenantId || !activePeriodId) return;
+    setCalcError(null);
+
+    // DRAFT → PREVIEW: Trigger calculation first
+    if (nextState === 'PREVIEW' && (!lifecycleState || lifecycleState === 'DRAFT')) {
+      if (!ruleSetId) {
+        setCalcError(isSpanish ? 'No hay plan activo. Configura un rule set primero.' : 'No active plan. Configure a rule set first.');
+        return;
+      }
+
+      setIsCalculating(true);
+      try {
+        const response = await fetch('/api/calculation/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, periodId: activePeriodId, ruleSetId }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          setCalcError(result.error || (isSpanish ? 'Error al ejecutar calculo' : 'Calculation failed'));
+          return;
+        }
+
+        // Calculation succeeded — reload page data to show results
+        await reloadData();
+      } catch (err) {
+        setCalcError(isSpanish ? 'Error de red al ejecutar calculo' : 'Network error running calculation');
+        console.error('[Operate] Calculation error:', err);
+      } finally {
+        setIsCalculating(false);
+      }
+      return;
+    }
+
+    // All other transitions: use lifecycle service
     const result = await transitionLifecycle(tenantId, activePeriodId, nextState as never);
     if (result.success) {
       setLifecycleState(nextState);
@@ -131,7 +215,7 @@ export default function OperateCockpitPage() {
         p.periodId === activePeriodId ? { ...p, lifecycleState: nextState } : p
       ));
     }
-  }, [tenantId, activePeriodId]);
+  }, [tenantId, activePeriodId, ruleSetId, lifecycleState, isSpanish, reloadData]);
 
   const dashState = lifecycleState && isDashboardState(lifecycleState)
     ? lifecycleState
@@ -202,12 +286,24 @@ export default function OperateCockpitPage() {
 
         {/* Lifecycle Stepper */}
         <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-          <LifecycleStepper
-            currentState={dashState}
-            onAdvance={handleAdvance}
-            onGoBack={handleAdvance}
-            canGoBack={true}
-          />
+          {isCalculating ? (
+            <div className="flex items-center gap-3 py-4">
+              <div className="h-5 w-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-zinc-300">{isSpanish ? 'Ejecutando calculo...' : 'Running calculation...'}</span>
+            </div>
+          ) : (
+            <LifecycleStepper
+              currentState={dashState}
+              onAdvance={handleAdvance}
+              onGoBack={handleAdvance}
+              canGoBack={true}
+            />
+          )}
+          {calcError && (
+            <div className="mt-3 px-3 py-2 rounded-lg text-sm text-red-300" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+              {calcError}
+            </div>
+          )}
         </div>
 
         {/* Two-column grid */}

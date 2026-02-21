@@ -160,9 +160,9 @@ export default function CompensationPage() {
       const historyData = [
         { period: 'oct', label: 'Oct', alimentos: baseFood * 0.8, bebidas: baseBeverage * 0.8, total: (baseFood + baseBeverage) * 0.8 },
         { period: 'nov', label: 'Nov', alimentos: baseFood * 0.9, bebidas: baseBeverage * 0.9, total: (baseFood + baseBeverage) * 0.9 },
-        { period: 'dic', label: 'Dic', alimentos: baseFood * 0.95, bebidas: baseBeverage * 0.95, total: (baseFood + baseBeverage) * 0.95 },
-        { period: 'actual', label: 'Actual', alimentos: myFood, bebidas: myBeverage, total: myTotal },
-        { period: 'lastyear', label: 'Dic 2023', alimentos: baseFood * 0.85, bebidas: baseBeverage * 0.85, total: (baseFood + baseBeverage) * 0.85 },
+        { period: 'dic', label: 'Dec', alimentos: baseFood * 0.95, bebidas: baseBeverage * 0.95, total: (baseFood + baseBeverage) * 0.95 },
+        { period: 'actual', label: 'Current', alimentos: myFood, bebidas: myBeverage, total: myTotal },
+        { period: 'lastyear', label: 'Dec 2023', alimentos: baseFood * 0.85, bebidas: baseBeverage * 0.85, total: (baseFood + baseBeverage) * 0.85 },
       ];
 
       setData({
@@ -424,7 +424,7 @@ export default function CompensationPage() {
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <DollarSign className="h-6 w-6 text-primary" />
-          Compensación - Mi Franquicia
+          Compensation - My Franchise
         </h1>
         <p className="text-muted-foreground">
           {data.currentFranquicia?.nombre || currentFranquiciaId}
@@ -439,10 +439,10 @@ export default function CompensationPage() {
         <CardContent className="pt-6">
           <div className="flex justify-between items-center">
             <div>
-              <p className="text-sm text-muted-foreground">Ventas Totales del Período</p>
+              <p className="text-sm text-muted-foreground">Total Period Sales</p>
               <p className="text-4xl font-bold mt-1">{format(data.myTotal)}</p>
               <p className="text-sm text-muted-foreground mt-2">
-                {data.myCheckCount} cheques atendidos
+                {data.myCheckCount} checks served
               </p>
             </div>
             <div className="p-4 bg-primary/10 rounded-full">
@@ -489,7 +489,7 @@ export default function CompensationPage() {
                 <Coins className="h-5 w-5 text-yellow-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Propinas</p>
+                <p className="text-xs text-muted-foreground">Tips</p>
                 <p className="text-lg font-bold text-green-600">{format(data.myTips)}</p>
               </div>
             </div>
@@ -503,7 +503,7 @@ export default function CompensationPage() {
                 <DollarSign className="h-5 w-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Comisión ({((data.currentMesero?.commission_rate || 0.02) * 100).toFixed(1)}%)</p>
+                <p className="text-xs text-muted-foreground">Commission ({((data.currentMesero?.commission_rate || 0.02) * 100).toFixed(1)}%)</p>
                 <p className="text-lg font-bold text-purple-600">{format(data.myCommission)}</p>
               </div>
             </div>
@@ -517,14 +517,14 @@ export default function CompensationPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Target className="h-5 w-5" />
-              Progreso a Meta
+              Goal Progress
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <GoalProgressBar
               current={data.myTotal}
               target={data.target}
-              label="Meta del período"
+              label="Period goal"
               size="lg"
             />
             <div className="pt-4 border-t">
@@ -532,7 +532,7 @@ export default function CompensationPage() {
                 <span className="text-muted-foreground">Faltan para la meta:</span>
                 <span className="font-bold">
                   {data.myTotal >= data.target ? (
-                    <span className="text-green-600">Meta alcanzada!</span>
+                    <span className="text-green-600">Goal reached!</span>
                   ) : (
                     format(data.target - data.myTotal)
                   )}
@@ -547,14 +547,14 @@ export default function CompensationPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Trophy className="h-5 w-5 text-yellow-500" />
-              Mi Posición
+              My Ranking
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-center py-4">
               <p className="text-6xl font-bold text-primary">#{data.myRank}</p>
               <p className="text-muted-foreground mt-2">
-                de {data.totalFranquicias} franquicias
+                of {data.totalFranquicias} franchises
               </p>
               {data.myRank <= 3 && (
                 <Badge className="mt-3 bg-yellow-100 text-yellow-700">
@@ -569,7 +569,7 @@ export default function CompensationPage() {
       {/* Leaderboard */}
       <Leaderboard
         items={data.franchiseRanking.slice(0, 7)}
-        title="Ranking de Franquicias"
+        title="Franchise Ranking"
         highlightId={currentFranquiciaId}
         showChange={false}
       />

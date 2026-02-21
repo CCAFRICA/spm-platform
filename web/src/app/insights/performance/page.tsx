@@ -458,10 +458,10 @@ export default function InsightsPerformancePage() {
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Building2 className="h-6 w-6 text-primary" />
-          Vista Ejecutiva - Nacional
+          Executive View - National
         </h1>
         <p className="text-muted-foreground">
-          Resumen de rendimiento de todas las franquicias
+          Performance summary across all franchises
         </p>
       </div>
 
@@ -471,7 +471,7 @@ export default function InsightsPerformancePage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Ingresos Totales</p>
+                <p className="text-sm text-muted-foreground">Total Revenue</p>
                 <p className="text-2xl font-bold">{format(data.totalRevenue)}</p>
                 <p className="text-xs text-muted-foreground mt-1">{data.totalChecks} cheques</p>
               </div>
@@ -484,7 +484,7 @@ export default function InsightsPerformancePage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Ticket Promedio</p>
+                <p className="text-sm text-muted-foreground">Avg Ticket</p>
                 <p className="text-2xl font-bold">{format(data.avgTicket)}</p>
               </div>
               <Target className="h-10 w-10 text-blue-500/50" />
@@ -496,7 +496,7 @@ export default function InsightsPerformancePage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Propinas</p>
+                <p className="text-sm text-muted-foreground">Total Tips</p>
                 <p className="text-2xl font-bold text-green-600">{format(data.totalTips)}</p>
               </div>
               <Trophy className="h-10 w-10 text-green-500/50" />
@@ -508,7 +508,7 @@ export default function InsightsPerformancePage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Impuestos</p>
+                <p className="text-sm text-muted-foreground">Taxes</p>
                 <p className="text-2xl font-bold">{format(data.totalTax)}</p>
               </div>
               <Users className="h-10 w-10 text-purple-500/50" />
@@ -522,9 +522,9 @@ export default function InsightsPerformancePage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <MapPin className="h-5 w-5" />
-            Rendimiento por Región
+            Performance by Region
           </CardTitle>
-          <CardDescription>Ventas totales por región geográfica</CardDescription>
+          <CardDescription>Total sales by geographic region</CardDescription>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={250}>
@@ -538,7 +538,7 @@ export default function InsightsPerformancePage() {
               />
               <YAxis type="category" dataKey="region" tickLine={false} axisLine={false} width={80} />
               <Tooltip
-                formatter={(value: number) => [format(value), 'Ventas']}
+                formatter={(value: number) => [format(value), 'Sales']}
                 contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }}
               />
               <Bar dataKey="sales" radius={[0, 4, 4, 0]}>
@@ -555,7 +555,7 @@ export default function InsightsPerformancePage() {
       <div className="grid md:grid-cols-2 gap-6">
         <Leaderboard
           items={data.topFranchises}
-          title="Top 5 Franquicias"
+          title="Top 5 Franchises"
           showChange={true}
         />
 
@@ -563,7 +563,7 @@ export default function InsightsPerformancePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-amber-600">
               <AlertTriangle className="h-5 w-5" />
-              Franquicias que Necesitan Atención
+              Franchises Needing Attention
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -601,9 +601,9 @@ export default function InsightsPerformancePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Utensils className="h-5 w-5" />
-              Desglose por Producto
+              Product Breakdown
             </CardTitle>
-            <CardDescription>Alimentos vs Bebidas</CardDescription>
+            <CardDescription>Food vs Beverages</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-8">
@@ -630,7 +630,7 @@ export default function InsightsPerformancePage() {
                   <div className="w-4 h-4 rounded bg-blue-500" />
                   <div>
                     <p className="font-medium flex items-center gap-2">
-                      <Utensils className="h-4 w-4" /> Alimentos
+                      <Utensils className="h-4 w-4" /> Food
                     </p>
                     <p className="text-lg font-bold">{format(data.foodRevenue)}</p>
                     <p className="text-xs text-muted-foreground">{data.foodPct.toFixed(1)}%</p>
@@ -640,7 +640,7 @@ export default function InsightsPerformancePage() {
                   <div className="w-4 h-4 rounded bg-green-500" />
                   <div>
                     <p className="font-medium flex items-center gap-2">
-                      <Wine className="h-4 w-4" /> Bebidas
+                      <Wine className="h-4 w-4" /> Beverages
                     </p>
                     <p className="text-lg font-bold">{format(data.beverageRevenue)}</p>
                     <p className="text-xs text-muted-foreground">{data.beveragePct.toFixed(1)}%</p>
@@ -656,9 +656,9 @@ export default function InsightsPerformancePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CreditCard className="h-5 w-5" />
-              Métodos de Pago
+              Payment Methods
             </CardTitle>
-            <CardDescription>Efectivo vs Tarjeta</CardDescription>
+            <CardDescription>Cash vs Card</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-8">
@@ -685,7 +685,7 @@ export default function InsightsPerformancePage() {
                   <div className="w-4 h-4 rounded bg-amber-500" />
                   <div>
                     <p className="font-medium flex items-center gap-2">
-                      <Banknote className="h-4 w-4" /> Efectivo
+                      <Banknote className="h-4 w-4" /> Cash
                     </p>
                     <p className="text-lg font-bold">{format(data.cashTotal)}</p>
                     <p className="text-xs text-muted-foreground">{data.cashPct.toFixed(1)}%</p>
@@ -695,7 +695,7 @@ export default function InsightsPerformancePage() {
                   <div className="w-4 h-4 rounded bg-purple-500" />
                   <div>
                     <p className="font-medium flex items-center gap-2">
-                      <CreditCard className="h-4 w-4" /> Tarjeta
+                      <CreditCard className="h-4 w-4" /> Card
                     </p>
                     <p className="text-lg font-bold">{format(data.cardTotal)}</p>
                     <p className="text-xs text-muted-foreground">{data.cardPct.toFixed(1)}%</p>
@@ -715,10 +715,10 @@ export default function InsightsPerformancePage() {
               <AlertTriangle className="h-8 w-8 text-amber-600" />
               <div>
                 <p className="font-medium text-amber-800 dark:text-amber-200">
-                  {data.cancelledCount} cheques cancelados este período
+                  {data.cancelledCount} cancelled checks this period
                 </p>
                 <p className="text-sm text-amber-600">
-                  Revisar políticas de cancelación y procesos operativos
+                  Review cancellation policies and operational processes
                 </p>
               </div>
             </div>

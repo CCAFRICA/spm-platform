@@ -41,6 +41,7 @@ export interface OperatePageData {
   activePeriodId: string | null;
   activePeriodKey: string | null;
   hasActivePlan: boolean;
+  ruleSetId: string | null;
   lastImportStatus: string | null;
   lastBatchId: string | null;
   lastBatchCreatedAt: string | null;
@@ -161,7 +162,7 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
 
   const entityQuery = supabase
     .from('entities')
-    .select('id, display_name')
+    .select('id, display_name, external_id')
     .eq('tenant_id', tenantId);
 
   const [batchesRes, outcomesRes, entitiesRes] = await Promise.all([
@@ -187,7 +188,10 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
     ? allBatches.find((b) => b.period_id === activePeriodId)
     : null;
 
-  const entityNames = new Map(entities.map(e => [e.id, e.display_name]));
+  const entityNames = new Map(entities.map(e => [
+    e.id,
+    e.external_id ? `${e.display_name} (${e.external_id})` : e.display_name,
+  ]));
 
   return {
     periods: rawPeriods.map(p => ({
@@ -202,6 +206,7 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
     activePeriodId,
     activePeriodKey,
     hasActivePlan: !!planRes.data,
+    ruleSetId: planRes.data?.id ?? null,
     lastImportStatus: importRes.data?.status ?? null,
     lastBatchId: activeBatch?.id ?? null,
     lastBatchCreatedAt: activeBatch?.created_at ?? null,

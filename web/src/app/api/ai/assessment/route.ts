@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { persistSignal } from '@/lib/ai/signal-persistence';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -88,6 +89,28 @@ export async function POST(request: NextRequest) {
       ?.filter((block: { type: string }) => block.type === 'text')
       ?.map((block: { text: string }) => block.text)
       ?.join('\n') || '';
+
+    // HF-055: Persist assessment signal (non-blocking)
+    if (tenantId) {
+      persistSignal({
+        tenantId,
+        signalType: 'assessment',
+        signalValue: {
+          persona,
+          assessmentLength: text.length,
+          model: 'claude-sonnet-4-20250514',
+        },
+        confidence: 0.8, // Default confidence for assessment generation
+        source: 'ai_prediction',
+        context: {
+          locale: locale || 'es',
+          inputTokens: result.usage?.input_tokens,
+          outputTokens: result.usage?.output_tokens,
+        },
+      }).catch(err => {
+        console.warn('[Assessment] Signal persist failed:', err);
+      });
+    }
 
     // Meter the AI inference (non-blocking)
     if (tenantId) {

@@ -17,6 +17,7 @@
 
 import { getAIService } from '@/lib/ai/ai-service';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
+import { getTrainingSignals } from '@/lib/ai/signal-persistence';
 import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import {
   recordAIClassificationBatch,
@@ -74,10 +75,26 @@ export async function mapColumns(
   // Build plan context description for AI
   const planContext = await buildPlanContext(tenantId);
 
+  // HF-055 Mission 4: Retrieve historical field mapping signals for closed-loop learning
+  let priorMappings: Array<{ fieldName: string; semanticType: string; confidence: number; source: string }> = [];
+  try {
+    const historicalSignals = await getTrainingSignals(tenantId, 'reconciliation', 50);
+    priorMappings = historicalSignals
+      .filter(s => s.signalValue?.fieldName && s.signalValue?.semanticType)
+      .map(s => ({
+        fieldName: s.signalValue.fieldName as string,
+        semanticType: s.signalValue.semanticType as string,
+        confidence: s.confidence ?? 0,
+        source: s.source ?? 'ai',
+      }));
+  } catch (err) {
+    console.warn('[AIColumnMapper] Failed to retrieve historical signals:', err);
+  }
+
   try {
     const aiService = getAIService();
 
-    // Use classifySheet for column mapping with plan context
+    // Use classifySheet for column mapping with plan context + historical signals
     const response = await aiService.classifySheet(
       parsed.activeSheet || parsed.fileName,
       parsed.headers,
@@ -86,6 +103,12 @@ export async function mapColumns(
         targetFields: targetFieldNames,
         planComponents: planContext.components,
         description: 'Reconciliation benchmark file for compensation comparison',
+        // HF-055: Include prior mappings for compound learning
+        ...(priorMappings.length > 0 && {
+          priorMappings: priorMappings.map(m =>
+            `${m.fieldName} → ${m.semanticType} (${m.source}, ${Math.round(m.confidence * 100)}%)`
+          ),
+        }),
       },
       { tenantId, userId },
     );

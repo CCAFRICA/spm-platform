@@ -1,9 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+/**
+ * Dispute Queue — /transactions/disputes
+ *
+ * Wired to GET /api/disputes (Supabase).
+ * SCHEMA: disputes (id, tenant_id, entity_id, category, status, description,
+ *   amount_disputed, amount_resolved, filed_by, created_at, resolved_at)
+ * Status CHECK: open, investigating, resolved, rejected, escalated
+ */
+
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -18,80 +25,91 @@ import {
   CheckCircle,
   Clock,
   FileText,
-  User,
-  ArrowRight,
-  TrendingUp,
-  TrendingDown,
+  AlertTriangle,
+  XCircle,
 } from 'lucide-react';
-import { useTenant } from '@/contexts/tenant-context';
-import {
-  getAllDisputes,
-  getDisputeStats,
-} from '@/lib/disputes/dispute-service';
-import type { Dispute, DisputeStatus } from '@/types/dispute';
-import { DISPUTE_CATEGORIES } from '@/types/dispute';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 
-type FilterTab = 'pending' | 'resolved' | 'all';
+interface DisputeRow {
+  id: string;
+  entity_id: string;
+  category: string;
+  status: string;
+  description: string;
+  amount_disputed: number | null;
+  amount_resolved: number | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+type FilterTab = 'open' | 'resolved' | 'all';
+
+const STATUS_BADGES: Record<string, { label: string; labelEs: string; className: string; icon: typeof Clock }> = {
+  open: { label: 'Open', labelEs: 'Abierto', className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300', icon: Clock },
+  investigating: { label: 'Investigating', labelEs: 'Investigando', className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300', icon: AlertTriangle },
+  resolved: { label: 'Resolved', labelEs: 'Resuelto', className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300', icon: CheckCircle },
+  rejected: { label: 'Rejected', labelEs: 'Rechazado', className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300', icon: XCircle },
+  escalated: { label: 'Escalated', labelEs: 'Escalado', className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300', icon: AlertTriangle },
+};
+
+const CATEGORY_LABELS: Record<string, { en: string; es: string }> = {
+  data_error: { en: 'Data Error', es: 'Error de Datos' },
+  calculation_error: { en: 'Calculation Error', es: 'Error de Cálculo' },
+  plan_interpretation: { en: 'Plan Interpretation', es: 'Interpretación de Plan' },
+  missing_transaction: { en: 'Missing Transaction', es: 'Transacción Faltante' },
+  wrong_attribution: { en: 'Wrong Attribution', es: 'Atribución Incorrecta' },
+  incorrect_amount: { en: 'Incorrect Amount', es: 'Monto Incorrecto' },
+  wrong_rate: { en: 'Wrong Rate', es: 'Tasa Incorrecta' },
+  split_error: { en: 'Split Error', es: 'Error de División' },
+  timing_issue: { en: 'Timing Issue', es: 'Problema de Tiempo' },
+  other: { en: 'Other', es: 'Otro' },
+};
 
 export default function DisputeQueuePage() {
-  const router = useRouter();
   const { currentTenant } = useTenant();
-  const [disputes, setDisputes] = useState<Dispute[]>([]);
-  const [filter, setFilter] = useState<FilterTab>('pending');
+  const { symbol: currencySymbol } = useCurrency();
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
+
+  const [disputes, setDisputes] = useState<DisputeRow[]>([]);
+  const [filter, setFilter] = useState<FilterTab>('open');
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchDisputes = useCallback(async () => {
     if (!currentTenant) return;
-
-    const allDisputes = getAllDisputes(currentTenant.id);
-    setDisputes(allDisputes);
-    setIsLoading(false);
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/disputes');
+      if (response.ok) {
+        const data = await response.json();
+        setDisputes((data.disputes || []) as DisputeRow[]);
+      }
+    } catch (err) {
+      console.error('[DisputeQueue] Fetch error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   }, [currentTenant]);
 
-  const stats = currentTenant ? getDisputeStats(currentTenant.id) : null;
+  useEffect(() => {
+    fetchDisputes();
+  }, [fetchDisputes]);
 
-  const filteredDisputes = disputes.filter((d) => {
-    if (filter === 'pending') {
-      return d.status === 'submitted' || d.status === 'in_review';
-    }
-    if (filter === 'resolved') {
-      return d.status === 'resolved';
-    }
-    return d.status !== 'draft';
+  // Stats
+  const openCount = disputes.filter(d => d.status === 'open' || d.status === 'investigating').length;
+  const resolvedCount = disputes.filter(d => d.status === 'resolved').length;
+  const rejectedCount = disputes.filter(d => d.status === 'rejected').length;
+
+  const filteredDisputes = disputes.filter(d => {
+    if (filter === 'open') return d.status === 'open' || d.status === 'investigating' || d.status === 'escalated';
+    if (filter === 'resolved') return d.status === 'resolved' || d.status === 'rejected';
+    return true;
   });
 
-  // Use tenant currency settings
-  const formatCurrency = (value: number) => {
-    const currencyCode = currentTenant?.currency || 'USD';
-    const locale = currencyCode === 'MXN' ? 'es-MX' : 'en-US';
-    return new Intl.NumberFormat(locale, {
-      style: 'currency',
-      currency: currencyCode,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return '-';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const getStatusBadge = (status: DisputeStatus) => {
-    switch (status) {
-      case 'submitted':
-        return <Badge variant="secondary" className="bg-blue-100 text-blue-800">Pending Review</Badge>;
-      case 'in_review':
-        return <Badge variant="secondary" className="bg-amber-100 text-amber-800">In Review</Badge>;
-      case 'resolved':
-        return <Badge variant="secondary" className="bg-green-100 text-green-800">Resolved</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
+  const formatCurrency = (value: number | null) => {
+    if (value == null) return '—';
+    return `${currencySymbol}${value.toLocaleString(isSpanish ? 'es-MX' : 'en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
 
   if (isLoading) {
@@ -99,7 +117,9 @@ export default function DisputeQueuePage() {
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading disputes...</p>
+          <p className="text-muted-foreground">
+            {isSpanish ? 'Cargando disputas...' : 'Loading disputes...'}
+          </p>
         </div>
       </div>
     );
@@ -111,91 +131,79 @@ export default function DisputeQueuePage() {
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <FileText className="h-6 w-6 text-primary" />
-          Dispute Queue
+          {isSpanish ? 'Cola de Disputas' : 'Dispute Queue'}
         </h1>
         <p className="text-muted-foreground">
-          Review and resolve entity outcome disputes
+          {isSpanish ? 'Revisar y resolver disputas de resultados' : 'Review and resolve outcome disputes'}
         </p>
       </div>
 
       {/* Stats Cards */}
-      {stats && (
-        <div className="grid sm:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center dark:bg-amber-900/30">
-                  <Clock className="h-5 w-5 text-amber-600" />
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">{stats.pending}</div>
-                  <div className="text-sm text-muted-foreground">Pending Review</div>
+      <div className="grid sm:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center dark:bg-amber-900/30">
+                <Clock className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold">{openCount}</div>
+                <div className="text-sm text-muted-foreground">
+                  {isSpanish ? 'Pendientes' : 'Open'}
                 </div>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-green-100 flex items-center justify-center dark:bg-green-900/30">
-                  <CheckCircle className="h-5 w-5 text-green-600" />
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">{stats.resolved}</div>
-                  <div className="text-sm text-muted-foreground">Resolved</div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-green-100 flex items-center justify-center dark:bg-green-900/30">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold">{resolvedCount}</div>
+                <div className="text-sm text-muted-foreground">
+                  {isSpanish ? 'Resueltas' : 'Resolved'}
                 </div>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center dark:bg-blue-900/30">
-                  <TrendingDown className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">{stats.selfResolved}</div>
-                  <div className="text-sm text-muted-foreground">Self-Resolved</div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-red-100 flex items-center justify-center dark:bg-red-900/30">
+                <XCircle className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold">{rejectedCount}</div>
+                <div className="text-sm text-muted-foreground">
+                  {isSpanish ? 'Rechazadas' : 'Rejected'}
                 </div>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center dark:bg-purple-900/30">
-                  <TrendingUp className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">{stats.avgResolutionSteps.toFixed(1)}</div>
-                  <div className="text-sm text-muted-foreground">Avg Steps</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Filters */}
       <Tabs value={filter} onValueChange={(v) => setFilter(v as FilterTab)}>
         <TabsList>
-          <TabsTrigger value="pending" className="gap-2">
+          <TabsTrigger value="open" className="gap-2">
             <Clock className="h-4 w-4" />
-            Pending
-            {stats && stats.pending > 0 && (
-              <Badge variant="secondary" className="ml-1">{stats.pending}</Badge>
+            {isSpanish ? 'Pendientes' : 'Open'}
+            {openCount > 0 && (
+              <Badge variant="secondary" className="ml-1">{openCount}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="resolved" className="gap-2">
             <CheckCircle className="h-4 w-4" />
-            Resolved
+            {isSpanish ? 'Cerradas' : 'Closed'}
           </TabsTrigger>
           <TabsTrigger value="all" className="gap-2">
             <FileText className="h-4 w-4" />
-            All
+            {isSpanish ? 'Todas' : 'All'}
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -206,72 +214,58 @@ export default function DisputeQueuePage() {
           {filteredDisputes.length === 0 ? (
             <div className="p-12 text-center">
               <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-              <h3 className="font-medium mb-1">No disputes found</h3>
+              <h3 className="font-medium mb-1">
+                {isSpanish ? 'Sin disputas' : 'No disputes found'}
+              </h3>
               <p className="text-sm text-muted-foreground">
-                {filter === 'pending'
-                  ? 'No disputes pending review'
+                {filter === 'open'
+                  ? (isSpanish ? 'No hay disputas pendientes' : 'No open disputes')
                   : filter === 'resolved'
-                  ? 'No resolved disputes yet'
-                  : 'No disputes submitted'}
+                  ? (isSpanish ? 'No hay disputas cerradas' : 'No closed disputes')
+                  : (isSpanish ? 'No se han registrado disputas' : 'No disputes filed')}
               </p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Entity</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Transaction</TableHead>
-                  <TableHead>Amount Claimed</TableHead>
+                  <TableHead>{isSpanish ? 'Categoría' : 'Category'}</TableHead>
+                  <TableHead>{isSpanish ? 'Descripción' : 'Description'}</TableHead>
+                  <TableHead>{isSpanish ? 'Monto' : 'Amount'}</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Submitted</TableHead>
-                  <TableHead className="w-[100px]"></TableHead>
+                  <TableHead>{isSpanish ? 'Creado' : 'Created'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredDisputes.map((dispute) => (
-                  <TableRow
-                    key={dispute.id}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => router.push(`/transactions/disputes/${dispute.id}`)}
-                  >
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <div className="font-medium">{dispute.entityName}</div>
-                          <div className="text-xs text-muted-foreground">{dispute.storeName}</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {DISPUTE_CATEGORIES[dispute.category].label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {dispute.transactionId}
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-medium">
-                        {formatCurrency(dispute.expectedAmount)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {getStatusBadge(dispute.status)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(dispute.submittedAt)}
-                    </TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="sm">
-                        <ArrowRight className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filteredDisputes.map((dispute) => {
+                  const statusInfo = STATUS_BADGES[dispute.status] || STATUS_BADGES.open;
+                  const catLabel = CATEGORY_LABELS[dispute.category];
+                  return (
+                    <TableRow key={dispute.id} className="hover:bg-muted/50">
+                      <TableCell>
+                        <Badge variant="outline">
+                          {catLabel ? (isSpanish ? catLabel.es : catLabel.en) : dispute.category}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[300px] truncate">
+                        {dispute.description || '—'}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {formatCurrency(dispute.amount_disputed)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className={statusInfo.className}>
+                          {isSpanish ? statusInfo.labelEs : statusInfo.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {new Date(dispute.created_at).toLocaleDateString(isSpanish ? 'es-MX' : 'en-US', {
+                          month: 'short', day: 'numeric', year: 'numeric',
+                        })}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
