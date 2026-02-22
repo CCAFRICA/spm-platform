@@ -21,6 +21,10 @@ import type {
   PercentageConfig,
   ConditionalConfig,
 } from '@/types/compensation-plan';
+import {
+  inferSemanticType,
+  SHEET_COMPONENT_PATTERNS,
+} from '@/lib/orchestration/metric-resolver';
 
 // ──────────────────────────────────────────────
 // Types
@@ -254,6 +258,125 @@ export function aggregateMetrics(
 }
 
 // ──────────────────────────────────────────────
+// Sheet-Aware Metric Resolution
+// ──────────────────────────────────────────────
+
+/**
+ * Find which sheet (data_type) feeds a given plan component.
+ * Uses SHEET_COMPONENT_PATTERNS to match Spanish sheet names to English component names.
+ */
+export function findMatchingSheet(
+  componentName: string,
+  availableSheets: string[]
+): string | null {
+  for (const mapping of SHEET_COMPONENT_PATTERNS) {
+    const componentMatches = mapping.componentPatterns.some(p => p.test(componentName));
+    if (componentMatches) {
+      for (const sheet of availableSheets) {
+        if (mapping.sheetPatterns.some(p => p.test(sheet))) {
+          return sheet;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Get all metric names a component expects from its configuration.
+ */
+export function getExpectedMetricNames(component: PlanComponent): string[] {
+  const names: string[] = [];
+  if (component.tierConfig?.metric) names.push(component.tierConfig.metric);
+  if (component.matrixConfig?.rowMetric) names.push(component.matrixConfig.rowMetric);
+  if (component.matrixConfig?.columnMetric) names.push(component.matrixConfig.columnMetric);
+  if (component.percentageConfig?.appliedTo) names.push(component.percentageConfig.appliedTo);
+  if (component.conditionalConfig?.appliedTo) names.push(component.conditionalConfig.appliedTo);
+  if (component.conditionalConfig?.conditions) {
+    for (const c of component.conditionalConfig.conditions) {
+      if (c.metric) names.push(c.metric);
+    }
+  }
+  return names;
+}
+
+/**
+ * Build metrics for a specific component using sheet-aware resolution.
+ *
+ * 1. Find the matching sheet for the component via SHEET_COMPONENT_PATTERNS
+ * 2. Aggregate metrics from ONLY that sheet's rows (not all sheets)
+ * 3. Resolve plan-specific metric names to semantic values via inferSemanticType
+ *
+ * This prevents cross-sheet aggregation corruption (e.g., summing attainment
+ * across optical + store + customer sheets into a meaningless number).
+ */
+export function buildMetricsForComponent(
+  component: PlanComponent,
+  entityRowsBySheet: Map<string, Array<{ row_data: Json }>>,
+  storeDataBySheet?: Map<string, Array<{ row_data: Json }>>
+): Record<string, number> {
+  const allSheets = Array.from(entityRowsBySheet.keys());
+  const matchingSheet = findMatchingSheet(component.name, allSheets);
+
+  // If matched, use only that sheet. Otherwise try store-level data.
+  let relevantRows: Array<{ row_data: Json }>;
+
+  if (matchingSheet) {
+    relevantRows = entityRowsBySheet.get(matchingSheet) || [];
+  } else if (storeDataBySheet) {
+    // Try store-level sheets
+    const storeSheets = Array.from(storeDataBySheet.keys());
+    const storeMatch = findMatchingSheet(component.name, storeSheets);
+    relevantRows = storeMatch ? (storeDataBySheet.get(storeMatch) || []) : [];
+  } else {
+    relevantRows = [];
+  }
+
+  // If no sheet match found at all, fall back to all entity rows
+  if (relevantRows.length === 0) {
+    relevantRows = [];
+    Array.from(entityRowsBySheet.values()).forEach(rows => {
+      relevantRows.push(...rows);
+    });
+  }
+
+  const rawMetrics = aggregateMetrics(relevantRows);
+
+  // Compute attainment from goal + actual when not explicitly present
+  if (rawMetrics['attainment'] === undefined && rawMetrics['goal'] && rawMetrics['goal'] > 0) {
+    const actual = rawMetrics['amount'] ?? rawMetrics['quantity'] ?? 0;
+    rawMetrics['attainment'] = actual / rawMetrics['goal'];
+  }
+
+  // Resolve plan-specific metric names to semantic values
+  const resolvedMetrics = { ...rawMetrics };
+  const expectedNames = getExpectedMetricNames(component);
+
+  for (const metricName of expectedNames) {
+    if (resolvedMetrics[metricName] !== undefined) continue; // Already present
+    const semanticType = inferSemanticType(metricName);
+    if (semanticType !== 'unknown' && rawMetrics[semanticType] !== undefined) {
+      resolvedMetrics[metricName] = rawMetrics[semanticType];
+    }
+  }
+
+  // Normalize attainment from decimal (0-3) to percentage (0-300) scale
+  // Plans define tier/matrix bands in percentage (e.g., 100-105 for 100%-105%)
+  // Data often stores attainment as decimal ratio (e.g., 1.35 for 135%)
+  for (const metricName of expectedNames) {
+    const semanticType = inferSemanticType(metricName);
+    if (semanticType === 'attainment' && resolvedMetrics[metricName] !== undefined) {
+      const v = resolvedMetrics[metricName];
+      if (v > 0 && v < 3) {
+        resolvedMetrics[metricName] = v * 100;
+      }
+    }
+  }
+
+  return resolvedMetrics;
+}
+
+// ──────────────────────────────────────────────
 // Main Orchestrator
 // ──────────────────────────────────────────────
 
@@ -321,20 +444,51 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'Period not found' };
   }
 
-  // ── 4. Fetch committed data for this period ──
+  // ── 4. Fetch committed data for this period (entity-level + store-level) ──
   const { data: committedData } = await supabase
     .from('committed_data')
-    .select('entity_id, row_data')
+    .select('entity_id, data_type, row_data')
     .eq('tenant_id', tenantId)
     .eq('period_id', periodId);
 
-  // Group committed data by entity_id
-  const dataByEntity = new Map<string, Array<{ row_data: Json }>>();
+  // Group entity-level data by entity_id → data_type → rows
+  const dataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
+  const flatDataByEntity = new Map<string, Array<{ row_data: Json }>>();
+
+  // Store-level data (NULL entity_id) grouped by storeId → data_type → rows
+  const storeData = new Map<string | number, Map<string, Array<{ row_data: Json }>>>();
+
   for (const row of (committedData ?? [])) {
-    if (!row.entity_id) continue;
-    const existing = dataByEntity.get(row.entity_id) || [];
-    existing.push({ row_data: row.row_data });
-    dataByEntity.set(row.entity_id, existing);
+    if (row.entity_id) {
+      if (!dataByEntity.has(row.entity_id)) {
+        dataByEntity.set(row.entity_id, new Map());
+      }
+      const entitySheets = dataByEntity.get(row.entity_id)!;
+      const sheetName = row.data_type || '_unknown';
+      if (!entitySheets.has(sheetName)) {
+        entitySheets.set(sheetName, []);
+      }
+      entitySheets.get(sheetName)!.push({ row_data: row.row_data });
+
+      if (!flatDataByEntity.has(row.entity_id)) {
+        flatDataByEntity.set(row.entity_id, []);
+      }
+      flatDataByEntity.get(row.entity_id)!.push({ row_data: row.row_data });
+    } else {
+      const rd = row.row_data as Record<string, unknown> | null;
+      const storeKey = (rd?.['storeId'] ?? rd?.['num_tienda'] ?? rd?.['No_Tienda'] ?? rd?.['Tienda']) as string | number | undefined;
+      if (storeKey !== undefined) {
+        if (!storeData.has(storeKey)) {
+          storeData.set(storeKey, new Map());
+        }
+        const storeSheets = storeData.get(storeKey)!;
+        const sheetName = row.data_type || '_unknown';
+        if (!storeSheets.has(sheetName)) {
+          storeSheets.set(sheetName, []);
+        }
+        storeSheets.get(sheetName)!.push({ row_data: row.row_data });
+      }
+    }
   }
 
   console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData?.length ?? 0} data rows`);
@@ -363,14 +517,33 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   for (const entityId of entityIds) {
     const entityInfo = entityMap.get(entityId);
-    const entityRows = dataByEntity.get(entityId) || [];
-    const metrics = aggregateMetrics(entityRows);
+    const entitySheetData = dataByEntity.get(entityId) || new Map();
+    const entityRowsFlat = flatDataByEntity.get(entityId) || [];
 
-    // Evaluate each component
+    // Find this entity's store ID (use FIRST occurrence, not sum)
+    const allEntityMetrics = aggregateMetrics(entityRowsFlat);
+    let entityStoreId: string | number | undefined;
+    for (const row of entityRowsFlat) {
+      const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+        ? row.row_data as Record<string, unknown> : {};
+      const sid = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
+      if (sid !== undefined && sid !== null) {
+        entityStoreId = sid as string | number;
+        break;
+      }
+    }
+    const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
+
+    // Evaluate each component with sheet-aware metrics
     const componentResults: ComponentResult[] = [];
     let entityTotal = 0;
 
     for (const component of components) {
+      const metrics = buildMetricsForComponent(
+        component,
+        entitySheetData,
+        entityStoreData
+      );
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
       entityTotal += result.payout;
@@ -390,8 +563,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         payout: c.payout,
         details: c.details,
       })) as unknown as Json,
-      metrics: metrics as unknown as Json,
-      attainment: { overall: metrics['attainment'] ?? 0 } as unknown as Json,
+      metrics: allEntityMetrics as unknown as Json,
+      attainment: { overall: allEntityMetrics['attainment'] ?? 0 } as unknown as Json,
       metadata: {
         entityName: entityInfo?.display_name ?? entityId,
         externalId: entityInfo?.external_id ?? '',

@@ -245,7 +245,7 @@ export function extractMetricConfig(component: {
  * OB-24: Sheet-to-component matching patterns
  * Maps Spanish sheet name patterns to English component types
  */
-const SHEET_COMPONENT_PATTERNS: Array<{
+export const SHEET_COMPONENT_PATTERNS: Array<{
   sheetPatterns: RegExp[];
   componentPatterns: RegExp[];
 }> = [

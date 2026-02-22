@@ -14,6 +14,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   evaluateComponent,
   aggregateMetrics,
+  buildMetricsForComponent,
   type ComponentResult,
 } from '@/lib/calculation/run-calculation';
 import type { PlanComponent } from '@/types/compensation-plan';
@@ -113,22 +114,60 @@ export async function POST(request: NextRequest) {
 
   addLog(`Period: ${period.canonical_key}`);
 
-  // ── 4. Fetch committed data ──
+  // ── 4. Fetch committed data (entity-level + store-level) ──
   const { data: committedData } = await supabase
     .from('committed_data')
-    .select('entity_id, row_data')
+    .select('entity_id, data_type, row_data')
     .eq('tenant_id', tenantId)
     .eq('period_id', periodId);
 
-  const dataByEntity = new Map<string, Array<{ row_data: Json }>>();
+  // Group entity-level data by entity_id → data_type → rows
+  const dataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
+  // Also keep flat structure for backward compat
+  const flatDataByEntity = new Map<string, Array<{ row_data: Json }>>();
+
+  // Store-level data (NULL entity_id) grouped by storeId → data_type → rows
+  const storeData = new Map<string | number, Map<string, Array<{ row_data: Json }>>>();
+
   for (const row of (committedData ?? [])) {
-    if (!row.entity_id) continue;
-    const existing = dataByEntity.get(row.entity_id) || [];
-    existing.push({ row_data: row.row_data });
-    dataByEntity.set(row.entity_id, existing);
+    if (row.entity_id) {
+      // Entity-level: group by entity + sheet
+      if (!dataByEntity.has(row.entity_id)) {
+        dataByEntity.set(row.entity_id, new Map());
+      }
+      const entitySheets = dataByEntity.get(row.entity_id)!;
+      const sheetName = row.data_type || '_unknown';
+      if (!entitySheets.has(sheetName)) {
+        entitySheets.set(sheetName, []);
+      }
+      entitySheets.get(sheetName)!.push({ row_data: row.row_data });
+
+      // Also flat
+      if (!flatDataByEntity.has(row.entity_id)) {
+        flatDataByEntity.set(row.entity_id, []);
+      }
+      flatDataByEntity.get(row.entity_id)!.push({ row_data: row.row_data });
+    } else {
+      // Store-level: group by store identifier
+      const rd = row.row_data as Record<string, unknown> | null;
+      const storeKey = (rd?.['storeId'] ?? rd?.['num_tienda'] ?? rd?.['No_Tienda'] ?? rd?.['Tienda']) as string | number | undefined;
+      if (storeKey !== undefined) {
+        if (!storeData.has(storeKey)) {
+          storeData.set(storeKey, new Map());
+        }
+        const storeSheets = storeData.get(storeKey)!;
+        const sheetName = row.data_type || '_unknown';
+        if (!storeSheets.has(sheetName)) {
+          storeSheets.set(sheetName, []);
+        }
+        storeSheets.get(sheetName)!.push({ row_data: row.row_data });
+      }
+    }
   }
 
-  addLog(`${committedData?.length ?? 0} committed_data rows`);
+  const entityRowCount = Array.from(flatDataByEntity.values()).reduce((s, r) => s + r.length, 0);
+  const storeRowCount = committedData ? committedData.length - entityRowCount : 0;
+  addLog(`${committedData?.length ?? 0} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
 
   // ── 5. Create calculation batch ──
   const { data: batch, error: batchErr } = await supabase
@@ -171,14 +210,34 @@ export async function POST(request: NextRequest) {
 
   for (const entityId of entityIds) {
     const entityInfo = entityMap.get(entityId);
-    const entityRows = dataByEntity.get(entityId) || [];
-    const metrics = aggregateMetrics(entityRows);
+    const entitySheetData = dataByEntity.get(entityId) || new Map();
+    const entityRowsFlat = flatDataByEntity.get(entityId) || [];
 
-    // Evaluate each component — THIS IS THE ENGINE
+    // Find this entity's store ID (use FIRST occurrence, not sum)
+    const allEntityMetrics = aggregateMetrics(entityRowsFlat);
+    let entityStoreId: string | number | undefined;
+    for (const row of entityRowsFlat) {
+      const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+        ? row.row_data as Record<string, unknown> : {};
+      const sid = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
+      if (sid !== undefined && sid !== null) {
+        entityStoreId = sid as string | number;
+        break;
+      }
+    }
+    const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
+
+    // Evaluate each component with sheet-aware metrics
     const componentResults: ComponentResult[] = [];
     let entityTotal = 0;
 
     for (const component of components) {
+      // Build metrics specific to this component's matching sheet
+      const metrics = buildMetricsForComponent(
+        component,
+        entitySheetData,
+        entityStoreData
+      );
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
       entityTotal += result.payout;
@@ -192,8 +251,8 @@ export async function POST(request: NextRequest) {
       period_id: periodId,
       total_payout: entityTotal,
       components: componentResults,
-      metrics,
-      attainment: { overall: metrics['attainment'] ?? 0 },
+      metrics: allEntityMetrics,
+      attainment: { overall: allEntityMetrics['attainment'] ?? 0 },
       metadata: {
         entityName: entityInfo?.display_name ?? entityId,
         externalId: entityInfo?.external_id ?? '',
