@@ -52,7 +52,7 @@ export type DiscrepancyClass =
   | 'logic_divergence'
   | 'scope_mismatch'
   | 'temporal_mismatch'
-  | 'offset_compensation'
+  | 'offset_cancellation'
   | 'unclassified';
 
 export interface TraceEvidence {
@@ -387,7 +387,7 @@ export function reconcile(input: ReconciliationInput): ReconciliationReport {
   // Count classifications
   const classifications: Record<DiscrepancyClass, number> = {
     match: 0, rounding: 0, data_divergence: 0, logic_divergence: 0,
-    scope_mismatch: 0, temporal_mismatch: 0, offset_compensation: 0, unclassified: 0,
+    scope_mismatch: 0, temporal_mismatch: 0, offset_cancellation: 0, unclassified: 0,
   };
   for (const f of findings) {
     classifications[f.classification]++;
