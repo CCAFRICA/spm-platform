@@ -349,11 +349,16 @@ function CalculatePageInner() {
   }
   const availablePeriods = Array.from(periodMap.entries()).map(([id, key]) => ({ id, key }));
 
-  // Filtered results for table
+  // Filtered results for table — search by external ID, name, or entity UUID
   const filteredResults = batchResults.filter(r => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
-    return r.entity_id.toLowerCase().includes(q);
+    const meta = r.metadata as Record<string, unknown> | null;
+    const externalId = String(meta?.externalId || '').toLowerCase();
+    const entityName = String(meta?.entityName || '').toLowerCase();
+    return r.entity_id.toLowerCase().includes(q)
+      || externalId.includes(q)
+      || entityName.includes(q);
   });
   const totalPages = Math.ceil(filteredResults.length / pageSize);
   const paginatedResults = filteredResults.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -594,31 +599,40 @@ function CalculatePageInner() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Entity ID</TableHead>
-                    <TableHead>Rule Set</TableHead>
+                    <TableHead>Employee ID</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead className="text-right">Total Payout</TableHead>
-                    <TableHead>Created</TableHead>
+                    <TableHead>Components</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paginatedResults.map((r) => (
+                  {paginatedResults.map((r) => {
+                    const meta = r.metadata as Record<string, unknown> | null;
+                    const externalId = String(meta?.externalId || '');
+                    const entityName = String(meta?.entityName || r.entity_id.slice(0, 8));
+                    const comps = Array.isArray(r.components) ? r.components as Array<Record<string, unknown>> : [];
+                    const nonZeroComps = comps.filter(c => Number(c.payout || 0) > 0);
+                    return (
                     <TableRow
                       key={r.id}
                       className="cursor-pointer hover:bg-zinc-800/50"
                       onClick={() => router.push(`/investigate/trace/${r.entity_id}?from=calculate`)}
                     >
                       <TableCell className="text-sm">
-                        <span className="font-medium">{(r as Record<string, unknown>).entity_name as string || r.entity_id.slice(0, 8)}</span>
+                        <span className="font-medium font-mono">{externalId || r.entity_id.slice(0, 8)}</span>
                       </TableCell>
-                      <TableCell className="text-sm text-slate-500">{r.rule_set_id ? r.rule_set_id.slice(0, 8) : '-'}</TableCell>
+                      <TableCell className="text-sm text-slate-300">{entityName}</TableCell>
                       <TableCell className="text-right font-semibold text-emerald-600">
                         {formatCurrency(r.total_payout || 0)}
                       </TableCell>
-                      <TableCell className="text-sm text-slate-500">
-                        {new Date(r.created_at).toLocaleDateString()}
+                      <TableCell className="text-xs text-slate-500">
+                        {nonZeroComps.length > 0
+                          ? nonZeroComps.map(c => String(c.componentName || '')).join(', ')
+                          : '-'}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
 
