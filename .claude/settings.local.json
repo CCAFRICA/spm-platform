@@ -109,7 +109,25 @@
       "Bash(HF-046_PROMPT.md:*)",
       "Bash(HF-050_PROMPT.md:*)",
       "Bash(gh pr view:*)",
-      "Bash(gh pr edit:*)"
+      "Bash(gh pr edit:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(git -C /Users/AndrewAfrica/spm-platform diff --stat)",
+      "Bash(git -C /Users/AndrewAfrica/spm-platform diff -- web/package.json)",
+      "Bash(SUPA_URL=\"https://bayqxeiltnpjrvflksfa.supabase.co\")",
+      "Bash(SUPA_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJheXF4ZWlsdG5wanJ2Zmxrc2ZhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTExNzU0OSwiZXhwIjoyMDg2NjkzNTQ5fQ.WZIjbpl4UdhaZHtQ8yzvQkeNANOGZr9SnFCWaHbPd2Y\")",
+      "Bash(TID=\"9b2bb4e3-6828-4451-b3fb-dc384509494f\")",
+      "Bash(__NEW_LINE_f9b863914297d7eb__ echo \"=== 1. PROFILES for RetailCDMX tenant ===\")",
+      "Bash(__NEW_LINE_f9b863914297d7eb__ echo \"\")",
+      "Bash(perl -0777 -ne:*)",
+      "Bash(do perl -pi -e \"s/\\\\.eq\\\\\\(''''auth_user_id'''', user\\\\.id\\\\\\)\\\\n\\(\\\\s*\\)\\\\.single\\\\\\(\\\\\\)/.eq\\(''''auth_user_id'''', user.id\\)\\\\n$1.maybeSingle\\(\\)/g\" \"$f\" done echo \"Done\")",
+      "Bash(do sed -i '' '/\\\\.eq\\(.auth_user_id., user\\\\.id\\)/{n;s/\\\\.single\\(\\)/.maybeSingle\\(\\)/;}' \"$f\" done echo \"Done\")",
+      "Bash(gh pr comment:*)",
+      "Bash(/tmp/ob74_metric_analysis.md:*)",
+      "Bash(supabase --version:*)",
+      "Bash(OB-77_AI_NATIVE_INTENT_TRAINING_TRACE.md:*)",
+      "Bash(npx dotenv:*)",
+      "Bash(. .env.local)",
+      "Bash(npx next lint:*)"
     ]
   }
 }

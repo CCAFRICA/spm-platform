@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-02-13T13:10:30.141Z",
-  "requestId": "9aa67bbc-57f0-4941-b12f-13aab9cf2802",
-  "confidence": 0.94,
+  "timestamp": "2026-02-22T03:59:50.140Z",
+  "requestId": "9b7547b0-b0bb-4c43-a273-80cfc1d43a70",
+  "confidence": 0.95,
   "fullResult": {
-    "planName": "RetailCorp Optometrist Incentive Plan",
-    "planNameEs": "Esquema de Incentivos para Optometristas RetailCorp",
+    "ruleSetName": "RetailCorp Optometrist Incentive Plan",
+    "ruleSetNameEs": "Esquema de Incentivos para Optometristas RetailCorp",
     "description": "Comprehensive incentive plan for certified and non-certified optometrists with 6 components: optical sales, store sales, new customers, collections, insurance sales, and service sales",
     "currency": "MXN",
     "employeeTypes": [
@@ -418,8 +418,8 @@
         ],
         "calculationMethod": {
           "type": "conditional_percentage",
-          "metric": "insurance_sales",
-          "metricLabel": "Venta de Seguros - Reactivación Club de Protección",
+          "metric": "reactivacion_club_proteccion_sales",
+          "metricLabel": "Venta de Reactivación Club de Protección",
           "conditionMetric": "store_goal_attainment",
           "conditionMetricLabel": "Cumplimiento Meta",
           "conditions": [
@@ -450,108 +450,80 @@
         ],
         "calculationMethod": {
           "type": "flat_percentage",
-          "metric": "warranty_sales",
-          "metricLabel": "Garantía Extendida",
+          "metric": "garantia_extendida_sales",
+          "metricLabel": "Venta de Garantía Extendida",
           "rate": 0.04
         },
         "confidence": 95,
-        "reasoning": "Fixed 4% commission on extended warranty sales (Garantía Extendida)"
+        "reasoning": "Simple 4% commission on extended warranty sales"
       }
     ],
     "requiredInputs": [
       {
-        "field": "optical_sales",
-        "description": "Individual optical sales amount",
-        "scope": "employee",
-        "dataType": "currency"
-      },
-      {
-        "field": "optical_goal",
-        "description": "Individual optical sales goal",
-        "scope": "employee",
-        "dataType": "currency"
+        "field": "optical_attainment",
+        "description": "% attainment of optical sales goal",
+        "scope": "store",
+        "dataType": "percentage"
       },
       {
         "field": "store_optical_sales",
-        "description": "Total store optical sales",
+        "description": "Total optical sales amount for the store",
         "scope": "store",
         "dataType": "currency"
       },
       {
-        "field": "store_sales",
-        "description": "Total store sales",
+        "field": "store_sales_attainment",
+        "description": "% attainment of store sales goal",
         "scope": "store",
-        "dataType": "currency"
+        "dataType": "percentage"
       },
       {
-        "field": "store_sales_goal",
-        "description": "Store sales goal",
+        "field": "new_customers_attainment",
+        "description": "% attainment of new customers goal",
         "scope": "store",
-        "dataType": "currency"
+        "dataType": "percentage"
       },
       {
-        "field": "new_customers_actual",
-        "description": "New customers acquired",
+        "field": "collections_attainment",
+        "description": "% attainment of collections goal",
         "scope": "store",
-        "dataType": "number"
-      },
-      {
-        "field": "new_customers_goal",
-        "description": "New customers goal",
-        "scope": "store",
-        "dataType": "number"
-      },
-      {
-        "field": "collections_actual",
-        "description": "Collections amount",
-        "scope": "store",
-        "dataType": "currency"
-      },
-      {
-        "field": "collections_goal",
-        "description": "Collections goal",
-        "scope": "store",
-        "dataType": "currency"
-      },
-      {
-        "field": "insurance_sales",
-        "description": "Individual insurance sales",
-        "scope": "employee",
-        "dataType": "currency"
-      },
-      {
-        "field": "warranty_sales",
-        "description": "Individual warranty sales",
-        "scope": "employee",
-        "dataType": "currency"
+        "dataType": "percentage"
       },
       {
         "field": "store_goal_attainment",
-        "description": "Store goal attainment percentage",
+        "description": "Overall store goal attainment for insurance rate determination",
         "scope": "store",
         "dataType": "percentage"
+      },
+      {
+        "field": "reactivacion_club_proteccion_sales",
+        "description": "Individual sales of club protection reactivation",
+        "scope": "employee",
+        "dataType": "currency"
+      },
+      {
+        "field": "garantia_extendida_sales",
+        "description": "Individual sales of extended warranty",
+        "scope": "employee",
+        "dataType": "currency"
       }
     ],
     "workedExamples": [
       {
         "employeeType": "certified",
         "inputs": {
-          "optical_sales": 970792,
-          "optical_goal": 1001242,
+          "optical_attainment": 96,
           "store_optical_sales": 970792,
-          "store_sales": 2465906,
-          "store_sales_goal": 2345334,
-          "new_customers_actual": 36,
-          "new_customers_goal": 35,
-          "collections_actual": 470599,
-          "collections_goal": 456893,
-          "insurance_sales": 2140,
-          "warranty_sales": 4276,
-          "store_goal_attainment": 105
+          "store_sales_attainment": 105,
+          "new_customers_attainment": 102,
+          "collections_attainment": 102,
+          "store_goal_attainment": 81,
+          "reactivacion_club_proteccion_sales": 2140,
+          "garantia_extendida_sales": 4276
         },
         "expectedTotal": 2335,
         "componentBreakdown": {
-          "optical_sales": 1500,
+          "optical_sales_certified": 1500,
           "store_sales": 300,
           "new_customers": 150,
           "collections": 150,
@@ -562,22 +534,18 @@
       {
         "employeeType": "non_certified",
         "inputs": {
-          "optical_sales": 970792,
-          "optical_goal": 1001242,
+          "optical_attainment": 96,
           "store_optical_sales": 970792,
-          "store_sales": 2465906,
-          "store_sales_goal": 2345334,
-          "new_customers_actual": 36,
-          "new_customers_goal": 35,
-          "collections_actual": 470599,
-          "collections_goal": 456893,
-          "insurance_sales": 2140,
-          "warranty_sales": 4276,
-          "store_goal_attainment": 105
+          "store_sales_attainment": 105,
+          "new_customers_attainment": 102,
+          "collections_attainment": 103,
+          "store_goal_attainment": 81,
+          "reactivacion_club_proteccion_sales": 2140,
+          "garantia_extendida_sales": 4276
         },
         "expectedTotal": 1585,
         "componentBreakdown": {
-          "optical_sales": 750,
+          "optical_sales_non_certified": 750,
           "store_sales": 300,
           "new_customers": 150,
           "collections": 150,
@@ -586,8 +554,8 @@
         }
       }
     ],
-    "confidence": 94,
-    "reasoning": "High confidence extraction with complete matrix and tiered lookup tables. All payout values extracted from tables. Two distinct employee types with different optical sales matrices but identical other components. Worked examples provided validate the structure and calculations."
+    "confidence": 95,
+    "reasoning": "Document provides complete compensation structure with detailed tables for both certified and non-certified optometrists. All payout values extracted from tables, with worked examples validating the calculations. The plan has 6 distinct components with different calculation methods including matrix lookups, tiered lookups, and percentage-based calculations."
   },
   "componentsDetail": [
     {
@@ -948,8 +916,8 @@
       "type": "conditional_percentage",
       "calculationMethod": {
         "type": "conditional_percentage",
-        "metric": "insurance_sales",
-        "metricLabel": "Venta de Seguros - Reactivación Club de Protección",
+        "metric": "reactivacion_club_proteccion_sales",
+        "metricLabel": "Venta de Reactivación Club de Protección",
         "conditionMetric": "store_goal_attainment",
         "conditionMetricLabel": "Cumplimiento Meta",
         "conditions": [
@@ -973,8 +941,8 @@
       "type": "flat_percentage",
       "calculationMethod": {
         "type": "flat_percentage",
-        "metric": "warranty_sales",
-        "metricLabel": "Garantía Extendida",
+        "metric": "garantia_extendida_sales",
+        "metricLabel": "Venta de Garantía Extendida",
         "rate": 0.04
       }
     }
