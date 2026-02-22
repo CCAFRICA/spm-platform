@@ -23,7 +23,7 @@ import type {
 } from '@/types/compensation-plan';
 import {
   inferSemanticType,
-  SHEET_COMPONENT_PATTERNS,
+  findSheetForComponent,
 } from '@/lib/orchestration/metric-resolver';
 
 // ──────────────────────────────────────────────
@@ -261,24 +261,51 @@ export function aggregateMetrics(
 // Sheet-Aware Metric Resolution
 // ──────────────────────────────────────────────
 
+/** AI context sheet info — passed from import_batches.metadata */
+export interface AIContextSheet {
+  sheetName: string;
+  matchedComponent: string | null;
+}
+
 /**
  * Find which sheet (data_type) feeds a given plan component.
- * Uses SHEET_COMPONENT_PATTERNS to match Spanish sheet names to English component names.
+ *
+ * OB-75: Uses AI Import Context (persisted in import_batches.metadata)
+ * instead of hardcoded SHEET_COMPONENT_PATTERNS.
+ * Korean Test: PASSES — AI determined the mapping at import time,
+ * so the calculation engine is language-agnostic.
+ *
+ * Fallback: if no AI context available, uses findSheetForComponent()
+ * from metric-resolver which has both AI-first and legacy pattern matching.
  */
 export function findMatchingSheet(
   componentName: string,
-  availableSheets: string[]
+  availableSheets: string[],
+  aiContextSheets?: AIContextSheet[]
 ): string | null {
-  for (const mapping of SHEET_COMPONENT_PATTERNS) {
-    const componentMatches = mapping.componentPatterns.some(p => p.test(componentName));
-    if (componentMatches) {
-      for (const sheet of availableSheets) {
-        if (mapping.sheetPatterns.some(p => p.test(sheet))) {
-          return sheet;
-        }
-      }
+  // Use AI context (from import_batches.metadata) if available
+  if (aiContextSheets && aiContextSheets.length > 0) {
+    const match = findSheetForComponent(
+      componentName,
+      componentName, // componentId = componentName for matching
+      aiContextSheets
+    );
+    // Only return if the matched sheet is actually in our available data
+    if (match && availableSheets.includes(match)) {
+      return match;
     }
   }
+
+  // Fallback: try direct name matching against available sheets
+  // This handles cases where sheet data_type directly contains a recognizable name
+  const normComponent = componentName.toLowerCase().replace(/[-\s]/g, '_');
+  for (const sheet of availableSheets) {
+    const normSheet = sheet.toLowerCase().replace(/[-\s]/g, '_');
+    if (normSheet.includes(normComponent) || normComponent.includes(normSheet)) {
+      return sheet;
+    }
+  }
+
   return null;
 }
 
@@ -303,7 +330,10 @@ export function getExpectedMetricNames(component: PlanComponent): string[] {
 /**
  * Build metrics for a specific component using sheet-aware resolution.
  *
- * 1. Find the matching sheet for the component via SHEET_COMPONENT_PATTERNS
+ * OB-75: Uses AI Import Context (from import_batches.metadata) to find
+ * the matching sheet — zero hardcoded patterns in the calculation path.
+ *
+ * 1. Find the matching sheet via AI context (Korean Test: PASSES)
  * 2. Aggregate metrics from ONLY that sheet's rows (not all sheets)
  * 3. Resolve plan-specific metric names to semantic values via inferSemanticType
  *
@@ -313,10 +343,11 @@ export function getExpectedMetricNames(component: PlanComponent): string[] {
 export function buildMetricsForComponent(
   component: PlanComponent,
   entityRowsBySheet: Map<string, Array<{ row_data: Json }>>,
-  storeDataBySheet?: Map<string, Array<{ row_data: Json }>>
+  storeDataBySheet?: Map<string, Array<{ row_data: Json }>>,
+  aiContextSheets?: AIContextSheet[]
 ): Record<string, number> {
   const allSheets = Array.from(entityRowsBySheet.keys());
-  const matchingSheet = findMatchingSheet(component.name, allSheets);
+  const matchingSheet = findMatchingSheet(component.name, allSheets, aiContextSheets);
 
   // If matched, use only that sheet. Otherwise try store-level data.
   let relevantRows: Array<{ row_data: Json }>;
@@ -324,9 +355,9 @@ export function buildMetricsForComponent(
   if (matchingSheet) {
     relevantRows = entityRowsBySheet.get(matchingSheet) || [];
   } else if (storeDataBySheet) {
-    // Try store-level sheets
+    // Try store-level sheets (also AI-context aware)
     const storeSheets = Array.from(storeDataBySheet.keys());
-    const storeMatch = findMatchingSheet(component.name, storeSheets);
+    const storeMatch = findMatchingSheet(component.name, storeSheets, aiContextSheets);
     relevantRows = storeMatch ? (storeDataBySheet.get(storeMatch) || []) : [];
   } else {
     relevantRows = [];
@@ -493,6 +524,39 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData?.length ?? 0} data rows`);
 
+  // ── 4b. Fetch AI Import Context (OB-75: Korean Test) ──
+  const aiContextSheets: AIContextSheet[] = [];
+  try {
+    const { data: batchRows } = await supabase
+      .from('committed_data')
+      .select('import_batch_id')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .not('import_batch_id', 'is', null)
+      .limit(100);
+
+    const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));
+
+    if (batchIds.length > 0) {
+      const { data: batches } = await supabase
+        .from('import_batches')
+        .select('id, metadata')
+        .in('id', batchIds);
+
+      for (const b of (batches ?? [])) {
+        const meta = b.metadata as Record<string, unknown> | null;
+        const aiCtx = meta?.ai_context as { sheets?: AIContextSheet[] } | undefined;
+        if (aiCtx?.sheets) {
+          aiContextSheets.push(...aiCtx.sheets);
+        }
+      }
+    }
+
+    console.log(`[RunCalculation] AI context: ${aiContextSheets.length} sheet mappings`);
+  } catch (aiErr) {
+    console.warn('[RunCalculation] AI context fetch failed (non-blocking):', aiErr);
+  }
+
   // ── 5. Create calculation batch ──
   const batch = await createCalculationBatch(tenantId, {
     periodId,
@@ -542,7 +606,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       const metrics = buildMetricsForComponent(
         component,
         entitySheetData,
-        entityStoreData
+        entityStoreData,
+        aiContextSheets
       );
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);

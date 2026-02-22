@@ -154,6 +154,16 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Step 5: Create import batch ──
+    // OB-75: Include AI context in metadata if available
+    const batchMetadata = aiContext ? {
+      ai_context: {
+        timestamp: aiContext.timestamp,
+        rosterSheet: aiContext.rosterSheet,
+        rosterEmployeeIdColumn: aiContext.rosterEmployeeIdColumn,
+        sheets: aiContext.sheets,
+      },
+    } : {};
+
     const { data: batch, error: batchErr } = await supabase
       .from('import_batches')
       .insert({
@@ -163,6 +173,7 @@ export async function POST(request: NextRequest) {
         uploaded_by: userId || null,
         status: 'processing',
         row_count: 0,
+        metadata: batchMetadata as unknown as Json,
       })
       .select('id')
       .single();
@@ -176,30 +187,10 @@ export async function POST(request: NextRequest) {
     }
 
     const batchId = batch.id;
-    console.log(`[ImportCommit] Batch created: ${batchId}`);
-
-    // OB-75: Persist AI import context to import_batches.metadata
-    // Uses separate UPDATE to avoid type errors before DB types are regenerated
     if (aiContext) {
-      const aiMetadata = {
-        ai_context: {
-          timestamp: aiContext.timestamp,
-          rosterSheet: aiContext.rosterSheet,
-          rosterEmployeeIdColumn: aiContext.rosterEmployeeIdColumn,
-          sheets: aiContext.sheets,
-        },
-      };
-      const { error: metaErr } = await supabase
-        .from('import_batches')
-        .update({ metadata: aiMetadata } as Record<string, unknown>)
-        .eq('id', batchId);
-
-      if (metaErr) {
-        // Non-blocking: metadata column may not exist yet (pre-migration)
-        console.warn(`[ImportCommit] AI context persistence failed (run migration 014): ${metaErr.message}`);
-      } else {
-        console.log(`[ImportCommit] AI context persisted: ${aiContext.sheets.length} sheets with classifications`);
-      }
+      console.log(`[ImportCommit] Batch created with AI context: ${batchId} (${aiContext.sheets.length} sheets)`);
+    } else {
+      console.log(`[ImportCommit] Batch created: ${batchId}`);
     }
 
     // ── Step 6: Bulk entity resolution ──

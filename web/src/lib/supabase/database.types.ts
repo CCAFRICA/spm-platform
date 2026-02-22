@@ -477,6 +477,7 @@ export interface Database {
           row_count: number;
           status: string;
           error_summary: Json;
+          metadata: Json;
           uploaded_by: string | null;
           created_at: string;
           completed_at: string | null;
@@ -489,6 +490,7 @@ export interface Database {
           row_count?: number;
           status?: string;
           error_summary?: Json;
+          metadata?: Json;
           uploaded_by?: string | null;
           created_at?: string;
           completed_at?: string | null;
@@ -497,6 +499,7 @@ export interface Database {
           status?: string;
           row_count?: number;
           error_summary?: Json;
+          metadata?: Json;
           completed_at?: string | null;
         };
         Relationships: [];

@@ -16,6 +16,7 @@ import {
   aggregateMetrics,
   buildMetricsForComponent,
   type ComponentResult,
+  type AIContextSheet,
 } from '@/lib/calculation/run-calculation';
 import type { PlanComponent } from '@/types/compensation-plan';
 import type { Json } from '@/lib/supabase/database.types';
@@ -169,6 +170,45 @@ export async function POST(request: NextRequest) {
   const storeRowCount = committedData ? committedData.length - entityRowCount : 0;
   addLog(`${committedData?.length ?? 0} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
 
+  // ── 4b. Fetch AI Import Context from import_batches.metadata (OB-75) ──
+  // Korean Test: PASSES — AI determined sheet→component mapping at import time
+  const aiContextSheets: AIContextSheet[] = [];
+  try {
+    // Get distinct batch IDs from committed_data for this period
+    const { data: batchRows } = await supabase
+      .from('committed_data')
+      .select('import_batch_id')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .not('import_batch_id', 'is', null)
+      .limit(100);
+
+    const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));
+
+    if (batchIds.length > 0) {
+      const { data: batches } = await supabase
+        .from('import_batches')
+        .select('id, metadata')
+        .in('id', batchIds);
+
+      for (const b of (batches ?? [])) {
+        const meta = b.metadata as Record<string, unknown> | null;
+        const aiCtx = meta?.ai_context as { sheets?: AIContextSheet[] } | undefined;
+        if (aiCtx?.sheets) {
+          aiContextSheets.push(...aiCtx.sheets);
+        }
+      }
+    }
+
+    if (aiContextSheets.length > 0) {
+      addLog(`AI context loaded: ${aiContextSheets.length} sheet mappings from import batches`);
+    } else {
+      addLog('No AI context found in import_batches — using fallback name matching');
+    }
+  } catch (aiErr) {
+    addLog(`AI context fetch failed (non-blocking): ${aiErr instanceof Error ? aiErr.message : 'unknown'}`);
+  }
+
   // ── 5. Create calculation batch ──
   const { data: batch, error: batchErr } = await supabase
     .from('calculation_batches')
@@ -232,11 +272,12 @@ export async function POST(request: NextRequest) {
     let entityTotal = 0;
 
     for (const component of components) {
-      // Build metrics specific to this component's matching sheet
+      // Build metrics specific to this component's matching sheet (OB-75: AI-context-aware)
       const metrics = buildMetricsForComponent(
         component,
         entitySheetData,
-        entityStoreData
+        entityStoreData,
+        aiContextSheets
       );
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
