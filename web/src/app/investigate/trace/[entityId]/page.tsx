@@ -10,10 +10,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Layers } from 'lucide-react';
 import { EmployeeTrace } from '@/components/forensics/EmployeeTrace';
+import { ExecutionTraceView } from '@/components/forensics/ExecutionTraceView';
 import { getEntityResults, getCalculationTraces } from '@/lib/supabase/calculation-service';
 import type { CalculationTrace } from '@/lib/forensics/types';
 
@@ -35,6 +36,8 @@ export default function EmployeeTracePage() {
   const fromConfig = FROM_LABELS[fromParam];
 
   const [trace, setTrace] = useState<CalculationTrace | null>(null);
+  const [intentTraces, setIntentTraces] = useState<Array<Record<string, unknown>>>([]);
+  const [intentMeta, setIntentMeta] = useState<{ totalPayout?: number; intentMatch?: boolean; componentNames?: string[] }>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -47,12 +50,25 @@ export default function EmployeeTracePage() {
         if (results.length > 0) {
           const latestResult = results[0];
           const traces = await getCalculationTraces(tenantId, latestResult.id);
+
+          // Extract OB-77 intent traces from metadata
+          const meta = latestResult.metadata as Record<string, unknown> | null;
+          const iTraces = (meta?.intentTraces ?? []) as Array<Record<string, unknown>>;
+          setIntentTraces(iTraces);
+          setIntentMeta({
+            totalPayout: latestResult.total_payout || 0,
+            intentMatch: meta?.intentMatch as boolean | undefined,
+            componentNames: (Array.isArray(latestResult.components)
+              ? (latestResult.components as Array<Record<string, unknown>>).map(c => String(c.componentName || ''))
+              : []),
+          });
+
           // Adapt Supabase trace rows to the CalculationTrace shape
           const adapted = {
             traceId: latestResult.id,
             calculationRunId: latestResult.batch_id,
             entityId,
-            entityName: entityId,
+            entityName: (meta?.entityName as string) || entityId,
             entityRole: '',
             tenantId: latestResult.tenant_id,
             timestamp: latestResult.created_at,
@@ -150,6 +166,26 @@ export default function EmployeeTracePage() {
 
       {/* Trace Detail */}
       <EmployeeTrace trace={trace} />
+
+      {/* OB-77: Intent Execution Traces */}
+      {intentTraces.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Layers className="h-5 w-5 text-blue-400" />
+              Intent Execution Trace
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ExecutionTraceView
+              traces={intentTraces as never[]}
+              componentNames={intentMeta.componentNames}
+              totalPayout={intentMeta.totalPayout}
+              intentMatch={intentMeta.intentMatch}
+            />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

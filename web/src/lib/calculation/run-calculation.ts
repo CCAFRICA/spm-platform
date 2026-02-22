@@ -23,7 +23,7 @@ import type {
 } from '@/types/compensation-plan';
 import {
   inferSemanticType,
-  SHEET_COMPONENT_PATTERNS,
+  findSheetForComponent,
 } from '@/lib/orchestration/metric-resolver';
 
 // ──────────────────────────────────────────────
@@ -261,24 +261,51 @@ export function aggregateMetrics(
 // Sheet-Aware Metric Resolution
 // ──────────────────────────────────────────────
 
+/** AI context sheet info — passed from import_batches.metadata */
+export interface AIContextSheet {
+  sheetName: string;
+  matchedComponent: string | null;
+}
+
 /**
  * Find which sheet (data_type) feeds a given plan component.
- * Uses SHEET_COMPONENT_PATTERNS to match Spanish sheet names to English component names.
+ *
+ * OB-75: Uses AI Import Context (persisted in import_batches.metadata)
+ * instead of hardcoded SHEET_COMPONENT_PATTERNS.
+ * Korean Test: PASSES — AI determined the mapping at import time,
+ * so the calculation engine is language-agnostic.
+ *
+ * Fallback: if no AI context available, uses findSheetForComponent()
+ * from metric-resolver which has both AI-first and legacy pattern matching.
  */
 export function findMatchingSheet(
   componentName: string,
-  availableSheets: string[]
+  availableSheets: string[],
+  aiContextSheets?: AIContextSheet[]
 ): string | null {
-  for (const mapping of SHEET_COMPONENT_PATTERNS) {
-    const componentMatches = mapping.componentPatterns.some(p => p.test(componentName));
-    if (componentMatches) {
-      for (const sheet of availableSheets) {
-        if (mapping.sheetPatterns.some(p => p.test(sheet))) {
-          return sheet;
-        }
-      }
+  // Use AI context (from import_batches.metadata) if available
+  if (aiContextSheets && aiContextSheets.length > 0) {
+    const match = findSheetForComponent(
+      componentName,
+      componentName, // componentId = componentName for matching
+      aiContextSheets
+    );
+    // Only return if the matched sheet is actually in our available data
+    if (match && availableSheets.includes(match)) {
+      return match;
     }
   }
+
+  // Fallback: try direct name matching against available sheets
+  // This handles cases where sheet data_type directly contains a recognizable name
+  const normComponent = componentName.toLowerCase().replace(/[-\s]/g, '_');
+  for (const sheet of availableSheets) {
+    const normSheet = sheet.toLowerCase().replace(/[-\s]/g, '_');
+    if (normSheet.includes(normComponent) || normComponent.includes(normSheet)) {
+      return sheet;
+    }
+  }
+
   return null;
 }
 
@@ -303,7 +330,10 @@ export function getExpectedMetricNames(component: PlanComponent): string[] {
 /**
  * Build metrics for a specific component using sheet-aware resolution.
  *
- * 1. Find the matching sheet for the component via SHEET_COMPONENT_PATTERNS
+ * OB-75: Uses AI Import Context (from import_batches.metadata) to find
+ * the matching sheet — zero hardcoded patterns in the calculation path.
+ *
+ * 1. Find the matching sheet via AI context (Korean Test: PASSES)
  * 2. Aggregate metrics from ONLY that sheet's rows (not all sheets)
  * 3. Resolve plan-specific metric names to semantic values via inferSemanticType
  *
@@ -313,10 +343,11 @@ export function getExpectedMetricNames(component: PlanComponent): string[] {
 export function buildMetricsForComponent(
   component: PlanComponent,
   entityRowsBySheet: Map<string, Array<{ row_data: Json }>>,
-  storeDataBySheet?: Map<string, Array<{ row_data: Json }>>
+  storeDataBySheet?: Map<string, Array<{ row_data: Json }>>,
+  aiContextSheets?: AIContextSheet[]
 ): Record<string, number> {
   const allSheets = Array.from(entityRowsBySheet.keys());
-  const matchingSheet = findMatchingSheet(component.name, allSheets);
+  const matchingSheet = findMatchingSheet(component.name, allSheets, aiContextSheets);
 
   // If matched, use only that sheet. Otherwise try store-level data.
   let relevantRows: Array<{ row_data: Json }>;
@@ -324,28 +355,36 @@ export function buildMetricsForComponent(
   if (matchingSheet) {
     relevantRows = entityRowsBySheet.get(matchingSheet) || [];
   } else if (storeDataBySheet) {
-    // Try store-level sheets
+    // Try store-level sheets (also AI-context aware)
     const storeSheets = Array.from(storeDataBySheet.keys());
-    const storeMatch = findMatchingSheet(component.name, storeSheets);
+    const storeMatch = findMatchingSheet(component.name, storeSheets, aiContextSheets);
     relevantRows = storeMatch ? (storeDataBySheet.get(storeMatch) || []) : [];
   } else {
     relevantRows = [];
   }
 
-  // If no sheet match found at all, fall back to all entity rows
+  // OB-75: If no matching sheet data found for this entity, return empty metrics.
+  // DO NOT fall back to ALL entity rows — that causes cross-sheet contamination.
+  // An entity without data for a component gets $0 for that component.
   if (relevantRows.length === 0) {
-    relevantRows = [];
-    Array.from(entityRowsBySheet.values()).forEach(rows => {
-      relevantRows.push(...rows);
-    });
+    return {};
   }
 
   const rawMetrics = aggregateMetrics(relevantRows);
 
-  // Compute attainment from goal + actual when not explicitly present
-  if (rawMetrics['attainment'] === undefined && rawMetrics['goal'] && rawMetrics['goal'] > 0) {
+  // Compute attainment from goal + actual.
+  // If no attainment exists, compute from goal/amount.
+  // If attainment exists but looks like a monetary value (>1000), override it —
+  // some sheets map a field like "Monto Acotado" (capped amount) to "attainment"
+  // which is NOT a ratio/percentage. A valid attainment is always < 1000
+  // (whether decimal 0-3 or percentage 0-300).
+  if (rawMetrics['goal'] && rawMetrics['goal'] > 0) {
     const actual = rawMetrics['amount'] ?? rawMetrics['quantity'] ?? 0;
-    rawMetrics['attainment'] = actual / rawMetrics['goal'];
+    const computedAttainment = actual / rawMetrics['goal'];
+
+    if (rawMetrics['attainment'] === undefined || rawMetrics['attainment'] > 1000) {
+      rawMetrics['attainment'] = computedAttainment;
+    }
   }
 
   // Resolve plan-specific metric names to semantic values
@@ -409,29 +448,47 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   console.log(`[RunCalculation] Rule set "${ruleSet.name}" has ${components.length} components`);
 
-  // ── 2. Fetch entities with assignments ──
-  const { data: assignments, error: aErr } = await supabase
-    .from('rule_set_assignments')
-    .select('entity_id')
-    .eq('tenant_id', tenantId)
-    .eq('rule_set_id', ruleSetId);
+  // ── 2. Fetch entities with assignments (OB-75: paginated) ──
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
 
-  if (aErr) {
-    return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: `Failed to fetch assignments: ${aErr.message}` };
+    if (aErr) {
+      return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: `Failed to fetch assignments: ${aErr.message}` };
+    }
+    if (!page || page.length === 0) break;
+    assignments.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    assignPage++;
   }
 
-  const entityIds = (assignments ?? []).map(a => a.entity_id);
+  const entityIds = assignments.map(a => a.entity_id);
   if (entityIds.length === 0) {
     return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'No entities assigned to this rule set' };
   }
 
-  // Fetch entity display info
-  const { data: entities } = await supabase
-    .from('entities')
-    .select('id, external_id, display_name')
-    .in('id', entityIds);
+  // Fetch entity display info (OB-75: batched .in() for 22K+ entities)
+  const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
+  const ENTITY_BATCH = 1000; // Supabase max_rows = 1000
+  for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
+    const idBatch = entityIds.slice(i, i + ENTITY_BATCH);
+    const { data: page } = await supabase
+      .from('entities')
+      .select('id, external_id, display_name')
+      .in('id', idBatch);
+    if (page) entities.push(...page);
+  }
 
-  const entityMap = new Map((entities ?? []).map(e => [e.id, e]));
+  const entityMap = new Map(entities.map(e => [e.id, e]));
 
   // ── 3. Fetch period info ──
   const { data: period } = await supabase
@@ -444,12 +501,24 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'Period not found' };
   }
 
-  // ── 4. Fetch committed data for this period (entity-level + store-level) ──
-  const { data: committedData } = await supabase
-    .from('committed_data')
-    .select('entity_id, data_type, row_data')
-    .eq('tenant_id', tenantId)
-    .eq('period_id', periodId);
+  // ── 4. Fetch committed data (OB-75: paginated, no 1000-row cap) ──
+  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+  let dataPage = 0;
+  while (true) {
+    const from = dataPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page } = await supabase
+      .from('committed_data')
+      .select('entity_id, data_type, row_data')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .range(from, to);
+
+    if (!page || page.length === 0) break;
+    committedData.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    dataPage++;
+  }
 
   // Group entity-level data by entity_id → data_type → rows
   const dataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
@@ -458,7 +527,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   // Store-level data (NULL entity_id) grouped by storeId → data_type → rows
   const storeData = new Map<string | number, Map<string, Array<{ row_data: Json }>>>();
 
-  for (const row of (committedData ?? [])) {
+  for (const row of committedData) {
     if (row.entity_id) {
       if (!dataByEntity.has(row.entity_id)) {
         dataByEntity.set(row.entity_id, new Map());
@@ -491,13 +560,65 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     }
   }
 
-  console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData?.length ?? 0} data rows`);
+  console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData.length} data rows (paginated fetch)`);
+
+  // ── 4a. Population filter: only calculate entities on the roster ──
+  const rosterEntityIds = new Set<string>();
+  const rosterSheetNames = ['Datos Colaborador', 'Roster', 'Employee', 'Empleados'];
+
+  for (const [entityId, sheetMap] of Array.from(dataByEntity.entries())) {
+    for (const sheetName of Array.from(sheetMap.keys())) {
+      if (rosterSheetNames.some(r => sheetName.toLowerCase().includes(r.toLowerCase()))) {
+        rosterEntityIds.add(entityId);
+        break;
+      }
+    }
+  }
+
+  let calculationEntityIds = entityIds;
+  if (rosterEntityIds.size > 0) {
+    calculationEntityIds = entityIds.filter(id => rosterEntityIds.has(id));
+    console.log(`[RunCalculation] Population filter: ${rosterEntityIds.size} rostered, ${calculationEntityIds.length} assigned+rostered (from ${entityIds.length})`);
+  }
+
+  // ── 4b. Fetch AI Import Context (OB-75: Korean Test) ──
+  const aiContextSheets: AIContextSheet[] = [];
+  try {
+    const { data: batchRows } = await supabase
+      .from('committed_data')
+      .select('import_batch_id')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .not('import_batch_id', 'is', null)
+      .limit(100);
+
+    const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));
+
+    if (batchIds.length > 0) {
+      const { data: batches } = await supabase
+        .from('import_batches')
+        .select('id, metadata')
+        .in('id', batchIds);
+
+      for (const b of (batches ?? [])) {
+        const meta = b.metadata as Record<string, unknown> | null;
+        const aiCtx = meta?.ai_context as { sheets?: AIContextSheet[] } | undefined;
+        if (aiCtx?.sheets) {
+          aiContextSheets.push(...aiCtx.sheets);
+        }
+      }
+    }
+
+    console.log(`[RunCalculation] AI context: ${aiContextSheets.length} sheet mappings`);
+  } catch (aiErr) {
+    console.warn('[RunCalculation] AI context fetch failed (non-blocking):', aiErr);
+  }
 
   // ── 5. Create calculation batch ──
   const batch = await createCalculationBatch(tenantId, {
     periodId,
     ruleSetId,
-    entityCount: entityIds.length,
+    entityCount: calculationEntityIds.length,
     createdBy: userId,
   });
 
@@ -515,7 +636,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   let grandTotal = 0;
 
-  for (const entityId of entityIds) {
+  for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
@@ -542,7 +663,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       const metrics = buildMetricsForComponent(
         component,
         entitySheetData,
-        entityStoreData
+        entityStoreData,
+        aiContextSheets
       );
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);

@@ -1798,8 +1798,10 @@ function DataPackageImportPageInner() {
 
       // OB-24 FIX: Store import context BEFORE commit so storeAggregatedData can use it
       // CLT-08 FIX: Use USER-CONFIRMED fieldMappings, not original AI suggestions
+      // OB-75: Build AI context and send to commit API for Supabase persistence
+      let importContext: AIImportContext | null = null;
       if (analysis) {
-        const importContext: AIImportContext = {
+        importContext = {
           tenantId,
           batchId,
           timestamp: new Date().toISOString(),
@@ -1835,23 +1837,29 @@ function DataPackageImportPageInner() {
           }),
         };
         storeImportContext(importContext);
-        console.log(`[Import] Stored AI import context BEFORE commit: ${importContext.sheets.length} sheets`);
+        console.log(`[Import] AI import context built: ${importContext.sheets.length} sheets — sending to commit API`);
       }
 
       // Step 4: Send metadata-only request to commit API (< 50KB payload)
       console.log(`[Import] Step 4: Processing import server-side...`);
 
+      const commitBody: Record<string, unknown> = {
+        tenantId,
+        userId,
+        fileName: uploadedFile.name,
+        storagePath,
+        sheetMappings,
+        detectedPeriods: validationResult?.detectedPeriods?.periods || [],
+      };
+      // OB-75: Include AI context so commit API persists it to import_batches.metadata
+      if (importContext) {
+        commitBody.aiContext = importContext;
+      }
+
       const response = await fetch('/api/import/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenantId,
-          userId,
-          fileName: uploadedFile.name,
-          storagePath,
-          sheetMappings,
-          detectedPeriods: validationResult?.detectedPeriods?.periods || [],
-        }),
+        body: JSON.stringify(commitBody),
       });
 
       if (!response.ok) {

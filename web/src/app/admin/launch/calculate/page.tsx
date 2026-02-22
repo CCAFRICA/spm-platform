@@ -7,7 +7,7 @@
  * No localStorage.
  */
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
@@ -56,8 +56,9 @@ import {
 import {
   Calculator, Play, CheckCircle2, AlertTriangle,
   ChevronDown, ChevronRight, Clock, Users, DollarSign, TrendingUp,
-  ArrowLeft, ArrowRight, Search,
+  ArrowLeft, ArrowRight, Search, Layers,
 } from 'lucide-react';
+import { ExecutionTraceView } from '@/components/forensics/ExecutionTraceView';
 
 type CalcBatchRow = Database['public']['Tables']['calculation_batches']['Row'];
 type CalcResultRow = Database['public']['Tables']['calculation_results']['Row'];
@@ -124,6 +125,7 @@ function CalculatePageInner() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [isCalculating, setIsCalculating] = useState(false);
+  const [expandedEntityId, setExpandedEntityId] = useState<string | null>(null);
   const [dbPeriods, setDbPeriods] = useState<Array<{ id: string; canonical_key: string; label?: string }>>([]);
 
   const { locale } = useAdminLocale();
@@ -349,11 +351,16 @@ function CalculatePageInner() {
   }
   const availablePeriods = Array.from(periodMap.entries()).map(([id, key]) => ({ id, key }));
 
-  // Filtered results for table
+  // Filtered results for table — search by external ID, name, or entity UUID
   const filteredResults = batchResults.filter(r => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
-    return r.entity_id.toLowerCase().includes(q);
+    const meta = r.metadata as Record<string, unknown> | null;
+    const externalId = String(meta?.externalId || '').toLowerCase();
+    const entityName = String(meta?.entityName || '').toLowerCase();
+    return r.entity_id.toLowerCase().includes(q)
+      || externalId.includes(q)
+      || entityName.includes(q);
   });
   const totalPages = Math.ceil(filteredResults.length / pageSize);
   const paginatedResults = filteredResults.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -594,31 +601,87 @@ function CalculatePageInner() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Entity ID</TableHead>
-                    <TableHead>Rule Set</TableHead>
+                    <TableHead className="w-8"></TableHead>
+                    <TableHead>Employee ID</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead className="text-right">Total Payout</TableHead>
-                    <TableHead>Created</TableHead>
+                    <TableHead>Components</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paginatedResults.map((r) => (
+                  {paginatedResults.map((r) => {
+                    const meta = r.metadata as Record<string, unknown> | null;
+                    const externalId = String(meta?.externalId || '');
+                    const entityName = String(meta?.entityName || r.entity_id.slice(0, 8));
+                    const comps = Array.isArray(r.components) ? r.components as Array<Record<string, unknown>> : [];
+                    const nonZeroComps = comps.filter(c => Number(c.payout || 0) > 0);
+                    const intentTraces = (meta?.intentTraces ?? []) as Array<Record<string, unknown>>;
+                    const intentMatch = meta?.intentMatch as boolean | undefined;
+                    const isExpanded = expandedEntityId === r.entity_id;
+                    const componentNames = comps.map(c => String(c.componentName || ''));
+                    return (
+                    <React.Fragment key={r.id}>
                     <TableRow
-                      key={r.id}
                       className="cursor-pointer hover:bg-zinc-800/50"
-                      onClick={() => router.push(`/investigate/trace/${r.entity_id}?from=calculate`)}
+                      onClick={() => setExpandedEntityId(isExpanded ? null : r.entity_id)}
                     >
-                      <TableCell className="text-sm">
-                        <span className="font-medium">{(r as Record<string, unknown>).entity_name as string || r.entity_id.slice(0, 8)}</span>
+                      <TableCell className="w-8 px-2">
+                        {intentTraces.length > 0 ? (
+                          isExpanded
+                            ? <ChevronDown className="h-4 w-4 text-slate-400" />
+                            : <ChevronRight className="h-4 w-4 text-slate-400" />
+                        ) : null}
                       </TableCell>
-                      <TableCell className="text-sm text-slate-500">{r.rule_set_id ? r.rule_set_id.slice(0, 8) : '-'}</TableCell>
+                      <TableCell className="text-sm">
+                        <span className="font-medium font-mono">{externalId || r.entity_id.slice(0, 8)}</span>
+                      </TableCell>
+                      <TableCell className="text-sm text-slate-300">{entityName}</TableCell>
                       <TableCell className="text-right font-semibold text-emerald-600">
                         {formatCurrency(r.total_payout || 0)}
                       </TableCell>
-                      <TableCell className="text-sm text-slate-500">
-                        {new Date(r.created_at).toLocaleDateString()}
+                      <TableCell className="text-xs text-slate-500">
+                        <div className="flex items-center gap-2">
+                          <span>{nonZeroComps.length > 0
+                            ? nonZeroComps.map(c => String(c.componentName || '')).join(', ')
+                            : '-'}</span>
+                          {intentTraces.length > 0 && (
+                            <Layers className="h-3 w-3 text-blue-400" />
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    {isExpanded && intentTraces.length > 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="bg-zinc-900/50 p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+                              Intent Execution Trace
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                router.push(`/investigate/trace/${r.entity_id}?from=calculate`);
+                              }}
+                            >
+                              Full Trace →
+                            </Button>
+                          </div>
+                          <ExecutionTraceView
+                            traces={intentTraces as never[]}
+                            componentNames={componentNames}
+                            totalPayout={r.total_payout || 0}
+                            intentMatch={intentMatch}
+                            compact
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </React.Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
 

@@ -17,6 +17,7 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
 import { writeAuditLog } from '@/lib/audit/audit-logger';
 import type { LifecycleState } from '@/lib/supabase/database.types';
 import { isValidTransition } from '@/lib/supabase/calculation-service';
+import { persistSignal } from '@/lib/ai/signal-persistence';
 
 export async function PATCH(
   request: NextRequest,
@@ -158,6 +159,28 @@ export async function PATCH(
         to_state: targetState,
         triggered_by: 'approval_decision',
       },
+    });
+
+    // OB-77: Training signal — lifecycle approval/rejection (fire-and-forget)
+    persistSignal({
+      tenantId: profile.tenant_id,
+      signalType: 'training:lifecycle_transition',
+      signalValue: {
+        batchId: batch_id,
+        fromState: beforeState,
+        toState: targetState,
+        decision: status,
+        decisionNotes: decision_notes || null,
+      },
+      confidence: 1.0,
+      source: 'user_confirmed',
+      context: {
+        approvalId,
+        decidedBy: profile.display_name,
+        trigger: 'approval_decision',
+      },
+    }).catch(err => {
+      console.warn('[Approvals] Training signal persist failed (non-blocking):', err);
     });
 
     return NextResponse.json({

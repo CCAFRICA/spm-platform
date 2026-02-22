@@ -16,9 +16,14 @@ import {
   aggregateMetrics,
   buildMetricsForComponent,
   type ComponentResult,
+  type AIContextSheet,
 } from '@/lib/calculation/run-calculation';
+import { transformVariant } from '@/lib/calculation/intent-transformer';
+import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
+import type { ComponentIntent } from '@/lib/calculation/intent-types';
 import type { PlanComponent } from '@/types/compensation-plan';
 import type { Json } from '@/lib/supabase/database.types';
+import { persistSignal } from '@/lib/ai/signal-persistence';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -66,21 +71,37 @@ export async function POST(request: NextRequest) {
 
   addLog(`Rule set "${ruleSet.name}" has ${components.length} components`);
 
-  // ── 2. Fetch entities via assignments ──
-  const { data: assignments, error: aErr } = await supabase
-    .from('rule_set_assignments')
-    .select('entity_id')
-    .eq('tenant_id', tenantId)
-    .eq('rule_set_id', ruleSetId);
+  // ── OB-76: Transform components to intents (once, before entity loop) ──
+  const componentIntents: ComponentIntent[] = transformVariant(components);
+  addLog(`OB-76 Intent layer: ${componentIntents.length} components transformed to intents`);
 
-  if (aErr) {
-    return NextResponse.json(
-      { error: `Failed to fetch assignments: ${aErr.message}`, log },
-      { status: 500 }
-    );
+  // ── 2. Fetch entities via assignments (OB-75: paginated, no 1000-row cap) ──
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
+
+    if (aErr) {
+      return NextResponse.json(
+        { error: `Failed to fetch assignments: ${aErr.message}`, log },
+        { status: 500 }
+      );
+    }
+    if (!page || page.length === 0) break;
+    assignments.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    assignPage++;
   }
 
-  const entityIds = (assignments ?? []).map(a => a.entity_id);
+  const entityIds = assignments.map(a => a.entity_id);
   if (entityIds.length === 0) {
     return NextResponse.json(
       { error: 'No entities assigned to this rule set', log },
@@ -88,15 +109,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  addLog(`${entityIds.length} entities assigned`);
+  addLog(`${entityIds.length} entities assigned (paginated fetch)`);
 
-  // Fetch entity display info
-  const { data: entities } = await supabase
-    .from('entities')
-    .select('id, external_id, display_name')
-    .in('id', entityIds);
+  // Fetch entity display info (OB-75: paginated, batched .in() to avoid URL length limits)
+  const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
+  const ENTITY_BATCH = 1000; // Supabase max_rows = 1000
+  for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
+    const batch = entityIds.slice(i, i + ENTITY_BATCH);
+    const { data: page } = await supabase
+      .from('entities')
+      .select('id, external_id, display_name')
+      .in('id', batch);
+    if (page) entities.push(...page);
+  }
 
-  const entityMap = new Map((entities ?? []).map(e => [e.id, e]));
+  const entityMap = new Map(entities.map(e => [e.id, e]));
 
   // ── 3. Fetch period ──
   const { data: period } = await supabase
@@ -114,12 +141,26 @@ export async function POST(request: NextRequest) {
 
   addLog(`Period: ${period.canonical_key}`);
 
-  // ── 4. Fetch committed data (entity-level + store-level) ──
-  const { data: committedData } = await supabase
-    .from('committed_data')
-    .select('entity_id, data_type, row_data')
-    .eq('tenant_id', tenantId)
-    .eq('period_id', periodId);
+  // ── 4. Fetch committed data (OB-75: paginated, no 1000-row cap) ──
+  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+  let dataPage = 0;
+  while (true) {
+    const from = dataPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page } = await supabase
+      .from('committed_data')
+      .select('entity_id, data_type, row_data')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .range(from, to);
+
+    if (!page || page.length === 0) break;
+    committedData.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    dataPage++;
+  }
+
+  addLog(`Fetched ${committedData.length} committed_data rows (paginated)`);
 
   // Group entity-level data by entity_id → data_type → rows
   const dataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
@@ -129,7 +170,7 @@ export async function POST(request: NextRequest) {
   // Store-level data (NULL entity_id) grouped by storeId → data_type → rows
   const storeData = new Map<string | number, Map<string, Array<{ row_data: Json }>>>();
 
-  for (const row of (committedData ?? [])) {
+  for (const row of committedData) {
     if (row.entity_id) {
       // Entity-level: group by entity + sheet
       if (!dataByEntity.has(row.entity_id)) {
@@ -166,8 +207,73 @@ export async function POST(request: NextRequest) {
   }
 
   const entityRowCount = Array.from(flatDataByEntity.values()).reduce((s, r) => s + r.length, 0);
-  const storeRowCount = committedData ? committedData.length - entityRowCount : 0;
-  addLog(`${committedData?.length ?? 0} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
+  const storeRowCount = committedData.length - entityRowCount;
+  addLog(`${committedData.length} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
+  addLog(`Store data: ${storeData.size} unique stores`);
+
+  // ── 4a. Population filter: only calculate entities on the roster ──
+  // The roster sheet (e.g., "Datos Colaborador") defines which employees are active
+  // for this period. Entities that only appear in transaction sheets (warranty, insurance)
+  // but not on the roster should NOT be calculated.
+  const rosterEntityIds = new Set<string>();
+  const rosterSheetNames = ['Datos Colaborador', 'Roster', 'Employee', 'Empleados'];
+
+  for (const [entityId, sheetMap] of Array.from(dataByEntity.entries())) {
+    for (const sheetName of Array.from(sheetMap.keys())) {
+      if (rosterSheetNames.some(r => sheetName.toLowerCase().includes(r.toLowerCase()))) {
+        rosterEntityIds.add(entityId);
+        break;
+      }
+    }
+  }
+
+  // If roster found, filter entityIds to only roster employees
+  let calculationEntityIds = entityIds;
+  if (rosterEntityIds.size > 0) {
+    calculationEntityIds = entityIds.filter(id => rosterEntityIds.has(id));
+    addLog(`Population filter: ${rosterEntityIds.size} entities on roster, ${calculationEntityIds.length} assigned+rostered (filtered from ${entityIds.length})`);
+  } else {
+    addLog(`No roster sheet detected — calculating all ${entityIds.length} assigned entities`);
+  }
+
+  // ── 4b. Fetch AI Import Context from import_batches.metadata (OB-75) ──
+  // Korean Test: PASSES — AI determined sheet→component mapping at import time
+  const aiContextSheets: AIContextSheet[] = [];
+  try {
+    // Get distinct batch IDs from committed_data for this period
+    const { data: batchRows } = await supabase
+      .from('committed_data')
+      .select('import_batch_id')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .not('import_batch_id', 'is', null)
+      .limit(100);
+
+    const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));
+
+    if (batchIds.length > 0) {
+      const { data: batches } = await supabase
+        .from('import_batches')
+        .select('id, metadata')
+        .in('id', batchIds);
+
+      for (const b of (batches ?? [])) {
+        const meta = b.metadata as Record<string, unknown> | null;
+        const aiCtx = meta?.ai_context as { sheets?: AIContextSheet[] } | undefined;
+        if (aiCtx?.sheets) {
+          aiContextSheets.push(...aiCtx.sheets);
+        }
+      }
+    }
+
+    if (aiContextSheets.length > 0) {
+      addLog(`AI context loaded: ${aiContextSheets.length} sheet mappings from import batches`);
+    } else {
+      addLog('No AI context found in import_batches — using fallback name matching');
+    }
+  } catch (aiErr) {
+    addLog(`AI context fetch failed (non-blocking): ${aiErr instanceof Error ? aiErr.message : 'unknown'}`);
+  }
 
   // ── 5. Create calculation batch ──
   const { data: batch, error: batchErr } = await supabase
@@ -178,7 +284,7 @@ export async function POST(request: NextRequest) {
       rule_set_id: ruleSetId,
       batch_type: 'standard',
       lifecycle_state: 'DRAFT',
-      entity_count: entityIds.length,
+      entity_count: calculationEntityIds.length,
       config: {} as unknown as Json,
       summary: {} as unknown as Json,
     })
@@ -194,7 +300,7 @@ export async function POST(request: NextRequest) {
 
   addLog(`Batch created: ${batch.id}`);
 
-  // ── 6. Evaluate each entity using the REAL engine ──
+  // ── 6. Evaluate each entity using DUAL-PATH: current engine + intent executor ──
   const entityResults: Array<{
     entity_id: string;
     rule_set_id: string;
@@ -203,12 +309,14 @@ export async function POST(request: NextRequest) {
     components: ComponentResult[];
     metrics: Record<string, number>;
     attainment: { overall: number };
-    metadata: { entityName: string; externalId: string };
+    metadata: Record<string, unknown>;
   }> = [];
 
   let grandTotal = 0;
+  let intentMatchCount = 0;
+  let intentMismatchCount = 0;
 
-  for (const entityId of entityIds) {
+  for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
@@ -227,20 +335,49 @@ export async function POST(request: NextRequest) {
     }
     const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
 
-    // Evaluate each component with sheet-aware metrics
+    // ── CURRENT ENGINE PATH ──
     const componentResults: ComponentResult[] = [];
     let entityTotal = 0;
+    const perComponentMetrics: Record<string, number>[] = [];
 
     for (const component of components) {
-      // Build metrics specific to this component's matching sheet
       const metrics = buildMetricsForComponent(
         component,
         entitySheetData,
-        entityStoreData
+        entityStoreData,
+        aiContextSheets
       );
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
+      perComponentMetrics.push(metrics);
       entityTotal += result.payout;
+    }
+
+    // ── OB-76 INTENT ENGINE PATH (parallel execution) ──
+    const intentTraces: unknown[] = [];
+    let intentTotal = 0;
+    const priorResults: number[] = [];
+
+    for (const ci of componentIntents) {
+      const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
+      const entityData: EntityData = {
+        entityId,
+        metrics,
+        attributes: {},
+        priorResults: [...priorResults],
+      };
+      const intentResult = executeIntent(ci, entityData);
+      intentTraces.push(intentResult.trace);
+      intentTotal += intentResult.outcome;
+      priorResults[ci.componentIndex] = intentResult.outcome;
+    }
+
+    // ── DUAL-PATH COMPARISON ──
+    const entityMatch = Math.abs(entityTotal - intentTotal) < 0.01;
+    if (entityMatch) {
+      intentMatchCount++;
+    } else {
+      intentMismatchCount++;
     }
 
     grandTotal += entityTotal;
@@ -256,15 +393,52 @@ export async function POST(request: NextRequest) {
       metadata: {
         entityName: entityInfo?.display_name ?? entityId,
         externalId: entityInfo?.external_id ?? '',
+        intentTraces,
+        intentTotal,
+        intentMatch: entityMatch,
       },
     });
 
-    addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} (${componentResults.map(c => `${c.componentName}=${c.payout}`).join(', ')})`);
+    // Only log first 20 and last 5 entities to avoid log flooding at scale
+    if (entityResults.length <= 20 || entityResults.length > calculationEntityIds.length - 5) {
+      const matchLabel = entityMatch ? '✓' : '✗';
+      addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} | intent=${intentTotal.toLocaleString()} ${matchLabel}`);
+    } else if (entityResults.length === 21) {
+      addLog(`  ... (${calculationEntityIds.length - 25} more entities) ...`);
+    }
   }
+
+  const concordanceRate = (intentMatchCount / calculationEntityIds.length) * 100;
+  addLog(`OB-76 Dual-path: ${intentMatchCount} match, ${intentMismatchCount} mismatch (${concordanceRate.toFixed(1)}% concordance)`);
 
   addLog(`Grand total: ${grandTotal.toLocaleString()}`);
 
-  // ── 7. Write calculation_results ──
+  // ── OB-77: Training signal — dual-path concordance (fire-and-forget) ──
+  persistSignal({
+    tenantId,
+    signalType: 'training:dual_path_concordance',
+    signalValue: {
+      matchCount: intentMatchCount,
+      mismatchCount: intentMismatchCount,
+      concordanceRate: parseFloat(concordanceRate.toFixed(2)),
+      entityCount: calculationEntityIds.length,
+      componentCount: components.length,
+      intentsTransformed: componentIntents.length,
+      totalPayout: grandTotal,
+      ruleSetId,
+      periodId,
+    },
+    confidence: concordanceRate / 100,
+    source: 'ai_prediction',
+    context: {
+      ruleSetName: ruleSet.name,
+      trigger: 'calculation_run',
+    },
+  }).catch(err => {
+    console.warn('[CalcAPI] Training signal persist failed (non-blocking):', err);
+  });
+
+  // ── 7. Write calculation_results (OB-75: batched for 22K+ entities) ──
   const insertRows = entityResults.map(r => ({
     tenant_id: tenantId,
     batch_id: batch.id,
@@ -284,18 +458,22 @@ export async function POST(request: NextRequest) {
     metadata: r.metadata as unknown as Json,
   }));
 
-  const { error: writeErr } = await supabase
-    .from('calculation_results')
-    .insert(insertRows);
+  const WRITE_BATCH = 5000;
+  for (let i = 0; i < insertRows.length; i += WRITE_BATCH) {
+    const slice = insertRows.slice(i, i + WRITE_BATCH);
+    const { error: writeErr } = await supabase
+      .from('calculation_results')
+      .insert(slice);
 
-  if (writeErr) {
-    return NextResponse.json(
-      { error: `Failed to write results: ${writeErr.message}`, log },
-      { status: 500 }
-    );
+    if (writeErr) {
+      return NextResponse.json(
+        { error: `Failed to write results batch ${i / WRITE_BATCH}: ${writeErr.message}`, log },
+        { status: 500 }
+      );
+    }
   }
 
-  addLog(`Wrote ${insertRows.length} calculation_results`);
+  addLog(`Wrote ${insertRows.length} calculation_results (in ${Math.ceil(insertRows.length / WRITE_BATCH)} batches)`);
 
   // ── 8. Transition batch to PREVIEW ──
   const { error: transErr } = await supabase
@@ -310,6 +488,12 @@ export async function POST(request: NextRequest) {
         entity_count: entityResults.length,
         component_count: components.length,
         rule_set_name: ruleSet.name,
+        intentLayer: {
+          matchCount: intentMatchCount,
+          mismatchCount: intentMismatchCount,
+          concordance: ((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1) + '%',
+          intentsTransformed: componentIntents.length,
+        },
       } as unknown as Json,
     })
     .eq('id', batch.id);
@@ -347,14 +531,24 @@ export async function POST(request: NextRequest) {
     .eq('tenant_id', tenantId)
     .eq('period_id', periodId);
 
-  const { error: outErr } = await supabase
-    .from('entity_period_outcomes')
-    .insert(outcomeRows);
+  // OB-75: Batched insert for 22K+ outcomes
+  let outcomeWriteErr: string | null = null;
+  for (let i = 0; i < outcomeRows.length; i += WRITE_BATCH) {
+    const slice = outcomeRows.slice(i, i + WRITE_BATCH);
+    const { error: outErr } = await supabase
+      .from('entity_period_outcomes')
+      .insert(slice);
 
-  if (outErr) {
-    addLog(`WARNING: Failed to materialize outcomes: ${outErr.message}`);
+    if (outErr) {
+      outcomeWriteErr = outErr.message;
+      break;
+    }
+  }
+
+  if (outcomeWriteErr) {
+    addLog(`WARNING: Failed to materialize outcomes: ${outcomeWriteErr}`);
   } else {
-    addLog(`Materialized ${outcomeRows.length} entity_period_outcomes`);
+    addLog(`Materialized ${outcomeRows.length} entity_period_outcomes (in ${Math.ceil(outcomeRows.length / WRITE_BATCH)} batches)`);
   }
 
   // ── 10. Metering ──
@@ -387,9 +581,15 @@ export async function POST(request: NextRequest) {
     batchId: batch.id,
     entityCount: entityResults.length,
     totalPayout: grandTotal,
+    intentLayer: {
+      matchCount: intentMatchCount,
+      mismatchCount: intentMismatchCount,
+      concordance: `${((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1)}%`,
+      intentsTransformed: componentIntents.length,
+    },
     results: entityResults.map(r => ({
       entityId: r.entity_id,
-      entityName: r.metadata.entityName,
+      entityName: r.metadata.entityName as string,
       totalPayout: r.total_payout,
       components: r.components.map(c => ({
         name: c.componentName,

@@ -82,6 +82,7 @@ export interface InterpretedComponent {
   type: ComponentCalculation['type'];
   appliesToEmployeeTypes: string[];
   calculationMethod: ComponentCalculation;
+  calculationIntent?: Record<string, unknown>; // OB-77: AI-produced structural intent
   confidence: number;
   reasoning: string;
 }
@@ -240,6 +241,10 @@ export class AIPlainInterpreter {
           ? c.appliesToEmployeeTypes.map(String)
           : ['all'],
         calculationMethod: this.normalizeCalculationMethod(c.type, c.calculationMethod),
+        // OB-77: Preserve AI-produced structural intent (validated downstream)
+        calculationIntent: c.calculationIntent && typeof c.calculationIntent === 'object'
+          ? c.calculationIntent as Record<string, unknown>
+          : undefined,
         confidence: Number(c.confidence) || 50,
         reasoning: String(c.reasoning || ''),
       };
@@ -518,6 +523,8 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
     order: order + 1,
     enabled: true,
     measurementLevel: 'store',
+    // OB-77: Pass through AI-produced structural intent
+    calculationIntent: comp?.calculationIntent,
   };
 
   // Null-safe calculation method access

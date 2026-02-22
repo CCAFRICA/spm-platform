@@ -221,6 +221,115 @@ COMMON SPANISH TERMS:
 - "Menos de" = "Less than"
 - "o mas" = "or more"
 
+=== CALCULATION INTENT (STRUCTURAL VOCABULARY) ===
+
+FOR EACH COMPONENT, also produce a "calculationIntent" field using this domain-agnostic structural vocabulary. This is the contract between the AI (Domain Agent) and the execution engine (Foundational Agent).
+
+7 PRIMITIVE OPERATIONS:
+1. bounded_lookup_1d — 1D threshold table. Maps a single input value to an output via boundaries.
+2. bounded_lookup_2d — 2D grid. Maps two input values (row, column) to a grid output.
+3. scalar_multiply — Fixed rate multiplication: input × rate.
+4. conditional_gate — If/then/else: evaluate condition, execute one of two operations.
+5. aggregate — Return an aggregated value from a source.
+6. ratio — Numerator / denominator with zero-guard.
+7. constant — Fixed literal value.
+
+INPUT SOURCES (how values are resolved):
+- { "source": "metric", "sourceSpec": { "field": "metric_name" } } — from data row
+- { "source": "ratio", "sourceSpec": { "numerator": "metric_name", "denominator": "metric_name" } } — computed ratio
+- { "source": "constant", "value": 42 } — literal number
+- { "source": "entity_attribute", "sourceSpec": { "attribute": "attr_name" } } — from entity record
+- { "source": "prior_component", "sourceSpec": { "componentIndex": 0 } } — output from previous component
+
+BOUNDARY FORMAT:
+{ "min": number|null, "max": number|null, "minInclusive": true, "maxInclusive": true }
+Use null for unbounded (no lower/upper limit). Both inclusive to match >= min AND <= max.
+
+MAPPING RULES:
+- tiered_lookup → bounded_lookup_1d with metric input, boundaries from tiers, outputs from tier values
+- matrix_lookup → bounded_lookup_2d with metric inputs, row/column boundaries from bands, outputGrid from values matrix
+- flat_percentage → scalar_multiply with metric input and rate
+- conditional_percentage → nested conditional_gate chain (check conditions in order, scalar_multiply with rate on match)
+
+EXAMPLE calculationIntent for a tiered_lookup:
+{
+  "calculationIntent": {
+    "operation": "bounded_lookup_1d",
+    "input": { "source": "metric", "sourceSpec": { "field": "store_sales_attainment" } },
+    "boundaries": [
+      { "min": 0, "max": 99.999, "minInclusive": true, "maxInclusive": true },
+      { "min": 100, "max": 104.999, "minInclusive": true, "maxInclusive": true },
+      { "min": 105, "max": 109.999, "minInclusive": true, "maxInclusive": true },
+      { "min": 110, "max": null, "minInclusive": true, "maxInclusive": true }
+    ],
+    "outputs": [0, 150, 300, 500],
+    "noMatchBehavior": "zero"
+  }
+}
+
+EXAMPLE calculationIntent for a matrix_lookup:
+{
+  "calculationIntent": {
+    "operation": "bounded_lookup_2d",
+    "inputs": {
+      "row": { "source": "metric", "sourceSpec": { "field": "attainment" } },
+      "column": { "source": "metric", "sourceSpec": { "field": "store_volume" } }
+    },
+    "rowBoundaries": [
+      { "min": 0, "max": 79.999, "minInclusive": true, "maxInclusive": true },
+      { "min": 80, "max": 89.999, "minInclusive": true, "maxInclusive": true }
+    ],
+    "columnBoundaries": [
+      { "min": 0, "max": 59999, "minInclusive": true, "maxInclusive": true },
+      { "min": 60000, "max": 99999, "minInclusive": true, "maxInclusive": true }
+    ],
+    "outputGrid": [[0, 0], [200, 300]],
+    "noMatchBehavior": "zero"
+  }
+}
+
+EXAMPLE calculationIntent for a flat_percentage:
+{
+  "calculationIntent": {
+    "operation": "scalar_multiply",
+    "input": { "source": "metric", "sourceSpec": { "field": "warranty_sales" } },
+    "rate": 0.04
+  }
+}
+
+EXAMPLE calculationIntent for a conditional_percentage (2 conditions, sorted by threshold descending):
+{
+  "calculationIntent": {
+    "operation": "conditional_gate",
+    "condition": {
+      "left": { "source": "metric", "sourceSpec": { "field": "store_goal_attainment" } },
+      "operator": ">=",
+      "right": { "source": "constant", "value": 100 }
+    },
+    "onTrue": {
+      "operation": "scalar_multiply",
+      "input": { "source": "metric", "sourceSpec": { "field": "insurance_sales" } },
+      "rate": 0.05
+    },
+    "onFalse": {
+      "operation": "conditional_gate",
+      "condition": {
+        "left": { "source": "metric", "sourceSpec": { "field": "store_goal_attainment" } },
+        "operator": ">=",
+        "right": { "source": "constant", "value": 85 }
+      },
+      "onTrue": {
+        "operation": "scalar_multiply",
+        "input": { "source": "metric", "sourceSpec": { "field": "insurance_sales" } },
+        "rate": 0.03
+      },
+      "onFalse": { "operation": "constant", "value": 0 }
+    }
+  }
+}
+
+CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
+
 Return your analysis as valid JSON.`,
 
   workbook_analysis: `You are an expert at analyzing compensation data workbooks for a Sales Performance Management (SPM) platform. Your task is to analyze ALL sheets in a workbook together to understand how they relate and feed into compensation calculations.

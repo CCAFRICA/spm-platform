@@ -10,6 +10,7 @@
 
 import { createClient, requireTenantId } from '@/lib/supabase/client';
 import type { Database, Json, LifecycleState } from '@/lib/supabase/database.types';
+import { persistSignal } from '@/lib/ai/signal-persistence';
 import {
   transitionBatchLifecycle,
   getCalculationBatch,
@@ -448,6 +449,27 @@ export async function performLifecycleTransition(
     actor,
     options?.details || options?.rejectionReason || undefined
   );
+
+  // OB-77: Training signal — lifecycle transition (fire-and-forget)
+  persistSignal({
+    tenantId,
+    signalType: 'training:lifecycle_transition',
+    signalValue: {
+      batchId,
+      fromState: currentState,
+      toState: targetState,
+      entityCount: updated.entity_count || 0,
+    },
+    confidence: 1.0,
+    source: 'user_confirmed',
+    context: {
+      actor: actor.name,
+      trigger: 'lifecycle_service',
+      details: options?.details || options?.rejectionReason || null,
+    },
+  }).catch(err => {
+    console.warn('[LifecycleService] Training signal persist failed (non-blocking):', err);
+  });
 
   return batchToCycle(updated, tenantId);
 }
