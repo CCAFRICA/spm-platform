@@ -440,29 +440,47 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   console.log(`[RunCalculation] Rule set "${ruleSet.name}" has ${components.length} components`);
 
-  // ── 2. Fetch entities with assignments ──
-  const { data: assignments, error: aErr } = await supabase
-    .from('rule_set_assignments')
-    .select('entity_id')
-    .eq('tenant_id', tenantId)
-    .eq('rule_set_id', ruleSetId);
+  // ── 2. Fetch entities with assignments (OB-75: paginated) ──
+  const PAGE_SIZE = 10000;
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
 
-  if (aErr) {
-    return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: `Failed to fetch assignments: ${aErr.message}` };
+    if (aErr) {
+      return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: `Failed to fetch assignments: ${aErr.message}` };
+    }
+    if (!page || page.length === 0) break;
+    assignments.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    assignPage++;
   }
 
-  const entityIds = (assignments ?? []).map(a => a.entity_id);
+  const entityIds = assignments.map(a => a.entity_id);
   if (entityIds.length === 0) {
     return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'No entities assigned to this rule set' };
   }
 
-  // Fetch entity display info
-  const { data: entities } = await supabase
-    .from('entities')
-    .select('id, external_id, display_name')
-    .in('id', entityIds);
+  // Fetch entity display info (OB-75: batched .in() for 22K+ entities)
+  const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
+  const ENTITY_BATCH = 5000;
+  for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
+    const idBatch = entityIds.slice(i, i + ENTITY_BATCH);
+    const { data: page } = await supabase
+      .from('entities')
+      .select('id, external_id, display_name')
+      .in('id', idBatch);
+    if (page) entities.push(...page);
+  }
 
-  const entityMap = new Map((entities ?? []).map(e => [e.id, e]));
+  const entityMap = new Map(entities.map(e => [e.id, e]));
 
   // ── 3. Fetch period info ──
   const { data: period } = await supabase
@@ -475,12 +493,24 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'Period not found' };
   }
 
-  // ── 4. Fetch committed data for this period (entity-level + store-level) ──
-  const { data: committedData } = await supabase
-    .from('committed_data')
-    .select('entity_id, data_type, row_data')
-    .eq('tenant_id', tenantId)
-    .eq('period_id', periodId);
+  // ── 4. Fetch committed data (OB-75: paginated, no 1000-row cap) ──
+  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+  let dataPage = 0;
+  while (true) {
+    const from = dataPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page } = await supabase
+      .from('committed_data')
+      .select('entity_id, data_type, row_data')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .range(from, to);
+
+    if (!page || page.length === 0) break;
+    committedData.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    dataPage++;
+  }
 
   // Group entity-level data by entity_id → data_type → rows
   const dataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
@@ -489,7 +519,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   // Store-level data (NULL entity_id) grouped by storeId → data_type → rows
   const storeData = new Map<string | number, Map<string, Array<{ row_data: Json }>>>();
 
-  for (const row of (committedData ?? [])) {
+  for (const row of committedData) {
     if (row.entity_id) {
       if (!dataByEntity.has(row.entity_id)) {
         dataByEntity.set(row.entity_id, new Map());
@@ -522,7 +552,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     }
   }
 
-  console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData?.length ?? 0} data rows`);
+  console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData.length} data rows (paginated fetch)`);
 
   // ── 4b. Fetch AI Import Context (OB-75: Korean Test) ──
   const aiContextSheets: AIContextSheet[] = [];

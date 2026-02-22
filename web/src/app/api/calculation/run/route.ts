@@ -67,21 +67,33 @@ export async function POST(request: NextRequest) {
 
   addLog(`Rule set "${ruleSet.name}" has ${components.length} components`);
 
-  // ── 2. Fetch entities via assignments ──
-  const { data: assignments, error: aErr } = await supabase
-    .from('rule_set_assignments')
-    .select('entity_id')
-    .eq('tenant_id', tenantId)
-    .eq('rule_set_id', ruleSetId);
+  // ── 2. Fetch entities via assignments (OB-75: paginated, no 1000-row cap) ──
+  const PAGE_SIZE = 10000;
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
 
-  if (aErr) {
-    return NextResponse.json(
-      { error: `Failed to fetch assignments: ${aErr.message}`, log },
-      { status: 500 }
-    );
+    if (aErr) {
+      return NextResponse.json(
+        { error: `Failed to fetch assignments: ${aErr.message}`, log },
+        { status: 500 }
+      );
+    }
+    if (!page || page.length === 0) break;
+    assignments.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    assignPage++;
   }
 
-  const entityIds = (assignments ?? []).map(a => a.entity_id);
+  const entityIds = assignments.map(a => a.entity_id);
   if (entityIds.length === 0) {
     return NextResponse.json(
       { error: 'No entities assigned to this rule set', log },
@@ -89,15 +101,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  addLog(`${entityIds.length} entities assigned`);
+  addLog(`${entityIds.length} entities assigned (paginated fetch)`);
 
-  // Fetch entity display info
-  const { data: entities } = await supabase
-    .from('entities')
-    .select('id, external_id, display_name')
-    .in('id', entityIds);
+  // Fetch entity display info (OB-75: paginated, batched .in() to avoid URL length limits)
+  const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
+  const ENTITY_BATCH = 5000;
+  for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
+    const batch = entityIds.slice(i, i + ENTITY_BATCH);
+    const { data: page } = await supabase
+      .from('entities')
+      .select('id, external_id, display_name')
+      .in('id', batch);
+    if (page) entities.push(...page);
+  }
 
-  const entityMap = new Map((entities ?? []).map(e => [e.id, e]));
+  const entityMap = new Map(entities.map(e => [e.id, e]));
 
   // ── 3. Fetch period ──
   const { data: period } = await supabase
@@ -115,12 +133,26 @@ export async function POST(request: NextRequest) {
 
   addLog(`Period: ${period.canonical_key}`);
 
-  // ── 4. Fetch committed data (entity-level + store-level) ──
-  const { data: committedData } = await supabase
-    .from('committed_data')
-    .select('entity_id, data_type, row_data')
-    .eq('tenant_id', tenantId)
-    .eq('period_id', periodId);
+  // ── 4. Fetch committed data (OB-75: paginated, no 1000-row cap) ──
+  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+  let dataPage = 0;
+  while (true) {
+    const from = dataPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page } = await supabase
+      .from('committed_data')
+      .select('entity_id, data_type, row_data')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .range(from, to);
+
+    if (!page || page.length === 0) break;
+    committedData.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    dataPage++;
+  }
+
+  addLog(`Fetched ${committedData.length} committed_data rows (paginated)`);
 
   // Group entity-level data by entity_id → data_type → rows
   const dataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
@@ -130,7 +162,7 @@ export async function POST(request: NextRequest) {
   // Store-level data (NULL entity_id) grouped by storeId → data_type → rows
   const storeData = new Map<string | number, Map<string, Array<{ row_data: Json }>>>();
 
-  for (const row of (committedData ?? [])) {
+  for (const row of committedData) {
     if (row.entity_id) {
       // Entity-level: group by entity + sheet
       if (!dataByEntity.has(row.entity_id)) {
@@ -167,8 +199,8 @@ export async function POST(request: NextRequest) {
   }
 
   const entityRowCount = Array.from(flatDataByEntity.values()).reduce((s, r) => s + r.length, 0);
-  const storeRowCount = committedData ? committedData.length - entityRowCount : 0;
-  addLog(`${committedData?.length ?? 0} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
+  const storeRowCount = committedData.length - entityRowCount;
+  addLog(`${committedData.length} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
 
   // ── 4b. Fetch AI Import Context from import_batches.metadata (OB-75) ──
   // Korean Test: PASSES — AI determined sheet→component mapping at import time
@@ -300,12 +332,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} (${componentResults.map(c => `${c.componentName}=${c.payout}`).join(', ')})`);
+    // Only log first 20 and last 5 entities to avoid log flooding at scale
+    if (entityResults.length <= 20 || entityResults.length > entityIds.length - 5) {
+      addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} (${componentResults.map(c => `${c.componentName}=${c.payout}`).join(', ')})`);
+    } else if (entityResults.length === 21) {
+      addLog(`  ... (${entityIds.length - 25} more entities) ...`);
+    }
   }
 
   addLog(`Grand total: ${grandTotal.toLocaleString()}`);
 
-  // ── 7. Write calculation_results ──
+  // ── 7. Write calculation_results (OB-75: batched for 22K+ entities) ──
   const insertRows = entityResults.map(r => ({
     tenant_id: tenantId,
     batch_id: batch.id,
@@ -325,18 +362,22 @@ export async function POST(request: NextRequest) {
     metadata: r.metadata as unknown as Json,
   }));
 
-  const { error: writeErr } = await supabase
-    .from('calculation_results')
-    .insert(insertRows);
+  const WRITE_BATCH = 5000;
+  for (let i = 0; i < insertRows.length; i += WRITE_BATCH) {
+    const slice = insertRows.slice(i, i + WRITE_BATCH);
+    const { error: writeErr } = await supabase
+      .from('calculation_results')
+      .insert(slice);
 
-  if (writeErr) {
-    return NextResponse.json(
-      { error: `Failed to write results: ${writeErr.message}`, log },
-      { status: 500 }
-    );
+    if (writeErr) {
+      return NextResponse.json(
+        { error: `Failed to write results batch ${i / WRITE_BATCH}: ${writeErr.message}`, log },
+        { status: 500 }
+      );
+    }
   }
 
-  addLog(`Wrote ${insertRows.length} calculation_results`);
+  addLog(`Wrote ${insertRows.length} calculation_results (in ${Math.ceil(insertRows.length / WRITE_BATCH)} batches)`);
 
   // ── 8. Transition batch to PREVIEW ──
   const { error: transErr } = await supabase
@@ -388,14 +429,24 @@ export async function POST(request: NextRequest) {
     .eq('tenant_id', tenantId)
     .eq('period_id', periodId);
 
-  const { error: outErr } = await supabase
-    .from('entity_period_outcomes')
-    .insert(outcomeRows);
+  // OB-75: Batched insert for 22K+ outcomes
+  let outcomeWriteErr: string | null = null;
+  for (let i = 0; i < outcomeRows.length; i += WRITE_BATCH) {
+    const slice = outcomeRows.slice(i, i + WRITE_BATCH);
+    const { error: outErr } = await supabase
+      .from('entity_period_outcomes')
+      .insert(slice);
 
-  if (outErr) {
-    addLog(`WARNING: Failed to materialize outcomes: ${outErr.message}`);
+    if (outErr) {
+      outcomeWriteErr = outErr.message;
+      break;
+    }
+  }
+
+  if (outcomeWriteErr) {
+    addLog(`WARNING: Failed to materialize outcomes: ${outcomeWriteErr}`);
   } else {
-    addLog(`Materialized ${outcomeRows.length} entity_period_outcomes`);
+    addLog(`Materialized ${outcomeRows.length} entity_period_outcomes (in ${Math.ceil(outcomeRows.length / WRITE_BATCH)} batches)`);
   }
 
   // ── 10. Metering ──
