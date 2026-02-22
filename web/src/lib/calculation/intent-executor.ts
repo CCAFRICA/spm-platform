@@ -21,6 +21,7 @@ import type {
   ConstantOp,
   IntentModifier,
 } from './intent-types';
+import { isIntentOperation } from './intent-types';
 
 // ──────────────────────────────────────────────
 // Entity Data — the executor's view of an entity
@@ -111,6 +112,24 @@ function resolveSource(
 }
 
 // ──────────────────────────────────────────────
+// Composable Value Resolution — handles IntentSource or nested IntentOperation
+// ──────────────────────────────────────────────
+
+function resolveValue(
+  sourceOrOp: IntentSource | IntentOperation,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): number {
+  if (isIntentOperation(sourceOrOp)) {
+    // Recursive: execute the nested operation to get a value
+    return executeOperation(sourceOrOp, data, inputLog, trace);
+  }
+  // Existing: resolve from entity data
+  return resolveSource(sourceOrOp, data, inputLog);
+}
+
+// ──────────────────────────────────────────────
 // Boundary Matching
 // ──────────────────────────────────────────────
 
@@ -134,7 +153,7 @@ function executeBoundedLookup1D(
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
 ): number {
-  const inputValue = resolveSource(op.input, data, inputLog);
+  const inputValue = resolveValue(op.input, data, inputLog, trace);
   const idx = findBoundaryIndex(op.boundaries, inputValue);
 
   if (idx < 0) {
@@ -160,8 +179,8 @@ function executeBoundedLookup2D(
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
 ): number {
-  const rowValue = resolveSource(op.inputs.row, data, inputLog);
-  const colValue = resolveSource(op.inputs.column, data, inputLog);
+  const rowValue = resolveValue(op.inputs.row, data, inputLog, trace);
+  const colValue = resolveValue(op.inputs.column, data, inputLog, trace);
 
   const rowIdx = findBoundaryIndex(op.rowBoundaries, rowValue);
   const colIdx = findBoundaryIndex(op.columnBoundaries, colValue);
@@ -187,10 +206,14 @@ function executeBoundedLookup2D(
 function executeScalarMultiply(
   op: ScalarMultiply,
   data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
 ): number {
-  const inputValue = resolveSource(op.input, data, inputLog);
-  return inputValue * op.rate;
+  const inputValue = resolveValue(op.input, data, inputLog, trace);
+  const rateValue = typeof op.rate === 'number'
+    ? op.rate
+    : resolveValue(op.rate, data, inputLog, trace);
+  return inputValue * rateValue;
 }
 
 function executeConditionalGate(
@@ -254,7 +277,7 @@ function executeOperation(
   switch (op.operation) {
     case 'bounded_lookup_1d': return executeBoundedLookup1D(op, data, inputLog, trace);
     case 'bounded_lookup_2d': return executeBoundedLookup2D(op, data, inputLog, trace);
-    case 'scalar_multiply':   return executeScalarMultiply(op, data, inputLog);
+    case 'scalar_multiply':   return executeScalarMultiply(op, data, inputLog, trace);
     case 'conditional_gate':  return executeConditionalGate(op, data, inputLog, trace);
     case 'aggregate':         return executeAggregateOp(op, data, inputLog);
     case 'ratio':             return executeRatioOp(op, data, inputLog);

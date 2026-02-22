@@ -49,7 +49,7 @@ export type IntentOperation =
 /** 1D threshold table — maps a single value to an output */
 export interface BoundedLookup1D {
   operation: 'bounded_lookup_1d';
-  input: IntentSource;
+  input: IntentSource | IntentOperation;   // Can be a computed value
   boundaries: Boundary[];
   outputs: number[];
   noMatchBehavior: 'zero' | 'error' | 'nearest';
@@ -59,8 +59,8 @@ export interface BoundedLookup1D {
 export interface BoundedLookup2D {
   operation: 'bounded_lookup_2d';
   inputs: {
-    row: IntentSource;
-    column: IntentSource;
+    row: IntentSource | IntentOperation;    // Can be computed
+    column: IntentSource | IntentOperation;  // Can be computed
   };
   rowBoundaries: Boundary[];
   columnBoundaries: Boundary[];
@@ -71,8 +71,8 @@ export interface BoundedLookup2D {
 /** Fixed rate multiplication — input × rate */
 export interface ScalarMultiply {
   operation: 'scalar_multiply';
-  input: IntentSource;
-  rate: number;
+  input: IntentSource | IntentOperation;   // Can be a nested operation
+  rate: number | IntentOperation;           // Can be a nested operation (e.g., lookup result)
 }
 
 /** Conditional branching — evaluate condition, execute one of two operations */
@@ -159,6 +159,14 @@ export interface ComponentIntent {
 // ──────────────────────────────────────────────
 // Execution Trace — audit/reconciliation/explanation
 // ──────────────────────────────────────────────
+
+// ──────────────────────────────────────────────
+// Type Guard — distinguish IntentOperation from IntentSource
+// ──────────────────────────────────────────────
+
+export function isIntentOperation(value: unknown): value is IntentOperation {
+  return typeof value === 'object' && value !== null && 'operation' in value;
+}
 
 export interface ExecutionTrace {
   entityId: string;
