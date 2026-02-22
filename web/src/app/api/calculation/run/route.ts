@@ -18,6 +18,9 @@ import {
   type ComponentResult,
   type AIContextSheet,
 } from '@/lib/calculation/run-calculation';
+import { transformVariant } from '@/lib/calculation/intent-transformer';
+import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
+import type { ComponentIntent } from '@/lib/calculation/intent-types';
 import type { PlanComponent } from '@/types/compensation-plan';
 import type { Json } from '@/lib/supabase/database.types';
 
@@ -66,6 +69,10 @@ export async function POST(request: NextRequest) {
   }
 
   addLog(`Rule set "${ruleSet.name}" has ${components.length} components`);
+
+  // ── OB-76: Transform components to intents (once, before entity loop) ──
+  const componentIntents: ComponentIntent[] = transformVariant(components);
+  addLog(`OB-76 Intent layer: ${componentIntents.length} components transformed to intents`);
 
   // ── 2. Fetch entities via assignments (OB-75: paginated, no 1000-row cap) ──
   const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
@@ -292,7 +299,7 @@ export async function POST(request: NextRequest) {
 
   addLog(`Batch created: ${batch.id}`);
 
-  // ── 6. Evaluate each entity using the REAL engine ──
+  // ── 6. Evaluate each entity using DUAL-PATH: current engine + intent executor ──
   const entityResults: Array<{
     entity_id: string;
     rule_set_id: string;
@@ -301,10 +308,12 @@ export async function POST(request: NextRequest) {
     components: ComponentResult[];
     metrics: Record<string, number>;
     attainment: { overall: number };
-    metadata: { entityName: string; externalId: string };
+    metadata: Record<string, unknown>;
   }> = [];
 
   let grandTotal = 0;
+  let intentMatchCount = 0;
+  let intentMismatchCount = 0;
 
   for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
@@ -325,12 +334,12 @@ export async function POST(request: NextRequest) {
     }
     const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
 
-    // Evaluate each component with sheet-aware metrics
+    // ── CURRENT ENGINE PATH ──
     const componentResults: ComponentResult[] = [];
     let entityTotal = 0;
+    const perComponentMetrics: Record<string, number>[] = [];
 
     for (const component of components) {
-      // Build metrics specific to this component's matching sheet (OB-75: AI-context-aware)
       const metrics = buildMetricsForComponent(
         component,
         entitySheetData,
@@ -339,7 +348,35 @@ export async function POST(request: NextRequest) {
       );
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
+      perComponentMetrics.push(metrics);
       entityTotal += result.payout;
+    }
+
+    // ── OB-76 INTENT ENGINE PATH (parallel execution) ──
+    const intentTraces: unknown[] = [];
+    let intentTotal = 0;
+    const priorResults: number[] = [];
+
+    for (const ci of componentIntents) {
+      const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
+      const entityData: EntityData = {
+        entityId,
+        metrics,
+        attributes: {},
+        priorResults: [...priorResults],
+      };
+      const intentResult = executeIntent(ci, entityData);
+      intentTraces.push(intentResult.trace);
+      intentTotal += intentResult.outcome;
+      priorResults[ci.componentIndex] = intentResult.outcome;
+    }
+
+    // ── DUAL-PATH COMPARISON ──
+    const entityMatch = Math.abs(entityTotal - intentTotal) < 0.01;
+    if (entityMatch) {
+      intentMatchCount++;
+    } else {
+      intentMismatchCount++;
     }
 
     grandTotal += entityTotal;
@@ -355,16 +392,22 @@ export async function POST(request: NextRequest) {
       metadata: {
         entityName: entityInfo?.display_name ?? entityId,
         externalId: entityInfo?.external_id ?? '',
+        intentTraces,
+        intentTotal,
+        intentMatch: entityMatch,
       },
     });
 
     // Only log first 20 and last 5 entities to avoid log flooding at scale
     if (entityResults.length <= 20 || entityResults.length > calculationEntityIds.length - 5) {
-      addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} (${componentResults.map(c => `${c.componentName}=${c.payout}`).join(', ')})`);
+      const matchLabel = entityMatch ? '✓' : '✗';
+      addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} | intent=${intentTotal.toLocaleString()} ${matchLabel}`);
     } else if (entityResults.length === 21) {
       addLog(`  ... (${calculationEntityIds.length - 25} more entities) ...`);
     }
   }
+
+  addLog(`OB-76 Dual-path: ${intentMatchCount} match, ${intentMismatchCount} mismatch (${((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1)}% concordance)`);
 
   addLog(`Grand total: ${grandTotal.toLocaleString()}`);
 
@@ -418,6 +461,12 @@ export async function POST(request: NextRequest) {
         entity_count: entityResults.length,
         component_count: components.length,
         rule_set_name: ruleSet.name,
+        intentLayer: {
+          matchCount: intentMatchCount,
+          mismatchCount: intentMismatchCount,
+          concordance: ((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1) + '%',
+          intentsTransformed: componentIntents.length,
+        },
       } as unknown as Json,
     })
     .eq('id', batch.id);
@@ -505,9 +554,15 @@ export async function POST(request: NextRequest) {
     batchId: batch.id,
     entityCount: entityResults.length,
     totalPayout: grandTotal,
+    intentLayer: {
+      matchCount: intentMatchCount,
+      mismatchCount: intentMismatchCount,
+      concordance: `${((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1)}%`,
+      intentsTransformed: componentIntents.length,
+    },
     results: entityResults.map(r => ({
       entityId: r.entity_id,
-      entityName: r.metadata.entityName,
+      entityName: r.metadata.entityName as string,
       totalPayout: r.total_payout,
       components: r.components.map(c => ({
         name: c.componentName,
