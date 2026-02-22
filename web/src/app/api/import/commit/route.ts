@@ -23,12 +23,30 @@ interface SheetData {
   mappings?: Record<string, string>;
 }
 
+interface AIImportContextSheet {
+  sheetName: string;
+  classification: string;
+  matchedComponent: string | null;
+  matchedComponentConfidence: number | null;
+  fieldMappings: Array<{ sourceColumn: string; semanticType: string; confidence: number }>;
+}
+
+interface AIImportContext {
+  tenantId: string;
+  batchId?: string;
+  timestamp: string;
+  rosterSheet: string | null;
+  rosterEmployeeIdColumn: string | null;
+  sheets: AIImportContextSheet[];
+}
+
 interface CommitRequest {
   tenantId: string;
   userId: string;
   fileName: string;
   storagePath: string;
   sheetMappings: Record<string, Record<string, string>>;
+  aiContext?: AIImportContext;
 }
 
 // Entity ID — generic target field IDs only (AP-5/AP-6: no hardcoded language-specific names)
@@ -54,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     // ── Step 1: Parse request body (metadata only — < 50KB) ──
     const body: CommitRequest = await request.json();
-    const { tenantId, userId, fileName, storagePath, sheetMappings } = body;
+    const { tenantId, userId, fileName, storagePath, sheetMappings, aiContext } = body;
 
     if (!tenantId || !fileName || !storagePath) {
       return NextResponse.json(
@@ -159,6 +177,30 @@ export async function POST(request: NextRequest) {
 
     const batchId = batch.id;
     console.log(`[ImportCommit] Batch created: ${batchId}`);
+
+    // OB-75: Persist AI import context to import_batches.metadata
+    // Uses separate UPDATE to avoid type errors before DB types are regenerated
+    if (aiContext) {
+      const aiMetadata = {
+        ai_context: {
+          timestamp: aiContext.timestamp,
+          rosterSheet: aiContext.rosterSheet,
+          rosterEmployeeIdColumn: aiContext.rosterEmployeeIdColumn,
+          sheets: aiContext.sheets,
+        },
+      };
+      const { error: metaErr } = await supabase
+        .from('import_batches')
+        .update({ metadata: aiMetadata } as Record<string, unknown>)
+        .eq('id', batchId);
+
+      if (metaErr) {
+        // Non-blocking: metadata column may not exist yet (pre-migration)
+        console.warn(`[ImportCommit] AI context persistence failed (run migration 014): ${metaErr.message}`);
+      } else {
+        console.log(`[ImportCommit] AI context persisted: ${aiContext.sheets.length} sheets with classifications`);
+      }
+    }
 
     // ── Step 6: Bulk entity resolution ──
     const externalIds = new Set<string>();
