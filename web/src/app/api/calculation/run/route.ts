@@ -24,6 +24,15 @@ import type { ComponentIntent } from '@/lib/calculation/intent-types';
 import type { PlanComponent } from '@/types/compensation-plan';
 import type { Json } from '@/lib/supabase/database.types';
 import { persistSignal } from '@/lib/ai/signal-persistence';
+import { loadDensity, persistDensityUpdates } from '@/lib/calculation/synaptic-density';
+import {
+  createSynapticSurface,
+  writeSynapse,
+  getExecutionMode,
+  consolidateSurface,
+  initializePatternDensity,
+} from '@/lib/calculation/synaptic-surface';
+import { generatePatternSignature } from '@/lib/calculation/pattern-signature';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -275,6 +284,29 @@ export async function POST(request: NextRequest) {
     addLog(`AI context fetch failed (non-blocking): ${aiErr instanceof Error ? aiErr.message : 'unknown'}`);
   }
 
+  // ── 4c. Synaptic State: Load density + create surface ──
+  const synapticStartTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  let density;
+  try {
+    density = await loadDensity(tenantId);
+    addLog(`Synaptic density loaded: ${density.size} patterns`);
+  } catch {
+    density = new Map() as Awaited<ReturnType<typeof loadDensity>>;
+    addLog('Synaptic density load failed (non-blocking) — starting fresh');
+  }
+  const surface = createSynapticSurface(density);
+  surface.stats.entityCount = calculationEntityIds.length;
+  surface.stats.componentCount = componentIntents.length;
+
+  // Generate pattern signatures and initialize density for each component
+  const patternSignatures: string[] = [];
+  for (const ci of componentIntents) {
+    const sig = generatePatternSignature(ci);
+    patternSignatures.push(sig);
+    initializePatternDensity(surface, sig, ci.componentIndex);
+  }
+  addLog(`Pattern signatures: ${patternSignatures.length} generated`);
+
   // ── 5. Create calculation batch ──
   const { data: batch, error: batchErr } = await supabase
     .from('calculation_batches')
@@ -380,6 +412,18 @@ export async function POST(request: NextRequest) {
       intentMismatchCount++;
     }
 
+    // ── SYNAPTIC: Write per-component confidence synapses ──
+    for (let ci = 0; ci < componentIntents.length; ci++) {
+      const compMatch = componentResults[ci] && Math.abs(componentResults[ci].payout - (priorResults[ci] ?? 0)) < 0.01;
+      writeSynapse(surface, {
+        type: 'confidence',
+        componentIndex: ci,
+        entityId,
+        value: compMatch ? 1.0 : 0.0,
+        timestamp: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      });
+    }
+
     grandTotal += entityTotal;
 
     entityResults.push({
@@ -412,6 +456,35 @@ export async function POST(request: NextRequest) {
   addLog(`OB-76 Dual-path: ${intentMatchCount} match, ${intentMismatchCount} mismatch (${concordanceRate.toFixed(1)}% concordance)`);
 
   addLog(`Grand total: ${grandTotal.toLocaleString()}`);
+
+  // ── SYNAPTIC: Consolidate surface + persist density updates ──
+  const { densityUpdates, signalBatch } = consolidateSurface(surface);
+  const synapticEndTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const synapticMs = Math.round(synapticEndTime - synapticStartTime);
+
+  addLog(`Synaptic: ${surface.stats.totalSynapsesWritten} synapses, ${densityUpdates.length} density updates, ${surface.stats.anomalyCount} anomalies (${synapticMs}ms)`);
+
+  // Persist density updates (fire-and-forget)
+  if (densityUpdates.length > 0) {
+    persistDensityUpdates(tenantId, densityUpdates).catch(err => {
+      console.warn('[CalcAPI] Density persist failed (non-blocking):', err);
+    });
+  }
+
+  // Persist training signals from consolidation (fire-and-forget)
+  if (signalBatch.length > 0) {
+    for (const signal of signalBatch) {
+      persistSignal({
+        tenantId,
+        signalType: (signal.signalType as string) ?? 'training:synaptic_density',
+        signalValue: (signal.signalValue as Record<string, unknown>) ?? {},
+        source: 'ai_prediction',
+        context: { trigger: 'synaptic_consolidation', batchId: undefined },
+      }).catch(err => {
+        console.warn('[CalcAPI] Synaptic signal persist failed (non-blocking):', err);
+      });
+    }
+  }
 
   // ── OB-77: Training signal — dual-path concordance (fire-and-forget) ──
   persistSignal({
@@ -493,6 +566,14 @@ export async function POST(request: NextRequest) {
           mismatchCount: intentMismatchCount,
           concordance: ((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1) + '%',
           intentsTransformed: componentIntents.length,
+        },
+        synaptic: {
+          synapsesWritten: surface.stats.totalSynapsesWritten,
+          densityUpdates: densityUpdates.length,
+          anomalies: surface.stats.anomalyCount,
+          patternsLoaded: density.size,
+          executionTimeMs: synapticMs,
+          patternSignatures,
         },
       } as unknown as Json,
     })
@@ -586,6 +667,18 @@ export async function POST(request: NextRequest) {
       mismatchCount: intentMismatchCount,
       concordance: `${((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1)}%`,
       intentsTransformed: componentIntents.length,
+    },
+    synaptic: {
+      synapsesWritten: surface.stats.totalSynapsesWritten,
+      densityUpdates: densityUpdates.length,
+      anomalies: surface.stats.anomalyCount,
+      patternsLoaded: density.size,
+      executionTimeMs: synapticMs,
+      patternSignatures,
+      executionModes: patternSignatures.map(sig => ({
+        signature: sig,
+        mode: getExecutionMode(surface, sig),
+      })),
     },
     results: entityResults.map(r => ({
       entityId: r.entity_id,

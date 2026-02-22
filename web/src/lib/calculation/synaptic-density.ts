@@ -7,29 +7,46 @@
  *
  * ZERO domain language. Korean Test applies.
  * Fire-and-forget writes — never blocks the entity loop.
+ *
+ * NOTE: Uses untyped Supabase client because synaptic_density table
+ * is not yet in the generated database.types.ts. After running
+ * `supabase gen types`, the typed client can be used.
  */
 
-import type { SynapticDensity, PatternDensity, DensityUpdate, ExecutionMode } from './synaptic-types';
+import type { SynapticDensity, DensityUpdate, ExecutionMode } from './synaptic-types';
+
+// Row shape from synaptic_density table
+interface DensityRow {
+  id: string;
+  tenant_id: string;
+  signature: string;
+  confidence: number;
+  execution_mode: string;
+  total_executions: number;
+  last_anomaly_rate: number;
+  last_correction_count: number;
+  learned_behaviors: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
 
 // ──────────────────────────────────────────────
-// Client Resolution (same pattern as signal-persistence)
+// Client Resolution — always untyped until types are regenerated
 // ──────────────────────────────────────────────
 
 async function getClient() {
-  if (typeof window !== 'undefined') {
-    const { createClient } = await import('@/lib/supabase/client');
-    return createClient();
-  } else {
-    const { createClient } = await import('@supabase/supabase-js');
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
-      throw new Error('[SynapticDensity] Missing Supabase env vars');
-    }
-    return createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+  const { createClient } = await import('@supabase/supabase-js');
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = typeof window !== 'undefined'
+    ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    : process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error('[SynapticDensity] Missing Supabase env vars');
   }
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }
 
 // ──────────────────────────────────────────────
@@ -56,7 +73,7 @@ export async function loadDensity(tenantId: string): Promise<SynapticDensity> {
       return density;
     }
 
-    for (const row of data ?? []) {
+    for (const row of (data ?? []) as DensityRow[]) {
       density.set(row.signature, {
         signature: row.signature,
         confidence: row.confidence ?? 0.5,
@@ -65,7 +82,7 @@ export async function loadDensity(tenantId: string): Promise<SynapticDensity> {
         lastCorrectionCount: row.last_correction_count ?? 0,
         executionMode: (row.execution_mode ?? 'full_trace') as ExecutionMode,
         learnedBehaviors: (typeof row.learned_behaviors === 'object' && row.learned_behaviors !== null)
-          ? row.learned_behaviors as Record<string, unknown>
+          ? row.learned_behaviors
           : {},
       });
     }
