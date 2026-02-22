@@ -70,6 +70,10 @@ export interface PlanComponent {
   tierConfig?: TierConfig;
   percentageConfig?: PercentageConfig;
   conditionalConfig?: ConditionalConfig;
+  /** OB-77: AI-produced structural intent for domain-agnostic execution.
+   * When present, the calculation engine can execute this directly
+   * instead of using the type-specific config above. */
+  calculationIntent?: Record<string, unknown>;
 }
 
 // Matrix Lookup (e.g., Optical Sales with attainment x volume)
