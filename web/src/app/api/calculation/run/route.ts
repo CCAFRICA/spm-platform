@@ -23,6 +23,7 @@ import { executeIntent, type EntityData } from '@/lib/calculation/intent-executo
 import type { ComponentIntent } from '@/lib/calculation/intent-types';
 import type { PlanComponent } from '@/types/compensation-plan';
 import type { Json } from '@/lib/supabase/database.types';
+import { persistSignal } from '@/lib/ai/signal-persistence';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -407,9 +408,35 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  addLog(`OB-76 Dual-path: ${intentMatchCount} match, ${intentMismatchCount} mismatch (${((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1)}% concordance)`);
+  const concordanceRate = (intentMatchCount / calculationEntityIds.length) * 100;
+  addLog(`OB-76 Dual-path: ${intentMatchCount} match, ${intentMismatchCount} mismatch (${concordanceRate.toFixed(1)}% concordance)`);
 
   addLog(`Grand total: ${grandTotal.toLocaleString()}`);
+
+  // ── OB-77: Training signal — dual-path concordance (fire-and-forget) ──
+  persistSignal({
+    tenantId,
+    signalType: 'training:dual_path_concordance',
+    signalValue: {
+      matchCount: intentMatchCount,
+      mismatchCount: intentMismatchCount,
+      concordanceRate: parseFloat(concordanceRate.toFixed(2)),
+      entityCount: calculationEntityIds.length,
+      componentCount: components.length,
+      intentsTransformed: componentIntents.length,
+      totalPayout: grandTotal,
+      ruleSetId,
+      periodId,
+    },
+    confidence: concordanceRate / 100,
+    source: 'ai_prediction',
+    context: {
+      ruleSetName: ruleSet.name,
+      trigger: 'calculation_run',
+    },
+  }).catch(err => {
+    console.warn('[CalcAPI] Training signal persist failed (non-blocking):', err);
+  });
 
   // ── 7. Write calculation_results (OB-75: batched for 22K+ entities) ──
   const insertRows = entityResults.map(r => ({

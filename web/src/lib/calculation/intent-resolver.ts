@@ -42,7 +42,7 @@ export function resolveIntent(
           requiredMetrics: extractMetricFields(component.calculationIntent),
           groupLinkField: component.measurementLevel !== 'individual' ? 'storeId' : undefined,
         },
-        intent: component.calculationIntent as ComponentIntent['intent'],
+        intent: component.calculationIntent as unknown as ComponentIntent['intent'],
         modifiers: [],
         metadata: {
           domainLabel: component.name,
@@ -108,7 +108,7 @@ function extractMetricFields(op: Record<string, unknown>): string[] {
   const json = JSON.stringify(op);
 
   // Find all "field":"value" patterns in metric sources
-  const matches = json.matchAll(/"field"\s*:\s*"([^"]+)"/g);
+  const matches = Array.from(json.matchAll(/"field"\s*:\s*"([^"]+)"/g));
   for (const match of matches) {
     if (!fields.includes(match[1])) {
       fields.push(match[1]);
