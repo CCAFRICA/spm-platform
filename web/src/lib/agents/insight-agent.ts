@@ -9,7 +9,7 @@
  * Communicates exclusively through the Synaptic Surface.
  */
 
-import type { SynapticSurface, Synapse } from '@/lib/calculation/synaptic-types';
+import type { SynapticSurface } from '@/lib/calculation/synaptic-types';
 import { writeSynapse, readSynapses } from '@/lib/calculation/synaptic-surface';
 
 // ──────────────────────────────────────────────

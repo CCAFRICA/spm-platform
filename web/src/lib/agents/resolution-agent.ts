@@ -118,7 +118,7 @@ export function analyzeRootCause(
     correction: Synapse[];
     dataQuality: Synapse[];
   },
-  context: DisputeContext
+  context: DisputeContext // eslint-disable-line @typescript-eslint/no-unused-vars
 ): RootCause {
   // Check 1: Data quality synapses → data_error
   if (synapses.dataQuality.length > 0) {
@@ -264,7 +264,7 @@ export function analyzeRootCause(
 
 export function generateRecommendation(
   rootCause: RootCause,
-  context: DisputeContext
+  context: DisputeContext // eslint-disable-line @typescript-eslint/no-unused-vars
 ): ResolutionRecommendation {
   switch (rootCause.classification) {
     case 'data_error':

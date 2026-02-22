@@ -12,7 +12,7 @@
  * 4. range_exceeded — output outside expected range for operation type
  */
 
-import type { SynapticSurface, Synapse } from './synaptic-types';
+import type { SynapticSurface } from './synaptic-types';
 import { writeSynapse } from './synaptic-surface';
 
 // ──────────────────────────────────────────────

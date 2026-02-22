@@ -14,7 +14,6 @@ import type {
   SynapticDensity,
   ExecutionMode,
   DensityUpdate,
-  PatternDensity,
 } from './synaptic-types';
 import { DENSITY_THRESHOLDS } from './synaptic-types';
 

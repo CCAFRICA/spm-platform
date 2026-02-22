@@ -15,7 +15,6 @@ import { createSynapticSurface } from '@/lib/calculation/synaptic-surface';
 import { investigate, type DisputeContext } from '@/lib/agents/resolution-agent';
 import { persistSignal } from '@/lib/ai/signal-persistence';
 import type { ExecutionTrace } from '@/lib/calculation/intent-types';
-import type { Json } from '@/lib/supabase/database.types';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();

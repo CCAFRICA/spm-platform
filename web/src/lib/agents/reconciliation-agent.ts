@@ -115,8 +115,7 @@ function classifyDiscrepancy(
   tolerance: number,
   trace: ExecutionTrace | undefined,
   surface: SynapticSurface,
-  entityId: string,
-  componentIndex: number
+  entityId: string
 ): { classification: DiscrepancyClass; confidence: number; evidence: TraceEvidence } {
   const delta = Math.abs(calculated - expected);
   const deltaPercent = expected !== 0
@@ -349,8 +348,7 @@ export function reconcile(input: ReconciliationInput): ReconciliationReport {
         tolerance,
         trace,
         input.surface,
-        calculated.entityId,
-        compIdx
+        calculated.entityId
       );
 
       const delta = Math.abs(calculated.calculatedOutcome - benchmark.expectedOutcome);
@@ -397,7 +395,7 @@ export function reconcile(input: ReconciliationInput): ReconciliationReport {
   const densityImpact: Array<{ signature: string; confidenceAdjustment: number }> = [];
   const discrepancyCount = findings.filter(f => f.classification !== 'match' && f.classification !== 'rounding').length;
   if (discrepancyCount > 0) {
-    for (const [sig, density] of Array.from(input.surface.density.entries())) {
+    for (const [sig] of Array.from(input.surface.density.entries())) {
       const adjustment = -0.05 * (discrepancyCount / Math.max(findings.length, 1));
       densityImpact.push({ signature: sig, confidenceAdjustment: adjustment });
     }
