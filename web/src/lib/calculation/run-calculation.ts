@@ -363,20 +363,28 @@ export function buildMetricsForComponent(
     relevantRows = [];
   }
 
-  // If no sheet match found at all, fall back to all entity rows
+  // OB-75: If no matching sheet data found for this entity, return empty metrics.
+  // DO NOT fall back to ALL entity rows — that causes cross-sheet contamination.
+  // An entity without data for a component gets $0 for that component.
   if (relevantRows.length === 0) {
-    relevantRows = [];
-    Array.from(entityRowsBySheet.values()).forEach(rows => {
-      relevantRows.push(...rows);
-    });
+    return {};
   }
 
   const rawMetrics = aggregateMetrics(relevantRows);
 
-  // Compute attainment from goal + actual when not explicitly present
-  if (rawMetrics['attainment'] === undefined && rawMetrics['goal'] && rawMetrics['goal'] > 0) {
+  // Compute attainment from goal + actual.
+  // If no attainment exists, compute from goal/amount.
+  // If attainment exists but looks like a monetary value (>1000), override it —
+  // some sheets map a field like "Monto Acotado" (capped amount) to "attainment"
+  // which is NOT a ratio/percentage. A valid attainment is always < 1000
+  // (whether decimal 0-3 or percentage 0-300).
+  if (rawMetrics['goal'] && rawMetrics['goal'] > 0) {
     const actual = rawMetrics['amount'] ?? rawMetrics['quantity'] ?? 0;
-    rawMetrics['attainment'] = actual / rawMetrics['goal'];
+    const computedAttainment = actual / rawMetrics['goal'];
+
+    if (rawMetrics['attainment'] === undefined || rawMetrics['attainment'] > 1000) {
+      rawMetrics['attainment'] = computedAttainment;
+    }
   }
 
   // Resolve plan-specific metric names to semantic values
@@ -441,7 +449,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   console.log(`[RunCalculation] Rule set "${ruleSet.name}" has ${components.length} components`);
 
   // ── 2. Fetch entities with assignments (OB-75: paginated) ──
-  const PAGE_SIZE = 10000;
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
   const assignments: Array<{ entity_id: string }> = [];
   let assignPage = 0;
   while (true) {
@@ -470,7 +478,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   // Fetch entity display info (OB-75: batched .in() for 22K+ entities)
   const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
-  const ENTITY_BATCH = 5000;
+  const ENTITY_BATCH = 1000; // Supabase max_rows = 1000
   for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
     const idBatch = entityIds.slice(i, i + ENTITY_BATCH);
     const { data: page } = await supabase
@@ -554,6 +562,25 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData.length} data rows (paginated fetch)`);
 
+  // ── 4a. Population filter: only calculate entities on the roster ──
+  const rosterEntityIds = new Set<string>();
+  const rosterSheetNames = ['Datos Colaborador', 'Roster', 'Employee', 'Empleados'];
+
+  for (const [entityId, sheetMap] of Array.from(dataByEntity.entries())) {
+    for (const sheetName of Array.from(sheetMap.keys())) {
+      if (rosterSheetNames.some(r => sheetName.toLowerCase().includes(r.toLowerCase()))) {
+        rosterEntityIds.add(entityId);
+        break;
+      }
+    }
+  }
+
+  let calculationEntityIds = entityIds;
+  if (rosterEntityIds.size > 0) {
+    calculationEntityIds = entityIds.filter(id => rosterEntityIds.has(id));
+    console.log(`[RunCalculation] Population filter: ${rosterEntityIds.size} rostered, ${calculationEntityIds.length} assigned+rostered (from ${entityIds.length})`);
+  }
+
   // ── 4b. Fetch AI Import Context (OB-75: Korean Test) ──
   const aiContextSheets: AIContextSheet[] = [];
   try {
@@ -591,7 +618,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   const batch = await createCalculationBatch(tenantId, {
     periodId,
     ruleSetId,
-    entityCount: entityIds.length,
+    entityCount: calculationEntityIds.length,
     createdBy: userId,
   });
 
@@ -609,7 +636,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   let grandTotal = 0;
 
-  for (const entityId of entityIds) {
+  for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];

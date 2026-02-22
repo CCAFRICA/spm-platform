@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
   addLog(`Rule set "${ruleSet.name}" has ${components.length} components`);
 
   // ── 2. Fetch entities via assignments (OB-75: paginated, no 1000-row cap) ──
-  const PAGE_SIZE = 10000;
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
   const assignments: Array<{ entity_id: string }> = [];
   let assignPage = 0;
   while (true) {
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
 
   // Fetch entity display info (OB-75: paginated, batched .in() to avoid URL length limits)
   const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
-  const ENTITY_BATCH = 5000;
+  const ENTITY_BATCH = 1000; // Supabase max_rows = 1000
   for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
     const batch = entityIds.slice(i, i + ENTITY_BATCH);
     const { data: page } = await supabase
@@ -201,6 +201,32 @@ export async function POST(request: NextRequest) {
   const entityRowCount = Array.from(flatDataByEntity.values()).reduce((s, r) => s + r.length, 0);
   const storeRowCount = committedData.length - entityRowCount;
   addLog(`${committedData.length} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
+  addLog(`Store data: ${storeData.size} unique stores`);
+
+  // ── 4a. Population filter: only calculate entities on the roster ──
+  // The roster sheet (e.g., "Datos Colaborador") defines which employees are active
+  // for this period. Entities that only appear in transaction sheets (warranty, insurance)
+  // but not on the roster should NOT be calculated.
+  const rosterEntityIds = new Set<string>();
+  const rosterSheetNames = ['Datos Colaborador', 'Roster', 'Employee', 'Empleados'];
+
+  for (const [entityId, sheetMap] of Array.from(dataByEntity.entries())) {
+    for (const sheetName of Array.from(sheetMap.keys())) {
+      if (rosterSheetNames.some(r => sheetName.toLowerCase().includes(r.toLowerCase()))) {
+        rosterEntityIds.add(entityId);
+        break;
+      }
+    }
+  }
+
+  // If roster found, filter entityIds to only roster employees
+  let calculationEntityIds = entityIds;
+  if (rosterEntityIds.size > 0) {
+    calculationEntityIds = entityIds.filter(id => rosterEntityIds.has(id));
+    addLog(`Population filter: ${rosterEntityIds.size} entities on roster, ${calculationEntityIds.length} assigned+rostered (filtered from ${entityIds.length})`);
+  } else {
+    addLog(`No roster sheet detected — calculating all ${entityIds.length} assigned entities`);
+  }
 
   // ── 4b. Fetch AI Import Context from import_batches.metadata (OB-75) ──
   // Korean Test: PASSES — AI determined sheet→component mapping at import time
@@ -250,7 +276,7 @@ export async function POST(request: NextRequest) {
       rule_set_id: ruleSetId,
       batch_type: 'standard',
       lifecycle_state: 'DRAFT',
-      entity_count: entityIds.length,
+      entity_count: calculationEntityIds.length,
       config: {} as unknown as Json,
       summary: {} as unknown as Json,
     })
@@ -280,7 +306,7 @@ export async function POST(request: NextRequest) {
 
   let grandTotal = 0;
 
-  for (const entityId of entityIds) {
+  for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
@@ -333,10 +359,10 @@ export async function POST(request: NextRequest) {
     });
 
     // Only log first 20 and last 5 entities to avoid log flooding at scale
-    if (entityResults.length <= 20 || entityResults.length > entityIds.length - 5) {
+    if (entityResults.length <= 20 || entityResults.length > calculationEntityIds.length - 5) {
       addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} (${componentResults.map(c => `${c.componentName}=${c.payout}`).join(', ')})`);
     } else if (entityResults.length === 21) {
-      addLog(`  ... (${entityIds.length - 25} more entities) ...`);
+      addLog(`  ... (${calculationEntityIds.length - 25} more entities) ...`);
     }
   }
 
