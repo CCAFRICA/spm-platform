@@ -291,7 +291,6 @@ export function findMatchingSheet(
       componentName, // componentId = componentName for matching
       aiContextSheets
     );
-    // Only return if the matched sheet is actually in our available data
     if (match && availableSheets.includes(match)) {
       return match;
     }
@@ -308,7 +307,6 @@ export function findMatchingSheet(
 
   // OB-85-R3 Fix 2: Pattern-based matching (cross-language sheet↔component)
   // When no AI context, use SHEET_COMPONENT_PATTERNS directly against availableSheets.
-  // findSheetForComponent only checks patterns against aiContextSheets (empty here).
   for (const mapping of SHEET_COMPONENT_PATTERNS) {
     const componentMatches = mapping.componentPatterns.some(p => p.test(componentName));
     if (componentMatches) {
@@ -389,8 +387,7 @@ export function buildMetricsForComponent(
   }
 
   // Step 3: Build store context from ALL store sheets (shared context for all components).
-  // Store-level data (e.g., store sales, store attainment) enriches any component that
-  // references "store_"-prefixed metrics (like store_optical_sales, store_goal_attainment).
+  // Store-level data enriches any component referencing "store_"-prefixed metrics.
   let storeContext: Record<string, number> = {};
   if (storeDataBySheet && storeDataBySheet.size > 0) {
     const allStoreRows: Array<{ row_data: Json }> = [];
@@ -541,7 +538,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   // Fetch entity display info (OB-75: batched .in() for 22K+ entities)
   const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
-  const ENTITY_BATCH = 1000; // Supabase max_rows = 1000
+  const ENTITY_BATCH = 200; // OB-85-R3: 1000 UUIDs × 37 chars exceeds Supabase URL limit
   for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
     const idBatch = entityIds.slice(i, i + ENTITY_BATCH);
     const { data: page } = await supabase
@@ -626,46 +623,60 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData.length} data rows (paginated fetch)`);
 
   // ── OB-85-R3 Fix 1: Entity data consolidation ──
-  // Merge data from sibling entity UUIDs (same external_id) into assigned entities.
-  const externalIdToEntityIds = new Map<string, string[]>();
-  for (const e of entities) {
-    if (e.external_id) {
-      if (!externalIdToEntityIds.has(e.external_id)) {
-        externalIdToEntityIds.set(e.external_id, []);
+  // Match by row_data.entityId (employee number), not external_id.
+  const employeeToEntityIds = new Map<string, Set<string>>();
+  for (const row of committedData) {
+    if (!row.entity_id) continue;
+    const rd = row.row_data as Record<string, unknown> | null;
+    const empNum = String(rd?.['entityId'] ?? rd?.['num_empleado'] ?? '');
+    if (empNum && empNum !== 'undefined' && empNum !== 'null') {
+      if (!employeeToEntityIds.has(empNum)) {
+        employeeToEntityIds.set(empNum, new Set());
       }
-      externalIdToEntityIds.get(e.external_id)!.push(e.id);
+      employeeToEntityIds.get(empNum)!.add(row.entity_id);
     }
   }
 
-  const assignedSet = new Set(entityIds);
-  for (const entityId of entityIds) {
-    const entityInfo = entityMap.get(entityId);
-    if (!entityInfo?.external_id) continue;
+  for (const [, uuidSet] of Array.from(employeeToEntityIds.entries())) {
+    if (uuidSet.size <= 1) continue;
 
-    const siblingIds = externalIdToEntityIds.get(entityInfo.external_id) ?? [];
-    for (const siblingId of siblingIds) {
-      if (siblingId === entityId || assignedSet.has(siblingId)) continue;
+    let primaryId: string | null = null;
+    for (const uuid of Array.from(uuidSet)) {
+      const sheets = dataByEntity.get(uuid);
+      if (sheets) {
+        for (const sheetName of Array.from(sheets.keys())) {
+          if (['datos colaborador', 'roster', 'employee', 'empleados'].some(r => sheetName.toLowerCase().includes(r))) {
+            primaryId = uuid;
+            break;
+          }
+        }
+      }
+      if (primaryId) break;
+    }
+    if (!primaryId) continue;
 
+    for (const siblingId of Array.from(uuidSet)) {
+      if (siblingId === primaryId) continue;
       const siblingSheetData = dataByEntity.get(siblingId);
       if (!siblingSheetData) continue;
 
-      if (!dataByEntity.has(entityId)) {
-        dataByEntity.set(entityId, new Map());
+      if (!dataByEntity.has(primaryId)) {
+        dataByEntity.set(primaryId, new Map());
       }
-      const entitySheets = dataByEntity.get(entityId)!;
+      const primarySheets = dataByEntity.get(primaryId)!;
       for (const [sheetName, rows] of Array.from(siblingSheetData.entries())) {
-        if (!entitySheets.has(sheetName)) {
-          entitySheets.set(sheetName, []);
+        if (!primarySheets.has(sheetName)) {
+          primarySheets.set(sheetName, []);
         }
-        entitySheets.get(sheetName)!.push(...rows);
+        primarySheets.get(sheetName)!.push(...rows);
       }
 
       const siblingFlat = flatDataByEntity.get(siblingId);
       if (siblingFlat) {
-        if (!flatDataByEntity.has(entityId)) {
-          flatDataByEntity.set(entityId, []);
+        if (!flatDataByEntity.has(primaryId)) {
+          flatDataByEntity.set(primaryId, []);
         }
-        flatDataByEntity.get(entityId)!.push(...siblingFlat);
+        flatDataByEntity.get(primaryId)!.push(...siblingFlat);
       }
     }
   }

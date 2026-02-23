@@ -133,15 +133,18 @@ export async function POST(request: NextRequest) {
 
   addLog(`${entityIds.length} entities assigned (paginated fetch)`);
 
-  // Fetch entity display info (OB-75: paginated, batched .in() to avoid URL length limits)
+  // Fetch entity display info (OB-85-R3: reduced batch to 200 to avoid URL length limits)
   const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
-  const ENTITY_BATCH = 1000; // Supabase max_rows = 1000
+  const ENTITY_BATCH = 200; // 1000 UUIDs × 37 chars ≈ 37KB URL, exceeds Supabase limit
   for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
     const batch = entityIds.slice(i, i + ENTITY_BATCH);
-    const { data: page } = await supabase
+    const { data: page, error: entErr } = await supabase
       .from('entities')
       .select('id, external_id, display_name')
       .in('id', batch);
+    if (entErr) {
+      console.log(`[R3-DIAG] Entity batch ${i}-${i+batch.length} ERROR: ${entErr.message}`);
+    }
     if (page) entities.push(...page);
   }
 
@@ -234,56 +237,91 @@ export async function POST(request: NextRequest) {
   addLog(`Store data: ${storeData.size} unique stores`);
 
   // ── OB-85-R3 Fix 1: Entity data consolidation ──
-  // The import may create separate entity UUIDs per sheet for the same employee.
-  // Merge data from sibling UUIDs (same external_id) into each assigned entity.
-  const externalIdToEntityIds = new Map<string, string[]>();
-  for (const e of entities) {
-    if (e.external_id) {
-      if (!externalIdToEntityIds.has(e.external_id)) {
-        externalIdToEntityIds.set(e.external_id, []);
+  // The import creates separate entity UUIDs per sheet for the same employee.
+  // external_ids differ ("96568046" vs "1-96568046"), so we match by row_data.entityId.
+  //
+  // Build employee number → [entity UUIDs] map from committed_data row_data.
+  const employeeToEntityIds = new Map<string, Set<string>>();
+  for (const row of committedData) {
+    if (!row.entity_id) continue;
+    const rd = row.row_data as Record<string, unknown> | null;
+    const empNum = String(rd?.['entityId'] ?? rd?.['num_empleado'] ?? '');
+    if (empNum && empNum !== 'undefined' && empNum !== 'null') {
+      if (!employeeToEntityIds.has(empNum)) {
+        employeeToEntityIds.set(empNum, new Set());
       }
-      externalIdToEntityIds.get(e.external_id)!.push(e.id);
+      employeeToEntityIds.get(empNum)!.add(row.entity_id);
     }
   }
 
+  // Build roster entity external_id → entity UUID for lookup
+  // Roster entities have simple numeric external_ids like "96568046"
+  const extIdToAssignedId = new Map<string, string>();
+  for (const e of entities) {
+    if (e.external_id && entityIds.includes(e.id)) {
+      extIdToAssignedId.set(e.external_id, e.id);
+    }
+  }
+
+  // Merge: for each employee number with multiple UUIDs, find the roster entity
+  // and merge all other UUIDs' data into it.
   let consolidatedCount = 0;
-  const assignedSet = new Set(entityIds);
-  for (const entityId of entityIds) {
-    const entityInfo = entityMap.get(entityId);
-    if (!entityInfo?.external_id) continue;
+  for (const [empNum, uuidSet] of Array.from(employeeToEntityIds.entries())) {
+    if (uuidSet.size <= 1) continue; // No siblings to merge
 
-    const siblingIds = externalIdToEntityIds.get(entityInfo.external_id) ?? [];
-    for (const siblingId of siblingIds) {
-      if (siblingId === entityId || assignedSet.has(siblingId)) continue;
+    // Find the "primary" entity — the one with roster sheet (Datos Colaborador)
+    let primaryId: string | null = null;
+    for (const uuid of Array.from(uuidSet)) {
+      const sheets = dataByEntity.get(uuid);
+      if (sheets) {
+        for (const sheetName of Array.from(sheets.keys())) {
+          if (['datos colaborador', 'roster', 'employee', 'empleados'].some(r => sheetName.toLowerCase().includes(r))) {
+            primaryId = uuid;
+            break;
+          }
+        }
+      }
+      if (primaryId) break;
+    }
 
-      // Merge sibling's sheet data into this entity
+    // Fallback: use the entity that's in the extIdToAssignedId map
+    if (!primaryId) {
+      primaryId = extIdToAssignedId.get(empNum) ?? null;
+    }
+    if (!primaryId) continue;
+
+    // Merge all sibling data into the primary entity
+    for (const siblingId of Array.from(uuidSet)) {
+      if (siblingId === primaryId) continue;
+
       const siblingSheetData = dataByEntity.get(siblingId);
       if (!siblingSheetData) continue;
 
-      if (!dataByEntity.has(entityId)) {
-        dataByEntity.set(entityId, new Map());
+      if (!dataByEntity.has(primaryId)) {
+        dataByEntity.set(primaryId, new Map());
       }
-      const entitySheets = dataByEntity.get(entityId)!;
+      const primarySheets = dataByEntity.get(primaryId)!;
       for (const [sheetName, rows] of Array.from(siblingSheetData.entries())) {
-        if (!entitySheets.has(sheetName)) {
-          entitySheets.set(sheetName, []);
+        if (!primarySheets.has(sheetName)) {
+          primarySheets.set(sheetName, []);
         }
-        entitySheets.get(sheetName)!.push(...rows);
+        primarySheets.get(sheetName)!.push(...rows);
       }
 
       // Merge flat data
       const siblingFlat = flatDataByEntity.get(siblingId);
       if (siblingFlat) {
-        if (!flatDataByEntity.has(entityId)) {
-          flatDataByEntity.set(entityId, []);
+        if (!flatDataByEntity.has(primaryId)) {
+          flatDataByEntity.set(primaryId, []);
         }
-        flatDataByEntity.get(entityId)!.push(...siblingFlat);
+        flatDataByEntity.get(primaryId)!.push(...siblingFlat);
       }
       consolidatedCount++;
     }
   }
+
   if (consolidatedCount > 0) {
-    addLog(`Entity consolidation: merged data from ${consolidatedCount} sibling UUIDs`);
+    addLog(`Entity consolidation: merged data from ${consolidatedCount} sibling UUIDs by employee number`);
   }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
