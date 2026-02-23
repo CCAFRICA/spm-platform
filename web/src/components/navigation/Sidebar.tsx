@@ -378,7 +378,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                       style={{ backgroundColor: accentColor }}
                     />
                   )}
-                  {item.children ? (
+                  {item.children && filteredChildItems.length > 1 ? (
                     <>
                       <button
                         onClick={() => toggleExpand(item.name)}
@@ -437,7 +437,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     </>
                   ) : (
                     <Link
-                      href={item.href}
+                      href={filteredChildItems.length === 1 ? filteredChildItems[0].href : item.href}
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium transition-all",
                         !isItemActive && "hover:bg-slate-800/50"
