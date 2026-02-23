@@ -233,6 +233,59 @@ export async function POST(request: NextRequest) {
   addLog(`${committedData.length} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
   addLog(`Store data: ${storeData.size} unique stores`);
 
+  // ── OB-85-R3 Fix 1: Entity data consolidation ──
+  // The import may create separate entity UUIDs per sheet for the same employee.
+  // Merge data from sibling UUIDs (same external_id) into each assigned entity.
+  const externalIdToEntityIds = new Map<string, string[]>();
+  for (const e of entities) {
+    if (e.external_id) {
+      if (!externalIdToEntityIds.has(e.external_id)) {
+        externalIdToEntityIds.set(e.external_id, []);
+      }
+      externalIdToEntityIds.get(e.external_id)!.push(e.id);
+    }
+  }
+
+  let consolidatedCount = 0;
+  const assignedSet = new Set(entityIds);
+  for (const entityId of entityIds) {
+    const entityInfo = entityMap.get(entityId);
+    if (!entityInfo?.external_id) continue;
+
+    const siblingIds = externalIdToEntityIds.get(entityInfo.external_id) ?? [];
+    for (const siblingId of siblingIds) {
+      if (siblingId === entityId || assignedSet.has(siblingId)) continue;
+
+      // Merge sibling's sheet data into this entity
+      const siblingSheetData = dataByEntity.get(siblingId);
+      if (!siblingSheetData) continue;
+
+      if (!dataByEntity.has(entityId)) {
+        dataByEntity.set(entityId, new Map());
+      }
+      const entitySheets = dataByEntity.get(entityId)!;
+      for (const [sheetName, rows] of Array.from(siblingSheetData.entries())) {
+        if (!entitySheets.has(sheetName)) {
+          entitySheets.set(sheetName, []);
+        }
+        entitySheets.get(sheetName)!.push(...rows);
+      }
+
+      // Merge flat data
+      const siblingFlat = flatDataByEntity.get(siblingId);
+      if (siblingFlat) {
+        if (!flatDataByEntity.has(entityId)) {
+          flatDataByEntity.set(entityId, []);
+        }
+        flatDataByEntity.get(entityId)!.push(...siblingFlat);
+      }
+      consolidatedCount++;
+    }
+  }
+  if (consolidatedCount > 0) {
+    addLog(`Entity consolidation: merged data from ${consolidatedCount} sibling UUIDs`);
+  }
+
   // ── 4a. Population filter: only calculate entities on the roster ──
   // The roster sheet (e.g., "Datos Colaborador") defines which employees are active
   // for this period. Entities that only appear in transaction sheets (warranty, insurance)

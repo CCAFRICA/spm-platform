@@ -24,6 +24,7 @@ import type {
 import {
   inferSemanticType,
   findSheetForComponent,
+  SHEET_COMPONENT_PATTERNS,
 } from '@/lib/orchestration/metric-resolver';
 
 // ──────────────────────────────────────────────
@@ -296,13 +297,26 @@ export function findMatchingSheet(
     }
   }
 
-  // Fallback: try direct name matching against available sheets
-  // This handles cases where sheet data_type directly contains a recognizable name
+  // Fallback 1: try direct name matching against available sheets
   const normComponent = componentName.toLowerCase().replace(/[-\s]/g, '_');
   for (const sheet of availableSheets) {
     const normSheet = sheet.toLowerCase().replace(/[-\s]/g, '_');
     if (normSheet.includes(normComponent) || normComponent.includes(normSheet)) {
       return sheet;
+    }
+  }
+
+  // OB-85-R3 Fix 2: Pattern-based matching (cross-language sheet↔component)
+  // When no AI context, use SHEET_COMPONENT_PATTERNS directly against availableSheets.
+  // findSheetForComponent only checks patterns against aiContextSheets (empty here).
+  for (const mapping of SHEET_COMPONENT_PATTERNS) {
+    const componentMatches = mapping.componentPatterns.some(p => p.test(componentName));
+    if (componentMatches) {
+      for (const sheet of availableSheets) {
+        if (mapping.sheetPatterns.some(p => p.test(sheet))) {
+          return sheet;
+        }
+      }
     }
   }
 
@@ -328,17 +342,32 @@ export function getExpectedMetricNames(component: PlanComponent): string[] {
 }
 
 /**
- * Build metrics for a specific component using sheet-aware resolution.
+ * Compute attainment from goal + actual if not already present.
+ * Mutates the metrics object in place.
+ */
+function computeAttainmentFromGoal(metrics: Record<string, number>): void {
+  if (metrics['goal'] && metrics['goal'] > 0) {
+    const actual = metrics['amount'] ?? metrics['quantity'] ?? 0;
+    const computedAttainment = actual / metrics['goal'];
+    // Override if attainment is missing or looks like a monetary value (>1000)
+    if (metrics['attainment'] === undefined || metrics['attainment'] > 1000) {
+      metrics['attainment'] = computedAttainment;
+    }
+  }
+}
+
+/**
+ * Build metrics for a specific component using source-aware resolution.
  *
- * OB-75: Uses AI Import Context (from import_batches.metadata) to find
- * the matching sheet — zero hardcoded patterns in the calculation path.
+ * OB-85-R3 Fix 3: Replaces the single-source approach with source-aware
+ * metric resolution that handles BOTH entity and store data.
  *
- * 1. Find the matching sheet via AI context (Korean Test: PASSES)
- * 2. Aggregate metrics from ONLY that sheet's rows (not all sheets)
- * 3. Resolve plan-specific metric names to semantic values via inferSemanticType
- *
- * This prevents cross-sheet aggregation corruption (e.g., summing attainment
- * across optical + store + customer sheets into a meaningless number).
+ * 1. Match entity sheet via AI context or pattern matching
+ * 2. Build store context from ALL store sheets (shared across components)
+ * 3. Resolve plan metric names with source preference:
+ *    - "store_"-prefixed metrics → prefer store data
+ *    - Other metrics → prefer entity data
+ * 4. Compute attainment per source independently (prevents contamination)
  */
 export function buildMetricsForComponent(
   component: PlanComponent,
@@ -346,62 +375,89 @@ export function buildMetricsForComponent(
   storeDataBySheet?: Map<string, Array<{ row_data: Json }>>,
   aiContextSheets?: AIContextSheet[]
 ): Record<string, number> {
-  const allSheets = Array.from(entityRowsBySheet.keys());
-  const matchingSheet = findMatchingSheet(component.name, allSheets, aiContextSheets);
+  // Step 1: Match entity-level sheet for this component
+  const entitySheets = Array.from(entityRowsBySheet.keys());
+  const entityMatch = findMatchingSheet(component.name, entitySheets, aiContextSheets);
+  const entityRows = entityMatch ? (entityRowsBySheet.get(entityMatch) || []) : [];
 
-  // If matched, use only that sheet. Otherwise try store-level data.
-  let relevantRows: Array<{ row_data: Json }>;
-
-  if (matchingSheet) {
-    relevantRows = entityRowsBySheet.get(matchingSheet) || [];
-  } else if (storeDataBySheet) {
-    // Try store-level sheets (also AI-context aware)
+  // Step 2: Match store-level sheet for this component
+  let storeMatchRows: Array<{ row_data: Json }> = [];
+  if (storeDataBySheet) {
     const storeSheets = Array.from(storeDataBySheet.keys());
     const storeMatch = findMatchingSheet(component.name, storeSheets, aiContextSheets);
-    relevantRows = storeMatch ? (storeDataBySheet.get(storeMatch) || []) : [];
-  } else {
-    relevantRows = [];
+    storeMatchRows = storeMatch ? (storeDataBySheet.get(storeMatch) || []) : [];
   }
 
-  // OB-75: If no matching sheet data found for this entity, return empty metrics.
-  // DO NOT fall back to ALL entity rows — that causes cross-sheet contamination.
-  // An entity without data for a component gets $0 for that component.
-  if (relevantRows.length === 0) {
-    return {};
-  }
-
-  const rawMetrics = aggregateMetrics(relevantRows);
-
-  // Compute attainment from goal + actual.
-  // If no attainment exists, compute from goal/amount.
-  // If attainment exists but looks like a monetary value (>1000), override it —
-  // some sheets map a field like "Monto Acotado" (capped amount) to "attainment"
-  // which is NOT a ratio/percentage. A valid attainment is always < 1000
-  // (whether decimal 0-3 or percentage 0-300).
-  if (rawMetrics['goal'] && rawMetrics['goal'] > 0) {
-    const actual = rawMetrics['amount'] ?? rawMetrics['quantity'] ?? 0;
-    const computedAttainment = actual / rawMetrics['goal'];
-
-    if (rawMetrics['attainment'] === undefined || rawMetrics['attainment'] > 1000) {
-      rawMetrics['attainment'] = computedAttainment;
+  // Step 3: Build store context from ALL store sheets (shared context for all components).
+  // Store-level data (e.g., store sales, store attainment) enriches any component that
+  // references "store_"-prefixed metrics (like store_optical_sales, store_goal_attainment).
+  let storeContext: Record<string, number> = {};
+  if (storeDataBySheet && storeDataBySheet.size > 0) {
+    const allStoreRows: Array<{ row_data: Json }> = [];
+    for (const rows of Array.from(storeDataBySheet.values())) {
+      allStoreRows.push(...rows);
+    }
+    if (allStoreRows.length > 0) {
+      storeContext = aggregateMetrics(allStoreRows);
+      computeAttainmentFromGoal(storeContext);
     }
   }
 
-  // Resolve plan-specific metric names to semantic values
-  const resolvedMetrics = { ...rawMetrics };
+  // If no entity match, no store match, and no store context → no data for this component
+  if (entityRows.length === 0 && storeMatchRows.length === 0 && Object.keys(storeContext).length === 0) {
+    return {};
+  }
+
+  // Aggregate each source independently to prevent cross-source contamination
+  const entityMetrics = entityRows.length > 0 ? aggregateMetrics(entityRows) : {};
+  const storeMatchMetrics = storeMatchRows.length > 0 ? aggregateMetrics(storeMatchRows) : {};
+
+  // Compute attainment per source independently
+  computeAttainmentFromGoal(entityMetrics);
+  computeAttainmentFromGoal(storeMatchMetrics);
+
+  // Step 4: Resolve expected metrics with source preference
+  const resolvedMetrics: Record<string, number> = {};
   const expectedNames = getExpectedMetricNames(component);
 
   for (const metricName of expectedNames) {
-    if (resolvedMetrics[metricName] !== undefined) continue; // Already present
+    // Direct key match first (exact field name in data)
+    if (entityMetrics[metricName] !== undefined) {
+      resolvedMetrics[metricName] = entityMetrics[metricName];
+      continue;
+    }
+    if (storeMatchMetrics[metricName] !== undefined) {
+      resolvedMetrics[metricName] = storeMatchMetrics[metricName];
+      continue;
+    }
+    if (storeContext[metricName] !== undefined) {
+      resolvedMetrics[metricName] = storeContext[metricName];
+      continue;
+    }
+
+    // Semantic resolution: infer what kind of value this metric name needs
     const semanticType = inferSemanticType(metricName);
-    if (semanticType !== 'unknown' && rawMetrics[semanticType] !== undefined) {
-      resolvedMetrics[metricName] = rawMetrics[semanticType];
+    if (semanticType === 'unknown') continue;
+
+    // Source preference based on metric name prefix
+    if (/store/i.test(metricName)) {
+      // "store_"-prefixed metrics prefer store sources
+      resolvedMetrics[metricName] =
+        storeContext[semanticType] ??
+        storeMatchMetrics[semanticType] ??
+        entityMetrics[semanticType] ??
+        0;
+    } else {
+      // Non-store metrics prefer entity data
+      resolvedMetrics[metricName] =
+        entityMetrics[semanticType] ??
+        storeMatchMetrics[semanticType] ??
+        storeContext[semanticType] ??
+        0;
     }
   }
 
   // Normalize attainment from decimal (0-3) to percentage (0-300) scale
-  // Plans define tier/matrix bands in percentage (e.g., 100-105 for 100%-105%)
-  // Data often stores attainment as decimal ratio (e.g., 1.35 for 135%)
   for (const metricName of expectedNames) {
     const semanticType = inferSemanticType(metricName);
     if (semanticType === 'attainment' && resolvedMetrics[metricName] !== undefined) {
@@ -409,6 +465,13 @@ export function buildMetricsForComponent(
       if (v > 0 && v < 3) {
         resolvedMetrics[metricName] = v * 100;
       }
+    }
+  }
+
+  // Include raw entity metrics for backward compat (allEntityMetrics usage)
+  for (const [k, v] of Object.entries(entityMetrics)) {
+    if (resolvedMetrics[k] === undefined) {
+      resolvedMetrics[k] = v;
     }
   }
 
@@ -561,6 +624,51 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   }
 
   console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData.length} data rows (paginated fetch)`);
+
+  // ── OB-85-R3 Fix 1: Entity data consolidation ──
+  // Merge data from sibling entity UUIDs (same external_id) into assigned entities.
+  const externalIdToEntityIds = new Map<string, string[]>();
+  for (const e of entities) {
+    if (e.external_id) {
+      if (!externalIdToEntityIds.has(e.external_id)) {
+        externalIdToEntityIds.set(e.external_id, []);
+      }
+      externalIdToEntityIds.get(e.external_id)!.push(e.id);
+    }
+  }
+
+  const assignedSet = new Set(entityIds);
+  for (const entityId of entityIds) {
+    const entityInfo = entityMap.get(entityId);
+    if (!entityInfo?.external_id) continue;
+
+    const siblingIds = externalIdToEntityIds.get(entityInfo.external_id) ?? [];
+    for (const siblingId of siblingIds) {
+      if (siblingId === entityId || assignedSet.has(siblingId)) continue;
+
+      const siblingSheetData = dataByEntity.get(siblingId);
+      if (!siblingSheetData) continue;
+
+      if (!dataByEntity.has(entityId)) {
+        dataByEntity.set(entityId, new Map());
+      }
+      const entitySheets = dataByEntity.get(entityId)!;
+      for (const [sheetName, rows] of Array.from(siblingSheetData.entries())) {
+        if (!entitySheets.has(sheetName)) {
+          entitySheets.set(sheetName, []);
+        }
+        entitySheets.get(sheetName)!.push(...rows);
+      }
+
+      const siblingFlat = flatDataByEntity.get(siblingId);
+      if (siblingFlat) {
+        if (!flatDataByEntity.has(entityId)) {
+          flatDataByEntity.set(entityId, []);
+        }
+        flatDataByEntity.get(entityId)!.push(...siblingFlat);
+      }
+    }
+  }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
   const rosterEntityIds = new Set<string>();

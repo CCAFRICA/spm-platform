@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
@@ -38,11 +39,13 @@ interface CalcSummary {
   attainmentDist: number[];
   topEntities: { name: string; value: number }[];
   bottomEntities: { name: string; value: number }[];
+  componentBreakdown: Array<{ name: string; type: string; payout: number }>;
 }
 
 export default function OperateCockpitPage() {
+  const router = useRouter();
   const { currentTenant } = useTenant();
-  const { symbol: currencySymbol } = useCurrency();
+  const { symbol: currencySymbol, format: formatCurrency } = useCurrency();
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
@@ -57,96 +60,14 @@ export default function OperateCockpitPage() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [ruleSetId, setRuleSetId] = useState<string | null>(null);
+  const [ruleSetName, setRuleSetName] = useState<string | null>(null);
   const [zeroPayoutConfirm, setZeroPayoutConfirm] = useState<{ nextState: string } | null>(null);
+  const [lastBatchId, setLastBatchId] = useState<string | null>(null);
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
-  // Single batched load — no inline Supabase queries
-  useEffect(() => {
-    if (!tenantId) return;
-    let cancelled = false;
-
-    async function load() {
-      // OB-73 Mission 6 / F-39: Wrap in try/catch so "Loading periods..."
-      // never gets stuck. If loadOperatePageData throws (RLS, empty tenant),
-      // we fall through to the empty state instead of infinite spinner.
-      let data;
-      try {
-        data = await loadOperatePageData(tenantId);
-      } catch (err) {
-        console.warn('[Operate] Failed to load page data:', err);
-        return; // isLoading will be set to false in .finally()
-      }
-      if (cancelled) return;
-
-      const enriched: PeriodInfo[] = data.periods.map(p => ({
-        periodId: p.id,
-        periodKey: p.canonical_key,
-        label: formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
-        status: p.status,
-        lifecycleState: p.lifecycleState,
-        startDate: p.start_date,
-        endDate: p.end_date,
-        needsAttention: false,
-      }));
-
-      setPeriods(enriched);
-      const open = enriched.find(p => p.status === 'open') ?? enriched[0];
-      if (open) setActiveKey(open.periodKey);
-
-      // Rule set ID for calculation trigger
-      setRuleSetId(data.ruleSetId);
-
-      // Lifecycle state
-      setLifecycleState(data.lifecycleState);
-
-      // Data readiness
-      setReadiness({
-        plan: data.hasActivePlan
-          ? { status: 'ready', label: isSpanish ? 'Plan activo encontrado' : 'Active plan found' }
-          : { status: 'missing', label: isSpanish ? 'No hay plan activo' : 'No active plan', detail: isSpanish ? 'Configura un rule set en estado activo' : 'Configure an active rule set' },
-        data: data.lastImportStatus
-          ? { status: data.lastImportStatus === 'completed' ? 'ready' : 'warning', label: isSpanish ? 'Datos importados' : 'Data imported', detail: `${isSpanish ? 'Ultimo import' : 'Last import'}: ${data.lastImportStatus}` }
-          : { status: 'missing', label: isSpanish ? 'No hay datos importados' : 'No data imported', detail: isSpanish ? 'Importa datos de transacciones' : 'Import transaction data' },
-        mapping: { status: 'ready', label: isSpanish ? 'Mapeo de entidades' : 'Entity mapping', detail: isSpanish ? 'Basado en entity_relationships' : 'Based on entity_relationships' },
-        validation: data.lastBatchCreatedAt
-          ? { status: 'ready', label: isSpanish ? 'Calculo ejecutado' : 'Calculation executed', detail: `${isSpanish ? 'Ultimo' : 'Last'}: ${new Date(data.lastBatchCreatedAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}` }
-          : { status: 'never', label: isSpanish ? 'Sin calculos previos' : 'No previous calculations', detail: isSpanish ? 'Ejecuta un calculo desde Vista Previa' : 'Run a calculation from Preview' },
-      });
-
-      // Calc summary from preloaded outcomes
-      if (data.outcomes.length > 0) {
-        const safeOutcomes = data.outcomes;
-        const sorted = [...safeOutcomes].sort((a, b) => b.total_payout - a.total_payout);
-        setCalcSummary({
-          totalPayout: safeOutcomes.reduce((s, o) => s + o.total_payout, 0),
-          entityCount: safeOutcomes.length,
-          componentCount: 0,
-          lastRunAt: data.lastBatchCreatedAt,
-          attainmentDist: safeOutcomes.map(o => extractAttainment(o.attainment_summary as Json)),
-          topEntities: sorted.slice(0, 5).map(o => ({
-            name: data.entityNames.get(o.entity_id) ?? o.entity_id,
-            value: o.total_payout,
-          })),
-          bottomEntities: sorted.slice(-5).reverse().map(o => ({
-            name: data.entityNames.get(o.entity_id) ?? o.entity_id,
-            value: o.total_payout,
-          })),
-        });
-      } else {
-        setCalcSummary(null);
-      }
-    }
-
-    load().finally(() => { if (!cancelled) setIsLoading(false); });
-    return () => { cancelled = true; };
-  }, [tenantId, isSpanish]);
-
-  // Reload page data after calculation or transition
-  const reloadData = useCallback(async () => {
-    if (!tenantId) return;
-    const data = await loadOperatePageData(tenantId);
-
+  // Helper: apply loaded data to state
+  const applyData = useCallback((data: Awaited<ReturnType<typeof loadOperatePageData>>) => {
     const enriched: PeriodInfo[] = data.periods.map(p => ({
       periodId: p.id,
       periodKey: p.canonical_key,
@@ -156,18 +77,43 @@ export default function OperateCockpitPage() {
       startDate: p.start_date,
       endDate: p.end_date,
       needsAttention: false,
+      entityCount: p.entityCount,
     }));
 
     setPeriods(enriched);
-    setLifecycleState(data.lifecycleState);
+
+    // OB-85-cont: Use the loader's smart period selection (prefers period with latest batch)
+    if (data.activePeriodKey) {
+      setActiveKey(data.activePeriodKey);
+    } else {
+      const open = enriched.find(p => p.status === 'open') ?? enriched[0];
+      if (open) setActiveKey(open.periodKey);
+    }
+
     setRuleSetId(data.ruleSetId);
+    setRuleSetName(data.ruleSetName);
+    setLastBatchId(data.lastBatchId);
+    setLifecycleState(data.lifecycleState);
+
+    setReadiness({
+      plan: data.hasActivePlan
+        ? { status: 'ready', label: isSpanish ? 'Plan activo encontrado' : 'Active plan found' }
+        : { status: 'missing', label: isSpanish ? 'No hay plan activo' : 'No active plan', detail: isSpanish ? 'Configura un rule set en estado activo' : 'Configure an active rule set' },
+      data: data.lastImportStatus
+        ? { status: data.lastImportStatus === 'completed' ? 'ready' : 'warning', label: isSpanish ? 'Datos importados' : 'Data imported', detail: `${isSpanish ? 'Ultimo import' : 'Last import'}: ${data.lastImportStatus}` }
+        : { status: 'missing', label: isSpanish ? 'No hay datos importados' : 'No data imported', detail: isSpanish ? 'Importa datos de transacciones' : 'Import transaction data' },
+      mapping: { status: 'ready', label: isSpanish ? 'Mapeo de entidades' : 'Entity mapping', detail: isSpanish ? 'Basado en entity_relationships' : 'Based on entity_relationships' },
+      validation: data.lastBatchCreatedAt
+        ? { status: 'ready', label: isSpanish ? 'Calculo ejecutado' : 'Calculation executed', detail: `${isSpanish ? 'Ultimo' : 'Last'}: ${new Date(data.lastBatchCreatedAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}` }
+        : { status: 'never', label: isSpanish ? 'Sin calculos previos' : 'No previous calculations', detail: isSpanish ? 'Ejecuta un calculo desde Vista Previa' : 'Run a calculation from Preview' },
+    });
 
     if (data.outcomes.length > 0) {
       const sorted = [...data.outcomes].sort((a, b) => b.total_payout - a.total_payout);
       setCalcSummary({
         totalPayout: data.outcomes.reduce((s, o) => s + o.total_payout, 0),
         entityCount: data.outcomes.length,
-        componentCount: 0,
+        componentCount: data.componentBreakdown.length,
         lastRunAt: data.lastBatchCreatedAt,
         attainmentDist: data.outcomes.map(o => extractAttainment(o.attainment_summary as Json)),
         topEntities: sorted.slice(0, 5).map(o => ({
@@ -178,11 +124,49 @@ export default function OperateCockpitPage() {
           name: data.entityNames.get(o.entity_id) ?? o.entity_id,
           value: o.total_payout,
         })),
+        componentBreakdown: data.componentBreakdown,
       });
     } else {
       setCalcSummary(null);
     }
-  }, [tenantId]);
+  }, [isSpanish]);
+
+  // Single batched load — no inline Supabase queries
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+
+    async function load() {
+      let data;
+      try {
+        data = await loadOperatePageData(tenantId);
+      } catch (err) {
+        console.warn('[Operate] Failed to load page data:', err);
+        return;
+      }
+      if (cancelled) return;
+      applyData(data);
+    }
+
+    load().finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId, applyData]);
+
+  // Reload page data after calculation, transition, or period switch
+  const reloadData = useCallback(async (periodKeyOverride?: string) => {
+    if (!tenantId) return;
+    const data = await loadOperatePageData(tenantId, periodKeyOverride);
+    applyData(data);
+    // If a specific period was requested, keep that active key
+    if (periodKeyOverride) setActiveKey(periodKeyOverride);
+  }, [tenantId, applyData]);
+
+  // OB-85-cont: Reload batch/outcomes when user clicks a different period
+  const handlePeriodSelect = useCallback((newKey: string) => {
+    if (newKey === activeKey) return;
+    setActiveKey(newKey);
+    reloadData(newKey);
+  }, [activeKey, reloadData]);
 
   const handleAdvance = useCallback(async (nextState: string) => {
     if (!tenantId || !activePeriodId) return;
@@ -302,7 +286,7 @@ export default function OperateCockpitPage() {
   return (
     <div className="space-y-0">
       {/* Period Ribbon */}
-      <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={setActiveKey} />
+      <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={handlePeriodSelect} />
 
       <div className="p-6 space-y-6 max-w-6xl mx-auto">
         {/* Header */}
@@ -316,6 +300,40 @@ export default function OperateCockpitPage() {
               {isSpanish ? stateDisplay.labelEs : stateDisplay.label}
             </StatusPill>
           )}
+        </div>
+
+        {/* OB-85: Active Plan + Run Calculation */}
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">
+                {isSpanish ? 'Plan Activo' : 'Active Plan'}
+              </h4>
+              {ruleSetName ? (
+                <p className="text-sm font-medium text-zinc-200">{ruleSetName}</p>
+              ) : (
+                <p className="text-sm text-zinc-500">{isSpanish ? 'No hay plan activo' : 'No active plan'}</p>
+              )}
+              {activeKey && (
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  {isSpanish ? 'Periodo' : 'Period'}: {periods.find(p => p.periodKey === activeKey)?.label ?? activeKey}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => handleAdvance('PREVIEW')}
+              disabled={!activeKey || !ruleSetId || isCalculating}
+              className="px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: (!activeKey || !ruleSetId || isCalculating) ? '#3f3f46' : '#7c3aed',
+                boxShadow: (!activeKey || !ruleSetId || isCalculating) ? 'none' : '0 0 20px rgba(124, 58, 237, 0.3)',
+              }}
+            >
+              {isCalculating
+                ? (isSpanish ? 'Calculando...' : 'Calculating...')
+                : (isSpanish ? 'Ejecutar Calculo' : 'Run Calculation')}
+            </button>
+          </div>
         </div>
 
         {/* Lifecycle Stepper */}
@@ -393,11 +411,34 @@ export default function OperateCockpitPage() {
                     <p className="text-lg font-bold text-zinc-100">{calcSummary.entityCount}</p>
                   </div>
                 </div>
+
+                {/* OB-85: Per-component breakdown */}
+                {calcSummary.componentBreakdown.length > 0 && (
+                  <div className="space-y-1.5 pt-2 border-t border-zinc-800">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{isSpanish ? 'Componentes' : 'Components'}</p>
+                    {calcSummary.componentBreakdown.map((comp) => (
+                      <div key={comp.name} className="flex items-center justify-between text-xs">
+                        <span className="text-zinc-400 truncate max-w-[60%]">{comp.name}</span>
+                        <span className="text-zinc-200 tabular-nums font-medium">{formatCurrency(comp.payout)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {calcSummary.lastRunAt && (
                   <p className="text-[11px] text-zinc-600">
                     {isSpanish ? 'Ultimo calculo' : 'Last calculation'}: {new Date(calcSummary.lastRunAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}
                   </p>
                 )}
+
+                {/* OB-85: Reconcile button */}
+                <button
+                  onClick={() => router.push(`/investigate/reconciliation${lastBatchId ? `?batchId=${lastBatchId}` : ''}`)}
+                  className="w-full mt-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all"
+                  style={{ backgroundColor: '#059669', boxShadow: '0 0 12px rgba(5, 150, 105, 0.2)' }}
+                >
+                  {isSpanish ? 'Reconciliar' : 'Reconcile'} →
+                </button>
               </div>
             ) : (
               <p className="text-sm text-zinc-400">{isSpanish ? 'No hay resultados de calculo para este periodo.' : 'No calculation results for this period.'}</p>
