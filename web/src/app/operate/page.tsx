@@ -10,6 +10,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isVLAdmin } from '@/types/auth';
 import { PeriodRibbon, type PeriodInfo } from '@/components/design-system/PeriodRibbon';
 import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
 import { DataReadinessPanel, type DataReadiness } from '@/components/design-system/DataReadinessPanel';
@@ -42,7 +44,8 @@ export default function OperateCockpitPage() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol } = useCurrency();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const { user } = useAuth();
+  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
   const tenantId = currentTenant?.id ?? '';
 
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);

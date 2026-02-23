@@ -68,8 +68,9 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   // Check if user is VL Admin
   const userIsVLAdmin = user && isVLAdmin(user);
 
-  // Language follows the user's language selector preference
-  const isSpanish = locale === 'es-MX';
+  // Standing Rule 3: VL Admin always sees English, regardless of tenant locale.
+  // Other users follow their language selector preference.
+  const isSpanish = userIsVLAdmin ? false : locale === 'es-MX';
 
   // Get user's accessible modules
   const accessibleModules = accessControl.getAccessibleModules(user);
