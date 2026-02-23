@@ -108,10 +108,10 @@ export async function loadTenantPeriods(tenantId: string): Promise<Array<{ id: s
 // Operate Page Loader
 // ──────────────────────────────────────────────
 
-export async function loadOperatePageData(tenantId: string): Promise<OperatePageData> {
+export async function loadOperatePageData(tenantId: string, periodKey?: string): Promise<OperatePageData> {
   const supabase = createClient();
 
-  // Round 1: periods + plan + import + latest batch (parallel)
+  // Round 1: periods + plan + import (parallel)
   const [periodsRes, planRes, importRes] = await Promise.all([
     supabase
       .from('periods')
@@ -136,15 +136,9 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
 
   const rawPeriods = periodsRes.data ?? [];
 
-  // Find the active (open) period, or fall back to the most recent
-  const activePeriod = rawPeriods.find(p => p.status === 'open') ?? rawPeriods[0] ?? null;
-  const activePeriodId = activePeriod?.id ?? null;
-  const activePeriodKey = activePeriod?.canonical_key ?? null;
-
-  // Round 2: batch lifecycle states + outcomes + entity names (parallel, no conditional)
+  // Round 2: batch lifecycle states (parallel with period query)
   const periodIds = rawPeriods.map(p => p.id);
 
-  // Always query — empty periodIds/activePeriodId handled by returning empty arrays
   const batchQuery = periodIds.length > 0
     ? supabase
         .from('calculation_batches')
@@ -155,18 +149,8 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
         .order('created_at', { ascending: false })
     : null;
 
-  const entityQuery = supabase
-    .from('entities')
-    .select('id, display_name, external_id')
-    .eq('tenant_id', tenantId);
-
-  const [batchesRes, entitiesRes] = await Promise.all([
-    batchQuery,
-    entityQuery,
-  ]);
-
+  const batchesRes = await batchQuery;
   const allBatches = batchesRes?.data ?? [];
-  const entities = entitiesRes.data ?? [];
 
   // Build period → latest batch lifecycle state map + entity count
   const periodBatchMap = new Map<string, string>();
@@ -178,29 +162,50 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
     }
   }
 
+  // OB-85-cont: Smart period selection
+  // Priority: 1) explicit periodKey, 2) period with latest batch, 3) first open, 4) most recent
+  let activePeriod;
+  if (periodKey) {
+    activePeriod = rawPeriods.find(p => p.canonical_key === periodKey) ?? null;
+  }
+  if (!activePeriod) {
+    // Prefer the period that has the most recent calculation batch
+    const latestBatch = allBatches[0]; // already ordered by created_at DESC
+    if (latestBatch?.period_id) {
+      activePeriod = rawPeriods.find(p => p.id === latestBatch.period_id) ?? null;
+    }
+  }
+  if (!activePeriod) {
+    activePeriod = rawPeriods.find(p => p.status === 'open') ?? rawPeriods[0] ?? null;
+  }
+  const activePeriodId = activePeriod?.id ?? null;
+  const activePeriodKey = activePeriod?.canonical_key ?? null;
+
   // Find latest batch for active period
   const activeBatch = activePeriodId
     ? allBatches.find((b) => b.period_id === activePeriodId)
     : null;
 
-  // OB-73 Mission 4 / F-56: Load from calculation_results (source of truth), not entity_period_outcomes.
-  // entity_period_outcomes only materializes at OFFICIAL+ state, so can be stale.
-  // calculation_results always reflects the current batch's actual computed data.
+  // OB-73 Mission 4 / F-56: Load from calculation_results (source of truth).
+  // OB-85-cont: Also load metadata for entity name fallback.
   let outcomes: Array<{ entity_id: string; total_payout: number; attainment_summary: Json }> = [];
   let componentBreakdown: Array<{ name: string; type: string; payout: number }> = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let calcResults: Array<Record<string, any>> | null = null;
   if (activeBatch?.id) {
-    const { data: calcResults } = await supabase
+    const { data } = await supabase
       .from('calculation_results')
-      .select('entity_id, total_payout, attainment, components')
+      .select('entity_id, total_payout, attainment, components, metadata')
       .eq('tenant_id', tenantId)
       .eq('batch_id', activeBatch.id);
+    calcResults = data;
     outcomes = (calcResults ?? []).map(r => ({
       entity_id: r.entity_id,
       total_payout: r.total_payout || 0,
       attainment_summary: (r.attainment ?? {}) as Json,
     }));
 
-    // OB-85: Build component breakdown from first result row (components are same structure for all)
+    // Build component breakdown aggregated across all entities
     if (calcResults && calcResults.length > 0) {
       const compMap = new Map<string, { name: string; type: string; payout: number }>();
       for (const r of calcResults) {
@@ -221,10 +226,46 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
     }
   }
 
-  const entityNames = new Map(entities.map(e => [
-    e.id,
-    e.external_id ? `${e.display_name} (${e.external_id})` : e.display_name,
-  ]));
+  // OB-85-cont: Build entity names from entities table — batch-specific query
+  // Query only the entity IDs we actually need (from calculation results),
+  // paginated in batches of 1000 to handle Supabase row limits.
+  const entityNames = new Map<string, string>();
+  const entityIdsNeeded = (calcResults ?? []).map(r => r.entity_id);
+
+  if (entityIdsNeeded.length > 0) {
+    const ENTITY_PAGE = 1000;
+    for (let i = 0; i < entityIdsNeeded.length; i += ENTITY_PAGE) {
+      const batch = entityIdsNeeded.slice(i, i + ENTITY_PAGE);
+      const { data: ents } = await supabase
+        .from('entities')
+        .select('id, display_name, external_id')
+        .in('id', batch);
+      for (const e of ents ?? []) {
+        // Avoid redundant "12345 (12345)" when display_name equals external_id
+        if (e.external_id && e.display_name !== e.external_id) {
+          entityNames.set(e.id, `${e.display_name} (${e.external_id})`);
+        } else {
+          entityNames.set(e.id, e.external_id ?? e.display_name);
+        }
+      }
+    }
+  }
+
+  // Fallback: enrich from calculation_results.metadata for any missing entities
+  if (calcResults) {
+    for (const r of calcResults) {
+      if (entityNames.has(r.entity_id)) continue;
+      const meta = r.metadata as Record<string, unknown> | null;
+      if (!meta) continue;
+      const name = meta.entityName as string | undefined;
+      const extId = meta.externalId as string | undefined;
+      if (name && name !== r.entity_id) {
+        entityNames.set(r.entity_id, extId ? `${name} (${extId})` : name);
+      } else if (extId) {
+        entityNames.set(r.entity_id, extId);
+      }
+    }
+  }
 
   return {
     periods: rawPeriods.map(p => ({

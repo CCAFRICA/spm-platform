@@ -66,96 +66,8 @@ export default function OperateCockpitPage() {
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
-  // Single batched load — no inline Supabase queries
-  useEffect(() => {
-    if (!tenantId) return;
-    let cancelled = false;
-
-    async function load() {
-      // OB-73 Mission 6 / F-39: Wrap in try/catch so "Loading periods..."
-      // never gets stuck. If loadOperatePageData throws (RLS, empty tenant),
-      // we fall through to the empty state instead of infinite spinner.
-      let data;
-      try {
-        data = await loadOperatePageData(tenantId);
-      } catch (err) {
-        console.warn('[Operate] Failed to load page data:', err);
-        return; // isLoading will be set to false in .finally()
-      }
-      if (cancelled) return;
-
-      const enriched: PeriodInfo[] = data.periods.map(p => ({
-        periodId: p.id,
-        periodKey: p.canonical_key,
-        label: formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
-        status: p.status,
-        lifecycleState: p.lifecycleState,
-        startDate: p.start_date,
-        endDate: p.end_date,
-        needsAttention: false,
-        entityCount: p.entityCount,
-      }));
-
-      setPeriods(enriched);
-      const open = enriched.find(p => p.status === 'open') ?? enriched[0];
-      if (open) setActiveKey(open.periodKey);
-
-      // Rule set ID + name for calculation trigger
-      setRuleSetId(data.ruleSetId);
-      setRuleSetName(data.ruleSetName);
-      setLastBatchId(data.lastBatchId);
-
-      // Lifecycle state
-      setLifecycleState(data.lifecycleState);
-
-      // Data readiness
-      setReadiness({
-        plan: data.hasActivePlan
-          ? { status: 'ready', label: isSpanish ? 'Plan activo encontrado' : 'Active plan found' }
-          : { status: 'missing', label: isSpanish ? 'No hay plan activo' : 'No active plan', detail: isSpanish ? 'Configura un rule set en estado activo' : 'Configure an active rule set' },
-        data: data.lastImportStatus
-          ? { status: data.lastImportStatus === 'completed' ? 'ready' : 'warning', label: isSpanish ? 'Datos importados' : 'Data imported', detail: `${isSpanish ? 'Ultimo import' : 'Last import'}: ${data.lastImportStatus}` }
-          : { status: 'missing', label: isSpanish ? 'No hay datos importados' : 'No data imported', detail: isSpanish ? 'Importa datos de transacciones' : 'Import transaction data' },
-        mapping: { status: 'ready', label: isSpanish ? 'Mapeo de entidades' : 'Entity mapping', detail: isSpanish ? 'Basado en entity_relationships' : 'Based on entity_relationships' },
-        validation: data.lastBatchCreatedAt
-          ? { status: 'ready', label: isSpanish ? 'Calculo ejecutado' : 'Calculation executed', detail: `${isSpanish ? 'Ultimo' : 'Last'}: ${new Date(data.lastBatchCreatedAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}` }
-          : { status: 'never', label: isSpanish ? 'Sin calculos previos' : 'No previous calculations', detail: isSpanish ? 'Ejecuta un calculo desde Vista Previa' : 'Run a calculation from Preview' },
-      });
-
-      // Calc summary from preloaded outcomes
-      if (data.outcomes.length > 0) {
-        const safeOutcomes = data.outcomes;
-        const sorted = [...safeOutcomes].sort((a, b) => b.total_payout - a.total_payout);
-        setCalcSummary({
-          totalPayout: safeOutcomes.reduce((s, o) => s + o.total_payout, 0),
-          entityCount: safeOutcomes.length,
-          componentCount: data.componentBreakdown.length,
-          lastRunAt: data.lastBatchCreatedAt,
-          attainmentDist: safeOutcomes.map(o => extractAttainment(o.attainment_summary as Json)),
-          topEntities: sorted.slice(0, 5).map(o => ({
-            name: data.entityNames.get(o.entity_id) ?? o.entity_id,
-            value: o.total_payout,
-          })),
-          bottomEntities: sorted.slice(-5).reverse().map(o => ({
-            name: data.entityNames.get(o.entity_id) ?? o.entity_id,
-            value: o.total_payout,
-          })),
-          componentBreakdown: data.componentBreakdown,
-        });
-      } else {
-        setCalcSummary(null);
-      }
-    }
-
-    load().finally(() => { if (!cancelled) setIsLoading(false); });
-    return () => { cancelled = true; };
-  }, [tenantId, isSpanish]);
-
-  // Reload page data after calculation or transition
-  const reloadData = useCallback(async () => {
-    if (!tenantId) return;
-    const data = await loadOperatePageData(tenantId);
-
+  // Helper: apply loaded data to state
+  const applyData = useCallback((data: Awaited<ReturnType<typeof loadOperatePageData>>) => {
     const enriched: PeriodInfo[] = data.periods.map(p => ({
       periodId: p.id,
       periodKey: p.canonical_key,
@@ -169,10 +81,32 @@ export default function OperateCockpitPage() {
     }));
 
     setPeriods(enriched);
-    setLifecycleState(data.lifecycleState);
+
+    // OB-85-cont: Use the loader's smart period selection (prefers period with latest batch)
+    if (data.activePeriodKey) {
+      setActiveKey(data.activePeriodKey);
+    } else {
+      const open = enriched.find(p => p.status === 'open') ?? enriched[0];
+      if (open) setActiveKey(open.periodKey);
+    }
+
     setRuleSetId(data.ruleSetId);
     setRuleSetName(data.ruleSetName);
     setLastBatchId(data.lastBatchId);
+    setLifecycleState(data.lifecycleState);
+
+    setReadiness({
+      plan: data.hasActivePlan
+        ? { status: 'ready', label: isSpanish ? 'Plan activo encontrado' : 'Active plan found' }
+        : { status: 'missing', label: isSpanish ? 'No hay plan activo' : 'No active plan', detail: isSpanish ? 'Configura un rule set en estado activo' : 'Configure an active rule set' },
+      data: data.lastImportStatus
+        ? { status: data.lastImportStatus === 'completed' ? 'ready' : 'warning', label: isSpanish ? 'Datos importados' : 'Data imported', detail: `${isSpanish ? 'Ultimo import' : 'Last import'}: ${data.lastImportStatus}` }
+        : { status: 'missing', label: isSpanish ? 'No hay datos importados' : 'No data imported', detail: isSpanish ? 'Importa datos de transacciones' : 'Import transaction data' },
+      mapping: { status: 'ready', label: isSpanish ? 'Mapeo de entidades' : 'Entity mapping', detail: isSpanish ? 'Basado en entity_relationships' : 'Based on entity_relationships' },
+      validation: data.lastBatchCreatedAt
+        ? { status: 'ready', label: isSpanish ? 'Calculo ejecutado' : 'Calculation executed', detail: `${isSpanish ? 'Ultimo' : 'Last'}: ${new Date(data.lastBatchCreatedAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}` }
+        : { status: 'never', label: isSpanish ? 'Sin calculos previos' : 'No previous calculations', detail: isSpanish ? 'Ejecuta un calculo desde Vista Previa' : 'Run a calculation from Preview' },
+    });
 
     if (data.outcomes.length > 0) {
       const sorted = [...data.outcomes].sort((a, b) => b.total_payout - a.total_payout);
@@ -195,7 +129,44 @@ export default function OperateCockpitPage() {
     } else {
       setCalcSummary(null);
     }
-  }, [tenantId]);
+  }, [isSpanish]);
+
+  // Single batched load — no inline Supabase queries
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+
+    async function load() {
+      let data;
+      try {
+        data = await loadOperatePageData(tenantId);
+      } catch (err) {
+        console.warn('[Operate] Failed to load page data:', err);
+        return;
+      }
+      if (cancelled) return;
+      applyData(data);
+    }
+
+    load().finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId, applyData]);
+
+  // Reload page data after calculation, transition, or period switch
+  const reloadData = useCallback(async (periodKeyOverride?: string) => {
+    if (!tenantId) return;
+    const data = await loadOperatePageData(tenantId, periodKeyOverride);
+    applyData(data);
+    // If a specific period was requested, keep that active key
+    if (periodKeyOverride) setActiveKey(periodKeyOverride);
+  }, [tenantId, applyData]);
+
+  // OB-85-cont: Reload batch/outcomes when user clicks a different period
+  const handlePeriodSelect = useCallback((newKey: string) => {
+    if (newKey === activeKey) return;
+    setActiveKey(newKey);
+    reloadData(newKey);
+  }, [activeKey, reloadData]);
 
   const handleAdvance = useCallback(async (nextState: string) => {
     if (!tenantId || !activePeriodId) return;
@@ -315,7 +286,7 @@ export default function OperateCockpitPage() {
   return (
     <div className="space-y-0">
       {/* Period Ribbon */}
-      <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={setActiveKey} />
+      <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={handlePeriodSelect} />
 
       <div className="p-6 space-y-6 max-w-6xl mx-auto">
         {/* Header */}
