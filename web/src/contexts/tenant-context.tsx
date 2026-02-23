@@ -202,8 +202,11 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         sessionStorage.setItem('vialuce_admin_tenant', tenantId);
         document.cookie = `vialuce-tenant-id=${tenantId}; path=/; max-age=${60 * 60 * 24}; SameSite=Lax`;
       }
-      // Route to dashboard (/) — persona-driven landing page for all roles
-      router.push('/');
+      // HF-057: VL Admin navigates to /operate (admin landing).
+      // Non-admin navigates to / (persona dashboard).
+      // Middleware redirects VL Admin from / back to /select-tenant,
+      // so VL Admin must target a concrete route.
+      router.push(isAdmin ? '/operate' : '/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to switch tenant');
       throw err;

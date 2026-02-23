@@ -203,6 +203,11 @@ export async function middleware(request: NextRequest) {
     const isPlatformAdmin = profile?.role === 'vl_admin' || capabilities.includes('manage_tenants');
 
     if (isPlatformAdmin) {
+      // HF-057: If VL Admin already selected a tenant (cookie set), go to admin landing
+      const tenantCookie = request.cookies.get('vialuce-tenant-id')?.value;
+      if (tenantCookie) {
+        return NextResponse.redirect(new URL('/operate', request.url));
+      }
       return NextResponse.redirect(new URL('/select-tenant', request.url));
     }
 
