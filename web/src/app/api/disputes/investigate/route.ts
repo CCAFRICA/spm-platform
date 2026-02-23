@@ -15,6 +15,8 @@ import { createSynapticSurface } from '@/lib/calculation/synaptic-surface';
 import { investigate, type DisputeContext } from '@/lib/agents/resolution-agent';
 import { persistSignal } from '@/lib/ai/signal-persistence';
 import type { ExecutionTrace } from '@/lib/calculation/intent-types';
+// OB-81: Agent memory for three-flywheel priors
+import { loadPriorsForAgent } from '@/lib/agents/agent-memory';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -67,12 +69,18 @@ export async function POST(request: NextRequest) {
   const meta = result?.metadata as Record<string, unknown> | null;
   const traces = (meta?.intentTraces as ExecutionTrace[] | undefined) ?? [];
 
-  // Load synaptic density and create surface
+  // OB-81: Load agent memory (three-flywheel priors) + create surface
   let density;
   try {
-    density = await loadDensity(context.tenantId);
+    const priors = await loadPriorsForAgent(context.tenantId, 'icm', 'resolution');
+    density = priors.tenantDensity;
   } catch {
-    density = new Map() as Awaited<ReturnType<typeof loadDensity>>;
+    // Fallback to direct density loading
+    try {
+      density = await loadDensity(context.tenantId);
+    } catch {
+      density = new Map() as Awaited<ReturnType<typeof loadDensity>>;
+    }
   }
   const surface = createSynapticSurface(density);
 

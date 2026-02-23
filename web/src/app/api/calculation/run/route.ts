@@ -33,6 +33,16 @@ import {
   initializePatternDensity,
 } from '@/lib/calculation/synaptic-surface';
 import { generatePatternSignature } from '@/lib/calculation/pattern-signature';
+// OB-81: Agent memory, flywheel, and insight wiring
+import { loadPriorsForAgent, type AgentPriors } from '@/lib/agents/agent-memory';
+import { postConsolidationFlywheel } from '@/lib/calculation/flywheel-pipeline';
+import {
+  checkInlineInsights,
+  generateFullAnalysis,
+  DEFAULT_INSIGHT_CONFIG,
+  type InlineInsight,
+  type CalculationSummary,
+} from '@/lib/agents/insight-agent';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -284,16 +294,32 @@ export async function POST(request: NextRequest) {
     addLog(`AI context fetch failed (non-blocking): ${aiErr instanceof Error ? aiErr.message : 'unknown'}`);
   }
 
-  // ── 4c. Synaptic State: Load density + create surface ──
+  // ── 4c. OB-81: Load agent memory (three-flywheel priors) + create surface ──
   const synapticStartTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const domainId = 'icm'; // default domain — will be configurable per tenant
+  let priors: AgentPriors;
   let density;
   try {
-    density = await loadDensity(tenantId);
-    addLog(`Synaptic density loaded: ${density.size} patterns`);
-  } catch {
-    density = new Map() as Awaited<ReturnType<typeof loadDensity>>;
-    addLog('Synaptic density load failed (non-blocking) — starting fresh');
+    priors = await loadPriorsForAgent(tenantId, domainId, 'calculation');
+    density = priors.tenantDensity;
+    addLog(`Agent memory loaded: ${density.size} tenant patterns, ${priors.foundationalPriors.size} foundational, ${priors.domainPriors.size} domain`);
+  } catch (memErr) {
+    console.error('[CalcAPI] Agent memory load failed, falling back to direct density:', memErr);
+    try {
+      density = await loadDensity(tenantId);
+      addLog(`Fallback: Synaptic density loaded: ${density.size} patterns`);
+    } catch {
+      density = new Map() as Awaited<ReturnType<typeof loadDensity>>;
+      addLog('Fallback: Synaptic density load failed (non-blocking) — starting fresh');
+    }
+    priors = {
+      tenantDensity: density,
+      foundationalPriors: new Map(),
+      domainPriors: new Map(),
+      signalHistory: { fieldMappingSignals: [], interpretationSignals: [], reconciliationSignals: [], resolutionSignals: [] },
+    };
   }
+  const coldStart = density.size === 0;
   const surface = createSynapticSurface(density);
   surface.stats.entityCount = calculationEntityIds.length;
   surface.stats.componentCount = componentIntents.length;
@@ -331,6 +357,37 @@ export async function POST(request: NextRequest) {
   }
 
   addLog(`Batch created: ${batch.id}`);
+
+  // ── 5b. OB-81: Batch-load period history for temporal_window support ──
+  const periodHistoryMap = new Map<string, number[]>();
+  try {
+    const TEMPORAL_WINDOW_MAX = 12;
+    const { data: priorPeriodResults } = await supabase
+      .from('calculation_results')
+      .select('entity_id, total_payout')
+      .eq('tenant_id', tenantId)
+      .neq('period_id', periodId)
+      .order('created_at', { ascending: false })
+      .limit(TEMPORAL_WINDOW_MAX * Math.min(calculationEntityIds.length, 1000));
+
+    if (priorPeriodResults && priorPeriodResults.length > 0) {
+      for (const row of priorPeriodResults) {
+        if (!periodHistoryMap.has(row.entity_id)) {
+          periodHistoryMap.set(row.entity_id, []);
+        }
+        periodHistoryMap.get(row.entity_id)!.push(row.total_payout);
+      }
+      addLog(`Period history loaded: ${periodHistoryMap.size} entities with prior results`);
+    } else {
+      addLog('No prior period results found (temporal_window will use current values)');
+    }
+  } catch (histErr) {
+    addLog(`Period history load failed (temporal_window will degrade gracefully): ${histErr instanceof Error ? histErr.message : 'unknown'}`);
+  }
+
+  // OB-81: Inline insights collector
+  const allInlineInsights: InlineInsight[] = [];
+  const INSIGHT_CHECKPOINT_INTERVAL = Math.max(100, Math.floor(calculationEntityIds.length / 10));
 
   // ── 6. Evaluate each entity using DUAL-PATH: current engine + intent executor ──
   const entityResults: Array<{
@@ -397,6 +454,7 @@ export async function POST(request: NextRequest) {
         metrics,
         attributes: {},
         priorResults: [...priorResults],
+        periodHistory: periodHistoryMap.get(entityId), // OB-81: temporal_window support
       };
       const intentResult = executeIntent(ci, entityData);
       intentTraces.push(intentResult.trace);
@@ -443,6 +501,18 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // OB-81: Inline insight check at intervals during calculation
+    if (entityResults.length > 0 && entityResults.length % INSIGHT_CHECKPOINT_INTERVAL === 0) {
+      try {
+        const inlineInsights = checkInlineInsights(surface, DEFAULT_INSIGHT_CONFIG, entityResults.length);
+        if (inlineInsights.length > 0) {
+          allInlineInsights.push(...inlineInsights);
+        }
+      } catch {
+        // Never block calculation for insight failure
+      }
+    }
+
     // Only log first 20 and last 5 entities to avoid log flooding at scale
     if (entityResults.length <= 20 || entityResults.length > calculationEntityIds.length - 5) {
       const matchLabel = entityMatch ? '✓' : '✗';
@@ -469,6 +539,22 @@ export async function POST(request: NextRequest) {
     persistDensityUpdates(tenantId, densityUpdates).catch(err => {
       console.warn('[CalcAPI] Density persist failed (non-blocking):', err);
     });
+
+    // OB-81: Flywheel post-consolidation — aggregate into F2 + F3 (fire-and-forget)
+    try {
+      const flywheelUpdates = densityUpdates.map(d => ({
+        patternSignature: d.signature,
+        confidence: d.newConfidence,
+        executionCount: d.totalExecutions,
+        anomalyRate: d.anomalyRate,
+        learnedBehaviors: {},
+      }));
+      postConsolidationFlywheel(tenantId, domainId, undefined, flywheelUpdates)
+        .catch(err => console.warn('[CalcAPI] Flywheel aggregation error (non-blocking):', err));
+      addLog(`Flywheel: ${flywheelUpdates.length} patterns queued for F2+F3 aggregation`);
+    } catch (fwErr) {
+      console.warn('[CalcAPI] Flywheel wiring error (non-blocking):', fwErr);
+    }
   }
 
   // Persist training signals from consolidation (fire-and-forget)
@@ -585,6 +671,50 @@ export async function POST(request: NextRequest) {
     addLog(`Batch transitioned to PREVIEW`);
   }
 
+  // ── 8b. OB-81: Fire async full analysis (does not block response) ──
+  try {
+    const sorted = entityResults.map(r => r.total_payout).sort((a, b) => a - b);
+    const medianOutcome = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
+    const zeroCount = entityResults.filter(r => r.total_payout === 0).length;
+
+    const calcSummary: CalculationSummary = {
+      entityCount: entityResults.length,
+      componentCount: components.length,
+      totalOutcome: grandTotal,
+      avgOutcome: entityResults.length > 0 ? grandTotal / entityResults.length : 0,
+      medianOutcome,
+      zeroOutcomeCount: zeroCount,
+      concordanceRate: parseFloat(concordanceRate.toFixed(2)),
+      topEntities: entityResults
+        .sort((a, b) => b.total_payout - a.total_payout)
+        .slice(0, 5)
+        .map(r => ({ entityId: r.entity_id, outcome: r.total_payout })),
+      bottomEntities: entityResults
+        .sort((a, b) => a.total_payout - b.total_payout)
+        .slice(0, 5)
+        .map(r => ({ entityId: r.entity_id, outcome: r.total_payout })),
+    };
+
+    const analysis = generateFullAnalysis(batch.id, surface, calcSummary, DEFAULT_INSIGHT_CONFIG, allInlineInsights);
+
+    // Store analysis in batch config (fire-and-forget)
+    Promise.resolve(
+      supabase
+        .from('calculation_batches')
+        .update({
+          config: { insightAnalysis: analysis } as unknown as Json,
+        })
+        .eq('id', batch.id)
+    ).then(() => {
+      console.log('[CalcAPI] Insight analysis stored in batch config');
+    }).catch((err: unknown) => console.warn('[CalcAPI] Insight analysis store failed (non-blocking):', err));
+
+    addLog(`Insights: ${analysis.insights.length} prescriptive, ${analysis.alerts.length} alerts, ${allInlineInsights.length} inline`);
+  } catch (insightErr) {
+    console.warn('[CalcAPI] Full analysis failed (non-blocking):', insightErr);
+    addLog('Insight analysis failed (non-blocking)');
+  }
+
   // ── 9. Materialize entity_period_outcomes ──
   const outcomeRows = entityResults.map(r => ({
     tenant_id: tenantId,
@@ -680,6 +810,14 @@ export async function POST(request: NextRequest) {
         mode: getExecutionMode(surface, sig),
       })),
     },
+    // OB-81: Density profile and inline insights
+    densityProfile: {
+      patternsTracked: density.size,
+      coldStart,
+      flywheelPriorsLoaded: priors.foundationalPriors.size + priors.domainPriors.size,
+      agentMemorySource: density.size > 0 ? 'tenant' : (priors.foundationalPriors.size > 0 ? 'flywheel' : 'fresh'),
+    },
+    inlineInsights: allInlineInsights,
     results: entityResults.map(r => ({
       entityId: r.entity_id,
       entityName: r.metadata.entityName as string,
