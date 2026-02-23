@@ -16,6 +16,8 @@ import { reconcile, type BenchmarkRecord, type CalculatedResult } from '@/lib/ag
 import { persistSignal } from '@/lib/ai/signal-persistence';
 import type { ExecutionTrace } from '@/lib/calculation/intent-types';
 import type { Json } from '@/lib/supabase/database.types';
+// OB-81: Agent memory for three-flywheel priors
+import { loadPriorsForAgent } from '@/lib/agents/agent-memory';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -90,12 +92,18 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Load synaptic density and create surface
+  // OB-81: Load agent memory (three-flywheel priors) + create surface
   let density;
   try {
-    density = await loadDensity(tenantId);
+    const priors = await loadPriorsForAgent(tenantId, 'icm', 'reconciliation');
+    density = priors.tenantDensity;
   } catch {
-    density = new Map() as Awaited<ReturnType<typeof loadDensity>>;
+    // Fallback to direct density loading
+    try {
+      density = await loadDensity(tenantId);
+    } catch {
+      density = new Map() as Awaited<ReturnType<typeof loadDensity>>;
+    }
   }
   const surface = createSynapticSurface(density);
 
