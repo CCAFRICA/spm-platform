@@ -65,6 +65,12 @@ function describeOperation(op: IntentOperation): string {
 
     case 'constant':
       return 'constant';
+
+    case 'weighted_blend':
+      return `weighted_blend:${op.inputs.length}inputs:${op.inputs.map(i => describeInput(i.source)).join('+')}`;
+
+    case 'temporal_window':
+      return `temporal_window:${op.aggregation}:${op.windowSize}periods:${describeInput(op.input)}`;
   }
 }
 

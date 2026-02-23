@@ -5,7 +5,7 @@
  * ZERO domain language in this file. The executor does not know
  * what domain it operates in. It processes structures.
  *
- * 7 primitive operations, 6 input sources, 4 modifier types.
+ * 9 primitive operations, 6 input sources, 4 modifier types.
  */
 
 // ──────────────────────────────────────────────
@@ -44,7 +44,9 @@ export type IntentOperation =
   | ConditionalGate
   | AggregateOp
   | RatioOp
-  | ConstantOp;
+  | ConstantOp
+  | WeightedBlendOp
+  | TemporalWindowOp;
 
 /** 1D threshold table — maps a single value to an output */
 export interface BoundedLookup1D {
@@ -106,6 +108,27 @@ export interface ConstantOp {
   operation: 'constant';
   value: number;
 }
+
+/** N-input weighted combination — weights must sum to 1.0 */
+export interface WeightedBlendOp {
+  operation: 'weighted_blend';
+  inputs: Array<{
+    source: IntentSource | IntentOperation;   // composable — can be nested
+    weight: number;                            // 0-1, all weights must sum to 1.0
+    scope?: 'entity' | 'group';               // optional scope override per input
+  }>;
+}
+
+/** Rolling N-period aggregation over historical values */
+export interface TemporalWindowOp {
+  operation: 'temporal_window';
+  input: IntentSource | IntentOperation;       // composable
+  windowSize: number;                           // number of periods
+  aggregation: TemporalAggregation;
+  includeCurrentPeriod: boolean;
+}
+
+export type TemporalAggregation = 'sum' | 'average' | 'min' | 'max' | 'trend';
 
 // ──────────────────────────────────────────────
 // Modifiers — applied after base calculation

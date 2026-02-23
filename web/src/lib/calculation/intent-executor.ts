@@ -19,6 +19,8 @@ import type {
   AggregateOp,
   RatioOp,
   ConstantOp,
+  WeightedBlendOp,
+  TemporalWindowOp,
   IntentModifier,
 } from './intent-types';
 import { isIntentOperation } from './intent-types';
@@ -33,6 +35,7 @@ export interface EntityData {
   attributes: Record<string, string | number | boolean>;
   groupMetrics?: Record<string, number>;
   priorResults?: number[];    // outcomes of previously calculated components
+  periodHistory?: number[];   // prior period values for temporal_window (loaded in batch, not per-entity)
 }
 
 export interface ExecutionResult {
@@ -265,6 +268,109 @@ function executeConstantOp(op: ConstantOp): number {
 }
 
 // ──────────────────────────────────────────────
+// Weighted Blend — N-input weighted combination
+// ──────────────────────────────────────────────
+
+function executeWeightedBlend(
+  op: WeightedBlendOp,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): number {
+  const totalWeight = op.inputs.reduce((s, i) => s + i.weight, 0);
+  if (Math.abs(totalWeight - 1.0) > 0.001) {
+    inputLog['weighted_blend:weight_warning'] = {
+      source: 'weighted_blend',
+      rawValue: totalWeight,
+      resolvedValue: totalWeight,
+    };
+  }
+
+  let result = 0;
+  for (let i = 0; i < op.inputs.length; i++) {
+    const input = op.inputs[i];
+    const value = resolveValue(input.source, data, inputLog, trace);
+    result += value * input.weight;
+    inputLog[`blend_input_${i}`] = {
+      source: 'weighted_blend',
+      rawValue: value,
+      resolvedValue: value * input.weight,
+    };
+  }
+  return result;
+}
+
+// ──────────────────────────────────────────────
+// Temporal Window — rolling N-period aggregation
+// ──────────────────────────────────────────────
+
+function executeTemporalWindow(
+  op: TemporalWindowOp,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): number {
+  const currentValue = resolveValue(op.input, data, inputLog, trace);
+
+  // Build window values from period history
+  const history = data.periodHistory ?? [];
+  let windowValues = history.slice(-(op.windowSize));
+
+  if (op.includeCurrentPeriod) {
+    windowValues = [...windowValues, currentValue];
+  }
+
+  // Graceful degradation: no history → return current value
+  if (windowValues.length === 0) {
+    inputLog['temporal_window:no_history'] = {
+      source: 'temporal_window',
+      rawValue: currentValue,
+      resolvedValue: currentValue,
+    };
+    return currentValue;
+  }
+
+  let result: number;
+  switch (op.aggregation) {
+    case 'sum':
+      result = windowValues.reduce((a, b) => a + b, 0);
+      break;
+    case 'average':
+      result = windowValues.reduce((a, b) => a + b, 0) / windowValues.length;
+      break;
+    case 'min':
+      result = Math.min(...windowValues);
+      break;
+    case 'max':
+      result = Math.max(...windowValues);
+      break;
+    case 'trend': {
+      // Linear regression slope: y = mx + b, return m
+      const n = windowValues.length;
+      if (n < 2) { result = 0; break; }
+      const xMean = (n - 1) / 2;
+      const yMean = windowValues.reduce((a, b) => a + b, 0) / n;
+      let num = 0;
+      let den = 0;
+      for (let i = 0; i < n; i++) {
+        num += (i - xMean) * (windowValues[i] - yMean);
+        den += (i - xMean) * (i - xMean);
+      }
+      result = den !== 0 ? num / den : 0;
+      break;
+    }
+  }
+
+  inputLog['temporal_window'] = {
+    source: 'temporal_window',
+    rawValue: { windowSize: op.windowSize, aggregation: op.aggregation, valuesUsed: windowValues.length },
+    resolvedValue: result,
+  };
+
+  return result;
+}
+
+// ──────────────────────────────────────────────
 // Operation Dispatch
 // ──────────────────────────────────────────────
 
@@ -282,6 +388,8 @@ function executeOperation(
     case 'aggregate':         return executeAggregateOp(op, data, inputLog);
     case 'ratio':             return executeRatioOp(op, data, inputLog);
     case 'constant':          return executeConstantOp(op);
+    case 'weighted_blend':    return executeWeightedBlend(op, data, inputLog, trace);
+    case 'temporal_window':   return executeTemporalWindow(op, data, inputLog, trace);
   }
 }
 

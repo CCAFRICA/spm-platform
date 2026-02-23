@@ -24,6 +24,8 @@ const VALID_OPERATIONS = [
   'aggregate',
   'ratio',
   'constant',
+  'weighted_blend',
+  'temporal_window',
 ] as const;
 
 const VALID_SOURCES = [
@@ -87,6 +89,12 @@ export function validateIntent(raw: unknown): ValidationResult {
       break;
     case 'constant':
       validateConstant(obj, errors);
+      break;
+    case 'weighted_blend':
+      validateWeightedBlend(obj, errors, warnings);
+      break;
+    case 'temporal_window':
+      validateTemporalWindow(obj, errors, warnings);
       break;
   }
 
@@ -384,5 +392,49 @@ function validateRatio(obj: Record<string, unknown>, errors: string[]): void {
 function validateConstant(obj: Record<string, unknown>, errors: string[]): void {
   if (typeof obj.value !== 'number') {
     errors.push('constant: value must be a number');
+  }
+}
+
+function validateWeightedBlend(obj: Record<string, unknown>, errors: string[], warnings: string[]): void {
+  const inputs = obj.inputs;
+  if (!Array.isArray(inputs) || inputs.length < 2) {
+    errors.push('weighted_blend: inputs must be an array with at least 2 entries');
+    return;
+  }
+
+  let totalWeight = 0;
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i] as Record<string, unknown>;
+    if (!input || typeof input !== 'object') {
+      errors.push(`weighted_blend: inputs[${i}] is not an object`);
+      continue;
+    }
+    if (typeof input.weight !== 'number') {
+      errors.push(`weighted_blend: inputs[${i}].weight must be a number`);
+      continue;
+    }
+    totalWeight += input.weight;
+    validateSourceOrOp(input.source, `weighted_blend.inputs[${i}].source`, errors, warnings);
+  }
+
+  if (Math.abs(totalWeight - 1.0) > 0.001) {
+    warnings.push(`weighted_blend: weights sum to ${totalWeight.toFixed(4)}, expected 1.0`);
+  }
+}
+
+function validateTemporalWindow(obj: Record<string, unknown>, errors: string[], warnings: string[]): void {
+  validateSourceOrOp(obj.input, 'temporal_window.input', errors, warnings);
+
+  if (typeof obj.windowSize !== 'number' || obj.windowSize <= 0) {
+    errors.push('temporal_window: windowSize must be a positive number');
+  }
+
+  const validAggs = ['sum', 'average', 'min', 'max', 'trend'];
+  if (!validAggs.includes(obj.aggregation as string)) {
+    errors.push(`temporal_window: invalid aggregation "${obj.aggregation}". Must be one of: ${validAggs.join(', ')}`);
+  }
+
+  if (typeof obj.includeCurrentPeriod !== 'boolean') {
+    warnings.push('temporal_window: includeCurrentPeriod should be boolean, defaulting to false');
   }
 }
