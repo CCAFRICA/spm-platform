@@ -107,16 +107,16 @@ export function WhatIfSlider({
       {/* Projected payout */}
       <div className="flex items-baseline justify-between">
         <div>
-          <p className="text-[11px] text-zinc-500">Pago proyectado</p>
+          <p className="text-[11px] text-zinc-400">Pago proyectado</p>
           <p className="text-lg font-bold text-zinc-100 tabular-nums">
             {currency}{projectedPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </p>
         </div>
         <div className="text-right">
-          <p className="text-[11px] text-zinc-500">Delta vs actual</p>
+          <p className="text-[11px] text-zinc-400">Delta vs actual</p>
           <p className={`text-sm font-medium tabular-nums ${delta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
             {delta >= 0 ? '+' : ''}{currency}{delta.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            <span className="text-zinc-500 ml-1">({delta >= 0 ? '+' : ''}{deltaPercent}%)</span>
+            <span className="text-zinc-400 ml-1">({delta >= 0 ? '+' : ''}{deltaPercent}%)</span>
           </p>
         </div>
       </div>

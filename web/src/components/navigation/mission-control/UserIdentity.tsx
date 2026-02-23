@@ -112,11 +112,11 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
             <p className="text-sm font-medium text-zinc-200 truncate">
               {user.name}
             </p>
-            <p className="text-xs text-zinc-500 truncate">
+            <p className="text-xs text-zinc-400 truncate">
               {displayRole}
             </p>
           </div>
-          <ChevronUp className="h-4 w-4 text-zinc-500 shrink-0" />
+          <ChevronUp className="h-4 w-4 text-zinc-400 shrink-0" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="top" className="w-56">

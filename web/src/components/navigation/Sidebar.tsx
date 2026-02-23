@@ -68,8 +68,9 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   // Check if user is VL Admin
   const userIsVLAdmin = user && isVLAdmin(user);
 
-  // Language follows the user's language selector preference
-  const isSpanish = locale === 'es-MX';
+  // Standing Rule 3: VL Admin always sees English, regardless of tenant locale.
+  // Other users follow their language selector preference.
+  const isSpanish = userIsVLAdmin ? false : locale === 'es-MX';
 
   // Get user's accessible modules
   const accessibleModules = accessControl.getAccessibleModules(user);
@@ -378,7 +379,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                       style={{ backgroundColor: accentColor }}
                     />
                   )}
-                  {item.children ? (
+                  {item.children && filteredChildItems.length > 1 ? (
                     <>
                       <button
                         onClick={() => toggleExpand(item.name)}
@@ -437,7 +438,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     </>
                   ) : (
                     <Link
-                      href={item.href}
+                      href={filteredChildItems.length === 1 ? filteredChildItems[0].href : item.href}
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium transition-all",
                         !isItemActive && "hover:bg-slate-800/50"

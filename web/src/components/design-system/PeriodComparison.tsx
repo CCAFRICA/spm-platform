@@ -44,13 +44,13 @@ export function PeriodComparison({
   }, [rows]);
 
   if (rows.length === 0) {
-    return <p className="text-sm text-zinc-500">Sin datos comparativos disponibles.</p>;
+    return <p className="text-sm text-zinc-400">Sin datos comparativos disponibles.</p>;
   }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4 text-[11px] text-zinc-500">
+        <div className="flex items-center gap-4 text-[11px] text-zinc-400">
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-zinc-500 inline-block" /> {period1.label}
           </span>
@@ -63,7 +63,7 @@ export function PeriodComparison({
             <button
               key={s}
               onClick={() => setSortBy(s)}
-              className={`px-2 py-0.5 text-[10px] rounded ${sortBy === s ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-400'}`}
+              className={`px-2 py-0.5 text-[10px] rounded ${sortBy === s ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-400 hover:text-zinc-400'}`}
             >
               {s === 'change' ? 'Cambio' : s === 'name' ? 'Nombre' : 'Valor'}
             </button>
@@ -86,7 +86,7 @@ export function PeriodComparison({
             <span className={`text-[11px] tabular-nums w-16 text-right flex-shrink-0 ${row.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
               {row.change >= 0 ? '\u25B2' : '\u25BC'} {Math.abs(row.changePct).toFixed(1)}%
             </span>
-            <span className="text-[11px] text-zinc-500 tabular-nums w-20 text-right flex-shrink-0">
+            <span className="text-[11px] text-zinc-400 tabular-nums w-20 text-right flex-shrink-0">
               {currency}{row.v2.toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </span>
           </div>

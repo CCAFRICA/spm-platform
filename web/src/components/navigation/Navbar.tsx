@@ -210,7 +210,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
         <nav className="hidden md:flex items-center gap-1 text-sm min-w-0 shrink-0" aria-label="Breadcrumb">
           {currentTenant && (
             <>
-              <span className="text-zinc-500 truncate max-w-[120px]" title={currentTenant.name}>
+              <span className="text-zinc-400 truncate max-w-[120px]" title={currentTenant.name}>
                 {currentTenant.name}
               </span>
               {breadcrumbs.length > 0 && (
@@ -221,12 +221,12 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1">
               {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-zinc-600 shrink-0" />}
-              {crumb.isHome && <Home className="h-3.5 w-3.5 text-zinc-500 shrink-0" />}
+              {crumb.isHome && <Home className="h-3.5 w-3.5 text-zinc-400 shrink-0" />}
               <span
                 className={
                   i === breadcrumbs.length - 1
                     ? 'text-zinc-200 font-medium truncate max-w-[180px]'
-                    : 'text-zinc-500 truncate max-w-[120px]'
+                    : 'text-zinc-400 truncate max-w-[120px]'
                 }
                 title={crumb.label}
               >
@@ -245,7 +245,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
                 <span className="text-zinc-300 font-medium">{activePeriodLabel}</span>
               )}
               {activePeriod?.lifecycleState && (
-                <span className="text-zinc-500">{activePeriod.lifecycleState}</span>
+                <span className="text-zinc-400">{activePeriod.lifecycleState}</span>
               )}
               {!activePeriodLabel && cycleState && (
                 <span className="text-zinc-400">{cycleState.currentPhase}</span>
@@ -273,14 +273,14 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
 
           {/* Help */}
           <Button variant="ghost" size="icon" className="hidden md:flex" onClick={() => setIsHelpOpen(true)}>
-            <HelpCircle className="h-5 w-5 text-zinc-500" />
+            <HelpCircle className="h-5 w-5 text-zinc-400" />
           </Button>
 
           {/* Notifications */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5 text-zinc-500" />
+                <Bell className="h-5 w-5 text-zinc-400" />
                 {notificationCount > 0 && (
                   <Badge
                     variant="destructive"
@@ -309,10 +309,10 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
                     <span className={`font-medium ${NOTIFICATION_TYPE_COLORS[notification.type]}`}>
                       {isSpanish && notification.titleEs ? notification.titleEs : notification.title}
                     </span>
-                    <span className="text-xs text-zinc-500">
+                    <span className="text-xs text-zinc-400">
                       {isSpanish && notification.messageEs ? notification.messageEs : notification.message}
                     </span>
-                    <span className="text-xs text-zinc-500">
+                    <span className="text-xs text-zinc-400">
                       {formatRelativeTime(notification.createdAt)}
                     </span>
                   </DropdownMenuItem>
@@ -320,7 +320,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
               ) : (
                 <div className="px-4 py-6 text-center">
                   <Bell className="h-8 w-8 text-zinc-600 mx-auto mb-2" />
-                  <p className="text-sm text-zinc-500">
+                  <p className="text-sm text-zinc-400">
                     {isSpanish ? 'Sin notificaciones' : 'No notifications'}
                   </p>
                 </div>
@@ -340,7 +340,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
 
           {/* Settings - Hidden on desktop as Rail has user menu */}
           <Button variant="ghost" size="icon" className="hidden md:flex">
-            <Settings className="h-5 w-5 text-zinc-500" />
+            <Settings className="h-5 w-5 text-zinc-400" />
           </Button>
 
           {/* User Menu - Only show on mobile since Rail has UserIdentity on desktop */}

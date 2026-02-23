@@ -24,6 +24,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePeriod } from '@/contexts/period-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isVLAdmin } from '@/types/auth';
 import { useSearchParams } from 'next/navigation';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { DistributionChart } from '@/components/design-system/DistributionChart';
@@ -76,6 +78,8 @@ export function AdminDashboard() {
   const { symbol: currencySymbol } = useCurrency();
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
+  const { user } = useAuth();
+  const userIsVLAdmin = user && isVLAdmin(user);
   const tenantId = currentTenant?.id ?? '';
   const { checkGate } = useTrialStatus(currentTenant?.id);
   const lifecycleGate = checkGate('lifecycle');
@@ -274,18 +278,24 @@ export function AdminDashboard() {
     );
   }
 
+  // Standing Rule 3: VL Admin always sees English
+  const isSpanish = userIsVLAdmin ? false : locale === 'es-MX';
+
   if (!data || data.entityCount === 0) {
     return (
       <div className="text-center py-16 space-y-3">
-        <p className="text-zinc-400">No hay resultados de calculo para este periodo.</p>
-        <p className="text-sm text-zinc-600">Ejecuta un calculo desde el Centro de Operaciones para ver los datos aqui.</p>
+        <p className="text-zinc-400">
+          {isSpanish ? 'No hay resultados de calculo para este periodo.' : 'No calculation results for this period.'}
+        </p>
+        <p className="text-sm text-zinc-600">
+          {isSpanish ? 'Ejecuta un calculo desde el Centro de Operaciones para ver los datos aqui.' : 'Run a calculation from the Operations Center to see data here.'}
+        </p>
       </div>
     );
   }
 
   const currentState = (data.lifecycleState || 'DRAFT').toUpperCase();
   const transition = TRANSITION_LABELS[currentState];
-  const isSpanish = locale === 'es-MX';
   const hasNextTransition = transition && transition.next !== '';
 
   return (
@@ -319,7 +329,7 @@ export function AdminDashboard() {
       <AssessmentPanel
         persona="admin"
         data={assessmentData}
-        locale={locale === 'es-MX' ? 'es' : 'en'}
+        locale={isSpanish ? 'es' : 'en'}
         accentColor="#6366f1"
         tenantId={tenantId}
       />
@@ -328,7 +338,7 @@ export function AdminDashboard() {
         {/* Hero Card — 4A: budget context + advance button */}
         <div className="col-span-12 lg:col-span-5" style={HERO_STYLE}>
           <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-            Total Compensacion · {activePeriodLabel}
+            {isSpanish ? 'Total Compensacion' : 'Total Compensation'} · {activePeriodLabel}
           </p>
           <p className="text-4xl font-bold mt-2" style={{ color: '#ffffff' }}>
             {currencySymbol}<AnimatedNumber value={data.totalPayout} />
@@ -337,20 +347,20 @@ export function AdminDashboard() {
             {budgetPct}% of {isBudgetEstimated ? 'est. ' : ''}budget ({currencySymbol}{budgetTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })})
           </p>
           <div className="mt-1">
-            <TrendArrow delta={3.2} label="vs periodo anterior" size="sm" />
+            <TrendArrow delta={3.2} label={isSpanish ? 'vs periodo anterior' : 'vs prior period'} size="sm" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
             <div>
               <p className="text-lg font-bold" style={{ color: '#ffffff' }}>{data.entityCount}</p>
-              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>entidades</p>
+              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>{isSpanish ? 'entidades' : 'entities'}</p>
             </div>
             <div>
               <p className="text-lg font-bold" style={{ color: '#ffffff' }}>{budgetPct}%</p>
-              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>presupuesto</p>
+              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>{isSpanish ? 'presupuesto' : 'budget'}</p>
             </div>
             <div>
               <p className="text-lg font-bold" style={{ color: '#ffffff' }}>{data.exceptions.length}</p>
-              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>excepciones</p>
+              <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px' }}>{isSpanish ? 'excepciones' : 'exceptions'}</p>
             </div>
           </div>
           {hasNextTransition && (
@@ -374,7 +384,7 @@ export function AdminDashboard() {
         {/* Distribution Histogram */}
         <div className="col-span-12 lg:col-span-4" style={CARD_STYLE}>
           <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
-            Distribucion
+            {isSpanish ? 'Distribucion' : 'Distribution'}
           </p>
           {data.attainmentDistribution.length > 0 ? (
             <>
@@ -382,29 +392,29 @@ export function AdminDashboard() {
               {distStats && (
                 <div className="flex gap-4 mt-3">
                   <div>
-                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>Promedio</p>
+                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>{isSpanish ? 'Promedio' : 'Average'}</p>
                     <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{distStats.avg.toFixed(0)}%</p>
                   </div>
                   <div>
-                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>Mediana</p>
+                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>{isSpanish ? 'Mediana' : 'Median'}</p>
                     <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{distStats.median.toFixed(0)}%</p>
                   </div>
                   <div>
-                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>Desv.Est</p>
+                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>{isSpanish ? 'Desv.Est' : 'Std.Dev'}</p>
                     <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{distStats.stdDev.toFixed(1)}%</p>
                   </div>
                 </div>
               )}
             </>
           ) : (
-            <p className="text-sm" style={{ color: '#94A3B8' }}>Sin datos de distribucion.</p>
+            <p className="text-sm" style={{ color: '#94A3B8' }}>{isSpanish ? 'Sin datos de distribucion.' : 'No distribution data.'}</p>
           )}
         </div>
 
         {/* Lifecycle — 4C: ensure all phases visible */}
         <div className="col-span-12 lg:col-span-3" style={CARD_STYLE}>
           <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
-            Ciclo de Vida
+            {isSpanish ? 'Ciclo de Vida' : 'Lifecycle'}
           </p>
           <LifecycleStepper
             currentState={data.lifecycleState || 'DRAFT'}
@@ -469,7 +479,7 @@ export function AdminDashboard() {
                 );
               })
             ) : (
-              <p className="text-sm" style={{ color: '#94A3B8' }}>Sin datos de ubicacion.</p>
+              <p className="text-sm" style={{ color: '#94A3B8' }}>{isSpanish ? 'Sin datos de ubicacion.' : 'No location data.'}</p>
             )}
           </div>
         </div>
@@ -479,19 +489,19 @@ export function AdminDashboard() {
           {/* Component Stack */}
           <div style={CARD_STYLE}>
             <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
-              Composicion de Componentes
+              {isSpanish ? 'Composicion de Componentes' : 'Component Composition'}
             </p>
             {data.componentComposition.length > 0 ? (
               <ComponentStack components={data.componentComposition} total={data.totalPayout} />
             ) : (
-              <p className="text-sm" style={{ color: '#94A3B8' }}>Sin datos de componentes.</p>
+              <p className="text-sm" style={{ color: '#94A3B8' }}>{isSpanish ? 'Sin datos de componentes.' : 'No component data.'}</p>
             )}
           </div>
 
           {/* Exceptions */}
           <div style={CARD_STYLE}>
             <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
-              Excepciones Activas ({data.exceptions.length})
+              {isSpanish ? 'Excepciones Activas' : 'Active Exceptions'} ({data.exceptions.length})
             </p>
             {data.exceptions.length > 0 ? (
               <div className="space-y-2">
@@ -500,12 +510,12 @@ export function AdminDashboard() {
                     key={i}
                     priority={exc.severity === 'critical' ? 'high' : exc.severity === 'watch' ? 'medium' : 'low'}
                     text={`${exc.entityName}: ${exc.issue}`}
-                    action={exc.severity === 'critical' ? 'Resolver ahora' : 'Investigar'}
+                    action={exc.severity === 'critical' ? (isSpanish ? 'Resolver ahora' : 'Resolve now') : (isSpanish ? 'Investigar' : 'Investigate')}
                   />
                 ))}
               </div>
             ) : (
-              <p className="text-sm" style={{ color: '#94A3B8' }}>Sin excepciones activas.</p>
+              <p className="text-sm" style={{ color: '#94A3B8' }}>{isSpanish ? 'Sin excepciones activas.' : 'No active exceptions.'}</p>
             )}
           </div>
         </div>
@@ -551,7 +561,7 @@ export function AdminDashboard() {
               )}
               <div className="flex-1 min-w-0">
                 <p style={{ color: criterion.met ? '#d4d4d8' : '#a1a1aa', fontSize: '13px' }}>
-                  {criterion.label}
+                  {isSpanish ? criterion.labelEs : criterion.label}
                 </p>
                 <p style={{ color: '#94A3B8', fontSize: '13px' }}>{criterion.detail}</p>
               </div>

@@ -39,17 +39,17 @@ export function BatchSummary({ batch, className }: BatchSummaryProps) {
       <div className="flex items-center justify-between mb-3">
         <div>
           <h4 className="text-sm font-medium text-zinc-200">{batch.label}</h4>
-          <p className="text-xs text-zinc-500">{batch.id.slice(0, 8)}</p>
+          <p className="text-xs text-zinc-400">{batch.id.slice(0, 8)}</p>
         </div>
         <span className={cn('text-xs font-medium', statusColor)}>{statusLabel}</span>
       </div>
 
       <div className="grid grid-cols-4 gap-3">
         <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-zinc-500" />
+          <FileText className="h-4 w-4 text-zinc-400" />
           <div>
             <p className="text-sm font-medium text-zinc-200">{summary.totalFiles}</p>
-            <p className="text-[10px] text-zinc-500">Files</p>
+            <p className="text-[10px] text-zinc-400">Files</p>
           </div>
         </div>
 
@@ -57,7 +57,7 @@ export function BatchSummary({ batch, className }: BatchSummaryProps) {
           <CheckCircle className="h-4 w-4 text-emerald-400" />
           <div>
             <p className="text-sm font-medium text-emerald-400">{summary.completedFiles}</p>
-            <p className="text-[10px] text-zinc-500">Success</p>
+            <p className="text-[10px] text-zinc-400">Success</p>
           </div>
         </div>
 
@@ -65,15 +65,15 @@ export function BatchSummary({ batch, className }: BatchSummaryProps) {
           <XCircle className="h-4 w-4 text-red-400" />
           <div>
             <p className="text-sm font-medium text-red-400">{summary.failedFiles}</p>
-            <p className="text-[10px] text-zinc-500">Failed</p>
+            <p className="text-[10px] text-zinc-400">Failed</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <HardDrive className="h-4 w-4 text-zinc-500" />
+          <HardDrive className="h-4 w-4 text-zinc-400" />
           <div>
             <p className="text-sm font-medium text-zinc-200">{formatFileSize(summary.uploadedBytes)}</p>
-            <p className="text-[10px] text-zinc-500">Uploaded</p>
+            <p className="text-[10px] text-zinc-400">Uploaded</p>
           </div>
         </div>
       </div>

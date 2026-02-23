@@ -91,12 +91,13 @@ const TIER_MRR: Record<string, number> = {
 };
 
 async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOverview> {
-  const [tenantRes, entityRes, batchRes, periodRes, signalsRes] = await Promise.all([
+  const [tenantRes, entityRes, batchRes, periodRes, signalsRes, dataRes] = await Promise.all([
     supabase.from('tenants').select('id, settings, created_at'),
     supabase.from('entities').select('*', { count: 'exact', head: true }),
     supabase.from('calculation_batches').select('id, tenant_id, lifecycle_state, created_at, updated_at'),
     supabase.from('periods').select('*', { count: 'exact', head: true }).neq('status', 'closed'),
     supabase.from('classification_signals').select('confidence').limit(1000),
+    supabase.from('committed_data').select('*', { count: 'exact', head: true }),
   ]);
 
   if (tenantRes.error) {
@@ -165,6 +166,7 @@ async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOvervie
     lifecycleThroughput,
     avgDaysInLifecycle: completedCount > 0 ? Math.round(totalDays / completedCount) : 0,
     avgAiConfidence: confCount > 0 ? totalConf / confCount : 0,
+    totalDataRows: dataRes.count ?? 0,
   };
 }
 

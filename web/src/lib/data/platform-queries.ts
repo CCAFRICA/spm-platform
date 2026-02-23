@@ -24,6 +24,8 @@ export interface FleetOverview {
   lifecycleThroughput: number;
   avgDaysInLifecycle: number;
   avgAiConfidence: number;
+  // OB-84: data pipeline visibility
+  totalDataRows: number;
 }
 
 export interface TenantFleetCard {
@@ -167,6 +169,7 @@ export async function getFleetOverview(): Promise<FleetOverview> {
     lifecycleThroughput: 0,
     avgDaysInLifecycle: 0,
     avgAiConfidence: 0,
+    totalDataRows: 0,
   };
 }
 

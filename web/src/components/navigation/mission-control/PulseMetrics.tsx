@@ -66,7 +66,7 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
             </h3>
           </div>
           <div className="text-center py-4">
-            <Activity className="h-6 w-6 mx-auto mb-2 text-zinc-500" />
+            <Activity className="h-6 w-6 mx-auto mb-2 text-zinc-400" />
             <p style={{ color: '#CBD5E1', fontSize: '13px' }}>
               {isSpanish ? 'Sin metricas aun' : 'No metrics yet'}
             </p>
@@ -131,7 +131,7 @@ export function PulseMetrics({ collapsed = false }: PulseMetricsProps) {
   return (
     <div className="px-3 py-4">
       <div className="mb-3">
-        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
           {isSpanish ? 'El Pulso' : 'The Pulse'}
         </h3>
       </div>

@@ -256,7 +256,7 @@ export function UploadZone({
             <Upload
               className={cn(
                 'h-12 w-12 mx-auto mb-4',
-                isDragActive ? 'text-sky-500' : 'text-zinc-500'
+                isDragActive ? 'text-sky-500' : 'text-zinc-400'
               )}
             />
           </motion.div>
@@ -264,7 +264,7 @@ export function UploadZone({
             {isDragActive ? 'Drop your file(s) here' : 'Drag and drop your file(s) here'}
           </p>
           <p className="text-sm text-zinc-400 mb-4">or click to browse</p>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-zinc-400">
             {getAcceptString(acceptCategories) ? `Accepted: ${categories.join(', ')}` : 'All supported file types'}
             {' '} (max 500MB per file)
           </p>
@@ -355,7 +355,7 @@ function FileProgressRow({
 
         <div className="flex-1 min-w-0">
           <p className="font-medium text-zinc-200 text-sm truncate">{tracked.file.name}</p>
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="flex items-center gap-2 text-xs text-zinc-400">
             <span>{formatFileSize(tracked.file.size)}</span>
             {phaseMeta && tracked.status !== 'done' && tracked.status !== 'error' && (
               <>
@@ -397,7 +397,7 @@ function FileProgressRow({
             variant="ghost"
             size="icon"
             onClick={onRemove}
-            className="h-7 w-7 text-zinc-500 hover:text-zinc-300"
+            className="h-7 w-7 text-zinc-400 hover:text-zinc-300"
           >
             <X className="h-3.5 w-3.5" />
           </Button>

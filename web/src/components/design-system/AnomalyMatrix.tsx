@@ -22,7 +22,7 @@ function cellColor(val: number): string {
 
 export function AnomalyMatrix({ entities, metrics, values, onCellClick }: AnomalyMatrixProps) {
   if (entities.length === 0 || metrics.length === 0) {
-    return <p className="text-sm text-zinc-500">Sin datos de anomalias.</p>;
+    return <p className="text-sm text-zinc-400">Sin datos de anomalias.</p>;
   }
 
   return (
@@ -30,9 +30,9 @@ export function AnomalyMatrix({ entities, metrics, values, onCellClick }: Anomal
       <table className="w-full border-collapse">
         <thead>
           <tr>
-            <th className="text-left text-[10px] text-zinc-500 font-normal pb-1 pr-2 w-24" />
+            <th className="text-left text-[10px] text-zinc-400 font-normal pb-1 pr-2 w-24" />
             {metrics.map((m, ci) => (
-              <th key={ci} className="text-center text-[10px] text-zinc-500 font-normal pb-1 px-0.5 max-w-[60px] truncate">
+              <th key={ci} className="text-center text-[10px] text-zinc-400 font-normal pb-1 px-0.5 max-w-[60px] truncate">
                 {m}
               </th>
             ))}

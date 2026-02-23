@@ -10,6 +10,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isVLAdmin } from '@/types/auth';
 import { PeriodRibbon, type PeriodInfo } from '@/components/design-system/PeriodRibbon';
 import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
 import { DataReadinessPanel, type DataReadiness } from '@/components/design-system/DataReadinessPanel';
@@ -42,7 +44,8 @@ export default function OperateCockpitPage() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol } = useCurrency();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const { user } = useAuth();
+  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
   const tenantId = currentTenant?.id ?? '';
 
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
@@ -256,7 +259,7 @@ export default function OperateCockpitPage() {
 
   if (!tenantId) {
     return (
-      <div className="p-8 text-center text-zinc-500">
+      <div className="p-8 text-center text-zinc-400">
         <p>{isSpanish ? 'Selecciona un tenant para acceder al centro de operaciones.' : 'Select a tenant to access the operations center.'}</p>
       </div>
     );
@@ -267,7 +270,7 @@ export default function OperateCockpitPage() {
       <div className="p-8 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-zinc-500">{isSpanish ? 'Cargando periodos...' : 'Loading periods...'}</p>
+          <p className="text-sm text-zinc-400">{isSpanish ? 'Cargando periodos...' : 'Loading periods...'}</p>
         </div>
       </div>
     );
@@ -280,7 +283,7 @@ export default function OperateCockpitPage() {
         <h3 className="text-lg font-semibold text-zinc-200 mb-2">
           {isSpanish ? 'No hay periodos configurados' : 'No periods configured'}
         </h3>
-        <p className="text-sm text-zinc-500 max-w-md mb-6">
+        <p className="text-sm text-zinc-400 max-w-md mb-6">
           {isSpanish
             ? 'Crea tu primer periodo para comenzar a gestionar el ciclo de operaciones.'
             : 'Create your first period to start managing the operations lifecycle.'}
@@ -306,7 +309,7 @@ export default function OperateCockpitPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-zinc-100">{isSpanish ? 'Centro de Operaciones' : 'Operations Center'}</h1>
-            <p className="text-sm text-zinc-500">{isSpanish ? 'Gestiona el ciclo de calculo para el periodo seleccionado' : 'Manage the calculation cycle for the selected period'}</p>
+            <p className="text-sm text-zinc-400">{isSpanish ? 'Gestiona el ciclo de calculo para el periodo seleccionado' : 'Manage the calculation cycle for the selected period'}</p>
           </div>
           {lifecycleState && stateDisplay && (
             <StatusPill color={dashState === 'APPROVED' || dashState === 'POSTED' ? 'emerald' : dashState === 'PUBLISHED' ? 'indigo' : 'zinc'}>
@@ -380,13 +383,13 @@ export default function OperateCockpitPage() {
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <p className="text-[11px] text-zinc-500">{isSpanish ? 'Pago Total' : 'Total Payout'}</p>
+                    <p className="text-[11px] text-zinc-400">{isSpanish ? 'Pago Total' : 'Total Payout'}</p>
                     <p className="text-lg font-bold text-zinc-100">
                       {currencySymbol}<AnimatedNumber value={calcSummary.totalPayout} />
                     </p>
                   </div>
                   <div>
-                    <p className="text-[11px] text-zinc-500">{isSpanish ? 'Entidades' : 'Entities'}</p>
+                    <p className="text-[11px] text-zinc-400">{isSpanish ? 'Entidades' : 'Entities'}</p>
                     <p className="text-lg font-bold text-zinc-100">{calcSummary.entityCount}</p>
                   </div>
                 </div>
@@ -397,7 +400,7 @@ export default function OperateCockpitPage() {
                 )}
               </div>
             ) : (
-              <p className="text-sm text-zinc-500">{isSpanish ? 'No hay resultados de calculo para este periodo.' : 'No calculation results for this period.'}</p>
+              <p className="text-sm text-zinc-400">{isSpanish ? 'No hay resultados de calculo para este periodo.' : 'No calculation results for this period.'}</p>
             )}
           </div>
         </div>

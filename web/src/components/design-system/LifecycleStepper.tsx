@@ -55,7 +55,7 @@ export function LifecycleStepper({
                     </svg>
                   )}
                 </div>
-                <span className={`mt-1.5 text-[10px] whitespace-nowrap ${isCurrent ? 'text-zinc-200 font-medium' : 'text-zinc-500'}`}>
+                <span className={`mt-1.5 text-[10px] whitespace-nowrap ${isCurrent ? 'text-zinc-200 font-medium' : 'text-zinc-400'}`}>
                   {display.label}
                 </span>
               </div>
@@ -87,7 +87,7 @@ export function LifecycleStepper({
           </button>
         )}
         {!nextAction && (
-          <span className="text-xs text-zinc-500">Cycle complete</span>
+          <span className="text-xs text-zinc-400">Cycle complete</span>
         )}
       </div>
     </div>

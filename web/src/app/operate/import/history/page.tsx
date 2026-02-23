@@ -125,7 +125,7 @@ export default function ImportHistoryPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-zinc-100">Import History</h1>
-            <p className="text-sm text-zinc-500 mt-1">
+            <p className="text-sm text-zinc-400 mt-1">
               Immutable audit trail of all file ingestion events
             </p>
           </div>
@@ -172,7 +172,7 @@ export default function ImportHistoryPage() {
           <Card className="border-zinc-800 bg-zinc-900/50">
             <CardContent className="p-8 text-center">
               <RefreshCw className="h-8 w-8 text-zinc-600 animate-spin mx-auto mb-3" />
-              <p className="text-zinc-500">Loading ingestion events...</p>
+              <p className="text-zinc-400">Loading ingestion events...</p>
             </CardContent>
           </Card>
         ) : filtered.length === 0 ? (
@@ -214,7 +214,7 @@ export default function ImportHistoryPage() {
                             {cfg.label}
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
+                        <div className="flex items-center gap-3 mt-1 text-xs text-zinc-400">
                           {event.file_size_bytes && (
                             <span className="flex items-center gap-1">
                               <HardDrive className="h-3 w-3" />
@@ -241,9 +241,9 @@ export default function ImportHistoryPage() {
                       )}
 
                       {isExpanded ? (
-                        <ChevronDown className="h-4 w-4 text-zinc-500" />
+                        <ChevronDown className="h-4 w-4 text-zinc-400" />
                       ) : (
-                        <ChevronRight className="h-4 w-4 text-zinc-500" />
+                        <ChevronRight className="h-4 w-4 text-zinc-400" />
                       )}
                     </div>
                   </div>
@@ -251,7 +251,7 @@ export default function ImportHistoryPage() {
                   {/* Expanded: audit chain */}
                   {isExpanded && chain.length > 0 && (
                     <div className="border-t border-zinc-800 px-4 py-3 bg-zinc-950/50">
-                      <p className="text-xs text-zinc-500 mb-2 font-medium">Audit Chain</p>
+                      <p className="text-xs text-zinc-400 mb-2 font-medium">Audit Chain</p>
                       <div className="space-y-1.5">
                         {chain.map((ce, idx) => {
                           const ceCfg = STATUS_CONFIG[ce.status] || STATUS_CONFIG.received;
