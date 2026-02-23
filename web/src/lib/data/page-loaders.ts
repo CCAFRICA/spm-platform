@@ -34,6 +34,7 @@ export interface PeriodRecord {
   end_date: string;
   status: string;
   lifecycleState: string | null;
+  entityCount: number;
 }
 
 export interface OperatePageData {
@@ -42,6 +43,7 @@ export interface OperatePageData {
   activePeriodKey: string | null;
   hasActivePlan: boolean;
   ruleSetId: string | null;
+  ruleSetName: string | null;
   lastImportStatus: string | null;
   lastBatchId: string | null;
   lastBatchCreatedAt: string | null;
@@ -52,6 +54,7 @@ export interface OperatePageData {
     attainment_summary: Json;
   }>;
   entityNames: Map<string, string>;
+  componentBreakdown: Array<{ name: string; type: string; payout: number }>;
 }
 
 export interface ReconciliationPageData {
@@ -117,7 +120,7 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
       .order('start_date', { ascending: false }),
     supabase
       .from('rule_sets')
-      .select('id')
+      .select('id, name')
       .eq('tenant_id', tenantId)
       .eq('status', 'active')
       .limit(1)
@@ -165,11 +168,13 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
   const allBatches = batchesRes?.data ?? [];
   const entities = entitiesRes.data ?? [];
 
-  // Build period → latest batch lifecycle state map
+  // Build period → latest batch lifecycle state map + entity count
   const periodBatchMap = new Map<string, string>();
+  const periodEntityCountMap = new Map<string, number>();
   for (const batch of allBatches) {
     if (batch.period_id && !periodBatchMap.has(batch.period_id)) {
       periodBatchMap.set(batch.period_id, batch.lifecycle_state);
+      periodEntityCountMap.set(batch.period_id, batch.entity_count ?? 0);
     }
   }
 
@@ -182,10 +187,11 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
   // entity_period_outcomes only materializes at OFFICIAL+ state, so can be stale.
   // calculation_results always reflects the current batch's actual computed data.
   let outcomes: Array<{ entity_id: string; total_payout: number; attainment_summary: Json }> = [];
+  let componentBreakdown: Array<{ name: string; type: string; payout: number }> = [];
   if (activeBatch?.id) {
     const { data: calcResults } = await supabase
       .from('calculation_results')
-      .select('entity_id, total_payout, attainment')
+      .select('entity_id, total_payout, attainment, components')
       .eq('tenant_id', tenantId)
       .eq('batch_id', activeBatch.id);
     outcomes = (calcResults ?? []).map(r => ({
@@ -193,6 +199,26 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
       total_payout: r.total_payout || 0,
       attainment_summary: (r.attainment ?? {}) as Json,
     }));
+
+    // OB-85: Build component breakdown from first result row (components are same structure for all)
+    if (calcResults && calcResults.length > 0) {
+      const compMap = new Map<string, { name: string; type: string; payout: number }>();
+      for (const r of calcResults) {
+        const comps = r.components as Array<{ componentName?: string; componentType?: string; payout?: number }> | null;
+        if (comps && Array.isArray(comps)) {
+          for (const c of comps) {
+            const key = c.componentName ?? 'Unknown';
+            const existing = compMap.get(key);
+            if (existing) {
+              existing.payout += c.payout ?? 0;
+            } else {
+              compMap.set(key, { name: key, type: c.componentType ?? '', payout: c.payout ?? 0 });
+            }
+          }
+        }
+      }
+      componentBreakdown = Array.from(compMap.values());
+    }
   }
 
   const entityNames = new Map(entities.map(e => [
@@ -209,17 +235,20 @@ export async function loadOperatePageData(tenantId: string): Promise<OperatePage
       end_date: p.end_date,
       status: p.status,
       lifecycleState: periodBatchMap.get(p.id) ?? null,
+      entityCount: periodEntityCountMap.get(p.id) ?? 0,
     })),
     activePeriodId,
     activePeriodKey,
     hasActivePlan: !!planRes.data,
     ruleSetId: planRes.data?.id ?? null,
+    ruleSetName: planRes.data?.name ?? null,
     lastImportStatus: importRes.data?.status ?? null,
     lastBatchId: activeBatch?.id ?? null,
     lastBatchCreatedAt: activeBatch?.created_at ?? null,
     lifecycleState: activeBatch?.lifecycle_state ?? null,
     outcomes,
     entityNames,
+    componentBreakdown,
   };
 }
 

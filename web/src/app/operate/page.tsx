@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
@@ -38,11 +39,13 @@ interface CalcSummary {
   attainmentDist: number[];
   topEntities: { name: string; value: number }[];
   bottomEntities: { name: string; value: number }[];
+  componentBreakdown: Array<{ name: string; type: string; payout: number }>;
 }
 
 export default function OperateCockpitPage() {
+  const router = useRouter();
   const { currentTenant } = useTenant();
-  const { symbol: currencySymbol } = useCurrency();
+  const { symbol: currencySymbol, format: formatCurrency } = useCurrency();
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
@@ -57,7 +60,9 @@ export default function OperateCockpitPage() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [ruleSetId, setRuleSetId] = useState<string | null>(null);
+  const [ruleSetName, setRuleSetName] = useState<string | null>(null);
   const [zeroPayoutConfirm, setZeroPayoutConfirm] = useState<{ nextState: string } | null>(null);
+  const [lastBatchId, setLastBatchId] = useState<string | null>(null);
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
@@ -88,14 +93,17 @@ export default function OperateCockpitPage() {
         startDate: p.start_date,
         endDate: p.end_date,
         needsAttention: false,
+        entityCount: p.entityCount,
       }));
 
       setPeriods(enriched);
       const open = enriched.find(p => p.status === 'open') ?? enriched[0];
       if (open) setActiveKey(open.periodKey);
 
-      // Rule set ID for calculation trigger
+      // Rule set ID + name for calculation trigger
       setRuleSetId(data.ruleSetId);
+      setRuleSetName(data.ruleSetName);
+      setLastBatchId(data.lastBatchId);
 
       // Lifecycle state
       setLifecycleState(data.lifecycleState);
@@ -121,7 +129,7 @@ export default function OperateCockpitPage() {
         setCalcSummary({
           totalPayout: safeOutcomes.reduce((s, o) => s + o.total_payout, 0),
           entityCount: safeOutcomes.length,
-          componentCount: 0,
+          componentCount: data.componentBreakdown.length,
           lastRunAt: data.lastBatchCreatedAt,
           attainmentDist: safeOutcomes.map(o => extractAttainment(o.attainment_summary as Json)),
           topEntities: sorted.slice(0, 5).map(o => ({
@@ -132,6 +140,7 @@ export default function OperateCockpitPage() {
             name: data.entityNames.get(o.entity_id) ?? o.entity_id,
             value: o.total_payout,
           })),
+          componentBreakdown: data.componentBreakdown,
         });
       } else {
         setCalcSummary(null);
@@ -156,18 +165,21 @@ export default function OperateCockpitPage() {
       startDate: p.start_date,
       endDate: p.end_date,
       needsAttention: false,
+      entityCount: p.entityCount,
     }));
 
     setPeriods(enriched);
     setLifecycleState(data.lifecycleState);
     setRuleSetId(data.ruleSetId);
+    setRuleSetName(data.ruleSetName);
+    setLastBatchId(data.lastBatchId);
 
     if (data.outcomes.length > 0) {
       const sorted = [...data.outcomes].sort((a, b) => b.total_payout - a.total_payout);
       setCalcSummary({
         totalPayout: data.outcomes.reduce((s, o) => s + o.total_payout, 0),
         entityCount: data.outcomes.length,
-        componentCount: 0,
+        componentCount: data.componentBreakdown.length,
         lastRunAt: data.lastBatchCreatedAt,
         attainmentDist: data.outcomes.map(o => extractAttainment(o.attainment_summary as Json)),
         topEntities: sorted.slice(0, 5).map(o => ({
@@ -178,6 +190,7 @@ export default function OperateCockpitPage() {
           name: data.entityNames.get(o.entity_id) ?? o.entity_id,
           value: o.total_payout,
         })),
+        componentBreakdown: data.componentBreakdown,
       });
     } else {
       setCalcSummary(null);
@@ -318,6 +331,40 @@ export default function OperateCockpitPage() {
           )}
         </div>
 
+        {/* OB-85: Active Plan + Run Calculation */}
+        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">
+                {isSpanish ? 'Plan Activo' : 'Active Plan'}
+              </h4>
+              {ruleSetName ? (
+                <p className="text-sm font-medium text-zinc-200">{ruleSetName}</p>
+              ) : (
+                <p className="text-sm text-zinc-500">{isSpanish ? 'No hay plan activo' : 'No active plan'}</p>
+              )}
+              {activeKey && (
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  {isSpanish ? 'Periodo' : 'Period'}: {periods.find(p => p.periodKey === activeKey)?.label ?? activeKey}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => handleAdvance('PREVIEW')}
+              disabled={!activeKey || !ruleSetId || isCalculating}
+              className="px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: (!activeKey || !ruleSetId || isCalculating) ? '#3f3f46' : '#7c3aed',
+                boxShadow: (!activeKey || !ruleSetId || isCalculating) ? 'none' : '0 0 20px rgba(124, 58, 237, 0.3)',
+              }}
+            >
+              {isCalculating
+                ? (isSpanish ? 'Calculando...' : 'Calculating...')
+                : (isSpanish ? 'Ejecutar Calculo' : 'Run Calculation')}
+            </button>
+          </div>
+        </div>
+
         {/* Lifecycle Stepper */}
         <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           {isCalculating ? (
@@ -393,11 +440,34 @@ export default function OperateCockpitPage() {
                     <p className="text-lg font-bold text-zinc-100">{calcSummary.entityCount}</p>
                   </div>
                 </div>
+
+                {/* OB-85: Per-component breakdown */}
+                {calcSummary.componentBreakdown.length > 0 && (
+                  <div className="space-y-1.5 pt-2 border-t border-zinc-800">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{isSpanish ? 'Componentes' : 'Components'}</p>
+                    {calcSummary.componentBreakdown.map((comp) => (
+                      <div key={comp.name} className="flex items-center justify-between text-xs">
+                        <span className="text-zinc-400 truncate max-w-[60%]">{comp.name}</span>
+                        <span className="text-zinc-200 tabular-nums font-medium">{formatCurrency(comp.payout)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {calcSummary.lastRunAt && (
                   <p className="text-[11px] text-zinc-600">
                     {isSpanish ? 'Ultimo calculo' : 'Last calculation'}: {new Date(calcSummary.lastRunAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}
                   </p>
                 )}
+
+                {/* OB-85: Reconcile button */}
+                <button
+                  onClick={() => router.push(`/investigate/reconciliation${lastBatchId ? `?batchId=${lastBatchId}` : ''}`)}
+                  className="w-full mt-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all"
+                  style={{ backgroundColor: '#059669', boxShadow: '0 0 12px rgba(5, 150, 105, 0.2)' }}
+                >
+                  {isSpanish ? 'Reconciliar' : 'Reconcile'} →
+                </button>
               </div>
             ) : (
               <p className="text-sm text-zinc-400">{isSpanish ? 'No hay resultados de calculo para este periodo.' : 'No calculation results for this period.'}</p>
