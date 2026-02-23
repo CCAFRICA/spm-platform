@@ -81,10 +81,16 @@ export function ObservatoryTab() {
     return () => { cancelled = true; };
   }, []);
 
-  const handleSelectTenant = async (tenantId: string) => {
+  const handleSelectTenant = async (tenantId: string, targetRoute?: string) => {
     setSelectingTenant(tenantId);
     try {
       await setTenant(tenantId);
+      // HF-057: Explicit navigation after tenant selection.
+      // setTenant calls router.push('/') but middleware may redirect VL Admin
+      // back to /select-tenant. Navigate to a concrete route instead.
+      const destination = targetRoute || '/operate';
+      router.push(destination);
+      router.refresh();
     } catch {
       setSelectingTenant(null);
     }
@@ -240,7 +246,15 @@ export function ObservatoryTab() {
 
                   {item.action && (
                     <button
-                      onClick={() => handleSelectTenant(item.tenantId)}
+                      onClick={() => {
+                        // HF-057: Navigate to contextually appropriate route
+                        const ACTION_ROUTES: Record<string, string> = {
+                          'Run Calculation': '/operate',
+                          'Resume': '/operate',
+                          'View Tenant': '/operate',
+                        };
+                        handleSelectTenant(item.tenantId, ACTION_ROUTES[item.action!.label] || '/operate');
+                      }}
                       style={{
                         fontSize: '13px',
                         fontWeight: 600,

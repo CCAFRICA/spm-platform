@@ -127,7 +127,14 @@
       "Bash(OB-77_AI_NATIVE_INTENT_TRAINING_TRACE.md:*)",
       "Bash(npx dotenv:*)",
       "Bash(. .env.local)",
-      "Bash(npx next lint:*)"
+      "Bash(npx next lint:*)",
+      "Bash(cp -n /dev/stdin OB-82_PROMPT.md << 'PROMPT_EOF'\n# OB-82: PLATFORM SYNC + BROWSER TRUTH + PRODUCTION FIX\n## Merge the Metamorphosis to Production and Fix What Breaks\n*Committed for audit trail — see full prompt in conversation*\nPROMPT_EOF\ngit add OB-82_PROMPT.md && git commit -m \"$\\(cat <<'EOF'\nOB-82: Commit prompt for audit trail — Platform Sync + Browser Truth + Production Fix\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin dev 2>&1)",
+      "Bash(git fetch origin main 2>&1 && git log --oneline -5 origin/main)",
+      "Bash(git fetch origin main 2>&1 && echo \"\" && echo \"=== origin/main HEAD ===\" && git log --oneline -3 origin/main)",
+      "Bash(cat > OB-83_PROMPT.md << 'EOF'\n# OB-83: DOMAIN AGENT RUNTIME + AI ASSESSMENT PANELS\n## Close the Two P1 Gaps From the Co-Founder Briefing\n*Committed for audit trail — see full prompt in conversation*\nEOF\ngit add OB-83_PROMPT.md && git commit -m \"$\\(cat <<'EOF'\nOB-83: Commit prompt for audit trail — Domain Agent Runtime + AI Assessment Panels\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin dev 2>&1)",
+      "Bash(git -C /Users/AndrewAfrica/spm-platform status --short)",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | tail -20)",
+      "Bash(wc -l /Users/AndrewAfrica/spm-platform/web/src/app/**/page.tsx | sort -n)"
     ]
   }
 }
