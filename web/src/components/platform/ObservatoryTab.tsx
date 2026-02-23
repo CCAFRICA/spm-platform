@@ -30,6 +30,7 @@ import {
   Loader2,
   CheckCircle,
   PlusCircle,
+  Database,
 } from 'lucide-react';
 
 /* ──── Lifecycle next actions ──── */
@@ -154,6 +155,13 @@ export function ObservatoryTab() {
             label="AI CONFIDENCE"
             value={overview.avgAiConfidence > 0 ? `${(overview.avgAiConfidence * 100).toFixed(0)}%` : '--'}
             subtitle="Classification accuracy"
+          />
+          <ActionMetricCard
+            icon={Database}
+            iconColor="#38BDF8"
+            label="DATA ROWS"
+            value={overview.totalDataRows?.toLocaleString() ?? '0'}
+            subtitle="Committed pipeline data"
           />
         </div>
       )}
