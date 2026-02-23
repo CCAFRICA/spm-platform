@@ -5,7 +5,7 @@
  * ZERO domain language in this file. The executor does not know
  * what domain it operates in. It processes structures.
  *
- * 7 primitive operations, 6 input sources, 4 modifier types.
+ * 9 primitive operations, 6 input sources, 4 modifier types.
  */
 
 // ──────────────────────────────────────────────
@@ -44,12 +44,14 @@ export type IntentOperation =
   | ConditionalGate
   | AggregateOp
   | RatioOp
-  | ConstantOp;
+  | ConstantOp
+  | WeightedBlendOp
+  | TemporalWindowOp;
 
 /** 1D threshold table — maps a single value to an output */
 export interface BoundedLookup1D {
   operation: 'bounded_lookup_1d';
-  input: IntentSource;
+  input: IntentSource | IntentOperation;   // Can be a computed value
   boundaries: Boundary[];
   outputs: number[];
   noMatchBehavior: 'zero' | 'error' | 'nearest';
@@ -59,8 +61,8 @@ export interface BoundedLookup1D {
 export interface BoundedLookup2D {
   operation: 'bounded_lookup_2d';
   inputs: {
-    row: IntentSource;
-    column: IntentSource;
+    row: IntentSource | IntentOperation;    // Can be computed
+    column: IntentSource | IntentOperation;  // Can be computed
   };
   rowBoundaries: Boundary[];
   columnBoundaries: Boundary[];
@@ -71,8 +73,8 @@ export interface BoundedLookup2D {
 /** Fixed rate multiplication — input × rate */
 export interface ScalarMultiply {
   operation: 'scalar_multiply';
-  input: IntentSource;
-  rate: number;
+  input: IntentSource | IntentOperation;   // Can be a nested operation
+  rate: number | IntentOperation;           // Can be a nested operation (e.g., lookup result)
 }
 
 /** Conditional branching — evaluate condition, execute one of two operations */
@@ -106,6 +108,27 @@ export interface ConstantOp {
   operation: 'constant';
   value: number;
 }
+
+/** N-input weighted combination — weights must sum to 1.0 */
+export interface WeightedBlendOp {
+  operation: 'weighted_blend';
+  inputs: Array<{
+    source: IntentSource | IntentOperation;   // composable — can be nested
+    weight: number;                            // 0-1, all weights must sum to 1.0
+    scope?: 'entity' | 'group';               // optional scope override per input
+  }>;
+}
+
+/** Rolling N-period aggregation over historical values */
+export interface TemporalWindowOp {
+  operation: 'temporal_window';
+  input: IntentSource | IntentOperation;       // composable
+  windowSize: number;                           // number of periods
+  aggregation: TemporalAggregation;
+  includeCurrentPeriod: boolean;
+}
+
+export type TemporalAggregation = 'sum' | 'average' | 'min' | 'max' | 'trend';
 
 // ──────────────────────────────────────────────
 // Modifiers — applied after base calculation
@@ -159,6 +182,14 @@ export interface ComponentIntent {
 // ──────────────────────────────────────────────
 // Execution Trace — audit/reconciliation/explanation
 // ──────────────────────────────────────────────
+
+// ──────────────────────────────────────────────
+// Type Guard — distinguish IntentOperation from IntentSource
+// ──────────────────────────────────────────────
+
+export function isIntentOperation(value: unknown): value is IntentOperation {
+  return typeof value === 'object' && value !== null && 'operation' in value;
+}
 
 export interface ExecutionTrace {
   entityId: string;

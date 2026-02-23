@@ -24,6 +24,8 @@ const VALID_OPERATIONS = [
   'aggregate',
   'ratio',
   'constant',
+  'weighted_blend',
+  'temporal_window',
 ] as const;
 
 const VALID_SOURCES = [
@@ -74,7 +76,7 @@ export function validateIntent(raw: unknown): ValidationResult {
       validateBoundedLookup2D(obj, errors, warnings);
       break;
     case 'scalar_multiply':
-      validateScalarMultiply(obj, errors);
+      validateScalarMultiply(obj, errors, warnings);
       break;
     case 'conditional_gate':
       validateConditionalGate(obj, errors, warnings);
@@ -87,6 +89,12 @@ export function validateIntent(raw: unknown): ValidationResult {
       break;
     case 'constant':
       validateConstant(obj, errors);
+      break;
+    case 'weighted_blend':
+      validateWeightedBlend(obj, errors, warnings);
+      break;
+    case 'temporal_window':
+      validateTemporalWindow(obj, errors, warnings);
       break;
   }
 
@@ -132,6 +140,26 @@ export function validateComponentIntent(raw: unknown): ValidationResult {
 // ──────────────────────────────────────────────
 // Source Validation
 // ──────────────────────────────────────────────
+
+function validateSourceOrOp(src: unknown, label: string, errors: string[], warnings: string[]): boolean {
+  if (!src || typeof src !== 'object') {
+    errors.push(`${label}: missing or invalid source`);
+    return false;
+  }
+
+  const s = src as Record<string, unknown>;
+
+  // OB-78: If it has an 'operation' field, it's a nested IntentOperation — validate recursively
+  if (s.operation && typeof s.operation === 'string') {
+    const nestedResult = validateIntent(src);
+    errors.push(...nestedResult.errors.map(e => `${label}(nested): ${e}`));
+    warnings.push(...nestedResult.warnings.map(w => `${label}(nested): ${w}`));
+    return nestedResult.valid;
+  }
+
+  // Otherwise it's an IntentSource — validate normally
+  return validateSource(src, label, errors);
+}
 
 function validateSource(src: unknown, label: string, errors: string[]): boolean {
   if (!src || typeof src !== 'object') {
@@ -222,8 +250,8 @@ function validateBoundary(b: unknown, index: number, label: string, errors: stri
 // ──────────────────────────────────────────────
 
 function validateBoundedLookup1D(obj: Record<string, unknown>, errors: string[], warnings: string[]): void {
-  // Input
-  validateSource(obj.input, 'bounded_lookup_1d.input', errors);
+  // Input — can be IntentSource or nested IntentOperation (OB-78 composability)
+  validateSourceOrOp(obj.input, 'bounded_lookup_1d.input', errors, warnings);
 
   // Boundaries
   const boundaries = obj.boundaries;
@@ -261,8 +289,8 @@ function validateBoundedLookup2D(obj: Record<string, unknown>, errors: string[],
     return;
   }
 
-  validateSource(inputs.row, 'bounded_lookup_2d.inputs.row', errors);
-  validateSource(inputs.column, 'bounded_lookup_2d.inputs.column', errors);
+  validateSourceOrOp(inputs.row, 'bounded_lookup_2d.inputs.row', errors, warnings);
+  validateSourceOrOp(inputs.column, 'bounded_lookup_2d.inputs.column', errors, warnings);
 
   const rowBoundaries = obj.rowBoundaries;
   const colBoundaries = obj.columnBoundaries;
@@ -304,10 +332,18 @@ function validateBoundedLookup2D(obj: Record<string, unknown>, errors: string[],
   }
 }
 
-function validateScalarMultiply(obj: Record<string, unknown>, errors: string[]): void {
-  validateSource(obj.input, 'scalar_multiply.input', errors);
-  if (typeof obj.rate !== 'number') {
-    errors.push('scalar_multiply: rate must be a number');
+function validateScalarMultiply(obj: Record<string, unknown>, errors: string[], warnings: string[]): void {
+  validateSourceOrOp(obj.input, 'scalar_multiply.input', errors, warnings);
+  // OB-78: rate can be number or nested IntentOperation
+  if (typeof obj.rate === 'number') {
+    // OK — flat rate
+  } else if (obj.rate && typeof obj.rate === 'object' && 'operation' in (obj.rate as Record<string, unknown>)) {
+    // Nested operation — validate recursively
+    const nestedResult = validateIntent(obj.rate);
+    errors.push(...nestedResult.errors.map(e => `scalar_multiply.rate(nested): ${e}`));
+    warnings.push(...nestedResult.warnings.map(w => `scalar_multiply.rate(nested): ${w}`));
+  } else {
+    errors.push('scalar_multiply: rate must be a number or nested operation');
   }
 }
 
@@ -356,5 +392,49 @@ function validateRatio(obj: Record<string, unknown>, errors: string[]): void {
 function validateConstant(obj: Record<string, unknown>, errors: string[]): void {
   if (typeof obj.value !== 'number') {
     errors.push('constant: value must be a number');
+  }
+}
+
+function validateWeightedBlend(obj: Record<string, unknown>, errors: string[], warnings: string[]): void {
+  const inputs = obj.inputs;
+  if (!Array.isArray(inputs) || inputs.length < 2) {
+    errors.push('weighted_blend: inputs must be an array with at least 2 entries');
+    return;
+  }
+
+  let totalWeight = 0;
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i] as Record<string, unknown>;
+    if (!input || typeof input !== 'object') {
+      errors.push(`weighted_blend: inputs[${i}] is not an object`);
+      continue;
+    }
+    if (typeof input.weight !== 'number') {
+      errors.push(`weighted_blend: inputs[${i}].weight must be a number`);
+      continue;
+    }
+    totalWeight += input.weight;
+    validateSourceOrOp(input.source, `weighted_blend.inputs[${i}].source`, errors, warnings);
+  }
+
+  if (Math.abs(totalWeight - 1.0) > 0.001) {
+    warnings.push(`weighted_blend: weights sum to ${totalWeight.toFixed(4)}, expected 1.0`);
+  }
+}
+
+function validateTemporalWindow(obj: Record<string, unknown>, errors: string[], warnings: string[]): void {
+  validateSourceOrOp(obj.input, 'temporal_window.input', errors, warnings);
+
+  if (typeof obj.windowSize !== 'number' || obj.windowSize <= 0) {
+    errors.push('temporal_window: windowSize must be a positive number');
+  }
+
+  const validAggs = ['sum', 'average', 'min', 'max', 'trend'];
+  if (!validAggs.includes(obj.aggregation as string)) {
+    errors.push(`temporal_window: invalid aggregation "${obj.aggregation}". Must be one of: ${validAggs.join(', ')}`);
+  }
+
+  if (typeof obj.includeCurrentPeriod !== 'boolean') {
+    warnings.push('temporal_window: includeCurrentPeriod should be boolean, defaulting to false');
   }
 }
