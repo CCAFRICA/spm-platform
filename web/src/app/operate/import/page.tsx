@@ -8,6 +8,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useLocale } from '@/contexts/locale-context';
+import { useAuth } from '@/contexts/auth-context';
+import { isVLAdmin } from '@/types/auth';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,8 +23,8 @@ import {
 export default function ImportPage() {
   const router = useRouter();
   const { locale } = useLocale();
-
-  const isSpanish = locale === 'es-MX';
+  const { user } = useAuth();
+  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
 
   const importOptions = [
     {
