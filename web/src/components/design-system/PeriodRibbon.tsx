@@ -69,12 +69,12 @@ export function PeriodRibbon({ periods, activeKey, onSelect }: PeriodRibbonProps
                 {period.label || period.periodKey}
               </span>
               {hasBatch && isActive && (
-                <span className="text-[10px] text-zinc-500">
+                <span className="text-[10px] text-zinc-400">
                   {getLifecycleLabel(period.lifecycleState)}
                 </span>
               )}
               {isCompleted && (
-                <svg className="w-3 h-3 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-3 h-3 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               )}

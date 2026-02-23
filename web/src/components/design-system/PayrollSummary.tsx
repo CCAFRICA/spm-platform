@@ -80,7 +80,7 @@ export function PayrollSummary({
   function SortHeader({ col, label }: { col: SortCol; label: string }) {
     return (
       <th
-        className="text-[11px] text-zinc-500 font-normal py-1.5 px-2 cursor-pointer hover:text-zinc-300 select-none"
+        className="text-[11px] text-zinc-400 font-normal py-1.5 px-2 cursor-pointer hover:text-zinc-300 select-none"
         onClick={() => toggleSort(col)}
       >
         {label} {sortCol === col ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : ''}
@@ -89,7 +89,7 @@ export function PayrollSummary({
   }
 
   if (rows.length === 0) {
-    return <p className="text-sm text-zinc-500">Sin datos de nomina disponibles.</p>;
+    return <p className="text-sm text-zinc-400">Sin datos de nomina disponibles.</p>;
   }
 
   return (
@@ -98,7 +98,7 @@ export function PayrollSummary({
         <thead>
           <tr className="border-b border-zinc-800">
             <SortHeader col="name" label="Nombre" />
-            {rows.some(r => r.entityType) && <th className="text-[11px] text-zinc-500 font-normal py-1.5 px-2 text-left">Tipo</th>}
+            {rows.some(r => r.entityType) && <th className="text-[11px] text-zinc-400 font-normal py-1.5 px-2 text-left">Tipo</th>}
             <SortHeader col="payout" label="Pago" />
             <SortHeader col="components" label="Componentes" />
             <SortHeader col="status" label="Estado" />
@@ -123,7 +123,7 @@ export function PayrollSummary({
             <td className="text-xs font-bold text-zinc-100 py-2 px-2 text-right tabular-nums">
               {currency}{total.toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </td>
-            <td className="text-xs text-zinc-500 py-2 px-2 text-center">{rows.length}</td>
+            <td className="text-xs text-zinc-400 py-2 px-2 text-center">{rows.length}</td>
             <td />
           </tr>
         </tfoot>
@@ -149,7 +149,7 @@ function GroupRows({
     <>
       {groupKey && (
         <tr>
-          <td colSpan={showType ? 5 : 4} className="text-[10px] text-zinc-500 uppercase tracking-wider py-1.5 px-2 bg-zinc-900/30">
+          <td colSpan={showType ? 5 : 4} className="text-[10px] text-zinc-400 uppercase tracking-wider py-1.5 px-2 bg-zinc-900/30">
             {groupKey}
           </td>
         </tr>
@@ -161,7 +161,7 @@ function GroupRows({
           className={`border-b border-zinc-800/30 ${onRowClick ? 'cursor-pointer hover:bg-zinc-800/30' : ''}`}
         >
           <td className="text-xs text-zinc-300 py-1.5 px-2">{row.entityName}</td>
-          {showType && <td className="text-[11px] text-zinc-500 py-1.5 px-2">{row.entityType ?? '-'}</td>}
+          {showType && <td className="text-[11px] text-zinc-400 py-1.5 px-2">{row.entityType ?? '-'}</td>}
           <td className="text-xs text-zinc-200 py-1.5 px-2 text-right tabular-nums">
             {currency}{row.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </td>

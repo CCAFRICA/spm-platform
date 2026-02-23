@@ -253,7 +253,7 @@ export function ChromeSidebar() {
                 </span>
                 <span style={{ fontSize: '12px', color: '#94a3b8' }} className="truncate -mt-0.5 flex items-center gap-1">
                   {currentTenant?.displayName || 'Platform'}
-                  {isUserVLAdmin && <ArrowLeftRight className="h-2.5 w-2.5 text-zinc-500" />}
+                  {isUserVLAdmin && <ArrowLeftRight className="h-2.5 w-2.5 text-zinc-400" />}
                 </span>
               </div>
             )}
@@ -304,7 +304,7 @@ export function ChromeSidebar() {
                             'flex items-center justify-center w-10 h-8 rounded-md transition-all',
                             isActive
                               ? 'text-white'
-                              : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                              : 'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800/50'
                           )}
                           style={isActive ? { backgroundColor: `${ws.accentColor}30`, color: ws.accentColor } : undefined}
                         >
@@ -384,7 +384,7 @@ export function ChromeSidebar() {
                     variant="outline"
                     onClick={() => setCommandPaletteOpen(true)}
                     className={cn(
-                      'w-full justify-start gap-2 text-zinc-500 hover:text-zinc-300 border-zinc-800 hover:bg-zinc-800/50',
+                      'w-full justify-start gap-2 text-zinc-400 hover:text-zinc-300 border-zinc-800 hover:bg-zinc-800/50',
                       isRailCollapsed && 'justify-center px-0'
                     )}
                   >
@@ -425,7 +425,7 @@ export function ChromeSidebar() {
                     variant="ghost"
                     size="icon"
                     onClick={toggleRailCollapsed}
-                    className="h-8 w-8 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                    className="h-8 w-8 text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800/50"
                   >
                     {isRailCollapsed ? (
                       <PanelLeft className="h-4 w-4" />
@@ -493,7 +493,7 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
                       'flex items-center justify-center w-10 h-8 rounded-md transition-all',
                       isActive
                         ? 'text-white'
-                        : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                        : 'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800/50'
                     )}
                     style={isActive ? { backgroundColor: `${wsAccent}25`, color: wsAccent } : undefined}
                   >

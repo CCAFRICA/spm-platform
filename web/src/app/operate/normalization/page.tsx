@@ -130,7 +130,7 @@ export default function NormalizationReviewPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">Product Normalization</h1>
-        <p className="text-zinc-500 mt-1">
+        <p className="text-zinc-400 mt-1">
           Classify and standardize messy product descriptions from POS data
         </p>
       </div>
@@ -146,7 +146,7 @@ export default function NormalizationReviewPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{dictStats?.totalEntries || 0}</div>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-zinc-400">
               entries, {dictStats?.totalHits || 0} total hits
             </p>
             {dictStats && dictStats.totalEntries === 0 && (
@@ -221,7 +221,7 @@ export default function NormalizationReviewPage() {
               <p className="text-sm text-zinc-400">No classification run yet</p>
             )}
             {stats && stats.total > 0 && (
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-zinc-400 mt-1">
                 {Math.round((stats.autoClassified / stats.total) * 100)}% auto-resolved
               </p>
             )}
@@ -290,7 +290,7 @@ export default function NormalizationReviewPage() {
                         <td className="p-3">
                           <ConfidenceBar confidence={entry.confidence} />
                         </td>
-                        <td className="p-3 text-xs text-zinc-500">{entry.source}</td>
+                        <td className="p-3 text-xs text-zinc-400">{entry.source}</td>
                         <td className="p-3">
                           {!entry.reviewed && entry.tier !== 'auto' && (
                             <div className="flex gap-1">
@@ -311,7 +311,7 @@ export default function NormalizationReviewPage() {
                             </div>
                           )}
                           {entry.reviewed && (
-                            <span className="text-xs text-zinc-500">Reviewed</span>
+                            <span className="text-xs text-zinc-400">Reviewed</span>
                           )}
                         </td>
                       </tr>
@@ -320,7 +320,7 @@ export default function NormalizationReviewPage() {
                 </table>
               </div>
               {filteredEntries.length === 0 && (
-                <div className="text-center py-8 text-zinc-500">
+                <div className="text-center py-8 text-zinc-400">
                   No entries in this tier
                 </div>
               )}
@@ -351,7 +351,7 @@ export default function NormalizationReviewPage() {
       {entries.length === 0 && !loading && (
         <Card>
           <CardContent className="text-center py-12">
-            <Search className="h-12 w-12 mx-auto text-zinc-500 mb-4" />
+            <Search className="h-12 w-12 mx-auto text-zinc-400 mb-4" />
             <h3 className="text-lg font-medium text-zinc-400">No Classification Results</h3>
             <p className="text-sm text-zinc-400 mt-2">
               {dictStats?.totalEntries === 0
@@ -409,7 +409,7 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs text-zinc-500">{pct}%</span>
+      <span className="text-xs text-zinc-400">{pct}%</span>
     </div>
   );
 }

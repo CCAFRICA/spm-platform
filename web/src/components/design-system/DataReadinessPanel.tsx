@@ -47,7 +47,7 @@ export function DataReadinessPanel({ readiness }: DataReadinessPanelProps) {
           <div className="flex-1 min-w-0">
             <span className="text-sm text-zinc-200">{item.label}</span>
             {item.detail && (
-              <p className="text-[11px] text-zinc-500 truncate">{item.detail}</p>
+              <p className="text-[11px] text-zinc-400 truncate">{item.detail}</p>
             )}
           </div>
         </div>

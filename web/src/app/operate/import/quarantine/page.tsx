@@ -139,7 +139,7 @@ export default function QuarantinePage() {
               <AlertTriangle className="h-6 w-6 text-amber-400" />
               Quarantine
             </h1>
-            <p className="text-sm text-zinc-500 mt-1">
+            <p className="text-sm text-zinc-400 mt-1">
               Files that failed structural validation — resolve each one
             </p>
           </div>
@@ -171,7 +171,7 @@ export default function QuarantinePage() {
           <Card className="border-zinc-800 bg-zinc-900/50">
             <CardContent className="p-8 text-center">
               <RefreshCw className="h-8 w-8 text-zinc-600 animate-spin mx-auto mb-3" />
-              <p className="text-zinc-500">Loading quarantined files...</p>
+              <p className="text-zinc-400">Loading quarantined files...</p>
             </CardContent>
           </Card>
         )}
@@ -202,7 +202,7 @@ export default function QuarantinePage() {
                           Quarantined
                         </Badge>
                       </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
+                      <div className="flex items-center gap-3 mt-1 text-xs text-zinc-400">
                         {event.file_size_bytes && (
                           <span>{formatFileSize(event.file_size_bytes)}</span>
                         )}
@@ -218,9 +218,9 @@ export default function QuarantinePage() {
                       </div>
                     </div>
                     {isExpanded ? (
-                      <ChevronDown className="h-4 w-4 text-zinc-500" />
+                      <ChevronDown className="h-4 w-4 text-zinc-400" />
                     ) : (
-                      <ChevronRight className="h-4 w-4 text-zinc-500" />
+                      <ChevronRight className="h-4 w-4 text-zinc-400" />
                     )}
                   </div>
                 </div>
@@ -231,7 +231,7 @@ export default function QuarantinePage() {
                     {/* Validation checks */}
                     {vr?.checks && vr.checks.length > 0 ? (
                       <div className="space-y-2 mb-4">
-                        <p className="text-xs text-zinc-500 font-medium mb-2">Validation Results</p>
+                        <p className="text-xs text-zinc-400 font-medium mb-2">Validation Results</p>
                         {vr.checks.map((check, idx) => (
                           <div key={idx} className="flex items-start gap-2 text-xs">
                             {check.result === 'pass' ? (
@@ -250,7 +250,7 @@ export default function QuarantinePage() {
                               )}>
                                 {check.name}
                               </span>
-                              <span className="text-zinc-500 ml-2">{check.message}</span>
+                              <span className="text-zinc-400 ml-2">{check.message}</span>
                               {check.details && check.details.length > 0 && (
                                 <div className="text-zinc-600 mt-0.5 pl-2">
                                   {check.details.slice(0, 5).map((d, di) => (
@@ -299,7 +299,7 @@ export default function QuarantinePage() {
                         Re-upload
                       </Button>
                       {isProcessing && (
-                        <RefreshCw className="h-4 w-4 text-zinc-500 animate-spin" />
+                        <RefreshCw className="h-4 w-4 text-zinc-400 animate-spin" />
                       )}
                     </div>
                   </div>
