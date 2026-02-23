@@ -35,6 +35,9 @@ import {
 import { generatePatternSignature } from '@/lib/calculation/pattern-signature';
 // OB-81: Agent memory, flywheel, and insight wiring
 import { loadPriorsForAgent, type AgentPriors } from '@/lib/agents/agent-memory';
+// OB-83: Domain Agent dispatch — wraps calculation through negotiation protocol
+import { createCalculationRequest, scoreCalculationResult } from '@/lib/domain/domain-dispatcher';
+import '@/lib/domain/domains/icm'; // Import ICM to trigger domain registration
 import { postConsolidationFlywheel } from '@/lib/calculation/flywheel-pipeline';
 import {
   checkInlineInsights,
@@ -297,6 +300,7 @@ export async function POST(request: NextRequest) {
   // ── 4c. OB-81: Load agent memory (three-flywheel priors) + create surface ──
   const synapticStartTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const domainId = 'icm'; // default domain — will be configurable per tenant
+  const dispatchContext = { tenantId, domainId };
   let priors: AgentPriors;
   let density;
   try {
@@ -357,6 +361,10 @@ export async function POST(request: NextRequest) {
   }
 
   addLog(`Batch created: ${batch.id}`);
+
+  // ── 5a. OB-83: Domain Agent dispatch — create negotiation request ──
+  const negotiationRequest = createCalculationRequest(dispatchContext, batch.id, periodId);
+  addLog(`Domain dispatch: ${negotiationRequest.domainId} → ${negotiationRequest.requestType} (request=${negotiationRequest.requestId})`);
 
   // ── 5b. OB-81: Batch-load period history for temporal_window support ──
   const periodHistoryMap = new Map<string, number[]>();
@@ -785,6 +793,18 @@ export async function POST(request: NextRequest) {
     addLog('Metering failed (non-blocking)');
   }
 
+  // ── OB-83: Domain Agent dispatch — score result through IAP ──
+  const producedLearning = densityUpdates.length > 0 || signalBatch.length > 0;
+  const avgConfidence = concordanceRate / 100; // concordance rate as 0-1 confidence
+  const dispatchResult = scoreCalculationResult(
+    dispatchContext,
+    negotiationRequest.requestId,
+    null, // actual results are in the response body below
+    avgConfidence,
+    producedLearning
+  );
+  addLog(`IAP score: I=${dispatchResult.negotiation.iapScore.intelligence.toFixed(2)} A=${dispatchResult.negotiation.iapScore.acceleration.toFixed(2)} P=${dispatchResult.negotiation.iapScore.performance.toFixed(2)} composite=${dispatchResult.negotiation.iapScore.composite.toFixed(3)}`);
+
   addLog(`COMPLETE: batch=${batch.id}, entities=${entityResults.length}, total=${grandTotal}`);
 
   return NextResponse.json({
@@ -818,6 +838,8 @@ export async function POST(request: NextRequest) {
       agentMemorySource: density.size > 0 ? 'tenant' : (priors.foundationalPriors.size > 0 ? 'flywheel' : 'fresh'),
     },
     inlineInsights: allInlineInsights,
+    // OB-83: Domain Agent negotiation metadata
+    negotiation: dispatchResult.negotiation,
     results: entityResults.map(r => ({
       entityId: r.entity_id,
       entityName: r.metadata.entityName as string,
