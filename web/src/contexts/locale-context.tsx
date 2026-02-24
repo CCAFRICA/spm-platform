@@ -8,7 +8,6 @@ import {
   useCallback,
   ReactNode,
 } from 'react';
-import { usePathname } from 'next/navigation';
 import {
   Locale,
   DEFAULT_LOCALE,
@@ -19,9 +18,8 @@ import {
   formatLocalizedPercent,
 } from '@/lib/i18n';
 import { audit } from '@/lib/audit-service';
+import { useAuth } from './auth-context';
 import { createClient } from '@/lib/supabase/client';
-
-const PUBLIC_ROUTES = ['/landing', '/login', '/signup', '/auth/callback'];
 
 /** Map profiles.locale column value to Locale code */
 const LANG_TO_LOCALE: Record<string, Locale> = {
@@ -54,8 +52,7 @@ export function LocaleProvider({
   children,
   defaultLocale = DEFAULT_LOCALE,
 }: LocaleProviderProps) {
-  const pathname = usePathname();
-  const isPublicRoute = PUBLIC_ROUTES.some(r => pathname?.startsWith(r));
+  const { profileLocale } = useAuth();
   const [locale, setLocaleState] = useState<Locale>(defaultLocale);
   const [translations, setTranslations] = useState<Record<string, unknown>>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -86,33 +83,13 @@ export function LocaleProvider({
     loadAllTranslations();
   }, [locale]);
 
-  // Initialize from profile language stored in Supabase (OB-58).
-  // Skip on public routes — no Supabase calls needed for /landing, /login, /signup.
+  // Initialize from profile language — read from auth-context (OB-93 dedup).
+  // Auth-context already fetches the profile; no duplicate Supabase call needed.
   useEffect(() => {
-    if (isPublicRoute) return;
-
-    async function loadProfileLanguage() {
-      try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('locale')
-          .eq('auth_user_id', user.id)
-          .limit(1)
-          .maybeSingle();
-
-        if (profile?.locale && LANG_TO_LOCALE[profile.locale]) {
-          setLocaleState(LANG_TO_LOCALE[profile.locale]);
-        }
-      } catch {
-        // Non-blocking — use default locale
-      }
+    if (profileLocale && LANG_TO_LOCALE[profileLocale]) {
+      setLocaleState(LANG_TO_LOCALE[profileLocale]);
     }
-    loadProfileLanguage();
-  }, [isPublicRoute]);
+  }, [profileLocale]);
 
   const setLocale = useCallback((newLocale: Locale) => {
     setLocaleState(newLocale);

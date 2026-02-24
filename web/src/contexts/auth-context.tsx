@@ -42,6 +42,7 @@ interface AuthContextType {
   isLoading: boolean;
   isVLAdmin: boolean;
   capabilities: string[];
+  profileLocale: string | null;
   login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
@@ -119,6 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [capabilities, setCapabilities] = useState<string[]>([]);
+  const [profileLocale, setProfileLocale] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Initialize: check Supabase session + listen for auth changes
@@ -157,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (profile) {
           setUser(mapProfileToUser(profile));
           setCapabilities(profile.capabilities || []);
+          setProfileLocale(profile.locale);
         }
         // If profile is null (500, missing row, etc.), user stays null.
         // AuthShellProtected will handle the redirect. Do NOT redirect here.
@@ -168,10 +171,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (p) {
               setUser(mapProfileToUser(p));
               setCapabilities(p.capabilities || []);
+              setProfileLocale(p.locale);
             }
           } else if (event === 'SIGNED_OUT') {
             setUser(null);
             setCapabilities([]);
+            setProfileLocale(null);
             // Do NOT redirect here — AuthShellProtected handles navigation
           }
         });
@@ -213,6 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const mappedUser = mapProfileToUser(profile);
       setUser(mappedUser);
       setCapabilities(profile.capabilities || []);
+      setProfileLocale(profile.locale);
 
       if (isVLAdmin(mappedUser)) {
         router.push('/select-tenant');
@@ -290,6 +296,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isVLAdmin: isUserVLAdmin,
         capabilities,
+        profileLocale,
         login,
         logout,
         hasPermission,
