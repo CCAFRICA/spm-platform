@@ -147,13 +147,15 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
     const wsForRoute = getWorkspaceForRoute(pathname);
     if (wsForRoute) {
-      setActiveWorkspaceState(prev => {
-        if (prev === wsForRoute) return prev;
-        if (effectiveRole && canAccessWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
-          return wsForRoute;
-        }
-        return prev;
-      });
+      if (effectiveRole && canAccessWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
+        setActiveWorkspaceState(prev => prev === wsForRoute ? prev : wsForRoute);
+      } else if (effectiveRole) {
+        // OB-94: Route belongs to a workspace this persona can't access — redirect to default
+        const defaultWs = getDefaultWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
+        const ws = WORKSPACES[defaultWs];
+        router.push(ws.defaultRoute);
+        return;
+      }
     }
 
     // Track recent pages (in-memory only)
