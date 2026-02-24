@@ -35,7 +35,7 @@ import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
 import { QueueItem } from '@/components/design-system/QueueItem';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
 import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
-import { AlertTriangle, CheckCircle2, Circle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Sparkles, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import {
   getAdminDashboardData,
   type AdminDashboardData,
@@ -326,6 +326,36 @@ export function AdminDashboard() {
         </div>
       )}
       <AgentInbox tenantId={currentTenant?.id} persona="admin" />
+      {/* OB-86: AI Quality Card */}
+      {data.aiMetrics && (
+        <div style={CARD_STYLE}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-400" />
+              <span style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                AI Quality
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
+                {data.aiMetrics.totalSignals} signals
+              </span>
+              <span className={`text-xs font-medium tabular-nums px-2 py-0.5 rounded-full border ${
+                data.aiMetrics.acceptanceRate >= 0.8
+                  ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
+                  : data.aiMetrics.acceptanceRate >= 0.6
+                  ? 'border-amber-500/40 text-amber-400 bg-amber-500/10'
+                  : 'border-red-500/40 text-red-400 bg-red-500/10'
+              }`}>
+                {(data.aiMetrics.acceptanceRate * 100).toFixed(0)}% accept
+              </span>
+              {data.aiMetrics.trendDirection === 'improving' && <TrendingUp size={14} style={{ color: '#34d399' }} />}
+              {data.aiMetrics.trendDirection === 'declining' && <TrendingDown size={14} style={{ color: '#f87171' }} />}
+              {data.aiMetrics.trendDirection === 'stable' && <Minus size={14} style={{ color: '#94A3B8' }} />}
+            </div>
+          </div>
+        </div>
+      )}
       <AssessmentPanel
         persona="admin"
         data={assessmentData}
