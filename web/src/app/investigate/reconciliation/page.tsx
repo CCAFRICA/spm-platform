@@ -381,7 +381,7 @@ export default function ReconciliationPage() {
         const supabase = createClient();
         const entityIds = results.map(r => r.entity_id);
         const entityBatches: Array<{ id: string; external_id: string | null; display_name: string }> = [];
-        const BATCH_SIZE = 1000;
+        const BATCH_SIZE = 200; // Supabase URL limit: 1000 UUIDs exceeds ~8KB GET limit
         for (let i = 0; i < entityIds.length; i += BATCH_SIZE) {
           const batch = entityIds.slice(i, i + BATCH_SIZE);
           const { data: entities } = await supabase
@@ -430,7 +430,7 @@ export default function ReconciliationPage() {
       const supabase = createClient();
       const entityIds = results.map(r => r.entity_id);
       const entityBatches: Array<{ id: string; external_id: string | null; display_name: string }> = [];
-      const BATCH_SIZE = 1000;
+      const BATCH_SIZE = 200; // Supabase URL limit: 1000 UUIDs exceeds ~8KB GET limit
       for (let i = 0; i < entityIds.length; i += BATCH_SIZE) {
         const batch = entityIds.slice(i, i + BATCH_SIZE);
         const { data: entities } = await supabase
