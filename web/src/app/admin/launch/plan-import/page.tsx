@@ -24,6 +24,7 @@ import {
   type PlanValidationResult,
   type PlanAnomaly,
 } from '@/lib/validation/plan-anomaly-registry';
+import { recordSignal } from '@/lib/intelligence/classification-signal-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -546,6 +547,31 @@ function PlanImportPageInner() {
   // Update component
   const handleUpdateComponent = (updated: DetectedComponent) => {
     if (!parsedPlan) return;
+
+    // OB-91 Mission 3: Record correction signal when component values are edited
+    const original = parsedPlan.components.find(c => c.id === updated.id);
+    if (original && currentTenant?.id) {
+      const hasValueChange =
+        JSON.stringify(original.tiers) !== JSON.stringify(updated.tiers) ||
+        JSON.stringify(original.matrix?.values) !== JSON.stringify(updated.matrix?.values) ||
+        original.percentage?.rate !== updated.percentage?.rate;
+
+      if (hasValueChange) {
+        recordSignal({
+          tenantId: currentTenant.id,
+          domain: 'plan_anomaly',
+          fieldName: updated.name,
+          semanticType: 'plan_anomaly_resolution',
+          confidence: 0.99,
+          source: 'user_corrected',
+          metadata: {
+            component: updated.name,
+            componentType: updated.type,
+            correctionType: 'value_edit',
+          },
+        });
+      }
+    }
 
     setParsedPlan({
       ...parsedPlan,
@@ -1296,6 +1322,25 @@ function PlanImportPageInner() {
                                             next.add(key);
                                             return next;
                                           });
+                                          // OB-91 Mission 3: Record classification signal
+                                          if (currentTenant?.id) {
+                                            recordSignal({
+                                              tenantId: currentTenant.id,
+                                              domain: 'plan_anomaly',
+                                              fieldName: anomaly.id,
+                                              semanticType: 'plan_anomaly_resolution',
+                                              confidence: 0.95,
+                                              source: 'user_confirmed',
+                                              metadata: {
+                                                anomalyType: anomaly.type,
+                                                component: anomaly.component,
+                                                variant: anomaly.variant,
+                                                location: anomaly.location,
+                                                extractedValue: anomaly.extractedValue,
+                                                severity: anomaly.severity,
+                                              },
+                                            });
+                                          }
                                         }}
                                       >
                                         <CheckCircle2 className="h-3 w-3 mr-1" />
