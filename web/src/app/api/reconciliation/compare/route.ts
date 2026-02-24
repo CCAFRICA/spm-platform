@@ -130,6 +130,7 @@ export async function POST(request: NextRequest) {
     );
 
     // Step 5: Record reconciliation training signal (fire-and-forget)
+    const userOverrides = mappings.filter(m => m.isUserOverride);
     persistSignal({
       tenantId,
       signalType: 'training:reconciliation_comparison',
@@ -145,9 +146,11 @@ export async function POST(request: NextRequest) {
         periodFiltered: periodFilterInfo.originalCount !== periodFilterInfo.filteredCount,
         rowsOriginal: periodFilterInfo.originalCount,
         rowsFiltered: periodFilterInfo.filteredCount,
+        userOverrideCount: userOverrides.length,
+        userOverrideFields: userOverrides.map(m => m.mappedTo),
       },
       confidence: comparisonResult.summary.matched / Math.max(comparisonResult.summary.totalEmployees, 1),
-      source: 'ai_prediction',
+      source: userOverrides.length > 0 ? 'user_corrected' : 'ai_prediction',
       context: { trigger: 'reconciliation_compare' },
     }).catch(err => console.warn('[ReconciliationCompare] Signal persist failed:', err));
 

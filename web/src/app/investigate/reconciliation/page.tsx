@@ -341,10 +341,16 @@ export default function ReconciliationPage() {
     setComparing(true);
     setError(null);
     try {
+      // OB-87/OB-86: Track user overrides for closed-loop learning signals
+      const aiEntityId = analysis?.entityIdColumn?.sourceColumn;
+      const aiTotalPayout = analysis?.totalPayoutColumn?.sourceColumn;
+      const entityIdOverridden = aiEntityId != null && aiEntityId !== entityIdCol;
+      const totalPayoutOverridden = aiTotalPayout != null && aiTotalPayout !== totalPayoutCol;
+
       // Build mappings for the comparison engine
       const mappings = [];
-      if (entityIdCol) mappings.push({ sourceColumn: entityIdCol, mappedTo: 'entity_id', mappedToLabel: 'Entity ID', confidence: 1, reasoning: 'User confirmed', isUserOverride: false });
-      if (totalPayoutCol) mappings.push({ sourceColumn: totalPayoutCol, mappedTo: 'total_amount', mappedToLabel: 'Total Payout', confidence: 1, reasoning: 'User confirmed', isUserOverride: false });
+      if (entityIdCol) mappings.push({ sourceColumn: entityIdCol, mappedTo: 'entity_id', mappedToLabel: 'Entity ID', confidence: 1, reasoning: 'User confirmed', isUserOverride: entityIdOverridden });
+      if (totalPayoutCol) mappings.push({ sourceColumn: totalPayoutCol, mappedTo: 'total_amount', mappedToLabel: 'Total Payout', confidence: 1, reasoning: 'User confirmed', isUserOverride: totalPayoutOverridden });
       if (analysis?.componentColumns) {
         for (const cc of analysis.componentColumns) {
           mappings.push({ sourceColumn: cc.sourceColumn, mappedTo: cc.semanticType, mappedToLabel: cc.sourceColumn, confidence: cc.confidence, reasoning: 'AI classified', isUserOverride: false });
