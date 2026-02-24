@@ -752,7 +752,7 @@ export default function ReconciliationPage() {
                   <div className="flex-1 text-xs text-zinc-300 space-y-1">
                     {analysis.componentColumns.map(c => (
                       <div key={c.sourceColumn} className="flex items-center gap-2">
-                        <span>"{c.sourceColumn}"</span>
+                        <span>&ldquo;{c.sourceColumn}&rdquo;</span>
                         <span className="text-zinc-500">→</span>
                         <span className="text-zinc-400">{c.semanticType}</span>
                         <span className="text-[10px] text-zinc-500">({Math.round(c.confidence * 100)}%)</span>

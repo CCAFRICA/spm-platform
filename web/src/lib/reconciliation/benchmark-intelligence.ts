@@ -19,7 +19,7 @@
 
 import type { ParsedFile } from './smart-file-parser';
 import type { ColumnMapping, MappingResult } from './ai-column-mapper';
-import { mapColumns, buildMappingTargets } from './ai-column-mapper';
+import { mapColumns } from './ai-column-mapper';
 import {
   recordAIClassificationBatch,
 } from '@/lib/intelligence/classification-signal-service';
@@ -574,7 +574,7 @@ function discoverPeriods(
   const distinctPeriods: PeriodValue[] = [];
   const rowsPerPeriod: Record<string, number> = {};
 
-  for (const [key, data] of Array.from(periodKeys.entries())) {
+  for (const [, data] of Array.from(periodKeys.entries())) {
     const label = formatPeriodLabel(data.month, data.year);
     distinctPeriods.push({
       month: data.month,
