@@ -1,0 +1,1650 @@
+
+=== SLIDE 1 ===
+1
+¿Qué está cambiando en tu esquema de incentivos?
+Actualización de incentivos
+Incentivos actuales
+Los Optometristas Certificado y No Certificado contarán con 6 indicadores a medir en su esquema de incentivos. Incentivo por Venta Óptica, Incentivo por Venta de la Tienda,
+Incentivo por Cobranza en Tienda, Incentivo por Clientes Nuevos, Incentivo por venta de seguros, así como un incentivo por venta de servicios.
+Incentivo
+Mecánica del incentivo
+Productividad
+Se paga dependiendo del cumplimiento de meta de venta del centro, todos los colaboradores ganan el mismo monto. Este monto se ajusta de acuerdo al cumplimiento de venta de la tienda.
+Clientes nuevos
+RetailCorp
+Incentivo adicional dependiendo del % de cumplimiento de meta de clientes nuevos de la tienda
+Recuperado en tienda
+Incentivo adicional dependiendo del % de cumplimiento de meta de monto recuperado en pesos de la tienda
+Incentivo por
+venta de seguros
+Se paga un % de la venta dependiendo el producto vendido (Club de protección familiar, Seguro de motos, Seguro celulares)
+Incentivo por
+venta de servicios
+Se paga un % de la venta dependiendo el producto vendido (Servicios de armado, Garantía extendida)
+Incentivo
+Mecánica del incentivo
+Venta Óptica
+Se paga incentivo de acuerdo al % de cumplimiento de la meta de Óptica.
+Venta de la Tienda
+Se paga incentivo de acuerdo al % de cumplimiento de la meta de venta de la tienda
+Clientes nuevos
+RetailCorp
+El pago de incentivo se realiza de acuerdo al porcentaje de cumplimiento  de clientes nuevos
+RetailCorp
+de la tienda
+Cobranza
+en tienda
+Se paga
+dependiendo del % de cumplimiento de meta de
+Cobranza
+en pesos
+de la tienda
+Incentivo por
+venta de seguros
+Se paga un % de la venta dependiendo el producto vendido (
+Reactivación Club de Protección
+)
+Incentivo por
+venta de servicios
+Se paga un % de la venta dependiendo el producto vendido (Garantía extendida)
+Puestos que aplicarán al nuevo esquema de incentivos:
+Optometrista Certificado
+Optometrista no Certificado
+
+TABLE: Incentivo | Mecánica del incentivo
+Productividad | Se paga dependiendo del cumplimiento de meta de venta del centro, todos los colaboradores ganan el mismo monto. Este monto se ajusta de acuerdo al cumplimiento de venta de la tienda.
+Clientes nuevos RetailCorp | Incentivo adicional dependiendo del % de cumplimiento de meta de clientes nuevos de la tienda
+Recuperado en tienda | Incentivo adicional dependiendo del % de cumplimiento de meta de monto recuperado en pesos de la tienda
+Incentivo por venta de seguros | Se paga un % de la venta dependiendo el producto vendido (Club de protección familiar, Seguro de motos, Seguro celulares)
+Incentivo por venta de servicios | Se paga un % de la venta dependiendo el producto vendido (Servicios de armado, Garantía extendida)
+
+TABLE: Incentivo | Mecánica del incentivo
+Venta Óptica | Se paga incentivo de acuerdo al % de cumplimiento de la meta de Óptica.
+Venta de la Tienda | Se paga incentivo de acuerdo al % de cumplimiento de la meta de venta de la tienda
+Clientes nuevos RetailCorp | El pago de incentivo se realiza de acuerdo al porcentaje de cumplimiento  de clientes nuevos RetailCorp de la tienda
+Cobranza en tienda | Se paga dependiendo del % de cumplimiento de meta de Cobranza en pesos de la tienda
+Incentivo por venta de seguros | Se paga un % de la venta dependiendo el producto vendido ( Reactivación Club de Protección )
+Incentivo por venta de servicios | Se paga un % de la venta dependiendo el producto vendido (Garantía extendida)
+
+TABLE: Incentivo | Mecánica del incentivo
+Productividad | Se paga dependiendo del cumplimiento de meta de venta del centro, todos los colaboradores ganan el mismo monto. Este monto se ajusta de acuerdo al cumplimiento de venta de la tienda.
+Clientes nuevos RetailCorp | Incentivo adicional dependiendo del % de cumplimiento de meta de clientes nuevos de la tienda
+Recuperado en tienda | Incentivo adicional dependiendo del % de cumplimiento de meta de monto recuperado en pesos de la tienda
+Incentivo por venta de seguros | Se paga un % de la venta dependiendo el producto vendido (Club de protección familiar, Seguro de motos, Seguro celulares)
+Incentivo por venta de servicios | Se paga un % de la venta dependiendo el producto vendido (Servicios de armado, Garantía extendida)
+
+TABLE: Incentivo | Mecánica del incentivo
+Venta Óptica | Se paga incentivo de acuerdo al % de cumplimiento de la meta de Óptica.
+Venta de la Tienda | Se paga incentivo de acuerdo al % de cumplimiento de la meta de venta de la tienda
+Clientes nuevos RetailCorp | El pago de incentivo se realiza de acuerdo al porcentaje de cumplimiento  de clientes nuevos RetailCorp de la tienda
+Cobranza en tienda | Se paga dependiendo del % de cumplimiento de meta de Cobranza en pesos de la tienda
+Incentivo por venta de seguros | Se paga un % de la venta dependiendo el producto vendido ( Reactivación Club de Protección )
+Incentivo por venta de servicios | Se paga un % de la venta dependiendo el producto vendido (Garantía extendida)
+
+=== SLIDE 2 ===
+2
+El pago de incentivo se realiza de acuerdo a la venta centro
+El pago de incentivo se realiza de acuerdo al porcentaje de cumplimiento  de venta Óptica en tienda.
+¿Qué está cambiando en tu esquema de incentivos?
+Se proponen realizar 1 cambio a aplicar a partir del mes de marzo:
+Se elimina la medición de venta centro por venta Óptica
+Actualización de incentivos
+Incentivos actuales
+% Cumplimiento de meta de venta del centro
+$ Venta promedio por colaborador en el mes (tienda)
+Menos de  $250k
+$250k a menos de $450k
+$450k a menos de $700k
+$700k o más
+<
+89
+%
+$0
+$0
+$0
+$0
+89
+.00% - 94.99%
+$400
+$475
+$575
+$700
+95.00% - 99.99%
+$550
+$650
+$775
+$925
+100.00% - 109.99%
+$700
+$825
+$975
+$1,175
+110.00% - 119.99%
+$850
+$1,000
+$1,175
+$1,400
+120.00% - 129.99%
+$975
+$1,175
+$1,400
+$1,675
+>=
+130.00%
+$1,150
+$1,375
+$1,650
+$2,000
+Venta de Óptica de la tienda en el mes
+% Cumplimiento de meta de Óptica
+Menos de
+$60
+k
+$
+60
+k a menos de $
+100K
+$100k a menos de $120K
+$
+120
+a menos de $1
+80K
+$1
+80K
+o más
+Menos de
+80
+%
+$0
+$0
+$0
+$500
+$800
+80
+% a menos de 90%
+$200
+$300
+$500
+$800
+$1,100
+90% a menos de 100%
+$300
+$500
+$800
+$1,100
+$1.500
+100% a menos de 1
+5
+0%
+$800
+$1.100
+$1.500
+$1.800
+$2,500
+150% o más
+$1,000
+$1,300
+$1,800
+$2,200
+$3.000
+Optometrista Certificado
+Optometrista No Certificado
+Venta de Óptica de la tienda en el mes
+% Cumplimiento de meta de Óptica
+Menos de
+$60
+k
+$
+60
+k a menos de $
+100K
+$100k a menos de $120K
+$
+120
+a menos de $1
+80K
+$1
+80K
+o más
+Menos de
+80
+%
+$0
+$0
+$0
+$250
+$400
+80
+% a menos de 90%
+$100
+$150
+$250
+$400
+$550
+90% a menos de 100%
+$150
+$250
+$400
+$550
+$750
+100% a menos de 1
+5
+0%
+$400
+$550
+$750
+$600
+$1,250
+150% o más
+$500
+$650
+$900
+$1,100
+$1,500
+
+TABLE: % Cumplimiento de meta de venta del centro | $ Venta promedio por colaborador en el mes (tienda) |  |  | 
+ | Menos de  $250k | $250k a menos de $450k | $450k a menos de $700k | $700k o más
+< 89 % | $0 | $0 | $0 | $0
+89 .00% - 94.99% | $400 | $475 | $575 | $700
+95.00% - 99.99% | $550 | $650 | $775 | $925
+100.00% - 109.99% | $700 | $825 | $975 | $1,175
+110.00% - 119.99% | $850 | $1,000 | $1,175 | $1,400
+120.00% - 129.99% | $975 | $1,175 | $1,400 | $1,675
+>= 130.00% | $1,150 | $1,375 | $1,650 | $2,000
+
+TABLE:  | Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta de Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $500 | $800
+80 % a menos de 90% | $200 | $300 | $500 | $800 | $1,100
+90% a menos de 100% | $300 | $500 | $800 | $1,100 | $1.500
+100% a menos de 1 5 0% | $800 | $1.100 | $1.500 | $1.800 | $2,500
+150% o más | $1,000 | $1,300 | $1,800 | $2,200 | $3.000
+
+TABLE:  | Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta de Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $250 | $400
+80 % a menos de 90% | $100 | $150 | $250 | $400 | $550
+90% a menos de 100% | $150 | $250 | $400 | $550 | $750
+100% a menos de 1 5 0% | $400 | $550 | $750 | $600 | $1,250
+150% o más | $500 | $650 | $900 | $1,100 | $1,500
+
+TABLE: % Cumplimiento de meta de venta del centro | $ Venta promedio por colaborador en el mes (tienda) |  |  | 
+ | Menos de  $250k | $250k a menos de $450k | $450k a menos de $700k | $700k o más
+< 89 % | $0 | $0 | $0 | $0
+89 .00% - 94.99% | $400 | $475 | $575 | $700
+95.00% - 99.99% | $550 | $650 | $775 | $925
+100.00% - 109.99% | $700 | $825 | $975 | $1,175
+110.00% - 119.99% | $850 | $1,000 | $1,175 | $1,400
+120.00% - 129.99% | $975 | $1,175 | $1,400 | $1,675
+>= 130.00% | $1,150 | $1,375 | $1,650 | $2,000
+
+TABLE:  | Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta de Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $500 | $800
+80 % a menos de 90% | $200 | $300 | $500 | $800 | $1,100
+90% a menos de 100% | $300 | $500 | $800 | $1,100 | $1.500
+100% a menos de 1 5 0% | $800 | $1.100 | $1.500 | $1.800 | $2,500
+150% o más | $1,000 | $1,300 | $1,800 | $2,200 | $3.000
+
+TABLE:  | Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta de Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $250 | $400
+80 % a menos de 90% | $100 | $150 | $250 | $400 | $550
+90% a menos de 100% | $150 | $250 | $400 | $550 | $750
+100% a menos de 1 5 0% | $400 | $550 | $750 | $600 | $1,250
+150% o más | $500 | $650 | $900 | $1,100 | $1,500
+
+=== SLIDE 3 ===
+Nuevo esquema de Incentivos - Optometrista Certificado
+3
+Paso 1
+Se paga incentivo de acuerdo al % de cumplimiento de la meta  y nivel de venta.
+Paso 3
+Se suma el incentivo de acuerdo al porcentaje de cumplimiento de clientes
+RetailCorp
+nuevos de la tienda
+Paso 4
+Paso 2
+Una vez determinado el monto de acuerdo al cumplimiento de la venta, se suma el incentivo correspondiente al cumplimiento de meta de venta de la tienda.
+Se plantea contar con una tabla única de % de cumplimiento de  meta Óptica, con la cual serán evaluados todos los optometristas. Este monto puede crecer o mantenerse dependiendo del % de cumplimiento de la meta de venta de la tienda. Adicionalmente existen incentivos por cumplimiento de clientes nuevos, cobranza en tienda, venta de seguros y venta de servicios.
+Se suma el incentivo de acuerdo al porcentaje de cumplimiento de la Cobranza en tienda
+$ Venta de Óptica de la tienda en el mes
+% Cumplimiento de meta
+de Óptica
+Menos de
+$60
+k
+$
+60
+k a menos de $
+100K
+$100k a menos de $120K
+$
+120
+a menos de $1
+80K
+$1
+80K
+o más
+Menos de
+80
+%
+$0
+$0
+$0
+$500
+$800
+80
+% a menos de 90%
+$200
+$300
+$500
+$800
+$1,100
+90% a menos de 100%
+$300
+$500
+$800
+$1,100
+$1.500
+100% a menos de 1
+5
+0%
+$800
+$1.100
+$1.500
+$1.800
+$2,500
+150% o más
+$1,000
+$1,300
+$1,800
+$2,200
+$3.000
+% Cumplimiento de meta de venta de tienda
+Incentivo por meta de tienda
+<10
+0
+.00%
+$0
+100.00% - 104.99%
+$150
+105.00
+- 10
+9.
+99%
+$300
+>=
+1
+1
+0.00%
+$500
+Incentivo por Clientes nuevos
+RetailCorp
+% de cumplimiento de Clientes nuevos
+RetailCorp
+de la tienda
+Monto de
+incentivo Adicional
+100%
+- 104.99%
+$150
+105% - 109
+.99%
+$200
+110% - 114.
+99%
+$250
+115% - 119.99%
+$300
+120% - 124.99%
+$350
+>=
+125%
+$400
+Incentivo por Cobranza
+% de cumplimiento de monto cobranza en $
+Monto de
+incentivo adicional
+100%
+- 104.99%
+$150
+105% - 109
+.99%
+$200
+110% - 114.
+99%
+$250
+115% - 119.99%
+$300
+120% - 124.99%
+$350
+>=
+125%
+$400
+
+TABLE:  | $ Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta de Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $500 | $800
+80 % a menos de 90% | $200 | $300 | $500 | $800 | $1,100
+90% a menos de 100% | $300 | $500 | $800 | $1,100 | $1.500
+100% a menos de 1 5 0% | $800 | $1.100 | $1.500 | $1.800 | $2,500
+150% o más | $1,000 | $1,300 | $1,800 | $2,200 | $3.000
+
+TABLE: % Cumplimiento de meta de venta de tienda | Incentivo por meta de tienda
+<10 0 .00% | $0
+100.00% - 104.99% | $150
+105.00 - 10 9. 99% | $300
+>= 1 1 0.00% | $500
+
+TABLE: Incentivo por Clientes nuevos RetailCorp | 
+% de cumplimiento de Clientes nuevos RetailCorp de la tienda | Monto de incentivo Adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE: Incentivo por Cobranza | 
+% de cumplimiento de monto cobranza en $ | Monto de incentivo adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE:  | $ Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta de Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $500 | $800
+80 % a menos de 90% | $200 | $300 | $500 | $800 | $1,100
+90% a menos de 100% | $300 | $500 | $800 | $1,100 | $1.500
+100% a menos de 1 5 0% | $800 | $1.100 | $1.500 | $1.800 | $2,500
+150% o más | $1,000 | $1,300 | $1,800 | $2,200 | $3.000
+
+TABLE: % Cumplimiento de meta de venta de tienda | Incentivo por meta de tienda
+<10 0 .00% | $0
+100.00% - 104.99% | $150
+105.00 - 10 9. 99% | $300
+>= 1 1 0.00% | $500
+
+TABLE: Incentivo por Clientes nuevos RetailCorp | 
+% de cumplimiento de Clientes nuevos RetailCorp de la tienda | Monto de incentivo Adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE: Incentivo por Cobranza | 
+% de cumplimiento de monto cobranza en $ | Monto de incentivo adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+=== SLIDE 4 ===
+4
+Paso 5
+Se paga un incentivo como porcentaje del monto vendido por cada seguro que el colaborador coloque durante el mes.
+Paso 6
+Se paga un incentivo como porcentaje del monto por cada servicio vendido por el colaborador durante el mes.
+Incentivo
+(
+Monto $ Reactivación Club Proteccion        Porcentaje de Incentivo)
+Nota:
+La reactivación del club de protección aplican solo para los puestos que son elegibles para poder venderlo. Será necesario registrar la venta de manera individual con número de vendedor para su pago.
+Incentivo
+(
+Monto $ del Servicio de GEX              4%)
+Nuevo esquema de Incentivos - Optometrista Certificado
+Se plantea contar con una tabla única de % de cumplimiento de  meta Óptica, con la cual serán evaluados todos los optometristas. Este monto puede crecer o mantenerse dependiendo del % de cumplimiento de la meta de venta de la tienda. Adicionalmente existen incentivos por cumplimiento de clientes nuevos, cobranza en tienda, venta de seguros y venta de servicios.
+Nota:
+La venta de servicios (Garantía extendida) aplican solo para los puestos que son elegibles para poder venderlo. Será necesario registrar la venta de manera individual con número de vendedor para su pago.
+Incentivos por venta de seguros
+Tipo de seguro
+Cumplimiento Meta
+Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección
+<=80% y 100%<
+3%
+100%<=
+5%
+Incentivo por venta de servicios
+Tipo de servicio
+Porcentaje de incentivo sobre monto vendido
+Garantía Extendida
+4%
+
+TABLE: Incentivos por venta de seguros |  | 
+Tipo de seguro | Cumplimiento Meta | Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección | <=80% y 100%< | 3%
+ | 100%<= | 5%
+ |  | 
+
+TABLE: Incentivo por venta de servicios | 
+Tipo de servicio | Porcentaje de incentivo sobre monto vendido
+Garantía Extendida | 4%
+
+TABLE: Incentivos por venta de seguros |  | 
+Tipo de seguro | Cumplimiento Meta | Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección | <=80% y 100%< | 3%
+ | 100%<= | 5%
+ |  | 
+
+TABLE: Incentivo por venta de servicios | 
+Tipo de servicio | Porcentaje de incentivo sobre monto vendido
+Garantía Extendida | 4%
+
+=== SLIDE 5 ===
+5
+Nuevo esquema de Incentivos - Optometrista Certificado
+Incentivo 1 - Venta Óptica
+Paso 1
+Dividir la venta de Óptica / la meta de venta asignada para obtener el % de cumplimiento
+Paso 2
+Identificar el rango de cumplimiento de meta en la tabla de incentivos por venta
+Identificar el  rango de monto total de venta obtenido en el mes en la tabla de incentivos por venta de Óptica
+Paso 3
+Desempeño mensual
+Venta de Óptica
+Meta Óptica
+Cumplimiento
+Incentivo por venta Óptica
+$
+970,792
+$
+1,001,242
+96
+%
+$1,500.00
+Optometrista Certificado
+$ Venta de Óptica de la tienda en el mes
+% Cumplimiento de meta
+Óptica
+Menos de
+$60
+k
+$
+60
+k a menos de $
+100K
+$100k a menos de $120K
+$
+120
+a menos de $1
+80K
+$1
+80K
+o más
+Menos de
+80
+%
+$0
+$0
+$0
+$500
+$800
+80
+% a menos de 90%
+$200
+$300
+$500
+$800
+$1,100
+90% a menos de 100%
+$300
+$500
+$800
+$1,100
+$1.500
+100% a menos de 1
+5
+0%
+$800
+$1.100
+$1.500
+$1.800
+$2,500
+150% o más
+$1,000
+$1,300
+$1,800
+$2,200
+$3.000
+3
+1
+2
+
+TABLE: Desempeño mensual |  |  | 
+Venta de Óptica | Meta Óptica | Cumplimiento | Incentivo por venta Óptica
+$ 970,792 | $ 1,001,242 | 96 % | $1,500.00
+
+TABLE:  | $ Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $500 | $800
+80 % a menos de 90% | $200 | $300 | $500 | $800 | $1,100
+90% a menos de 100% | $300 | $500 | $800 | $1,100 | $1.500
+100% a menos de 1 5 0% | $800 | $1.100 | $1.500 | $1.800 | $2,500
+150% o más | $1,000 | $1,300 | $1,800 | $2,200 | $3.000
+
+TABLE: Desempeño mensual |  |  | 
+Venta de Óptica | Meta Óptica | Cumplimiento | Incentivo por venta Óptica
+$ 970,792 | $ 1,001,242 | 96 % | $1,500.00
+
+TABLE:  | $ Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $500 | $800
+80 % a menos de 90% | $200 | $300 | $500 | $800 | $1,100
+90% a menos de 100% | $300 | $500 | $800 | $1,100 | $1.500
+100% a menos de 1 5 0% | $800 | $1.100 | $1.500 | $1.800 | $2,500
+150% o más | $1,000 | $1,300 | $1,800 | $2,200 | $3.000
+
+=== SLIDE 6 ===
+6
+Nuevo esquema de Incentivos - Optometrista Certificado
+Incentivo 2 - Venta de Tienda
+Paso 1
+Dividir la venta total del mes para obtener el % de cumplimiento de venta de Tienda
+Paso 2
+Identificar el rango de cumplimiento de meta en la tabla de incentivos por venta Tienda
+1
+2
+Identificar el monto de incentivo correspondiente al cumplimiento obtenido en el mes en la tabla de incentivos por venta Tienda
+Paso 3
+3
+Desempeño mensual de la Tienda
+Venta de la Tienda
+Meta de Tienda
+Cumplimiento
+Incentivo venta tienda
+$
+2,465,906
+$
+2,345,334
+105
+%
+$300.00
+Optometrista Certificado
+% Cumplimiento de meta de venta de tienda
+Incentivo por meta de tienda
+<10
+0
+.00%
+$0
+100.00% - 104.99%
+$150
+105.00
+- 10
+9.
+99%
+$300
+>=
+1
+1
+0.00%
+$500
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+Venta de la Tienda | Meta de Tienda | Cumplimiento | Incentivo venta tienda
+$ 2,465,906 | $ 2,345,334 | 105 % | $300.00
+
+TABLE: % Cumplimiento de meta de venta de tienda | Incentivo por meta de tienda
+<10 0 .00% | $0
+100.00% - 104.99% | $150
+105.00 - 10 9. 99% | $300
+>= 1 1 0.00% | $500
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+Venta de la Tienda | Meta de Tienda | Cumplimiento | Incentivo venta tienda
+$ 2,465,906 | $ 2,345,334 | 105 % | $300.00
+
+TABLE: % Cumplimiento de meta de venta de tienda | Incentivo por meta de tienda
+<10 0 .00% | $0
+100.00% - 104.99% | $150
+105.00 - 10 9. 99% | $300
+>= 1 1 0.00% | $500
+
+=== SLIDE 7 ===
+Incentivo por Clientes nuevos
+RetailCorp
+% de cumplimiento de Clientes nuevos
+RetailCorp
+de la tienda
+Monto de
+incentivo Adicional
+100%
+- 104.99%
+$150
+105% - 109
+.99%
+$200
+110% - 114.
+99%
+$250
+115% - 119.99%
+$300
+120% - 124.99%
+$350
+>=
+125%
+$400
+7
+Optometrista Certificado
+Paso 2
+Identificar en la tabla de Incentivos  el % de cumplimiento de clientes nuevos
+RetailCorp
+de la tienda que sea correspondiente al cumplimiento mensual de la tienda
+Paso 3
+Relacionar el monto de incentivo adicional con la casilla que contenga el % de cumplimiento mensual para obtener como resultado el monto de incentivo por clientes nuevos.
+Desempeño mensual de la Tienda
+Clientes Nuevos Realizados
+Meta Mensual Tienda
+Cumplimiento Mensual
+Incentivo por Clientes Nuevos
+36
+35
+1
+02
+%
+$150
+3
+2
+1
+3
+Nuevo esquema de Incentivos - Optometrista Certificado
+Incentivo 3 - Clientes Nuevos
+Dividir el # de Clientes nuevos realizados vs la meta mensual Tienda para obtener el % de cumplimiento
+Paso 1
+
+TABLE: Incentivo por Clientes nuevos RetailCorp | 
+% de cumplimiento de Clientes nuevos RetailCorp de la tienda | Monto de incentivo Adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+Clientes Nuevos Realizados | Meta Mensual Tienda | Cumplimiento Mensual | Incentivo por Clientes Nuevos
+36 | 35 | 1 02 % | $150
+
+TABLE: Incentivo por Clientes nuevos RetailCorp | 
+% de cumplimiento de Clientes nuevos RetailCorp de la tienda | Monto de incentivo Adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+Clientes Nuevos Realizados | Meta Mensual Tienda | Cumplimiento Mensual | Incentivo por Clientes Nuevos
+36 | 35 | 1 02 % | $150
+
+=== SLIDE 8 ===
+8
+Optometrista Certificado
+Paso 2
+Identificar en la tabla de Incentivo por Cobranza en Tienda el % de cumplimiento de Cobranza en Tienda vs meta que sea correspondiente al cumplimiento mensual (mes natural) de la tienda
+Paso 3
+Relacionar el monto de incentivo con la casilla que contenga el resultado del % de cumplimiento de la tienda.
+Desempeño mensual de la Tienda
+$ Cobranza en Tienda
+Meta Mensual Tienda
+Cumplimiento Mensual
+Incentivo por Cobranza en Tienda
+$470,599
+$456,893
+1
+02%
+$150
+Nuevo esquema de Incentivos Optometrista Certificado
+Incentivo 4 - Cobranza en Tienda
+1
+Dividir $ Cobranza en Tienda vs la meta mensual Tienda para obtener el % de cumplimiento
+2
+3
+Paso 1
+3
+Incentivo por cobranza
+% de cumplimiento de monto cobranza en $
+Monto de
+incentivo adicional
+100%
+- 104.99%
+$150
+105% - 109
+.99%
+$200
+110% - 114.
+99%
+$250
+115% - 119.99%
+$300
+120% - 124.99%
+$350
+>=
+125%
+$400
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+$ Cobranza en Tienda | Meta Mensual Tienda | Cumplimiento Mensual | Incentivo por Cobranza en Tienda
+$470,599 | $456,893 | 1 02% | $150
+
+TABLE: Incentivo por cobranza | 
+% de cumplimiento de monto cobranza en $ | Monto de incentivo adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+$ Cobranza en Tienda | Meta Mensual Tienda | Cumplimiento Mensual | Incentivo por Cobranza en Tienda
+$470,599 | $456,893 | 1 02% | $150
+
+TABLE: Incentivo por cobranza | 
+% de cumplimiento de monto cobranza en $ | Monto de incentivo adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+=== SLIDE 9 ===
+9
+Optometrista Certificado
+Producto
+Candado
+Desempeño mensual por colaborador
+Tipo de Seguro
+Cumplimiento de Meta del producto de la Tienda
+Venta Individual
+Incentivo
+Reactivación de Club de Protección
+81%
+$2,140
+$64
+Paso 1
+Multiplicar el ingreso realizado de las reactivaciones del club de protección por el porcentaje correspondiente al seguro
+Nuevo esquema de Incentivos Optometrista Certificado
+Incentivo 5 - Ventas de seguros
+1
+Nota:
+La reactivación del club de protección aplican solo para los puestos que son elegibles para poder venderlos. Será necesario registrar la venta de manera individual con número de vendedor para su pago.
+Incentivos por venta de seguros
+Tipo de seguro
+Cumplimiento Meta
+Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección
+<=80% y 100%<
+3%
+100%<=
+5%
+
+TABLE: Producto | Candado | Desempeño mensual por colaborador | 
+Tipo de Seguro | Cumplimiento de Meta del producto de la Tienda | Venta Individual | Incentivo
+Reactivación de Club de Protección | 81% | $2,140 | $64
+
+TABLE: Incentivos por venta de seguros |  | 
+Tipo de seguro | Cumplimiento Meta | Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección | <=80% y 100%< | 3%
+ | 100%<= | 5%
+ |  | 
+
+TABLE: Producto | Candado | Desempeño mensual por colaborador | 
+Tipo de Seguro | Cumplimiento de Meta del producto de la Tienda | Venta Individual | Incentivo
+Reactivación de Club de Protección | 81% | $2,140 | $64
+
+TABLE: Incentivos por venta de seguros |  | 
+Tipo de seguro | Cumplimiento Meta | Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección | <=80% y 100%< | 3%
+ | 100%<= | 5%
+ |  | 
+
+=== SLIDE 10 ===
+10
+Optometrista Certificado
+Servicio
+Desempeño mensual por colaborador
+Tipo de Servicio
+Venta Individual
+Incentivo
+Garantía extendida
+$4,276
+$171
+Paso 1
+Multiplicar el ingreso realizado de la garantía extendida por el porcentaje correspondiente al servicio
+Nuevo esquema de Incentivos Optometrista Certificado
+Incentivo 6 - Venta de servicios
+Nota:
+Se consideran montos de precio de venta antes de IVA.
+1
+Nota:
+La venta de servicios (Garantía extendida) aplican solo para los puestos que son elegibles para poder venderlos. Será necesario registrar la venta de manera individual con número de vendedor para su pago.
+Incentivo por venta de servicios
+Tipo de servicio
+Porcentaje de incentivo sobre monto vendido
+Garantía Extendida
+4%
+
+TABLE: Servicio | Desempeño mensual por colaborador | 
+Tipo de Servicio | Venta Individual | Incentivo
+Garantía extendida | $4,276 | $171
+
+TABLE: Incentivo por venta de servicios | 
+Tipo de servicio | Porcentaje de incentivo sobre monto vendido
+Garantía Extendida | 4%
+
+TABLE: Servicio | Desempeño mensual por colaborador | 
+Tipo de Servicio | Venta Individual | Incentivo
+Garantía extendida | $4,276 | $171
+
+TABLE: Incentivo por venta de servicios | 
+Tipo de servicio | Porcentaje de incentivo sobre monto vendido
+Garantía Extendida | 4%
+
+=== SLIDE 11 ===
+Nuevo esquema de Incentivos - Optometrista Certificado
+Resumen incentivo total
+11
+Incentivo por Venta Individual
+$
+1,500
+Optometrista Certificado
+El total del incentivo a pagar será la suma de los incentivos a pagar obtenidos en los indicadores mencionados anteriormente
+Incentivo por Venta de la Tienda				$300
+Incentivo por Cobranza en Tienda				$150
+Incentivo Club de Protección                                  	$ 64
+Incentivo Garantía Extendida                                   	$171
+Total de Incentivo a Pagar
+$2,335
+Incentivo por Clientes Nuevos
+$150
+
+=== SLIDE 12 ===
+Nuevo esquema de Incentivos - Optometrista no Certificado
+12
+Paso 1
+Se paga incentivo de acuerdo al % de cumplimiento de la meta y nivel de venta.
+Paso 3
+Se suma el incentivo de acuerdo al porcentaje de cumplimiento de clientes
+RetailCorp
+nuevos de la tienda
+Paso 4
+Paso 2
+Una vez determinado el monto de acuerdo al cumplimiento de la venta, se suma el incentivo correspondiente al cumplimiento de meta de venta de la tienda.
+Se plantea contar con una tabla única de % de cumplimiento de  meta Óptica, con la cual serán evaluados todos los optometristas. Este monto puede crecer o mantenerse dependiendo del % de cumplimiento de la meta de venta de la tienda. Adicionalmente existen incentivos por cumplimiento de clientes nuevos, cobranza en tienda, venta de seguros y venta de servicios.
+Se suma el incentivo de acuerdo al porcentaje de cumplimiento de la Cobranza en tienda
+% Cumplimiento de meta de venta de tienda
+Incentivo por meta de tienda
+<10
+0
+.00%
+$0
+100.00% - 104.99%
+$150
+105.00
+- 10
+9.
+99%
+$300
+>=
+1
+1
+0.00%
+$500
+Incentivo por Clientes nuevos
+RetailCorp
+% de cumplimiento de Clientes nuevos
+RetailCorp
+de la tienda
+Monto de
+incentivo Adicional
+100%
+- 104.99%
+$150
+105% - 109
+.99%
+$200
+110% - 114.
+99%
+$250
+115% - 119.99%
+$300
+120% - 124.99%
+$350
+>=
+125%
+$400
+Incentivo por Cobranza
+% de cumplimiento de monto Cobranza en $
+Monto de
+incentivo adicional
+100%
+- 104.99%
+$150
+105% - 109
+.99%
+$200
+110% - 114.
+99%
+$250
+115% - 119.99%
+$300
+120% - 124.99%
+$350
+>=
+125%
+$400
+$ Venta de Óptica de la tienda en el mes
+% Cumplimiento de meta
+Óptica
+Menos de
+$60
+k
+$
+60
+k a menos de $
+100K
+$100k a menos de $120K
+$
+120
+a menos de $1
+80K
+$1
+80K
+o más
+Menos de
+80
+%
+$0
+$0
+$0
+$250
+$400
+80
+% a menos de 90%
+$100
+$150
+$250
+$400
+$550
+90% a menos de 100%
+$150
+$250
+$400
+$550
+$750
+100% a menos de 1
+5
+0%
+$400
+$550
+$750
+$600
+$1,250
+150% o más
+$500
+$650
+$900
+$1,100
+$1,500
+
+TABLE: % Cumplimiento de meta de venta de tienda | Incentivo por meta de tienda
+<10 0 .00% | $0
+100.00% - 104.99% | $150
+105.00 - 10 9. 99% | $300
+>= 1 1 0.00% | $500
+
+TABLE: Incentivo por Clientes nuevos RetailCorp | 
+% de cumplimiento de Clientes nuevos RetailCorp de la tienda | Monto de incentivo Adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE: Incentivo por Cobranza | 
+% de cumplimiento de monto Cobranza en $ | Monto de incentivo adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE:  | $ Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $250 | $400
+80 % a menos de 90% | $100 | $150 | $250 | $400 | $550
+90% a menos de 100% | $150 | $250 | $400 | $550 | $750
+100% a menos de 1 5 0% | $400 | $550 | $750 | $600 | $1,250
+150% o más | $500 | $650 | $900 | $1,100 | $1,500
+
+TABLE: % Cumplimiento de meta de venta de tienda | Incentivo por meta de tienda
+<10 0 .00% | $0
+100.00% - 104.99% | $150
+105.00 - 10 9. 99% | $300
+>= 1 1 0.00% | $500
+
+TABLE: Incentivo por Clientes nuevos RetailCorp | 
+% de cumplimiento de Clientes nuevos RetailCorp de la tienda | Monto de incentivo Adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE: Incentivo por Cobranza | 
+% de cumplimiento de monto Cobranza en $ | Monto de incentivo adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE:  | $ Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $250 | $400
+80 % a menos de 90% | $100 | $150 | $250 | $400 | $550
+90% a menos de 100% | $150 | $250 | $400 | $550 | $750
+100% a menos de 1 5 0% | $400 | $550 | $750 | $600 | $1,250
+150% o más | $500 | $650 | $900 | $1,100 | $1,500
+
+=== SLIDE 13 ===
+13
+Paso 5
+Se paga un incentivo como porcentaje del monto vendido por cada seguro que el colaborador coloque durante el mes.
+Paso 6
+Se paga un incentivo como porcentaje del monto por cada servicio vendido por el colaborador durante el mes.
+Nota:
+La reactivación del club de protección aplican solo para los puestos que son elegibles para poder venderlo. Será necesario registrar la venta de manera individual con número de vendedor para su pago.
+Nuevo esquema de Incentivos - Optometrista no Certificado
+Se plantea contar con una tabla única de % de cumplimiento de venta individual, con la cual serán evaluados todos los Asesores de la tienda. Este monto puede crecer o mantenerse dependiendo del % de cumplimiento de la meta de venta de la tienda. Adicionalmente existen incentivos por cumplimiento de clientes nuevos, cobranza en tienda, venta de seguros y venta de servicios.
+Nota:
+La venta de servicios (Garantía extendida) aplican solo para los puestos que son elegibles para poder venderlo. Será necesario registrar la venta de manera individual con número de vendedor para su pago.
+Incentivos por venta de seguros
+Tipo de seguro
+Cumplimiento Meta
+Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección
+<=80% y 100%<
+3%
+100%<=
+5%
+Incentivo por venta de servicios
+Tipo de servicio
+Porcentaje de incentivo sobre monto vendido
+Garantía Extendida
+4%
+Incentivo
+(
+Monto $ Reactivación Club Proteccion        Porcentaje de Incentivo)
+Incentivo
+(
+Monto $ del Servicio de GEX              4%)
+
+TABLE: Incentivos por venta de seguros |  | 
+Tipo de seguro | Cumplimiento Meta | Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección | <=80% y 100%< | 3%
+ | 100%<= | 5%
+ |  | 
+
+TABLE: Incentivo por venta de servicios | 
+Tipo de servicio | Porcentaje de incentivo sobre monto vendido
+Garantía Extendida | 4%
+
+TABLE: Incentivos por venta de seguros |  | 
+Tipo de seguro | Cumplimiento Meta | Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección | <=80% y 100%< | 3%
+ | 100%<= | 5%
+ |  | 
+
+TABLE: Incentivo por venta de servicios | 
+Tipo de servicio | Porcentaje de incentivo sobre monto vendido
+Garantía Extendida | 4%
+
+=== SLIDE 14 ===
+14
+Nuevo esquema de Incentivos - Optometrista no Certificado
+Incentivo 1 - Venta Óptica
+Desempeño mensual
+Venta de Óptica
+Meta Óptica
+Cumplimiento
+Incentivo por venta Óptica
+$
+970,792
+$
+1,001,242
+96
+%
+$750
+Optometrista no Certificado
+1
+2
+$ Venta de Óptica de la tienda en el mes
+% Cumplimiento de meta
+Óptica
+Menos de
+$60
+k
+$
+60
+k a menos de $
+100K
+$100k a menos de $120K
+$
+120
+a menos de $1
+80K
+$1
+80K
+o más
+Menos de
+80
+%
+$0
+$0
+$0
+$250
+$400
+80
+% a menos de 90%
+$100
+$150
+$250
+$400
+$55’
+90% a menos de 100%
+$150
+$250
+$400
+$550
+$750
+100% a menos de 1
+5
+0%
+$400
+$550
+$750
+$600
+$1,250
+150% o más
+$500
+$650
+$900
+$1,100
+$1,500
+3
+Paso 1
+Dividir la venta de Óptica / la meta de venta asignada para obtener el % de cumplimiento
+Paso 2
+Identificar el rango de cumplimiento de meta en la tabla de incentivos por venta
+Identificar el  rango de monto total de venta obtenido en el mes en la tabla de incentivos por venta de Óptica
+Paso 3
+
+TABLE: Desempeño mensual |  |  | 
+Venta de Óptica | Meta Óptica | Cumplimiento | Incentivo por venta Óptica
+$ 970,792 | $ 1,001,242 | 96 % | $750
+
+TABLE:  | $ Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $250 | $400
+80 % a menos de 90% | $100 | $150 | $250 | $400 | $55’
+90% a menos de 100% | $150 | $250 | $400 | $550 | $750
+100% a menos de 1 5 0% | $400 | $550 | $750 | $600 | $1,250
+150% o más | $500 | $650 | $900 | $1,100 | $1,500
+
+TABLE: Desempeño mensual |  |  | 
+Venta de Óptica | Meta Óptica | Cumplimiento | Incentivo por venta Óptica
+$ 970,792 | $ 1,001,242 | 96 % | $750
+
+TABLE:  | $ Venta de Óptica de la tienda en el mes |  |  |  | 
+% Cumplimiento de meta Óptica | Menos de $60 k | $ 60 k a menos de $ 100K | $100k a menos de $120K | $ 120 a menos de $1 80K | $1 80K o más
+Menos de 80 % | $0 | $0 | $0 | $250 | $400
+80 % a menos de 90% | $100 | $150 | $250 | $400 | $55’
+90% a menos de 100% | $150 | $250 | $400 | $550 | $750
+100% a menos de 1 5 0% | $400 | $550 | $750 | $600 | $1,250
+150% o más | $500 | $650 | $900 | $1,100 | $1,500
+
+=== SLIDE 15 ===
+15
+Nuevo esquema de Incentivos - Optometrista no Certificado
+Incentivo 2 - Venta de Tienda
+Paso 1
+Dividir la venta total del mes para obtener el % de cumplimiento de venta de Tienda
+Paso 2
+Identificar el rango de cumplimiento de meta en la tabla de incentivos por venta Tienda
+1
+2
+Identificar el monto de incentivo correspondiente al cumplimiento obtenido en el mes retail en la tabla de incentivos por venta Tienda
+Paso 3
+3
+Desempeño mensual de la Tienda
+Venta de la Tienda
+Meta de Tienda
+Cumplimiento
+Incentivo venta tienda
+$
+2,465,906
+$
+2,345,334
+105
+%
+$300.00
+Optometrista no Certificado
+% Cumplimiento de meta de venta de tienda
+Incentivo por meta de tienda
+<10
+0
+.00%
+$0
+100.00% - 104.99%
+$150
+105.00
+- 10
+9.
+99%
+$300
+>=
+1
+1
+0.00%
+$500
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+Venta de la Tienda | Meta de Tienda | Cumplimiento | Incentivo venta tienda
+$ 2,465,906 | $ 2,345,334 | 105 % | $300.00
+
+TABLE: % Cumplimiento de meta de venta de tienda | Incentivo por meta de tienda
+<10 0 .00% | $0
+100.00% - 104.99% | $150
+105.00 - 10 9. 99% | $300
+>= 1 1 0.00% | $500
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+Venta de la Tienda | Meta de Tienda | Cumplimiento | Incentivo venta tienda
+$ 2,465,906 | $ 2,345,334 | 105 % | $300.00
+
+TABLE: % Cumplimiento de meta de venta de tienda | Incentivo por meta de tienda
+<10 0 .00% | $0
+100.00% - 104.99% | $150
+105.00 - 10 9. 99% | $300
+>= 1 1 0.00% | $500
+
+=== SLIDE 16 ===
+16
+Optometrista no Certificado
+Paso 2
+Identificar en la tabla de Incentivos por Clientes Nuevos
+RetailCorp
+el % de cumplimiento de clientes nuevos
+RetailCorp
+de la tienda que sea correspondiente al cumplimiento mensual de la tienda
+Paso 3
+Relacionar el monto de incentivo adicional con la casilla que contenga el % de cumplimiento mensual para obtener como resultado el monto de incentivo por clientes nuevos.
+Desempeño mensual de la Tienda
+Clientes Nuevos Realizados
+Meta Mensual Tienda
+Cumplimiento Mensual
+Incentivo por Clientes Nuevos
+36
+35
+1
+02
+%
+$150
+3
+2
+1
+3
+Nuevo esquema de Incentivos - Optometrista no Certificado
+Incentivo 3 - Clientes Nuevos
+Dividir el # de Clientes nuevos realizados vs la meta mensual Tienda para obtener el % de cumplimiento
+Paso 1
+Incentivo por Clientes nuevos
+RetailCorp
+% de cumplimiento de Clientes nuevos
+RetailCorp
+de la tienda
+Monto de
+incentivo Adicional
+100%
+- 104.99%
+$150
+105% - 109
+.99%
+$200
+110% - 114.
+99%
+$250
+115% - 119.99%
+$300
+120% - 124.99%
+$350
+>=
+125%
+$400
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+Clientes Nuevos Realizados | Meta Mensual Tienda | Cumplimiento Mensual | Incentivo por Clientes Nuevos
+36 | 35 | 1 02 % | $150
+
+TABLE: Incentivo por Clientes nuevos RetailCorp | 
+% de cumplimiento de Clientes nuevos RetailCorp de la tienda | Monto de incentivo Adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+Clientes Nuevos Realizados | Meta Mensual Tienda | Cumplimiento Mensual | Incentivo por Clientes Nuevos
+36 | 35 | 1 02 % | $150
+
+TABLE: Incentivo por Clientes nuevos RetailCorp | 
+% de cumplimiento de Clientes nuevos RetailCorp de la tienda | Monto de incentivo Adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+=== SLIDE 17 ===
+17
+Optometrista no Certificado
+Paso 2
+Identificar en la tabla de Incentivo por Cobranza en Tienda el % de cumplimiento de Cobranza en Tienda vs meta que sea correspondiente al cumplimiento mensual (mes natural) de la tienda
+Paso 3
+Relacionar el monto de incentivo con la casilla que contenga el resultado del % de cumplimiento de la tienda.
+Desempeño mensual de la Tienda
+$ Cobranza en Tienda
+Meta Mensual Tienda
+Cumplimiento Mensual
+Incentivo por Cobranza en Tienda
+$470,599
+$456,893
+1
+03
+%
+$150
+Nuevo esquema de Incentivos Optometrista no Certificado
+Incentivo 4 - Cobranza en Tienda
+1
+Dividir $ Cobranza en Tienda vs la meta mensual Tienda para obtener el % de cumplimiento
+2
+3
+Paso 1
+3
+Incentivo por cobranza
+% de cumplimiento de monto cobranza en $
+Monto de
+incentivo adicional
+100%
+- 104.99%
+$150
+105% - 109
+.99%
+$200
+110% - 114.
+99%
+$250
+115% - 119.99%
+$300
+120% - 124.99%
+$350
+>=
+125%
+$400
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+$ Cobranza en Tienda | Meta Mensual Tienda | Cumplimiento Mensual | Incentivo por Cobranza en Tienda
+$470,599 | $456,893 | 1 03 % | $150
+
+TABLE: Incentivo por cobranza | 
+% de cumplimiento de monto cobranza en $ | Monto de incentivo adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+TABLE: Desempeño mensual de la Tienda |  |  | 
+$ Cobranza en Tienda | Meta Mensual Tienda | Cumplimiento Mensual | Incentivo por Cobranza en Tienda
+$470,599 | $456,893 | 1 03 % | $150
+
+TABLE: Incentivo por cobranza | 
+% de cumplimiento de monto cobranza en $ | Monto de incentivo adicional
+100% - 104.99% | $150
+105% - 109 .99% | $200
+110% - 114. 99% | $250
+115% - 119.99% | $300
+120% - 124.99% | $350
+>= 125% | $400
+
+=== SLIDE 18 ===
+18
+Optometrista no Certificado
+Producto
+Candado
+Desempeño mensual por colaborador
+Tipo de Seguro
+Cumplimiento de Meta del producto de la Tienda
+Venta Individual
+Incentivo
+Reactivación de Club de Protección
+81%
+$2,140
+$64
+Paso 1
+Multiplicar el ingreso realizado de las reactivaciones del club de protección por el porcentaje correspondiente al seguro
+Nuevo esquema de Incentivos Optometrista no Certificado
+Incentivo 5 - Ventas de seguros
+1
+Nota:
+La reactivación del club de protección aplican solo para los puestos que son elegibles para poder venderlos. Será necesario registrar la venta de manera individual con número de vendedor para su pago.
+Incentivos por venta de seguros
+Tipo de seguro
+Cumplimiento Meta
+Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección
+<=80% y 100%<
+3%
+100%<=
+5%
+
+TABLE: Producto | Candado | Desempeño mensual por colaborador | 
+Tipo de Seguro | Cumplimiento de Meta del producto de la Tienda | Venta Individual | Incentivo
+Reactivación de Club de Protección | 81% | $2,140 | $64
+
+TABLE: Incentivos por venta de seguros |  | 
+Tipo de seguro | Cumplimiento Meta | Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección | <=80% y 100%< | 3%
+ | 100%<= | 5%
+ |  | 
+
+TABLE: Producto | Candado | Desempeño mensual por colaborador | 
+Tipo de Seguro | Cumplimiento de Meta del producto de la Tienda | Venta Individual | Incentivo
+Reactivación de Club de Protección | 81% | $2,140 | $64
+
+TABLE: Incentivos por venta de seguros |  | 
+Tipo de seguro | Cumplimiento Meta | Porcentaje de incentivo sobre el monto ($)
+Reactivación Club de Protección | <=80% y 100%< | 3%
+ | 100%<= | 5%
+ |  | 
+
+=== SLIDE 19 ===
+19
+Optometrista no Certificado
+Servicio
+Desempeño mensual por colaborador
+Tipo de Servicio
+Venta Individual
+Incentivo
+Garantía extendida
+$4,276
+$171
+Paso 1
+Multiplicar el ingreso realizado de la garantía extendida por el porcentaje correspondiente al servicio
+Nuevo esquema de Incentivos Optometrista no Certificado
+Incentivo 6 - Venta de servicios
+Nota:
+Se consideran montos de precio de venta antes de IVA.
+1
+Nota:
+La venta de servicios (Garantía extendida) aplican solo para los puestos que son elegibles para poder venderlos. Será necesario registrar la venta de manera individual con número de vendedor para su pago.
+Incentivo por venta de servicios
+Tipo de servicio
+Porcentaje de incentivo sobre monto vendido
+Garantía Extendida
+4%
+
+TABLE: Servicio | Desempeño mensual por colaborador | 
+Tipo de Servicio | Venta Individual | Incentivo
+Garantía extendida | $4,276 | $171
+
+TABLE: Incentivo por venta de servicios | 
+Tipo de servicio | Porcentaje de incentivo sobre monto vendido
+Garantía Extendida | 4%
+
+TABLE: Servicio | Desempeño mensual por colaborador | 
+Tipo de Servicio | Venta Individual | Incentivo
+Garantía extendida | $4,276 | $171
+
+TABLE: Incentivo por venta de servicios | 
+Tipo de servicio | Porcentaje de incentivo sobre monto vendido
+Garantía Extendida | 4%
+
+=== SLIDE 20 ===
+Nuevo esquema de Incentivos - Optometrista no Certificado
+Resumen incentivo total
+20
+Incentivo por Venta Individual
+$
+750
+Optometrista no Certificado
+El total del incentivo a pagar será la suma de los incentivos a pagar obtenidos en los indicadores mencionados anteriormente
+Incentivo por Venta de la Tienda				$300
+Incentivo por Cobranza en Tienda				$150
+Incentivo Club de Protección                                  	$ 64
+Incentivo Garantía Extendida                                   	$171
+Total de Incentivo a Pagar
+$1,585
+Incentivo por Clientes Nuevos
+$150
