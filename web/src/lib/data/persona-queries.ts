@@ -17,6 +17,12 @@ import type { Json } from '@/lib/supabase/database.types';
 // Types
 // ──────────────────────────────────────────────
 
+export interface AIQualityMetrics {
+  totalSignals: number;
+  acceptanceRate: number;
+  trendDirection: 'improving' | 'stable' | 'declining';
+}
+
 export interface AdminDashboardData {
   totalPayout: number;
   entityCount: number;
@@ -25,6 +31,7 @@ export interface AdminDashboardData {
   lifecycleState: string | null;
   exceptions: ExceptionItem[];
   componentComposition: ComponentItem[];
+  aiMetrics?: AIQualityMetrics;
 }
 
 export interface ManagerDashboardData {
@@ -207,6 +214,9 @@ export async function getAdminDashboardData(tenantId: string): Promise<AdminDash
 
   const entityMap = new Map((entities ?? []).map(e => [e.id, e]));
 
+  // OB-86: Fetch lightweight AI quality metrics for this tenant
+  const aiMetrics = await fetchAIQualityMetrics(supabase, tenantId);
+
   return {
     totalPayout: sum(safeOutcomes.map(o => o.total_payout)),
     entityCount: safeOutcomes.length,
@@ -220,6 +230,7 @@ export async function getAdminDashboardData(tenantId: string): Promise<AdminDash
     lifecycleState,
     exceptions: deriveExceptions(safeOutcomes, entityMap),
     componentComposition: aggregateComponents(safeOutcomes),
+    aiMetrics,
   };
 }
 
@@ -654,6 +665,72 @@ function deriveAccelerationSignals(
   }
 
   return signals;
+}
+
+// ──────────────────────────────────────────────
+// AI Quality Metrics (OB-86)
+// ──────────────────────────────────────────────
+
+type SupabaseClient = ReturnType<typeof createClient>;
+
+async function fetchAIQualityMetrics(supabase: SupabaseClient, tenantId: string): Promise<AIQualityMetrics | undefined> {
+  try {
+    const { data: signals, error } = await supabase
+      .from('classification_signals')
+      .select('confidence, source, created_at')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (error || !signals || signals.length === 0) return undefined;
+
+    let accepted = 0;
+    let actioned = 0;
+
+    for (const s of signals) {
+      const src = s.source ?? '';
+      if (src === 'user_confirmed' || (s.confidence != null && s.confidence >= 0.95)) {
+        accepted++;
+        actioned++;
+      } else if (src === 'user_corrected') {
+        actioned++;
+      } else if (s.confidence != null && s.confidence < 0.3) {
+        actioned++;
+      }
+    }
+
+    const acceptanceRate = actioned > 0 ? accepted / actioned : 0;
+
+    // Simple trend: compare first half vs second half acceptance rate
+    let trendDirection: 'improving' | 'stable' | 'declining' = 'stable';
+    if (signals.length >= 10) {
+      const mid = Math.floor(signals.length / 2);
+      // signals are newest-first, so first half = recent, second half = older
+      const recentHalf = signals.slice(0, mid);
+      const olderHalf = signals.slice(mid);
+
+      const rateForSlice = (slice: typeof signals) => {
+        let a = 0, act = 0;
+        for (const s of slice) {
+          const src = s.source ?? '';
+          if (src === 'user_confirmed' || (s.confidence != null && s.confidence >= 0.95)) { a++; act++; }
+          else if (src === 'user_corrected') { act++; }
+          else if (s.confidence != null && s.confidence < 0.3) { act++; }
+        }
+        return act > 0 ? a / act : 0;
+      };
+
+      const recentRate = rateForSlice(recentHalf);
+      const olderRate = rateForSlice(olderHalf);
+      const delta = recentRate - olderRate;
+      if (delta > 0.05) trendDirection = 'improving';
+      else if (delta < -0.05) trendDirection = 'declining';
+    }
+
+    return { totalSignals: signals.length, acceptanceRate, trendDirection };
+  } catch {
+    return undefined;
+  }
 }
 
 // ──────────────────────────────────────────────

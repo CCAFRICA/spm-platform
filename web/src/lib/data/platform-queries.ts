@@ -61,6 +61,12 @@ export interface AIIntelligenceData {
   signalsByType: { signalType: string; count: number; avgConfidence: number }[];
   perTenant: { tenantId: string; tenantName: string; signalCount: number; avgConfidence: number }[];
   tableExists: boolean;
+  // OB-86: Enhanced metrics
+  accuracyByType?: { signalType: string; total: number; accepted: number; corrected: number; rejected: number; acceptanceRate: number; correctionRate: number; avgConfidence: number }[];
+  overallAccuracy?: { total: number; acceptanceRate: number; correctionRate: number; avgConfidence: number };
+  calibration?: { range: string; statedConfidence: number; actualAccuracy: number; count: number; calibrationError: number }[];
+  flywheel?: { period: string; signalCount: number; acceptanceRate: number; avgConfidence: number }[];
+  healthSummary?: { totalSignals: number; overallAccuracy: number; avgConfidence: number; calibrationError: number; trendDirection: 'improving' | 'stable' | 'declining' };
 }
 
 export interface TenantBillingData {
