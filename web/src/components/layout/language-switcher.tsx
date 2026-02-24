@@ -11,48 +11,22 @@ import {
 import { Button } from '@/components/ui/button';
 import { Globe, Check } from 'lucide-react';
 import { useLocale } from '@/contexts/locale-context';
-import { useAuth } from '@/contexts/auth-context';
-import { useTenant } from '@/contexts/tenant-context';
-import { createClient } from '@/lib/supabase/client';
 import { SUPPORTED_LOCALES, Locale } from '@/lib/i18n';
-
-/** Map locale code to profiles.language column value */
-const LOCALE_TO_LANG: Record<Locale, string> = {
-  'es-MX': 'es',
-  'en-US': 'en',
-  'pt-BR': 'pt',
-};
 
 export function LanguageSwitcher() {
   const { locale, setLocale } = useLocale();
-  const { user } = useAuth();
-  const { currentTenant } = useTenant();
 
   // Use context locale as source of truth (user selection overrides tenant default)
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
   const isSpanish = locale === 'es-MX';
 
-  const handleLocaleChange = async (newLocale: Locale) => {
+  const handleLocaleChange = (newLocale: Locale) => {
     if (newLocale !== locale) {
-      setLocale(newLocale);
+      setLocale(newLocale); // Persistence handled by locale-context
       const selectedLocale = SUPPORTED_LOCALES.find((l) => l.code === newLocale);
       toast.success(isSpanish ? 'Idioma cambiado' : 'Language changed', {
         description: selectedLocale?.name || newLocale,
       });
-
-      // Persist language preference to profiles.locale in Supabase (OB-58)
-      if (user && currentTenant) {
-        try {
-          const supabase = createClient();
-          await supabase
-            .from('profiles')
-            .update({ locale: LOCALE_TO_LANG[newLocale] || 'es' })
-            .eq('auth_user_id', user.id)
-            .eq('tenant_id', currentTenant.id);
-        } catch (err) {
-          console.warn('[LanguageSwitcher] Failed to persist language:', err);
-        }
-      }
     }
   };
 

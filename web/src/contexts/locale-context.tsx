@@ -123,6 +123,23 @@ export function LocaleProvider({
       entityId: 'locale',
       reason: `Changed language to ${newLocale}`,
     });
+
+    // Persist language preference to profiles.locale in Supabase (OB-58)
+    // Fire-and-forget — non-blocking so UI updates instantly
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const langCode = newLocale === 'es-MX' ? 'es' : newLocale === 'pt-BR' ? 'pt' : 'en';
+        await supabase
+          .from('profiles')
+          .update({ locale: langCode })
+          .eq('auth_user_id', user.id);
+      } catch {
+        // Non-blocking — locale already updated in state
+      }
+    })();
   }, []);
 
   const t = useCallback(
