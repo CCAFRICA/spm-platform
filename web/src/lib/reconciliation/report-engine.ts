@@ -358,3 +358,81 @@ function generateFindings(
 
   return findings;
 }
+
+// ============================================
+// XLSX EXPORT (OB-91 Mission 6)
+// ============================================
+
+/**
+ * Export reconciliation report to XLSX with 3 sheets:
+ * 1. Summary — Overall metrics + per-component totals
+ * 2. Entity Detail — Per entity-component rows
+ * 3. Findings — Per finding rows
+ *
+ * Uses xlsx library (already installed in project).
+ */
+export function exportReportToXLSX(report: ReconciliationReport): void {
+  // Lazy import to avoid bundling xlsx in SSR
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSX = require('xlsx');
+
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Summary
+  const summaryData = [
+    ['Reconciliation Report'],
+    ['Generated', new Date(report.generatedAt).toLocaleString()],
+    ['Period', report.periodLabel],
+    ['Tenant', report.tenantName],
+    [],
+    ['Overall Metrics'],
+    ['Match Rate', `${report.summary.overallMatchPercent.toFixed(1)}%`],
+    ['Total Engine', report.summary.totalEngine],
+    ['Total Benchmark', report.summary.totalBenchmark],
+    ['Total Delta', report.summary.totalDelta],
+    ['Entities Compared', report.summary.entityCount],
+    ['Exact Matches', report.summary.exactMatchCount],
+    ['Delta Entities', report.summary.deltaEntityCount],
+    [],
+    ['Component', 'Engine Total', 'Benchmark Total', 'Delta', 'Delta %', 'Entities', 'Exact Matches', 'Status'],
+    ...report.components.map(c => [
+      c.name, c.engineTotal, c.benchmarkTotal, c.delta,
+      `${c.deltaPercent.toFixed(2)}%`, c.entityCount, c.exactMatchCount,
+      c.isExact ? 'EXACT' : 'DELTA',
+    ]),
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
+  XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
+
+  // Sheet 2: Entity Detail
+  const entityRows: unknown[][] = [
+    ['Entity ID', 'Name', 'Component', 'VL Engine', 'Benchmark', 'Delta', 'Flag'],
+  ];
+  for (const comp of report.components) {
+    for (const entity of comp.entities) {
+      entityRows.push([
+        entity.entityId, entity.name, comp.name,
+        entity.enginePayout, entity.benchmarkPayout, entity.delta, entity.flag,
+      ]);
+    }
+  }
+  const ws2 = XLSX.utils.aoa_to_sheet(entityRows);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Entity Detail');
+
+  // Sheet 3: Findings
+  const findingRows: unknown[][] = [
+    ['Severity', 'Title', 'Description', 'Impact', 'Impact Amount', 'Entity Count', 'Action', 'Component', 'Pattern'],
+  ];
+  for (const f of report.findings) {
+    findingRows.push([
+      f.severity, f.title, f.description, f.impact,
+      f.impactAmount, f.entityCount, f.action, f.componentName ?? '', f.pattern,
+    ]);
+  }
+  const ws3 = XLSX.utils.aoa_to_sheet(findingRows);
+  XLSX.utils.book_append_sheet(wb, ws3, 'Findings');
+
+  // Download
+  const filename = `reconciliation-report-${report.periodLabel.replace(/[^a-zA-Z0-9]/g, '-')}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
