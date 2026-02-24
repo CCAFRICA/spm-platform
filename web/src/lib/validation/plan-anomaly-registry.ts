@@ -12,8 +12,6 @@ import type {
   AdditiveLookupConfig,
   PlanVariant,
   PlanComponent,
-  MatrixConfig,
-  TierConfig,
   Band,
 } from '@/types/compensation-plan';
 
@@ -909,7 +907,7 @@ export function validatePlanConfig(config: AdditiveLookupConfig): PlanValidation
     anomalies.push(...found);
   }
 
-  const passedChecks = totalChecks - countFailedChecks(anomalies, totalChecks);
+  const passedChecks = totalChecks - countFailedChecks(anomalies);
 
   return {
     anomalies,
@@ -982,7 +980,7 @@ function getAllBands(component: PlanComponent): Band[] {
   return [];
 }
 
-function countFailedChecks(anomalies: PlanAnomaly[], _totalChecks: number): number {
+function countFailedChecks(anomalies: PlanAnomaly[]): number {
   // Count unique detector IDs that found issues
   const failedDetectors = new Set(anomalies.map(a => a.id));
   return failedDetectors.size;

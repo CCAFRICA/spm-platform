@@ -164,29 +164,6 @@ function depthIcon(available: boolean, confidence: number): string {
   return '🔍';
 }
 
-function findingColor(type: string): string {
-  switch (type) {
-    case 'false_green': return '#ef4444';
-    case 'red_flag': return '#ef4444';
-    case 'warning': return '#f59e0b';
-    case 'tolerance': return '#10b981';
-    case 'exact': return '#10b981';
-    case 'population': return '#6b7280';
-    default: return '#94a3b8';
-  }
-}
-
-function findingLabel(type: string, isSpanish: boolean): string {
-  switch (type) {
-    case 'false_green': return isSpanish ? 'VERDE FALSO' : 'FALSE GREEN';
-    case 'red_flag': return isSpanish ? 'ALERTA' : 'RED FLAG';
-    case 'warning': return isSpanish ? 'ADVERTENCIA' : 'WARNING';
-    case 'tolerance': return isSpanish ? 'TOLERANCIA' : 'TOLERANCE';
-    case 'exact': return isSpanish ? 'EXACTO' : 'EXACT';
-    case 'population': return isSpanish ? 'POBLACION' : 'POPULATION';
-    default: return type;
-  }
-}
 
 // ──────────────────────────────────────────────
 // Page Component

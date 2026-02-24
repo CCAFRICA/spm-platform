@@ -22,7 +22,6 @@ import {
   hasUnresolvedCriticals,
   anomalyKey,
   type PlanValidationResult,
-  type PlanAnomaly,
 } from '@/lib/validation/plan-anomaly-registry';
 import { recordSignal } from '@/lib/intelligence/classification-signal-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
