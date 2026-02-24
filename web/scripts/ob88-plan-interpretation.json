@@ -1,0 +1,528 @@
+{
+  "ruleSetName": "Optometrist Incentive Plan",
+  "ruleSetNameEs": "Esquema de Incentivos para Optometristas",
+  "description": "Comprehensive incentive plan for certified and non-certified optometrists with 6 performance indicators",
+  "currency": "MXN",
+  "employeeTypes": [
+    {
+      "id": "certified",
+      "name": "Optometrista Certificado",
+      "nameEs": "Optometrista Certificado"
+    },
+    {
+      "id": "non_certified",
+      "name": "Optometrista No Certificado",
+      "nameEs": "Optometrista No Certificado"
+    }
+  ],
+  "components": [
+    {
+      "id": "optica_sales_certified",
+      "name": "Optical Sales Incentive - Certified",
+      "nameEs": "Incentivo por Venta Óptica - Certificado",
+      "type": "matrix_lookup",
+      "appliesToEmployeeTypes": [
+        "certified"
+      ],
+      "calculationMethod": {
+        "rowAxis": {
+          "metric": "optical_achievement_percentage",
+          "label": "% Cumplimiento de meta de Óptica",
+          "ranges": [
+            {
+              "min": 0,
+              "max": 79.99,
+              "label": "Menos de 80%"
+            },
+            {
+              "min": 80,
+              "max": 89.99,
+              "label": "80% a menos de 90%"
+            },
+            {
+              "min": 90,
+              "max": 99.99,
+              "label": "90% a menos de 100%"
+            },
+            {
+              "min": 100,
+              "max": 149.99,
+              "label": "100% a menos de 150%"
+            },
+            {
+              "min": 150,
+              "max": 999,
+              "label": "150% o más"
+            }
+          ]
+        },
+        "columnAxis": {
+          "metric": "optical_sales_amount",
+          "label": "$ Venta de Óptica de la tienda en el mes",
+          "ranges": [
+            {
+              "min": 0,
+              "max": 59999,
+              "label": "Menos de $60k"
+            },
+            {
+              "min": 60000,
+              "max": 99999,
+              "label": "$60k a menos de $100K"
+            },
+            {
+              "min": 100000,
+              "max": 119999,
+              "label": "$100k a menos de $120K"
+            },
+            {
+              "min": 120000,
+              "max": 179999,
+              "label": "$120k a menos de $180K"
+            },
+            {
+              "min": 180000,
+              "max": 999999999,
+              "label": "$180K o más"
+            }
+          ]
+        },
+        "values": [
+          [
+            0,
+            0,
+            0,
+            500,
+            800
+          ],
+          [
+            200,
+            300,
+            500,
+            800,
+            1100
+          ],
+          [
+            300,
+            500,
+            800,
+            1100,
+            1500
+          ],
+          [
+            800,
+            1100,
+            1500,
+            1800,
+            2500
+          ],
+          [
+            1000,
+            1300,
+            1800,
+            2200,
+            3000
+          ]
+        ]
+      },
+      "confidence": 95,
+      "reasoning": "Clear 2D matrix with optical achievement percentage vs sales amount for certified optometrists"
+    },
+    {
+      "id": "optica_sales_non_certified",
+      "name": "Optical Sales Incentive - Non-Certified",
+      "nameEs": "Incentivo por Venta Óptica - No Certificado",
+      "type": "matrix_lookup",
+      "appliesToEmployeeTypes": [
+        "non_certified"
+      ],
+      "calculationMethod": {
+        "rowAxis": {
+          "metric": "optical_achievement_percentage",
+          "label": "% Cumplimiento de meta de Óptica",
+          "ranges": [
+            {
+              "min": 0,
+              "max": 79.99,
+              "label": "Menos de 80%"
+            },
+            {
+              "min": 80,
+              "max": 89.99,
+              "label": "80% a menos de 90%"
+            },
+            {
+              "min": 90,
+              "max": 99.99,
+              "label": "90% a menos de 100%"
+            },
+            {
+              "min": 100,
+              "max": 149.99,
+              "label": "100% a menos de 150%"
+            },
+            {
+              "min": 150,
+              "max": 999,
+              "label": "150% o más"
+            }
+          ]
+        },
+        "columnAxis": {
+          "metric": "optical_sales_amount",
+          "label": "$ Venta de Óptica de la tienda en el mes",
+          "ranges": [
+            {
+              "min": 0,
+              "max": 59999,
+              "label": "Menos de $60k"
+            },
+            {
+              "min": 60000,
+              "max": 99999,
+              "label": "$60k a menos de $100K"
+            },
+            {
+              "min": 100000,
+              "max": 119999,
+              "label": "$100k a menos de $120K"
+            },
+            {
+              "min": 120000,
+              "max": 179999,
+              "label": "$120k a menos de $180K"
+            },
+            {
+              "min": 180000,
+              "max": 999999999,
+              "label": "$180K o más"
+            }
+          ]
+        },
+        "values": [
+          [
+            0,
+            0,
+            0,
+            250,
+            400
+          ],
+          [
+            100,
+            150,
+            250,
+            400,
+            550
+          ],
+          [
+            150,
+            250,
+            400,
+            550,
+            750
+          ],
+          [
+            400,
+            550,
+            750,
+            600,
+            1250
+          ],
+          [
+            500,
+            650,
+            900,
+            1100,
+            1500
+          ]
+        ]
+      },
+      "confidence": 95,
+      "reasoning": "Clear 2D matrix with optical achievement percentage vs sales amount for non-certified optometrists"
+    },
+    {
+      "id": "store_sales",
+      "name": "Store Sales Incentive",
+      "nameEs": "Incentivo por Venta de la Tienda",
+      "type": "tiered_lookup",
+      "appliesToEmployeeTypes": [
+        "all"
+      ],
+      "calculationMethod": {
+        "metric": "store_achievement_percentage",
+        "label": "% Cumplimiento de meta de venta de tienda",
+        "tiers": [
+          {
+            "min": 0,
+            "max": 99.99,
+            "payout": 0
+          },
+          {
+            "min": 100,
+            "max": 104.99,
+            "payout": 150
+          },
+          {
+            "min": 105,
+            "max": 109.99,
+            "payout": 300
+          },
+          {
+            "min": 110,
+            "max": 999,
+            "payout": 500
+          }
+        ]
+      },
+      "confidence": 95,
+      "reasoning": "Tiered structure based on store sales achievement percentage, same for all employee types"
+    },
+    {
+      "id": "new_customers",
+      "name": "New Customers Incentive",
+      "nameEs": "Incentivo por Clientes Nuevos RetailCorp",
+      "type": "tiered_lookup",
+      "appliesToEmployeeTypes": [
+        "all"
+      ],
+      "calculationMethod": {
+        "metric": "new_customers_achievement_percentage",
+        "label": "% de cumplimiento de Clientes nuevos RetailCorp de la tienda",
+        "tiers": [
+          {
+            "min": 0,
+            "max": 99.99,
+            "payout": 0
+          },
+          {
+            "min": 100,
+            "max": 104.99,
+            "payout": 150
+          },
+          {
+            "min": 105,
+            "max": 109.99,
+            "payout": 200
+          },
+          {
+            "min": 110,
+            "max": 114.99,
+            "payout": 250
+          },
+          {
+            "min": 115,
+            "max": 119.99,
+            "payout": 300
+          },
+          {
+            "min": 120,
+            "max": 124.99,
+            "payout": 350
+          },
+          {
+            "min": 125,
+            "max": 999,
+            "payout": 400
+          }
+        ]
+      },
+      "confidence": 95,
+      "reasoning": "Tiered structure for new customers achievement, same for all employee types"
+    },
+    {
+      "id": "collections",
+      "name": "Collections Incentive",
+      "nameEs": "Incentivo por Cobranza",
+      "type": "tiered_lookup",
+      "appliesToEmployeeTypes": [
+        "all"
+      ],
+      "calculationMethod": {
+        "metric": "collections_achievement_percentage",
+        "label": "% de cumplimiento de monto cobranza en $",
+        "tiers": [
+          {
+            "min": 0,
+            "max": 99.99,
+            "payout": 0
+          },
+          {
+            "min": 100,
+            "max": 104.99,
+            "payout": 150
+          },
+          {
+            "min": 105,
+            "max": 109.99,
+            "payout": 200
+          },
+          {
+            "min": 110,
+            "max": 114.99,
+            "payout": 250
+          },
+          {
+            "min": 115,
+            "max": 119.99,
+            "payout": 300
+          },
+          {
+            "min": 120,
+            "max": 124.99,
+            "payout": 350
+          },
+          {
+            "min": 125,
+            "max": 999,
+            "payout": 400
+          }
+        ]
+      },
+      "confidence": 95,
+      "reasoning": "Tiered structure for collections achievement, same for all employee types"
+    },
+    {
+      "id": "insurance_sales",
+      "name": "Insurance Sales Incentive",
+      "nameEs": "Incentivo por venta de seguros",
+      "type": "conditional_percentage",
+      "appliesToEmployeeTypes": [
+        "all"
+      ],
+      "calculationMethod": {
+        "metric": "reactivacion_club_proteccion_sales",
+        "label": "Reactivación Club de Protección sales amount",
+        "conditions": [
+          {
+            "threshold": 80,
+            "operator": "<=",
+            "rate": 0.03,
+            "description": "<=80% y 100%<"
+          },
+          {
+            "threshold": 100,
+            "operator": ">=",
+            "rate": 0.05,
+            "description": "100%<="
+          }
+        ]
+      },
+      "confidence": 90,
+      "reasoning": "Conditional percentage based on achievement level for insurance product sales"
+    },
+    {
+      "id": "services_sales",
+      "name": "Services Sales Incentive",
+      "nameEs": "Incentivo por venta de servicios",
+      "type": "flat_percentage",
+      "appliesToEmployeeTypes": [
+        "all"
+      ],
+      "calculationMethod": {
+        "rate": 0.04,
+        "metric": "garantia_extendida_sales",
+        "label": "Garantía Extendida sales amount"
+      },
+      "confidence": 95,
+      "reasoning": "Flat 4% commission on extended warranty service sales"
+    }
+  ],
+  "requiredInputs": [
+    {
+      "field": "optical_sales_amount",
+      "description": "Monthly optical sales amount",
+      "scope": "store",
+      "dataType": "currency"
+    },
+    {
+      "field": "optical_achievement_percentage",
+      "description": "Optical sales achievement percentage",
+      "scope": "store",
+      "dataType": "percentage"
+    },
+    {
+      "field": "store_achievement_percentage",
+      "description": "Store sales achievement percentage",
+      "scope": "store",
+      "dataType": "percentage"
+    },
+    {
+      "field": "new_customers_achievement_percentage",
+      "description": "New customers achievement percentage",
+      "scope": "store",
+      "dataType": "percentage"
+    },
+    {
+      "field": "collections_achievement_percentage",
+      "description": "Collections achievement percentage",
+      "scope": "store",
+      "dataType": "percentage"
+    },
+    {
+      "field": "reactivacion_club_proteccion_sales",
+      "description": "Individual sales of club protection reactivation",
+      "scope": "employee",
+      "dataType": "currency"
+    },
+    {
+      "field": "garantia_extendida_sales",
+      "description": "Individual sales of extended warranty",
+      "scope": "employee",
+      "dataType": "currency"
+    },
+    {
+      "field": "club_protection_achievement",
+      "description": "Club protection product achievement percentage",
+      "scope": "store",
+      "dataType": "percentage"
+    }
+  ],
+  "workedExamples": [
+    {
+      "employeeType": "certified",
+      "inputs": {
+        "optical_sales_amount": 970792,
+        "optical_achievement_percentage": 96,
+        "store_achievement_percentage": 105,
+        "new_customers_achievement_percentage": 102,
+        "collections_achievement_percentage": 102,
+        "reactivacion_club_proteccion_sales": 2140,
+        "garantia_extendida_sales": 4276,
+        "club_protection_achievement": 81
+      },
+      "expectedTotal": 2335,
+      "componentBreakdown": {
+        "optica_sales_certified": 1500,
+        "store_sales": 300,
+        "new_customers": 150,
+        "collections": 150,
+        "insurance_sales": 64,
+        "services_sales": 171
+      }
+    },
+    {
+      "employeeType": "non_certified",
+      "inputs": {
+        "optical_sales_amount": 970792,
+        "optical_achievement_percentage": 96,
+        "store_achievement_percentage": 105,
+        "new_customers_achievement_percentage": 102,
+        "collections_achievement_percentage": 103,
+        "reactivacion_club_proteccion_sales": 2140,
+        "garantia_extendida_sales": 4276,
+        "club_protection_achievement": 81
+      },
+      "expectedTotal": 1585,
+      "componentBreakdown": {
+        "optica_sales_non_certified": 750,
+        "store_sales": 300,
+        "new_customers": 150,
+        "collections": 150,
+        "insurance_sales": 64,
+        "services_sales": 171
+      }
+    }
+  ],
+  "confidence": 94,
+  "reasoning": "Complete extraction of all 6 incentive components with different payout structures for certified vs non-certified optometrists. All numeric values extracted from tables with clear calculation methods. The plan includes matrix lookups for optical sales (different for each employee type), tiered lookups for store performance metrics, and percentage-based incentives for individual product sales."
+}
