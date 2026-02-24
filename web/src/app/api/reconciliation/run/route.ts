@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   // Load entity external IDs
   const entityIds = results.map(r => r.entity_id);
   const entityBatches: Array<{ id: string; external_id: string | null }> = [];
-  const BATCH_SIZE = 1000;
+  const BATCH_SIZE = 200; // Standing rule: Supabase URL limit ≤200 UUIDs
   for (let i = 0; i < entityIds.length; i += BATCH_SIZE) {
     const batch = entityIds.slice(i, i + BATCH_SIZE);
     const { data: entities } = await supabase
