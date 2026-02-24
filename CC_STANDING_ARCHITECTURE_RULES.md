@@ -181,6 +181,9 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 23. If in doubt between "quick" and "right," choose "right"
 24. Every OB/HF touching data pipeline: include scale analysis (current volume vs 10x vs 100x)
 
+### Navigation & Routes
+25. **One canonical location per surface.** Every feature has ONE route that owns it. Other workspaces can link to it — they NEVER duplicate it. Cross-references allowed, duplicate routes prohibited. If it's not built, it's not in the nav. Reconciliation lives in Operate (lifecycle step: import > calculate > reconcile > approve).
+
 ---
 
 ## SECTION E: SCALE REFERENCE
