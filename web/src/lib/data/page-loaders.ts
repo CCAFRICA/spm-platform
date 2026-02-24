@@ -400,3 +400,137 @@ export async function loadReconciliationPageData(tenantId: string): Promise<Reco
     ruleSetName: ruleSetRes.data?.name ?? null,
   };
 }
+
+// ──────────────────────────────────────────────
+// Adjustments Page Loader
+// ──────────────────────────────────────────────
+
+export interface AdjustmentRow {
+  id: string;
+  entityId: string;
+  entityName: string;
+  amount: number;
+  reason: string;
+  period: string;
+  status: string;
+  category: string;
+  requestedBy: string;
+  requestedAt: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  resolution?: string;
+}
+
+export interface AdjustmentsPageData {
+  adjustments: AdjustmentRow[];
+}
+
+export async function loadAdjustmentsPageData(tenantId: string): Promise<AdjustmentsPageData> {
+  const supabase = createClient();
+
+  // Round 1: Load disputes
+  const { data: disputes, error } = await supabase
+    .from('disputes')
+    .select(`
+      id, entity_id, period_id, category, status,
+      description, resolution, amount_disputed, amount_resolved,
+      filed_by, resolved_by, created_at, updated_at, resolved_at
+    `)
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false });
+
+  if (error || !disputes) {
+    return { adjustments: [] };
+  }
+
+  // Round 2: Entity names + filer names in parallel
+  const entityIds = Array.from(new Set(disputes.map(d => d.entity_id).filter(Boolean)));
+  const filerIds = Array.from(new Set(
+    disputes.map(d => d.filed_by).filter((id): id is string => !!id)
+  ));
+
+  const [entityRes, filerRes] = await Promise.all([
+    entityIds.length > 0
+      ? supabase.from('entities').select('id, display_name').in('id', entityIds)
+      : { data: [] },
+    filerIds.length > 0
+      ? supabase.from('profiles').select('id, display_name').in('id', filerIds)
+      : { data: [] },
+  ]);
+
+  const entityNames = new Map((entityRes.data || []).map(e => [e.id, e.display_name]));
+  const filerNames = new Map((filerRes.data || []).map(p => [p.id, p.display_name]));
+
+  return {
+    adjustments: disputes.map(d => ({
+      id: d.id,
+      entityId: d.entity_id,
+      entityName: entityNames.get(d.entity_id) || d.entity_id,
+      amount: Number(d.amount_disputed) || 0,
+      reason: d.description || '',
+      period: d.period_id || '',
+      status: d.status || 'open',
+      category: d.category || 'adjustment',
+      requestedBy: (d.filed_by ? filerNames.get(d.filed_by) : null) || 'Unknown',
+      requestedAt: d.created_at,
+      resolvedBy: d.resolved_by ? (filerNames.get(d.resolved_by) || d.resolved_by) : undefined,
+      resolvedAt: d.resolved_at || undefined,
+      resolution: d.resolution || undefined,
+    })),
+  };
+}
+
+// ──────────────────────────────────────────────
+// Users Page Loader
+// ──────────────────────────────────────────────
+
+export interface UserRow {
+  id: string;
+  auth_user_id: string;
+  display_name: string;
+  email: string;
+  role: string;
+  capabilities: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LinkedEntity {
+  id: string;
+  display_name: string;
+  external_id: string | null;
+  profile_id: string;
+}
+
+export interface UsersPageData {
+  users: UserRow[];
+  entities: LinkedEntity[];
+}
+
+export async function loadUsersPageData(tenantId: string): Promise<UsersPageData> {
+  const supabase = createClient();
+
+  // Round 1: Load profiles
+  const { data: profileData } = await supabase
+    .from('profiles')
+    .select('id, auth_user_id, display_name, email, role, capabilities, created_at, updated_at')
+    .eq('tenant_id', tenantId)
+    .order('display_name');
+
+  const users = (profileData || []) as UserRow[];
+
+  // Round 2: Linked entities (depends on profile IDs)
+  const profileIds = users.map(u => u.id);
+  let entities: LinkedEntity[] = [];
+
+  if (profileIds.length > 0) {
+    const { data: entityData } = await supabase
+      .from('entities')
+      .select('id, display_name, external_id, profile_id')
+      .eq('tenant_id', tenantId)
+      .in('profile_id', profileIds);
+    entities = (entityData || []) as LinkedEntity[];
+  }
+
+  return { users, entities };
+}
