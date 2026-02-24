@@ -81,6 +81,15 @@ export function PlatformObservatory() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              color: '#A78BFA',
+              background: 'rgba(167, 139, 250, 0.1)',
+              border: '1px solid rgba(167, 139, 250, 0.25)',
+              borderRadius: '6px',
+              padding: '2px 8px',
+            }}>VL Admin</span>
             <span style={{ color: '#94A3B8', fontSize: '14px' }}>{user?.email}</span>
             <button
               onClick={logout}
