@@ -81,20 +81,19 @@ export async function POST(request: NextRequest) {
   // Parse components from JSONB
   const componentsJson = ruleSet.components as Record<string, unknown>;
   const variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
-  const defaultVariant = variants[0];
-  const components: PlanComponent[] = (defaultVariant?.components as PlanComponent[]) ?? [];
+  const defaultComponents: PlanComponent[] = (variants[0]?.components as PlanComponent[]) ?? [];
 
-  if (components.length === 0) {
+  if (defaultComponents.length === 0) {
     return NextResponse.json(
       { error: 'Rule set has no components', log },
       { status: 400 }
     );
   }
 
-  addLog(`Rule set "${ruleSet.name}" has ${components.length} components`);
+  addLog(`Rule set "${ruleSet.name}" has ${defaultComponents.length} components, ${variants.length} variants`);
 
   // ── OB-76: Transform components to intents (once, before entity loop) ──
-  const componentIntents: ComponentIntent[] = transformVariant(components);
+  const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
   addLog(`OB-76 Intent layer: ${componentIntents.length} components transformed to intents`);
 
   // ── 2. Fetch entities via assignments (OB-75: paginated, no 1000-row cap) ──
@@ -509,26 +508,64 @@ export async function POST(request: NextRequest) {
     const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
 
-    // Find this entity's store ID (use FIRST occurrence, not sum)
+    // Find this entity's store ID and role (use FIRST occurrence, not sum)
     const allEntityMetrics = aggregateMetrics(entityRowsFlat);
     let entityStoreId: string | number | undefined;
+    let entityRole: string | null = null;
     for (const row of entityRowsFlat) {
       const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
         ? row.row_data as Record<string, unknown> : {};
-      const sid = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
-      if (sid !== undefined && sid !== null) {
-        entityStoreId = sid as string | number;
-        break;
+      if (entityStoreId === undefined) {
+        const sid = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
+        if (sid !== undefined && sid !== null) {
+          entityStoreId = sid as string | number;
+        }
       }
+      if (!entityRole) {
+        const role = rd['role'] ?? rd['Puesto'] ?? rd['puesto'];
+        if (typeof role === 'string' && role.length > 0) {
+          entityRole = role;
+        }
+      }
+      if (entityStoreId !== undefined && entityRole) break;
     }
     const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
+
+    // OB-85-R3R4 Fix 2: Select variant based on entity role
+    let selectedComponents = defaultComponents;
+    if (entityRole && variants.length > 1) {
+      const normRole = entityRole.toLowerCase().replace(/\s+/g, ' ').trim();
+      for (const variant of variants) {
+        const variantName = String(variant.variantName ?? variant.description ?? '');
+        const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
+        if (normRole === normVariant) {
+          selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
+          break;
+        }
+      }
+      if (selectedComponents === defaultComponents) {
+        const sorted = [...variants].sort((a, b) => {
+          const aLen = String(a.variantName ?? '').length;
+          const bLen = String(b.variantName ?? '').length;
+          return bLen - aLen;
+        });
+        for (const variant of sorted) {
+          const variantName = String(variant.variantName ?? variant.description ?? '');
+          const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
+          if (normRole.includes(normVariant) || normVariant.includes(normRole)) {
+            selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
+            break;
+          }
+        }
+      }
+    }
 
     // ── CURRENT ENGINE PATH ──
     const componentResults: ComponentResult[] = [];
     let entityTotal = 0;
     const perComponentMetrics: Record<string, number>[] = [];
 
-    for (const component of components) {
+    for (const component of selectedComponents) {
       const metrics = buildMetricsForComponent(
         component,
         entitySheetData,
@@ -680,7 +717,7 @@ export async function POST(request: NextRequest) {
       mismatchCount: intentMismatchCount,
       concordanceRate: parseFloat(concordanceRate.toFixed(2)),
       entityCount: calculationEntityIds.length,
-      componentCount: components.length,
+      componentCount: defaultComponents.length,
       intentsTransformed: componentIntents.length,
       totalPayout: grandTotal,
       ruleSetId,
@@ -744,7 +781,7 @@ export async function POST(request: NextRequest) {
       summary: {
         total_payout: grandTotal,
         entity_count: entityResults.length,
-        component_count: components.length,
+        component_count: defaultComponents.length,
         rule_set_name: ruleSet.name,
         intentLayer: {
           matchCount: intentMatchCount,
@@ -778,7 +815,7 @@ export async function POST(request: NextRequest) {
 
     const calcSummary: CalculationSummary = {
       entityCount: entityResults.length,
-      componentCount: components.length,
+      componentCount: defaultComponents.length,
       totalOutcome: grandTotal,
       avgOutcome: entityResults.length > 0 ? grandTotal / entityResults.length : 0,
       medianOutcome,
@@ -875,7 +912,7 @@ export async function POST(request: NextRequest) {
         rule_set_id: ruleSetId,
         period_id: periodId,
         total_payout: grandTotal,
-        component_count: components.length,
+        component_count: defaultComponents.length,
         source: 'api_calculation_run',
       } as unknown as Json,
     });
