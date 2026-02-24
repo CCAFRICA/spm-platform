@@ -4,13 +4,12 @@
  * Workspace Switcher Component
  *
  * Allows switching between workspaces in Mission Control.
- * Respects persona override for workspace filtering (OB-58).
+ * OB-94: Uses effectiveRole from NavigationContext (persona-driven).
  */
 
 import { useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/contexts/navigation-context';
-import { usePersona } from '@/contexts/persona-context';
 import { WORKSPACES } from '@/lib/navigation/workspace-config';
 import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
 import { useTenant } from '@/contexts/tenant-context';
@@ -18,12 +17,6 @@ import type { WorkspaceId } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
 import type { TenantFeatures } from '@/types/tenant';
 
-/** Map persona key to UserRole for workspace access lookup */
-const PERSONA_TO_ROLE: Record<string, UserRole> = {
-  admin: 'admin',
-  manager: 'manager',
-  rep: 'sales_rep',
-};
 import {
   Zap,
   TrendingUp,
@@ -55,16 +48,12 @@ const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: str
 };
 
 export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps) {
-  const { activeWorkspace, navigateToWorkspace, isSpanish, userRole } = useWorkspace();
-  const { persona } = usePersona();
+  const { activeWorkspace, navigateToWorkspace, isSpanish, effectiveRole } = useWorkspace();
   const { currentTenant } = useTenant();
 
-  // Use persona-mapped role (respects persona switcher override)
-  const effectiveRole: UserRole | null = PERSONA_TO_ROLE[persona] || (userRole as UserRole) || null;
-
-  // Get accessible workspaces for effective role, filtered by tenant feature flags
+  // OB-94: effectiveRole comes from NavigationContext (persona-driven, single source of truth)
   const accessibleWorkspaces = useMemo(() => effectiveRole
-    ? getAccessibleWorkspaces(effectiveRole).filter(wsId => {
+    ? getAccessibleWorkspaces(effectiveRole as UserRole).filter(wsId => {
         const ws = WORKSPACES[wsId];
         if (!ws?.featureFlag) return true;
         const features = currentTenant?.features as TenantFeatures | undefined;

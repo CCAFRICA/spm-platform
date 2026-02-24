@@ -44,8 +44,9 @@ import {
   type PeriodState,
 } from '@/lib/navigation/compensation-clock-service';
 import { getWorkspaceForRoute, WORKSPACES } from '@/lib/navigation/workspace-config';
-import { getDefaultWorkspace, canAccessWorkspace } from '@/lib/navigation/role-workspaces';
+import { getDefaultWorkspace, canAccessWorkspace, personaToRole } from '@/lib/navigation/role-workspaces';
 import { logWorkspaceSwitch } from '@/lib/navigation/navigation-signals';
+import { usePersona } from './persona-context';
 
 // =============================================================================
 // STORAGE KEYS
@@ -82,6 +83,8 @@ interface NavigationContextType extends NavigationState {
   // Helpers
   isSpanish: boolean;
   userRole: string | null;
+  /** OB-94: Effective role derived from persona (override or derived), used for workspace filtering */
+  effectiveRole: string | null;
 }
 
 const NavigationContext = createContext<NavigationContextType | undefined>(undefined);
@@ -99,11 +102,14 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const pathname = usePathname();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
+  const { persona } = usePersona();
 
   // Locale follows user's language selector (single source of truth)
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
   const userRole = user?.role || null;
+  // OB-94: Effective role from persona (override or derived) — drives all workspace access
+  const effectiveRole = persona ? personaToRole(persona) : userRole;
   // Use the selected tenant's actual UUID — never a placeholder string.
   // VL admins: currentTenant is set after tenant selection, null before.
   // Non-admins: currentTenant comes from their profile's tenant_id.
@@ -126,13 +132,13 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     // Rail collapsed and recent pages use defaults (false, [])
   }, []);
 
-  // Set default workspace based on role
+  // Set default workspace based on effective role (persona-driven)
   useEffect(() => {
-    if (!userRole) return;
+    if (!effectiveRole) return;
 
-    const defaultWs = getDefaultWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
+    const defaultWs = getDefaultWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
     setActiveWorkspaceState(defaultWs);
-  }, [userRole]);
+  }, [effectiveRole]);
 
   // Update active workspace based on current route
   // HF-018: Removed activeWorkspace from deps to prevent double-fire on workspace switch
@@ -143,7 +149,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     if (wsForRoute) {
       setActiveWorkspaceState(prev => {
         if (prev === wsForRoute) return prev;
-        if (userRole && canAccessWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
+        if (effectiveRole && canAccessWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
           return wsForRoute;
         }
         return prev;
@@ -159,10 +165,10 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, userRole]);
+  }, [pathname, effectiveRole]);
 
-  // Map role to persona type for clock service
-  const persona: PersonaType = userRole === 'vl_admin' ? 'vl_admin'
+  // Map auth role to clock service persona type (uses raw auth role, not persona override)
+  const clockPersona: PersonaType = userRole === 'vl_admin' ? 'vl_admin'
     : userRole === 'admin' ? 'platform_admin'
     : userRole === 'manager' ? 'manager'
     : 'sales_rep';
@@ -181,9 +187,9 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
       const [cycle, periods, action, queue, pulse] = await Promise.all([
         getCycleState(tenantId, isSpanish),
         getAllPeriods(tenantId, isSpanish),
-        getNextAction(tenantId, persona, isSpanish),
-        getClockQueueItems(tenantId, persona, user.id),
-        getClockPulseMetrics(tenantId, persona, user.id),
+        getNextAction(tenantId, clockPersona, isSpanish),
+        getClockQueueItems(tenantId, clockPersona, user.id),
+        getClockPulseMetrics(tenantId, clockPersona, user.id),
       ]);
       setCycleState(cycle);
       setPeriodStates(periods);
@@ -195,7 +201,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [user, userRole, tenantId, persona, isSpanish]);
+  }, [user, userRole, tenantId, clockPersona, isSpanish]);
 
   // Initial data load
   useEffect(() => {
@@ -208,10 +214,10 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     return () => clearInterval(interval);
   }, [refreshData]);
 
-  // Set active workspace with validation
+  // Set active workspace with validation (OB-94: uses effectiveRole from persona)
   const setActiveWorkspace = useCallback((workspace: WorkspaceId) => {
-    if (userRole && !canAccessWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
-      console.warn(`User role ${userRole} cannot access workspace ${workspace}`);
+    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
+      console.warn(`Persona role ${effectiveRole} cannot access workspace ${workspace}`);
       return;
     }
 
@@ -221,7 +227,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     }
 
     setActiveWorkspaceState(workspace);
-  }, [userRole, user, activeWorkspace, tenantId]);
+  }, [effectiveRole, user, activeWorkspace, tenantId]);
 
   // Toggle rail collapsed (in-memory only)
   const toggleRailCollapsed = useCallback(() => {
@@ -238,17 +244,17 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     setIsMobileOpen(false);
   }, [pathname]);
 
-  // Navigate to workspace
+  // Navigate to workspace (OB-94: uses effectiveRole from persona)
   const navigateToWorkspace = useCallback((workspace: WorkspaceId) => {
-    if (userRole && !canAccessWorkspace(userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
-      console.warn(`User role ${userRole} cannot access workspace ${workspace}`);
+    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
+      console.warn(`Persona role ${effectiveRole} cannot access workspace ${workspace}`);
       return;
     }
 
     setActiveWorkspace(workspace);
     const ws = WORKSPACES[workspace];
     router.push(ws.defaultRoute);
-  }, [userRole, setActiveWorkspace, router]);
+  }, [effectiveRole, setActiveWorkspace, router]);
 
   const value: NavigationContextType = {
     activeWorkspace,
@@ -269,6 +275,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     nextAction,
     isSpanish,
     userRole,
+    effectiveRole,
   };
 
   return (
@@ -298,8 +305,8 @@ export function useNavigation() {
  * Hook for workspace-related state only
  */
 export function useWorkspace() {
-  const { activeWorkspace, setActiveWorkspace, navigateToWorkspace, isSpanish, userRole } = useNavigation();
-  return { activeWorkspace, setActiveWorkspace, navigateToWorkspace, isSpanish, userRole };
+  const { activeWorkspace, setActiveWorkspace, navigateToWorkspace, isSpanish, userRole, effectiveRole } = useNavigation();
+  return { activeWorkspace, setActiveWorkspace, navigateToWorkspace, isSpanish, userRole, effectiveRole };
 }
 
 /**

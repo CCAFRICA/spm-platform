@@ -147,7 +147,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 export function CommandPalette() {
   const router = useRouter();
   const { isOpen, setOpen } = useCommandPalette();
-  const { userRole } = useNavigation();
+  const { effectiveRole } = useNavigation();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
 
@@ -162,8 +162,8 @@ export function CommandPalette() {
 
   // Load all commands based on user role - memoized to prevent infinite loops
   const allCommands = useMemo(
-    () => (userRole ? getCommands(userRole as UserRole, isSpanish) : []),
-    [userRole, isSpanish]
+    () => (effectiveRole ? getCommands(effectiveRole as UserRole, isSpanish) : []),
+    [effectiveRole, isSpanish]
   );
 
   // Load recent commands
@@ -355,7 +355,7 @@ export function CommandPalette() {
                   <Receipt className="h-4 w-4 text-muted-foreground" />
                   <span>{isSpanish ? 'Mis Transacciones' : 'My Transactions'}</span>
                 </CommandUIItem>
-                {(userRole === 'admin' || userRole === 'vl_admin') && (
+                {(effectiveRole === 'admin' || effectiveRole === 'vl_admin') && (
                   <CommandUIItem
                     value="import data"
                     onSelect={() => router.push('/operate/import/enhanced')}

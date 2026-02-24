@@ -6,6 +6,23 @@
 
 import type { UserRole } from '@/types/auth';
 import type { WorkspaceId } from '@/types/navigation';
+import type { PersonaKey } from '@/lib/design/tokens';
+
+// =============================================================================
+// PERSONA → ROLE MAPPING (OB-94)
+// =============================================================================
+
+/**
+ * Map a PersonaKey to its equivalent UserRole for workspace access checks.
+ * This is the SINGLE canonical mapping — all navigation filtering uses this.
+ */
+export function personaToRole(persona: PersonaKey): UserRole {
+  switch (persona) {
+    case 'admin': return 'admin';
+    case 'manager': return 'manager';
+    case 'rep': return 'sales_rep';
+  }
+}
 
 // =============================================================================
 // ROLE WORKSPACE VISIBILITY
