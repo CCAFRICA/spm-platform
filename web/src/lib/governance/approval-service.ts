@@ -188,6 +188,7 @@ export async function generateRiskAssessment(
  * Reads PENDING_APPROVAL + recently APPROVED/REJECTED batches.
  */
 export async function listApprovalItemsAsync(tenantId: string): Promise<ApprovalItem[]> {
+  if (!tenantId) return [];
   const supabase = createClient();
 
   const { data: batches } = await supabase

@@ -112,6 +112,7 @@ export async function updateImportBatchStatus(
   status: string,
   errorSummary?: Json
 ): Promise<void> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const updateRow: ImportBatchUpdate = {
     status,
@@ -398,6 +399,7 @@ export async function recordClassificationSignal(
     context?: Json;
   }
 ): Promise<void> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const insertRow: ClassificationSignalInsert = {
     tenant_id: tenantId,
