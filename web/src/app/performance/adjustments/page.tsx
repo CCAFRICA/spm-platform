@@ -32,22 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrency, useTenant } from "@/contexts/tenant-context";
 import { createClient } from "@/lib/supabase/client";
-
-interface Adjustment {
-  id: string;
-  entityId: string;
-  entityName: string;
-  amount: number;
-  reason: string;
-  period: string;
-  status: string;
-  category: string;
-  requestedBy: string;
-  requestedAt: string;
-  resolvedBy?: string;
-  resolvedAt?: string;
-  resolution?: string;
-}
+import { loadAdjustmentsPageData, type AdjustmentRow } from "@/lib/data/page-loaders";
 
 const statusConfig: Record<string, { icon: typeof Clock; color: string; bg: string }> = {
   open: { icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
@@ -70,7 +55,7 @@ export default function AdjustmentsPage() {
   const tenantId = currentTenant?.id ?? '';
   const [filter, setFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
+  const [adjustments, setAdjustments] = useState<AdjustmentRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newDescription, setNewDescription] = useState("");
@@ -79,61 +64,14 @@ export default function AdjustmentsPage() {
 
   const loadAdjustments = useCallback(async () => {
     if (!tenantId) return;
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('disputes')
-      .select(`
-        id, entity_id, period_id, category, status,
-        description, resolution, amount_disputed, amount_resolved,
-        filed_by, resolved_by, created_at, updated_at, resolved_at
-      `)
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.warn('[Adjustments] Load failed:', error);
+    try {
+      const { adjustments: rows } = await loadAdjustmentsPageData(tenantId);
+      setAdjustments(rows);
+    } catch (err) {
+      console.warn('[Adjustments] Load failed:', err);
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    // Fetch entity names for display
-    const entityIds = Array.from(new Set((data || []).map(d => d.entity_id).filter(Boolean)));
-    let entityNames = new Map<string, string>();
-    if (entityIds.length > 0) {
-      const { data: entities } = await supabase
-        .from('entities')
-        .select('id, display_name')
-        .in('id', entityIds);
-      entityNames = new Map((entities || []).map(e => [e.id, e.display_name]));
-    }
-
-    // Fetch filer names
-    const filerIds = Array.from(new Set((data || []).map(d => d.filed_by).filter((id): id is string => !!id)));
-    let filerNames = new Map<string, string>();
-    if (filerIds.length > 0) {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, display_name')
-        .in('id', filerIds);
-      filerNames = new Map((profiles || []).map(p => [p.id, p.display_name]));
-    }
-
-    setAdjustments((data || []).map(d => ({
-      id: d.id,
-      entityId: d.entity_id,
-      entityName: entityNames.get(d.entity_id) || d.entity_id,
-      amount: Number(d.amount_disputed) || 0,
-      reason: d.description || '',
-      period: d.period_id || '',
-      status: d.status || 'open',
-      category: d.category || 'adjustment',
-      requestedBy: (d.filed_by ? filerNames.get(d.filed_by) : null) || 'Unknown',
-      requestedAt: d.created_at,
-      resolvedBy: d.resolved_by ? (filerNames.get(d.resolved_by) || d.resolved_by) : undefined,
-      resolvedAt: d.resolved_at || undefined,
-      resolution: d.resolution || undefined,
-    })));
-    setIsLoading(false);
   }, [tenantId]);
 
   useEffect(() => { loadAdjustments(); }, [loadAdjustments]);

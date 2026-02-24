@@ -6,6 +6,7 @@ import { AuthProvider } from "@/contexts/auth-context";
 import { ConfigProvider } from "@/contexts/config-context";
 import { LocaleProvider } from "@/contexts/locale-context";
 import { TenantProvider } from "@/contexts/tenant-context";
+import { SessionProvider } from "@/contexts/session-context";
 import { AuthShell } from "@/components/layout/auth-shell";
 import { Toaster } from "sonner";
 
@@ -39,10 +40,12 @@ export default function RootLayout({
         <AuthProvider>
           <TenantProvider>
             <LocaleProvider>
-              <ConfigProvider>
-                <AuthShell>{children}</AuthShell>
-                <Toaster position="top-right" richColors closeButton />
-              </ConfigProvider>
+              <SessionProvider>
+                <ConfigProvider>
+                  <AuthShell>{children}</AuthShell>
+                  <Toaster position="top-right" richColors closeButton />
+                </ConfigProvider>
+              </SessionProvider>
             </LocaleProvider>
           </TenantProvider>
         </AuthProvider>

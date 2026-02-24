@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
 import { RequireRole } from '@/components/auth/RequireRole';
-import { createClient } from '@/lib/supabase/client';
+import { loadUsersPageData, type UserRow, type LinkedEntity } from '@/lib/data/page-loaders';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,24 +25,6 @@ import {
 import {
   Users, Search, UserPlus, Shield, ChevronDown,
 } from 'lucide-react';
-
-interface UserRow {
-  id: string;
-  auth_user_id: string;
-  display_name: string;
-  email: string;
-  role: string;
-  capabilities: string[] | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface LinkedEntity {
-  id: string;
-  display_name: string;
-  external_id: string | null;
-  profile_id: string;
-}
 
 const ROLE_LABELS: Record<string, string> = {
   vl_admin: 'Platform Admin',
@@ -76,30 +58,15 @@ function UsersPageInner() {
   const fetchUsers = useCallback(async () => {
     if (!tenantId) return;
     setLoading(true);
-    const supabase = createClient();
-
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('id, auth_user_id, display_name, email, role, capabilities, created_at, updated_at')
-      .eq('tenant_id', tenantId)
-      .order('display_name');
-
-    const userRows = (profileData || []) as UserRow[];
-    setUsers(userRows);
-
-    // Fetch linked entities
-    const profileIds = userRows.map(u => u.id);
-    if (profileIds.length > 0) {
-      const { data: entityData } = await supabase
-        .from('entities')
-        .select('id, display_name, external_id, profile_id')
-        .eq('tenant_id', tenantId)
-        .in('profile_id', profileIds);
-
-      setEntities((entityData || []) as LinkedEntity[]);
+    try {
+      const data = await loadUsersPageData(tenantId);
+      setUsers(data.users);
+      setEntities(data.entities);
+    } catch (err) {
+      console.warn('[Users] Load failed:', err);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }, [tenantId]);
 
   useEffect(() => {
