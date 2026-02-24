@@ -317,7 +317,6 @@ function AccuracyBar({ accepted, corrected, rejected, total }: { accepted: numbe
 }
 
 function CalibrationChart({ buckets }: { buckets: NonNullable<AIIntelligenceData['calibration']> }) {
-  const maxCount = Math.max(...buckets.map(b => b.count), 1);
   const chartH = 160;
   const barW = 40;
   const gap = 16;
