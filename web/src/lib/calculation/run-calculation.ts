@@ -490,12 +490,17 @@ export function buildMetricsForComponent(
     }
   }
 
-  // Normalize attainment from decimal (0-3) to percentage (0-300) scale
+  // Normalize attainment from decimal ratio to percentage scale.
+  // Values < 10 are treated as ratios (e.g., 1.35 → 135%, 3.88 → 388%).
+  // Values >= 10 are already percentages (e.g., 135.14 stays 135.14%).
+  // OB-90: Skip normalization for metrics with "percent" in the name —
+  // these fields (e.g., optical_achievement_percentage) are already percentages.
   for (const metricName of expectedNames) {
     const semanticType = inferSemanticType(metricName);
     if (semanticType === 'attainment' && resolvedMetrics[metricName] !== undefined) {
+      if (/percent/i.test(metricName)) continue;
       const v = resolvedMetrics[metricName];
-      if (v > 0 && v < 3) {
+      if (v > 0 && v < 10) {
         resolvedMetrics[metricName] = v * 100;
       }
     }
