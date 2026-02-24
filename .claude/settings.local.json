@@ -137,7 +137,8 @@
       "Bash(wc -l /Users/AndrewAfrica/spm-platform/web/src/app/**/page.tsx | sort -n)",
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/ob85-r5-phase0.ts 2>&1 | tee /tmp/ob85-r5-phase0-output.txt | wc -l)",
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | tail -40)",
-      "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" || true && sleep 2 && rm -rf .next && npm run build 2>&1 | tail -20)"
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" || true && sleep 2 && rm -rf .next && npm run build 2>&1 | tail -20)",
+      "Bash(git mv web/src/app/investigate/reconciliation/page.tsx web/src/app/operate/reconciliation/page.tsx)"
     ]
   }
 }
