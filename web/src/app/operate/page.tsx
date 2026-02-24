@@ -13,6 +13,7 @@ import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
+import { OperateSelector } from '@/components/operate/OperateSelector';
 import { PeriodRibbon, type PeriodInfo } from '@/components/design-system/PeriodRibbon';
 import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
 import { DataReadinessPanel, type DataReadiness } from '@/components/design-system/DataReadinessPanel';
@@ -285,6 +286,8 @@ export default function OperateCockpitPage() {
 
   return (
     <div className="space-y-0">
+      {/* OB-92: Shared selector bar */}
+      <OperateSelector />
       {/* Period Ribbon */}
       <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={handlePeriodSelect} />
 
@@ -464,7 +467,7 @@ export default function OperateCockpitPage() {
 
                 {/* OB-85: Reconcile button */}
                 <button
-                  onClick={() => router.push(`/investigate/reconciliation${lastBatchId ? `?batchId=${lastBatchId}` : ''}`)}
+                  onClick={() => router.push(`/operate/reconciliation${lastBatchId ? `?batchId=${lastBatchId}` : ''}`)}
                   className="w-full mt-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all"
                   style={{ backgroundColor: '#059669', boxShadow: '0 0 12px rgba(5, 150, 105, 0.2)' }}
                 >

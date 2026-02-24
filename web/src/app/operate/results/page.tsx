@@ -4,6 +4,7 @@
  * Results Dashboard — Five Layers of Proof
  *
  * OB-72 Missions 1+2: Five Layers of Proof
+ * OB-92: Batch-aware via OperateContext (Plan × Period × Batch selection)
  *
  * Layer 5 — Outcome: Total, mean, median, components, anomaly count + detail
  * Layer 4 — Population: Per-entity expandable rows with chevron toggle
@@ -17,13 +18,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useOperate } from '@/contexts/operate-context';
 import { isVLAdmin } from '@/types/auth';
 import { RequireRole } from '@/components/auth/RequireRole';
 import {
-  listCalculationBatches,
   getCalculationResults,
 } from '@/lib/supabase/calculation-service';
 import { detectAnomalies, type AnomalyReport } from '@/lib/intelligence/anomaly-detection';
+import { OperateSelector } from '@/components/operate/OperateSelector';
 import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -79,52 +81,38 @@ function ResultsDashboardPageInner() {
   const { user } = useAuth();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
+  const { selectedBatchId, selectedBatch, isLoading: contextLoading } = useOperate();
   const [results, setResults] = useState<ResultRow[]>([]);
   const [totalPayout, setTotalPayout] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [storeFilter, setStoreFilter] = useState<string>('all');
   const [sortField, setSortField] = useState<string>('total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [batchId, setBatchId] = useState<string>('');
-  const [batchLabel, setBatchLabel] = useState<string>('');
   const [isLoaded, setIsLoaded] = useState(false);
   const [anomalyReport, setAnomalyReport] = useState<AnomalyReport | null>(null);
   const [expandedEntity, setExpandedEntity] = useState<string | null>(null);
+  const [anomalyExpanded, setAnomalyExpanded] = useState(false);
 
   const hasAccess = user && isVLAdmin(user);
   const tenantId = currentTenant?.id || '';
 
-  // Load results from Supabase
+  // OB-92: Load results for the batch selected in OperateContext
   useEffect(() => {
-    if (!tenantId) return;
+    if (!tenantId || !selectedBatchId) {
+      setResults([]);
+      setTotalPayout(0);
+      setAnomalyReport(null);
+      if (!contextLoading) setIsLoaded(true);
+      return;
+    }
+
+    let cancelled = false;
 
     const loadData = async () => {
+      setIsLoaded(false);
       try {
-        // Get latest batch
-        const batches = await listCalculationBatches(tenantId);
-        if (batches.length === 0) {
-          setIsLoaded(true);
-          return;
-        }
-
-        const batch = batches[0];
-        setBatchId(batch.id);
-
-        // OB-73 Mission 4 / F-67: Generate human-readable batch label
-        // Format: {TENANT_SHORT}-{YYYY}{MM}-{SEQ}
-        const tenantShort = (currentTenant?.name || 'BATCH')
-          .replace(/[^A-Za-z0-9]/g, '')
-          .toUpperCase()
-          .slice(0, 6);
-        const batchDate = new Date(batch.created_at);
-        const yyyy = batchDate.getFullYear();
-        const mm = String(batchDate.getMonth() + 1).padStart(2, '0');
-        // Sequence: position of this batch among all batches (1-indexed from newest)
-        const seq = String(batches.indexOf(batch) + 1).padStart(2, '0');
-        setBatchLabel(`${tenantShort}-${yyyy}${mm}-${seq}`);
-
-        // Get results for this batch
-        const calcResults = await getCalculationResults(tenantId, batch.id);
+        const calcResults = await getCalculationResults(tenantId, selectedBatchId);
+        if (cancelled) return;
 
         // Map to display format — extract L3 (component detail) and L2 (metrics)
         const rows: ResultRow[] = calcResults.map((r: CalcResultRow) => {
@@ -179,12 +167,13 @@ function ResultsDashboardPageInner() {
         setIsLoaded(true);
       } catch (err) {
         console.warn('[Results] Failed to load results:', err);
-        setIsLoaded(true);
+        if (!cancelled) setIsLoaded(true);
       }
     };
 
     loadData();
-  }, [tenantId]);
+    return () => { cancelled = true; };
+  }, [tenantId, selectedBatchId, contextLoading]);
 
   // Component totals
   const componentTotals = useMemo((): ComponentTotal[] => {
@@ -238,6 +227,19 @@ function ResultsDashboardPageInner() {
     return ids.sort();
   }, [results]);
 
+  // OB-92: Generate batch label from context
+  const batchLabel = useMemo(() => {
+    if (!selectedBatch) return '';
+    const tenantShort = (currentTenant?.name || 'BATCH')
+      .replace(/[^A-Za-z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 6);
+    const batchDate = new Date(selectedBatch.createdAt);
+    const yyyy = batchDate.getFullYear();
+    const mm = String(batchDate.getMonth() + 1).padStart(2, '0');
+    return `${tenantShort}-${yyyy}${mm}`;
+  }, [selectedBatch, currentTenant?.name]);
+
   if (!hasAccess) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -257,23 +259,30 @@ function ResultsDashboardPageInner() {
 
   if (isLoaded && results.length === 0) {
     return (
-      <div className="p-6 space-y-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <h1 className="text-2xl font-bold">Results Dashboard</h1>
-        </div>
-        <Card>
-          <CardContent className="py-12 text-center text-slate-500">
-            <BarChart3 className="h-12 w-12 mx-auto mb-4 text-slate-300" />
-            <p className="text-lg font-medium">No calculation results available</p>
-            <p className="text-sm mt-1">Run a calculation first to see results here.</p>
-            <Button className="mt-4" onClick={() => router.push('/operate/calculate')}>
-              Go to Calculate
+      <div>
+        <OperateSelector />
+        <div className="p-6 space-y-6">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
+              <ArrowLeft className="h-5 w-5" />
             </Button>
-          </CardContent>
-        </Card>
+            <h1 className="text-2xl font-bold">Results Dashboard</h1>
+          </div>
+          <Card>
+            <CardContent className="py-12 text-center text-slate-500">
+              <BarChart3 className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+              <p className="text-lg font-medium">No calculation results available</p>
+              <p className="text-sm mt-1">
+                {!selectedBatchId
+                  ? 'Select a batch above, or run a calculation first.'
+                  : 'No results found for the selected batch.'}
+              </p>
+              <Button className="mt-4" onClick={() => router.push('/operate')}>
+                Go to Operations Center
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -284,7 +293,11 @@ function ResultsDashboardPageInner() {
   const anomalyCount = anomalyReport?.anomalies.length ?? 0;
 
   return (
-    <div className="p-6 space-y-6">
+    <div>
+      {/* OB-92: Shared selector bar */}
+      <OperateSelector />
+
+      <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
@@ -293,7 +306,7 @@ function ResultsDashboardPageInner() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Results Proof View</h1>
           <p className="text-slate-500 text-sm">
-            {entityCount} entities | Batch: {batchLabel || batchId.slice(0, 8)}
+            {entityCount} entities | Batch: {batchLabel || (selectedBatchId ?? '').slice(0, 8)}
           </p>
         </div>
       </div>
@@ -380,30 +393,123 @@ function ResultsDashboardPageInner() {
         </Card>
       </div>
 
-      {/* L5: Anomaly Detail (if any) */}
-      {anomalyReport && anomalyReport.anomalies.length > 0 && (
-        <Card className="border-amber-500/30">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2 text-amber-600">
-              <AlertTriangle className="h-4 w-4" />
-              Anomalies Detected
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {anomalyReport.anomalies.map((a, i) => (
-                <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 whitespace-nowrap">
-                    {a.type.replace(/_/g, ' ')}
+      {/* L5: Bloodwork Anomaly Display (Standing Rule 23) */}
+      {anomalyReport && anomalyReport.anomalies.length > 0 && (() => {
+        const SEVERITY_MAP: Record<string, 'critical' | 'warning' | 'info'> = {
+          zero_payout: 'critical',
+          missing_entity: 'critical',
+          outlier_high: 'warning',
+          outlier_low: 'warning',
+          identical_values: 'info',
+        };
+        const SEVERITY_STYLE = {
+          critical: { bg: 'rgba(239, 68, 68, 0.08)', border: 'rgba(239, 68, 68, 0.25)', text: 'text-red-400', dot: 'bg-red-500' },
+          warning: { bg: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.25)', text: 'text-amber-400', dot: 'bg-amber-500' },
+          info: { bg: 'rgba(99, 102, 241, 0.08)', border: 'rgba(99, 102, 241, 0.25)', text: 'text-indigo-400', dot: 'bg-indigo-500' },
+        };
+        const grouped = { critical: [] as typeof anomalyReport.anomalies, warning: [] as typeof anomalyReport.anomalies, info: [] as typeof anomalyReport.anomalies };
+        for (const a of anomalyReport.anomalies) {
+          const sev = SEVERITY_MAP[a.type] ?? 'info';
+          grouped[sev].push(a);
+        }
+        const topFinding = anomalyReport.anomalies[0];
+
+        return (
+          <Card className="border-amber-500/20">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  Anomaly Summary
+                </CardTitle>
+                <button
+                  onClick={() => setAnomalyExpanded(!anomalyExpanded)}
+                  className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors flex items-center gap-1"
+                >
+                  {anomalyExpanded ? (
+                    <><ChevronDown className="h-3.5 w-3.5" /> Collapse</>
+                  ) : (
+                    <><ChevronRight className="h-3.5 w-3.5" /> Expand</>
+                  )}
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Summary bar: severity counts */}
+              <div className="flex items-center gap-4">
+                {grouped.critical.length > 0 && (
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    <span className="text-red-400 font-medium">{grouped.critical.length} critical</span>
                   </span>
-                  <span className="text-sm text-slate-300">{a.description}</span>
-                  <span className="text-xs text-slate-500 ml-auto whitespace-nowrap">{a.entityCount} ent</span>
+                )}
+                {grouped.warning.length > 0 && (
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span className="text-amber-400 font-medium">{grouped.warning.length} warning</span>
+                  </span>
+                )}
+                {grouped.info.length > 0 && (
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                    <span className="text-indigo-400 font-medium">{grouped.info.length} info</span>
+                  </span>
+                )}
+                <span className="text-[10px] text-zinc-600 ml-auto">
+                  {anomalyReport.anomalies.reduce((s, a) => s + a.entityCount, 0)} entities affected
+                </span>
+              </div>
+
+              {/* Top finding (always visible) */}
+              {topFinding && !anomalyExpanded && (
+                <div
+                  className="p-3 rounded-lg text-sm"
+                  style={{
+                    backgroundColor: SEVERITY_STYLE[SEVERITY_MAP[topFinding.type] ?? 'info'].bg,
+                    border: `1px solid ${SEVERITY_STYLE[SEVERITY_MAP[topFinding.type] ?? 'info'].border}`,
+                  }}
+                >
+                  <span className={`text-xs font-medium ${SEVERITY_STYLE[SEVERITY_MAP[topFinding.type] ?? 'info'].text}`}>
+                    {topFinding.description}
+                  </span>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+              )}
+
+              {/* Expanded: grouped detail */}
+              {anomalyExpanded && (
+                <div className="space-y-3">
+                  {(['critical', 'warning', 'info'] as const).map(sev => {
+                    if (grouped[sev].length === 0) return null;
+                    const style = SEVERITY_STYLE[sev];
+                    return (
+                      <div key={sev} className="space-y-1.5">
+                        <p className={`text-[10px] font-medium uppercase tracking-wider ${style.text}`}>{sev}</p>
+                        {grouped[sev].map((a, i) => (
+                          <div
+                            key={i}
+                            className="p-3 rounded-lg"
+                            style={{ backgroundColor: style.bg, border: `1px solid ${style.border}` }}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <span className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: style.border }}>
+                                  {a.type.replace(/_/g, ' ')}
+                                </span>
+                                <p className="text-sm text-slate-300 mt-1">{a.description}</p>
+                              </div>
+                              <span className="text-xs text-slate-500 whitespace-nowrap">{a.entityCount} ent</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Component Breakdown */}
       {componentTotals.length > 0 && (
@@ -668,6 +774,7 @@ function ResultsDashboardPageInner() {
           </div>
         </CardContent>
       </Card>
+    </div>
     </div>
   );
 }

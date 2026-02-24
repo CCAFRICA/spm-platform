@@ -19,8 +19,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
+import { useOperate } from '@/contexts/operate-context';
 import { isVLAdmin } from '@/types/auth';
 import { loadReconciliationPageData, type ReconciliationPageData } from '@/lib/data/page-loaders';
+import { OperateSelector } from '@/components/operate/OperateSelector';
 import * as XLSX from 'xlsx';
 import {
   generateReconciliationReport,
@@ -176,6 +178,7 @@ export default function ReconciliationPage() {
   const { format: formatCurrency } = useCurrency();
   const { locale } = useLocale();
   const { user } = useAuth();
+  const { selectedBatchId: contextBatchId } = useOperate();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
   const tenantId = currentTenant?.id || '';
   const userId = user?.id || '';
@@ -215,6 +218,7 @@ export default function ReconciliationPage() {
   const [componentPage, setComponentPage] = useState<Record<string, number>>({});
 
   // Load page data
+  // OB-92: Load page data, prefer OperateContext batch > URL param > most recent
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
@@ -224,8 +228,11 @@ export default function ReconciliationPage() {
         if (cancelled) return;
         setPageData(data);
         const urlBatchId = searchParams.get('batchId');
+        // Priority: URL param > OperateContext > first batch
         if (urlBatchId && data.batches.some(b => b.id === urlBatchId)) {
           setSelectedBatchId(urlBatchId);
+        } else if (contextBatchId && data.batches.some(b => b.id === contextBatchId)) {
+          setSelectedBatchId(contextBatchId);
         } else if (data.batches.length > 0) {
           setSelectedBatchId(data.batches[0].id);
         }
@@ -238,7 +245,7 @@ export default function ReconciliationPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [tenantId, searchParams]);
+  }, [tenantId, searchParams, contextBatchId]);
 
   // Batch options
   const batchOptions: BatchOption[] = useMemo(() => {
@@ -520,6 +527,10 @@ export default function ReconciliationPage() {
 
   // ── MAIN LAYOUT ──
   return (
+    <div>
+      {/* OB-92: Shared selector bar */}
+      <OperateSelector />
+
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -1157,6 +1168,7 @@ export default function ReconciliationPage() {
           )}
         </>
       )}
+    </div>
     </div>
   );
 }
