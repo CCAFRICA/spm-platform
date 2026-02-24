@@ -20,6 +20,12 @@ import type {
   IngestionMetricsData,
   MeteringEvent,
 } from '@/lib/data/platform-queries';
+import {
+  computeAccuracyMetrics,
+  computeCalibrationMetrics,
+  computeFlywheelTrend,
+  computeOverallHealth,
+} from '@/lib/intelligence/ai-metrics-service';
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceRoleClient>>;
 
@@ -371,6 +377,14 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
 
   const tenantNameMap = new Map((tenantRows ?? []).map(t => [t.id, t.name]));
 
+  // OB-86: Compute enhanced metrics in parallel
+  const [accuracy, calibration, flywheel, health] = await Promise.all([
+    computeAccuracyMetrics().catch(() => null),
+    computeCalibrationMetrics().catch(() => null),
+    computeFlywheelTrend().catch(() => null),
+    computeOverallHealth().catch(() => null),
+  ]);
+
   return {
     totalSignals: safeSignals.length,
     avgConfidence: confCount > 0 ? totalConf / confCount : 0,
@@ -386,6 +400,18 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
       avgConfidence: d.count > 0 ? d.totalConf / d.count : 0,
     })),
     tableExists: true,
+    // OB-86: Enhanced metrics
+    accuracyByType: accuracy?.byType ?? undefined,
+    overallAccuracy: accuracy?.overall ?? undefined,
+    calibration: calibration ?? undefined,
+    flywheel: flywheel ?? undefined,
+    healthSummary: health ? {
+      totalSignals: health.totalSignals,
+      overallAccuracy: health.overallAccuracy,
+      avgConfidence: health.avgConfidence,
+      calibrationError: health.calibrationError,
+      trendDirection: health.trendDirection,
+    } : undefined,
   };
 }
 
