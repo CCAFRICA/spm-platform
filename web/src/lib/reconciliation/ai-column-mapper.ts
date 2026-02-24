@@ -196,6 +196,11 @@ export async function buildMappingTargets(tenantId: string): Promise<MappingTarg
     { id: 'entity_id', label: 'Employee ID', category: 'identifier' },
     { id: 'employee_name', label: 'Employee Name', category: 'identifier' },
     { id: 'total_amount', label: 'Total Incentive Amount', category: 'amount' },
+    // OB-87: Period targets for three minimum mappings
+    { id: 'period', label: 'Period / Date', category: 'identifier' },
+    { id: 'month', label: 'Month', category: 'identifier' },
+    { id: 'year', label: 'Year', category: 'identifier' },
+    { id: 'date', label: 'Date', category: 'identifier' },
   ];
 
   // Add plan component targets

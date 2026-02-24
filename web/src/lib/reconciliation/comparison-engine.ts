@@ -28,6 +28,7 @@ import type { ColumnMapping } from './ai-column-mapper';
 // ============================================
 
 export type DeltaFlag = 'exact' | 'tolerance' | 'amber' | 'red';
+export type MatchStatus = 'exact' | 'tolerance' | 'warning' | 'alert' | 'false_green';
 
 export interface ComponentComparison {
   componentId: string;
@@ -318,4 +319,187 @@ export function getFlagBgColor(flag: DeltaFlag): string {
     case 'amber': return 'bg-amber-50 dark:bg-amber-900/20';
     case 'red': return 'bg-red-50 dark:bg-red-900/20';
   }
+}
+
+// ============================================
+// OB-87: FALSE GREEN DETECTION
+// ============================================
+
+const FALSE_GREEN_TOTAL_THRESHOLD = 0.01;    // Total delta < 1%
+const FALSE_GREEN_COMPONENT_THRESHOLD = 0.10; // Any component delta > 10%
+
+/**
+ * Detect false greens: entities where total matches but components don't.
+ * This is the highest-priority finding in reconciliation.
+ */
+export function detectFalseGreens(employees: EmployeeComparison[]): EmployeeComparison[] {
+  return employees.filter(e => {
+    if (e.population !== 'matched') return false;
+    if (e.components.length === 0) return false;
+
+    // Total is within tolerance
+    const totalOk = Math.abs(e.totalDeltaPercent) <= FALSE_GREEN_TOTAL_THRESHOLD;
+    if (!totalOk) return false;
+
+    // But at least one component has significant delta
+    const hasComponentMismatch = e.components.some(
+      c => Math.abs(c.deltaPercent) > FALSE_GREEN_COMPONENT_THRESHOLD
+    );
+
+    return hasComponentMismatch;
+  });
+}
+
+// ============================================
+// OB-87: ENHANCED COMPARISON WITH FINDINGS
+// ============================================
+
+export type FindingPriority = 1 | 2 | 3 | 4 | 5 | 6;
+export type FindingType = 'false_green' | 'red_flag' | 'warning' | 'tolerance' | 'exact' | 'population';
+
+export interface Finding {
+  priority: FindingPriority;
+  type: FindingType;
+  entityId?: string;
+  message: string;
+  messageEs: string;
+  detail: string;
+}
+
+export interface EnhancedComparisonResult extends ComparisonResult {
+  falseGreenCount: number;
+  findings: Finding[];
+  periodsCompared: string[];
+  depthAchieved: number;
+}
+
+/**
+ * Run enhanced comparison with false green detection and priority-ordered findings.
+ * Extends the base runComparison() with OB-87 capabilities.
+ */
+export function runEnhancedComparison(
+  fileRows: Record<string, unknown>[],
+  vlResults: CalculationResult[],
+  mappings: ColumnMapping[],
+  entityIdField: string,
+  totalAmountField: string,
+  periodsCompared: string[] = [],
+  depthAchieved: number = 2,
+): EnhancedComparisonResult {
+  // Run base comparison
+  const base = runComparison(fileRows, vlResults, mappings, entityIdField, totalAmountField);
+
+  // Detect false greens
+  const falseGreens = detectFalseGreens(base.employees);
+
+  // Build priority-ordered findings
+  const findings = buildFindings(base.employees, falseGreens);
+
+  return {
+    ...base,
+    falseGreenCount: falseGreens.length,
+    findings,
+    periodsCompared,
+    depthAchieved,
+  };
+}
+
+/**
+ * Build priority-ordered findings from comparison results.
+ * Priority: 1=false_green, 2=red_flag, 3=warning, 4=tolerance, 5=exact, 6=population
+ */
+function buildFindings(employees: EmployeeComparison[], falseGreens: EmployeeComparison[]): Finding[] {
+  const findings: Finding[] = [];
+  const falseGreenIds = new Set(falseGreens.map(e => e.entityId));
+
+  // P1: False greens
+  for (const fg of falseGreens) {
+    const mismatchedComponents = fg.components
+      .filter(c => Math.abs(c.deltaPercent) > FALSE_GREEN_COMPONENT_THRESHOLD)
+      .map(c => c.componentName)
+      .join(', ');
+    findings.push({
+      priority: 1,
+      type: 'false_green',
+      entityId: fg.entityId,
+      message: `FALSE GREEN: ${fg.entityName} — total matches but components differ (${mismatchedComponents})`,
+      messageEs: `VERDE FALSO: ${fg.entityName} — total coincide pero componentes difieren (${mismatchedComponents})`,
+      detail: `Total delta: ${(fg.totalDeltaPercent * 100).toFixed(2)}%, component mismatches: ${mismatchedComponents}`,
+    });
+  }
+
+  // P2: Red flags (>15% delta, not already false green)
+  for (const e of employees.filter(e => e.population === 'matched' && e.totalFlag === 'red' && !falseGreenIds.has(e.entityId))) {
+    findings.push({
+      priority: 2,
+      type: 'red_flag',
+      entityId: e.entityId,
+      message: `RED FLAG: ${e.entityName} — ${(e.totalDeltaPercent * 100).toFixed(1)}% delta`,
+      messageEs: `ALERTA ROJA: ${e.entityName} — ${(e.totalDeltaPercent * 100).toFixed(1)}% diferencia`,
+      detail: `VL: $${e.vlTotal.toFixed(2)}, Benchmark: $${e.fileTotal.toFixed(2)}`,
+    });
+  }
+
+  // P3: Amber warnings (5-15%)
+  for (const e of employees.filter(e => e.population === 'matched' && e.totalFlag === 'amber')) {
+    findings.push({
+      priority: 3,
+      type: 'warning',
+      entityId: e.entityId,
+      message: `WARNING: ${e.entityName} — ${(e.totalDeltaPercent * 100).toFixed(1)}% delta`,
+      messageEs: `ADVERTENCIA: ${e.entityName} — ${(e.totalDeltaPercent * 100).toFixed(1)}% diferencia`,
+      detail: `VL: $${e.vlTotal.toFixed(2)}, Benchmark: $${e.fileTotal.toFixed(2)}`,
+    });
+  }
+
+  // P4: Tolerance (<5%)
+  const toleranceCount = employees.filter(e => e.population === 'matched' && e.totalFlag === 'tolerance').length;
+  if (toleranceCount > 0) {
+    findings.push({
+      priority: 4,
+      type: 'tolerance',
+      message: `${toleranceCount} entities within tolerance (<5% delta)`,
+      messageEs: `${toleranceCount} entidades dentro de tolerancia (<5% diferencia)`,
+      detail: '',
+    });
+  }
+
+  // P5: Exact matches
+  const exactCount = employees.filter(e => e.population === 'matched' && e.totalFlag === 'exact').length;
+  if (exactCount > 0) {
+    findings.push({
+      priority: 5,
+      type: 'exact',
+      message: `${exactCount} entities match exactly`,
+      messageEs: `${exactCount} entidades coinciden exactamente`,
+      detail: '',
+    });
+  }
+
+  // P6: Population mismatches
+  const fileOnly = employees.filter(e => e.population === 'file_only');
+  const vlOnly = employees.filter(e => e.population === 'vl_only');
+  if (fileOnly.length > 0) {
+    findings.push({
+      priority: 6,
+      type: 'population',
+      message: `${fileOnly.length} entities in benchmark only`,
+      messageEs: `${fileOnly.length} entidades solo en benchmark`,
+      detail: fileOnly.slice(0, 5).map(e => e.entityId).join(', ') + (fileOnly.length > 5 ? '...' : ''),
+    });
+  }
+  if (vlOnly.length > 0) {
+    findings.push({
+      priority: 6,
+      type: 'population',
+      message: `${vlOnly.length} entities in VL only`,
+      messageEs: `${vlOnly.length} entidades solo en VL`,
+      detail: vlOnly.slice(0, 5).map(e => e.entityId).join(', ') + (vlOnly.length > 5 ? '...' : ''),
+    });
+  }
+
+  // Sort by priority
+  findings.sort((a, b) => a.priority - b.priority);
+
+  return findings;
 }
