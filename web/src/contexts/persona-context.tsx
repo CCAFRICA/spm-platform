@@ -72,10 +72,26 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const { user, capabilities } = useAuth();
   const { currentTenant } = useTenant();
 
-  const [override, setOverride] = useState<PersonaKey | null>(null);
+  // OB-89: Persist persona override in sessionStorage so it survives navigation
+  const [override, setOverride] = useState<PersonaKey | null>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem('vl_persona_override');
+      if (stored === 'admin' || stored === 'manager' || stored === 'rep') return stored;
+    }
+    return null;
+  });
   const [scope, setScope] = useState<PersonaScope>({ entityIds: [], canSeeAll: false });
   const [profileId, setProfileId] = useState<string | null>(null);
   const [entityId, setEntityId] = useState<string | null>(null);
+
+  // OB-89: Sync override to sessionStorage
+  useEffect(() => {
+    if (override) {
+      sessionStorage.setItem('vl_persona_override', override);
+    } else {
+      sessionStorage.removeItem('vl_persona_override');
+    }
+  }, [override]);
 
   // Derive persona from user profile
   const derivedPersona = useMemo(() => derivePersona(user, capabilities), [user, capabilities]);

@@ -55,6 +55,13 @@ export function ObservatoryTab() {
   const [queue, setQueue] = useState<OperationsQueueItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectingTenant, setSelectingTenant] = useState<string | null>(null);
+  const [showTestTenants, setShowTestTenants] = useState(false);
+
+  // OB-89: Filter test/development tenants from demo view
+  const TEST_TENANT_PATTERNS = /test|pipeline|retailco|frmx|retail conglomerate|demo seed/i;
+  const demoTenants = tenantCards.filter(t =>
+    showTestTenants || (!TEST_TENANT_PATTERNS.test(t.name) && t.entityCount > 0)
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -286,14 +293,32 @@ export function ObservatoryTab() {
           fontWeight: 700,
           margin: '0 0 16px',
         }}>
-          Tenant Fleet ({tenantCards.length})
+          Tenant Fleet ({demoTenants.length})
+          {tenantCards.length !== demoTenants.length && (
+            <button
+              onClick={() => setShowTestTenants(!showTestTenants)}
+              style={{
+                fontSize: '12px',
+                color: '#94A3B8',
+                background: 'transparent',
+                border: '1px solid #334155',
+                borderRadius: '6px',
+                padding: '2px 8px',
+                marginLeft: '8px',
+                cursor: 'pointer',
+                fontWeight: 500,
+              }}
+            >
+              {showTestTenants ? 'Hide' : 'Show'} {tenantCards.length - demoTenants.length} test
+            </button>
+          )}
         </h3>
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
           gap: '16px',
         }}>
-          {tenantCards.map(tenant => {
+          {demoTenants.map(tenant => {
             const healthColor = tenant.latestLifecycleState
               ? (['POSTED', 'CLOSED', 'PAID', 'PUBLISHED'].includes(tenant.latestLifecycleState) ? '#10B981' : '#F59E0B')
               : (tenant.entityCount > 0 ? '#F59E0B' : '#EF4444');

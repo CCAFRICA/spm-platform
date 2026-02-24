@@ -113,6 +113,7 @@ export async function updateEntity(
   entityId: string,
   updates: Partial<Pick<Entity, 'display_name' | 'status' | 'entity_type' | 'external_id' | 'profile_id' | 'temporal_attributes' | 'metadata'>>
 ): Promise<Entity> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const updateRow: Database['public']['Tables']['entities']['Update'] = updates as Database['public']['Tables']['entities']['Update'];
   const { data, error } = await supabase
@@ -127,6 +128,7 @@ export async function updateEntity(
 }
 
 export async function deleteEntity(tenantId: string, entityId: string): Promise<void> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { error } = await supabase
     .from('entities')
@@ -458,6 +460,7 @@ export async function listReassignmentEvents(
   tenantId: string,
   entityId?: string
 ): Promise<ReassignmentEvent[]> {
+  if (!tenantId) return [];
   const supabase = createClient();
   let query = supabase.from('reassignment_events').select('*').eq('tenant_id', tenantId);
   if (entityId) query = query.eq('entity_id', entityId);

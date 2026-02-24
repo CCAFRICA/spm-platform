@@ -170,6 +170,7 @@ export async function getRuleSetsByStatus(
  * Save (upsert) a rule set.
  */
 export async function saveRuleSet(tenantId: string, plan: RuleSetConfig): Promise<void> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const row = planConfigToRuleSetInsert(plan);
   const { error } = await supabase
@@ -182,6 +183,7 @@ export async function saveRuleSet(tenantId: string, plan: RuleSetConfig): Promis
  * Delete a rule set (only if draft).
  */
 export async function deleteRuleSet(tenantId: string, ruleSetId: string): Promise<boolean> {
+  requireTenantId(tenantId);
   const supabase = createClient();
   const { error } = await supabase
     .from('rule_sets')
