@@ -134,7 +134,11 @@
       "Bash(cat > OB-83_PROMPT.md << 'EOF'\n# OB-83: DOMAIN AGENT RUNTIME + AI ASSESSMENT PANELS\n## Close the Two P1 Gaps From the Co-Founder Briefing\n*Committed for audit trail — see full prompt in conversation*\nEOF\ngit add OB-83_PROMPT.md && git commit -m \"$\\(cat <<'EOF'\nOB-83: Commit prompt for audit trail — Domain Agent Runtime + AI Assessment Panels\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin dev 2>&1)",
       "Bash(git -C /Users/AndrewAfrica/spm-platform status --short)",
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | tail -20)",
-      "Bash(wc -l /Users/AndrewAfrica/spm-platform/web/src/app/**/page.tsx | sort -n)"
+      "Bash(wc -l /Users/AndrewAfrica/spm-platform/web/src/app/**/page.tsx | sort -n)",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/ob85-r5-phase0.ts 2>&1 | tee /tmp/ob85-r5-phase0-output.txt | wc -l)",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | tail -40)",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" || true && sleep 2 && rm -rf .next && npm run build 2>&1 | tail -20)",
+      "Bash(git mv web/src/app/investigate/reconciliation/page.tsx web/src/app/operate/reconciliation/page.tsx)"
     ]
   }
 }
