@@ -14,7 +14,16 @@ import {
   isAIInterpreterAvailable,
   type PlanInterpretation,
 } from '@/lib/compensation/plan-interpreter';
-import type { RuleSetConfig, PlanComponent } from '@/types/compensation-plan';
+import type { RuleSetConfig, PlanComponent, AdditiveLookupConfig } from '@/types/compensation-plan';
+import { isAdditiveLookupConfig } from '@/types/compensation-plan';
+import {
+  validatePlanConfig,
+  getAnomaliesForComponent,
+  hasUnresolvedCriticals,
+  anomalyKey,
+  type PlanValidationResult,
+} from '@/lib/validation/plan-anomaly-registry';
+import { recordSignal } from '@/lib/intelligence/classification-signal-service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -253,6 +262,11 @@ function PlanImportPageInner() {
   const [showRawResponse, setShowRawResponse] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const aiAvailable = isAIInterpreterAvailable();
+
+  // OB-91: Plan validation state
+  const [validationResult, setValidationResult] = useState<PlanValidationResult | null>(null);
+  const [resolvedAnomalies, setResolvedAnomalies] = useState<Set<string>>(new Set());
+  const [showFullValidation, setShowFullValidation] = useState(false);
 
   // VL Admin always sees English, tenant users see tenant locale
   const { locale } = useAdminLocale();
@@ -510,6 +524,13 @@ function PlanImportPageInner() {
       setParsedPlan(parsed);
       setPlanName(parsed.name);
       setPlanDescription(parsed.description);
+
+      // OB-91: Run plan validation if additive_lookup config available
+      if (parsed.planConfig?.configuration && isAdditiveLookupConfig(parsed.planConfig.configuration)) {
+        const vResult = validatePlanConfig(parsed.planConfig.configuration as AdditiveLookupConfig);
+        setValidationResult(vResult);
+        setResolvedAnomalies(new Set());
+      }
     } catch (error) {
       console.error('Error processing file:', error);
       setImportResult({
@@ -525,6 +546,31 @@ function PlanImportPageInner() {
   // Update component
   const handleUpdateComponent = (updated: DetectedComponent) => {
     if (!parsedPlan) return;
+
+    // OB-91 Mission 3: Record correction signal when component values are edited
+    const original = parsedPlan.components.find(c => c.id === updated.id);
+    if (original && currentTenant?.id) {
+      const hasValueChange =
+        JSON.stringify(original.tiers) !== JSON.stringify(updated.tiers) ||
+        JSON.stringify(original.matrix?.values) !== JSON.stringify(updated.matrix?.values) ||
+        original.percentage?.rate !== updated.percentage?.rate;
+
+      if (hasValueChange) {
+        recordSignal({
+          tenantId: currentTenant.id,
+          domain: 'plan_anomaly',
+          fieldName: updated.name,
+          semanticType: 'plan_anomaly_resolution',
+          confidence: 0.99,
+          source: 'user_corrected',
+          metadata: {
+            component: updated.name,
+            componentType: updated.type,
+            correctionType: 'value_edit',
+          },
+        });
+      }
+    }
 
     setParsedPlan({
       ...parsedPlan,
@@ -1089,6 +1135,47 @@ function PlanImportPageInner() {
             </div>
           )}
 
+          {/* OB-91: Validation Summary Cards */}
+          {validationResult && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card>
+                <CardContent className="pt-4 pb-4 text-center">
+                  <p className="text-2xl font-bold text-slate-100">{validationResult.components}</p>
+                  <p className="text-xs text-slate-400">{locale === 'es-MX' ? 'Componentes Analizados' : 'Components Parsed'}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-4 text-center">
+                  <p className="text-2xl font-bold text-slate-100">{validationResult.valuesParsed}</p>
+                  <p className="text-xs text-slate-400">{locale === 'es-MX' ? 'Valores Analizados' : 'Values Parsed'}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-4 text-center">
+                  <p className={cn('text-2xl font-bold', validationResult.passedChecks === validationResult.totalChecks ? 'text-emerald-400' : 'text-amber-400')}>
+                    {validationResult.passedChecks}/{validationResult.totalChecks}
+                  </p>
+                  <p className="text-xs text-slate-400">{locale === 'es-MX' ? 'Checks Pasados' : 'Checks Passed'}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-4 text-center">
+                  {(() => {
+                    const unresolvedCount = validationResult.anomalies.filter(a => !resolvedAnomalies.has(anomalyKey(a))).length;
+                    return (
+                      <>
+                        <p className={cn('text-2xl font-bold', unresolvedCount === 0 ? 'text-emerald-400' : 'text-amber-400')}>
+                          {unresolvedCount}
+                        </p>
+                        <p className="text-xs text-slate-400">{locale === 'es-MX' ? 'Requieren Revision' : 'Needs Review'}</p>
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {/* Detected Components */}
           <Card>
             <CardHeader>
@@ -1104,60 +1191,207 @@ function PlanImportPageInner() {
               {parsedPlan.components.length === 0 ? (
                 <p className="text-center text-slate-500 py-8">{t.noComponents}</p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{locale === 'es-MX' ? 'Componente' : 'Component'}</TableHead>
-                      <TableHead>{t.componentType}</TableHead>
-                      <TableHead>{t.metricSource}</TableHead>
-                      <TableHead>{t.confidence}</TableHead>
-                      <TableHead>{t.reasoning}</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(parsedPlan.components || []).filter(c => c != null).map((component) => (
-                      <TableRow key={component?.id || Math.random()}>
-                        <TableCell className="font-medium">{component?.name ?? 'Unknown'}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{component?.type ?? 'unknown'}</Badge>
-                        </TableCell>
-                        <TableCell>{component?.metricSource ?? '-'}</TableCell>
-                        <TableCell>
-                          <Badge className={getConfidenceColor(component?.confidence ?? 0)}>
-                            {component?.confidence ?? 0}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="max-w-xs">
-                          <p className="text-sm text-slate-500 truncate" title={component?.reasoning ?? ''}>
-                            {component?.reasoning ?? '-'}
-                          </p>
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => component && setEditingComponent(component)}
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
+                <div className="space-y-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{locale === 'es-MX' ? 'Componente' : 'Component'}</TableHead>
+                        <TableHead>{t.componentType}</TableHead>
+                        <TableHead>{t.metricSource}</TableHead>
+                        <TableHead>{t.confidence}</TableHead>
+                        <TableHead>{locale === 'es-MX' ? 'Validacion' : 'Validation'}</TableHead>
+                        <TableHead></TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {(parsedPlan.components || []).filter(c => c != null).map((component) => {
+                        const compAnomalies = validationResult
+                          ? getAnomaliesForComponent(validationResult, component?.name ?? '')
+                          : [];
+                        const unresolvedCompAnomalies = compAnomalies.filter(a => !resolvedAnomalies.has(anomalyKey(a)));
+                        const hasCritical = unresolvedCompAnomalies.some(a => a.severity === 'critical');
+                        const hasWarning = unresolvedCompAnomalies.some(a => a.severity === 'warning');
+
+                        return (
+                          <TableRow key={component?.id || Math.random()}>
+                            <TableCell className="font-medium">{component?.name ?? 'Unknown'}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{component?.type ?? 'unknown'}</Badge>
+                            </TableCell>
+                            <TableCell>{component?.metricSource ?? '-'}</TableCell>
+                            <TableCell>
+                              <Badge className={getConfidenceColor(component?.confidence ?? 0)}>
+                                {component?.confidence ?? 0}%
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {validationResult ? (
+                                unresolvedCompAnomalies.length === 0 ? (
+                                  <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                                    {locale === 'es-MX' ? 'Limpio' : 'Clean'}
+                                  </Badge>
+                                ) : (
+                                  <Badge className={hasCritical
+                                    ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                    : hasWarning
+                                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                                      : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                                  }>
+                                    {hasCritical ? <XCircle className="h-3 w-3 mr-1" /> : <AlertTriangle className="h-3 w-3 mr-1" />}
+                                    {unresolvedCompAnomalies.length} {locale === 'es-MX' ? 'alerta(s)' : 'issue(s)'}
+                                  </Badge>
+                                )
+                              ) : (
+                                <span className="text-xs text-slate-500">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => component && setEditingComponent(component)}
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+
+                  {/* OB-91: Inline anomaly cards per component */}
+                  {validationResult && validationResult.anomalies.length > 0 && (
+                    <div className="mt-4 space-y-3">
+                      {(parsedPlan.components || []).filter(c => c != null).map((component) => {
+                        const compAnomalies = getAnomaliesForComponent(validationResult, component?.name ?? '');
+                        if (compAnomalies.length === 0) return null;
+
+                        return (
+                          <div key={`anomalies-${component?.id}`} className="border rounded-lg p-3 space-y-2">
+                            <p className="text-xs font-medium text-slate-300">
+                              {component?.name} — {compAnomalies.length} {locale === 'es-MX' ? 'anomalía(s)' : 'anomaly(ies)'}
+                            </p>
+                            {compAnomalies.map((anomaly) => {
+                              const key = anomalyKey(anomaly);
+                              const isResolved = resolvedAnomalies.has(key);
+
+                              return (
+                                <div
+                                  key={key}
+                                  className={cn(
+                                    'rounded-lg p-3 text-sm border',
+                                    isResolved
+                                      ? 'bg-zinc-800/30 border-zinc-700 opacity-60'
+                                      : anomaly.severity === 'critical'
+                                        ? 'bg-red-900/20 border-red-800/50'
+                                        : anomaly.severity === 'warning'
+                                          ? 'bg-amber-900/20 border-amber-800/50'
+                                          : 'bg-blue-900/20 border-blue-800/50'
+                                  )}
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <Badge variant="outline" className="text-[10px]">{anomaly.id}</Badge>
+                                        <span className={cn('text-[10px] font-bold uppercase',
+                                          anomaly.severity === 'critical' ? 'text-red-400' :
+                                          anomaly.severity === 'warning' ? 'text-amber-400' : 'text-blue-400'
+                                        )}>
+                                          {anomaly.severity}
+                                        </span>
+                                        <span className="text-[10px] text-slate-500">{anomaly.location}</span>
+                                      </div>
+                                      <p className="text-xs text-slate-300">{anomaly.explanation}</p>
+                                      {anomaly.suggestions.length > 0 && (
+                                        <p className="text-[11px] text-slate-500 mt-1">
+                                          {anomaly.suggestions[0]}
+                                        </p>
+                                      )}
+                                    </div>
+                                    {!isResolved && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-xs shrink-0"
+                                        onClick={() => {
+                                          setResolvedAnomalies(prev => {
+                                            const next = new Set(prev);
+                                            next.add(key);
+                                            return next;
+                                          });
+                                          // OB-91 Mission 3: Record classification signal
+                                          if (currentTenant?.id) {
+                                            recordSignal({
+                                              tenantId: currentTenant.id,
+                                              domain: 'plan_anomaly',
+                                              fieldName: anomaly.id,
+                                              semanticType: 'plan_anomaly_resolution',
+                                              confidence: 0.95,
+                                              source: 'user_confirmed',
+                                              metadata: {
+                                                anomalyType: anomaly.type,
+                                                component: anomaly.component,
+                                                variant: anomaly.variant,
+                                                location: anomaly.location,
+                                                extractedValue: anomaly.extractedValue,
+                                                severity: anomaly.severity,
+                                              },
+                                            });
+                                          }
+                                        }}
+                                      >
+                                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                                        {locale === 'es-MX' ? 'Confirmar correcto' : 'Confirm correct'}
+                                      </Button>
+                                    )}
+                                    {isResolved && (
+                                      <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                                        <CheckCircle2 className="h-3 w-3" />
+                                        {locale === 'es-MX' ? 'Resuelto' : 'Resolved'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
 
+          {/* OB-91: Full Validation Panel button */}
+          {validationResult && (
+            <div className="flex justify-center">
+              <Button variant="outline" size="sm" onClick={() => setShowFullValidation(true)}>
+                {locale === 'es-MX' ? 'Ver Reporte Completo de Validacion' : 'View Full Validation Report'}
+              </Button>
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex justify-end gap-4">
-            <Button variant="outline" onClick={() => setParsedPlan(null)}>
+            <Button variant="outline" onClick={() => { setParsedPlan(null); setValidationResult(null); }}>
               {locale === 'es-MX' ? 'Subir Otro Archivo' : 'Upload Different File'}
             </Button>
             <Button
               onClick={handleImport}
-              disabled={isImporting || parsedPlan.components.length === 0}
+              disabled={
+                isImporting ||
+                parsedPlan.components.length === 0 ||
+                (validationResult != null && hasUnresolvedCriticals(validationResult, resolvedAnomalies))
+              }
+              title={
+                validationResult && hasUnresolvedCriticals(validationResult, resolvedAnomalies)
+                  ? (locale === 'es-MX' ? 'Resuelva las anomalías criticas antes de importar' : 'Resolve critical anomalies before importing')
+                  : undefined
+              }
             >
               {isImporting ? (
                 <>
@@ -1174,6 +1408,86 @@ function PlanImportPageInner() {
           </div>
         </>
       )}
+
+      {/* OB-91: Full Validation Report Dialog */}
+      <Dialog open={showFullValidation} onOpenChange={setShowFullValidation}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {locale === 'es-MX' ? 'Reporte de Validacion del Plan' : 'Plan Validation Report'}
+            </DialogTitle>
+            <DialogDescription>
+              {validationResult
+                ? `${validationResult.totalChecks} ${locale === 'es-MX' ? 'verificaciones ejecutadas' : 'checks run'} — ${validationResult.passedChecks} ${locale === 'es-MX' ? 'pasadas' : 'passed'}`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {validationResult && (
+            <div className="space-y-3 pt-2">
+              {/* All checks list */}
+              {['S-01', 'S-02', 'S-03', 'S-04', 'S-05', 'S-06', 'S-07', 'S-08', 'S-09', 'V-01', 'V-02', 'V-03', 'X-01', 'X-04'].map(checkId => {
+                const checkNames: Record<string, string> = {
+                  'S-01': 'Row Monotonicity',
+                  'S-02': 'Column Monotonicity',
+                  'S-03': 'Magnitude Outlier',
+                  'S-04': 'Zero in Active Region',
+                  'S-05': 'Non-Zero in Floor',
+                  'S-06': 'Threshold Gap',
+                  'S-07': 'Threshold Overlap',
+                  'S-08': 'Boundary Ambiguity',
+                  'S-09': 'Inconsistent Convention',
+                  'V-01': 'Structural Mismatch',
+                  'V-02': 'Ratio Break',
+                  'V-03': 'Value Exceeds Primary',
+                  'X-01': 'Missing Data Binding',
+                  'X-04': 'Partial Matrix',
+                };
+                const found = validationResult.anomalies.filter(a => a.id === checkId);
+                const allResolved = found.every(a => resolvedAnomalies.has(anomalyKey(a)));
+                const hasCritical = found.some(a => a.severity === 'critical' && !resolvedAnomalies.has(anomalyKey(a)));
+                const passed = found.length === 0 || allResolved;
+
+                return (
+                  <div key={checkId} className={cn(
+                    'flex items-center gap-3 px-3 py-2 rounded-lg border',
+                    passed ? 'border-emerald-800/30 bg-emerald-900/10' :
+                    hasCritical ? 'border-red-800/30 bg-red-900/10' : 'border-amber-800/30 bg-amber-900/10'
+                  )}>
+                    {passed ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                    ) : hasCritical ? (
+                      <XCircle className="h-4 w-4 text-red-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                    )}
+                    <div className="flex-1">
+                      <span className="text-sm text-slate-200">{checkId}: {checkNames[checkId]}</span>
+                      {found.length > 0 && (
+                        <span className="text-xs text-slate-500 ml-2">
+                          ({found.length} {locale === 'es-MX' ? 'hallazgos' : 'finding(s)'}{allResolved ? ` — ${locale === 'es-MX' ? 'resueltos' : 'resolved'}` : ''})
+                        </span>
+                      )}
+                    </div>
+                    {passed && (
+                      <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px]">
+                        PASS
+                      </Badge>
+                    )}
+                    {!passed && (
+                      <Badge className={hasCritical
+                        ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 text-[10px]'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 text-[10px]'
+                      }>
+                        {found.length} {hasCritical ? 'CRITICAL' : 'WARNING'}
+                      </Badge>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Component Dialog */}
       <Dialog open={!!editingComponent} onOpenChange={() => setEditingComponent(null)}>

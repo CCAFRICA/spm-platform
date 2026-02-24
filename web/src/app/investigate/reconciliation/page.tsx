@@ -22,6 +22,11 @@ import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
 import { loadReconciliationPageData, type ReconciliationPageData } from '@/lib/data/page-loaders';
 import * as XLSX from 'xlsx';
+import {
+  generateReconciliationReport,
+  type ReconciliationReport,
+  type ComparisonResultInput,
+} from '@/lib/reconciliation/report-engine';
 
 // ──────────────────────────────────────────────
 // Types
@@ -159,29 +164,6 @@ function depthIcon(available: boolean, confidence: number): string {
   return '🔍';
 }
 
-function findingColor(type: string): string {
-  switch (type) {
-    case 'false_green': return '#ef4444';
-    case 'red_flag': return '#ef4444';
-    case 'warning': return '#f59e0b';
-    case 'tolerance': return '#10b981';
-    case 'exact': return '#10b981';
-    case 'population': return '#6b7280';
-    default: return '#94a3b8';
-  }
-}
-
-function findingLabel(type: string, isSpanish: boolean): string {
-  switch (type) {
-    case 'false_green': return isSpanish ? 'VERDE FALSO' : 'FALSE GREEN';
-    case 'red_flag': return isSpanish ? 'ALERTA' : 'RED FLAG';
-    case 'warning': return isSpanish ? 'ADVERTENCIA' : 'WARNING';
-    case 'tolerance': return isSpanish ? 'TOLERANCIA' : 'TOLERANCE';
-    case 'exact': return isSpanish ? 'EXACTO' : 'EXACT';
-    case 'population': return isSpanish ? 'POBLACION' : 'POPULATION';
-    default: return type;
-  }
-}
 
 // ──────────────────────────────────────────────
 // Page Component
@@ -226,6 +208,11 @@ export default function ReconciliationPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedEntity, setExpandedEntity] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // OB-91: Report state
+  const [report, setReport] = useState<ReconciliationReport | null>(null);
+  const [expandedComponent, setExpandedComponent] = useState<string | null>(null);
+  const [componentPage, setComponentPage] = useState<Record<string, number>>({});
 
   // Load page data
   useEffect(() => {
@@ -382,6 +369,16 @@ export default function ReconciliationPage() {
       setPeriodFilter(data.periodFilter);
       setStep('results');
 
+      // OB-91: Generate structured report
+      const rpt = generateReconciliationReport(
+        data.result as ComparisonResultInput,
+        {
+          periodLabel: selectedBatch?.label ?? 'Unknown Period',
+          tenantName: currentTenant?.name ?? 'Unknown',
+        },
+      );
+      setReport(rpt);
+
       // Save session (fire-and-forget)
       fetch('/api/reconciliation/save', {
         method: 'POST',
@@ -476,6 +473,9 @@ export default function ReconciliationPage() {
     setEntityIdCol(null);
     setTotalPayoutCol(null);
     setError(null);
+    setReport(null);
+    setExpandedComponent(null);
+    setComponentPage({});
     setStep('select_batch');
   };
 
@@ -538,9 +538,27 @@ export default function ReconciliationPage() {
             </button>
           )}
           {compResult && (
-            <button onClick={handleExportCSV} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...CARD_STYLE }}>
-              {isSpanish ? 'Exportar CSV' : 'Export CSV'}
-            </button>
+            <>
+              {report && (
+                <button
+                  onClick={() => {
+                    // OB-91 Mission 6: XLSX export — implemented in report-engine.ts
+                    import('@/lib/reconciliation/report-engine').then(mod => {
+                      if (mod.exportReportToXLSX && report) {
+                        mod.exportReportToXLSX(report);
+                      }
+                    });
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300"
+                  style={{ ...CARD_STYLE }}
+                >
+                  {isSpanish ? 'Exportar XLSX' : 'Export XLSX Report'}
+                </button>
+              )}
+              <button onClick={handleExportCSV} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...CARD_STYLE }}>
+                {isSpanish ? 'Exportar CSV' : 'Export CSV'}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -785,7 +803,7 @@ export default function ReconciliationPage() {
         </div>
       )}
 
-      {/* Step 4: Results */}
+      {/* Step 4: Results — OB-91 Enhanced Report */}
       {compResult && step === 'results' && (
         <>
           {/* Period filter info */}
@@ -798,77 +816,241 @@ export default function ReconciliationPage() {
             </div>
           )}
 
-          {/* Findings Panel (Priority-ordered) */}
-          {compResult.findings.length > 0 && (
-            <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
-              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
-                {isSpanish ? 'Hallazgos' : 'Findings'}
-                {compResult.falseGreenCount > 0 && (
-                  <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>
-                    {compResult.falseGreenCount} {isSpanish ? 'VERDE FALSO' : 'FALSE GREEN'}
-                  </span>
-                )}
-              </h4>
-              <div className="space-y-2">
-                {compResult.findings.map((f, i) => (
-                  <div key={i} className="flex items-start gap-3 px-3 py-2 rounded-lg" style={{ backgroundColor: `${findingColor(f.type)}10`, border: `1px solid ${findingColor(f.type)}30` }}>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded mt-0.5" style={{ backgroundColor: `${findingColor(f.type)}20`, color: findingColor(f.type) }}>
-                      {findingLabel(f.type, isSpanish)}
+          {/* 5A: Executive Summary Panel */}
+          {report && (
+            <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '24px' }}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-zinc-100">
+                  {isSpanish ? 'Resumen Ejecutivo' : 'Executive Summary'}
+                </h3>
+                <span className="text-[10px] text-zinc-500">
+                  {new Date(report.generatedAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}
+                </span>
+              </div>
+
+              {/* Headline metrics */}
+              <div className="grid grid-cols-3 gap-6 mb-6">
+                <div className="text-center">
+                  <p className={`text-3xl font-bold tabular-nums ${report.summary.overallMatchPercent >= 99 ? 'text-emerald-400' : report.summary.overallMatchPercent >= 90 ? 'text-amber-400' : 'text-red-400'}`}>
+                    {report.summary.overallMatchPercent.toFixed(1)}%
+                  </p>
+                  <p className="text-[10px] text-zinc-500 uppercase mt-1">{isSpanish ? 'Tasa de Coincidencia' : 'Match Rate'}</p>
+                </div>
+                <div className="text-center">
+                  <p className={`text-3xl font-bold tabular-nums ${Math.abs(report.summary.totalDelta) < 1 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {formatCurrency(Math.abs(report.summary.totalDelta))}
+                  </p>
+                  <p className="text-[10px] text-zinc-500 uppercase mt-1">{isSpanish ? 'Delta Total' : 'Total Delta'}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-3xl font-bold tabular-nums text-zinc-100">
+                    {report.summary.entityCount}
+                  </p>
+                  <p className="text-[10px] text-zinc-500 uppercase mt-1">{isSpanish ? 'Entidades Comparadas' : 'Entities Compared'}</p>
+                </div>
+              </div>
+
+              {/* Top finding callout */}
+              <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: 'rgba(124, 58, 237, 0.1)', border: '1px solid rgba(124, 58, 237, 0.2)' }}>
+                <p className="text-xs text-zinc-300">
+                  <span className="text-violet-400 font-medium">{isSpanish ? 'Hallazgo Principal' : 'Top Finding'}:</span>{' '}
+                  {report.summary.topFinding}
+                </p>
+              </div>
+
+              {/* Component status rows */}
+              <div className="mt-4 space-y-1">
+                {report.components.map(comp => (
+                  <div key={comp.name} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-800/30">
+                    <span className={comp.isExact ? 'text-emerald-400' : 'text-amber-400'}>
+                      {comp.isExact ? '✓' : '△'}
                     </span>
-                    <div className="flex-1">
-                      <p className="text-xs text-zinc-200">{isSpanish ? f.messageEs : f.message}</p>
-                      {f.detail && <p className="text-[10px] text-zinc-500 mt-0.5">{f.detail}</p>}
-                    </div>
+                    <span className="text-xs text-zinc-200 flex-1">{comp.name}</span>
+                    <span className="text-xs font-mono text-zinc-400 tabular-nums w-28 text-right">
+                      {formatCurrency(comp.engineTotal)}
+                    </span>
+                    <span className="text-xs text-zinc-600">vs</span>
+                    <span className="text-xs font-mono text-zinc-400 tabular-nums w-28 text-right">
+                      {formatCurrency(comp.benchmarkTotal)}
+                    </span>
+                    <span className={`text-xs font-mono tabular-nums w-24 text-right ${comp.isExact ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {comp.delta >= 0 ? '+' : ''}{formatCurrency(comp.delta)}
+                    </span>
                   </div>
                 ))}
+              </div>
+
+              {/* Aggregate totals */}
+              <div className="mt-4 pt-4 border-t border-zinc-800 grid grid-cols-3 gap-6 text-center">
+                <div>
+                  <p className="text-[10px] text-zinc-500 uppercase">{isSpanish ? 'Motor VL' : 'VL Engine'}</p>
+                  <p className="text-lg font-bold text-zinc-100 tabular-nums">{formatCurrency(report.summary.totalEngine)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-zinc-500 uppercase">Benchmark</p>
+                  <p className="text-lg font-bold text-zinc-100 tabular-nums">{formatCurrency(report.summary.totalBenchmark)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-zinc-500 uppercase">Delta</p>
+                  <p className={`text-lg font-bold tabular-nums ${
+                    report.summary.totalBenchmark !== 0 && Math.abs(report.summary.totalDelta / report.summary.totalBenchmark) < 0.01 ? 'text-emerald-400' : 'text-amber-400'
+                  }`}>
+                    {formatCurrency(Math.abs(report.summary.totalDelta))}
+                    {report.summary.totalBenchmark !== 0 && ` (${(Math.abs(report.summary.totalDelta / report.summary.totalBenchmark) * 100).toFixed(2)}%)`}
+                  </p>
+                </div>
               </div>
             </div>
           )}
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {[
-              { label: isSpanish ? 'Coincidencias' : 'Matched', value: String(compResult.summary.matched), color: '#10b981' },
-              { label: isSpanish ? 'Tasa' : 'Match Rate', value: `${compResult.summary.totalEmployees > 0 ? ((compResult.summary.matched / compResult.summary.totalEmployees) * 100).toFixed(1) : 0}%`, color: '#7c3aed' },
-              { label: isSpanish ? 'Verdes Falsos' : 'False Greens', value: String(compResult.falseGreenCount), color: compResult.falseGreenCount > 0 ? '#ef4444' : '#10b981' },
-              { label: isSpanish ? 'Profundidad' : 'Depth', value: `L${compResult.depthAchieved}`, color: '#3b82f6' },
-              { label: isSpanish ? 'Solo VL' : 'VL-Only', value: String(compResult.summary.vlOnly), color: '#6b7280' },
-            ].map(card => (
-              <div key={card.label} className="rounded-2xl text-center" style={{ ...CARD_STYLE, padding: '16px' }}>
-                <p className="text-2xl font-bold tabular-nums" style={{ color: card.color }}>{card.value}</p>
-                <p className="text-[11px] text-zinc-400 mt-1">{card.label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Aggregate Totals */}
-          <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
-            <div className="grid grid-cols-3 gap-6 text-center">
-              <div>
-                <p className="text-[10px] text-zinc-500 uppercase">VL Total</p>
-                <p className="text-lg font-bold text-zinc-100 tabular-nums">{formatCurrency(compResult.summary.vlTotalAmount)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-zinc-500 uppercase">Benchmark Total</p>
-                <p className="text-lg font-bold text-zinc-100 tabular-nums">{formatCurrency(compResult.summary.fileTotalAmount)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-zinc-500 uppercase">Delta</p>
-                <p className={`text-lg font-bold tabular-nums ${
-                  compResult.summary.fileTotalAmount !== 0 && Math.abs(compResult.summary.totalDelta / compResult.summary.fileTotalAmount) < 0.01 ? 'text-emerald-400' : 'text-amber-400'
-                }`}>
-                  {formatCurrency(Math.abs(compResult.summary.totalDelta))}
-                  {compResult.summary.fileTotalAmount !== 0 && ` (${(Math.abs(compResult.summary.totalDelta / compResult.summary.fileTotalAmount) * 100).toFixed(2)}%)`}
-                </p>
+          {/* 5C: Findings Panel */}
+          {report && report.findings.length > 0 && (
+            <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
+                {isSpanish ? 'Hallazgos Priorizados' : 'Prioritized Findings'}
+              </h4>
+              <div className="space-y-3">
+                {report.findings.map((f, i) => {
+                  const borderColor = f.severity === 'critical' ? '#ef4444' : f.severity === 'warning' ? '#f59e0b' : f.severity === 'info' ? '#3b82f6' : '#10b981';
+                  return (
+                    <div key={i} className="rounded-lg px-4 py-3" style={{ borderLeft: `3px solid ${borderColor}`, backgroundColor: `${borderColor}08`, border: `1px solid ${borderColor}20`, borderLeftWidth: '3px', borderLeftColor: borderColor }}>
+                      <div className="flex items-start gap-3">
+                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded mt-0.5 shrink-0" style={{ backgroundColor: `${borderColor}20`, color: borderColor }}>
+                          {f.severity}
+                        </span>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-zinc-200">{f.title}</p>
+                          <p className="text-xs text-zinc-400 mt-1">{f.description}</p>
+                          <div className="flex items-center gap-4 mt-2">
+                            <span className="text-[10px] text-zinc-500">
+                              {isSpanish ? 'Impacto' : 'Impact'}: <span className="text-zinc-300">{f.impact}</span>
+                            </span>
+                            <span className="text-[10px] text-zinc-500">
+                              {f.entityCount} {isSpanish ? 'entidades' : 'entities'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-zinc-500 mt-1">
+                            <span className="text-zinc-400">{isSpanish ? 'Accion' : 'Action'}:</span> {f.action}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Entity Table */}
+          {/* 5B: Component Deep Dive */}
+          {report && report.components.length > 0 && (
+            <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
+                {isSpanish ? 'Detalle por Componente' : 'Component Deep Dive'}
+              </h4>
+              <div className="space-y-3">
+                {report.components.map(comp => {
+                  const isExpanded = expandedComponent === comp.name;
+                  const page = componentPage[comp.name] || 0;
+                  const pageSize = 50;
+                  const pagedEntities = comp.entities.slice(page * pageSize, (page + 1) * pageSize);
+                  const totalPages = Math.ceil(comp.entities.length / pageSize);
+
+                  return (
+                    <div key={comp.name} className="rounded-lg border border-zinc-800">
+                      {/* Component header — clickable */}
+                      <button
+                        onClick={() => setExpandedComponent(isExpanded ? null : comp.name)}
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/30 text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={comp.isExact ? 'text-emerald-400' : 'text-amber-400'}>
+                            {comp.isExact ? '✓' : '△'}
+                          </span>
+                          <span className="text-sm font-medium text-zinc-200">{comp.name}</span>
+                          <span className="text-[10px] text-zinc-500">
+                            {comp.exactMatchCount}/{comp.entityCount} {isSpanish ? 'exactos' : 'exact'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className={`text-xs font-mono tabular-nums ${comp.isExact ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {comp.delta >= 0 ? '+' : ''}{formatCurrency(comp.delta)}
+                            {comp.benchmarkTotal !== 0 && ` (${comp.deltaPercent.toFixed(2)}%)`}
+                          </span>
+                          <span className="text-zinc-500 text-xs">{isExpanded ? '▼' : '▶'}</span>
+                        </div>
+                      </button>
+
+                      {/* Entity table */}
+                      {isExpanded && (
+                        <div className="px-4 pb-3">
+                          <div className="overflow-x-auto rounded-lg border border-zinc-800 max-h-[400px] overflow-y-auto">
+                            <table className="w-full text-xs">
+                              <thead className="sticky top-0">
+                                <tr className="bg-zinc-900">
+                                  <th className="px-3 py-2 text-left text-zinc-400">ID</th>
+                                  <th className="px-3 py-2 text-left text-zinc-400">{isSpanish ? 'Nombre' : 'Name'}</th>
+                                  <th className="px-3 py-2 text-right text-zinc-400">{isSpanish ? 'Motor VL' : 'VL Engine'}</th>
+                                  <th className="px-3 py-2 text-right text-zinc-400">Benchmark</th>
+                                  <th className="px-3 py-2 text-right text-zinc-400">Δ</th>
+                                  <th className="px-3 py-2 text-center text-zinc-400">Flag</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {pagedEntities.map((entity) => (
+                                  <tr key={entity.entityId} className="border-t border-zinc-800">
+                                    <td className="px-3 py-1.5 font-mono text-zinc-300">{entity.entityId}</td>
+                                    <td className="px-3 py-1.5 text-zinc-400 truncate max-w-[180px]">{entity.name}</td>
+                                    <td className="px-3 py-1.5 text-right font-mono text-zinc-200 tabular-nums">{formatCurrency(entity.enginePayout)}</td>
+                                    <td className="px-3 py-1.5 text-right font-mono text-zinc-200 tabular-nums">{formatCurrency(entity.benchmarkPayout)}</td>
+                                    <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${
+                                      entity.flag === 'exact' ? 'text-emerald-400' :
+                                      entity.flag === 'tolerance' ? 'text-emerald-300' :
+                                      entity.flag === 'amber' ? 'text-amber-400' : 'text-red-400'
+                                    }`}>
+                                      {entity.delta >= 0 ? '+' : ''}{formatCurrency(entity.delta)}
+                                    </td>
+                                    <td className="px-3 py-1.5 text-center text-base">{flagIcon(entity.flag as MatchFlag)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          {/* Pagination */}
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-3 mt-2">
+                              <button
+                                onClick={() => setComponentPage(prev => ({ ...prev, [comp.name]: Math.max(0, page - 1) }))}
+                                disabled={page === 0}
+                                className="text-[10px] text-zinc-400 hover:text-zinc-200 disabled:opacity-30"
+                              >
+                                ← {isSpanish ? 'Anterior' : 'Prev'}
+                              </button>
+                              <span className="text-[10px] text-zinc-500">
+                                {page + 1}/{totalPages}
+                              </span>
+                              <button
+                                onClick={() => setComponentPage(prev => ({ ...prev, [comp.name]: Math.min(totalPages - 1, page + 1) }))}
+                                disabled={page >= totalPages - 1}
+                                className="text-[10px] text-zinc-400 hover:text-zinc-200 disabled:opacity-30"
+                              >
+                                {isSpanish ? 'Siguiente' : 'Next'} →
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Per-Entity detail table (existing, kept for total-level view) */}
           <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
             <div className="flex items-center justify-between mb-4">
               <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
-                {isSpanish ? 'Detalle por Entidad' : 'Per-Entity Detail'}
+                {isSpanish ? 'Detalle por Entidad (Total)' : 'Per-Entity Detail (Total)'}
               </h4>
               <input
                 type="text"
@@ -912,54 +1094,25 @@ export default function ReconciliationPage() {
                 </thead>
                 <tbody>
                   {matchedRows.slice(0, 200).map((row) => (
-                    <>
-                      <tr
-                        key={row.entityId}
-                        className={`border-t border-zinc-800 hover:bg-zinc-800/30 ${row.components.length > 0 ? 'cursor-pointer' : ''}`}
-                        onClick={() => row.components.length > 0 && setExpandedEntity(expandedEntity === row.entityId ? null : row.entityId)}
-                      >
-                        <td className="px-3 py-2 font-mono text-zinc-300">{row.entityId}</td>
-                        <td className="px-3 py-2 text-zinc-400 truncate max-w-[200px]">{row.entityName}</td>
-                        <td className="px-3 py-2 text-right font-mono text-zinc-200 tabular-nums">{formatCurrency(row.vlTotal)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-zinc-200 tabular-nums">{formatCurrency(row.fileTotal)}</td>
-                        <td className={`px-3 py-2 text-right font-mono tabular-nums ${
-                          row.totalFlag === 'exact' ? 'text-emerald-400' :
-                          row.totalFlag === 'tolerance' ? 'text-emerald-300' :
-                          row.totalFlag === 'amber' ? 'text-amber-400' : 'text-red-400'
-                        }`}>
-                          {row.totalDelta >= 0 ? '+' : ''}{formatCurrency(row.totalDelta)}
-                          {row.components.length > 0 && <span className="ml-1 text-zinc-500">{expandedEntity === row.entityId ? '▼' : '▶'}</span>}
-                        </td>
-                        <td className="px-3 py-2 text-center text-base">{flagIcon(row.totalFlag)}</td>
-                      </tr>
-                      {/* Component drill-down */}
-                      {expandedEntity === row.entityId && row.components.length > 0 && (
-                        <tr key={`${row.entityId}-components`}>
-                          <td colSpan={6} className="px-6 py-2 bg-zinc-900/50">
-                            <div className="text-[10px] text-zinc-500 uppercase mb-2">
-                              {isSpanish ? 'Desglose de Componentes' : 'Component Breakdown'}
-                            </div>
-                            <div className="grid gap-1">
-                              {row.components.map(c => (
-                                <div key={c.componentId} className="flex items-center gap-4 text-xs">
-                                  <span className="w-40 text-zinc-400 truncate">{c.componentName}</span>
-                                  <span className="w-24 text-right font-mono text-zinc-300">VL: {formatCurrency(c.vlValue)}</span>
-                                  <span className="w-24 text-right font-mono text-zinc-300">BM: {formatCurrency(c.fileValue)}</span>
-                                  <span className={`w-24 text-right font-mono ${
-                                    c.flag === 'exact' ? 'text-emerald-400' :
-                                    c.flag === 'tolerance' ? 'text-emerald-300' :
-                                    c.flag === 'amber' ? 'text-amber-400' : 'text-red-400'
-                                  }`}>
-                                    {c.delta >= 0 ? '+' : ''}{formatCurrency(c.delta)}
-                                  </span>
-                                  <span className="text-base">{flagIcon(c.flag)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
+                    <tr
+                      key={row.entityId}
+                      className={`border-t border-zinc-800 hover:bg-zinc-800/30 ${row.components.length > 0 ? 'cursor-pointer' : ''}`}
+                      onClick={() => row.components.length > 0 && setExpandedEntity(expandedEntity === row.entityId ? null : row.entityId)}
+                    >
+                      <td className="px-3 py-2 font-mono text-zinc-300">{row.entityId}</td>
+                      <td className="px-3 py-2 text-zinc-400 truncate max-w-[200px]">{row.entityName}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-200 tabular-nums">{formatCurrency(row.vlTotal)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-200 tabular-nums">{formatCurrency(row.fileTotal)}</td>
+                      <td className={`px-3 py-2 text-right font-mono tabular-nums ${
+                        row.totalFlag === 'exact' ? 'text-emerald-400' :
+                        row.totalFlag === 'tolerance' ? 'text-emerald-300' :
+                        row.totalFlag === 'amber' ? 'text-amber-400' : 'text-red-400'
+                      }`}>
+                        {row.totalDelta >= 0 ? '+' : ''}{formatCurrency(row.totalDelta)}
+                        {row.components.length > 0 && <span className="ml-1 text-zinc-500">{expandedEntity === row.entityId ? '▼' : '▶'}</span>}
+                      </td>
+                      <td className="px-3 py-2 text-center text-base">{flagIcon(row.totalFlag)}</td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
