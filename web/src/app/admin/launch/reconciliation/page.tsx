@@ -4,13 +4,13 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 /**
- * Legacy reconciliation route — redirects to consolidated page.
- * OB-89 Mission 2: Route consolidation.
+ * Legacy reconciliation route — redirects to canonical location.
+ * HF-058: Reconciliation lives at /operate/reconciliation.
  */
 export default function LegacyReconciliationRedirect() {
   const router = useRouter();
   useEffect(() => {
-    router.replace('/investigate/reconciliation');
+    router.replace('/operate/reconciliation');
   }, [router]);
   return null;
 }
