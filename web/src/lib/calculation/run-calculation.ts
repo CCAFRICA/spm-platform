@@ -371,7 +371,8 @@ export function buildMetricsForComponent(
   component: PlanComponent,
   entityRowsBySheet: Map<string, Array<{ row_data: Json }>>,
   storeDataBySheet?: Map<string, Array<{ row_data: Json }>>,
-  aiContextSheets?: AIContextSheet[]
+  aiContextSheets?: AIContextSheet[],
+  entitySheetStoreAggregates?: Map<string, Record<string, number>>
 ): Record<string, number> {
   // Step 1: Match entity-level sheet for this component
   const entitySheets = Array.from(entityRowsBySheet.keys());
@@ -449,11 +450,28 @@ export function buildMetricsForComponent(
         let found = false;
         for (const mapping of SHEET_COMPONENT_PATTERNS) {
           if (mapping.componentPatterns.some(p => p.test(metricName))) {
+            // First: check store-level sheets (null entity_id)
             for (const [sheetName, sheetMetrics] of Array.from(perSheetStoreMetrics.entries())) {
               if (mapping.sheetPatterns.some(p => p.test(sheetName))) {
                 resolvedMetrics[metricName] = sheetMetrics[semanticType] ?? 0;
                 found = true;
                 break;
+              }
+            }
+            if (found) break;
+
+            // OB-85-R6: Check entity-level sheets aggregated per store.
+            // When a store-prefixed metric matches a component pattern (e.g., optical)
+            // but no store-level sheet matches the pattern's sheet patterns
+            // (because the data is entity-level like Base_Venta_Individual),
+            // use the per-store aggregate of entity-level data.
+            if (entitySheetStoreAggregates) {
+              for (const [sheetName, sheetMetrics] of Array.from(entitySheetStoreAggregates.entries())) {
+                if (mapping.sheetPatterns.some(p => p.test(sheetName))) {
+                  resolvedMetrics[metricName] = sheetMetrics[semanticType] ?? 0;
+                  found = true;
+                  break;
+                }
               }
             }
             if (found) break;

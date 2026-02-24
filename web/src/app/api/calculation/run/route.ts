@@ -348,6 +348,50 @@ export async function POST(request: NextRequest) {
     addLog(`No roster sheet detected — calculating all ${entityIds.length} assigned entities`);
   }
 
+  // ── OB-85-R6: Pre-compute per-store entity sheet aggregates ──
+  // For matrix_lookup column metrics that need store-level data derived from
+  // entity-level sheets (e.g., store optical sales from individual optical sales),
+  // aggregate entity data per store per sheet type AFTER consolidation.
+  // Key: storeId → Map<sheetName, aggregated numeric metrics>
+  const perStoreEntitySheetAgg = new Map<string, Map<string, Record<string, number>>>();
+  for (const entityId of calculationEntityIds) {
+    const entitySheetData = dataByEntity.get(entityId);
+    if (!entitySheetData) continue;
+
+    // Find this entity's storeId from its flat data
+    const entityRows = flatDataByEntity.get(entityId) || [];
+    let sid: string | undefined;
+    for (const row of entityRows) {
+      const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+        ? row.row_data as Record<string, unknown> : {};
+      const s = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
+      if (s !== undefined && s !== null) {
+        sid = String(s);
+        break;
+      }
+    }
+    if (!sid) continue;
+
+    if (!perStoreEntitySheetAgg.has(sid)) {
+      perStoreEntitySheetAgg.set(sid, new Map());
+    }
+    const storeSheetMap = perStoreEntitySheetAgg.get(sid)!;
+
+    for (const [sheetName, rows] of Array.from(entitySheetData.entries())) {
+      const existing = storeSheetMap.get(sheetName) ?? {};
+      for (const row of rows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        for (const [key, value] of Object.entries(rd)) {
+          if (typeof value === 'number' && !key.startsWith('_') && key !== 'date') {
+            existing[key] = (existing[key] ?? 0) + value;
+          }
+        }
+      }
+      storeSheetMap.set(sheetName, existing);
+    }
+  }
+
   // ── 4b. Fetch AI Import Context from import_batches.metadata (OB-75) ──
   // Korean Test: PASSES — AI determined sheet→component mapping at import time
   const aiContextSheets: AIContextSheet[] = [];
@@ -566,11 +610,16 @@ export async function POST(request: NextRequest) {
     const perComponentMetrics: Record<string, number>[] = [];
 
     for (const component of selectedComponents) {
+      // OB-85-R6: Pass per-store entity sheet aggregates for matrix column metrics
+      const entityStoreAgg = entityStoreId !== undefined
+        ? perStoreEntitySheetAgg.get(String(entityStoreId))
+        : undefined;
       const metrics = buildMetricsForComponent(
         component,
         entitySheetData,
         entityStoreData,
-        aiContextSheets
+        aiContextSheets,
+        entityStoreAgg
       );
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
