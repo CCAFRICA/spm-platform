@@ -216,6 +216,23 @@ Before submitting completion report, verify:
 
 ---
 
+---
+
+## SECTION G: SUPABASE BATCH SIZE LIMIT
+
+All `.in('column', array)` calls MUST batch at ≤200 items.
+Arrays >200 UUIDs produce URLs that exceed Supabase's URL limit and silently return 0 rows.
+
+This has caused 3 production failures:
+1. Entity data consolidation (route.ts) — 719 UUIDs → 0 rows
+2. Entity display (page-loaders.ts) — 719 UUIDs → 0 rows
+3. Reconciliation matching (reconciliation route) — 719 UUIDs → 0 rows
+
+Pattern: chunk the array, query each chunk, merge results.
+Grep for `.in(` periodically and verify batch sizes.
+
+---
+
 *These rules are non-negotiable. Every architectural decision, every function, every data flow must be evaluated against them. If a proposed solution violates any principle or repeats an anti-pattern, STOP and redesign. The cost of redesign now is always less than the cost of fixing it after deployment.*
 
 *"Choose right over quick. Every time."*

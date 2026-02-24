@@ -399,6 +399,37 @@ export default function OperateCockpitPage() {
             <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">{isSpanish ? 'Resumen de Calculo' : 'Calculation Summary'}</h4>
             {calcSummary ? (
               <div className="space-y-3">
+                {/* OB-85-R3R4 Mission 4: Zero/low payout warning banner */}
+                {calcSummary.totalPayout === 0 && calcSummary.entityCount > 0 && (
+                  <div className="px-3 py-2.5 rounded-lg text-sm" style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                    <p className="text-red-300 font-semibold text-xs mb-1">
+                      {isSpanish ? 'Todos los pagos son $0' : 'All payouts are $0'}
+                    </p>
+                    <p className="text-zinc-400 text-[11px]">
+                      {isSpanish
+                        ? 'Verifica datos importados, mapeo de campos, y configuracion del plan.'
+                        : 'Check imported data, field mappings, and plan configuration.'}
+                    </p>
+                  </div>
+                )}
+                {calcSummary.totalPayout > 0 && calcSummary.entityCount > 0 && (() => {
+                  const zeroCount = calcSummary.attainmentDist.filter(a => a === 0).length;
+                  const zeroRate = zeroCount / calcSummary.entityCount;
+                  if (zeroRate < 0.9) return null;
+                  return (
+                    <div className="px-3 py-2.5 rounded-lg text-sm" style={{ backgroundColor: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                      <p className="text-amber-300 font-semibold text-xs mb-1">
+                        {isSpanish ? `${zeroCount}/${calcSummary.entityCount} entidades con pago $0` : `${zeroCount}/${calcSummary.entityCount} entities with $0 payout`}
+                      </p>
+                      <p className="text-zinc-400 text-[11px]">
+                        {isSpanish
+                          ? 'Mas del 90% de entidades tienen pago cero. Revisa la configuracion del plan.'
+                          : 'Over 90% of entities have zero payout. Review plan configuration.'}
+                      </p>
+                    </div>
+                  );
+                })()}
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-[11px] text-zinc-400">{isSpanish ? 'Pago Total' : 'Total Payout'}</p>

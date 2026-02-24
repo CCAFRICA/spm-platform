@@ -65,6 +65,7 @@ interface ComponentDetail {
 
 interface ResultRow {
   entityId: string;
+  externalId: string;
   entityName: string;
   storeId: string;
   totalPayout: number;
@@ -132,10 +133,15 @@ function ResultsDashboardPageInner() {
           const attainmentData = (r.attainment && typeof r.attainment === 'object' ? r.attainment : {}) as Record<string, unknown>;
           const overallAtt = typeof attainmentData.overall === 'number' ? attainmentData.overall : null;
 
+          const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+          const externalId = (meta.externalId as string) || '';
+          const entityName = (meta.entityName as string) || externalId || r.entity_id;
+
           return {
             entityId: r.entity_id,
-            entityName: (r.metadata as Record<string, unknown>)?.entityName as string || r.entity_id,
-            storeId: (r.metadata as Record<string, unknown>)?.storeId as string || '',
+            externalId,
+            entityName,
+            storeId: (meta.storeId as string) || '',
             totalPayout: r.total_payout || 0,
             overallAttainment: overallAtt,
             rawMetrics,
@@ -205,7 +211,7 @@ function ResultsDashboardPageInner() {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(r =>
-        r.entityId.toLowerCase().includes(q) ||
+        r.externalId.toLowerCase().includes(q) ||
         r.entityName.toLowerCase().includes(q) ||
         r.storeId.toLowerCase().includes(q)
       );
@@ -474,8 +480,9 @@ function ResultsDashboardPageInner() {
                     className="cursor-pointer hover:bg-slate-800/50"
                     onClick={() => { setSortField('name'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}
                   >
-                    Entity
+                    Employee ID
                   </TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>Store</TableHead>
                   {componentTotals.map(cc => (
                     <TableHead key={cc.componentId} className="text-right">
@@ -504,10 +511,13 @@ function ResultsDashboardPageInner() {
                             {isExpanded
                               ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
                               : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
-                            <span className="font-medium">{row.entityName}</span>
+                            <span className="font-medium font-mono text-sm">{row.externalId || row.entityId.slice(0, 8)}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm">{row.storeId ? row.storeId.slice(0, 8) : '-'}</TableCell>
+                        <TableCell className="text-sm truncate max-w-[180px]" title={row.entityName}>
+                          {row.entityName !== row.externalId ? row.entityName : '-'}
+                        </TableCell>
+                        <TableCell className="text-sm">{row.storeId || '-'}</TableCell>
                         {componentTotals.map(cc => {
                           const comp = row.components.find(c => c.componentId === cc.componentId);
                           return (
@@ -523,7 +533,7 @@ function ResultsDashboardPageInner() {
                       {/* L4/L3/L2: Expanded entity detail — component + metric drill-down */}
                       {isExpanded && (
                         <TableRow className="bg-slate-900/50">
-                          <TableCell colSpan={componentTotals.length + 3} className="p-0">
+                          <TableCell colSpan={componentTotals.length + 4} className="p-0">
                             <div className="px-8 py-4 space-y-4">
                               {/* Header with attainment + trace link */}
                               <div className="flex items-center justify-between">

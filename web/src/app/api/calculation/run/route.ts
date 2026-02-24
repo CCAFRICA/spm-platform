@@ -81,20 +81,19 @@ export async function POST(request: NextRequest) {
   // Parse components from JSONB
   const componentsJson = ruleSet.components as Record<string, unknown>;
   const variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
-  const defaultVariant = variants[0];
-  const components: PlanComponent[] = (defaultVariant?.components as PlanComponent[]) ?? [];
+  const defaultComponents: PlanComponent[] = (variants[0]?.components as PlanComponent[]) ?? [];
 
-  if (components.length === 0) {
+  if (defaultComponents.length === 0) {
     return NextResponse.json(
       { error: 'Rule set has no components', log },
       { status: 400 }
     );
   }
 
-  addLog(`Rule set "${ruleSet.name}" has ${components.length} components`);
+  addLog(`Rule set "${ruleSet.name}" has ${defaultComponents.length} components, ${variants.length} variants`);
 
   // ── OB-76: Transform components to intents (once, before entity loop) ──
-  const componentIntents: ComponentIntent[] = transformVariant(components);
+  const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
   addLog(`OB-76 Intent layer: ${componentIntents.length} components transformed to intents`);
 
   // ── 2. Fetch entities via assignments (OB-75: paginated, no 1000-row cap) ──
@@ -133,15 +132,18 @@ export async function POST(request: NextRequest) {
 
   addLog(`${entityIds.length} entities assigned (paginated fetch)`);
 
-  // Fetch entity display info (OB-75: paginated, batched .in() to avoid URL length limits)
+  // Fetch entity display info (OB-85-R3: reduced batch to 200 to avoid URL length limits)
   const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
-  const ENTITY_BATCH = 1000; // Supabase max_rows = 1000
+  const ENTITY_BATCH = 200; // 1000 UUIDs × 37 chars ≈ 37KB URL, exceeds Supabase limit
   for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
     const batch = entityIds.slice(i, i + ENTITY_BATCH);
-    const { data: page } = await supabase
+    const { data: page, error: entErr } = await supabase
       .from('entities')
       .select('id, external_id, display_name')
       .in('id', batch);
+    if (entErr) {
+      console.log(`[R3-DIAG] Entity batch ${i}-${i+batch.length} ERROR: ${entErr.message}`);
+    }
     if (page) entities.push(...page);
   }
 
@@ -234,56 +236,91 @@ export async function POST(request: NextRequest) {
   addLog(`Store data: ${storeData.size} unique stores`);
 
   // ── OB-85-R3 Fix 1: Entity data consolidation ──
-  // The import may create separate entity UUIDs per sheet for the same employee.
-  // Merge data from sibling UUIDs (same external_id) into each assigned entity.
-  const externalIdToEntityIds = new Map<string, string[]>();
-  for (const e of entities) {
-    if (e.external_id) {
-      if (!externalIdToEntityIds.has(e.external_id)) {
-        externalIdToEntityIds.set(e.external_id, []);
+  // The import creates separate entity UUIDs per sheet for the same employee.
+  // external_ids differ ("96568046" vs "1-96568046"), so we match by row_data.entityId.
+  //
+  // Build employee number → [entity UUIDs] map from committed_data row_data.
+  const employeeToEntityIds = new Map<string, Set<string>>();
+  for (const row of committedData) {
+    if (!row.entity_id) continue;
+    const rd = row.row_data as Record<string, unknown> | null;
+    const empNum = String(rd?.['entityId'] ?? rd?.['num_empleado'] ?? '');
+    if (empNum && empNum !== 'undefined' && empNum !== 'null') {
+      if (!employeeToEntityIds.has(empNum)) {
+        employeeToEntityIds.set(empNum, new Set());
       }
-      externalIdToEntityIds.get(e.external_id)!.push(e.id);
+      employeeToEntityIds.get(empNum)!.add(row.entity_id);
     }
   }
 
+  // Build roster entity external_id → entity UUID for lookup
+  // Roster entities have simple numeric external_ids like "96568046"
+  const extIdToAssignedId = new Map<string, string>();
+  for (const e of entities) {
+    if (e.external_id && entityIds.includes(e.id)) {
+      extIdToAssignedId.set(e.external_id, e.id);
+    }
+  }
+
+  // Merge: for each employee number with multiple UUIDs, find the roster entity
+  // and merge all other UUIDs' data into it.
   let consolidatedCount = 0;
-  const assignedSet = new Set(entityIds);
-  for (const entityId of entityIds) {
-    const entityInfo = entityMap.get(entityId);
-    if (!entityInfo?.external_id) continue;
+  for (const [empNum, uuidSet] of Array.from(employeeToEntityIds.entries())) {
+    if (uuidSet.size <= 1) continue; // No siblings to merge
 
-    const siblingIds = externalIdToEntityIds.get(entityInfo.external_id) ?? [];
-    for (const siblingId of siblingIds) {
-      if (siblingId === entityId || assignedSet.has(siblingId)) continue;
+    // Find the "primary" entity — the one with roster sheet (Datos Colaborador)
+    let primaryId: string | null = null;
+    for (const uuid of Array.from(uuidSet)) {
+      const sheets = dataByEntity.get(uuid);
+      if (sheets) {
+        for (const sheetName of Array.from(sheets.keys())) {
+          if (['datos colaborador', 'roster', 'employee', 'empleados'].some(r => sheetName.toLowerCase().includes(r))) {
+            primaryId = uuid;
+            break;
+          }
+        }
+      }
+      if (primaryId) break;
+    }
 
-      // Merge sibling's sheet data into this entity
+    // Fallback: use the entity that's in the extIdToAssignedId map
+    if (!primaryId) {
+      primaryId = extIdToAssignedId.get(empNum) ?? null;
+    }
+    if (!primaryId) continue;
+
+    // Merge all sibling data into the primary entity
+    for (const siblingId of Array.from(uuidSet)) {
+      if (siblingId === primaryId) continue;
+
       const siblingSheetData = dataByEntity.get(siblingId);
       if (!siblingSheetData) continue;
 
-      if (!dataByEntity.has(entityId)) {
-        dataByEntity.set(entityId, new Map());
+      if (!dataByEntity.has(primaryId)) {
+        dataByEntity.set(primaryId, new Map());
       }
-      const entitySheets = dataByEntity.get(entityId)!;
+      const primarySheets = dataByEntity.get(primaryId)!;
       for (const [sheetName, rows] of Array.from(siblingSheetData.entries())) {
-        if (!entitySheets.has(sheetName)) {
-          entitySheets.set(sheetName, []);
+        if (!primarySheets.has(sheetName)) {
+          primarySheets.set(sheetName, []);
         }
-        entitySheets.get(sheetName)!.push(...rows);
+        primarySheets.get(sheetName)!.push(...rows);
       }
 
       // Merge flat data
       const siblingFlat = flatDataByEntity.get(siblingId);
       if (siblingFlat) {
-        if (!flatDataByEntity.has(entityId)) {
-          flatDataByEntity.set(entityId, []);
+        if (!flatDataByEntity.has(primaryId)) {
+          flatDataByEntity.set(primaryId, []);
         }
-        flatDataByEntity.get(entityId)!.push(...siblingFlat);
+        flatDataByEntity.get(primaryId)!.push(...siblingFlat);
       }
       consolidatedCount++;
     }
   }
+
   if (consolidatedCount > 0) {
-    addLog(`Entity consolidation: merged data from ${consolidatedCount} sibling UUIDs`);
+    addLog(`Entity consolidation: merged data from ${consolidatedCount} sibling UUIDs by employee number`);
   }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
@@ -471,26 +508,64 @@ export async function POST(request: NextRequest) {
     const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
 
-    // Find this entity's store ID (use FIRST occurrence, not sum)
+    // Find this entity's store ID and role (use FIRST occurrence, not sum)
     const allEntityMetrics = aggregateMetrics(entityRowsFlat);
     let entityStoreId: string | number | undefined;
+    let entityRole: string | null = null;
     for (const row of entityRowsFlat) {
       const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
         ? row.row_data as Record<string, unknown> : {};
-      const sid = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
-      if (sid !== undefined && sid !== null) {
-        entityStoreId = sid as string | number;
-        break;
+      if (entityStoreId === undefined) {
+        const sid = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
+        if (sid !== undefined && sid !== null) {
+          entityStoreId = sid as string | number;
+        }
       }
+      if (!entityRole) {
+        const role = rd['role'] ?? rd['Puesto'] ?? rd['puesto'];
+        if (typeof role === 'string' && role.length > 0) {
+          entityRole = role;
+        }
+      }
+      if (entityStoreId !== undefined && entityRole) break;
     }
     const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
+
+    // OB-85-R3R4 Fix 2: Select variant based on entity role
+    let selectedComponents = defaultComponents;
+    if (entityRole && variants.length > 1) {
+      const normRole = entityRole.toLowerCase().replace(/\s+/g, ' ').trim();
+      for (const variant of variants) {
+        const variantName = String(variant.variantName ?? variant.description ?? '');
+        const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
+        if (normRole === normVariant) {
+          selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
+          break;
+        }
+      }
+      if (selectedComponents === defaultComponents) {
+        const sorted = [...variants].sort((a, b) => {
+          const aLen = String(a.variantName ?? '').length;
+          const bLen = String(b.variantName ?? '').length;
+          return bLen - aLen;
+        });
+        for (const variant of sorted) {
+          const variantName = String(variant.variantName ?? variant.description ?? '');
+          const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
+          if (normRole.includes(normVariant) || normVariant.includes(normRole)) {
+            selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
+            break;
+          }
+        }
+      }
+    }
 
     // ── CURRENT ENGINE PATH ──
     const componentResults: ComponentResult[] = [];
     let entityTotal = 0;
     const perComponentMetrics: Record<string, number>[] = [];
 
-    for (const component of components) {
+    for (const component of selectedComponents) {
       const metrics = buildMetricsForComponent(
         component,
         entitySheetData,
@@ -642,7 +717,7 @@ export async function POST(request: NextRequest) {
       mismatchCount: intentMismatchCount,
       concordanceRate: parseFloat(concordanceRate.toFixed(2)),
       entityCount: calculationEntityIds.length,
-      componentCount: components.length,
+      componentCount: defaultComponents.length,
       intentsTransformed: componentIntents.length,
       totalPayout: grandTotal,
       ruleSetId,
@@ -706,7 +781,7 @@ export async function POST(request: NextRequest) {
       summary: {
         total_payout: grandTotal,
         entity_count: entityResults.length,
-        component_count: components.length,
+        component_count: defaultComponents.length,
         rule_set_name: ruleSet.name,
         intentLayer: {
           matchCount: intentMatchCount,
@@ -740,7 +815,7 @@ export async function POST(request: NextRequest) {
 
     const calcSummary: CalculationSummary = {
       entityCount: entityResults.length,
-      componentCount: components.length,
+      componentCount: defaultComponents.length,
       totalOutcome: grandTotal,
       avgOutcome: entityResults.length > 0 ? grandTotal / entityResults.length : 0,
       medianOutcome,
@@ -837,7 +912,7 @@ export async function POST(request: NextRequest) {
         rule_set_id: ruleSetId,
         period_id: periodId,
         total_payout: grandTotal,
-        component_count: components.length,
+        component_count: defaultComponents.length,
         source: 'api_calculation_run',
       } as unknown as Json,
     });

@@ -291,7 +291,6 @@ export function findMatchingSheet(
       componentName, // componentId = componentName for matching
       aiContextSheets
     );
-    // Only return if the matched sheet is actually in our available data
     if (match && availableSheets.includes(match)) {
       return match;
     }
@@ -308,7 +307,6 @@ export function findMatchingSheet(
 
   // OB-85-R3 Fix 2: Pattern-based matching (cross-language sheet↔component)
   // When no AI context, use SHEET_COMPONENT_PATTERNS directly against availableSheets.
-  // findSheetForComponent only checks patterns against aiContextSheets (empty here).
   for (const mapping of SHEET_COMPONENT_PATTERNS) {
     const componentMatches = mapping.componentPatterns.some(p => p.test(componentName));
     if (componentMatches) {
@@ -388,23 +386,20 @@ export function buildMetricsForComponent(
     storeMatchRows = storeMatch ? (storeDataBySheet.get(storeMatch) || []) : [];
   }
 
-  // Step 3: Build store context from ALL store sheets (shared context for all components).
-  // Store-level data (e.g., store sales, store attainment) enriches any component that
-  // references "store_"-prefixed metrics (like store_optical_sales, store_goal_attainment).
-  let storeContext: Record<string, number> = {};
+  // Step 3: Build per-sheet store metrics (NOT aggregated across sheets).
+  // OB-85-R3R4: Aggregating all store sheets produces wrong values
+  // (e.g., amount from tienda+cobranza = 99M instead of tienda-only 44M).
+  const perSheetStoreMetrics = new Map<string, Record<string, number>>();
   if (storeDataBySheet && storeDataBySheet.size > 0) {
-    const allStoreRows: Array<{ row_data: Json }> = [];
-    for (const rows of Array.from(storeDataBySheet.values())) {
-      allStoreRows.push(...rows);
-    }
-    if (allStoreRows.length > 0) {
-      storeContext = aggregateMetrics(allStoreRows);
-      computeAttainmentFromGoal(storeContext);
+    for (const [sheetName, rows] of Array.from(storeDataBySheet.entries())) {
+      const m = aggregateMetrics(rows);
+      computeAttainmentFromGoal(m);
+      perSheetStoreMetrics.set(sheetName, m);
     }
   }
 
-  // If no entity match, no store match, and no store context → no data for this component
-  if (entityRows.length === 0 && storeMatchRows.length === 0 && Object.keys(storeContext).length === 0) {
+  // If no entity match, no store match, and no per-sheet store data → no data
+  if (entityRows.length === 0 && storeMatchRows.length === 0 && perSheetStoreMetrics.size === 0) {
     return {};
   }
 
@@ -430,29 +425,49 @@ export function buildMetricsForComponent(
       resolvedMetrics[metricName] = storeMatchMetrics[metricName];
       continue;
     }
-    if (storeContext[metricName] !== undefined) {
-      resolvedMetrics[metricName] = storeContext[metricName];
-      continue;
+    // Check each store sheet for exact key match
+    let foundInStoreSheet = false;
+    for (const [, sheetMetrics] of Array.from(perSheetStoreMetrics.entries())) {
+      if (sheetMetrics[metricName] !== undefined) {
+        resolvedMetrics[metricName] = sheetMetrics[metricName];
+        foundInStoreSheet = true;
+        break;
+      }
     }
+    if (foundInStoreSheet) continue;
 
     // Semantic resolution: infer what kind of value this metric name needs
     const semanticType = inferSemanticType(metricName);
     if (semanticType === 'unknown') continue;
 
-    // Source preference based on metric name prefix
     if (/store/i.test(metricName)) {
-      // "store_"-prefixed metrics prefer store sources
-      resolvedMetrics[metricName] =
-        storeContext[semanticType] ??
-        storeMatchMetrics[semanticType] ??
-        entityMetrics[semanticType] ??
-        0;
+      // Store metrics: find the RIGHT store sheet using SHEET_COMPONENT_PATTERNS
+      // Match the metric name against patterns to find the specific store sheet
+      if (storeMatchMetrics[semanticType] !== undefined) {
+        resolvedMetrics[metricName] = storeMatchMetrics[semanticType];
+      } else {
+        let found = false;
+        for (const mapping of SHEET_COMPONENT_PATTERNS) {
+          if (mapping.componentPatterns.some(p => p.test(metricName))) {
+            for (const [sheetName, sheetMetrics] of Array.from(perSheetStoreMetrics.entries())) {
+              if (mapping.sheetPatterns.some(p => p.test(sheetName))) {
+                resolvedMetrics[metricName] = sheetMetrics[semanticType] ?? 0;
+                found = true;
+                break;
+              }
+            }
+            if (found) break;
+          }
+        }
+        if (!found) {
+          resolvedMetrics[metricName] = entityMetrics[semanticType] ?? 0;
+        }
+      }
     } else {
-      // Non-store metrics prefer entity data
+      // Non-store metrics: entity + storeMatch ONLY (no aggregated store fallback)
       resolvedMetrics[metricName] =
         entityMetrics[semanticType] ??
         storeMatchMetrics[semanticType] ??
-        storeContext[semanticType] ??
         0;
     }
   }
@@ -502,14 +517,13 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   // Parse components from JSONB
   const componentsJson = ruleSet.components as Record<string, unknown>;
   const variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
-  const defaultVariant = variants[0];
-  const components: PlanComponent[] = (defaultVariant?.components as PlanComponent[]) ?? [];
+  const defaultComponents: PlanComponent[] = (variants[0]?.components as PlanComponent[]) ?? [];
 
-  if (components.length === 0) {
+  if (defaultComponents.length === 0) {
     return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'Rule set has no components' };
   }
 
-  console.log(`[RunCalculation] Rule set "${ruleSet.name}" has ${components.length} components`);
+  console.log(`[RunCalculation] Rule set "${ruleSet.name}" has ${defaultComponents.length} components, ${variants.length} variants`);
 
   // ── 2. Fetch entities with assignments (OB-75: paginated) ──
   const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
@@ -541,7 +555,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   // Fetch entity display info (OB-75: batched .in() for 22K+ entities)
   const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
-  const ENTITY_BATCH = 1000; // Supabase max_rows = 1000
+  const ENTITY_BATCH = 200; // OB-85-R3: 1000 UUIDs × 37 chars exceeds Supabase URL limit
   for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
     const idBatch = entityIds.slice(i, i + ENTITY_BATCH);
     const { data: page } = await supabase
@@ -626,46 +640,60 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData.length} data rows (paginated fetch)`);
 
   // ── OB-85-R3 Fix 1: Entity data consolidation ──
-  // Merge data from sibling entity UUIDs (same external_id) into assigned entities.
-  const externalIdToEntityIds = new Map<string, string[]>();
-  for (const e of entities) {
-    if (e.external_id) {
-      if (!externalIdToEntityIds.has(e.external_id)) {
-        externalIdToEntityIds.set(e.external_id, []);
+  // Match by row_data.entityId (employee number), not external_id.
+  const employeeToEntityIds = new Map<string, Set<string>>();
+  for (const row of committedData) {
+    if (!row.entity_id) continue;
+    const rd = row.row_data as Record<string, unknown> | null;
+    const empNum = String(rd?.['entityId'] ?? rd?.['num_empleado'] ?? '');
+    if (empNum && empNum !== 'undefined' && empNum !== 'null') {
+      if (!employeeToEntityIds.has(empNum)) {
+        employeeToEntityIds.set(empNum, new Set());
       }
-      externalIdToEntityIds.get(e.external_id)!.push(e.id);
+      employeeToEntityIds.get(empNum)!.add(row.entity_id);
     }
   }
 
-  const assignedSet = new Set(entityIds);
-  for (const entityId of entityIds) {
-    const entityInfo = entityMap.get(entityId);
-    if (!entityInfo?.external_id) continue;
+  for (const [, uuidSet] of Array.from(employeeToEntityIds.entries())) {
+    if (uuidSet.size <= 1) continue;
 
-    const siblingIds = externalIdToEntityIds.get(entityInfo.external_id) ?? [];
-    for (const siblingId of siblingIds) {
-      if (siblingId === entityId || assignedSet.has(siblingId)) continue;
+    let primaryId: string | null = null;
+    for (const uuid of Array.from(uuidSet)) {
+      const sheets = dataByEntity.get(uuid);
+      if (sheets) {
+        for (const sheetName of Array.from(sheets.keys())) {
+          if (['datos colaborador', 'roster', 'employee', 'empleados'].some(r => sheetName.toLowerCase().includes(r))) {
+            primaryId = uuid;
+            break;
+          }
+        }
+      }
+      if (primaryId) break;
+    }
+    if (!primaryId) continue;
 
+    for (const siblingId of Array.from(uuidSet)) {
+      if (siblingId === primaryId) continue;
       const siblingSheetData = dataByEntity.get(siblingId);
       if (!siblingSheetData) continue;
 
-      if (!dataByEntity.has(entityId)) {
-        dataByEntity.set(entityId, new Map());
+      if (!dataByEntity.has(primaryId)) {
+        dataByEntity.set(primaryId, new Map());
       }
-      const entitySheets = dataByEntity.get(entityId)!;
+      const primarySheets = dataByEntity.get(primaryId)!;
       for (const [sheetName, rows] of Array.from(siblingSheetData.entries())) {
-        if (!entitySheets.has(sheetName)) {
-          entitySheets.set(sheetName, []);
+        if (!primarySheets.has(sheetName)) {
+          primarySheets.set(sheetName, []);
         }
-        entitySheets.get(sheetName)!.push(...rows);
+        primarySheets.get(sheetName)!.push(...rows);
       }
 
       const siblingFlat = flatDataByEntity.get(siblingId);
       if (siblingFlat) {
-        if (!flatDataByEntity.has(entityId)) {
-          flatDataByEntity.set(entityId, []);
+        if (!flatDataByEntity.has(primaryId)) {
+          flatDataByEntity.set(primaryId, []);
         }
-        flatDataByEntity.get(entityId)!.push(...siblingFlat);
+        flatDataByEntity.get(primaryId)!.push(...siblingFlat);
       }
     }
   }
@@ -749,25 +777,65 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
 
-    // Find this entity's store ID (use FIRST occurrence, not sum)
+    // Find this entity's store ID and role (use FIRST occurrence, not sum)
     const allEntityMetrics = aggregateMetrics(entityRowsFlat);
     let entityStoreId: string | number | undefined;
+    let entityRole: string | null = null;
     for (const row of entityRowsFlat) {
       const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
         ? row.row_data as Record<string, unknown> : {};
-      const sid = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
-      if (sid !== undefined && sid !== null) {
-        entityStoreId = sid as string | number;
-        break;
+      if (entityStoreId === undefined) {
+        const sid = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
+        if (sid !== undefined && sid !== null) {
+          entityStoreId = sid as string | number;
+        }
       }
+      if (!entityRole) {
+        const role = rd['role'] ?? rd['Puesto'] ?? rd['puesto'];
+        if (typeof role === 'string' && role.length > 0) {
+          entityRole = role;
+        }
+      }
+      if (entityStoreId !== undefined && entityRole) break;
     }
     const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
+
+    // OB-85-R3R4 Fix 2: Select variant based on entity role
+    let selectedComponents = defaultComponents;
+    if (entityRole && variants.length > 1) {
+      const normRole = entityRole.toLowerCase().replace(/\s+/g, ' ').trim();
+      // Try exact match first (after normalization)
+      for (const variant of variants) {
+        const variantName = String(variant.variantName ?? variant.description ?? '');
+        const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
+        if (normRole === normVariant) {
+          selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
+          break;
+        }
+      }
+      // If no exact match, try contains (longest variant name first to avoid partial matches)
+      if (selectedComponents === defaultComponents) {
+        const sorted = [...variants].sort((a, b) => {
+          const aLen = String(a.variantName ?? '').length;
+          const bLen = String(b.variantName ?? '').length;
+          return bLen - aLen;
+        });
+        for (const variant of sorted) {
+          const variantName = String(variant.variantName ?? variant.description ?? '');
+          const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
+          if (normRole.includes(normVariant) || normVariant.includes(normRole)) {
+            selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
+            break;
+          }
+        }
+      }
+    }
 
     // Evaluate each component with sheet-aware metrics
     const componentResults: ComponentResult[] = [];
     let entityTotal = 0;
 
-    for (const component of components) {
+    for (const component of selectedComponents) {
       const metrics = buildMetricsForComponent(
         component,
         entitySheetData,
@@ -822,7 +890,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     summary: {
       total_payout: grandTotal,
       entity_count: entityResults.length,
-      component_count: components.length,
+      component_count: defaultComponents.length,
       rule_set_name: ruleSet.name,
     },
     completedAt: new Date().toISOString(),
@@ -842,7 +910,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         rule_set_id: ruleSetId,
         period_id: periodId,
         total_payout: grandTotal,
-        component_count: components.length,
+        component_count: defaultComponents.length,
       },
     });
   } catch (meterErr) {

@@ -233,7 +233,7 @@ export async function loadOperatePageData(tenantId: string, periodKey?: string):
   const entityIdsNeeded = (calcResults ?? []).map(r => r.entity_id);
 
   if (entityIdsNeeded.length > 0) {
-    const ENTITY_PAGE = 1000;
+    const ENTITY_PAGE = 200; // Standing rule: Supabase URL limit ≤200 UUIDs
     for (let i = 0; i < entityIdsNeeded.length; i += ENTITY_PAGE) {
       const batch = entityIdsNeeded.slice(i, i + ENTITY_PAGE);
       const { data: ents } = await supabase

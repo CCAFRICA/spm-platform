@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
     const allExternalIds = Array.from(externalIds);
 
     if (allExternalIds.length > 0) {
-      const FETCH_BATCH = 1000;
+      const FETCH_BATCH = 200; // Standing rule: Supabase URL limit ≤200 items
       for (let i = 0; i < allExternalIds.length; i += FETCH_BATCH) {
         const slice = allExternalIds.slice(i, i + FETCH_BATCH);
         const { data: existing } = await supabase
@@ -563,7 +563,7 @@ export async function POST(request: NextRequest) {
 
         if (entityUuids.length > 0) {
           const existingSet = new Set<string>();
-          const CHECK_BATCH = 1000;
+          const CHECK_BATCH = 200; // Standing rule: Supabase URL limit ≤200 items
           for (let i = 0; i < entityUuids.length; i += CHECK_BATCH) {
             const slice = entityUuids.slice(i, i + CHECK_BATCH);
             const { data: existing } = await supabase
