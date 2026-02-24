@@ -233,6 +233,14 @@ Grep for `.in(` periodically and verify batch sizes.
 
 ---
 
+## SECTION H: TERMINOLOGY ENFORCEMENT (Rule 21)
+
+- "Classification Signal" — NOT "Training Signal". We enrich prompts, not retrain models.
+- "LLM-Primary, Deterministic Fallback, Human Authority" — NOT "AI-Primary, ML Fallback".
+- Apply to all code, comments, documentation, commit messages.
+
+---
+
 *These rules are non-negotiable. Every architectural decision, every function, every data flow must be evaluated against them. If a proposed solution violates any principle or repeats an anti-pattern, STOP and redesign. The cost of redesign now is always less than the cost of fixing it after deployment.*
 
 *"Choose right over quick. Every time."*
