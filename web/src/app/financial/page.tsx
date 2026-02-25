@@ -103,6 +103,29 @@ export default function NetworkPulseDashboard() {
     }
   };
 
+  // F-4: Border color matches performance indicator, not brand
+  const getLocationBorderColor = (comparison: 'above' | 'within' | 'below') => {
+    switch (comparison) {
+      case 'above': return '#22c55e';  // green-500
+      case 'within': return '#f59e0b'; // amber-500
+      case 'below': return '#ef4444';  // red-500
+    }
+  };
+
+  // F-3: No cents on large amounts
+  const formatWhole = (v: number) => {
+    return format(Math.round(v));
+  };
+
+  // F-2: Group locations by brand
+  const locationsByBrand = new Map<string, typeof locations>();
+  for (const loc of locations) {
+    const key = loc.brandName || 'Other';
+    const group = locationsByBrand.get(key) || [];
+    group.push(loc);
+    locationsByBrand.set(key, group);
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -229,66 +252,94 @@ export default function NetworkPulseDashboard() {
         </Card>
       </div>
 
-      {/* SECTION B: Location Performance Grid */}
+      {/* SECTION B: Location Performance Grid — grouped by brand */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">
             {isSpanish ? 'Rendimiento por Ubicacion' : 'Location Performance'}
           </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {locations.map((location) => (
-              <div
-                key={location.id}
-                className={`rounded-lg p-3 border-l-4 ${getLocationBg(location.vsNetworkAvg)}`}
-                style={{ borderLeftColor: location.brandColor }}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0">
-                    <p className="font-medium text-sm truncate">{location.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{location.city}</p>
-                  </div>
-                  {/* Anomaly indicators */}
-                  <div className="flex gap-1 shrink-0 ml-1">
-                    {location.leakageRate > 5 && (
-                      <div className="w-2 h-2 rounded-full bg-red-500" title={`Leakage ${location.leakageRate.toFixed(1)}%`} />
-                    )}
-                    {location.tipRate < 8 && (
-                      <div className="w-2 h-2 rounded-full bg-amber-500" title={`Tip rate ${location.tipRate.toFixed(1)}%`} />
-                    )}
-                  </div>
-                </div>
-                <p className="text-lg font-bold mt-2">{format(location.revenue)}</p>
-                {/* Mini Sparkline */}
-                <div className="h-5 mt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={location.weeklyData.map((v, i) => ({ v, i }))}>
-                      <Line
-                        type="monotone"
-                        dataKey="v"
-                        stroke={location.brandColor}
-                        strokeWidth={1.5}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-                {/* Micro stats */}
-                <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
-                  <span>Tip {location.tipRate.toFixed(1)}%</span>
-                  <span className={location.leakageRate > 5 ? 'text-red-400' : ''}>
-                    Leak {location.leakageRate.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-            ))}
+          {/* F-5: Prominent legend */}
+          <div className="flex items-center gap-4 text-xs">
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded" style={{ backgroundColor: '#22c55e' }} />
+              <span className="text-muted-foreground">{isSpanish ? 'Sobre promedio' : 'Above avg'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }} />
+              <span className="text-muted-foreground">{isSpanish ? 'Dentro ±10%' : 'Within ±10%'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded" style={{ backgroundColor: '#ef4444' }} />
+              <span className="text-muted-foreground">{isSpanish ? 'Bajo promedio' : 'Below avg'}</span>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-4">
-            {isSpanish
-              ? 'Verde = sobre promedio de red, Ambar = dentro de 10%, Rojo = bajo promedio'
-              : 'Green = above network avg, Amber = within 10%, Red = below avg'}
-          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* F-2: Brand-grouped sections */}
+          {Array.from(locationsByBrand.entries()).map(([brandName, brandLocations]) => (
+            <div key={brandName}>
+              <div className="flex items-center gap-2 mb-3">
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: brandLocations[0]?.brandColor || '#6b7280' }}
+                />
+                <span className="text-sm font-medium text-zinc-300">{brandName}</span>
+                <span className="text-xs text-muted-foreground">
+                  ({brandLocations.length} {brandLocations.length === 1
+                    ? (isSpanish ? 'ubicacion' : 'location')
+                    : (isSpanish ? 'ubicaciones' : 'locations')})
+                </span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {brandLocations.map((location) => (
+                  <div
+                    key={location.id}
+                    className={`rounded-lg p-3 border-l-4 ${getLocationBg(location.vsNetworkAvg)}`}
+                    style={{ borderLeftColor: getLocationBorderColor(location.vsNetworkAvg) }}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{location.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{location.city}</p>
+                      </div>
+                      {/* Anomaly indicators */}
+                      <div className="flex gap-1 shrink-0 ml-1">
+                        {location.leakageRate > 5 && (
+                          <div className="w-2 h-2 rounded-full bg-red-500" title={`Leakage ${location.leakageRate.toFixed(1)}%`} />
+                        )}
+                        {location.tipRate < 8 && (
+                          <div className="w-2 h-2 rounded-full bg-amber-500" title={`Tip rate ${location.tipRate.toFixed(1)}%`} />
+                        )}
+                      </div>
+                    </div>
+                    {/* F-3: No cents on large amounts */}
+                    <p className="text-lg font-bold mt-2">{formatWhole(location.revenue)}</p>
+                    {/* Mini Sparkline */}
+                    <div className="h-5 mt-2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={location.weeklyData.map((v, i) => ({ v, i }))}>
+                          <Line
+                            type="monotone"
+                            dataKey="v"
+                            stroke={location.brandColor}
+                            strokeWidth={1.5}
+                            dot={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                    {/* Micro stats */}
+                    <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
+                      <span>Tip {location.tipRate.toFixed(1)}%</span>
+                      <span className={location.leakageRate > 5 ? 'text-red-400' : ''}>
+                        Leak {location.leakageRate.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
