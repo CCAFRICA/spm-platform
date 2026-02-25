@@ -58,7 +58,8 @@ export type AITaskType =
   | 'anomaly_detection'             // Flag outliers in financial/compensation data
   | 'recommendation'                // Generate actionable recommendation
   | 'natural_language_query'        // Answer question about platform data
-  | 'dashboard_assessment';         // OB-71: Persona-driven dashboard intelligence
+  | 'dashboard_assessment'          // OB-71: Persona-driven dashboard intelligence
+  | 'narration';                    // OB-98: Natural language insight narrative
 
 // === TASK-SPECIFIC TYPES ===
 
