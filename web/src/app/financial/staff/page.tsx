@@ -12,7 +12,7 @@
  * Uses seed data when no real data exists.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -38,178 +38,37 @@ import {
   DollarSign,
   TrendingUp,
   Award,
+  Activity,
   ChevronUp,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
-
-// Types
-interface StaffData {
-  id: string;
-  name: string;
-  role: string;
-  locationId: string;
-  locationName: string;
-  revenue: number;
-  checks: number;
-  avgCheck: number;
-  tips: number;
-  tipRate: number;
-  performanceIndex: number;
-  rank: number;
-  prevRank: number;
-  weeklyTrend: number[];
-}
+import { loadStaffData, type StaffMemberData } from '@/lib/financial/financial-data-service';
 
 type SortField = 'rank' | 'name' | 'revenue' | 'checks' | 'avgCheck' | 'tips' | 'tipRate' | 'performanceIndex';
 
-// Seed data generator
-function generateSeedStaff(): StaffData[] {
-  const staff: StaffData[] = [
-    {
-      id: 'S001',
-      name: 'Maria Garcia',
-      role: 'Server',
-      locationId: 'LOC001',
-      locationName: 'Polanco',
-      revenue: 48500,
-      checks: 412,
-      avgCheck: 117.72,
-      tips: 7275,
-      tipRate: 15.0,
-      performanceIndex: 94,
-      rank: 1,
-      prevRank: 2,
-      weeklyTrend: [42, 45, 48, 51],
-    },
-    {
-      id: 'S002',
-      name: 'Carlos Mendez',
-      role: 'Server',
-      locationId: 'LOC002',
-      locationName: 'Condesa',
-      revenue: 45200,
-      checks: 398,
-      avgCheck: 113.57,
-      tips: 6780,
-      tipRate: 15.0,
-      performanceIndex: 91,
-      rank: 2,
-      prevRank: 1,
-      weeklyTrend: [46, 44, 42, 44],
-    },
-    {
-      id: 'S003',
-      name: 'Ana Rodriguez',
-      role: 'Server',
-      locationId: 'LOC001',
-      locationName: 'Polanco',
-      revenue: 42800,
-      checks: 385,
-      avgCheck: 111.17,
-      tips: 6420,
-      tipRate: 15.0,
-      performanceIndex: 88,
-      rank: 3,
-      prevRank: 3,
-      weeklyTrend: [40, 41, 43, 43],
-    },
-    {
-      id: 'S004',
-      name: 'Luis Hernandez',
-      role: 'Bartender',
-      locationId: 'LOC003',
-      locationName: 'Roma Norte',
-      revenue: 38900,
-      checks: 520,
-      avgCheck: 74.81,
-      tips: 5835,
-      tipRate: 15.0,
-      performanceIndex: 85,
-      rank: 4,
-      prevRank: 6,
-      weeklyTrend: [32, 36, 38, 42],
-    },
-    {
-      id: 'S005',
-      name: 'Sofia Martinez',
-      role: 'Server',
-      locationId: 'LOC002',
-      locationName: 'Condesa',
-      revenue: 36500,
-      checks: 342,
-      avgCheck: 106.73,
-      tips: 5475,
-      tipRate: 15.0,
-      performanceIndex: 82,
-      rank: 5,
-      prevRank: 4,
-      weeklyTrend: [38, 36, 35, 36],
-    },
-    {
-      id: 'S006',
-      name: 'Diego Torres',
-      role: 'Server',
-      locationId: 'LOC004',
-      locationName: 'Santa Fe',
-      revenue: 34200,
-      checks: 315,
-      avgCheck: 108.57,
-      tips: 5130,
-      tipRate: 15.0,
-      performanceIndex: 79,
-      rank: 6,
-      prevRank: 5,
-      weeklyTrend: [36, 35, 33, 34],
-    },
-    {
-      id: 'S007',
-      name: 'Isabella Ruiz',
-      role: 'Bartender',
-      locationId: 'LOC001',
-      locationName: 'Polanco',
-      revenue: 31800,
-      checks: 425,
-      avgCheck: 74.82,
-      tips: 4770,
-      tipRate: 15.0,
-      performanceIndex: 76,
-      rank: 7,
-      prevRank: 8,
-      weeklyTrend: [28, 30, 32, 34],
-    },
-    {
-      id: 'S008',
-      name: 'Miguel Sanchez',
-      role: 'Server',
-      locationId: 'LOC005',
-      locationName: 'Coyoacán',
-      revenue: 29500,
-      checks: 298,
-      avgCheck: 98.99,
-      tips: 4425,
-      tipRate: 15.0,
-      performanceIndex: 73,
-      rank: 8,
-      prevRank: 7,
-      weeklyTrend: [30, 29, 28, 29],
-    },
-  ];
-
-  return staff;
-}
-
 export default function StaffPerformancePage() {
+  const { currentTenant } = useTenant();
+  const tenantId = currentTenant?.id;
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortAsc, setSortAsc] = useState(true);
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [loading, setLoading] = useState(true);
+  const [staffData, setStaffData] = useState<StaffMemberData[]>([]);
 
-  // Seed data
-  const staffData = useMemo(() => generateSeedStaff(), []);
+  useEffect(() => {
+    if (!tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    loadStaffData(tenantId)
+      .then(result => { if (!cancelled) setStaffData(result || []); })
+      .catch(err => console.error('Failed to load staff data:', err))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   // Get unique locations and roles for filters
   const locations = useMemo(() => {
@@ -280,6 +139,28 @@ export default function StaffPerformancePage() {
   };
 
   const { format } = useCurrency();
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (staffData.length === 0) {
+    return (
+      <div className="p-6">
+        <Card className="max-w-xl mx-auto">
+          <CardContent className="pt-6 text-center">
+            <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">No Staff Data</h2>
+            <p className="text-muted-foreground">Import POS data to see staff performance.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">

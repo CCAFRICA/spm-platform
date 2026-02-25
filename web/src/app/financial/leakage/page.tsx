@@ -13,7 +13,7 @@
  * Uses seed data when no real data exists.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -46,109 +46,11 @@ import {
   ShieldAlert,
   CheckCircle,
   ChevronRight,
+  Activity,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useCurrency } from '@/contexts/tenant-context';
-
-// Types
-interface LeakageCategory {
-  category: string;
-  amount: number;
-  count: number;
-  trend: number;
-}
-
-interface LocationLeakage {
-  id: string;
-  name: string;
-  brand: string;
-  leakageAmount: number;
-  leakageRate: number;
-  threshold: number;
-  status: 'ok' | 'warning' | 'critical';
-  weeklyTrend: number[];
-}
-
-interface TrendPoint {
-  period: string;
-  amount: number;
-  rate: number;
-}
-
-// Seed data
-function generateLeakageCategories(): LeakageCategory[] {
-  return [
-    { category: 'Voids', amount: 4250, count: 42, trend: -8.5 },
-    { category: 'Comps', amount: 3180, count: 28, trend: 2.1 },
-    { category: 'Discounts', amount: 2890, count: 156, trend: -3.2 },
-    { category: 'Refunds', amount: 1420, count: 18, trend: 12.4 },
-    { category: 'Walkouts', amount: 680, count: 4, trend: -25.0 },
-  ];
-}
-
-function generateLocationLeakage(): LocationLeakage[] {
-  return [
-    {
-      id: 'LOC001',
-      name: 'Polanco',
-      brand: 'Taco Loco',
-      leakageAmount: 2850,
-      leakageRate: 2.1,
-      threshold: 2.5,
-      status: 'ok',
-      weeklyTrend: [2.3, 2.2, 2.0, 2.1],
-    },
-    {
-      id: 'LOC002',
-      name: 'Condesa',
-      brand: 'El Ranchero',
-      leakageAmount: 3420,
-      leakageRate: 2.8,
-      threshold: 2.5,
-      status: 'warning',
-      weeklyTrend: [2.2, 2.4, 2.6, 2.8],
-    },
-    {
-      id: 'LOC003',
-      name: 'Roma Norte',
-      brand: 'Taco Loco',
-      leakageAmount: 1890,
-      leakageRate: 1.8,
-      threshold: 2.5,
-      status: 'ok',
-      weeklyTrend: [2.0, 1.9, 1.8, 1.8],
-    },
-    {
-      id: 'LOC004',
-      name: 'Santa Fe',
-      brand: 'El Ranchero',
-      leakageAmount: 4120,
-      leakageRate: 3.4,
-      threshold: 2.5,
-      status: 'critical',
-      weeklyTrend: [2.8, 3.0, 3.2, 3.4],
-    },
-    {
-      id: 'LOC005',
-      name: 'Coyoacan',
-      brand: 'Taco Loco',
-      leakageAmount: 2140,
-      leakageRate: 2.3,
-      threshold: 2.5,
-      status: 'ok',
-      weeklyTrend: [2.5, 2.4, 2.3, 2.3],
-    },
-  ];
-}
-
-function generateTrendData(): TrendPoint[] {
-  return [
-    { period: 'W1', amount: 11200, rate: 2.4 },
-    { period: 'W2', amount: 12800, rate: 2.6 },
-    { period: 'W3', amount: 11900, rate: 2.5 },
-    { period: 'W4', amount: 12420, rate: 2.5 },
-  ];
-}
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { loadLeakageData, type LeakagePageData } from '@/lib/financial/financial-data-service';
 
 const STATUS_CONFIG = {
   ok: { color: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -159,24 +61,38 @@ const STATUS_CONFIG = {
 const PIE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#8b5cf6'];
 
 export default function LeakageMonitorPage() {
+  const { currentTenant } = useTenant();
+  const tenantId = currentTenant?.id;
   const [periodFilter, setPeriodFilter] = useState<string>('month');
+  const [loading, setLoading] = useState(true);
+  const [pageData, setPageData] = useState<LeakagePageData | null>(null);
 
-  // Seed data
-  const categories = useMemo(() => generateLeakageCategories(), []);
-  const locations = useMemo(() => generateLocationLeakage(), []);
-  const trendData = useMemo(() => generateTrendData(), []);
+  useEffect(() => {
+    if (!tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    loadLeakageData(tenantId)
+      .then(result => { if (!cancelled) setPageData(result); })
+      .catch(err => console.error('Failed to load leakage data:', err))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  const categories = pageData?.categories ?? [];
+  const locations = pageData?.locations ?? [];
+  const trendData = pageData?.trend ?? [];
 
   // Summary stats
   const stats = useMemo(() => {
     const totalLeakage = categories.reduce((sum, c) => sum + c.amount, 0);
     const aboveThreshold = locations.filter(l => l.status !== 'ok').length;
     const topOffender = [...locations].sort((a, b) => b.leakageRate - a.leakageRate)[0];
-    const avgRate = locations.reduce((sum, l) => sum + l.leakageRate, 0) / locations.length;
-    const prevRate = 2.6; // Previous period
-    const trendChange = ((avgRate - prevRate) / prevRate) * 100;
+    const avgRate = locations.length > 0 ? locations.reduce((sum, l) => sum + l.leakageRate, 0) / locations.length : 0;
+    const prevRate = trendData.length > 1 ? trendData[trendData.length - 2]?.rate || 2.6 : 2.6;
+    const currentRate = trendData.length > 0 ? trendData[trendData.length - 1]?.rate || avgRate : avgRate;
+    const trendChange = prevRate > 0 ? ((currentRate - prevRate) / prevRate) * 100 : 0;
 
     return { totalLeakage, aboveThreshold, topOffender, avgRate, trendChange };
-  }, [categories, locations]);
+  }, [categories, locations, trendData]);
 
   // Pie chart data
   const pieData = categories.map(c => ({
@@ -185,6 +101,28 @@ export default function LeakageMonitorPage() {
   }));
 
   const { format } = useCurrency();
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!pageData) {
+    return (
+      <div className="p-6">
+        <Card className="max-w-xl mx-auto">
+          <CardContent className="pt-6 text-center">
+            <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">No Financial Data</h2>
+            <p className="text-muted-foreground">Import POS data to see leakage analytics.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -280,8 +218,8 @@ export default function LeakageMonitorPage() {
               </div>
               <div>
                 <p className="text-sm text-zinc-400">Highest Rate</p>
-                <p className="text-lg font-bold">{stats.topOffender.name}</p>
-                <p className="text-sm text-red-600">{stats.topOffender.leakageRate.toFixed(1)}%</p>
+                <p className="text-lg font-bold">{stats.topOffender?.name ?? '—'}</p>
+                <p className="text-sm text-red-600">{stats.topOffender?.leakageRate.toFixed(1) ?? '0.0'}%</p>
               </div>
             </div>
           </CardContent>
