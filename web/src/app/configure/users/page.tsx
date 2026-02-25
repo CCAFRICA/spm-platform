@@ -164,7 +164,7 @@ function UsersPageInner() {
         <CardContent>
           <div className="flex gap-3 mb-4">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <Input
                 placeholder="Search by name or email..."
                 value={search}
@@ -190,9 +190,9 @@ function UsersPageInner() {
 
           {/* Table */}
           {loading ? (
-            <div className="text-center py-8 text-slate-500">Loading users...</div>
+            <div className="text-center py-8 text-slate-400">Loading users...</div>
           ) : filteredUsers.length === 0 ? (
-            <div className="text-center py-8 text-slate-500">
+            <div className="text-center py-8 text-slate-400">
               {users.length === 0 ? 'No users found for this tenant.' : 'No users match your filters.'}
             </div>
           ) : (
@@ -256,14 +256,14 @@ function UsersPageInner() {
                             <span className="text-slate-300">
                               {linked.display_name}
                               {linked.external_id && (
-                                <span className="text-slate-500 ml-1">({linked.external_id})</span>
+                                <span className="text-slate-400 ml-1">({linked.external_id})</span>
                               )}
                             </span>
                           ) : (
                             <span className="text-slate-600">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-slate-500 text-sm">
+                        <TableCell className="text-slate-400 text-sm">
                           {new Date(u.created_at).toLocaleDateString()}
                         </TableCell>
                       </TableRow>

@@ -74,15 +74,15 @@ export function PlanValidation({ plan }: PlanValidationProps) {
         <CardContent>
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
-              <span className="text-slate-500">Plan Type:</span>
+              <span className="text-slate-400">Plan Type:</span>
               <span className="ml-2 font-medium">{plan.ruleSetType}</span>
             </div>
             <div>
-              <span className="text-slate-500">Variants:</span>
+              <span className="text-slate-400">Variants:</span>
               <span className="ml-2 font-medium">{variants.length}</span>
             </div>
             <div>
-              <span className="text-slate-500">Status:</span>
+              <span className="text-slate-400">Status:</span>
               <Badge variant="outline" className="ml-2">{plan.status}</Badge>
             </div>
           </div>
@@ -165,9 +165,9 @@ function VariantCard({ variant, issues }: { variant: PlanVariant; issues: Valida
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {comp.componentType === 'matrix_lookup' ? (
-                      <Grid3X3 className="h-4 w-4 text-slate-500" />
+                      <Grid3X3 className="h-4 w-4 text-slate-400" />
                     ) : (
-                      <TrendingUp className="h-4 w-4 text-slate-500" />
+                      <TrendingUp className="h-4 w-4 text-slate-400" />
                     )}
                     <span className="font-medium text-sm">{comp.name}</span>
                   </div>
@@ -205,7 +205,7 @@ function ComponentStructure({ component }: { component: PlanComponent }) {
     const tiers = component.tierConfig.tiers;
     return (
       <div className="mt-2 text-xs">
-        <p className="text-slate-500">{tiers.length} tiers: {
+        <p className="text-slate-400">{tiers.length} tiers: {
           tiers.map(t => t.label).join(' → ')
         }</p>
       </div>
@@ -215,7 +215,7 @@ function ComponentStructure({ component }: { component: PlanComponent }) {
   if (component.componentType === 'matrix_lookup' && component.matrixConfig) {
     const { rowBands, columnBands } = component.matrixConfig;
     return (
-      <div className="mt-2 text-xs text-slate-500">
+      <div className="mt-2 text-xs text-slate-400">
         {rowBands.length} rows × {columnBands.length} columns
       </div>
     );
@@ -223,7 +223,7 @@ function ComponentStructure({ component }: { component: PlanComponent }) {
 
   if (component.componentType === 'percentage' && component.percentageConfig) {
     return (
-      <div className="mt-2 text-xs text-slate-500">
+      <div className="mt-2 text-xs text-slate-400">
         Rate: {(component.percentageConfig.rate * 100).toFixed(1)}%
       </div>
     );
@@ -231,7 +231,7 @@ function ComponentStructure({ component }: { component: PlanComponent }) {
 
   if (component.componentType === 'conditional_percentage' && component.conditionalConfig) {
     return (
-      <div className="mt-2 text-xs text-slate-500">
+      <div className="mt-2 text-xs text-slate-400">
         {component.conditionalConfig.conditions.length} conditions
       </div>
     );

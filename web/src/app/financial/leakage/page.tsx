@@ -323,27 +323,27 @@ export default function LeakageMonitorPage() {
                       </div>
                       <div>
                         <div className="font-medium">{loc.name}</div>
-                        <div className="text-sm text-zinc-500">{loc.brand}</div>
+                        <div className="text-sm text-zinc-400">{loc.brand}</div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-6">
                       {/* Leakage Amount */}
                       <div className="text-right">
-                        <div className="text-sm text-zinc-500">Amount</div>
+                        <div className="text-sm text-zinc-400">Amount</div>
                         <div className="font-medium">{format(loc.leakageAmount)}</div>
                       </div>
 
                       {/* Rate vs Threshold */}
                       <div className="text-right w-24">
-                        <div className="text-sm text-zinc-500">Rate / Threshold</div>
+                        <div className="text-sm text-zinc-400">Rate / Threshold</div>
                         <div className="flex items-center gap-1">
                           <span className={`font-medium ${
                             loc.leakageRate > loc.threshold ? 'text-red-600' : 'text-green-600'
                           }`}>
                             {loc.leakageRate.toFixed(1)}%
                           </span>
-                          <span className="text-zinc-500">/</span>
+                          <span className="text-zinc-400">/</span>
                           <span className="text-zinc-400">{loc.threshold}%</span>
                         </div>
                       </div>

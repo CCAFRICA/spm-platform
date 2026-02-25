@@ -56,7 +56,7 @@ const LAYER_LABELS: Record<ComparisonLayer, string> = {
 const STATUS_STYLES: Record<LayerStatus, { badge: string; icon: typeof CheckCircle }> = {
   available: { badge: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: CheckCircle },
   partial: { badge: 'bg-amber-100 text-amber-800 border-amber-200', icon: MinusCircle },
-  unavailable: { badge: 'bg-slate-100 text-slate-500 border-slate-200', icon: MinusCircle },
+  unavailable: { badge: 'bg-slate-100 text-slate-400 border-slate-200', icon: MinusCircle },
 };
 
 // Wayfinder L2: opacity/weight, NOT red/green stoplight
@@ -99,7 +99,7 @@ export function AdaptiveResultsPanel({ result }: AdaptiveResultsPanelProps) {
           {result.depth.recommendations.length > 0 && (
             <div className="mt-3 space-y-1">
               {result.depth.recommendations.map((rec, i) => (
-                <p key={i} className="text-xs text-slate-500">{rec}</p>
+                <p key={i} className="text-xs text-slate-400">{rec}</p>
               ))}
             </div>
           )}
@@ -157,17 +157,17 @@ export function AdaptiveResultsPanel({ result }: AdaptiveResultsPanelProps) {
           <CardContent>
             <div className="grid grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-slate-500">VL Total</p>
+                <p className="text-xs text-slate-400">VL Total</p>
                 <p className="text-lg font-bold">{fmt(result.aggregate.vlTotal)}</p>
                 <p className="text-xs text-slate-400">{result.aggregate.entityCountVL} employees</p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">File Total</p>
+                <p className="text-xs text-slate-400">File Total</p>
                 <p className="text-lg font-bold">{fmt(result.aggregate.fileTotal)}</p>
                 <p className="text-xs text-slate-400">{result.aggregate.entityCountFile} rows</p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Difference</p>
+                <p className="text-xs text-slate-400">Difference</p>
                 <p className={`text-lg font-bold ${FLAG_STYLES[result.aggregate.flag]}`}>
                   {result.aggregate.delta >= 0 ? '+' : ''}{fmt(Math.abs(result.aggregate.delta))}
                 </p>
@@ -176,7 +176,7 @@ export function AdaptiveResultsPanel({ result }: AdaptiveResultsPanelProps) {
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">False Green Risk</p>
+                <p className="text-xs text-slate-400">False Green Risk</p>
                 <Badge className={
                   result.depth.falseGreenRisk === 'high' ? 'bg-amber-100 text-amber-800' :
                   result.depth.falseGreenRisk === 'medium' ? 'bg-slate-100 text-slate-700' :
@@ -200,26 +200,26 @@ export function AdaptiveResultsPanel({ result }: AdaptiveResultsPanelProps) {
             <div className="grid grid-cols-5 gap-3 text-center">
               <div>
                 <p className="text-2xl font-bold">{result.summary.matched}</p>
-                <p className="text-xs text-slate-500">Matched</p>
+                <p className="text-xs text-slate-400">Matched</p>
               </div>
               <div>
                 <p className="text-2xl font-bold">{result.summary.exactMatches}</p>
-                <p className="text-xs text-slate-500">Exact</p>
+                <p className="text-xs text-slate-400">Exact</p>
               </div>
               <div>
                 <p className="text-2xl font-bold">{result.summary.toleranceMatches}</p>
-                <p className="text-xs text-slate-500">Within 5%</p>
+                <p className="text-xs text-slate-400">Within 5%</p>
               </div>
               <div>
                 <p className="text-2xl font-bold opacity-80">{result.summary.amberFlags}</p>
-                <p className="text-xs text-slate-500">5-15%</p>
+                <p className="text-xs text-slate-400">5-15%</p>
               </div>
               <div>
                 <p className="text-2xl font-bold">{result.summary.redFlags}</p>
-                <p className="text-xs text-slate-500">&gt;15%</p>
+                <p className="text-xs text-slate-400">&gt;15%</p>
               </div>
             </div>
-            <div className="flex gap-4 mt-3 text-xs text-slate-500 justify-center">
+            <div className="flex gap-4 mt-3 text-xs text-slate-400 justify-center">
               <span>File-only: {result.summary.fileOnly}</span>
               <span>VL-only: {result.summary.vlOnly}</span>
             </div>
@@ -270,7 +270,7 @@ export function AdaptiveResultsPanel({ result }: AdaptiveResultsPanelProps) {
               </TableBody>
             </Table>
             {result.storeComparisons.length > 20 && (
-              <p className="text-xs text-slate-500 mt-2 text-center">
+              <p className="text-xs text-slate-400 mt-2 text-center">
                 Showing 20 of {result.storeComparisons.length} stores
               </p>
             )}

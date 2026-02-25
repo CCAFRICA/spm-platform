@@ -290,7 +290,7 @@ export default function OperateCockpitPage() {
       {/* OB-92: Shared selector bar */}
       <OperateSelector />
       {/* Period Ribbon */}
-      <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={handlePeriodSelect} />
+      <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={handlePeriodSelect} isSpanish={isSpanish} />
 
       <div className="p-6 space-y-6 max-w-6xl mx-auto">
         {/* Header */}
@@ -316,10 +316,10 @@ export default function OperateCockpitPage() {
               {ruleSetName ? (
                 <p className="text-sm font-medium text-zinc-200">{ruleSetName}</p>
               ) : (
-                <p className="text-sm text-zinc-500">{isSpanish ? 'No hay plan activo' : 'No active plan'}</p>
+                <p className="text-sm text-zinc-400">{isSpanish ? 'No hay plan activo' : 'No active plan'}</p>
               )}
               {activeKey && (
-                <p className="text-[11px] text-zinc-500 mt-0.5">
+                <p className="text-[11px] text-zinc-400 mt-0.5">
                   {isSpanish ? 'Periodo' : 'Period'}: {periods.find(p => p.periodKey === activeKey)?.label ?? activeKey}
                 </p>
               )}
@@ -404,7 +404,7 @@ export default function OperateCockpitPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-zinc-200">{isSpanish ? 'Modulo Financiero Activo' : 'Financial Module Active'}</p>
-                <p className="text-xs text-zinc-500">{isSpanish ? 'Ver pulso de red, benchmarks y analisis POS' : 'View network pulse, benchmarks, and POS analytics'}</p>
+                <p className="text-xs text-zinc-400">{isSpanish ? 'Ver pulso de red, benchmarks y analisis POS' : 'View network pulse, benchmarks, and POS analytics'}</p>
               </div>
             </div>
             <span className="text-xs text-amber-400 font-medium">{isSpanish ? 'Abrir →' : 'Open →'}</span>
@@ -470,7 +470,7 @@ export default function OperateCockpitPage() {
                 {/* OB-85: Per-component breakdown */}
                 {calcSummary.componentBreakdown.length > 0 && (
                   <div className="space-y-1.5 pt-2 border-t border-zinc-800">
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{isSpanish ? 'Componentes' : 'Components'}</p>
+                    <p className="text-[10px] text-zinc-400 uppercase tracking-wider">{isSpanish ? 'Componentes' : 'Components'}</p>
                     {calcSummary.componentBreakdown.map((comp) => (
                       <div key={comp.name} className="flex items-center justify-between text-xs">
                         <span className="text-zinc-400 truncate max-w-[60%]">{comp.name}</span>

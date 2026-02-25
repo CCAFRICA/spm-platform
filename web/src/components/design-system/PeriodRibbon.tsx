@@ -18,12 +18,14 @@ interface PeriodRibbonProps {
   periods: PeriodInfo[];
   activeKey: string;
   onSelect: (periodKey: string) => void;
+  isSpanish?: boolean;
 }
 
-function getLifecycleLabel(state: string | null): string {
+function getLifecycleLabel(state: string | null, isSpanish: boolean): string {
   if (!state) return '';
   if (isDashboardState(state)) {
-    return LIFECYCLE_DISPLAY[state as DashboardLifecycleState].labelEs;
+    const display = LIFECYCLE_DISPLAY[state as DashboardLifecycleState];
+    return isSpanish ? display.labelEs : display.label;
   }
   return state;
 }
@@ -36,9 +38,8 @@ function getLifecycleDot(state: string | null): string {
   return 'bg-zinc-500';
 }
 
-export function PeriodRibbon({ periods, activeKey, onSelect }: PeriodRibbonProps) {
+export function PeriodRibbon({ periods, activeKey, onSelect, isSpanish = false }: PeriodRibbonProps) {
   if (periods.length === 0) {
-    // Don't show the banner at all — no periods is handled by dashboard empty state
     return null;
   }
 
@@ -67,7 +68,7 @@ export function PeriodRibbon({ periods, activeKey, onSelect }: PeriodRibbonProps
             >
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${getLifecycleDot(period.lifecycleState)}`} />
-                <span className={`text-sm ${isActive ? 'text-white font-semibold' : 'text-zinc-400 font-medium'}`}>
+                <span className={`text-sm font-medium ${isActive ? 'text-white font-semibold' : 'text-zinc-300'}`}>
                   {period.label || period.periodKey}
                 </span>
                 {isCompleted && (
@@ -78,15 +79,15 @@ export function PeriodRibbon({ periods, activeKey, onSelect }: PeriodRibbonProps
               </div>
               <div className="flex items-center gap-2 pl-4">
                 {period.entityCount != null && period.entityCount > 0 && (
-                  <span className={`text-xs ${isActive ? 'text-zinc-300' : 'text-zinc-500'}`}>{period.entityCount} emp</span>
+                  <span className={`text-xs ${isActive ? 'text-zinc-300' : 'text-zinc-400'}`}>{period.entityCount} emp</span>
                 )}
                 {hasBatch && (
-                  <span className={`text-xs font-medium ${isActive ? 'text-violet-300' : 'text-zinc-500'}`}>
-                    {getLifecycleLabel(period.lifecycleState)}
+                  <span className={`text-xs font-medium ${isActive ? 'text-violet-300' : 'text-zinc-400'}`}>
+                    {getLifecycleLabel(period.lifecycleState, isSpanish)}
                   </span>
                 )}
                 {!hasBatch && (
-                  <span className="text-xs text-zinc-600">No calc</span>
+                  <span className="text-xs text-zinc-400">{isSpanish ? 'Sin cálculo' : 'No calc'}</span>
                 )}
               </div>
             </button>

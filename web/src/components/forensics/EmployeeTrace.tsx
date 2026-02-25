@@ -48,7 +48,7 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
               </div>
               <div>
                 <h2 className="text-lg font-semibold">{trace.entityName}</h2>
-                <div className="flex items-center gap-3 text-sm text-slate-500">
+                <div className="flex items-center gap-3 text-sm text-slate-400">
                   <span>#{trace.entityId.slice(0, 8)}</span>
                   <span>{trace.entityRole}</span>
                   {trace.storeId && (
@@ -62,7 +62,7 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
             </div>
             <div className="text-right">
               <p className="text-2xl font-bold">{fmt(trace.totalIncentive)}</p>
-              <p className="text-sm text-slate-500">{trace.currency}</p>
+              <p className="text-sm text-slate-400">{trace.currency}</p>
             </div>
           </div>
         </CardContent>
@@ -81,7 +81,7 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
             <Badge variant="outline">#{trace.variant.variantId.slice(0, 8)}</Badge>
             <span className="font-medium">{trace.variant.variantName}</span>
           </div>
-          <p className="text-sm text-slate-500 mt-2">{trace.variant.selectionReasoning}</p>
+          <p className="text-sm text-slate-400 mt-2">{trace.variant.selectionReasoning}</p>
           {Object.keys(trace.variant.eligibilityFields).length > 0 && (
             <div className="mt-3 bg-slate-800/50 p-3 rounded-lg">
               <p className="text-xs font-medium text-zinc-400 mb-1">Eligibility Fields</p>
@@ -131,19 +131,19 @@ export function EmployeeTrace({ trace }: EmployeeTraceProps) {
         <CardContent>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-slate-500">Trace ID:</span>
+              <span className="text-slate-400">Trace ID:</span>
               <span className="ml-2">#{trace.traceId.slice(0, 8)}</span>
             </div>
             <div>
-              <span className="text-slate-500">Run ID:</span>
+              <span className="text-slate-400">Run ID:</span>
               <span className="ml-2">#{trace.calculationRunId.slice(0, 8)}</span>
             </div>
             <div>
-              <span className="text-slate-500">Timestamp:</span>
+              <span className="text-slate-400">Timestamp:</span>
               <span className="ml-2">{new Date(trace.timestamp).toLocaleString()}</span>
             </div>
             <div>
-              <span className="text-slate-500">Tenant:</span>
+              <span className="text-slate-400">Tenant:</span>
               <span className="ml-2">#{trace.tenantId.slice(0, 8)}</span>
             </div>
           </div>
@@ -200,7 +200,7 @@ function ComponentCard({ component, index }: { component: ComponentTrace; index:
                     <TableCell>
                       <Badge variant="outline" className="text-xs">{metric.resolutionPath}</Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-slate-500">
+                    <TableCell className="text-xs text-slate-400">
                       {metric.sourceSheet && <span>{metric.sourceSheet}</span>}
                       {metric.sourceField && <span> → {metric.sourceField}</span>}
                     </TableCell>
@@ -220,21 +220,21 @@ function ComponentCard({ component, index }: { component: ComponentTrace; index:
         <div>
           <p className="text-sm font-medium text-zinc-300 mb-2">Lookup</p>
           <div className="bg-slate-800/50 p-3 rounded-lg text-sm space-y-1">
-            <div><span className="text-slate-500">Type:</span> {component.lookup.type}</div>
+            <div><span className="text-slate-400">Type:</span> {component.lookup.type}</div>
             {component.lookup.tierLabel && (
-              <div><span className="text-slate-500">Tier:</span> {component.lookup.tierLabel}</div>
+              <div><span className="text-slate-400">Tier:</span> {component.lookup.tierLabel}</div>
             )}
             {component.lookup.rowLabel && (
-              <div><span className="text-slate-500">Row:</span> {component.lookup.rowLabel}</div>
+              <div><span className="text-slate-400">Row:</span> {component.lookup.rowLabel}</div>
             )}
             {component.lookup.columnLabel && (
-              <div><span className="text-slate-500">Column:</span> {component.lookup.columnLabel}</div>
+              <div><span className="text-slate-400">Column:</span> {component.lookup.columnLabel}</div>
             )}
             {component.lookup.rate !== undefined && (
-              <div><span className="text-slate-500">Rate:</span> {(component.lookup.rate * 100).toFixed(1)}%</div>
+              <div><span className="text-slate-400">Rate:</span> {(component.lookup.rate * 100).toFixed(1)}%</div>
             )}
             {component.lookup.baseAmount !== undefined && (
-              <div><span className="text-slate-500">Base:</span> {fmt(component.lookup.baseAmount)}</div>
+              <div><span className="text-slate-400">Base:</span> {fmt(component.lookup.baseAmount)}</div>
             )}
           </div>
         </div>

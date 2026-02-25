@@ -49,7 +49,7 @@ function DashboardContent() {
 
   if (!currentTenant) {
     return (
-      <div className="p-8 text-center text-zinc-500">
+      <div className="p-8 text-center text-zinc-400">
         <p>Selecciona un tenant para ver tu dashboard.</p>
       </div>
     );
@@ -99,7 +99,7 @@ function DashboardContent() {
           <h1 className="text-2xl font-bold text-white">
             {tokens.intent}
           </h1>
-          <p className="text-xs text-zinc-500">{tokens.intentDescription}</p>
+          <p className="text-xs text-zinc-400">{tokens.intentDescription}</p>
         </div>
 
         {/* Persona-driven content */}

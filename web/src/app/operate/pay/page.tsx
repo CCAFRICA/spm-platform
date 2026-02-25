@@ -109,7 +109,7 @@ function PayPageInner() {
           <h1 className="text-2xl font-bold text-zinc-100">
             {displaySpanish ? 'Nomina' : 'Outcomes'}
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-slate-400 mt-1">
             {displaySpanish
               ? 'Finalizar y procesar la nomina del periodo'
               : 'Finalize and process period outcomes'}
@@ -184,7 +184,7 @@ function PayPageInner() {
           {/* Lifecycle state indicator */}
           {latestBatch && (
             <div className="flex items-center gap-3 p-3 bg-zinc-900/50 rounded-lg">
-              <Scale className="h-4 w-4 text-slate-500" />
+              <Scale className="h-4 w-4 text-slate-400" />
               <span className="text-sm text-slate-600">
                 {displaySpanish ? 'Estado del Ciclo' : 'Cycle State'}:
               </span>
@@ -203,7 +203,7 @@ function PayPageInner() {
                   <Users className="h-8 w-8 text-blue-600" />
                   <div>
                     <p className="text-2xl font-bold">{entityCount}</p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-slate-400">
                       {displaySpanish ? 'Entidades' : 'Entities'}
                     </p>
                   </div>
@@ -217,7 +217,7 @@ function PayPageInner() {
                   <DollarSign className="h-8 w-8 text-green-600" />
                   <div>
                     <p className="text-2xl font-bold">{formatCurrency(totalPayout)}</p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-slate-400">
                       {displaySpanish ? 'Total Nomina' : 'Total Outcome'}
                     </p>
                   </div>
@@ -231,7 +231,7 @@ function PayPageInner() {
                   <FileText className="h-8 w-8 text-purple-600" />
                   <div>
                     <p className="text-2xl font-bold">{componentCount}</p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-slate-400">
                       {displaySpanish ? 'Componentes' : 'Components'}
                     </p>
                   </div>
@@ -243,7 +243,7 @@ function PayPageInner() {
           {/* Progress */}
           <div>
             <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-slate-500">
+              <span className="text-slate-400">
                 {displaySpanish ? 'Progreso del Ciclo' : 'Cycle Progress'}
               </span>
               <span className="font-medium">{cycleState?.completionPercentage || 0}%</span>

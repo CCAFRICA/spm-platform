@@ -145,7 +145,7 @@ function getStatusIcon(status: string) {
     case "in_progress":
       return <Clock className="h-4 w-4 text-blue-500" />;
     default:
-      return <Clock className="h-4 w-4 text-slate-500" />;
+      return <Clock className="h-4 w-4 text-slate-400" />;
   }
 }
 
@@ -192,7 +192,7 @@ export default function DataPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Records Today</p>
+                  <p className="text-sm text-slate-400">Records Today</p>
                   <p className="text-2xl font-bold">{dataMetrics.recordsToday.toLocaleString()}</p>
                 </div>
                 <div className="p-3 bg-indigo-100 rounded-full">
@@ -206,7 +206,7 @@ export default function DataPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Error Rate</p>
+                  <p className="text-sm text-slate-400">Error Rate</p>
                   <p className="text-2xl font-bold">{dataMetrics.errorRate}%</p>
                   <Badge className="mt-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
                     Healthy
@@ -223,7 +223,7 @@ export default function DataPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Data Completeness</p>
+                  <p className="text-sm text-slate-400">Data Completeness</p>
                   <p className="text-2xl font-bold">{dataMetrics.completeness}%</p>
                   <div className="mt-2 h-2 w-20 bg-slate-200 rounded-full overflow-hidden">
                     <div
@@ -243,11 +243,11 @@ export default function DataPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Last Sync</p>
+                  <p className="text-sm text-slate-400">Last Sync</p>
                   <p className="text-lg font-bold">
                     {formatDate(dataMetrics.lastSync)}
                   </p>
-                  <p className="text-xs text-slate-500 mt-1">Scheduled: Daily 6AM</p>
+                  <p className="text-xs text-slate-400 mt-1">Scheduled: Daily 6AM</p>
                 </div>
                 <div className="p-3 bg-blue-100 rounded-full">
                   <RefreshCw className="h-5 w-5 text-blue-600" />
@@ -346,12 +346,12 @@ export default function DataPage() {
                           <p className="font-medium text-slate-50">
                             {error.message}
                           </p>
-                          <p className="text-sm text-slate-500 mt-1">
+                          <p className="text-sm text-slate-400 mt-1">
                             Source: {error.source} • {error.affectedRecords} records affected
                           </p>
                         </div>
                       </div>
-                      <span className="text-sm text-slate-500">
+                      <span className="text-sm text-slate-400">
                         {formatDate(error.timestamp)}
                       </span>
                     </div>

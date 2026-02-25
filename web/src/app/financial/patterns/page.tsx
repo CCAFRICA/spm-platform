@@ -248,7 +248,7 @@ export default function OperationalPatternsPage() {
               {/* Hour headers */}
               <div className="flex gap-0.5 mb-1 ml-12">
                 {HOUR_LABELS.map((label, h) => (
-                  <div key={h} className="w-8 text-center text-[10px] text-zinc-500">{h % 3 === 0 ? label : ''}</div>
+                  <div key={h} className="w-8 text-center text-[10px] text-zinc-400">{h % 3 === 0 ? label : ''}</div>
                 ))}
               </div>
               {/* Day rows */}
@@ -269,7 +269,7 @@ export default function OperationalPatternsPage() {
                 </div>
               ))}
               {/* Legend */}
-              <div className="flex items-center gap-2 mt-3 ml-12 text-xs text-zinc-500">
+              <div className="flex items-center gap-2 mt-3 ml-12 text-xs text-zinc-400">
                 <span>Low</span>
                 <div className="flex gap-0.5">
                   <div className="w-6 h-3 rounded-sm bg-amber-800/40" />

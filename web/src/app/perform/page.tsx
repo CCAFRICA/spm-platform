@@ -30,7 +30,7 @@ function PerformContent() {
 
   if (!currentTenant) {
     return (
-      <div className="p-8 text-center text-zinc-500">
+      <div className="p-8 text-center text-zinc-400">
         <p>Select a tenant to view your dashboard.</p>
       </div>
     );
@@ -53,7 +53,7 @@ function PerformContent() {
           <h1 className="text-2xl font-bold text-white">
             {performTitle}
           </h1>
-          <p className="text-xs text-zinc-500">{performDesc}</p>
+          <p className="text-xs text-zinc-400">{performDesc}</p>
         </div>
 
         {isLoading ? (

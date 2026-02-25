@@ -42,7 +42,7 @@ export function DistributionChart({ data, benchmarkLine }: DistributionChartProp
           const heightPct = (bucket.count / maxCount) * 100;
           return (
             <div key={bucket.label} className="flex-1 flex flex-col items-center gap-1">
-              <span className="text-[9px] text-zinc-500 tabular-nums">{bucket.count}</span>
+              <span className="text-[9px] text-zinc-400 tabular-nums">{bucket.count}</span>
               <div className="w-full relative" style={{ height: '64px' }}>
                 <div
                   className="absolute bottom-0 w-full rounded-t-md transition-all duration-500"
@@ -59,7 +59,7 @@ export function DistributionChart({ data, benchmarkLine }: DistributionChartProp
         })}
       </div>
       {benchmarkLine !== undefined && (
-        <div className="text-[10px] text-zinc-500 text-center">
+        <div className="text-[10px] text-zinc-400 text-center">
           Benchmark: {benchmarkLine}%
         </div>
       )}

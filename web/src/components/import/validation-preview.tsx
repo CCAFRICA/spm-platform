@@ -47,11 +47,11 @@ export function ValidationPreview({ preview, targetFields }: ValidationPreviewPr
       {/* Summary Stats */}
       <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="p-4 bg-slate-900 rounded-lg text-center">
-          <FileText className="h-6 w-6 mx-auto mb-2 text-slate-500" />
+          <FileText className="h-6 w-6 mx-auto mb-2 text-slate-400" />
           <p className="text-2xl font-bold text-slate-700 dark:text-slate-200">
             {preview.totalRows}
           </p>
-          <p className="text-sm text-slate-500">Total Rows</p>
+          <p className="text-sm text-slate-400">Total Rows</p>
         </div>
 
         <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg text-center">
@@ -81,7 +81,7 @@ export function ValidationPreview({ preview, targetFields }: ValidationPreviewPr
               <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
                 Import Preview
               </span>
-              <span className="text-sm text-slate-500">
+              <span className="text-sm text-slate-400">
                 {preview.validRows} of {preview.totalRows} rows will be imported
               </span>
             </div>
@@ -99,7 +99,7 @@ export function ValidationPreview({ preview, targetFields }: ValidationPreviewPr
           <ArrowRight className="h-5 w-5 text-slate-400" />
           <div className="text-center">
             <p className="text-2xl font-bold text-emerald-600">{preview.validRows}</p>
-            <p className="text-xs text-slate-500">To Import</p>
+            <p className="text-xs text-slate-400">To Import</p>
           </div>
         </div>
       </motion.div>
@@ -178,7 +178,7 @@ export function ValidationPreview({ preview, targetFields }: ValidationPreviewPr
                                 {error.message}
                               </span>
                               {error.value && (
-                                <span className="text-slate-500 ml-1">
+                                <span className="text-slate-400 ml-1">
                                   (value: &quot;{error.value}&quot;)
                                 </span>
                               )}
@@ -186,7 +186,7 @@ export function ValidationPreview({ preview, targetFields }: ValidationPreviewPr
                           </div>
                         ))}
                         {dataErrors.length > 20 && (
-                          <p className="text-sm text-slate-500 text-center py-2">
+                          <p className="text-sm text-slate-400 text-center py-2">
                             ... and {dataErrors.length - 20} more issues
                           </p>
                         )}

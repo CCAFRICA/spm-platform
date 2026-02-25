@@ -503,7 +503,7 @@ function CalculatePageInner() {
         <Card>
           <CardContent className="py-4 space-y-4">
             <LifecycleSubway cycle={activeCycle} pipelineConfig={pipelineConfig} />
-            <div className="flex items-center gap-3 text-xs text-slate-500">
+            <div className="flex items-center gap-3 text-xs text-slate-400">
               <span>{entityCount} entities</span>
               <span>|</span>
               <span>{formatCurrency(totalPayout)}</span>
@@ -532,7 +532,7 @@ function CalculatePageInner() {
                     <Users className="h-6 w-6 text-blue-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.entitiesProcessed}</p>
+                    <p className="text-sm text-slate-400">{t.entitiesProcessed}</p>
                     <p className="text-2xl font-bold">{entityCount}</p>
                   </div>
                 </div>
@@ -545,7 +545,7 @@ function CalculatePageInner() {
                     <DollarSign className="h-6 w-6 text-emerald-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.totalCompensation}</p>
+                    <p className="text-sm text-slate-400">{t.totalCompensation}</p>
                     <p className="text-2xl font-bold">{formatCurrency(totalPayout)}</p>
                   </div>
                 </div>
@@ -558,7 +558,7 @@ function CalculatePageInner() {
                     <TrendingUp className="h-6 w-6 text-purple-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.averagePayout}</p>
+                    <p className="text-sm text-slate-400">{t.averagePayout}</p>
                     <p className="text-2xl font-bold">
                       {formatCurrency(entityCount > 0 ? Math.round(totalPayout / entityCount) : 0)}
                     </p>
@@ -639,7 +639,7 @@ function CalculatePageInner() {
                       <TableCell className="text-right font-semibold text-emerald-600">
                         {formatCurrency(r.total_payout || 0)}
                       </TableCell>
-                      <TableCell className="text-xs text-slate-500">
+                      <TableCell className="text-xs text-slate-400">
                         <div className="flex items-center gap-2">
                           <span>{nonZeroComps.length > 0
                             ? nonZeroComps.map(c => String(c.componentName || '')).join(', ')
@@ -688,7 +688,7 @@ function CalculatePageInner() {
               {/* Pagination */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-slate-400">
                     Showing {(currentPage - 1) * pageSize + 1}--{Math.min(currentPage * pageSize, filteredResults.length)} of {filteredResults.length}
                   </p>
                   <div className="flex items-center gap-2">
@@ -712,7 +712,7 @@ function CalculatePageInner() {
       {/* No results state */}
       {!activeBatch && selectedPeriod && (
         <Card>
-          <CardContent className="py-12 text-center text-slate-500">
+          <CardContent className="py-12 text-center text-slate-400">
             <Calculator className="h-12 w-12 mx-auto mb-4 text-slate-300" />
             <p className="text-lg font-medium">No calculation batch for this period</p>
             <p className="text-sm mt-1">Import data and run calculations to see results here.</p>
@@ -734,7 +734,7 @@ function CalculatePageInner() {
           <CollapsibleContent>
             <CardContent>
               {recentBatches.length === 0 ? (
-                <p className="text-center text-slate-500 py-8">{t.noRuns}</p>
+                <p className="text-center text-slate-400 py-8">{t.noRuns}</p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -755,7 +755,7 @@ function CalculatePageInner() {
                           </Badge>
                         </TableCell>
                         <TableCell>{batch.entity_count || 0}</TableCell>
-                        <TableCell className="text-sm text-slate-500">
+                        <TableCell className="text-sm text-slate-400">
                           {new Date(batch.created_at).toLocaleString()}
                         </TableCell>
                       </TableRow>

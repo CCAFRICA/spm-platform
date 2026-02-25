@@ -172,7 +172,7 @@ export default function OperatingSummaryPage() {
         {sortField === field ? (
           sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
         ) : (
-          <ArrowUpDown className="h-3 w-3 text-zinc-500" />
+          <ArrowUpDown className="h-3 w-3 text-zinc-400" />
         )}
       </div>
     </TableHead>
@@ -249,7 +249,7 @@ export default function OperatingSummaryPage() {
                     }
                     {line.amount < 0 && line.label !== 'Total Checks' ? ' ▼' : ''}
                   </td>
-                  <td className="py-2 text-right text-zinc-500">
+                  <td className="py-2 text-right text-zinc-400">
                     {line.percent !== undefined ? `${line.percent}%` : ''}
                   </td>
                 </tr>
@@ -271,7 +271,7 @@ export default function OperatingSummaryPage() {
                   {insight.icon === 'insight' && <Lightbulb className={`h-4 w-4 mt-0.5 shrink-0 ${insight.color}`} />}
                   <div>
                     <p className={`text-sm font-medium ${insight.color}`}>{insight.title}</p>
-                    <p className="text-xs text-zinc-500 mt-0.5">{insight.detail}</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">{insight.detail}</p>
                   </div>
                 </div>
               </CardContent>
