@@ -35,6 +35,8 @@ import {
 import { AgentInbox } from '@/components/agents/AgentInbox';
 import { InsightPanel } from '@/components/intelligence/InsightPanel';
 import { computeManagerInsights } from '@/lib/intelligence/insight-engine';
+import { NextAction } from '@/components/intelligence/NextAction';
+import type { NextActionContext } from '@/lib/intelligence/next-action-engine';
 
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(217, 119, 6, 0.7), rgba(161, 98, 7, 0.6))',
@@ -191,6 +193,20 @@ export function ManagerDashboard() {
     return computeManagerInsights(data);
   }, [data]);
 
+  // OB-98 Phase 6: Next-action context
+  const nextActionContext = useMemo<NextActionContext | null>(() => {
+    if (!data) return null;
+    return {
+      persona: 'manager',
+      lifecycleState: null,
+      hasCalculationResults: data.teamTotal > 0,
+      hasReconciliation: false,
+      reconciliationMatch: null,
+      anomalyCount: 0,
+      entityCount: data.teamMembers.length,
+    };
+  }, [data]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -223,6 +239,7 @@ export function ManagerDashboard() {
   return (
     <div className="space-y-4">
       <AgentInbox tenantId={currentTenant?.id} persona="manager" />
+      {nextActionContext ? <NextAction context={nextActionContext} /> : null}
       <AssessmentPanel
         persona="manager"
         data={assessmentData}

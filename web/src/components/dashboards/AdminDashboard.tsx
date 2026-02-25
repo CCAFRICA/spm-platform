@@ -45,6 +45,8 @@ import { useTrialStatus } from '@/hooks/useTrialStatus';
 import { AgentInbox } from '@/components/agents/AgentInbox';
 import { InsightPanel } from '@/components/intelligence/InsightPanel';
 import { computeAdminInsights } from '@/lib/intelligence/insight-engine';
+import { NextAction } from '@/components/intelligence/NextAction';
+import type { NextActionContext } from '@/lib/intelligence/next-action-engine';
 
 /** Dynamic lifecycle transition labels (OB-58) */
 const TRANSITION_LABELS: Record<string, { label: string; labelEs: string; next: string }> = {
@@ -278,6 +280,20 @@ export function AdminDashboard() {
     return computeAdminInsights(data);
   }, [data]);
 
+  // OB-98 Phase 6: Next-action context
+  const nextActionContext = useMemo<NextActionContext | null>(() => {
+    if (!data) return null;
+    return {
+      persona: 'admin',
+      lifecycleState: data.lifecycleState,
+      hasCalculationResults: data.totalPayout > 0,
+      hasReconciliation: false,
+      reconciliationMatch: null,
+      anomalyCount: data.exceptions.length,
+      entityCount: data.entityCount,
+    };
+  }, [data]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -334,6 +350,7 @@ export function AdminDashboard() {
         </div>
       )}
       <AgentInbox tenantId={currentTenant?.id} persona="admin" />
+      {nextActionContext ? <NextAction context={nextActionContext} /> : null}
       {/* OB-86: AI Quality Card */}
       {data.aiMetrics && (
         <div style={CARD_STYLE}>
