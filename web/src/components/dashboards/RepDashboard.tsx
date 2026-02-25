@@ -41,6 +41,8 @@ import {
 import { AgentInbox } from '@/components/agents/AgentInbox';
 import { InsightPanel } from '@/components/intelligence/InsightPanel';
 import { computeRepInsights } from '@/lib/intelligence/insight-engine';
+import { RepTrajectoryPanel } from '@/components/intelligence/RepTrajectory';
+import { getActiveRuleSet } from '@/lib/supabase/rule-set-service';
 
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(5, 150, 105, 0.7), rgba(13, 148, 136, 0.7))',
@@ -78,6 +80,7 @@ export function RepDashboard() {
   const [data, setData] = useState<RepDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedComponent, setExpandedComponent] = useState<string | null>(null);
+  const [ruleSetConfig, setRuleSetConfig] = useState<unknown>(null);
 
   useEffect(() => {
     if (!tenantId) {
@@ -87,9 +90,14 @@ export function RepDashboard() {
     let cancelled = false;
     setIsLoading(true);
 
-    getRepDashboardData(tenantId, entityId).then(result => {
+    // Load dashboard data and rule set config in parallel
+    Promise.all([
+      getRepDashboardData(tenantId, entityId),
+      getActiveRuleSet(tenantId).catch(() => null),
+    ]).then(([result, ruleSet]) => {
       if (!cancelled) {
         setData(result);
+        setRuleSetConfig(ruleSet?.configuration ?? null);
         setIsLoading(false);
       }
     }).catch(() => {
@@ -331,6 +339,11 @@ export function RepDashboard() {
             </p>
           </div>
         </div>
+      )}
+
+      {/* ── OB-98: Rep Performance Trajectory ── */}
+      {data && ruleSetConfig && (
+        <RepTrajectoryPanel data={data} ruleSetConfig={ruleSetConfig} />
       )}
 
       {/* ── Row 3: Components + Opportunity (7) + Right Column (5) ── */}
