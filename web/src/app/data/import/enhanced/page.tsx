@@ -927,6 +927,13 @@ function DataPackageImportPageInner() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_importComplete, setImportComplete] = useState(false);
   const [importId, setImportId] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<{
+    recordCount: number;
+    entityCount: number;
+    periodCount: number;
+    periods: Array<{ key: string; id: string }>;
+    elapsedSeconds: number;
+  } | null>(null);
 
   // AI Classification state
   const [aiClassification, setAiClassification] = useState<{
@@ -1883,6 +1890,13 @@ function DataPackageImportPageInner() {
       console.log(`[Import] Server commit complete: ${result.recordCount} records, ${result.entityCount} entities, ${result.periodCount} periods in ${result.elapsedSeconds}s`);
 
       setImportId(result.batchId);
+      setImportResult({
+        recordCount: result.recordCount || 0,
+        entityCount: result.entityCount || 0,
+        periodCount: result.periodCount || 0,
+        periods: result.periods || [],
+        elapsedSeconds: result.elapsedSeconds || 0,
+      });
       setIsImporting(false);
       setImportComplete(true);
       setCurrentStep('complete');
@@ -2665,11 +2679,11 @@ function DataPackageImportPageInner() {
                               e.target.value || null
                             )}
                           >
-                            {/* CLT-08: "Select Field" for unresolved, "Ignore" only if intentionally set */}
+                            {/* CLT-08: "Select Field" for unresolved, "Preserved" for confirmed unmapped */}
                             <option value="">
                               {mapping.tier === 'unresolved'
                                 ? (isSpanish ? '— Seleccionar Campo —' : '— Select Field —')
-                                : (isSpanish ? '— Ignorar —' : '— Ignore —')}
+                                : (isSpanish ? '— Preservado en datos crudos —' : '— Preserved in raw data —')}
                             </option>
 
                             {/* Required Fields Group */}
@@ -2707,6 +2721,13 @@ function DataPackageImportPageInner() {
                         {/* Required indicator */}
                         {targetField?.isRequired && (
                           <Star className="h-4 w-4 text-amber-500" />
+                        )}
+
+                        {/* Preserved indicator for unmapped non-unresolved fields */}
+                        {!mapping.targetField && mapping.tier !== 'unresolved' && (
+                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 shrink-0">
+                            {isSpanish ? 'Preservado' : 'Preserved'}
+                          </Badge>
                         )}
                       </div>
                     );
@@ -3373,6 +3394,8 @@ function DataPackageImportPageInner() {
                         const Icon = config.icon;
                         const mapping = fieldMappings.find(m => m.sheetName === sheet.name);
                         const mappedCount = mapping?.mappings.filter(m => m.targetField).length || 0;
+                        const totalColumns = mapping?.mappings.length || 0;
+                        const preservedCount = totalColumns - mappedCount;
 
                         return (
                           <div key={sheet.name} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
@@ -3383,15 +3406,27 @@ function DataPackageImportPageInner() {
                               <div>
                                 <p className="font-medium">{sheet.name}</p>
                                 <p className="text-xs text-muted-foreground">
-                                  {sheet.rowCount} {isSpanish ? 'filas' : 'rows'} • {mappedCount} {isSpanish ? 'campos' : 'fields'}
+                                  {sheet.rowCount} {isSpanish ? 'filas' : 'rows'}
                                 </p>
                               </div>
                             </div>
-                            {sheet.matchedComponent && (
-                              <Badge variant="secondary" className="text-xs">
-                                → {sheet.matchedComponent}
-                              </Badge>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {mappedCount > 0 && (
+                                <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                  {mappedCount} {isSpanish ? 'mapeados' : 'mapped'}
+                                </Badge>
+                              )}
+                              {preservedCount > 0 && (
+                                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                  {preservedCount} {isSpanish ? 'preservados' : 'preserved'}
+                                </Badge>
+                              )}
+                              {sheet.matchedComponent && (
+                                <Badge variant="secondary" className="text-xs">
+                                  → {sheet.matchedComponent}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
@@ -3532,20 +3567,30 @@ function DataPackageImportPageInner() {
                     {isSpanish ? 'Resumen de Importación' : 'Import Summary'}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-4">
                     <div className="text-center p-4 bg-green-50 rounded-lg">
-                      <p className="text-2xl font-bold text-green-600">{analysis?.sheets.length || 0}</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        {importResult?.recordCount?.toLocaleString() || analysis?.sheets.reduce((sum, s) => sum + s.rowCount, 0).toLocaleString() || 0}
+                      </p>
                       <p className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Hojas Procesadas' : 'Sheets Processed'}
+                        {isSpanish ? 'Registros Importados' : 'Records Imported'}
                       </p>
                     </div>
                     <div className="text-center p-4 bg-green-50 rounded-lg">
                       <p className="text-2xl font-bold text-green-600">
-                        {analysis?.sheets.reduce((sum, s) => sum + s.rowCount, 0).toLocaleString() || 0}
+                        {importResult?.entityCount?.toLocaleString() || '—'}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Registros Importados' : 'Records Imported'}
+                        {isSpanish ? 'Entidades' : 'Entities'}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                      <p className="text-2xl font-bold text-green-600">
+                        {importResult?.periodCount || 0}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {isSpanish ? 'Períodos' : 'Periods'}
                       </p>
                     </div>
                     <div className="text-center p-4 bg-green-50 rounded-lg">
@@ -3556,15 +3601,45 @@ function DataPackageImportPageInner() {
                         {isSpanish ? 'Calidad de Datos' : 'Data Quality'}
                       </p>
                     </div>
-                    <div className="text-center p-4 bg-green-50 rounded-lg">
-                      <p className="text-2xl font-bold text-green-600">
-                        {new Date().toLocaleDateString()}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Fecha de Importación' : 'Import Date'}
-                      </p>
-                    </div>
                   </div>
+
+                  {/* Period Detail — shows detected periods with names and record counts */}
+                  {((importResult?.periods && importResult.periods.length > 0) || (validationResult?.detectedPeriods?.periods && validationResult.detectedPeriods.periods.length > 0)) && (
+                    <div className="pt-4 border-t">
+                      <p className="text-sm font-medium mb-3 flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        {isSpanish ? 'Períodos Detectados' : 'Detected Periods'}
+                      </p>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        {(validationResult?.detectedPeriods?.periods || []).map(p => (
+                          <div key={p.canonicalKey} className="flex items-center justify-between p-3 bg-muted rounded-lg border">
+                            <div>
+                              <p className="text-sm font-medium">{p.label}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {p.recordCount.toLocaleString()} {isSpanish ? 'registros' : 'records'}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                              {importResult?.periods?.some(ip => ip.key === p.canonicalKey)
+                                ? (isSpanish ? 'Creado' : 'Created')
+                                : (isSpanish ? 'Existente' : 'Existing')}
+                            </Badge>
+                          </div>
+                        ))}
+                        {/* Fallback: show import result periods if validation periods unavailable */}
+                        {!validationResult?.detectedPeriods?.periods?.length && importResult?.periods?.map(p => (
+                          <div key={p.key} className="flex items-center justify-between p-3 bg-muted rounded-lg border">
+                            <div>
+                              <p className="text-sm font-medium">{p.key}</p>
+                            </div>
+                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                              {isSpanish ? 'Creado' : 'Created'}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -3659,6 +3734,7 @@ function DataPackageImportPageInner() {
                         setValidationComplete(false);
                         setImportComplete(false);
                         setImportId(null);
+                        setImportResult(null);
                       }}
                       className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4 text-left"
                     >
