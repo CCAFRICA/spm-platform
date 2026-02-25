@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
@@ -50,6 +50,7 @@ export default function OperateCockpitPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
+  const hasFinancial = useFeature('financial');
   const tenantId = currentTenant?.id ?? '';
 
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
@@ -389,6 +390,26 @@ export default function OperateCockpitPage() {
             </div>
           )}
         </div>
+
+        {/* Financial Module Banner (dual-module tenants) */}
+        {hasFinancial && (
+          <div
+            className="rounded-xl flex items-center justify-between px-5 py-3 cursor-pointer hover:opacity-90 transition-opacity"
+            style={{ background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(59, 130, 246, 0.1))', border: '1px solid rgba(245, 158, 11, 0.3)' }}
+            onClick={() => router.push('/financial')}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(245, 158, 11, 0.2)' }}>
+                <span className="text-amber-400 text-sm font-bold">$</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-200">{isSpanish ? 'Modulo Financiero Activo' : 'Financial Module Active'}</p>
+                <p className="text-xs text-zinc-500">{isSpanish ? 'Ver pulso de red, benchmarks y analisis POS' : 'View network pulse, benchmarks, and POS analytics'}</p>
+              </div>
+            </div>
+            <span className="text-xs text-amber-400 font-medium">{isSpanish ? 'Abrir →' : 'Open →'}</span>
+          </div>
+        )}
 
         {/* Two-column grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
