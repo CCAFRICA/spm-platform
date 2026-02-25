@@ -166,6 +166,29 @@ export default function ProductMixPage() {
         <p className="text-zinc-400">Food vs beverage category analysis across locations</p>
       </div>
 
+      {/* Commentary (PG-44) */}
+      <Card>
+        <CardContent className="pt-4 pb-3">
+          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Observations</p>
+          <div className="space-y-1">
+            <p className="text-sm text-zinc-200">
+              Food:Beverage split is {data.networkFoodPct.toFixed(0)}:{(100 - data.networkFoodPct).toFixed(0)} across {format(data.networkTotal)} total revenue.
+            </p>
+            {data.networkFoodPct > 70 && (
+              <p className="text-sm text-zinc-400">{'\u00B7'} Food-heavy mix — beverage upsell opportunity across the network.</p>
+            )}
+            {data.networkFoodPct < 45 && (
+              <p className="text-sm text-zinc-400">{'\u00B7'} Strong beverage performance relative to food.</p>
+            )}
+            {data.brands.length > 1 && (
+              <p className="text-sm text-zinc-400">
+                {'\u00B7'} {data.brands.sort((a, b) => b.foodPct - a.foodPct)[0].name} has highest food concentration at {data.brands.sort((a, b) => b.foodPct - a.foodPct)[0].foodPct}%.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>

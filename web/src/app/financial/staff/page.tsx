@@ -44,6 +44,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { loadStaffData, type StaffMemberData, type FinancialScope } from '@/lib/financial/financial-data-service';
@@ -55,6 +56,8 @@ export default function StaffPerformancePage() {
   const tenantId = currentTenant?.id;
   const router = useRouter();
   const { scope } = usePersona();
+  const { locale } = useLocale();
+  const isSpanish = locale === 'es-MX';
 
   const financialScope: FinancialScope | undefined = useMemo(() => {
     if (scope.canSeeAll) return undefined;
@@ -138,10 +141,10 @@ export default function StaffPerformancePage() {
   };
 
   const getTierBadge = (index: number) => {
-    if (index >= 85) return { label: 'Estrella', color: 'bg-yellow-100 text-yellow-700' };
-    if (index >= 70) return { label: 'Destacado', color: 'bg-blue-100 text-blue-700' };
-    if (index >= 50) return { label: 'Estandar', color: 'bg-zinc-700 text-zinc-300' };
-    return { label: 'En Desarrollo', color: 'bg-red-100 text-red-700' };
+    if (index >= 85) return { label: isSpanish ? '\u2B50 Estrella' : '\u2B50 Star', color: 'bg-yellow-100 text-yellow-700' };
+    if (index >= 70) return { label: isSpanish ? '\u2705 Destacado' : '\u2705 Outstanding', color: 'bg-blue-100 text-blue-700' };
+    if (index >= 50) return { label: isSpanish ? '\u27A1\uFE0F Estandar' : '\u27A1\uFE0F Standard', color: 'bg-zinc-700 text-zinc-300' };
+    return { label: isSpanish ? '\u26A0\uFE0F En Desarrollo' : '\u26A0\uFE0F Developing', color: 'bg-red-100 text-red-700' };
   };
 
   const RankChange = ({ current, prev }: { current: number; prev: number }) => {
@@ -178,12 +181,57 @@ export default function StaffPerformancePage() {
     );
   }
 
+  // Tier distribution for commentary
+  const tierCounts = useMemo(() => {
+    const counts = { star: 0, outstanding: 0, standard: 0, developing: 0 };
+    for (const s of staffData) {
+      if (s.performanceIndex >= 85) counts.star++;
+      else if (s.performanceIndex >= 70) counts.outstanding++;
+      else if (s.performanceIndex >= 50) counts.standard++;
+      else counts.developing++;
+    }
+    return counts;
+  }, [staffData]);
+
+  // Deterministic commentary (PG-44)
+  const commentary = useMemo(() => {
+    const lines: string[] = [];
+    lines.push(
+      isSpanish
+        ? `${stats.count} meseros evaluados. ${tierCounts.star} Estrella, ${tierCounts.outstanding} Destacado, ${tierCounts.standard} Estandar, ${tierCounts.developing} En Desarrollo.`
+        : `${stats.count} servers evaluated. ${tierCounts.star} Star, ${tierCounts.outstanding} Outstanding, ${tierCounts.standard} Standard, ${tierCounts.developing} Developing.`
+    );
+    if (staffData.length > 0) {
+      const topServer = [...staffData].sort((a, b) => b.revenue - a.revenue)[0];
+      lines.push(
+        isSpanish
+          ? `Lider de ingresos: ${topServer.name} con ${format(topServer.revenue)} en ${topServer.locationName}.`
+          : `Revenue leader: ${topServer.name} with ${format(topServer.revenue)} at ${topServer.locationName}.`
+      );
+    }
+    if (tierCounts.developing > 0) {
+      const declining = staffData.filter(s => s.weeklyTrend.length >= 2 && s.weeklyTrend[s.weeklyTrend.length - 1] < s.weeklyTrend[0]);
+      if (declining.length > 0) {
+        lines.push(
+          isSpanish
+            ? `${declining.length} meseros con tendencia decreciente — revisar desarrollo.`
+            : `${declining.length} servers showing declining trajectory — review development.`
+        );
+      }
+    }
+    return lines;
+  }, [staffData, stats, tierCounts, format, isSpanish]);
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-100">Staff Performance</h1>
-        <p className="text-zinc-400">Individual performance rankings and trends</p>
+        <h1 className="text-2xl font-bold text-zinc-100">
+          {isSpanish ? 'Rendimiento de Personal' : 'Staff Performance'}
+        </h1>
+        <p className="text-zinc-400">
+          {isSpanish ? 'Rankings individuales y tendencias' : 'Individual performance rankings and trends'}
+        </p>
       </div>
 
       {/* Summary Cards */}
@@ -195,7 +243,7 @@ export default function StaffPerformancePage() {
                 <Users className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-zinc-400">Active Staff</p>
+                <p className="text-sm text-zinc-400">{isSpanish ? 'Personal Activo' : 'Active Staff'}</p>
                 <p className="text-2xl font-bold">{stats.count}</p>
               </div>
             </div>
@@ -209,7 +257,7 @@ export default function StaffPerformancePage() {
                 <DollarSign className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-zinc-400">Total Revenue</p>
+                <p className="text-sm text-zinc-400">{isSpanish ? 'Ingresos Totales' : 'Total Revenue'}</p>
                 <p className="text-2xl font-bold">{format(stats.totalRevenue)}</p>
               </div>
             </div>
@@ -223,7 +271,7 @@ export default function StaffPerformancePage() {
                 <Award className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-zinc-400">Total Tips</p>
+                <p className="text-sm text-zinc-400">{isSpanish ? 'Propinas Totales' : 'Total Tips'}</p>
                 <p className="text-2xl font-bold">{format(stats.totalTips)}</p>
               </div>
             </div>
@@ -237,13 +285,32 @@ export default function StaffPerformancePage() {
                 <TrendingUp className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <p className="text-sm text-zinc-400">Avg Performance</p>
+                <p className="text-sm text-zinc-400">{isSpanish ? 'Rendimiento Prom.' : 'Avg Performance'}</p>
                 <p className="text-2xl font-bold">{stats.avgPerformance.toFixed(0)}</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Deterministic Commentary (PG-44) */}
+      {commentary.length > 0 && (
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
+              {isSpanish ? 'Observaciones' : 'Observations'}
+            </p>
+            <div className="space-y-1">
+              {commentary.map((line, i) => (
+                <p key={i} className={`text-sm ${i === 0 ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                  {i > 0 && <span className="text-zinc-600 mr-1">{'\u00B7'}</span>}
+                  {line}
+                </p>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters */}
       <Card>
