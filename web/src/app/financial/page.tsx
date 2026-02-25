@@ -18,9 +18,7 @@ import {
   MapPin,
   Activity,
   AlertTriangle,
-  ChevronRight,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import {
@@ -107,13 +105,6 @@ export default function NetworkPulseDashboard() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Breadcrumbs */}
-      <nav className="flex items-center text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground">Home</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <span className="text-foreground font-medium">{isSpanish ? 'Finanzas' : 'Financial'}</span>
-      </nav>
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -32,10 +32,8 @@ import {
   TrendingUp,
   ArrowUpDown,
   MapPin,
-  ChevronRight,
   Activity,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import {
@@ -183,15 +181,6 @@ export default function LocationBenchmarksPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Breadcrumbs */}
-      <nav className="flex items-center text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground">Home</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <Link href="/financial" className="hover:text-foreground">Financial</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <span className="text-foreground font-medium">Performance</span>
-      </nav>
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -328,9 +317,13 @@ export default function LocationBenchmarksPage() {
 
                     {/* WoW Change */}
                     <TableCell>
-                      <span className={`font-medium ${Math.abs(location.wowChange) > 10 ? 'font-bold text-amber-600' : location.wowChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {location.wowChange > 0 ? '+' : ''}{location.wowChange.toFixed(1)}%
-                      </span>
+                      {location.wowChange === 0 ? (
+                        <span className="text-zinc-500">—</span>
+                      ) : (
+                        <span className={`font-medium ${Math.abs(location.wowChange) > 10 ? 'font-bold text-amber-600' : location.wowChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {location.wowChange > 0 ? '+' : ''}{location.wowChange.toFixed(1)}%
+                        </span>
+                      )}
                     </TableCell>
 
                     {/* Trend Sparkline */}

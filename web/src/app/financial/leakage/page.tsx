@@ -45,10 +45,8 @@ import {
   MapPin,
   ShieldAlert,
   CheckCircle,
-  ChevronRight,
   Activity,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { loadLeakageData, type LeakagePageData } from '@/lib/financial/financial-data-service';
 
@@ -63,7 +61,7 @@ const PIE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#8b5cf6'];
 export default function LeakageMonitorPage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
-  const [periodFilter, setPeriodFilter] = useState<string>('month');
+  const [periodFilter, setPeriodFilter] = useState<string>('full');
   const [loading, setLoading] = useState(true);
   const [pageData, setPageData] = useState<LeakagePageData | null>(null);
 
@@ -126,15 +124,6 @@ export default function LeakageMonitorPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Breadcrumbs */}
-      <nav className="flex items-center text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground">Home</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <Link href="/financial" className="hover:text-foreground">Financial</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <span className="text-foreground font-medium">Leakage</span>
-      </nav>
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -142,13 +131,15 @@ export default function LeakageMonitorPage() {
           <p className="text-zinc-400">Revenue leakage analytics and threshold monitoring</p>
         </div>
         <Select value={periodFilter} onValueChange={setPeriodFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="week">This Week</SelectItem>
-            <SelectItem value="month">This Month</SelectItem>
-            <SelectItem value="quarter">This Quarter</SelectItem>
+            <SelectItem value="full">Full Period</SelectItem>
+            <SelectItem value="w1">Week 1</SelectItem>
+            <SelectItem value="w2">Week 2</SelectItem>
+            <SelectItem value="w3">Week 3</SelectItem>
+            <SelectItem value="w4">Week 4</SelectItem>
           </SelectContent>
         </Select>
       </div>

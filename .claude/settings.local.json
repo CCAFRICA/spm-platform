@@ -139,7 +139,9 @@
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | tail -40)",
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" || true && sleep 2 && rm -rf .next && npm run build 2>&1 | tail -20)",
       "Bash(git mv web/src/app/investigate/reconciliation/page.tsx web/src/app/operate/reconciliation/page.tsx)",
-      "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | tail -10)"
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | tail -10)",
+      "Bash(wc -l /Users/AndrewAfrica/spm-platform/web/public/demo-data/*.txt)",
+      "Bash(ls -la /Users/AndrewAfrica/spm-platform/web/public/demo-data/ && wc -l /Users/AndrewAfrica/spm-platform/web/public/demo-data/*.tsv)"
     ]
   }
 }

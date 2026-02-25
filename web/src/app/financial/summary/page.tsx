@@ -21,9 +21,7 @@ import {
 import {
   FileText,
   Activity,
-  ChevronRight,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { loadSummaryData, type SummaryPageData } from '@/lib/financial/financial-data-service';
 
@@ -68,15 +66,6 @@ export default function MonthlySummaryPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Breadcrumbs */}
-      <nav className="flex items-center text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground">Home</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <Link href="/financial" className="hover:text-foreground">Financial</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <span className="text-foreground font-medium">Summary</span>
-      </nav>
-
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
