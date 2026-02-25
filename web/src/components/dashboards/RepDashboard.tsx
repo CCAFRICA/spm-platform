@@ -39,6 +39,12 @@ import {
   type RepDashboardData,
 } from '@/lib/data/persona-queries';
 import { AgentInbox } from '@/components/agents/AgentInbox';
+import { InsightPanel } from '@/components/intelligence/InsightPanel';
+import { computeRepInsights } from '@/lib/intelligence/insight-engine';
+import { RepTrajectoryPanel } from '@/components/intelligence/RepTrajectory';
+import { getActiveRuleSet } from '@/lib/supabase/rule-set-service';
+import { NextAction } from '@/components/intelligence/NextAction';
+import type { NextActionContext } from '@/lib/intelligence/next-action-engine';
 
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(5, 150, 105, 0.7), rgba(13, 148, 136, 0.7))',
@@ -76,6 +82,7 @@ export function RepDashboard() {
   const [data, setData] = useState<RepDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedComponent, setExpandedComponent] = useState<string | null>(null);
+  const [ruleSetConfig, setRuleSetConfig] = useState<unknown>(null);
 
   useEffect(() => {
     if (!tenantId) {
@@ -85,9 +92,14 @@ export function RepDashboard() {
     let cancelled = false;
     setIsLoading(true);
 
-    getRepDashboardData(tenantId, entityId).then(result => {
+    // Load dashboard data and rule set config in parallel
+    Promise.all([
+      getRepDashboardData(tenantId, entityId),
+      getActiveRuleSet(tenantId).catch(() => null),
+    ]).then(([result, ruleSet]) => {
       if (!cancelled) {
         setData(result);
+        setRuleSetConfig(ruleSet?.configuration ?? null);
         setIsLoading(false);
       }
     }).catch(() => {
@@ -111,6 +123,34 @@ export function RepDashboard() {
       trendDelta: delta,
       historyMonths: data.history.length,
       tierPosition: data.attainment >= 120 ? 'Accelerator' : data.attainment >= 80 ? 'Target' : 'Base',
+    };
+  }, [data]);
+
+  // OB-98: Deterministic insight computation
+  const repInsights = useMemo(() => {
+    if (!data) return [];
+    return computeRepInsights(data);
+  }, [data]);
+
+  // OB-98 Phase 6: Next-action context
+  const nextActionContext = useMemo<NextActionContext | null>(() => {
+    if (!data) return null;
+    const weakest = data.components.length > 1
+      ? [...data.components].sort((a, b) => a.value - b.value)[0]
+      : null;
+    return {
+      persona: 'rep',
+      lifecycleState: null,
+      hasCalculationResults: data.totalPayout > 0,
+      hasReconciliation: false,
+      reconciliationMatch: null,
+      anomalyCount: 0,
+      entityCount: 0,
+      repAttainment: data.attainment,
+      repBestOpportunityComponent: weakest?.name,
+      repBestOpportunityGap: weakest
+        ? `${((weakest.value / data.totalPayout) * 100).toFixed(0)}% of total`
+        : undefined,
     };
   }, [data]);
 
@@ -210,12 +250,20 @@ export function RepDashboard() {
   return (
     <div className="space-y-4">
       <AgentInbox tenantId={currentTenant?.id} persona="rep" />
+      {nextActionContext ? <NextAction context={nextActionContext} /> : null}
       <AssessmentPanel
         persona="rep"
         data={assessmentData}
         locale={locale === 'es-MX' ? 'es' : 'en'}
         accentColor="#10b981"
         tenantId={tenantId}
+      />
+      <InsightPanel
+        persona="rep"
+        insights={repInsights}
+        tenantName={currentTenant?.name || ''}
+        periodLabel={activePeriodLabel}
+        locale={locale === 'es-MX' ? 'es' : 'en'}
       />
       {/* ── Hero: Full width ── */}
       <div style={HERO_STYLE}>
@@ -317,6 +365,11 @@ export function RepDashboard() {
           </div>
         </div>
       )}
+
+      {/* ── OB-98: Rep Performance Trajectory ── */}
+      {data && ruleSetConfig ? (
+        <RepTrajectoryPanel data={data} ruleSetConfig={ruleSetConfig} />
+      ) : null}
 
       {/* ── Row 3: Components + Opportunity (7) + Right Column (5) ── */}
       <div className="grid grid-cols-12 gap-4">

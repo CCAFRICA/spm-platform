@@ -193,6 +193,14 @@ export async function middleware(request: NextRequest) {
 
   // OB-73 Mission 3 / F-14, F-22: Authenticated user on /login or / → redirect to role-appropriate workspace
   if (pathname === '/login' || pathname === '/') {
+    // HF-059: If arriving at /login with a ?redirect param, honor it (unless it points back to /login)
+    if (pathname === '/login') {
+      const redirectParam = request.nextUrl.searchParams.get('redirect');
+      if (redirectParam && redirectParam !== '/login' && !redirectParam.startsWith('/login')) {
+        return NextResponse.redirect(new URL(redirectParam, request.url));
+      }
+    }
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('role, capabilities')
@@ -211,17 +219,18 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/select-tenant', request.url));
     }
 
-    // Role-based default landing pages
+    // HF-059: Role-based default landing pages — updated for OB-97 4-workspace model
+    // Eliminated routes: /insights → /perform, /investigate → /perform
     const roleDefaults: Record<string, string> = {
       admin: '/operate',
       tenant_admin: '/operate',
-      manager: '/insights',
-      viewer: '/my-compensation',
-      sales_rep: '/my-compensation',
-      support: '/investigate',
+      manager: '/perform',
+      viewer: '/perform',
+      sales_rep: '/perform',
+      support: '/perform',
     };
 
-    const defaultPath = roleDefaults[profile?.role || ''] || '/insights';
+    const defaultPath = roleDefaults[profile?.role || ''] || '/perform';
     return NextResponse.redirect(new URL(defaultPath, request.url));
   }
 

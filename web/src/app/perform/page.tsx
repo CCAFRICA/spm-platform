@@ -12,8 +12,6 @@
  * Perform in the sidebar loads the dashboard within the Perform workspace context.
  */
 
-import { useEffect } from 'react';
-import { useAuth } from '@/contexts/auth-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
@@ -73,16 +71,9 @@ function PerformContent() {
 }
 
 export default function PerformPage() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
-
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      window.location.replace('/landing');
-    }
-  }, [authLoading, isAuthenticated]);
-
-  if (authLoading) return null;
-  if (!isAuthenticated) return null;
-
+  // HF-059: Removed redundant client-side auth redirect.
+  // Middleware handles auth gating (server-side 307 to /login).
+  // AuthShellProtected handles client-side backup redirect.
+  // A third redirect here caused race conditions and redirect loops.
   return <PerformContent />;
 }

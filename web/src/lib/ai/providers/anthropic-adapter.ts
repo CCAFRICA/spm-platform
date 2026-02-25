@@ -485,6 +485,14 @@ Return a JSON object with:
   "assessment": "Your complete assessment text with line breaks between sections",
   "confidence": 0-100
 }`,
+
+  narration: `You are an intelligence analyst. Given structured insight data, generate a concise 2-4 sentence executive summary. Be specific with numbers. Focus on what needs attention and what action to take. No bullet points. No headers. Just clear prose that tells the reader what matters most right now.
+
+Return a JSON object with:
+{
+  "narrative": "Your complete narrative text",
+  "confidence": 0-100
+}`,
 };
 
 export class AnthropicAdapter implements AIProviderAdapter {
@@ -740,6 +748,13 @@ ${JSON.stringify(input.data, null, 2)}
 ${input.anomalies ? `\nDetected Anomalies:\n${JSON.stringify(input.anomalies, null, 2)}` : ''}
 
 Provide your assessment as a JSON object with "assessment" (text with line breaks) and "confidence" (0-100).`;
+
+      case 'narration':
+        return `${input.system || 'Generate a concise narrative summary.'}
+
+${input.userMessage || JSON.stringify(input, null, 2)}
+
+Provide your response as a JSON object with "narrative" (text) and "confidence" (0-100).`;
 
       default:
         return JSON.stringify(input, null, 2);

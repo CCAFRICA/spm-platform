@@ -14,7 +14,6 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/auth-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
@@ -120,21 +119,11 @@ function DashboardContent() {
 }
 
 export default function DashboardPage() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
-
-  // Defense-in-depth: if AuthShellProtected's auth gate was somehow bypassed
-  // (e.g., middleware crash, Supabase unreachable, race condition), catch it
-  // here and redirect to /landing. This is a LAST RESORT — AuthShellProtected
-  // is the primary gate. This prevents the dashboard from ever rendering
-  // for unauthenticated users regardless of what happens upstream.
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      window.location.replace('/landing');
-    }
-  }, [authLoading, isAuthenticated]);
-
-  if (authLoading) return null;
-  if (!isAuthenticated) return null;
-
+  // HF-059: Removed redundant client-side auth redirect.
+  // Middleware handles auth gating (server-side 307 to /login).
+  // AuthShellProtected handles client-side backup redirect with loop protection.
+  // A third redirect here caused race conditions and redirect loops.
+  // Note: Middleware redirects authenticated users from / to role-based default,
+  // so this page rarely renders — but keep it clean regardless.
   return <DashboardContent />;
 }

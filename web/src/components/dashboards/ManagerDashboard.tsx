@@ -33,6 +33,10 @@ import {
   type ManagerDashboardData,
 } from '@/lib/data/persona-queries';
 import { AgentInbox } from '@/components/agents/AgentInbox';
+import { InsightPanel } from '@/components/intelligence/InsightPanel';
+import { computeManagerInsights } from '@/lib/intelligence/insight-engine';
+import { NextAction } from '@/components/intelligence/NextAction';
+import type { NextActionContext } from '@/lib/intelligence/next-action-engine';
 
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(217, 119, 6, 0.7), rgba(161, 98, 7, 0.6))',
@@ -81,7 +85,7 @@ export function ManagerDashboard() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol } = useCurrency();
   const { scope } = usePersona();
-  const { activePeriodId } = usePeriod();
+  const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
 
@@ -183,6 +187,26 @@ export function ManagerDashboard() {
     };
   }, [data, avgAttainment, teamStats]);
 
+  // OB-98: Deterministic insight computation
+  const managerInsights = useMemo(() => {
+    if (!data) return [];
+    return computeManagerInsights(data);
+  }, [data]);
+
+  // OB-98 Phase 6: Next-action context
+  const nextActionContext = useMemo<NextActionContext | null>(() => {
+    if (!data) return null;
+    return {
+      persona: 'manager',
+      lifecycleState: null,
+      hasCalculationResults: data.teamTotal > 0,
+      hasReconciliation: false,
+      reconciliationMatch: null,
+      anomalyCount: 0,
+      entityCount: data.teamMembers.length,
+    };
+  }, [data]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -215,12 +239,20 @@ export function ManagerDashboard() {
   return (
     <div className="space-y-4">
       <AgentInbox tenantId={currentTenant?.id} persona="manager" />
+      {nextActionContext ? <NextAction context={nextActionContext} /> : null}
       <AssessmentPanel
         persona="manager"
         data={assessmentData}
         locale={locale === 'es-MX' ? 'es' : 'en'}
         accentColor="#f59e0b"
         tenantId={tenantId}
+      />
+      <InsightPanel
+        persona="manager"
+        insights={managerInsights}
+        tenantName={currentTenant?.name || ''}
+        periodLabel={activePeriodLabel}
+        locale={locale === 'es-MX' ? 'es' : 'en'}
       />
       {/* ── Row 1: Zone Hero (4) + Pacing (3) + Acceleration (5) ── */}
       <div className="grid grid-cols-12 gap-4">
