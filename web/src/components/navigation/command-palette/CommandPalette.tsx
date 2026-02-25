@@ -88,6 +88,7 @@ import {
   GitBranch,
   FileSearch,
   Table,
+  ShoppingBag,
 } from 'lucide-react';
 
 // Icon mapping for command items
@@ -141,6 +142,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   GitBranch,
   FileSearch,
   Table,
+  ShoppingBag,
   Zap: TrendingUp,
 };
 
