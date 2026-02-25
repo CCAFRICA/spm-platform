@@ -34,7 +34,8 @@ import {
   Timer,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { loadPatternsData, type PatternsPageData } from '@/lib/financial/financial-data-service';
+import { usePersona } from '@/contexts/persona-context';
+import { loadPatternsData, type PatternsPageData, type FinancialScope } from '@/lib/financial/financial-data-service';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const HOUR_LABELS = Array.from({ length: 24 }, (_, i) =>
@@ -45,6 +46,14 @@ export default function OperationalPatternsPage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
+  const { scope } = usePersona();
+
+  const financialScope: FinancialScope | undefined = useMemo(() => {
+    if (scope.canSeeAll) return undefined;
+    if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
+    return undefined;
+  }, [scope]);
+
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PatternsPageData | null>(null);
   const [locationFilter, setLocationFilter] = useState<string>('all');
@@ -53,14 +62,14 @@ export default function OperationalPatternsPage() {
     if (!tenantId) return;
     setLoading(true);
     try {
-      const result = await loadPatternsData(tenantId, locId === 'all' ? undefined : locId);
+      const result = await loadPatternsData(tenantId, locId === 'all' ? undefined : locId, financialScope);
       setData(result);
     } catch (err) {
       console.error('Failed to load patterns data:', err);
     } finally {
       setLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, financialScope]);
 
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }

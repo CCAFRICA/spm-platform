@@ -48,7 +48,8 @@ import {
   Activity,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { loadLeakageData, type LeakagePageData } from '@/lib/financial/financial-data-service';
+import { usePersona } from '@/contexts/persona-context';
+import { loadLeakageData, type LeakagePageData, type FinancialScope } from '@/lib/financial/financial-data-service';
 
 const STATUS_CONFIG = {
   ok: { color: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -61,6 +62,14 @@ const PIE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#8b5cf6'];
 export default function LeakageMonitorPage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
+  const { scope } = usePersona();
+
+  const financialScope: FinancialScope | undefined = useMemo(() => {
+    if (scope.canSeeAll) return undefined;
+    if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
+    return undefined;
+  }, [scope]);
+
   const [periodFilter, setPeriodFilter] = useState<string>('full');
   const [loading, setLoading] = useState(true);
   const [pageData, setPageData] = useState<LeakagePageData | null>(null);
@@ -68,12 +77,12 @@ export default function LeakageMonitorPage() {
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
-    loadLeakageData(tenantId)
+    loadLeakageData(tenantId, financialScope)
       .then(result => { if (!cancelled) setPageData(result); })
       .catch(err => console.error('Failed to load leakage data:', err))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, financialScope]);
 
   const categories = pageData?.categories ?? [];
   const locations = pageData?.locations ?? [];

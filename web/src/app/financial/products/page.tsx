@@ -5,7 +5,8 @@
  *
  * Category-level analysis using cheque aggregates (total_alimentos, total_bebidas).
  * Shows food vs beverage breakdown by location, brand, and time period.
- * When pos_line_item data becomes available, can be extended to SKU-level.
+ *
+ * OB-99: Migrated from direct Supabase queries (1,409 requests) to service layer (1 request).
  */
 
 import { useEffect, useState, useMemo } from 'react';
@@ -39,40 +40,8 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { createClient, requireTenantId } from '@/lib/supabase/client';
-
-interface ProductMixData {
-  networkFood: number;
-  networkBev: number;
-  networkTotal: number;
-  networkFoodPct: number;
-  locations: Array<{
-    id: string;
-    name: string;
-    brand: string;
-    brandColor: string;
-    food: number;
-    bev: number;
-    total: number;
-    foodPct: number;
-    avgFoodPerCheck: number;
-    avgBevPerCheck: number;
-    cheques: number;
-  }>;
-  brands: Array<{
-    name: string;
-    color: string;
-    food: number;
-    bev: number;
-    total: number;
-    foodPct: number;
-  }>;
-  weeklyTrend: Array<{
-    week: string;
-    food: number;
-    bev: number;
-  }>;
-}
+import { usePersona } from '@/contexts/persona-context';
+import { loadProductMixData, type ProductMixData, type FinancialScope } from '@/lib/financial/financial-data-service';
 
 type SortField = 'name' | 'brand' | 'food' | 'bev' | 'total' | 'foodPct' | 'avgFoodPerCheck' | 'avgBevPerCheck';
 type SortOrder = 'asc' | 'desc';
@@ -81,6 +50,14 @@ export default function ProductMixPage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
+  const { scope } = usePersona();
+
+  const financialScope: FinancialScope | undefined = useMemo(() => {
+    if (scope.canSeeAll) return undefined;
+    if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
+    return undefined;
+  }, [scope]);
+
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ProductMixData | null>(null);
   const [sortField, setSortField] = useState<SortField>('total');
@@ -92,156 +69,8 @@ export default function ProductMixPage() {
 
     async function load() {
       try {
-        requireTenantId(tenantId!);
-        const supabase = createClient();
-
-        // Fetch entities
-        const { data: entities } = await supabase
-          .from('entities')
-          .select('id, display_name, external_id, entity_type, metadata')
-          .eq('tenant_id', tenantId!);
-
-        if (!entities || cancelled) return;
-
-        const locations = entities.filter(e => e.entity_type === 'location');
-        const brandOrgs = entities.filter(
-          e => e.entity_type === 'organization' &&
-            (e.metadata as Record<string, unknown>)?.role === 'brand'
-        );
-        const brandMap = new Map(brandOrgs.map((b, i) => [b.id, {
-          name: b.display_name,
-          color: ['#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'][i] || '#6b7280',
-        }]));
-
-        // Fetch cheques
-        const PAGE_SIZE = 1000;
-        const cheques: Array<{ entity_id: string; rd: Record<string, unknown> }> = [];
-        let offset = 0;
-        while (true) {
-          const { data: rows, error } = await supabase
-            .from('committed_data')
-            .select('entity_id, row_data')
-            .eq('tenant_id', tenantId!)
-            .eq('data_type', 'pos_cheque')
-            .range(offset, offset + PAGE_SIZE - 1);
-          if (error || !rows || rows.length === 0) break;
-          for (const row of rows) {
-            if (row.entity_id) {
-              cheques.push({ entity_id: row.entity_id, rd: row.row_data as unknown as Record<string, unknown> });
-            }
-          }
-          if (rows.length < PAGE_SIZE) break;
-          offset += PAGE_SIZE;
-        }
-
-        if (cancelled || cheques.length === 0) {
-          if (!cancelled) setLoading(false);
-          return;
-        }
-
-        const n = (v: unknown) => Number(v) || 0;
-
-        // Aggregate by location
-        const locAgg = new Map<string, { food: number; bev: number; cheques: number }>();
-        const dailyAgg = new Map<string, { food: number; bev: number }>();
-
-        for (const { entity_id, rd } of cheques) {
-          const food = n(rd.total_alimentos);
-          const bev = n(rd.total_bebidas);
-
-          const la = locAgg.get(entity_id) || { food: 0, bev: 0, cheques: 0 };
-          la.food += food;
-          la.bev += bev;
-          la.cheques++;
-          locAgg.set(entity_id, la);
-
-          const dt = String(rd.fecha || '').substring(0, 10);
-          if (dt) {
-            const da = dailyAgg.get(dt) || { food: 0, bev: 0 };
-            da.food += food;
-            da.bev += bev;
-            dailyAgg.set(dt, da);
-          }
-        }
-
-        // Build location results
-        let networkFood = 0, networkBev = 0;
-        const locResults = locations.map(loc => {
-          const agg = locAgg.get(loc.id) || { food: 0, bev: 0, cheques: 0 };
-          const meta = loc.metadata as Record<string, unknown> | null;
-          const brandId = String(meta?.brand_id || '');
-          const brand = brandMap.get(brandId);
-          const total = agg.food + agg.bev;
-          networkFood += agg.food;
-          networkBev += agg.bev;
-          return {
-            id: loc.id,
-            name: loc.display_name,
-            brand: brand?.name || '',
-            brandColor: brand?.color || '#6b7280',
-            food: Math.round(agg.food * 100) / 100,
-            bev: Math.round(agg.bev * 100) / 100,
-            total: Math.round(total * 100) / 100,
-            foodPct: total > 0 ? Math.round((agg.food / total) * 1000) / 10 : 0,
-            avgFoodPerCheck: agg.cheques > 0 ? Math.round((agg.food / agg.cheques) * 100) / 100 : 0,
-            avgBevPerCheck: agg.cheques > 0 ? Math.round((agg.bev / agg.cheques) * 100) / 100 : 0,
-            cheques: agg.cheques,
-          };
-        }).filter(l => l.cheques > 0);
-
-        // Brand aggregation
-        const brandAgg = new Map<string, { food: number; bev: number }>();
-        for (const loc of locResults) {
-          const ba = brandAgg.get(loc.brand) || { food: 0, bev: 0 };
-          ba.food += loc.food;
-          ba.bev += loc.bev;
-          brandAgg.set(loc.brand, ba);
-        }
-        const brandResults = Array.from(brandAgg.entries()).map(([name, agg]) => {
-          const total = agg.food + agg.bev;
-          const brandInfo = Array.from(brandMap.values()).find(b => b.name === name);
-          return {
-            name,
-            color: brandInfo?.color || '#6b7280',
-            food: Math.round(agg.food),
-            bev: Math.round(agg.bev),
-            total: Math.round(total),
-            foodPct: total > 0 ? Math.round((agg.food / total) * 1000) / 10 : 0,
-          };
-        });
-
-        // Weekly trend
-        const sortedDates = Array.from(dailyAgg.keys()).sort();
-        const weeklyTrend: Array<{ week: string; food: number; bev: number }> = [];
-        let weekIdx = 0, wFood = 0, wBev = 0, dayCount = 0;
-        for (const dt of sortedDates) {
-          const d = dailyAgg.get(dt)!;
-          wFood += d.food;
-          wBev += d.bev;
-          dayCount++;
-          if (dayCount >= 7) {
-            weekIdx++;
-            weeklyTrend.push({ week: `W${weekIdx}`, food: Math.round(wFood), bev: Math.round(wBev) });
-            wFood = 0; wBev = 0; dayCount = 0;
-          }
-        }
-        if (dayCount > 0) {
-          weekIdx++;
-          weeklyTrend.push({ week: `W${weekIdx}`, food: Math.round(wFood), bev: Math.round(wBev) });
-        }
-
-        const networkTotal = networkFood + networkBev;
-        if (!cancelled) {
-          setData({
-            networkFood: Math.round(networkFood),
-            networkBev: Math.round(networkBev),
-            networkTotal: Math.round(networkTotal),
-            networkFoodPct: networkTotal > 0 ? Math.round((networkFood / networkTotal) * 1000) / 10 : 0,
-            locations: locResults,
-            brands: brandResults,
-            weeklyTrend,
-          });
-        }
+        const result = await loadProductMixData(tenantId!, financialScope);
+        if (!cancelled) setData(result);
       } catch (err) {
         console.error('Failed to load product mix data:', err);
       } finally {
@@ -251,7 +80,7 @@ export default function ProductMixPage() {
 
     load();
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, financialScope]);
 
   const sortedLocations = useMemo(() => {
     if (!data) return [];

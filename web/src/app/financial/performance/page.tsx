@@ -37,12 +37,13 @@ import {
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import {
   LineChart,
   Line,
   ResponsiveContainer,
 } from 'recharts';
-import { loadPerformanceData, type LocationBenchmarkData } from '@/lib/financial/financial-data-service';
+import { loadPerformanceData, type LocationBenchmarkData, type FinancialScope } from '@/lib/financial/financial-data-service';
 
 type SortField = 'rank' | 'name' | 'brand' | 'revenue' | 'avgCheck' | 'wowChange' | 'tipRate' | 'leakage';
 type SortOrder = 'asc' | 'desc';
@@ -54,6 +55,13 @@ export default function LocationBenchmarksPage() {
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
   const router = useRouter();
+  const { scope } = usePersona();
+
+  const financialScope: FinancialScope | undefined = useMemo(() => {
+    if (scope.canSeeAll) return undefined;
+    if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
+    return undefined;
+  }, [scope]);
 
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
@@ -64,12 +72,12 @@ export default function LocationBenchmarksPage() {
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
-    loadPerformanceData(tenantId)
+    loadPerformanceData(tenantId, financialScope)
       .then(result => { if (!cancelled) setLocations(result || []); })
       .catch(err => console.error('Failed to load performance data:', err))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, financialScope]);
 
   const filteredLocations = useMemo(() => {
     let result = [...locations];

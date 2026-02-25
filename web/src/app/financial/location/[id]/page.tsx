@@ -9,6 +9,8 @@
  * - Weekly revenue trend chart
  * - Staff breakdown table for this location
  * - Food vs Beverage split
+ *
+ * OB-99: Migrated from direct Supabase queries to service layer (1 request).
  */
 
 import { useEffect, useState } from 'react';
@@ -42,38 +44,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { createClient, requireTenantId } from '@/lib/supabase/client';
-
-interface LocationDetail {
-  id: string;
-  name: string;
-  city: string;
-  brandName: string;
-  brandColor: string;
-  revenue: number;
-  cheques: number;
-  avgCheck: number;
-  tips: number;
-  tipRate: number;
-  food: number;
-  bev: number;
-  discounts: number;
-  comps: number;
-  leakageRate: number;
-  guests: number;
-  avgGuests: number;
-  weeklyRevenue: Array<{ week: string; revenue: number }>;
-  staff: Array<{
-    id: string;
-    name: string;
-    role: string;
-    revenue: number;
-    cheques: number;
-    avgCheck: number;
-    tips: number;
-    tipRate: number;
-  }>;
-}
+import { loadLocationDetailData, type LocationDetailData } from '@/lib/financial/financial-data-service';
 
 export default function LocationDetailPage() {
   const params = useParams();
@@ -83,7 +54,7 @@ export default function LocationDetailPage() {
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
   const [loading, setLoading] = useState(true);
-  const [detail, setDetail] = useState<LocationDetail | null>(null);
+  const [detail, setDetail] = useState<LocationDetailData | null>(null);
 
   useEffect(() => {
     if (!tenantId || !locationId) { setLoading(false); return; }
@@ -91,164 +62,8 @@ export default function LocationDetailPage() {
 
     async function load() {
       try {
-        requireTenantId(tenantId!);
-        const supabase = createClient();
-
-        // Fetch location entity
-        const { data: entity } = await supabase
-          .from('entities')
-          .select('id, display_name, external_id, entity_type, metadata')
-          .eq('tenant_id', tenantId!)
-          .eq('id', locationId)
-          .single();
-
-        if (!entity || cancelled) return;
-
-        // Fetch all entities for brand lookup + staff
-        const { data: allEntities } = await supabase
-          .from('entities')
-          .select('id, display_name, external_id, entity_type, metadata')
-          .eq('tenant_id', tenantId!);
-
-        // Get brand info
-        const meta = entity.metadata as Record<string, unknown> | null;
-        const brandId = String(meta?.brand_id || '');
-        const brandEntity = (allEntities || []).find(
-          e => e.entity_type === 'organization' &&
-            (e.metadata as Record<string, unknown>)?.role === 'brand' &&
-            e.id === brandId
-        );
-        const brandName = brandEntity?.display_name || '';
-        const brandColor = '#ef4444'; // fallback
-
-        // Fetch cheques for this location
-        const PAGE_SIZE = 1000;
-        const cheques: Array<Record<string, unknown>> = [];
-        let offset = 0;
-        while (true) {
-          const { data, error } = await supabase
-            .from('committed_data')
-            .select('row_data')
-            .eq('tenant_id', tenantId!)
-            .eq('data_type', 'pos_cheque')
-            .eq('entity_id', locationId)
-            .range(offset, offset + PAGE_SIZE - 1);
-          if (error || !data || data.length === 0) break;
-          for (const row of data) {
-            cheques.push(row.row_data as unknown as Record<string, unknown>);
-          }
-          if (data.length < PAGE_SIZE) break;
-          offset += PAGE_SIZE;
-        }
-
-        if (cancelled) return;
-
-        const n = (v: unknown) => Number(v) || 0;
-
-        // Aggregate
-        let revenue = 0, tips = 0, food = 0, bev = 0, discounts = 0, comps = 0, guests = 0;
-        let chequeCount = 0;
-        const dailyRevenue = new Map<string, number>();
-        const staffAgg = new Map<string, { revenue: number; cheques: number; tips: number }>();
-
-        for (const rd of cheques) {
-          chequeCount++;
-          revenue += n(rd.total);
-          tips += n(rd.propina);
-          food += n(rd.total_alimentos);
-          bev += n(rd.total_bebidas);
-          discounts += n(rd.total_descuentos);
-          comps += n(rd.total_cortesias);
-          guests += n(rd.numero_de_personas);
-
-          const dt = String(rd.fecha || '').substring(0, 10);
-          if (dt) dailyRevenue.set(dt, (dailyRevenue.get(dt) || 0) + n(rd.total));
-
-          const meseroId = String(n(rd.mesero_id));
-          if (meseroId && meseroId !== '0') {
-            const s = staffAgg.get(meseroId) || { revenue: 0, cheques: 0, tips: 0 };
-            s.revenue += n(rd.total);
-            s.cheques++;
-            s.tips += n(rd.propina);
-            staffAgg.set(meseroId, s);
-          }
-        }
-
-        // Weekly buckets
-        const sortedDates = Array.from(dailyRevenue.keys()).sort();
-        const weeklyRevenue: Array<{ week: string; revenue: number }> = [];
-        let weekIdx = 0;
-        let weekTotal = 0;
-        let dayCount = 0;
-        for (const dt of sortedDates) {
-          weekTotal += dailyRevenue.get(dt) || 0;
-          dayCount++;
-          if (dayCount >= 7) {
-            weekIdx++;
-            weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) });
-            weekTotal = 0;
-            dayCount = 0;
-          }
-        }
-        if (dayCount > 0) {
-          weekIdx++;
-          weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) });
-        }
-
-        // Staff with names
-        const staffEntities = (allEntities || []).filter(e => e.entity_type === 'individual');
-        const staffByMeseroId = new Map<string, { id: string; name: string; role: string }>();
-        for (const se of staffEntities) {
-          const sm = se.metadata as Record<string, unknown> | null;
-          const mId = sm?.mesero_id;
-          if (mId != null) {
-            staffByMeseroId.set(String(mId), {
-              id: se.id,
-              name: se.display_name,
-              role: String(sm?.role || 'Mesero'),
-            });
-          }
-        }
-
-        const staff = Array.from(staffAgg.entries())
-          .map(([meseroId, agg]) => {
-            const entity = staffByMeseroId.get(meseroId);
-            return {
-              id: entity?.id || meseroId,
-              name: entity?.name || `Mesero ${meseroId}`,
-              role: entity?.role || 'Mesero',
-              revenue: Math.round(agg.revenue * 100) / 100,
-              cheques: agg.cheques,
-              avgCheck: agg.cheques > 0 ? Math.round((agg.revenue / agg.cheques) * 100) / 100 : 0,
-              tips: Math.round(agg.tips * 100) / 100,
-              tipRate: agg.revenue > 0 ? Math.round((agg.tips / agg.revenue) * 1000) / 10 : 0,
-            };
-          })
-          .sort((a, b) => b.revenue - a.revenue);
-
-        if (!cancelled) {
-          setDetail({
-            id: entity.id,
-            name: entity.display_name,
-            city: String(meta?.city || meta?.ciudad || ''),
-            brandName,
-            brandColor,
-            revenue: Math.round(revenue * 100) / 100,
-            cheques: chequeCount,
-            avgCheck: chequeCount > 0 ? Math.round((revenue / chequeCount) * 100) / 100 : 0,
-            tips: Math.round(tips * 100) / 100,
-            tipRate: revenue > 0 ? Math.round((tips / revenue) * 1000) / 10 : 0,
-            food: Math.round(food * 100) / 100,
-            bev: Math.round(bev * 100) / 100,
-            discounts: Math.round(discounts * 100) / 100,
-            comps: Math.round(comps * 100) / 100,
-            leakageRate: revenue > 0 ? Math.round(((discounts + comps) / revenue) * 1000) / 10 : 0,
-            guests,
-            avgGuests: chequeCount > 0 ? Math.round((guests / chequeCount) * 10) / 10 : 0,
-            weeklyRevenue,
-            staff,
-          });
-        }
+        const result = await loadLocationDetailData(tenantId!, locationId);
+        if (!cancelled) setDetail(result);
       } catch (err) {
         console.error('Failed to load location detail:', err);
       } finally {

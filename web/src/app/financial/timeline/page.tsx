@@ -43,7 +43,8 @@ import {
   Activity,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { loadTimelineData, type TimelinePageData, type TimelinePoint } from '@/lib/financial/financial-data-service';
+import { usePersona } from '@/contexts/persona-context';
+import { loadTimelineData, type TimelinePageData, type TimelinePoint, type FinancialScope } from '@/lib/financial/financial-data-service';
 
 type Granularity = 'day' | 'week' | 'month';
 type Metric = 'revenue' | 'checks' | 'avgCheck' | 'tips';
@@ -57,6 +58,14 @@ const COLORS = {
 export default function RevenueTimelinePage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
+  const { scope: personaScope } = usePersona();
+
+  const financialScope: FinancialScope | undefined = useMemo(() => {
+    if (personaScope.canSeeAll) return undefined;
+    if (personaScope.entityIds.length > 0) return { scopeEntityIds: personaScope.entityIds };
+    return undefined;
+  }, [personaScope]);
+
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [metric, setMetric] = useState<Metric>('revenue');
   const [scope, setScope] = useState<Scope>('all');
@@ -67,12 +76,12 @@ export default function RevenueTimelinePage() {
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
-    loadTimelineData(tenantId, granularity)
+    loadTimelineData(tenantId, granularity, financialScope)
       .then(result => { if (!cancelled) setTimelineData(result); })
       .catch(err => console.error('Failed to load timeline data:', err))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, granularity]);
+  }, [tenantId, granularity, financialScope]);
 
   const METRIC_CONFIG = {
     revenue: { label: 'Revenue', format: (v: number) => `${symbol}${(v / 1000).toFixed(0)}K`, icon: DollarSign },
