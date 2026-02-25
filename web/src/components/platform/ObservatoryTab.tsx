@@ -59,8 +59,9 @@ export function ObservatoryTab() {
 
   // OB-89: Filter test/development tenants from demo view
   const TEST_TENANT_PATTERNS = /test|pipeline|retailco|frmx|retail conglomerate|demo seed/i;
+  // OB-100: Show tenants with entities OR completed calculations (e.g. Optica Luminar)
   const demoTenants = tenantCards.filter(t =>
-    showTestTenants || (!TEST_TENANT_PATTERNS.test(t.name) && t.entityCount > 0)
+    showTestTenants || (!TEST_TENANT_PATTERNS.test(t.name) && (t.entityCount > 0 || t.latestLifecycleState !== null))
   );
 
   useEffect(() => {
