@@ -8,6 +8,7 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -32,10 +33,8 @@ import {
   TrendingUp,
   ArrowUpDown,
   MapPin,
-  ChevronRight,
   Activity,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import {
@@ -54,6 +53,7 @@ export default function LocationBenchmarksPage() {
   const { format } = useCurrency();
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const router = useRouter();
 
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
@@ -183,15 +183,6 @@ export default function LocationBenchmarksPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Breadcrumbs */}
-      <nav className="flex items-center text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground">Home</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <Link href="/financial" className="hover:text-foreground">Financial</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <span className="text-foreground font-medium">Performance</span>
-      </nav>
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -281,7 +272,10 @@ export default function LocationBenchmarksPage() {
 
                     {/* Location */}
                     <TableCell>
-                      <div className="flex items-center gap-2">
+                      <div
+                        className="flex items-center gap-2 cursor-pointer hover:underline"
+                        onClick={() => router.push(`/financial/location/${location.id}`)}
+                      >
                         <div
                           className="w-2 h-2 rounded-full"
                           style={{ backgroundColor: location.brandColor }}
@@ -319,18 +313,24 @@ export default function LocationBenchmarksPage() {
                       </div>
                     </TableCell>
 
-                    {/* Avg Check */}
+                    {/* Avg Check — benchmarked against brand avg */}
                     <TableCell>
-                      <span className={location.avgCheck > location.brandAvgCheck ? 'text-green-600' : 'text-red-600'}>
-                        {format(location.avgCheck)}
-                      </span>
+                      {(() => {
+                        const ratio = location.brandAvgCheck > 0 ? location.avgCheck / location.brandAvgCheck : 1;
+                        const color = ratio >= 1.0 ? 'text-green-600' : ratio >= 0.9 ? 'text-zinc-200' : 'text-red-600';
+                        return <span className={color}>{format(location.avgCheck)}</span>;
+                      })()}
                     </TableCell>
 
                     {/* WoW Change */}
                     <TableCell>
-                      <span className={`font-medium ${Math.abs(location.wowChange) > 10 ? 'font-bold text-amber-600' : location.wowChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {location.wowChange > 0 ? '+' : ''}{location.wowChange.toFixed(1)}%
-                      </span>
+                      {location.wowChange === 0 ? (
+                        <span className="text-zinc-500">—</span>
+                      ) : (
+                        <span className={`font-medium ${Math.abs(location.wowChange) > 10 ? 'font-bold text-amber-600' : location.wowChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {location.wowChange > 0 ? '+' : ''}{location.wowChange.toFixed(1)}%
+                        </span>
+                      )}
                     </TableCell>
 
                     {/* Trend Sparkline */}

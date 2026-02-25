@@ -381,6 +381,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['vl_admin', 'admin', 'manager'] },
           { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Clock', roles: ['vl_admin', 'admin', 'manager'] },
           { path: '/financial/summary', label: 'Monthly Summary', labelEs: 'Resumen Mensual', icon: 'FileText', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'ShoppingBag', roles: ['vl_admin', 'admin', 'manager'] },
         ],
       },
       {

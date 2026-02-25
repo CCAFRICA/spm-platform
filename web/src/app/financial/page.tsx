@@ -18,9 +18,7 @@ import {
   MapPin,
   Activity,
   AlertTriangle,
-  ChevronRight,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import {
@@ -107,13 +105,6 @@ export default function NetworkPulseDashboard() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Breadcrumbs */}
-      <nav className="flex items-center text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground">Home</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <span className="text-foreground font-medium">{isSpanish ? 'Finanzas' : 'Financial'}</span>
-      </nav>
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -253,8 +244,21 @@ export default function NetworkPulseDashboard() {
                 className={`rounded-lg p-3 border-l-4 ${getLocationBg(location.vsNetworkAvg)}`}
                 style={{ borderLeftColor: location.brandColor }}
               >
-                <p className="font-medium text-sm truncate">{location.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{location.city}</p>
+                <div className="flex items-start justify-between">
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">{location.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{location.city}</p>
+                  </div>
+                  {/* Anomaly indicators */}
+                  <div className="flex gap-1 shrink-0 ml-1">
+                    {location.leakageRate > 5 && (
+                      <div className="w-2 h-2 rounded-full bg-red-500" title={`Leakage ${location.leakageRate.toFixed(1)}%`} />
+                    )}
+                    {location.tipRate < 8 && (
+                      <div className="w-2 h-2 rounded-full bg-amber-500" title={`Tip rate ${location.tipRate.toFixed(1)}%`} />
+                    )}
+                  </div>
+                </div>
                 <p className="text-lg font-bold mt-2">{format(location.revenue)}</p>
                 {/* Mini Sparkline */}
                 <div className="h-5 mt-2">
@@ -269,6 +273,13 @@ export default function NetworkPulseDashboard() {
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                </div>
+                {/* Micro stats */}
+                <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
+                  <span>Tip {location.tipRate.toFixed(1)}%</span>
+                  <span className={location.leakageRate > 5 ? 'text-red-400' : ''}>
+                    Leak {location.leakageRate.toFixed(1)}%
+                  </span>
                 </div>
               </div>
             ))}

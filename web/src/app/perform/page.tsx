@@ -24,7 +24,7 @@ import { RepDashboard } from '@/components/dashboards/RepDashboard';
 import { useTenant } from '@/contexts/tenant-context';
 
 function PerformContent() {
-  const { persona, tokens } = usePersona();
+  const { persona } = usePersona();
   const { availablePeriods, activePeriodKey, setActivePeriod, isLoading } = usePeriod();
   const { currentTenant } = useTenant();
 
@@ -35,6 +35,10 @@ function PerformContent() {
       </div>
     );
   }
+
+  // Perform workspace always shows "Performance" heading, not persona-specific intent
+  const performTitle = persona === 'admin' ? 'Performance Overview' : persona === 'manager' ? 'Team Performance' : 'My Performance';
+  const performDesc = persona === 'admin' ? 'Period performance summary and calculation results' : persona === 'manager' ? 'Team metrics and development tracking' : 'Your compensation and results';
 
   return (
     <PersonaLayout persona={persona}>
@@ -47,9 +51,9 @@ function PerformContent() {
       <div className="p-6 max-w-6xl mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-white">
-            {tokens.intent}
+            {performTitle}
           </h1>
-          <p className="text-xs text-zinc-500">{tokens.intentDescription}</p>
+          <p className="text-xs text-zinc-500">{performDesc}</p>
         </div>
 
         {isLoading ? (

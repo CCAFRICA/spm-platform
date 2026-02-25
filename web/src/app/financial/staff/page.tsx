@@ -13,6 +13,7 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -41,9 +42,7 @@ import {
   Activity,
   ChevronUp,
   ChevronDown,
-  ChevronRight,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { loadStaffData, type StaffMemberData } from '@/lib/financial/financial-data-service';
@@ -53,6 +52,7 @@ type SortField = 'rank' | 'name' | 'revenue' | 'checks' | 'avgCheck' | 'tips' | 
 export default function StaffPerformancePage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
+  const router = useRouter();
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortAsc, setSortAsc] = useState(true);
   const [locationFilter, setLocationFilter] = useState<string>('all');
@@ -128,6 +128,13 @@ export default function StaffPerformancePage() {
     return sortAsc ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />;
   };
 
+  const getTierBadge = (index: number) => {
+    if (index >= 85) return { label: 'Estrella', color: 'bg-yellow-100 text-yellow-700' };
+    if (index >= 70) return { label: 'Destacado', color: 'bg-blue-100 text-blue-700' };
+    if (index >= 50) return { label: 'Estandar', color: 'bg-zinc-700 text-zinc-300' };
+    return { label: 'En Desarrollo', color: 'bg-red-100 text-red-700' };
+  };
+
   const RankChange = ({ current, prev }: { current: number; prev: number }) => {
     const diff = prev - current;
     if (diff > 0) {
@@ -164,15 +171,6 @@ export default function StaffPerformancePage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Breadcrumbs */}
-      <nav className="flex items-center text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground">Home</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <Link href="/financial" className="hover:text-foreground">Financial</Link>
-        <ChevronRight className="h-4 w-4 mx-1" />
-        <span className="text-foreground font-medium">Staff</span>
-      </nav>
-
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-zinc-100">Staff Performance</h1>
@@ -359,8 +357,13 @@ export default function StaffPerformancePage() {
 
                     {/* Name */}
                     <TableCell>
-                      <div className="font-medium text-zinc-100">{staff.name}</div>
-                      <div className="text-xs text-zinc-500">{staff.id}</div>
+                      <div
+                        className="cursor-pointer hover:underline"
+                        onClick={() => router.push(`/financial/server/${staff.id}`)}
+                      >
+                        <div className="font-medium text-zinc-100">{staff.name}</div>
+                        <div className="text-xs text-zinc-500">{staff.id}</div>
+                      </div>
                     </TableCell>
 
                     {/* Location */}
@@ -413,12 +416,16 @@ export default function StaffPerformancePage() {
                     {/* Performance Index */}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <div className="w-16 bg-zinc-700 rounded-full h-2">
+                        <Badge className={`text-[10px] px-1.5 py-0 ${getTierBadge(staff.performanceIndex).color}`}>
+                          {getTierBadge(staff.performanceIndex).label}
+                        </Badge>
+                        <div className="w-12 bg-zinc-700 rounded-full h-2">
                           <div
                             className={`h-2 rounded-full ${
-                              staff.performanceIndex >= 90 ? 'bg-green-500' :
-                              staff.performanceIndex >= 75 ? 'bg-blue-500' :
-                              'bg-amber-500'
+                              staff.performanceIndex >= 85 ? 'bg-yellow-500' :
+                              staff.performanceIndex >= 70 ? 'bg-blue-500' :
+                              staff.performanceIndex >= 50 ? 'bg-zinc-400' :
+                              'bg-red-500'
                             }`}
                             style={{ width: `${staff.performanceIndex}%` }}
                           />

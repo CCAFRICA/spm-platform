@@ -88,6 +88,7 @@ import {
   Target,
   Copy,
   ShieldAlert,
+  ShoppingBag,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -117,7 +118,7 @@ const ROUTE_ICONS: Record<string, React.ComponentType<{ className?: string }>> =
   Trophy, LineChart, PieChart, HelpCircle, PlusCircle, Search, FileSearch,
   Download, GitBranch, CheckCircle, Route, Key, Shield, MessageCircle, Edit,
   FlaskConical, TrendingUp, Target, Copy, MapPin, Network, Settings, FileSpreadsheet,
-  FileDown, Languages, Plug, ShieldAlert, Zap, Palette,
+  FileDown, Languages, Plug, ShieldAlert, ShoppingBag, Zap, Palette,
 };
 
 function RouteIcon({ name, className }: { name: string; className?: string }) {

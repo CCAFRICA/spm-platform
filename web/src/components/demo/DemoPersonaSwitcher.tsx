@@ -20,14 +20,15 @@
  */
 
 import { useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { Shield, Users, User } from 'lucide-react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { usePersona } from '@/contexts/persona-context';
-import { getDefaultWorkspace, personaToRole } from '@/lib/navigation/role-workspaces';
+import { getDefaultWorkspace, personaToRole, canAccessWorkspace } from '@/lib/navigation/role-workspaces';
 import { WORKSPACES } from '@/lib/navigation/workspace-config';
 import type { PersonaKey } from '@/lib/design/tokens';
+import type { WorkspaceId } from '@/types/navigation';
 
 interface PersonaChip {
   key: PersonaKey;
@@ -44,6 +45,7 @@ const PERSONA_CHIPS: PersonaChip[] = [
 
 export function DemoPersonaSwitcher() {
   const router = useRouter();
+  const pathname = usePathname();
   const { currentTenant, isVLAdmin } = useTenant();
   const { isAuthenticated } = useAuth();
   const { persona, setPersonaOverride } = usePersona();
@@ -56,12 +58,32 @@ export function DemoPersonaSwitcher() {
       setPersonaOverride(key);
     }
 
-    // OB-94: Navigate to the default workspace for the selected persona
+    // OB-96: Workspace-aware navigation — stay in current workspace if accessible
     const role = personaToRole(key);
+
+    // Detect current workspace from pathname
+    const currentWsId = Object.keys(WORKSPACES).find(wsId => {
+      const ws = WORKSPACES[wsId as WorkspaceId];
+      if (!ws?.sections) return false;
+      for (const section of ws.sections) {
+        for (const route of section.routes) {
+          if (pathname === route.path || pathname.startsWith(route.path + '/')) return true;
+        }
+      }
+      return false;
+    }) as WorkspaceId | undefined;
+
+    // If current workspace is accessible to new persona, stay on current page
+    if (currentWsId && canAccessWorkspace(role, currentWsId)) {
+      // Stay on current page — just re-render with persona-filtered data
+      return;
+    }
+
+    // Otherwise navigate to default workspace for this persona
     const defaultWs = getDefaultWorkspace(role);
     const ws = WORKSPACES[defaultWs];
     router.push(ws.defaultRoute);
-  }, [setPersonaOverride, router]);
+  }, [setPersonaOverride, router, pathname]);
 
   // Only visible to authenticated VL Admin with a tenant selected
   if (!isAuthenticated || !isVLAdmin || !currentTenant) {
