@@ -1,10 +1,12 @@
 'use client';
 
 /**
- * Network Pulse Dashboard
+ * Network Pulse Dashboard (OB-101 Phase 3)
  *
- * The FIRST thing a franchise operator sees. Shows network health at a glance.
- * Three sections: Key Metrics Row, Location Performance Grid, Brand Comparison
+ * Three sections:
+ *   A. Hero Metrics Row — each with reference frames (DS-003 Rule 3)
+ *   B. Deterministic Commentary — data-driven narrative
+ *   C. Location Performance Grid — grouped by brand with intelligence
  */
 
 import { useEffect, useState, useMemo } from 'react';
@@ -14,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   TrendingUp,
   TrendingDown,
+  Minus,
   DollarSign,
   Receipt,
   MapPin,
@@ -21,6 +24,8 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  BarChart3,
+  Layers,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
@@ -44,7 +49,6 @@ export default function NetworkPulseDashboard() {
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<NetworkPulseData | null>(null);
-  // OB-100: Expand/collapse brand groups (all expanded by default)
   const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
   const toggleBrand = (brandName: string) => {
     setExpandedBrands(prev => {
@@ -64,13 +68,12 @@ export default function NetworkPulseDashboard() {
 
   // F-8/F-9: Build persona scope for data filtering
   const financialScope: FinancialScope | undefined = useMemo(() => {
-    if (scope.canSeeAll) return undefined; // Admin sees all
+    if (scope.canSeeAll) return undefined;
     if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
     return undefined;
   }, [scope]);
 
   useEffect(() => {
-    // Don't load network pulse if rep — we're redirecting to server detail
     if (persona === 'rep') return;
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
@@ -86,7 +89,7 @@ export default function NetworkPulseDashboard() {
   const locations = data?.locations ?? [];
   const brands = data?.brands ?? [];
 
-  // OB-100: Initialize all brands as expanded when data loads
+  // Initialize all brands as expanded when data loads
   useEffect(() => {
     if (data?.brands && data.brands.length > 0) {
       setExpandedBrands(new Set(data.brands.map(b => b.name)));
@@ -121,17 +124,40 @@ export default function NetworkPulseDashboard() {
     );
   }
 
+  // --- Helpers ---
+
+  // PG-18: Show "—" instead of "0%" when no actual change data
+  const formatChange = (change: number) => {
+    if (change === 0) return '—';
+    return `${change > 0 ? '+' : ''}${change}%`;
+  };
+
   const getChangeIcon = (change: number) => {
-    if (change > 0) return <TrendingUp className="h-3 w-3 text-green-600" />;
-    if (change < 0) return <TrendingDown className="h-3 w-3 text-red-600" />;
-    return null;
+    if (change > 0) return <TrendingUp className="h-3 w-3 text-green-500" />;
+    if (change < 0) return <TrendingDown className="h-3 w-3 text-red-500" />;
+    return <Minus className="h-3 w-3 text-zinc-500" />;
   };
 
   const getChangeColor = (change: number) => {
-    if (change > 0) return 'text-green-600';
-    if (change < 0) return 'text-red-600';
-    return 'text-slate-400';
+    if (change > 0) return 'text-green-500';
+    if (change < 0) return 'text-red-500';
+    return 'text-zinc-500';
   };
+
+  // Threshold coloring for monitoring metrics
+  const getThresholdColor = (value: number, target: number, inverted = false) => {
+    // inverted: lower is better (e.g. leakage)
+    if (inverted) {
+      if (value <= target) return 'text-green-500';
+      if (value <= target * 1.5) return 'text-amber-500';
+      return 'text-red-500';
+    }
+    if (value >= target) return 'text-green-500';
+    if (value >= target * 0.85) return 'text-amber-500';
+    return 'text-red-500';
+  };
+
+  const formatWhole = (v: number) => format(Math.round(v));
 
   const getLocationBg = (comparison: 'above' | 'within' | 'below') => {
     switch (comparison) {
@@ -141,27 +167,94 @@ export default function NetworkPulseDashboard() {
     }
   };
 
-  // F-4: Border color matches performance indicator, not brand
   const getLocationBorderColor = (comparison: 'above' | 'within' | 'below') => {
     switch (comparison) {
-      case 'above': return '#22c55e';  // green-500
-      case 'within': return '#f59e0b'; // amber-500
-      case 'below': return '#ef4444';  // red-500
+      case 'above': return '#22c55e';
+      case 'within': return '#f59e0b';
+      case 'below': return '#ef4444';
     }
   };
 
-  // F-3: No cents on large amounts
-  const formatWhole = (v: number) => {
-    return format(Math.round(v));
-  };
-
-  // F-2: Group locations by brand
+  // Group locations by brand
   const locationsByBrand = new Map<string, typeof locations>();
   for (const loc of locations) {
     const key = loc.brandName || 'Other';
     const group = locationsByBrand.get(key) || [];
     group.push(loc);
     locationsByBrand.set(key, group);
+  }
+
+  // Brand-specific averages for anomaly detection (3B)
+  const brandAvgs = new Map<string, { avgCheck: number; tipRate: number; leakageRate: number }>();
+  for (const brand of brands) {
+    const brandLocs = locations.filter(l => l.brandName === brand.name);
+    if (brandLocs.length === 0) continue;
+    const avgCheck = brandLocs.reduce((s, l) => s + l.avgCheck, 0) / brandLocs.length;
+    const tipRate = brandLocs.reduce((s, l) => s + l.tipRate, 0) / brandLocs.length;
+    const leakageRate = brandLocs.reduce((s, l) => s + l.leakageRate, 0) / brandLocs.length;
+    brandAvgs.set(brand.name, { avgCheck, tipRate, leakageRate });
+  }
+
+  // Check if metric is outside ±5% of brand average
+  const isAnomaly = (value: number, brandAvg: number) => {
+    if (brandAvg === 0) return false;
+    const ratio = value / brandAvg;
+    return ratio > 1.05 || ratio < 0.95;
+  };
+
+  // --- Deterministic Commentary (3C) ---
+  const commentary: string[] = [];
+  {
+    const aboveCount = locations.filter(l => l.vsNetworkAvg === 'above').length;
+    const withinCount = locations.filter(l => l.vsNetworkAvg === 'within').length;
+    const belowCount = locations.filter(l => l.vsNetworkAvg === 'below').length;
+
+    // Header line
+    commentary.push(
+      isSpanish
+        ? `Pulso de Red — ${networkMetrics.activeLocations}/${networkMetrics.totalLocations} ubicaciones activas`
+        : `Network Pulse — ${networkMetrics.activeLocations}/${networkMetrics.totalLocations} locations active`
+    );
+
+    // Revenue dominance by brand
+    if (brands.length > 1) {
+      const sorted = [...brands].sort((a, b) => b.totalRevenue - a.totalRevenue);
+      const top = sorted[0];
+      const totalRev = brands.reduce((s, b) => s + b.totalRevenue, 0);
+      const pct = totalRev > 0 ? Math.round((top.totalRevenue / totalRev) * 100) : 0;
+      commentary.push(
+        isSpanish
+          ? `${top.name} domina ingresos (${formatWhole(top.totalRevenue)}, ${pct}% de la red).`
+          : `${top.name} dominates revenue (${formatWhole(top.totalRevenue)}, ${pct}% of network).`
+      );
+    }
+
+    // Tip rate leader
+    if (locations.length > 0) {
+      const tipLeader = [...locations].sort((a, b) => b.tipRate - a.tipRate)[0];
+      commentary.push(
+        isSpanish
+          ? `${tipLeader.name} lidera propinas con ${tipLeader.tipRate.toFixed(1)}%.`
+          : `${tipLeader.name} leads tip rate at ${tipLeader.tipRate.toFixed(1)}%.`
+      );
+    }
+
+    // Distribution summary
+    commentary.push(
+      isSpanish
+        ? `${aboveCount} sobre promedio (verde), ${withinCount} dentro de ±5% (ambar), ${belowCount} bajo promedio (rojo).`
+        : `${aboveCount} above average (green), ${withinCount} within ±5% (amber), ${belowCount} below average (red).`
+    );
+
+    // Strongest performer
+    if (locations.length > 0) {
+      const strongest = [...locations].sort((a, b) => b.revenue - a.revenue)[0];
+      commentary.push(
+        isSpanish
+          ? `Mejor rendimiento: ${strongest.name} (${formatWhole(strongest.revenue)}, Propina ${strongest.tipRate.toFixed(1)}%).`
+          : `Strongest performer: ${strongest.name} (${formatWhole(strongest.revenue)}, Tip ${strongest.tipRate.toFixed(1)}%).`
+      );
+    }
   }
 
   return (
@@ -175,7 +268,7 @@ export default function NetworkPulseDashboard() {
           </h1>
           <p className="text-muted-foreground">
             {currentTenant?.displayName || currentTenant?.name || (isSpanish ? 'Rendimiento de la franquicia' : 'Franchise performance')}
-            {' - '}
+            {' — '}
             {isSpanish ? 'rendimiento en tiempo real' : 'real-time performance'}
           </p>
         </div>
@@ -184,9 +277,9 @@ export default function NetworkPulseDashboard() {
         </Badge>
       </div>
 
-      {/* SECTION A: Key Metrics Row */}
+      {/* SECTION A: Hero Metrics Row — each with reference frame (PG-17) */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {/* Net Revenue */}
+        {/* Net Revenue — Identification: ↑/↓ % vs prior */}
         <Card className="min-h-[120px]">
           <CardContent className="pt-4">
             <div className="flex items-center gap-1 mb-1">
@@ -198,13 +291,15 @@ export default function NetworkPulseDashboard() {
             <p className="text-xl font-bold">{format(networkMetrics.netRevenue)}</p>
             <div className={`flex items-center gap-1 text-xs ${getChangeColor(networkMetrics.revenueChange)}`}>
               {getChangeIcon(networkMetrics.revenueChange)}
-              <span>{networkMetrics.revenueChange > 0 ? '+' : ''}{networkMetrics.revenueChange}%</span>
-              <span className="text-muted-foreground">{isSpanish ? 'vs periodo anterior' : 'vs prior'}</span>
+              <span>{formatChange(networkMetrics.revenueChange)}</span>
+              {networkMetrics.revenueChange !== 0 && (
+                <span className="text-muted-foreground">{isSpanish ? 'vs anterior' : 'vs prior'}</span>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Checks Served */}
+        {/* Checks Served — Identification: ↑/↓ % vs prior */}
         <Card className="min-h-[120px]">
           <CardContent className="pt-4">
             <div className="flex items-center gap-1 mb-1">
@@ -216,13 +311,15 @@ export default function NetworkPulseDashboard() {
             <p className="text-xl font-bold">{networkMetrics.checksServed.toLocaleString()}</p>
             <div className={`flex items-center gap-1 text-xs ${getChangeColor(networkMetrics.checksChange)}`}>
               {getChangeIcon(networkMetrics.checksChange)}
-              <span>{networkMetrics.checksChange > 0 ? '+' : ''}{networkMetrics.checksChange}%</span>
-              <span className="text-muted-foreground">{isSpanish ? 'vs periodo anterior' : 'vs prior'}</span>
+              <span>{formatChange(networkMetrics.checksChange)}</span>
+              {networkMetrics.checksChange !== 0 && (
+                <span className="text-muted-foreground">{isSpanish ? 'vs anterior' : 'vs prior'}</span>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Avg Check */}
+        {/* Avg Check — Identification: threshold color vs network target */}
         <Card className="min-h-[120px]">
           <CardContent className="pt-4">
             <div className="flex items-center gap-1 mb-1">
@@ -234,13 +331,15 @@ export default function NetworkPulseDashboard() {
             <p className="text-xl font-bold">{format(networkMetrics.avgCheck)}</p>
             <div className={`flex items-center gap-1 text-xs ${getChangeColor(networkMetrics.avgCheckChange)}`}>
               {getChangeIcon(networkMetrics.avgCheckChange)}
-              <span>{networkMetrics.avgCheckChange > 0 ? '+' : ''}{networkMetrics.avgCheckChange}%</span>
-              <span className="text-muted-foreground">{isSpanish ? 'vs periodo anterior' : 'vs prior'}</span>
+              <span>{formatChange(networkMetrics.avgCheckChange)}</span>
+              {networkMetrics.avgCheckChange !== 0 && (
+                <span className="text-muted-foreground">{isSpanish ? 'vs anterior' : 'vs prior'}</span>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Tip Rate */}
+        {/* Tip Rate — Monitoring: vs target with threshold color */}
         <Card className="min-h-[120px]">
           <CardContent className="pt-4">
             <div className="flex items-center gap-1 mb-1">
@@ -248,14 +347,21 @@ export default function NetworkPulseDashboard() {
                 {isSpanish ? 'Tasa de Propina' : 'Tip Rate'}
               </span>
             </div>
-            <p className="text-xl font-bold">{networkMetrics.tipRate.toFixed(1)}%</p>
-            <p className="text-xs text-muted-foreground">
-              {isSpanish ? 'Meta' : 'Target'}: {networkMetrics.tipTarget}%
+            <p className={`text-xl font-bold ${getThresholdColor(networkMetrics.tipRate, networkMetrics.tipTarget)}`}>
+              {networkMetrics.tipRate.toFixed(1)}%
             </p>
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-muted-foreground">
+                {isSpanish ? 'Meta' : 'Target'}: {networkMetrics.tipTarget}%
+              </span>
+              {networkMetrics.tipRate >= networkMetrics.tipTarget
+                ? <TrendingUp className="h-3 w-3 text-green-500" />
+                : <TrendingDown className="h-3 w-3 text-amber-500" />}
+            </div>
           </CardContent>
         </Card>
 
-        {/* Leakage Rate */}
+        {/* Leakage Rate — Monitoring: vs threshold with inverted color */}
         <Card className="min-h-[120px]">
           <CardContent className="pt-4">
             <div className="flex items-center gap-1 mb-1">
@@ -264,39 +370,67 @@ export default function NetworkPulseDashboard() {
                 {isSpanish ? 'Tasa de Fuga' : 'Leakage Rate'}
               </span>
             </div>
-            <p className={`text-xl font-bold ${networkMetrics.leakageRate <= networkMetrics.leakageThreshold ? 'text-green-600' : 'text-amber-600'}`}>
+            <p className={`text-xl font-bold ${getThresholdColor(networkMetrics.leakageRate, networkMetrics.leakageThreshold, true)}`}>
               {networkMetrics.leakageRate.toFixed(1)}%
             </p>
-            <p className="text-xs text-muted-foreground">
-              {isSpanish ? 'Descuentos + comps + cancelaciones' : 'Discounts + comps + cancels'}
-            </p>
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-muted-foreground">
+                {isSpanish ? 'Umbral' : 'Threshold'}: {networkMetrics.leakageThreshold}%
+              </span>
+              {networkMetrics.leakageRate <= networkMetrics.leakageThreshold
+                ? <TrendingUp className="h-3 w-3 text-green-500" />
+                : <AlertTriangle className="h-3 w-3 text-red-500" />}
+            </div>
           </CardContent>
         </Card>
 
-        {/* Active Locations */}
+        {/* Active Locations — Identification: N / N total fraction */}
         <Card className="min-h-[120px]">
           <CardContent className="pt-4">
             <div className="flex items-center gap-1 mb-1">
               <MapPin className="h-4 w-4 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">
-                {isSpanish ? 'Ubicaciones Activas' : 'Active Locations'}
+                {isSpanish ? 'Ubicaciones' : 'Locations'}
               </span>
             </div>
             <p className="text-xl font-bold">{networkMetrics.activeLocations}/{networkMetrics.totalLocations}</p>
-            <p className="text-xs text-muted-foreground">
-              {isSpanish ? 'Todas las ubicaciones activas' : 'All locations active'}
+            <p className={`text-xs ${networkMetrics.activeLocations === networkMetrics.totalLocations ? 'text-green-500' : 'text-amber-500'}`}>
+              {networkMetrics.activeLocations === networkMetrics.totalLocations
+                ? (isSpanish ? 'Todas activas' : 'All active')
+                : (isSpanish
+                    ? `${networkMetrics.totalLocations - networkMetrics.activeLocations} inactivas`
+                    : `${networkMetrics.totalLocations - networkMetrics.activeLocations} inactive`)}
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* SECTION B: Location Performance Grid — grouped by brand */}
+      {/* SECTION B: Deterministic Commentary (PG-21) */}
+      <Card>
+        <CardContent className="pt-4 pb-3">
+          <div className="flex items-start gap-2 mb-2">
+            <Layers className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+              {isSpanish ? 'Observaciones' : 'Observations'}
+            </span>
+          </div>
+          <div className="space-y-1.5 ml-6">
+            {commentary.map((line, i) => (
+              <p key={i} className={`text-sm ${i === 0 ? 'font-medium text-zinc-200' : 'text-zinc-400'}`}>
+                {i > 0 && <span className="text-zinc-600 mr-1">{'·'}</span>}
+                {line}
+              </p>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* SECTION C: Location Performance Grid — grouped by brand (PG-22, PG-23) */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">
             {isSpanish ? 'Rendimiento por Ubicacion' : 'Location Performance'}
           </CardTitle>
-          {/* F-5: Prominent legend */}
           <div className="flex items-center gap-4 text-xs">
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded" style={{ backgroundColor: '#22c55e' }} />
@@ -313,14 +447,14 @@ export default function NetworkPulseDashboard() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* OB-100: Brand-grouped sections with expand/collapse + summary stats */}
           {Array.from(locationsByBrand.entries()).map(([brandName, brandLocations]) => {
             const brandData = brands.find(b => b.name === brandName);
             const isExpanded = expandedBrands.has(brandName);
+            const bAvg = brandAvgs.get(brandName);
 
             return (
               <div key={brandName}>
-                {/* Clickable brand header */}
+                {/* Clickable brand header (PG-22) */}
                 <button
                   className="flex items-center justify-between w-full mb-3 group cursor-pointer"
                   onClick={() => toggleBrand(brandName)}
@@ -341,7 +475,6 @@ export default function NetworkPulseDashboard() {
                     </span>
                   </div>
                   <div className="flex items-center gap-4">
-                    {/* Summary stats inline */}
                     {brandData && (
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <span>{formatWhole(brandData.totalRevenue)}</span>
@@ -354,56 +487,89 @@ export default function NetworkPulseDashboard() {
                       : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                   </div>
                 </button>
-                {/* Location grid — conditionally rendered */}
+                {/* Location grid */}
                 {isExpanded && (
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {brandLocations.map((location) => (
-                      <div
-                        key={location.id}
-                        className={`rounded-lg p-3 border-l-4 cursor-pointer transition-opacity hover:opacity-80 ${getLocationBg(location.vsNetworkAvg)}`}
-                        style={{ borderLeftColor: getLocationBorderColor(location.vsNetworkAvg) }}
-                        onClick={() => router.push(`/financial/location/${location.id}`)}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="min-w-0">
-                            <p className="font-medium text-sm truncate">{location.name}</p>
-                            <p className="text-xs text-muted-foreground truncate">{location.city}</p>
+                    {brandLocations.map((location) => {
+                      // 3B: Brand-specific anomaly detection
+                      const hasCheckAnomaly = bAvg ? isAnomaly(location.avgCheck, bAvg.avgCheck) : false;
+                      const hasTipAnomaly = bAvg ? isAnomaly(location.tipRate, bAvg.tipRate) : false;
+                      const hasLeakAnomaly = bAvg ? isAnomaly(location.leakageRate, bAvg.leakageRate) : false;
+
+                      // Revenue trend from weeklyData
+                      const wd = location.weeklyData;
+                      const revTrend = wd.length >= 2
+                        ? ((wd[wd.length - 1] - wd[wd.length - 2]) / (wd[wd.length - 2] || 1)) * 100
+                        : 0;
+
+                      return (
+                        <div
+                          key={location.id}
+                          className={`rounded-lg p-3 border-l-4 cursor-pointer transition-opacity hover:opacity-80 ${getLocationBg(location.vsNetworkAvg)}`}
+                          style={{ borderLeftColor: getLocationBorderColor(location.vsNetworkAvg) }}
+                          onClick={() => router.push(`/financial/location/${location.id}`)}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm truncate">{location.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{location.city}</p>
+                            </div>
+                            {/* Brand-specific anomaly indicators (3B) */}
+                            <div className="flex gap-1 shrink-0 ml-1">
+                              {hasCheckAnomaly && (
+                                <div className="w-2 h-2 rounded-full bg-violet-500" title={`Avg check ${format(location.avgCheck)} vs brand avg ${bAvg ? format(bAvg.avgCheck) : ''}`} />
+                              )}
+                              {hasTipAnomaly && (
+                                <div className="w-2 h-2 rounded-full bg-amber-500" title={`Tip ${location.tipRate.toFixed(1)}% vs brand avg ${bAvg ? bAvg.tipRate.toFixed(1) : ''}%`} />
+                              )}
+                              {hasLeakAnomaly && (
+                                <div className="w-2 h-2 rounded-full bg-red-500" title={`Leakage ${location.leakageRate.toFixed(1)}% vs brand avg ${bAvg ? bAvg.leakageRate.toFixed(1) : ''}%`} />
+                              )}
+                            </div>
                           </div>
-                          {/* Anomaly indicators */}
-                          <div className="flex gap-1 shrink-0 ml-1">
-                            {location.leakageRate > 5 && (
-                              <div className="w-2 h-2 rounded-full bg-red-500" title={`Leakage ${location.leakageRate.toFixed(1)}%`} />
-                            )}
-                            {location.tipRate < 8 && (
-                              <div className="w-2 h-2 rounded-full bg-amber-500" title={`Tip rate ${location.tipRate.toFixed(1)}%`} />
+
+                          {/* Revenue with trend arrow (PG-19) */}
+                          <div className="flex items-center gap-1 mt-2">
+                            <p className="text-lg font-bold">{formatWhole(location.revenue)}</p>
+                            {revTrend !== 0 && (
+                              <span className={`${revTrend > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                {revTrend > 0
+                                  ? <TrendingUp className="h-3 w-3 inline" />
+                                  : <TrendingDown className="h-3 w-3 inline" />}
+                              </span>
                             )}
                           </div>
+
+                          {/* Avg Check (PG-20) */}
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {isSpanish ? 'Prom.' : 'Avg'} {format(location.avgCheck)}
+                          </p>
+
+                          {/* Mini Sparkline */}
+                          <div className="h-5 mt-2">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={location.weeklyData.map((v, i) => ({ v, i }))}>
+                                <Line
+                                  type="monotone"
+                                  dataKey="v"
+                                  stroke={location.brandColor}
+                                  strokeWidth={1.5}
+                                  dot={false}
+                                />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+
+                          {/* Micro stats */}
+                          <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
+                            <span>Tip {location.tipRate.toFixed(1)}%</span>
+                            <span className={location.leakageRate > 5 ? 'text-red-400' : ''}>
+                              Leak {location.leakageRate.toFixed(1)}%
+                            </span>
+                          </div>
                         </div>
-                        {/* F-3: No cents on large amounts */}
-                        <p className="text-lg font-bold mt-2">{formatWhole(location.revenue)}</p>
-                        {/* Mini Sparkline */}
-                        <div className="h-5 mt-2">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={location.weeklyData.map((v, i) => ({ v, i }))}>
-                              <Line
-                                type="monotone"
-                                dataKey="v"
-                                stroke={location.brandColor}
-                                strokeWidth={1.5}
-                                dot={false}
-                              />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </div>
-                        {/* Micro stats */}
-                        <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
-                          <span>Tip {location.tipRate.toFixed(1)}%</span>
-                          <span className={location.leakageRate > 5 ? 'text-red-400' : ''}>
-                            Leak {location.leakageRate.toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
