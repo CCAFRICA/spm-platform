@@ -913,9 +913,11 @@ export interface PatternsPageData {
   peakDay: string;
   avgDailyRevenue: number;
   avgDailyChecks: number;
+  avgServiceMinutes: number;
+  locations: Array<{ id: string; name: string; brandId: string; brandName: string }>;
 }
 
-export async function loadPatternsData(tenantId: string): Promise<PatternsPageData | null> {
+export async function loadPatternsData(tenantId: string, locationFilter?: string): Promise<PatternsPageData | null> {
   const raw = await fetchRawData(tenantId);
   if (!raw) return null;
 
@@ -933,7 +935,22 @@ export async function loadPatternsData(tenantId: string): Promise<PatternsPageDa
     dayIndex: i, revenue: 0, checks: 0, tips: 0, guests: 0, days: new Set<string>(),
   }));
 
-  for (const c of raw.cheques) {
+  // Build location lookup for filters
+  const locations = raw.entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(raw.entities);
+  const locList = locations.map(loc => {
+    const brand = getLocationBrand(loc, brandLookup);
+    return { id: loc.id, name: loc.display_name, brandId: brand?.id || '', brandName: brand?.name || '' };
+  });
+
+  // Filter cheques by location if specified
+  const filteredCheques = locationFilter
+    ? raw.cheques.filter(c => c.entity_id === locationFilter)
+    : raw.cheques;
+
+  let serviceTimeSum = 0, serviceTimeCount = 0;
+
+  for (const c of filteredCheques) {
     const rd = c.row_data;
     if (n(rd.cancelado) === 1) continue;
     const fechaStr = String(rd.fecha || '');
@@ -953,6 +970,20 @@ export async function loadPatternsData(tenantId: string): Promise<PatternsPageDa
     dayTotals[dayOfWeek].tips += n(rd.propina);
     dayTotals[dayOfWeek].guests += n(rd.numero_de_personas);
     dayTotals[dayOfWeek].days.add(dateKey);
+
+    // Speed of service: diff between fecha (open) and cierre (close)
+    const cierreStr = String(rd.cierre || '');
+    if (cierreStr && fechaStr) {
+      const openTime = d.getTime();
+      const closeTime = new Date(cierreStr).getTime();
+      if (!isNaN(closeTime) && closeTime > openTime) {
+        const minutes = (closeTime - openTime) / 60000;
+        if (minutes > 0 && minutes < 480) { // Sanity: max 8 hours
+          serviceTimeSum += minutes;
+          serviceTimeCount++;
+        }
+      }
+    }
   }
 
   // Build heatmap cells
@@ -992,13 +1023,14 @@ export async function loadPatternsData(tenantId: string): Promise<PatternsPageDa
 
   // Averages
   const allDates = new Set<string>();
-  for (const c of raw.cheques) {
+  for (const c of filteredCheques) {
     const dt = String(c.row_data.fecha || '').substring(0, 10);
     if (dt) allDates.add(dt);
   }
   const totalDays = allDates.size || 1;
   const totalRevenue = dayTotals.reduce((s, d) => s + d.revenue, 0);
   const totalChecks = dayTotals.reduce((s, d) => s + d.checks, 0);
+  const avgServiceMinutes = serviceTimeCount > 0 ? round2(serviceTimeSum / serviceTimeCount) : 0;
 
   return {
     heatmap,
@@ -1007,6 +1039,8 @@ export async function loadPatternsData(tenantId: string): Promise<PatternsPageDa
     peakDay,
     avgDailyRevenue: round2(totalRevenue / totalDays),
     avgDailyChecks: Math.round(totalChecks / totalDays),
+    avgServiceMinutes,
+    locations: locList,
   };
 }
 

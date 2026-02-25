@@ -5,10 +5,18 @@
  *
  * Hourly heatmap + day-of-week analysis from POS cheque timestamps.
  * Shows when locations are busiest and how patterns vary across the week.
+ * Supports location filtering and shows speed of service metric.
  */
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   BarChart,
   Bar,
@@ -23,6 +31,7 @@ import {
   Activity,
   TrendingUp,
   Users,
+  Timer,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { loadPatternsData, type PatternsPageData } from '@/lib/financial/financial-data-service';
@@ -38,16 +47,30 @@ export default function OperationalPatternsPage() {
   const { format } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PatternsPageData | null>(null);
+  const [locationFilter, setLocationFilter] = useState<string>('all');
+
+  const loadData = useCallback(async (locId?: string) => {
+    if (!tenantId) return;
+    setLoading(true);
+    try {
+      const result = await loadPatternsData(tenantId, locId === 'all' ? undefined : locId);
+      setData(result);
+    } catch (err) {
+      console.error('Failed to load patterns data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [tenantId]);
 
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
-    let cancelled = false;
-    loadPatternsData(tenantId)
-      .then(result => { if (!cancelled) setData(result); })
-      .catch(err => console.error('Failed to load patterns data:', err))
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [tenantId]);
+    loadData();
+  }, [tenantId, loadData]);
+
+  const handleLocationChange = (value: string) => {
+    setLocationFilter(value);
+    loadData(value);
+  };
 
   // Compute heatmap max for color scaling
   const maxRevenue = useMemo(() => {
@@ -55,7 +78,23 @@ export default function OperationalPatternsPage() {
     return Math.max(...data.heatmap.map(c => c.revenue), 1);
   }, [data]);
 
-  if (loading) {
+  // Group locations by brand for the filter
+  const locationGroups = useMemo(() => {
+    if (!data) return [];
+    const brandMap = new Map<string, Array<{ id: string; name: string }>>();
+    for (const loc of data.locations) {
+      const brand = loc.brandName || 'Other';
+      const group = brandMap.get(brand) || [];
+      group.push({ id: loc.id, name: loc.name });
+      brandMap.set(brand, group);
+    }
+    return Array.from(brandMap.entries()).map(([brand, locs]) => ({
+      brand,
+      locations: locs.sort((a, b) => a.name.localeCompare(b.name)),
+    }));
+  }, [data]);
+
+  if (loading && !data) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent" />
@@ -95,16 +134,33 @@ export default function OperationalPatternsPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
-          <Clock className="h-6 w-6 text-primary" />
-          Operational Patterns
-        </h1>
-        <p className="text-zinc-400">Hourly and day-of-week revenue patterns</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
+            <Clock className="h-6 w-6 text-primary" />
+            Operational Patterns
+          </h1>
+          <p className="text-zinc-400">Hourly and day-of-week revenue patterns</p>
+        </div>
+        <Select value={locationFilter} onValueChange={handleLocationChange}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="All Locations" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Locations</SelectItem>
+            {locationGroups.map(group => (
+              group.locations.map(loc => (
+                <SelectItem key={loc.id} value={loc.id}>
+                  {loc.name}
+                </SelectItem>
+              ))
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-4">
             <div className="flex items-center gap-3">
@@ -157,12 +213,34 @@ export default function OperationalPatternsPage() {
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-red-100 rounded-lg">
+                <Timer className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <p className="text-sm text-zinc-400">Avg Service Time</p>
+                <p className="text-2xl font-bold">
+                  {data.avgServiceMinutes > 0 ? `${data.avgServiceMinutes.toFixed(0)} min` : '—'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Loading overlay for filter changes */}
+      {loading && (
+        <div className="flex justify-center py-4">
+          <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+        </div>
+      )}
 
       {/* Heatmap */}
       <Card>
         <CardHeader>
-          <CardTitle>Revenue Heatmap — Hour × Day of Week</CardTitle>
+          <CardTitle>Revenue Heatmap — Hour x Day of Week</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
