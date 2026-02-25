@@ -12,7 +12,7 @@
  * Uses seed data when no real data exists.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
@@ -41,121 +41,40 @@ import {
   Receipt,
   Percent,
   ChevronRight,
+  Activity,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { loadTimelineData, type TimelinePageData, type TimelinePoint } from '@/lib/financial/financial-data-service';
 
-// Types
 type Granularity = 'day' | 'week' | 'month';
 type Metric = 'revenue' | 'checks' | 'avgCheck' | 'tips';
-type Scope = 'all' | 'brand' | 'location';
-
-interface DataPoint {
-  label: string;
-  revenue: number;
-  checks: number;
-  avgCheck: number;
-  tips: number;
-}
-
-interface BrandDataPoint extends DataPoint {
-  brand: string;
-}
-
-// Seed data generators
-function generateDailyData(): DataPoint[] {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  return days.map((day, i) => {
-    const base = 12000 + (i >= 4 ? 8000 : 0); // Weekend boost
-    const variance = Math.sin(i * 0.7) * 2000;
-    const revenue = base + variance;
-    const checks = Math.floor(revenue / 95);
-    return {
-      label: day,
-      revenue: Math.round(revenue),
-      checks,
-      avgCheck: revenue / checks,
-      tips: Math.round(revenue * 0.15),
-    };
-  });
-}
-
-function generateWeeklyData(): DataPoint[] {
-  const weeks = ['W1', 'W2', 'W3', 'W4'];
-  return weeks.map((week, i) => {
-    const trend = 1 + i * 0.03; // 3% growth each week
-    const base = 85000 * trend;
-    const variance = Math.sin(i * 1.2) * 5000;
-    const revenue = base + variance;
-    const checks = Math.floor(revenue / 98);
-    return {
-      label: week,
-      revenue: Math.round(revenue),
-      checks,
-      avgCheck: revenue / checks,
-      tips: Math.round(revenue * 0.148),
-    };
-  });
-}
-
-function generateMonthlyData(): DataPoint[] {
-  const months = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb'];
-  return months.map((month, i) => {
-    const seasonality = 1 + Math.sin((i - 2) * 0.5) * 0.15; // Peak in Dec
-    const base = 345000 * seasonality;
-    const revenue = base;
-    const checks = Math.floor(revenue / 102);
-    return {
-      label: month,
-      revenue: Math.round(revenue),
-      checks,
-      avgCheck: revenue / checks,
-      tips: Math.round(revenue * 0.145),
-    };
-  });
-}
-
-function generateBrandData(granularity: Granularity): BrandDataPoint[] {
-  const baseData = granularity === 'day' ? generateDailyData() :
-                   granularity === 'week' ? generateWeeklyData() :
-                   generateMonthlyData();
-
-  const brands = ['Taco Loco', 'El Ranchero'];
-  const brandMultipliers = [0.6, 0.4]; // 60/40 split
-
-  const result: BrandDataPoint[] = [];
-
-  brands.forEach((brand, bi) => {
-    baseData.forEach(point => {
-      result.push({
-        ...point,
-        brand,
-        revenue: Math.round(point.revenue * brandMultipliers[bi]),
-        checks: Math.round(point.checks * brandMultipliers[bi]),
-        avgCheck: point.avgCheck * (bi === 0 ? 1.1 : 0.9), // Taco Loco higher avg
-        tips: Math.round(point.tips * brandMultipliers[bi]),
-      });
-    });
-  });
-
-  return result;
-}
+type Scope = 'all' | 'brand';
 
 const COLORS = {
   primary: '#3b82f6',
   secondary: '#10b981',
-  tertiary: '#f59e0b',
-  brands: {
-    'Taco Loco': '#ef4444',
-    'El Ranchero': '#22c55e',
-  },
 };
 
 export default function RevenueTimelinePage() {
+  const { currentTenant } = useTenant();
+  const tenantId = currentTenant?.id;
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [metric, setMetric] = useState<Metric>('revenue');
   const [scope, setScope] = useState<Scope>('all');
+  const [loading, setLoading] = useState(true);
+  const [timelineData, setTimelineData] = useState<TimelinePageData | null>(null);
   const { format, symbol } = useCurrency();
+
+  useEffect(() => {
+    if (!tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    loadTimelineData(tenantId, granularity)
+      .then(result => { if (!cancelled) setTimelineData(result); })
+      .catch(err => console.error('Failed to load timeline data:', err))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId, granularity]);
 
   const METRIC_CONFIG = {
     revenue: { label: 'Revenue', format: (v: number) => `${symbol}${(v / 1000).toFixed(0)}K`, icon: DollarSign },
@@ -164,50 +83,50 @@ export default function RevenueTimelinePage() {
     tips: { label: 'Tips', format: (v: number) => `${symbol}${(v / 1000).toFixed(1)}K`, icon: Percent },
   };
 
-  // Generate data based on selections
-  const chartData = useMemo(() => {
-    if (scope === 'all') {
-      switch (granularity) {
-        case 'day': return generateDailyData();
-        case 'week': return generateWeeklyData();
-        case 'month': return generateMonthlyData();
-      }
-    }
-    return generateBrandData(granularity);
-  }, [granularity, scope]);
+  const chartData: TimelinePoint[] = timelineData?.data ?? [];
 
   // Calculate summary stats
   const stats = useMemo(() => {
-    const baseData = granularity === 'day' ? generateDailyData() :
-                     granularity === 'week' ? generateWeeklyData() :
-                     generateMonthlyData();
-
-    const total = baseData.reduce((sum, d) => sum + d[metric], 0);
-    const first = baseData[0][metric];
-    const last = baseData[baseData.length - 1][metric];
-    const change = ((last - first) / first) * 100;
-
-    return { total, change, avg: total / baseData.length };
-  }, [granularity, metric]);
+    if (chartData.length === 0) return { total: 0, change: 0, avg: 0 };
+    const total = chartData.reduce((sum, d) => sum + d[metric], 0);
+    const first = chartData[0][metric];
+    const last = chartData[chartData.length - 1][metric];
+    const change = first > 0 ? ((last - first) / first) * 100 : 0;
+    return { total, change, avg: total / chartData.length };
+  }, [chartData, metric]);
 
   const metricConfig = METRIC_CONFIG[metric];
 
-  // Prepare data for multi-line brand comparison
+  // Brand comparison data
   const brandChartData = useMemo(() => {
-    if (scope !== 'brand') return [];
+    if (scope !== 'brand' || !timelineData) return [];
+    return timelineData.brandData;
+  }, [scope, timelineData]);
 
-    const brandData = generateBrandData(granularity);
-    const labels = Array.from(new Set(brandData.map(d => d.label)));
+  const brandNames = timelineData?.brandNames ?? [];
+  const brandColors = timelineData?.brandColors ?? {};
 
-    return labels.map(label => {
-      const points = brandData.filter(d => d.label === label);
-      const result: Record<string, number | string> = { label };
-      points.forEach(p => {
-        result[p.brand] = p[metric];
-      });
-      return result;
-    });
-  }, [granularity, metric, scope]);
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!timelineData) {
+    return (
+      <div className="p-6">
+        <Card className="max-w-xl mx-auto">
+          <CardContent className="pt-6 text-center">
+            <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">No Data</h2>
+            <p className="text-muted-foreground">Import POS data to see revenue timeline.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -374,20 +293,19 @@ export default function RevenueTimelinePage() {
                     }}
                   />
                   <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="Taco Loco"
-                    stroke={COLORS.brands['Taco Loco']}
-                    strokeWidth={2}
-                    dot={{ fill: COLORS.brands['Taco Loco'] }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="El Ranchero"
-                    stroke={COLORS.brands['El Ranchero']}
-                    strokeWidth={2}
-                    dot={{ fill: COLORS.brands['El Ranchero'] }}
-                  />
+                  {brandNames.map((name, i) => {
+                    const color = brandColors[name] || ['#ef4444', '#22c55e', '#3b82f6'][i % 3];
+                    return (
+                      <Line
+                        key={name}
+                        type="monotone"
+                        dataKey={name}
+                        stroke={color}
+                        strokeWidth={2}
+                        dot={{ fill: color }}
+                      />
+                    );
+                  })}
                 </LineChart>
               )}
             </ResponsiveContainer>
@@ -413,13 +331,13 @@ export default function RevenueTimelinePage() {
                 </tr>
               </thead>
               <tbody>
-                {(scope === 'all' ? chartData : generateDailyData()).map((row, i) => (
+                {chartData.map((row, i) => (
                   <tr key={i} className="border-b last:border-0">
-                    <td className="py-2 font-medium">{(row as DataPoint).label}</td>
-                    <td className="py-2 text-right">{format((row as DataPoint).revenue)}</td>
-                    <td className="py-2 text-right">{(row as DataPoint).checks}</td>
-                    <td className="py-2 text-right">{format((row as DataPoint).avgCheck)}</td>
-                    <td className="py-2 text-right">{format((row as DataPoint).tips)}</td>
+                    <td className="py-2 font-medium">{row.label}</td>
+                    <td className="py-2 text-right">{format(row.revenue)}</td>
+                    <td className="py-2 text-right">{row.checks}</td>
+                    <td className="py-2 text-right">{format(row.avgCheck)}</td>
+                    <td className="py-2 text-right">{format(row.tips)}</td>
                   </tr>
                 ))}
               </tbody>

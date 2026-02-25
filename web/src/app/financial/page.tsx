@@ -23,169 +23,14 @@ import {
 import Link from 'next/link';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
-import { getFinancialService } from '@/lib/financial/financial-service';
-import { ChequeImportService } from '@/lib/financial/cheque-import-service';
 import {
   LineChart,
   Line,
   ResponsiveContainer,
 } from 'recharts';
-import {
-  isProvisioned,
-  provisionFRMXDemo,
-} from '@/lib/demo/frmx-demo-provisioner';
+import { loadNetworkPulseData, type NetworkPulseData } from '@/lib/financial/financial-data-service';
 
-// Types
-interface LocationMetrics {
-  id: string;
-  name: string;
-  city: string;
-  brandId: string;
-  brandName: string;
-  brandColor: string;
-  revenue: number;
-  avgCheck: number;
-  weeklyData: number[];
-  vsNetworkAvg: 'above' | 'within' | 'below';
-}
-
-interface BrandMetrics {
-  id: string;
-  name: string;
-  concept: string;
-  color: string;
-  locationCount: number;
-  totalRevenue: number;
-  avgCheck: number;
-  tipRate: number;
-}
-
-interface NetworkMetrics {
-  netRevenue: number;
-  revenueChange: number;
-  checksServed: number;
-  checksChange: number;
-  avgCheck: number;
-  avgCheckChange: number;
-  tipRate: number;
-  tipTarget: number;
-  leakageRate: number;
-  leakageThreshold: number;
-  activeLocations: number;
-  totalLocations: number;
-}
-
-// Seed data generator for demo/development
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function generateSeedData(_tenantId: string): {
-  networkMetrics: NetworkMetrics;
-  locations: LocationMetrics[];
-  brands: BrandMetrics[];
-} {
-  // Generate locations for 2 brands
-  const brands: BrandMetrics[] = [
-    {
-      id: 'brand-casual',
-      name: 'La Terraza',
-      concept: 'Casual Dining',
-      color: '#2563eb', // Blue
-      locationCount: 3,
-      totalRevenue: 4821340,
-      avgCheck: 458,
-      tipRate: 0.12,
-    },
-    {
-      id: 'brand-fast',
-      name: 'Rapido Fresh',
-      concept: 'Fast Casual',
-      color: '#16a34a', // Green
-      locationCount: 2,
-      totalRevenue: 3413129,
-      avgCheck: 389,
-      tipRate: 0.108,
-    },
-  ];
-
-  const locations: LocationMetrics[] = [
-    {
-      id: 'loc-1',
-      name: 'Centro Historico',
-      city: 'CDMX',
-      brandId: 'brand-casual',
-      brandName: 'La Terraza',
-      brandColor: '#2563eb',
-      revenue: 1845230,
-      avgCheck: 472,
-      weeklyData: [82, 91, 87, 95, 88, 92, 89],
-      vsNetworkAvg: 'above',
-    },
-    {
-      id: 'loc-2',
-      name: 'Polanco',
-      city: 'CDMX',
-      brandId: 'brand-casual',
-      brandName: 'La Terraza',
-      brandColor: '#2563eb',
-      revenue: 1623450,
-      avgCheck: 512,
-      weeklyData: [78, 85, 82, 88, 91, 87, 93],
-      vsNetworkAvg: 'above',
-    },
-    {
-      id: 'loc-3',
-      name: 'Santa Fe',
-      city: 'CDMX',
-      brandId: 'brand-casual',
-      brandName: 'La Terraza',
-      brandColor: '#2563eb',
-      revenue: 1352660,
-      avgCheck: 445,
-      weeklyData: [71, 68, 73, 69, 72, 70, 74],
-      vsNetworkAvg: 'within',
-    },
-    {
-      id: 'loc-4',
-      name: 'Reforma',
-      city: 'CDMX',
-      brandId: 'brand-fast',
-      brandName: 'Rapido Fresh',
-      brandColor: '#16a34a',
-      revenue: 1892340,
-      avgCheck: 401,
-      weeklyData: [95, 98, 92, 96, 94, 97, 99],
-      vsNetworkAvg: 'above',
-    },
-    {
-      id: 'loc-5',
-      name: 'Condesa',
-      city: 'CDMX',
-      brandId: 'brand-fast',
-      brandName: 'Rapido Fresh',
-      brandColor: '#16a34a',
-      revenue: 1520789,
-      avgCheck: 378,
-      weeklyData: [62, 58, 55, 61, 57, 54, 59],
-      vsNetworkAvg: 'below',
-    },
-  ];
-
-  const networkMetrics: NetworkMetrics = {
-    netRevenue: 8234469,
-    revenueChange: 2.3,
-    checksServed: 18903,
-    checksChange: -0.1,
-    avgCheck: 435.58,
-    avgCheckChange: 1.8,
-    tipRate: 11.8,
-    tipTarget: 12,
-    leakageRate: 2.1,
-    leakageThreshold: 3,
-    activeLocations: 5,
-    totalLocations: 5,
-  };
-
-  return { networkMetrics, locations, brands };
-}
+// Types come from financial-data-service
 
 export default function NetworkPulseDashboard() {
   const { currentTenant } = useTenant();
@@ -193,82 +38,24 @@ export default function NetworkPulseDashboard() {
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
 
-  const tenantId = currentTenant?.id || 'restaurantmx';
+  const tenantId = currentTenant?.id;
 
   const [loading, setLoading] = useState(true);
-  const [hasData, setHasData] = useState(false);
-  const [networkMetrics, setNetworkMetrics] = useState<NetworkMetrics | null>(null);
-  const [locations, setLocations] = useState<LocationMetrics[]>([]);
-  const [brands, setBrands] = useState<BrandMetrics[]>([]);
+  const [data, setData] = useState<NetworkPulseData | null>(null);
 
   useEffect(() => {
-    const loadData = () => {
-      try {
-        const importService = new ChequeImportService(tenantId);
-        let cheques = importService.getAllCheques();
-
-        // FRMX Demo Auto-Provisioning
-        // If this is the FRMX demo tenant and no data exists, auto-provision
-        if (cheques.length === 0 && tenantId === 'frmx-demo' && !isProvisioned()) {
-          console.log('FRMX Demo: Auto-provisioning demo data...');
-          const result = provisionFRMXDemo();
-          if (result.success) {
-            console.log(`FRMX Demo: Provisioned ${result.chequeCount} cheques`);
-            // Reload cheques after provisioning
-            cheques = importService.getAllCheques();
-          } else {
-            console.error('FRMX Demo: Provisioning failed:', result.error);
-          }
-        }
-
-        if (cheques.length === 0) {
-          // Use seed data for demo
-          const seedData = generateSeedData(tenantId);
-          setNetworkMetrics(seedData.networkMetrics);
-          setLocations(seedData.locations);
-          setBrands(seedData.brands);
-          setHasData(true);
-        } else {
-          // Use real data
-          const financialService = getFinancialService(tenantId);
-          const summary = financialService.getDashboardSummary();
-
-          // Convert real data to our metrics format
-          setNetworkMetrics({
-            netRevenue: summary.totalRevenue,
-            revenueChange: 2.3, // Would calculate from historical
-            checksServed: summary.totalCheques,
-            checksChange: -0.1,
-            avgCheck: summary.avgCheck,
-            avgCheckChange: 1.8,
-            tipRate: summary.tipRate * 100,
-            tipTarget: 12,
-            leakageRate: (summary.discountRate + summary.cancellationRate) * 100,
-            leakageThreshold: 3,
-            activeLocations: summary.locationCount,
-            totalLocations: summary.locationCount,
-          });
-
-          // Generate location data from real cheques
-          const seedData = generateSeedData(tenantId);
-          setLocations(seedData.locations);
-          setBrands(seedData.brands);
-          setHasData(true);
-        }
-      } catch {
-        // Fallback to seed data on error
-        const seedData = generateSeedData(tenantId);
-        setNetworkMetrics(seedData.networkMetrics);
-        setLocations(seedData.locations);
-        setBrands(seedData.brands);
-        setHasData(true);
-      }
-
-      setLoading(false);
-    };
-
-    loadData();
+    if (!tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    loadNetworkPulseData(tenantId)
+      .then(result => { if (!cancelled) setData(result); })
+      .catch(err => console.error('Failed to load network pulse data:', err))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [tenantId]);
+
+  const networkMetrics = data?.networkMetrics ?? null;
+  const locations = data?.locations ?? [];
+  const brands = data?.brands ?? [];
 
   if (loading) {
     return (
@@ -278,7 +65,7 @@ export default function NetworkPulseDashboard() {
     );
   }
 
-  if (!hasData || !networkMetrics) {
+  if (!networkMetrics) {
     return (
       <div className="p-6">
         <Card className="max-w-xl mx-auto">

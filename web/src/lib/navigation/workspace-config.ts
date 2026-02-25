@@ -379,6 +379,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronologia de Ingresos', icon: 'LineChart', roles: ['vl_admin', 'admin', 'manager'] },
           { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicacion', icon: 'BarChart3', roles: ['vl_admin', 'admin', 'manager'] },
           { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Clock', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial/summary', label: 'Monthly Summary', labelEs: 'Resumen Mensual', icon: 'FileText', roles: ['vl_admin', 'admin', 'manager'] },
         ],
       },
       {

@@ -7,7 +7,7 @@
  * Shows all locations with ranking, trend sparklines, and color-coded performance.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -33,149 +33,24 @@ import {
   ArrowUpDown,
   MapPin,
   ChevronRight,
+  Activity,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import {
   LineChart,
   Line,
   ResponsiveContainer,
 } from 'recharts';
-
-// Types
-interface LocationBenchmark {
-  id: string;
-  rank: number;
-  rankChange: number; // positive = moved up, negative = moved down
-  name: string;
-  city: string;
-  brandId: string;
-  brandName: string;
-  brandColor: string;
-  revenue: number;
-  maxRevenue: number; // for bar width calculation
-  avgCheck: number;
-  brandAvgCheck: number;
-  wowChange: number;
-  weeklyTrend: number[];
-  foodBevRatio: { food: number; bev: number };
-  tipRate: number;
-  networkAvgTipRate: number;
-  leakage: number;
-}
+import { loadPerformanceData, type LocationBenchmarkData } from '@/lib/financial/financial-data-service';
 
 type SortField = 'rank' | 'name' | 'brand' | 'revenue' | 'avgCheck' | 'wowChange' | 'tipRate' | 'leakage';
 type SortOrder = 'asc' | 'desc';
 
-// Seed data for demo
-function generateSeedData(): LocationBenchmark[] {
-  const maxRevenue = 1892340;
-  return [
-    {
-      id: 'loc-1',
-      rank: 1,
-      rankChange: 1,
-      name: 'Reforma',
-      city: 'CDMX',
-      brandId: 'brand-fast',
-      brandName: 'Rapido Fresh',
-      brandColor: '#16a34a',
-      revenue: 1892340,
-      maxRevenue,
-      avgCheck: 401,
-      brandAvgCheck: 389,
-      wowChange: 4.2,
-      weeklyTrend: [95, 98, 92, 96, 94, 97, 99],
-      foodBevRatio: { food: 72, bev: 28 },
-      tipRate: 11.2,
-      networkAvgTipRate: 11.8,
-      leakage: 1.8,
-    },
-    {
-      id: 'loc-2',
-      rank: 2,
-      rankChange: 0,
-      name: 'Centro Historico',
-      city: 'CDMX',
-      brandId: 'brand-casual',
-      brandName: 'La Terraza',
-      brandColor: '#2563eb',
-      revenue: 1845230,
-      maxRevenue,
-      avgCheck: 472,
-      brandAvgCheck: 458,
-      wowChange: 2.1,
-      weeklyTrend: [82, 91, 87, 95, 88, 92, 89],
-      foodBevRatio: { food: 65, bev: 35 },
-      tipRate: 12.4,
-      networkAvgTipRate: 11.8,
-      leakage: 2.3,
-    },
-    {
-      id: 'loc-3',
-      rank: 3,
-      rankChange: -1,
-      name: 'Polanco',
-      city: 'CDMX',
-      brandId: 'brand-casual',
-      brandName: 'La Terraza',
-      brandColor: '#2563eb',
-      revenue: 1623450,
-      maxRevenue,
-      avgCheck: 512,
-      brandAvgCheck: 458,
-      wowChange: -1.2,
-      weeklyTrend: [78, 85, 82, 88, 91, 87, 93],
-      foodBevRatio: { food: 60, bev: 40 },
-      tipRate: 13.1,
-      networkAvgTipRate: 11.8,
-      leakage: 1.9,
-    },
-    {
-      id: 'loc-4',
-      rank: 4,
-      rankChange: 0,
-      name: 'Condesa',
-      city: 'CDMX',
-      brandId: 'brand-fast',
-      brandName: 'Rapido Fresh',
-      brandColor: '#16a34a',
-      revenue: 1520789,
-      maxRevenue,
-      avgCheck: 378,
-      brandAvgCheck: 389,
-      wowChange: -3.8,
-      weeklyTrend: [62, 58, 55, 61, 57, 54, 59],
-      foodBevRatio: { food: 75, bev: 25 },
-      tipRate: 10.2,
-      networkAvgTipRate: 11.8,
-      leakage: 3.4,
-    },
-    {
-      id: 'loc-5',
-      rank: 5,
-      rankChange: 0,
-      name: 'Santa Fe',
-      city: 'CDMX',
-      brandId: 'brand-casual',
-      brandName: 'La Terraza',
-      brandColor: '#2563eb',
-      revenue: 1352660,
-      maxRevenue,
-      avgCheck: 445,
-      brandAvgCheck: 458,
-      wowChange: 0.8,
-      weeklyTrend: [71, 68, 73, 69, 72, 70, 74],
-      foodBevRatio: { food: 68, bev: 32 },
-      tipRate: 11.6,
-      networkAvgTipRate: 11.8,
-      leakage: 2.8,
-    },
-  ];
-}
-
 export default function LocationBenchmarksPage() {
+  const { currentTenant } = useTenant();
+  const tenantId = currentTenant?.id;
   const { format } = useCurrency();
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
@@ -183,8 +58,18 @@ export default function LocationBenchmarksPage() {
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const [brandFilter, setBrandFilter] = useState<string>('all');
+  const [loading, setLoading] = useState(true);
+  const [locations, setLocations] = useState<LocationBenchmarkData[]>([]);
 
-  const locations = useMemo(() => generateSeedData(), []);
+  useEffect(() => {
+    if (!tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    loadPerformanceData(tenantId)
+      .then(result => { if (!cancelled) setLocations(result || []); })
+      .catch(err => console.error('Failed to load performance data:', err))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   const filteredLocations = useMemo(() => {
     let result = [...locations];
@@ -273,6 +158,28 @@ export default function LocationBenchmarksPage() {
     });
     return Array.from(uniqueBrands.values());
   }, [locations]);
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (locations.length === 0) {
+    return (
+      <div className="p-6">
+        <Card className="max-w-xl mx-auto">
+          <CardContent className="pt-6 text-center">
+            <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">{isSpanish ? 'Sin Datos' : 'No Data'}</h2>
+            <p className="text-muted-foreground">{isSpanish ? 'Importe datos POS para ver benchmarks.' : 'Import POS data to see location benchmarks.'}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
