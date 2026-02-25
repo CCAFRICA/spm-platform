@@ -40,7 +40,8 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { loadProductMixData, type ProductMixData } from '@/lib/financial/financial-data-service';
+import { usePersona } from '@/contexts/persona-context';
+import { loadProductMixData, type ProductMixData, type FinancialScope } from '@/lib/financial/financial-data-service';
 
 type SortField = 'name' | 'brand' | 'food' | 'bev' | 'total' | 'foodPct' | 'avgFoodPerCheck' | 'avgBevPerCheck';
 type SortOrder = 'asc' | 'desc';
@@ -49,6 +50,14 @@ export default function ProductMixPage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
+  const { scope } = usePersona();
+
+  const financialScope: FinancialScope | undefined = useMemo(() => {
+    if (scope.canSeeAll) return undefined;
+    if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
+    return undefined;
+  }, [scope]);
+
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ProductMixData | null>(null);
   const [sortField, setSortField] = useState<SortField>('total');
@@ -60,7 +69,7 @@ export default function ProductMixPage() {
 
     async function load() {
       try {
-        const result = await loadProductMixData(tenantId!);
+        const result = await loadProductMixData(tenantId!, financialScope);
         if (!cancelled) setData(result);
       } catch (err) {
         console.error('Failed to load product mix data:', err);
@@ -71,7 +80,7 @@ export default function ProductMixPage() {
 
     load();
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, financialScope]);
 
   const sortedLocations = useMemo(() => {
     if (!data) return [];

@@ -7,7 +7,7 @@
  * Three sections: Key Metrics Row, Location Performance Grid, Brand Comparison
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -22,20 +22,20 @@ import {
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import {
   LineChart,
   Line,
   ResponsiveContainer,
 } from 'recharts';
-import { loadNetworkPulseData, type NetworkPulseData } from '@/lib/financial/financial-data-service';
-
-// Types come from financial-data-service
+import { loadNetworkPulseData, type NetworkPulseData, type FinancialScope } from '@/lib/financial/financial-data-service';
 
 export default function NetworkPulseDashboard() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
   const { locale } = useLocale();
   const router = useRouter();
+  const { scope } = usePersona();
   const isSpanish = locale === 'es-MX';
 
   const tenantId = currentTenant?.id;
@@ -43,15 +43,22 @@ export default function NetworkPulseDashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<NetworkPulseData | null>(null);
 
+  // F-8/F-9: Build persona scope for data filtering
+  const financialScope: FinancialScope | undefined = useMemo(() => {
+    if (scope.canSeeAll) return undefined; // Admin sees all
+    if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
+    return undefined;
+  }, [scope]);
+
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
-    loadNetworkPulseData(tenantId)
+    loadNetworkPulseData(tenantId, financialScope)
       .then(result => { if (!cancelled) setData(result); })
       .catch(err => console.error('Failed to load network pulse data:', err))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, financialScope]);
 
   const networkMetrics = data?.networkMetrics ?? null;
   const locations = data?.locations ?? [];

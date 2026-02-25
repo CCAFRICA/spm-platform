@@ -29,7 +29,8 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { loadSummaryData, type SummaryPageData } from '@/lib/financial/financial-data-service';
+import { usePersona } from '@/contexts/persona-context';
+import { loadSummaryData, type SummaryPageData, type FinancialScope } from '@/lib/financial/financial-data-service';
 
 type SortField = 'name' | 'brand' | 'revenue' | 'food' | 'bev' | 'tips' | 'discounts' | 'netRevenue';
 type SortOrder = 'asc' | 'desc';
@@ -38,6 +39,14 @@ export default function OperatingSummaryPage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
+  const { scope } = usePersona();
+
+  const financialScope: FinancialScope | undefined = useMemo(() => {
+    if (scope.canSeeAll) return undefined;
+    if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
+    return undefined;
+  }, [scope]);
+
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<SummaryPageData | null>(null);
   const [sortField, setSortField] = useState<SortField>('revenue');
@@ -46,12 +55,12 @@ export default function OperatingSummaryPage() {
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
-    loadSummaryData(tenantId)
+    loadSummaryData(tenantId, financialScope)
       .then(result => { if (!cancelled) setData(result); })
       .catch(err => console.error('Failed to load summary data:', err))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, financialScope]);
 
   // Auto-generate insights from data
   const insights = useMemo(() => {

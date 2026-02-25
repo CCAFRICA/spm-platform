@@ -273,18 +273,26 @@ export interface ServerDetailData {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Persona scope type (for F-8/F-9 filtering)
+// ═══════════════════════════════════════════════════════════════════
+
+export interface FinancialScope {
+  scopeEntityIds?: string[];
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // API caller
 // ═══════════════════════════════════════════════════════════════════
 
 async function fetchFinancialData<T>(
   tenantId: string,
   mode: string,
-  params?: Record<string, string>
+  params?: Record<string, unknown> | FinancialScope
 ): Promise<T | null> {
   const res = await fetch('/api/financial/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tenantId, mode, ...params }),
+    body: JSON.stringify({ tenantId, mode, ...(params || {}) }),
   });
 
   if (!res.ok) {
@@ -306,41 +314,43 @@ export function clearFinancialCache(): void {
 
 // ═══════════════════════════════════════════════════════════════════
 // Loader functions — 1 API call each
+// All accept optional FinancialScope for persona-based filtering (F-8/F-9)
 // ═══════════════════════════════════════════════════════════════════
 
-export async function loadNetworkPulseData(tenantId: string): Promise<NetworkPulseData | null> {
-  return fetchFinancialData<NetworkPulseData>(tenantId, 'network_pulse');
+export async function loadNetworkPulseData(tenantId: string, scope?: FinancialScope): Promise<NetworkPulseData | null> {
+  return fetchFinancialData<NetworkPulseData>(tenantId, 'network_pulse', scope);
 }
 
-export async function loadLeakageData(tenantId: string): Promise<LeakagePageData | null> {
-  return fetchFinancialData<LeakagePageData>(tenantId, 'leakage');
+export async function loadLeakageData(tenantId: string, scope?: FinancialScope): Promise<LeakagePageData | null> {
+  return fetchFinancialData<LeakagePageData>(tenantId, 'leakage', scope);
 }
 
-export async function loadPerformanceData(tenantId: string): Promise<LocationBenchmarkData[] | null> {
-  return fetchFinancialData<LocationBenchmarkData[]>(tenantId, 'performance');
+export async function loadPerformanceData(tenantId: string, scope?: FinancialScope): Promise<LocationBenchmarkData[] | null> {
+  return fetchFinancialData<LocationBenchmarkData[]>(tenantId, 'performance', scope);
 }
 
-export async function loadStaffData(tenantId: string): Promise<StaffMemberData[] | null> {
-  return fetchFinancialData<StaffMemberData[]>(tenantId, 'staff');
+export async function loadStaffData(tenantId: string, scope?: FinancialScope): Promise<StaffMemberData[] | null> {
+  return fetchFinancialData<StaffMemberData[]>(tenantId, 'staff', scope);
 }
 
 export async function loadTimelineData(
   tenantId: string,
   granularity: 'day' | 'week' | 'month',
+  scope?: FinancialScope,
 ): Promise<TimelinePageData | null> {
-  return fetchFinancialData<TimelinePageData>(tenantId, 'timeline', { granularity });
+  return fetchFinancialData<TimelinePageData>(tenantId, 'timeline', { granularity, ...scope });
 }
 
-export async function loadPatternsData(tenantId: string, locationFilter?: string): Promise<PatternsPageData | null> {
-  return fetchFinancialData<PatternsPageData>(tenantId, 'patterns', locationFilter ? { locationFilter } : undefined);
+export async function loadPatternsData(tenantId: string, locationFilter?: string, scope?: FinancialScope): Promise<PatternsPageData | null> {
+  return fetchFinancialData<PatternsPageData>(tenantId, 'patterns', { ...(locationFilter ? { locationFilter } : {}), ...scope });
 }
 
-export async function loadSummaryData(tenantId: string): Promise<SummaryPageData | null> {
-  return fetchFinancialData<SummaryPageData>(tenantId, 'summary');
+export async function loadSummaryData(tenantId: string, scope?: FinancialScope): Promise<SummaryPageData | null> {
+  return fetchFinancialData<SummaryPageData>(tenantId, 'summary', scope);
 }
 
-export async function loadProductMixData(tenantId: string): Promise<ProductMixData | null> {
-  return fetchFinancialData<ProductMixData>(tenantId, 'products');
+export async function loadProductMixData(tenantId: string, scope?: FinancialScope): Promise<ProductMixData | null> {
+  return fetchFinancialData<ProductMixData>(tenantId, 'products', scope);
 }
 
 export async function loadLocationDetailData(tenantId: string, locationId: string): Promise<LocationDetailData | null> {

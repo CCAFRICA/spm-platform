@@ -44,8 +44,9 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { usePersona } from '@/contexts/persona-context';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
-import { loadStaffData, type StaffMemberData } from '@/lib/financial/financial-data-service';
+import { loadStaffData, type StaffMemberData, type FinancialScope } from '@/lib/financial/financial-data-service';
 
 type SortField = 'rank' | 'name' | 'revenue' | 'checks' | 'avgCheck' | 'tips' | 'tipRate' | 'performanceIndex';
 
@@ -53,6 +54,14 @@ export default function StaffPerformancePage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
   const router = useRouter();
+  const { scope } = usePersona();
+
+  const financialScope: FinancialScope | undefined = useMemo(() => {
+    if (scope.canSeeAll) return undefined;
+    if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
+    return undefined;
+  }, [scope]);
+
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortAsc, setSortAsc] = useState(true);
   const [locationFilter, setLocationFilter] = useState<string>('all');
@@ -63,12 +72,12 @@ export default function StaffPerformancePage() {
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
-    loadStaffData(tenantId)
+    loadStaffData(tenantId, financialScope)
       .then(result => { if (!cancelled) setStaffData(result || []); })
       .catch(err => console.error('Failed to load staff data:', err))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, financialScope]);
 
   // Get unique locations and roles for filters
   const locations = useMemo(() => {

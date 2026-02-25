@@ -5,8 +5,9 @@
  * Replaces client-side paginated fetching (47+ requests per page)
  * with a single server-side aggregation that returns small pre-computed JSON.
  *
- * Body: { tenantId, mode, granularity?, locationFilter?, locationId?, serverId? }
+ * Body: { tenantId, mode, granularity?, locationFilter?, locationId?, serverId?, scopeEntityIds? }
  * Modes: network_pulse | leakage | performance | staff | timeline | patterns | summary | products | location_detail | server_detail
+ * scopeEntityIds: Optional persona-based entity filtering (F-8/F-9). When provided, only cheques for these entity_ids are included.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -1274,13 +1275,14 @@ function aggregateServerDetail(raw: { cheques: ChequeRecord[]; entities: EntityR
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { tenantId, mode, granularity, locationFilter, locationId, serverId } = body as {
+  const { tenantId, mode, granularity, locationFilter, locationId, serverId, scopeEntityIds } = body as {
     tenantId: string;
     mode: string;
     granularity?: 'day' | 'week' | 'month';
     locationFilter?: string;
     locationId?: string;
     serverId?: string;
+    scopeEntityIds?: string[];
   };
 
   if (!tenantId || !mode) {
@@ -1293,32 +1295,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data: null });
     }
 
+    // OB-99 Phase 4: Persona scope filtering
+    // When scopeEntityIds is provided, only include cheques for those entities
+    // and only include those entities in the entity list
+    const scopedRaw = scopeEntityIds && scopeEntityIds.length > 0
+      ? {
+          cheques: raw.cheques.filter(c => scopeEntityIds.includes(c.entity_id)),
+          entities: raw.entities.filter(e =>
+            scopeEntityIds.includes(e.id) ||
+            e.entity_type === 'organization' || // Keep brands for lookups
+            e.entity_type === 'individual'       // Keep staff for lookups
+          ),
+        }
+      : raw;
+
     let data: unknown = null;
 
     switch (mode) {
       case 'network_pulse':
-        data = aggregateNetworkPulse(raw);
+        data = aggregateNetworkPulse(scopedRaw);
         break;
       case 'leakage':
-        data = aggregateLeakage(raw);
+        data = aggregateLeakage(scopedRaw);
         break;
       case 'performance':
-        data = aggregatePerformance(raw);
+        data = aggregatePerformance(scopedRaw);
         break;
       case 'staff':
-        data = aggregateStaff(raw);
+        data = aggregateStaff(scopedRaw);
         break;
       case 'timeline':
-        data = aggregateTimeline(raw, granularity || 'week');
+        data = aggregateTimeline(scopedRaw, granularity || 'week');
         break;
       case 'patterns':
-        data = aggregatePatterns(raw, locationFilter);
+        data = aggregatePatterns(scopedRaw, locationFilter);
         break;
       case 'summary':
-        data = await aggregateSummary(raw, tenantId);
+        data = await aggregateSummary(scopedRaw, tenantId);
         break;
       case 'products':
-        data = aggregateProducts(raw);
+        data = aggregateProducts(scopedRaw);
         break;
       case 'location_detail':
         if (!locationId) return NextResponse.json({ error: 'locationId required' }, { status: 400 });
