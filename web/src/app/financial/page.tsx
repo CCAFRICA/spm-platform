@@ -88,10 +88,10 @@ export default function NetworkPulseDashboard() {
 
   // OB-100: Initialize all brands as expanded when data loads
   useEffect(() => {
-    if (brands.length > 0) {
-      setExpandedBrands(new Set(brands.map(b => b.name)));
+    if (data?.brands && data.brands.length > 0) {
+      setExpandedBrands(new Set(data.brands.map(b => b.name)));
     }
-  }, [brands]);
+  }, [data]);
 
   if (loading) {
     return (
