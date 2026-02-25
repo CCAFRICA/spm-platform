@@ -13,6 +13,7 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -51,6 +52,7 @@ type SortField = 'rank' | 'name' | 'revenue' | 'checks' | 'avgCheck' | 'tips' | 
 export default function StaffPerformancePage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
+  const router = useRouter();
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortAsc, setSortAsc] = useState(true);
   const [locationFilter, setLocationFilter] = useState<string>('all');
@@ -355,8 +357,13 @@ export default function StaffPerformancePage() {
 
                     {/* Name */}
                     <TableCell>
-                      <div className="font-medium text-zinc-100">{staff.name}</div>
-                      <div className="text-xs text-zinc-500">{staff.id}</div>
+                      <div
+                        className="cursor-pointer hover:underline"
+                        onClick={() => router.push(`/financial/server/${staff.id}`)}
+                      >
+                        <div className="font-medium text-zinc-100">{staff.name}</div>
+                        <div className="text-xs text-zinc-500">{staff.id}</div>
+                      </div>
                     </TableCell>
 
                     {/* Location */}

@@ -8,6 +8,7 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -52,6 +53,7 @@ export default function LocationBenchmarksPage() {
   const { format } = useCurrency();
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const router = useRouter();
 
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
@@ -270,7 +272,10 @@ export default function LocationBenchmarksPage() {
 
                     {/* Location */}
                     <TableCell>
-                      <div className="flex items-center gap-2">
+                      <div
+                        className="flex items-center gap-2 cursor-pointer hover:underline"
+                        onClick={() => router.push(`/financial/location/${location.id}`)}
+                      >
                         <div
                           className="w-2 h-2 rounded-full"
                           style={{ backgroundColor: location.brandColor }}
