@@ -568,6 +568,31 @@ function CalculatePageInner() {
             </Card>
           </div>
 
+          {/* Zero-Payout Warning (F-58) */}
+          {entityCount > 0 && totalPayout === 0 && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium text-amber-800">
+                  {locale === 'es-MX' ? 'Cálculo Completo — Atención Requerida' : 'Calculation Complete — Attention Required'}
+                </p>
+                <p className="text-sm text-amber-700 mt-1">
+                  {entityCount} {locale === 'es-MX' ? 'entidades procesadas' : 'entities processed'}. {locale === 'es-MX' ? 'Pago total' : 'Total payout'}: {formatCurrency(0)}.
+                  {' '}
+                  {locale === 'es-MX'
+                    ? 'Esto típicamente significa que los campos de datos no están mapeados a los componentes del plan.'
+                    : 'This typically means data fields are not mapped to plan components.'}
+                </p>
+                <Link
+                  href="/operate/import/enhanced"
+                  className="text-sm text-amber-800 underline hover:text-amber-900 mt-1 inline-block"
+                >
+                  {locale === 'es-MX' ? 'Revisar mapeo de campos →' : 'Review field mappings →'}
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Entity Results Table */}
           <Card>
             <CardHeader>
@@ -614,7 +639,6 @@ function CalculatePageInner() {
                     const externalId = String(meta?.externalId || '');
                     const entityName = String(meta?.entityName || r.entity_id.slice(0, 8));
                     const comps = Array.isArray(r.components) ? r.components as Array<Record<string, unknown>> : [];
-                    const nonZeroComps = comps.filter(c => Number(c.payout || 0) > 0);
                     const intentTraces = (meta?.intentTraces ?? []) as Array<Record<string, unknown>>;
                     const intentMatch = meta?.intentMatch as boolean | undefined;
                     const isExpanded = expandedEntityId === r.entity_id;
@@ -640,10 +664,15 @@ function CalculatePageInner() {
                         {formatCurrency(r.total_payout || 0)}
                       </TableCell>
                       <TableCell className="text-xs text-slate-400">
-                        <div className="flex items-center gap-2">
-                          <span>{nonZeroComps.length > 0
-                            ? nonZeroComps.map(c => String(c.componentName || '')).join(', ')
-                            : '-'}</span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {comps.length > 0 ? comps.map((c, ci) => {
+                            const payout = Number(c.payout || 0);
+                            return (
+                              <span key={ci} className={payout > 0 ? 'text-emerald-500' : 'text-zinc-500'}>
+                                {String(c.componentName || `C${ci + 1}`)}: {formatCurrency(payout)}
+                              </span>
+                            );
+                          }) : '-'}
                           {intentTraces.length > 0 && (
                             <Layers className="h-3 w-3 text-blue-400" />
                           )}
