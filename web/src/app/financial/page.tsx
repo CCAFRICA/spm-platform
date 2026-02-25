@@ -18,7 +18,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   Activity,
   TrendingUp,
-  TrendingDown,
   Users,
   AlertTriangle,
   BarChart3,

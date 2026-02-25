@@ -24,7 +24,6 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
-  BarChart3,
   Layers,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';

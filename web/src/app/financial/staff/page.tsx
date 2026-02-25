@@ -159,28 +159,6 @@ export default function StaffPerformancePage() {
 
   const { format } = useCurrency();
 
-  if (loading) {
-    return (
-      <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent" />
-      </div>
-    );
-  }
-
-  if (staffData.length === 0) {
-    return (
-      <div className="p-6">
-        <Card className="max-w-xl mx-auto">
-          <CardContent className="pt-6 text-center">
-            <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">No Staff Data</h2>
-            <p className="text-muted-foreground">Import POS data to see staff performance.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   // Tier distribution for commentary
   const tierCounts = useMemo(() => {
     const counts = { star: 0, outstanding: 0, standard: 0, developing: 0 };
@@ -221,6 +199,28 @@ export default function StaffPerformancePage() {
     }
     return lines;
   }, [staffData, stats, tierCounts, format, isSpanish]);
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (staffData.length === 0) {
+    return (
+      <div className="p-6">
+        <Card className="max-w-xl mx-auto">
+          <CardContent className="pt-6 text-center">
+            <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">No Staff Data</h2>
+            <p className="text-muted-foreground">Import POS data to see staff performance.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
