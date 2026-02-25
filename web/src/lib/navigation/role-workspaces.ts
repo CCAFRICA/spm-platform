@@ -1,7 +1,8 @@
 /**
- * Role-Based Workspace Configuration
+ * Role-Based Workspace Configuration — 4 Workspace Model (OB-97)
  *
  * Defines which workspaces are available to each role and their default behaviors.
+ * Eliminated workspaces: Investigate → Operate, Design → Configure, Govern → Configure
  */
 
 import type { UserRole } from '@/types/auth';
@@ -25,13 +26,13 @@ export function personaToRole(persona: PersonaKey): UserRole {
 }
 
 // =============================================================================
-// ROLE WORKSPACE VISIBILITY
+// ROLE WORKSPACE VISIBILITY — 4 WORKSPACE MODEL
 // =============================================================================
 
 export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
-  vl_admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern', 'financial'],
-  admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern', 'financial'],
-  manager: ['perform', 'investigate', 'govern', 'financial'],
+  vl_admin: ['operate', 'perform', 'configure', 'financial'],
+  admin: ['operate', 'perform', 'configure', 'financial'],
+  manager: ['perform', 'financial'],
   sales_rep: ['perform', 'financial'],
 };
 
@@ -39,7 +40,6 @@ export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
 // DEFAULT WORKSPACES BY ROLE
 // =============================================================================
 
-// OB-73 Mission 3 / F-14, F-22: Role-appropriate default workspaces
 export const DEFAULT_WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceId> = {
   vl_admin: 'operate',
   admin: 'operate',
@@ -86,29 +86,21 @@ export const WORKSPACE_FEATURE_ACCESS: Record<UserRole, Partial<Record<Workspace
   vl_admin: {
     operate: { canViewAll: true, canEdit: true },
     perform: { canViewAll: true, canEdit: true },
-    investigate: { canViewAll: true, canEdit: true },
-    design: { canViewAll: true, canEdit: true },
     configure: { canViewAll: true, canEdit: true },
-    govern: { canViewAll: true, canEdit: true },
     financial: { canViewAll: true, canEdit: true },
   },
   admin: {
     operate: { canViewAll: true, canEdit: true },
     perform: { canViewAll: true, canEdit: true },
-    investigate: { canViewAll: true, canEdit: true },
-    design: { canViewAll: true, canEdit: true },
     configure: { canViewAll: true, canEdit: true },
-    govern: { canViewAll: true, canEdit: true },
     financial: { canViewAll: true, canEdit: true },
   },
   manager: {
     perform: { canViewAll: true, canEdit: false },
-    investigate: { canViewAll: false, canEdit: false, limitedSections: ['search', 'transactions', 'disputes'] },
-    govern: { canViewAll: false, canEdit: false, limitedSections: ['approvals'] },
     financial: { canViewAll: true, canEdit: false },
   },
   sales_rep: {
-    perform: { canViewAll: false, canEdit: false, limitedSections: ['dashboard', 'compensation', 'transactions', 'inquiries'] },
+    perform: { canViewAll: false, canEdit: false, limitedSections: ['dashboard', 'compensation'] },
     financial: { canViewAll: false, canEdit: false, limitedSections: ['staff'] },
   },
 };

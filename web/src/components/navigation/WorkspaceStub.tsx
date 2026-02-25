@@ -15,13 +15,12 @@ interface WorkspaceStubProps {
   workspace: WorkspaceId;
 }
 
+// OB-97: 4 workspace model
 const WORKSPACE_ROOTS: Record<string, string> = {
-  operate: '/operate',
-  investigate: '/investigate',
-  configure: '/configure',
-  design: '/design',
   perform: '/perform',
-  govern: '/govern',
+  operate: '/operate',
+  configure: '/configure',
+  financial: '/financial',
 };
 
 export function WorkspaceStub({ workspace }: WorkspaceStubProps) {

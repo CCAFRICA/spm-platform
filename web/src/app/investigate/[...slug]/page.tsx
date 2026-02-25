@@ -1,5 +1,6 @@
-import { WorkspaceStub } from '@/components/navigation/WorkspaceStub';
+import { redirect } from 'next/navigation';
 
+// OB-97: Investigate workspace eliminated → redirects to Operate
 export default function InvestigateCatchAll() {
-  return <WorkspaceStub workspace="investigate" />;
+  redirect('/operate');
 }

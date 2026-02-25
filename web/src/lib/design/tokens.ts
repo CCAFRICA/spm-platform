@@ -82,13 +82,12 @@ export const STATE_COMMUNICATION_TOKENS = {
 // WORKSPACE AMBIENT TOKENS (Wayfinder Layer 1)
 // ============================================
 
+// OB-97: 4 workspace model
 export const WORKSPACE_TOKENS = {
-  operate: { density: 'normal' as const, character: 'Control room: structured, sequential' },
   perform: { density: 'low' as const, character: 'Motivational: warm, encouraging' },
-  investigate: { density: 'high' as const, character: 'Forensic lab: precise, evidence-based' },
-  design: { density: 'low' as const, character: 'Creative: open, sandbox-like' },
+  operate: { density: 'normal' as const, character: 'Control room: structured, sequential' },
   configure: { density: 'normal' as const, character: 'Organizational: spatial, structural' },
-  govern: { density: 'high' as const, character: 'Compliance: formal, audit-oriented' },
+  financial: { density: 'normal' as const, character: 'Analytical: data-driven, metric-focused' },
 } as const;
 
 export type WorkspaceKey = keyof typeof WORKSPACE_TOKENS;

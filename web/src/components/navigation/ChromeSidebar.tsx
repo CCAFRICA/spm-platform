@@ -99,14 +99,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-// Workspace icon map
+// Workspace icon map — 4 workspace model (OB-97)
 const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: string }>> = {
-  operate: Zap,
   perform: TrendingUp,
-  investigate: Search,
-  design: Palette,
+  operate: Zap,
   configure: Settings,
-  govern: Shield,
   financial: Activity,
 };
 
