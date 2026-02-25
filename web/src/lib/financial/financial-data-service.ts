@@ -231,6 +231,8 @@ export interface NetworkPulseData {
     avgCheck: number;
     weeklyData: number[];
     vsNetworkAvg: 'above' | 'within' | 'below';
+    tipRate: number;
+    leakageRate: number;
   }>;
   brands: Array<{
     id: string;
@@ -313,6 +315,8 @@ export async function loadNetworkPulseData(tenantId: string): Promise<NetworkPul
         avgCheck: round2(locAvg),
         weeklyData: makeBuckets(l.daily, 7),
         vsNetworkAvg: (ratio > 1.05 ? 'above' : ratio < 0.95 ? 'below' : 'within') as 'above' | 'within' | 'below',
+        tipRate: l.revenue > 0 ? round2((l.tips / l.revenue) * 100) : 0,
+        leakageRate: l.revenue > 0 ? round2(((l.discounts + l.comps) / l.revenue) * 100) : 0,
       };
     });
 

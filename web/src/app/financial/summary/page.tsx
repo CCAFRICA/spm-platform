@@ -24,6 +24,9 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  Lightbulb,
+  AlertTriangle,
+  TrendingUp,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { loadSummaryData, type SummaryPageData } from '@/lib/financial/financial-data-service';
@@ -49,6 +52,86 @@ export default function OperatingSummaryPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [tenantId]);
+
+  // Auto-generate insights from data
+  const insights = useMemo(() => {
+    if (!data) return [];
+    const locs = data.locationBreakdown;
+    if (locs.length < 2) return [];
+
+    const results: Array<{ icon: 'alert' | 'trend' | 'insight'; title: string; detail: string; color: string }> = [];
+
+    // Find highest and lowest revenue locations
+    const sorted = [...locs].sort((a, b) => b.revenue - a.revenue);
+    const top = sorted[0];
+    const bottom = sorted[sorted.length - 1];
+    if (top && bottom && top.revenue > 0) {
+      const ratio = top.revenue / bottom.revenue;
+      if (ratio > 2) {
+        results.push({
+          icon: 'alert',
+          title: `${ratio.toFixed(1)}x revenue gap`,
+          detail: `${top.name} generates ${ratio.toFixed(1)}x more than ${bottom.name}`,
+          color: 'text-amber-400',
+        });
+      }
+    }
+
+    // Find location with highest discount rate
+    const withDiscountRate = locs.map(l => ({
+      ...l,
+      discountRate: l.revenue > 0 ? ((l.discounts + l.comps) / l.revenue) * 100 : 0,
+    }));
+    const highDiscount = withDiscountRate.sort((a, b) => b.discountRate - a.discountRate)[0];
+    if (highDiscount && highDiscount.discountRate > 5) {
+      results.push({
+        icon: 'alert',
+        title: `High leakage: ${highDiscount.name}`,
+        detail: `${highDiscount.discountRate.toFixed(1)}% discount+comp rate — above 5% threshold`,
+        color: 'text-red-400',
+      });
+    }
+
+    // Find brand with best tip performance
+    const brandTips = new Map<string, { brand: string; tips: number; revenue: number }>();
+    for (const loc of locs) {
+      const existing = brandTips.get(loc.brand) || { brand: loc.brand, tips: 0, revenue: 0 };
+      existing.tips += loc.tips;
+      existing.revenue += loc.revenue;
+      brandTips.set(loc.brand, existing);
+    }
+    const brandTipRates = Array.from(brandTips.values())
+      .filter(b => b.revenue > 0)
+      .map(b => ({ ...b, tipRate: (b.tips / b.revenue) * 100 }))
+      .sort((a, b) => b.tipRate - a.tipRate);
+    if (brandTipRates.length >= 2) {
+      const best = brandTipRates[0];
+      results.push({
+        icon: 'trend',
+        title: `${best.brand} leads tips`,
+        detail: `${best.tipRate.toFixed(1)}% tip rate — highest across brands`,
+        color: 'text-green-400',
+      });
+    }
+
+    // Food vs Bev concentration
+    const totalFood = locs.reduce((s, l) => s + l.food, 0);
+    const totalBev = locs.reduce((s, l) => s + l.bev, 0);
+    const totalRev = totalFood + totalBev;
+    if (totalRev > 0) {
+      const foodPct = (totalFood / totalRev) * 100;
+      results.push({
+        icon: 'insight',
+        title: `Food:Bev split ${foodPct.toFixed(0)}:${(100 - foodPct).toFixed(0)}`,
+        detail: foodPct > 70 ? 'Beverage upsell opportunity — food-heavy mix' :
+               foodPct < 40 ? 'Strong beverage performance' :
+               'Balanced food and beverage mix',
+        color: 'text-blue-400',
+      });
+    }
+
+    return results.slice(0, 4);
+  }, [data]);
 
   const sortedLocations = useMemo(() => {
     if (!data) return [];
@@ -175,6 +258,27 @@ export default function OperatingSummaryPage() {
           </table>
         </CardContent>
       </Card>
+
+      {/* Insights */}
+      {insights.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {insights.map((insight, i) => (
+            <Card key={i} className="border-l-2" style={{ borderLeftColor: insight.color === 'text-amber-400' ? '#fbbf24' : insight.color === 'text-red-400' ? '#f87171' : insight.color === 'text-green-400' ? '#4ade80' : '#60a5fa' }}>
+              <CardContent className="pt-3 pb-3">
+                <div className="flex items-start gap-2">
+                  {insight.icon === 'alert' && <AlertTriangle className={`h-4 w-4 mt-0.5 shrink-0 ${insight.color}`} />}
+                  {insight.icon === 'trend' && <TrendingUp className={`h-4 w-4 mt-0.5 shrink-0 ${insight.color}`} />}
+                  {insight.icon === 'insight' && <Lightbulb className={`h-4 w-4 mt-0.5 shrink-0 ${insight.color}`} />}
+                  <div>
+                    <p className={`text-sm font-medium ${insight.color}`}>{insight.title}</p>
+                    <p className="text-xs text-zinc-500 mt-0.5">{insight.detail}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Location Breakdown — Sortable */}
       <Card>

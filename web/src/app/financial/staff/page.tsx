@@ -126,6 +126,13 @@ export default function StaffPerformancePage() {
     return sortAsc ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />;
   };
 
+  const getTierBadge = (index: number) => {
+    if (index >= 85) return { label: 'Estrella', color: 'bg-yellow-100 text-yellow-700' };
+    if (index >= 70) return { label: 'Destacado', color: 'bg-blue-100 text-blue-700' };
+    if (index >= 50) return { label: 'Estandar', color: 'bg-zinc-700 text-zinc-300' };
+    return { label: 'En Desarrollo', color: 'bg-red-100 text-red-700' };
+  };
+
   const RankChange = ({ current, prev }: { current: number; prev: number }) => {
     const diff = prev - current;
     if (diff > 0) {
@@ -402,12 +409,16 @@ export default function StaffPerformancePage() {
                     {/* Performance Index */}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <div className="w-16 bg-zinc-700 rounded-full h-2">
+                        <Badge className={`text-[10px] px-1.5 py-0 ${getTierBadge(staff.performanceIndex).color}`}>
+                          {getTierBadge(staff.performanceIndex).label}
+                        </Badge>
+                        <div className="w-12 bg-zinc-700 rounded-full h-2">
                           <div
                             className={`h-2 rounded-full ${
-                              staff.performanceIndex >= 90 ? 'bg-green-500' :
-                              staff.performanceIndex >= 75 ? 'bg-blue-500' :
-                              'bg-amber-500'
+                              staff.performanceIndex >= 85 ? 'bg-yellow-500' :
+                              staff.performanceIndex >= 70 ? 'bg-blue-500' :
+                              staff.performanceIndex >= 50 ? 'bg-zinc-400' :
+                              'bg-red-500'
                             }`}
                             style={{ width: `${staff.performanceIndex}%` }}
                           />
