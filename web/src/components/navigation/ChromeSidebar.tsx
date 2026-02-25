@@ -136,7 +136,7 @@ export function ChromeSidebar() {
     toggleMobileOpen,
     activeWorkspace,
     navigateToWorkspace,
-    userRole,
+    effectiveRole,
   } = useNavigation();
   const { setOpen: setCommandPaletteOpen } = useCommandPalette();
   const { persona } = usePersona();
@@ -164,9 +164,9 @@ export function ChromeSidebar() {
     });
   }, []);
 
-  // Get accessible workspaces for current user
-  const accessibleWorkspaces = userRole
-    ? getAccessibleWorkspaces(userRole as UserRole).filter(wsId => {
+  // OB-94: Get accessible workspaces using persona-derived effective role
+  const accessibleWorkspaces = effectiveRole
+    ? getAccessibleWorkspaces(effectiveRole as UserRole).filter(wsId => {
         const ws = WORKSPACES[wsId];
         if (!ws?.featureFlag) return true;
         const features = currentTenant?.features as TenantFeatures | undefined;
@@ -174,13 +174,13 @@ export function ChromeSidebar() {
       })
     : [];
 
-  // Get sections for active workspace
+  // Get sections for active workspace using persona-derived effective role
   const activeWsConfig = WORKSPACES[activeWorkspace];
   const activeSections = useMemo(() =>
-    userRole
-      ? getWorkspaceRoutesForRole(activeWorkspace, userRole as UserRole)
+    effectiveRole
+      ? getWorkspaceRoutesForRole(activeWorkspace, effectiveRole as UserRole)
       : [],
-    [activeWorkspace, userRole]
+    [activeWorkspace, effectiveRole]
   );
 
   // Auto-expand section containing the active route

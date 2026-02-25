@@ -20,10 +20,13 @@
  */
 
 import { useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Shield, Users, User } from 'lucide-react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { usePersona } from '@/contexts/persona-context';
+import { getDefaultWorkspace, personaToRole } from '@/lib/navigation/role-workspaces';
+import { WORKSPACES } from '@/lib/navigation/workspace-config';
 import type { PersonaKey } from '@/lib/design/tokens';
 
 interface PersonaChip {
@@ -40,6 +43,7 @@ const PERSONA_CHIPS: PersonaChip[] = [
 ];
 
 export function DemoPersonaSwitcher() {
+  const router = useRouter();
   const { currentTenant, isVLAdmin } = useTenant();
   const { isAuthenticated } = useAuth();
   const { persona, setPersonaOverride } = usePersona();
@@ -51,7 +55,13 @@ export function DemoPersonaSwitcher() {
     } else {
       setPersonaOverride(key);
     }
-  }, [setPersonaOverride]);
+
+    // OB-94: Navigate to the default workspace for the selected persona
+    const role = personaToRole(key);
+    const defaultWs = getDefaultWorkspace(role);
+    const ws = WORKSPACES[defaultWs];
+    router.push(ws.defaultRoute);
+  }, [setPersonaOverride, router]);
 
   // Only visible to authenticated VL Admin with a tenant selected
   if (!isAuthenticated || !isVLAdmin || !currentTenant) {
