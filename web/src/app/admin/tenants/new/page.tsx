@@ -408,7 +408,7 @@ export default function NewTenantPage() {
                 </SelectContent>
               </Select>
               {formData.industry && (
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-slate-400">
                   {industryTemplates.find((t) => t.industry === formData.industry)?.description}
                 </p>
               )}
@@ -527,7 +527,7 @@ export default function NewTenantPage() {
               />
             </div>
             <div className="p-4 rounded-lg border" style={{ borderColor: formData.primaryColor }}>
-              <p className="text-sm text-slate-500 mb-2">Preview</p>
+              <p className="text-sm text-slate-400 mb-2">Preview</p>
               <div className="flex items-center gap-3">
                 <div
                   className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold"
@@ -544,7 +544,7 @@ export default function NewTenantPage() {
       case 'modules':
         return (
           <div className="space-y-4">
-            <p className="text-sm text-slate-500 mb-4">
+            <p className="text-sm text-slate-400 mb-4">
               Select the modules to enable for this tenant. Core modules are enabled by default.
             </p>
             <div className="grid grid-cols-2 gap-4">
@@ -572,7 +572,7 @@ export default function NewTenantPage() {
       case 'admin':
         return (
           <div className="space-y-6">
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-400">
               Create the initial admin user for this tenant. They will receive an email invitation.
             </p>
             <div className="space-y-2">
@@ -605,19 +605,19 @@ export default function NewTenantPage() {
                 <h4 className="font-medium text-zinc-100 mb-2">{t.steps.basic}</h4>
                 <dl className="space-y-1 text-sm">
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">{t.fields.companyName}:</dt>
+                    <dt className="text-slate-400">{t.fields.companyName}:</dt>
                     <dd className="font-medium">{formData.name}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">{t.fields.displayName}:</dt>
+                    <dt className="text-slate-400">{t.fields.displayName}:</dt>
                     <dd className="font-medium">{formData.displayName}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">{t.fields.industry}:</dt>
+                    <dt className="text-slate-400">{t.fields.industry}:</dt>
                     <dd className="font-medium">{formData.industry}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">{t.fields.country}:</dt>
+                    <dt className="text-slate-400">{t.fields.country}:</dt>
                     <dd className="font-medium">{formData.country}</dd>
                   </div>
                 </dl>
@@ -626,15 +626,15 @@ export default function NewTenantPage() {
                 <h4 className="font-medium text-zinc-100 mb-2">{t.steps.localization}</h4>
                 <dl className="space-y-1 text-sm">
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">{t.fields.currency}:</dt>
+                    <dt className="text-slate-400">{t.fields.currency}:</dt>
                     <dd className="font-medium">{formData.currency}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">{t.fields.locale}:</dt>
+                    <dt className="text-slate-400">{t.fields.locale}:</dt>
                     <dd className="font-medium">{formData.locale}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">{t.fields.timezone}:</dt>
+                    <dt className="text-slate-400">{t.fields.timezone}:</dt>
                     <dd className="font-medium">{formData.timezone}</dd>
                   </div>
                 </dl>
@@ -656,11 +656,11 @@ export default function NewTenantPage() {
               <h4 className="font-medium text-zinc-100 mb-2">{t.steps.admin}</h4>
               <dl className="space-y-1 text-sm">
                 <div className="flex justify-between">
-                  <dt className="text-slate-500">{t.fields.adminName}:</dt>
+                  <dt className="text-slate-400">{t.fields.adminName}:</dt>
                   <dd className="font-medium">{formData.adminName}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-slate-500">{t.fields.adminEmail}:</dt>
+                  <dt className="text-slate-400">{t.fields.adminEmail}:</dt>
                   <dd className="font-medium">{formData.adminEmail}</dd>
                 </div>
               </dl>
@@ -681,7 +681,7 @@ export default function NewTenantPage() {
                 <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
                 <div>
                   <p className="text-lg font-medium text-green-600">Tenant Provisioned Successfully!</p>
-                  <p className="text-slate-500 mt-1">{formData.name} is ready</p>
+                  <p className="text-slate-400 mt-1">{formData.name} is ready</p>
                 </div>
                 {provisionResult.warnings.length > 0 && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-left">
@@ -703,7 +703,7 @@ export default function NewTenantPage() {
                 <AlertCircle className="h-16 w-16 text-red-500 mx-auto" />
                 <div>
                   <p className="text-lg font-medium text-red-600">Provisioning Failed</p>
-                  <p className="text-slate-500 mt-1">{provisionResult?.error}</p>
+                  <p className="text-slate-400 mt-1">{provisionResult?.error}</p>
                 </div>
                 <Button variant="outline" onClick={() => setCurrentStep('review')}>
                   <ChevronLeft className="h-4 w-4 mr-2" />
@@ -739,7 +739,7 @@ export default function NewTenantPage() {
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-zinc-100">{t.title}</h1>
-        <p className="text-slate-500">{t.subtitle}</p>
+        <p className="text-slate-400">{t.subtitle}</p>
       </div>
 
       {/* Step Indicator */}
@@ -775,7 +775,7 @@ export default function NewTenantPage() {
         </div>
         <div className="flex justify-between mt-2">
           {STEPS.map((step) => (
-            <span key={step} className="text-xs text-slate-500 w-10 text-center">
+            <span key={step} className="text-xs text-slate-400 w-10 text-center">
               {t.steps[step]}
             </span>
           ))}

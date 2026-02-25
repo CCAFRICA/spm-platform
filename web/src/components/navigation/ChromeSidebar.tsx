@@ -99,14 +99,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-// Workspace icon map
+// Workspace icon map — 4 workspace model (OB-97)
 const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: string }>> = {
-  operate: Zap,
   perform: TrendingUp,
-  investigate: Search,
-  design: Palette,
+  operate: Zap,
   configure: Settings,
-  govern: Shield,
   financial: Activity,
 };
 
@@ -284,7 +281,7 @@ export function ChromeSidebar() {
         {/* ── Workspace Switcher ── */}
         <div className={cn('shrink-0 border-b border-zinc-800/40', isRailCollapsed ? 'py-2 px-1' : 'py-2 px-3')}>
           {!isRailCollapsed && (
-            <p style={{ fontSize: '12px', color: '#71717a', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
+            <p style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
               {isSpanish ? 'Espacios' : 'Workspaces'}
             </p>
           )}
@@ -351,7 +348,7 @@ export function ChromeSidebar() {
           {activeSections.length > 0 && (
             <nav className={cn('py-3', isRailCollapsed ? 'px-1' : 'px-3')}>
               {!isRailCollapsed && (
-                <p style={{ fontSize: '12px', color: '#71717a', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
+                <p style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
                   {isSpanish ? activeWsConfig?.labelEs : activeWsConfig?.label}
                 </p>
               )}

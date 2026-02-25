@@ -171,7 +171,7 @@ export default function TrendsPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">{metric.label}</p>
+                    <p className="text-sm font-medium text-slate-400">{metric.label}</p>
                     <p className="text-3xl font-bold text-slate-50 mt-1">
                       {metric.trend === 'up' ? '+' : '-'}{metric.value}%
                     </p>
@@ -241,15 +241,15 @@ export default function TrendsPage() {
                   <div className="flex gap-4">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-indigo-500" />
-                      <span className="text-sm text-slate-500">2024</span>
+                      <span className="text-sm text-slate-400">2024</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-slate-300" />
-                      <span className="text-sm text-slate-500">2023</span>
+                      <span className="text-sm text-slate-400">2023</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-amber-400" />
-                      <span className="text-sm text-slate-500">{isSpanish ? 'Meta' : 'Target'}</span>
+                      <span className="text-sm text-slate-400">{isSpanish ? 'Meta' : 'Target'}</span>
                     </div>
                   </div>
                 </div>

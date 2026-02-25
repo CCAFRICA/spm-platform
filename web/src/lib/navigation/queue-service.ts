@@ -259,13 +259,11 @@ export function markQueueItemRead(itemId: string): void {
  * Get queue items grouped by workspace
  */
 export function getQueueItemsByWorkspace(items: QueueItem[]): Record<WorkspaceId, QueueItem[]> {
+  // OB-97: 4 workspace model
   const grouped: Record<WorkspaceId, QueueItem[]> = {
     perform: [],
-    investigate: [],
-    design: [],
-    configure: [],
-    govern: [],
     operate: [],
+    configure: [],
     financial: [],
   };
 

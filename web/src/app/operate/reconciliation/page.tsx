@@ -589,7 +589,7 @@ export default function ReconciliationPage() {
           ))}
         </select>
         {selectedBatch && (
-          <p className="text-[11px] text-zinc-500 mt-2">
+          <p className="text-[11px] text-zinc-400 mt-2">
             {selectedBatch.entityCount} {isSpanish ? 'entidades' : 'entities'} · {selectedBatch.lifecycleState} · {new Date(selectedBatch.createdAt).toLocaleDateString(isSpanish ? 'es-MX' : 'en-US')}
           </p>
         )}
@@ -612,7 +612,7 @@ export default function ReconciliationPage() {
             >
               <div className="text-3xl mb-3">📄</div>
               <p className="text-sm text-zinc-300">{isSpanish ? 'Arrastra CSV o XLSX aqui' : 'Drop CSV or XLSX here, or click to browse'}</p>
-              <p className="text-[11px] text-zinc-500 mt-1">{isSpanish ? 'Archivo de pagos de referencia' : 'Ground-truth payout file for comparison'}</p>
+              <p className="text-[11px] text-zinc-400 mt-1">{isSpanish ? 'Archivo de pagos de referencia' : 'Ground-truth payout file for comparison'}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -686,7 +686,7 @@ export default function ReconciliationPage() {
                   <span className="text-base mt-0.5">{depthIcon(level.available, level.confidence)}</span>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-medium ${level.available ? 'text-zinc-200' : 'text-zinc-500'}`}>
+                      <span className={`text-sm font-medium ${level.available ? 'text-zinc-200' : 'text-zinc-400'}`}>
                         Level {level.level} — {isSpanish ? level.nameEs : level.name}
                       </span>
                       {level.available && level.confidence > 0 && (
@@ -695,7 +695,7 @@ export default function ReconciliationPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">{isSpanish ? level.detailEs : level.detail}</p>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">{isSpanish ? level.detailEs : level.detail}</p>
                   </div>
                 </div>
               ))}
@@ -713,9 +713,9 @@ export default function ReconciliationPage() {
                   <div key={i} className="flex items-center gap-3">
                     <span className="text-emerald-400 text-sm">✓</span>
                     <span className="text-sm text-zinc-200">{m.benchmarkPeriod.label}</span>
-                    <span className="text-[10px] text-zinc-500">→</span>
+                    <span className="text-[10px] text-zinc-400">→</span>
                     <span className="text-sm text-zinc-400">{m.vlPeriod.label}</span>
-                    <span className="text-[10px] text-zinc-500">
+                    <span className="text-[10px] text-zinc-400">
                       ({analysis.periodDiscovery.rowsPerPeriod[m.benchmarkPeriod.label] ?? '?'} {isSpanish ? 'filas' : 'rows'})
                     </span>
                   </div>
@@ -724,7 +724,7 @@ export default function ReconciliationPage() {
                   <div key={`bm-${i}`} className="flex items-center gap-3">
                     <span className="text-amber-400 text-sm">⚠</span>
                     <span className="text-sm text-zinc-400">{bp.label}</span>
-                    <span className="text-[10px] text-zinc-500">
+                    <span className="text-[10px] text-zinc-400">
                       {isSpanish ? 'Sin calculo VL' : 'No VL calculation'}
                       ({analysis.periodDiscovery.rowsPerPeriod[bp.label] ?? '?'} {isSpanish ? 'filas excluidas' : 'rows excluded'})
                     </span>
@@ -732,9 +732,9 @@ export default function ReconciliationPage() {
                 ))}
                 {periodMatch.vlOnly.map((vp, i) => (
                   <div key={`vl-${i}`} className="flex items-center gap-3">
-                    <span className="text-zinc-500 text-sm">○</span>
+                    <span className="text-zinc-400 text-sm">○</span>
                     <span className="text-sm text-zinc-400">{vp.label}</span>
-                    <span className="text-[10px] text-zinc-500">{isSpanish ? 'Sin datos benchmark' : 'No benchmark data'}</span>
+                    <span className="text-[10px] text-zinc-400">{isSpanish ? 'Sin datos benchmark' : 'No benchmark data'}</span>
                   </div>
                 ))}
               </div>
@@ -782,9 +782,9 @@ export default function ReconciliationPage() {
                     {analysis.componentColumns.map(c => (
                       <div key={c.sourceColumn} className="flex items-center gap-2">
                         <span>&ldquo;{c.sourceColumn}&rdquo;</span>
-                        <span className="text-zinc-500">→</span>
+                        <span className="text-zinc-400">→</span>
                         <span className="text-zinc-400">{c.semanticType}</span>
-                        <span className="text-[10px] text-zinc-500">({Math.round(c.confidence * 100)}%)</span>
+                        <span className="text-[10px] text-zinc-400">({Math.round(c.confidence * 100)}%)</span>
                       </div>
                     ))}
                   </div>
@@ -834,7 +834,7 @@ export default function ReconciliationPage() {
                 <h3 className="text-sm font-semibold text-zinc-100">
                   {isSpanish ? 'Resumen Ejecutivo' : 'Executive Summary'}
                 </h3>
-                <span className="text-[10px] text-zinc-500">
+                <span className="text-[10px] text-zinc-400">
                   {new Date(report.generatedAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}
                 </span>
               </div>
@@ -845,19 +845,19 @@ export default function ReconciliationPage() {
                   <p className={`text-3xl font-bold tabular-nums ${report.summary.overallMatchPercent >= 99 ? 'text-emerald-400' : report.summary.overallMatchPercent >= 90 ? 'text-amber-400' : 'text-red-400'}`}>
                     {report.summary.overallMatchPercent.toFixed(1)}%
                   </p>
-                  <p className="text-[10px] text-zinc-500 uppercase mt-1">{isSpanish ? 'Tasa de Coincidencia' : 'Match Rate'}</p>
+                  <p className="text-[10px] text-zinc-400 uppercase mt-1">{isSpanish ? 'Tasa de Coincidencia' : 'Match Rate'}</p>
                 </div>
                 <div className="text-center">
                   <p className={`text-3xl font-bold tabular-nums ${Math.abs(report.summary.totalDelta) < 1 ? 'text-emerald-400' : 'text-amber-400'}`}>
                     {formatCurrency(Math.abs(report.summary.totalDelta))}
                   </p>
-                  <p className="text-[10px] text-zinc-500 uppercase mt-1">{isSpanish ? 'Delta Total' : 'Total Delta'}</p>
+                  <p className="text-[10px] text-zinc-400 uppercase mt-1">{isSpanish ? 'Delta Total' : 'Total Delta'}</p>
                 </div>
                 <div className="text-center">
                   <p className="text-3xl font-bold tabular-nums text-zinc-100">
                     {report.summary.entityCount}
                   </p>
-                  <p className="text-[10px] text-zinc-500 uppercase mt-1">{isSpanish ? 'Entidades Comparadas' : 'Entities Compared'}</p>
+                  <p className="text-[10px] text-zinc-400 uppercase mt-1">{isSpanish ? 'Entidades Comparadas' : 'Entities Compared'}</p>
                 </div>
               </div>
 
@@ -894,15 +894,15 @@ export default function ReconciliationPage() {
               {/* Aggregate totals */}
               <div className="mt-4 pt-4 border-t border-zinc-800 grid grid-cols-3 gap-6 text-center">
                 <div>
-                  <p className="text-[10px] text-zinc-500 uppercase">{isSpanish ? 'Motor VL' : 'VL Engine'}</p>
+                  <p className="text-[10px] text-zinc-400 uppercase">{isSpanish ? 'Motor VL' : 'VL Engine'}</p>
                   <p className="text-lg font-bold text-zinc-100 tabular-nums">{formatCurrency(report.summary.totalEngine)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-zinc-500 uppercase">Benchmark</p>
+                  <p className="text-[10px] text-zinc-400 uppercase">Benchmark</p>
                   <p className="text-lg font-bold text-zinc-100 tabular-nums">{formatCurrency(report.summary.totalBenchmark)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-zinc-500 uppercase">Delta</p>
+                  <p className="text-[10px] text-zinc-400 uppercase">Delta</p>
                   <p className={`text-lg font-bold tabular-nums ${
                     report.summary.totalBenchmark !== 0 && Math.abs(report.summary.totalDelta / report.summary.totalBenchmark) < 0.01 ? 'text-emerald-400' : 'text-amber-400'
                   }`}>
@@ -933,14 +933,14 @@ export default function ReconciliationPage() {
                           <p className="text-sm font-medium text-zinc-200">{f.title}</p>
                           <p className="text-xs text-zinc-400 mt-1">{f.description}</p>
                           <div className="flex items-center gap-4 mt-2">
-                            <span className="text-[10px] text-zinc-500">
+                            <span className="text-[10px] text-zinc-400">
                               {isSpanish ? 'Impacto' : 'Impact'}: <span className="text-zinc-300">{f.impact}</span>
                             </span>
-                            <span className="text-[10px] text-zinc-500">
+                            <span className="text-[10px] text-zinc-400">
                               {f.entityCount} {isSpanish ? 'entidades' : 'entities'}
                             </span>
                           </div>
-                          <p className="text-[11px] text-zinc-500 mt-1">
+                          <p className="text-[11px] text-zinc-400 mt-1">
                             <span className="text-zinc-400">{isSpanish ? 'Accion' : 'Action'}:</span> {f.action}
                           </p>
                         </div>
@@ -978,7 +978,7 @@ export default function ReconciliationPage() {
                             {comp.isExact ? '✓' : '△'}
                           </span>
                           <span className="text-sm font-medium text-zinc-200">{comp.name}</span>
-                          <span className="text-[10px] text-zinc-500">
+                          <span className="text-[10px] text-zinc-400">
                             {comp.exactMatchCount}/{comp.entityCount} {isSpanish ? 'exactos' : 'exact'}
                           </span>
                         </div>
@@ -987,7 +987,7 @@ export default function ReconciliationPage() {
                             {comp.delta >= 0 ? '+' : ''}{formatCurrency(comp.delta)}
                             {comp.benchmarkTotal !== 0 && ` (${comp.deltaPercent.toFixed(2)}%)`}
                           </span>
-                          <span className="text-zinc-500 text-xs">{isExpanded ? '▼' : '▶'}</span>
+                          <span className="text-zinc-400 text-xs">{isExpanded ? '▼' : '▶'}</span>
                         </div>
                       </button>
 
@@ -1036,7 +1036,7 @@ export default function ReconciliationPage() {
                               >
                                 ← {isSpanish ? 'Anterior' : 'Prev'}
                               </button>
-                              <span className="text-[10px] text-zinc-500">
+                              <span className="text-[10px] text-zinc-400">
                                 {page + 1}/{totalPages}
                               </span>
                               <button
@@ -1120,7 +1120,7 @@ export default function ReconciliationPage() {
                         row.totalFlag === 'amber' ? 'text-amber-400' : 'text-red-400'
                       }`}>
                         {row.totalDelta >= 0 ? '+' : ''}{formatCurrency(row.totalDelta)}
-                        {row.components.length > 0 && <span className="ml-1 text-zinc-500">{expandedEntity === row.entityId ? '▼' : '▶'}</span>}
+                        {row.components.length > 0 && <span className="ml-1 text-zinc-400">{expandedEntity === row.entityId ? '▼' : '▶'}</span>}
                       </td>
                       <td className="px-3 py-2 text-center text-base">{flagIcon(row.totalFlag)}</td>
                     </tr>
@@ -1129,7 +1129,7 @@ export default function ReconciliationPage() {
               </table>
             </div>
             {matchedRows.length > 200 && (
-              <p className="text-[11px] text-zinc-500 mt-2 text-center">
+              <p className="text-[11px] text-zinc-400 mt-2 text-center">
                 {isSpanish ? 'Mostrando' : 'Showing'} 200 / {matchedRows.length}
               </p>
             )}
@@ -1140,7 +1140,7 @@ export default function ReconciliationPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {compResult.summary.vlOnly > 0 && (
                 <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '16px' }}>
-                  <h5 className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">
+                  <h5 className="text-[10px] text-zinc-400 uppercase tracking-wider mb-2">
                     {isSpanish ? 'Solo en VL' : 'VL-Only'} ({compResult.summary.vlOnly})
                   </h5>
                   <div className="text-xs text-zinc-400 max-h-[120px] overflow-y-auto space-y-0.5">
@@ -1153,7 +1153,7 @@ export default function ReconciliationPage() {
               )}
               {compResult.summary.fileOnly > 0 && (
                 <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '16px' }}>
-                  <h5 className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">
+                  <h5 className="text-[10px] text-zinc-400 uppercase tracking-wider mb-2">
                     {isSpanish ? 'Solo en Benchmark' : 'File-Only'} ({compResult.summary.fileOnly})
                   </h5>
                   <div className="text-xs text-zinc-400 max-h-[120px] overflow-y-auto space-y-0.5">

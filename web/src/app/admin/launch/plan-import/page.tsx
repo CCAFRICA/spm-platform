@@ -972,13 +972,13 @@ function PlanImportPageInner() {
               <>
                 <Brain className="h-12 w-12 text-purple-500 animate-pulse mb-4" />
                 <p className="text-lg font-medium mb-2">{t.aiAnalyzing}</p>
-                <p className="text-sm text-slate-500 mb-4">{t.aiAnalyzingDesc}</p>
+                <p className="text-sm text-slate-400 mb-4">{t.aiAnalyzingDesc}</p>
               </>
             ) : (
               <>
                 <Cpu className="h-12 w-12 text-blue-500 animate-pulse mb-4" />
                 <p className="text-lg font-medium mb-2">{t.heuristicAnalyzing}</p>
-                <p className="text-sm text-slate-500 mb-4">{t.heuristicAnalyzingDesc}</p>
+                <p className="text-sm text-slate-400 mb-4">{t.heuristicAnalyzingDesc}</p>
               </>
             )}
             <Progress value={analysisProgress} className="w-64" />
@@ -1020,7 +1020,7 @@ function PlanImportPageInner() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm text-slate-500">{t.overallConfidence}</div>
+                  <div className="text-sm text-slate-400">{t.overallConfidence}</div>
                   <Badge className={getConfidenceColor(parsedPlan.overallConfidence ?? 0)}>
                     {parsedPlan.overallConfidence ?? 0}%
                   </Badge>
@@ -1039,7 +1039,7 @@ function PlanImportPageInner() {
                     variant="ghost"
                     size="sm"
                     onClick={() => setShowRawResponse(!showRawResponse)}
-                    className="text-slate-500"
+                    className="text-slate-400"
                   >
                     {t.viewRawResponse}
                   </Button>
@@ -1189,7 +1189,7 @@ function PlanImportPageInner() {
             </CardHeader>
             <CardContent>
               {parsedPlan.components.length === 0 ? (
-                <p className="text-center text-slate-500 py-8">{t.noComponents}</p>
+                <p className="text-center text-slate-400 py-8">{t.noComponents}</p>
               ) : (
                 <div className="space-y-0">
                   <Table>
@@ -1243,7 +1243,7 @@ function PlanImportPageInner() {
                                   </Badge>
                                 )
                               ) : (
-                                <span className="text-xs text-slate-500">-</span>
+                                <span className="text-xs text-slate-400">-</span>
                               )}
                             </TableCell>
                             <TableCell>
@@ -1301,11 +1301,11 @@ function PlanImportPageInner() {
                                         )}>
                                           {anomaly.severity}
                                         </span>
-                                        <span className="text-[10px] text-slate-500">{anomaly.location}</span>
+                                        <span className="text-[10px] text-slate-400">{anomaly.location}</span>
                                       </div>
                                       <p className="text-xs text-slate-300">{anomaly.explanation}</p>
                                       {anomaly.suggestions.length > 0 && (
-                                        <p className="text-[11px] text-slate-500 mt-1">
+                                        <p className="text-[11px] text-slate-400 mt-1">
                                           {anomaly.suggestions[0]}
                                         </p>
                                       )}
@@ -1463,7 +1463,7 @@ function PlanImportPageInner() {
                     <div className="flex-1">
                       <span className="text-sm text-slate-200">{checkId}: {checkNames[checkId]}</span>
                       {found.length > 0 && (
-                        <span className="text-xs text-slate-500 ml-2">
+                        <span className="text-xs text-slate-400 ml-2">
                           ({found.length} {locale === 'es-MX' ? 'hallazgos' : 'finding(s)'}{allResolved ? ` — ${locale === 'es-MX' ? 'resueltos' : 'resolved'}` : ''})
                         </span>
                       )}
@@ -1651,11 +1651,11 @@ function PlanImportPageInner() {
                     </Label>
                     <div className="grid gap-2 md:grid-cols-2 text-sm">
                       <div>
-                        <span className="text-slate-500">{locale === 'es-MX' ? 'Filas' : 'Rows'}:</span>{' '}
+                        <span className="text-slate-400">{locale === 'es-MX' ? 'Filas' : 'Rows'}:</span>{' '}
                         {editingComponent.matrix.rowLabel} ({editingComponent.matrix.rowMetric})
                       </div>
                       <div>
-                        <span className="text-slate-500">{locale === 'es-MX' ? 'Columnas' : 'Columns'}:</span>{' '}
+                        <span className="text-slate-400">{locale === 'es-MX' ? 'Columnas' : 'Columns'}:</span>{' '}
                         {editingComponent.matrix.columnLabel} ({editingComponent.matrix.columnMetric})
                       </div>
                     </div>
@@ -1753,11 +1753,11 @@ function PlanImportPageInner() {
                     </Label>
                     <div className="grid gap-4 md:grid-cols-2 text-sm">
                       <div>
-                        <span className="text-slate-500">{locale === 'es-MX' ? 'Aplicado a' : 'Applied To'}:</span>{' '}
+                        <span className="text-slate-400">{locale === 'es-MX' ? 'Aplicado a' : 'Applied To'}:</span>{' '}
                         {editingComponent.conditional.appliedTo}
                       </div>
                       <div>
-                        <span className="text-slate-500">{locale === 'es-MX' ? 'Condición basada en' : 'Condition based on'}:</span>{' '}
+                        <span className="text-slate-400">{locale === 'es-MX' ? 'Condición basada en' : 'Condition based on'}:</span>{' '}
                         {editingComponent.conditional.conditionMetric}
                       </div>
                     </div>

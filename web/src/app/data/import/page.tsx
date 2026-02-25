@@ -267,7 +267,7 @@ export default function ImportPage() {
         <h1 className="text-2xl font-bold text-slate-50">
           {isHospitality ? 'Importar Cheques' : `Import ${transactionTerm}`}
         </h1>
-        <p className="text-slate-500 mt-1">
+        <p className="text-slate-400 mt-1">
           {isHospitality
             ? 'Sube tu archivo TSV de cheques desde el sistema POS'
             : 'Upload your transaction data from CSV or Excel files'}
@@ -297,7 +297,7 @@ export default function ImportPage() {
                     }}
                     className={cn(
                       'w-10 h-10 rounded-full flex items-center justify-center font-medium text-sm',
-                      isComplete || isActive ? 'text-white' : 'text-slate-500'
+                      isComplete || isActive ? 'text-white' : 'text-slate-400'
                     )}
                   >
                     {isComplete ? (
@@ -311,7 +311,7 @@ export default function ImportPage() {
                       'ml-3 text-sm font-medium hidden sm:block',
                       isActive
                         ? 'text-slate-50'
-                        : 'text-slate-500'
+                        : 'text-slate-400'
                     )}
                   >
                     {step.label}
@@ -361,7 +361,7 @@ export default function ImportPage() {
 
                 <div className="flex items-center gap-4">
                   <div className="flex-1 h-px bg-slate-200" />
-                  <span className="text-sm text-slate-500">{isHospitality ? 'o' : 'or'}</span>
+                  <span className="text-sm text-slate-400">{isHospitality ? 'o' : 'or'}</span>
                   <div className="flex-1 h-px bg-slate-200" />
                 </div>
 
@@ -370,7 +370,7 @@ export default function ImportPage() {
                     <Download className="h-4 w-4 mr-2" />
                     {isHospitality ? 'Descargar Plantilla' : 'Download Template'}
                   </Button>
-                  <p className="text-xs text-slate-500 mt-2">
+                  <p className="text-xs text-slate-400 mt-2">
                     {isHospitality
                       ? 'Usa esta plantilla para ver el formato correcto'
                       : 'Start with our template to ensure correct formatting'}
@@ -462,7 +462,7 @@ export default function ImportPage() {
                     <p className="text-2xl font-bold text-slate-50">
                       {chequesPreview.totalRows}
                     </p>
-                    <p className="text-sm text-slate-500">Total Filas</p>
+                    <p className="text-sm text-slate-400">Total Filas</p>
                   </div>
                   <div className="bg-emerald-50 dark:bg-emerald-950/20 rounded-lg p-4 text-center">
                     <p className="text-2xl font-bold text-emerald-600">
@@ -560,7 +560,7 @@ export default function ImportPage() {
                         </div>
                       ))}
                       {chequesPreview.errors.length > 10 && (
-                        <p className="text-xs text-slate-500 text-center py-2">
+                        <p className="text-xs text-slate-400 text-center py-2">
                           ... y {chequesPreview.errors.length - 10} errores más
                         </p>
                       )}
@@ -654,7 +654,7 @@ export default function ImportPage() {
                 <h2 className="text-2xl font-bold text-slate-50 mb-2">
                   {chequesResult.success ? 'Importación Completada' : 'Error en la Importación'}
                 </h2>
-                <p className="text-slate-500 mb-6">
+                <p className="text-slate-400 mb-6">
                   {chequesResult.success
                     ? 'Los datos de cheques se importaron correctamente.'
                     : 'No se pudieron importar los cheques.'}
@@ -711,7 +711,7 @@ export default function ImportPage() {
                 <h2 className="text-2xl font-bold text-slate-50 mb-2">
                   Import Complete!
                 </h2>
-                <p className="text-slate-500 mb-6">
+                <p className="text-slate-400 mb-6">
                   Your transaction data has been successfully imported.
                 </p>
 

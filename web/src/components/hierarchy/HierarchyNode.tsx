@@ -137,9 +137,9 @@ export function HierarchyNodeCard({
               className="mt-0.5 p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700"
             >
               {isExpanded ? (
-                <ChevronDown className="h-4 w-4 text-slate-500" />
+                <ChevronDown className="h-4 w-4 text-slate-400" />
               ) : (
-                <ChevronRight className="h-4 w-4 text-slate-500" />
+                <ChevronRight className="h-4 w-4 text-slate-400" />
               )}
             </button>
           )}
@@ -159,7 +159,7 @@ export function HierarchyNodeCard({
                 className="w-full h-full rounded-full object-cover"
               />
             ) : (
-              <User className="h-5 w-5 text-slate-500" />
+              <User className="h-5 w-5 text-slate-400" />
             )}
           </div>
 
@@ -169,7 +169,7 @@ export function HierarchyNodeCard({
               {node.name}
             </h4>
             {node.title && (
-              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+              <p className="text-xs text-slate-400 dark:text-slate-400 truncate">
                 {node.title}
               </p>
             )}
@@ -217,7 +217,7 @@ export function HierarchyNodeCard({
           <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex items-center gap-3">
             <div className="flex items-center gap-1">
               <Users className="h-3 w-3 text-slate-400" />
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-slate-400">
                 {node.metrics.directReports}
                 {node.metrics.totalReports > node.metrics.directReports && (
                   <span className="text-slate-400">
@@ -272,7 +272,7 @@ export function HierarchyNodeCompact({
       )}
     >
       <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
-        <User className="h-3 w-3 text-slate-500" />
+        <User className="h-3 w-3 text-slate-400" />
       </div>
       <div className="flex-1 min-w-0">
         <span className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate block">

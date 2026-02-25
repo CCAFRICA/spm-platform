@@ -56,7 +56,7 @@ export function ComparisonUpload({ components, onUploadComplete }: ComparisonUpl
 
   // Build mapping options dynamically from plan components
   const mappingOptions: Array<{ value: MappingTarget; label: string }> = [
-    { value: 'unmapped', label: 'Skip' },
+    { value: 'unmapped', label: 'Preserved in raw data' },
     { value: 'entity_id', label: 'Employee ID' },
     { value: 'total', label: 'Total' },
     ...components.map(c => ({
@@ -212,7 +212,7 @@ export function ComparisonUpload({ components, onUploadComplete }: ComparisonUpl
             Clear
           </Button>
         </div>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-400">
           {parsedFile.rows.length} rows · {parsedFile.headers.length} columns · Map columns to plan components
         </p>
       </CardHeader>
@@ -263,11 +263,17 @@ export function ComparisonUpload({ components, onUploadComplete }: ComparisonUpl
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  <TableCell className="text-sm text-slate-500 font-mono">
-                    {parsedFile.preview
-                      .slice(0, 3)
-                      .map(row => String(row[header] ?? ''))
-                      .join(', ')}
+                  <TableCell className="text-sm text-slate-400 font-mono">
+                    {columnMappings[header] === 'unmapped' ? (
+                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                        Preserved in raw data
+                      </Badge>
+                    ) : (
+                      parsedFile.preview
+                        .slice(0, 3)
+                        .map(row => String(row[header] ?? ''))
+                        .join(', ')
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

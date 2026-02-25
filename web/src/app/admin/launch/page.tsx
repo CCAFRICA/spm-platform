@@ -412,7 +412,7 @@ function CustomerLaunchDashboardInner() {
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
                       <Icon className="h-6 w-6 text-slate-600 dark:text-slate-400" />
                     </div>
-                    <span className="mt-2 text-xs font-medium text-slate-500">{step.label}</span>
+                    <span className="mt-2 text-xs font-medium text-slate-400">{step.label}</span>
                     <span className="text-[10px] text-slate-400 text-center max-w-[80px]">
                       {step.name}
                     </span>
@@ -440,7 +440,7 @@ function CustomerLaunchDashboardInner() {
                   <h3 className="font-medium">
                     {locale === 'es-MX' ? 'Importar Plan' : 'Plan Import'}
                   </h3>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-slate-400">
                     {locale === 'es-MX'
                       ? 'Subir y detectar estructura del plan'
                       : 'Upload and detect plan structure'}
@@ -463,7 +463,7 @@ function CustomerLaunchDashboardInner() {
                   <h3 className="font-medium">
                     {locale === 'es-MX' ? 'Ejecutar Cálculos' : 'Run Calculations'}
                   </h3>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-slate-400">
                     {locale === 'es-MX'
                       ? 'Calcular compensación para un período'
                       : 'Calculate compensation for a period'}
@@ -486,7 +486,7 @@ function CustomerLaunchDashboardInner() {
                   <h3 className="font-medium">
                     {locale === 'es-MX' ? 'Reconciliación' : 'Reconciliation'}
                   </h3>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-slate-400">
                     {locale === 'es-MX'
                       ? 'Comparar con datos de benchmark'
                       : 'Compare against benchmark data'}
@@ -509,7 +509,7 @@ function CustomerLaunchDashboardInner() {
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Rocket className="h-12 w-12 text-slate-300 mb-4" />
               <p className="text-slate-600 dark:text-slate-400">{t.noLaunches}</p>
-              <p className="text-sm text-slate-500">{t.noLaunchesDesc}</p>
+              <p className="text-sm text-slate-400">{t.noLaunchesDesc}</p>
             </CardContent>
           </Card>
         ) : (
@@ -531,7 +531,7 @@ function CustomerLaunchDashboardInner() {
                   <div className="space-y-4">
                     <div>
                       <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="text-slate-500">{t.progress}</span>
+                        <span className="text-slate-400">{t.progress}</span>
                         <span className="font-medium">{launch.overallProgress}%</span>
                       </div>
                       <Progress value={launch.overallProgress} className="h-2" />
@@ -571,7 +571,7 @@ function CustomerLaunchDashboardInner() {
                     </div>
 
                     <div className="flex items-center justify-between pt-2">
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-slate-400">
                         {t.createdBy}: {launch.createdBy}
                       </span>
                       <Button
@@ -613,7 +613,7 @@ function CustomerLaunchDashboardInner() {
                 <CardContent>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-slate-500">{t.goLiveDate}:</span>
+                      <span className="text-slate-400">{t.goLiveDate}:</span>
                       <span className="font-medium">
                         {launch.goLiveDate
                           ? new Date(launch.goLiveDate).toLocaleDateString()
@@ -621,7 +621,7 @@ function CustomerLaunchDashboardInner() {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500">{t.createdBy}:</span>
+                      <span className="text-slate-400">{t.createdBy}:</span>
                       <span>{launch.createdBy}</span>
                     </div>
                   </div>
@@ -648,7 +648,7 @@ function CustomerLaunchDashboardInner() {
               </DialogHeader>
               <div className="space-y-4 pt-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-500">{t.progress}</span>
+                  <span className="text-sm text-slate-400">{t.progress}</span>
                   <span className="text-sm font-medium">{selectedLaunch.overallProgress}%</span>
                 </div>
                 <Progress value={selectedLaunch.overallProgress} className="h-2" />
@@ -685,7 +685,7 @@ function CustomerLaunchDashboardInner() {
                               <span className="font-medium">{step.name}</span>
                               <span className="text-xs text-slate-400">O{index + 1}</span>
                             </div>
-                            <p className="text-xs text-slate-500">{step.description}</p>
+                            <p className="text-xs text-slate-400">{step.description}</p>
                             {step.result?.message && (
                               <p className="text-xs mt-1 text-slate-600 dark:text-slate-400">
                                 {step.result.message}
@@ -762,7 +762,7 @@ function CustomerLaunchDashboardInner() {
                         <p className="text-2xl font-bold text-slate-50">
                           {selectedLaunch.testCalculationResult.entitiesProcessed}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-400">
                           {locale === 'es-MX' ? 'Empleados' : 'Employees'}
                         </p>
                       </div>
@@ -770,7 +770,7 @@ function CustomerLaunchDashboardInner() {
                         <p className="text-2xl font-bold text-emerald-600">
                           {fmt(selectedLaunch.testCalculationResult.totalPayout)}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-400">
                           {locale === 'es-MX' ? 'Total' : 'Total Payout'}
                         </p>
                       </div>
@@ -785,7 +785,7 @@ function CustomerLaunchDashboardInner() {
                         >
                           {selectedLaunch.testCalculationResult.errors}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-400">
                           {locale === 'es-MX' ? 'Errores' : 'Errors'}
                         </p>
                       </div>

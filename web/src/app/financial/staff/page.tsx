@@ -142,7 +142,7 @@ export default function StaffPerformancePage() {
     } else if (diff < 0) {
       return <ArrowDown className="w-4 h-4 text-red-600" />;
     }
-    return <Minus className="w-4 h-4 text-zinc-500" />;
+    return <Minus className="w-4 h-4 text-zinc-400" />;
   };
 
   const { format } = useCurrency();
@@ -362,7 +362,7 @@ export default function StaffPerformancePage() {
                         onClick={() => router.push(`/financial/server/${staff.id}`)}
                       >
                         <div className="font-medium text-zinc-100">{staff.name}</div>
-                        <div className="text-xs text-zinc-500">{staff.id}</div>
+                        <div className="text-xs text-zinc-400">{staff.id}</div>
                       </div>
                     </TableCell>
 

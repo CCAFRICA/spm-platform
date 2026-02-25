@@ -292,7 +292,7 @@ export default function ProductMixPage() {
         {sortField === field ? (
           sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
         ) : (
-          <ArrowUpDown className="h-3 w-3 text-zinc-500" />
+          <ArrowUpDown className="h-3 w-3 text-zinc-400" />
         )}
       </div>
     </TableHead>
@@ -352,7 +352,7 @@ export default function ProductMixPage() {
               <p className="text-sm text-zinc-400">Food Revenue</p>
             </div>
             <p className="text-2xl font-bold text-amber-400">{format(data.networkFood)}</p>
-            <p className="text-xs text-zinc-500">{data.networkFoodPct}% of mix</p>
+            <p className="text-xs text-zinc-400">{data.networkFoodPct}% of mix</p>
           </CardContent>
         </Card>
         <Card>
@@ -362,7 +362,7 @@ export default function ProductMixPage() {
               <p className="text-sm text-zinc-400">Beverage Revenue</p>
             </div>
             <p className="text-2xl font-bold text-blue-400">{format(data.networkBev)}</p>
-            <p className="text-xs text-zinc-500">{(100 - data.networkFoodPct).toFixed(1)}% of mix</p>
+            <p className="text-xs text-zinc-400">{(100 - data.networkFoodPct).toFixed(1)}% of mix</p>
           </CardContent>
         </Card>
         <Card>
@@ -418,7 +418,7 @@ export default function ProductMixPage() {
                       <div className="bg-amber-500" style={{ width: `${brand.foodPct}%` }} />
                       <div className="bg-blue-500" style={{ width: `${100 - brand.foodPct}%` }} />
                     </div>
-                    <div className="flex justify-between text-[10px] text-zinc-500 mt-0.5">
+                    <div className="flex justify-between text-[10px] text-zinc-400 mt-0.5">
                       <span>Food {brand.foodPct}%</span>
                       <span>Bev {(100 - brand.foodPct).toFixed(1)}%</span>
                     </div>

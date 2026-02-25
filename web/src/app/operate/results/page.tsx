@@ -269,7 +269,7 @@ function ResultsDashboardPageInner() {
             <h1 className="text-2xl font-bold">Results Dashboard</h1>
           </div>
           <Card>
-            <CardContent className="py-12 text-center text-slate-500">
+            <CardContent className="py-12 text-center text-slate-400">
               <BarChart3 className="h-12 w-12 mx-auto mb-4 text-slate-300" />
               <p className="text-lg font-medium">No calculation results available</p>
               <p className="text-sm mt-1">
@@ -305,7 +305,7 @@ function ResultsDashboardPageInner() {
         </Button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Results Proof View</h1>
-          <p className="text-slate-500 text-sm">
+          <p className="text-slate-400 text-sm">
             {entityCount} entities | Batch: {batchLabel || (selectedBatchId ?? '').slice(0, 8)}
           </p>
         </div>
@@ -320,7 +320,7 @@ function ResultsDashboardPageInner() {
                 <DollarSign className="h-5 w-5 text-emerald-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">Total</p>
+                <p className="text-xs text-slate-400">Total</p>
                 <p className="text-lg font-bold">{formatCurrency(totalPayout)}</p>
               </div>
             </div>
@@ -333,7 +333,7 @@ function ResultsDashboardPageInner() {
                 <Users className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">Entities</p>
+                <p className="text-xs text-slate-400">Entities</p>
                 <p className="text-lg font-bold">{entityCount}</p>
               </div>
             </div>
@@ -346,7 +346,7 @@ function ResultsDashboardPageInner() {
                 <TrendingUp className="h-5 w-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">Mean</p>
+                <p className="text-xs text-slate-400">Mean</p>
                 <p className="text-lg font-bold">{formatCurrency(avgPayout)}</p>
               </div>
             </div>
@@ -359,7 +359,7 @@ function ResultsDashboardPageInner() {
                 <Activity className="h-5 w-5 text-indigo-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">Median</p>
+                <p className="text-xs text-slate-400">Median</p>
                 <p className="text-lg font-bold">{stats ? formatCurrency(stats.median) : '-'}</p>
               </div>
             </div>
@@ -372,7 +372,7 @@ function ResultsDashboardPageInner() {
                 <Scale className="h-5 w-5 text-amber-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">Components</p>
+                <p className="text-xs text-slate-400">Components</p>
                 <p className="text-lg font-bold">{componentTotals.length}</p>
               </div>
             </div>
@@ -385,7 +385,7 @@ function ResultsDashboardPageInner() {
                 <AlertTriangle className={`h-5 w-5 ${anomalyCount > 0 ? 'text-amber-600' : 'text-green-600'}`} />
               </div>
               <div>
-                <p className="text-xs text-slate-500">Anomalies</p>
+                <p className="text-xs text-slate-400">Anomalies</p>
                 <p className="text-lg font-bold">{anomalyCount}</p>
               </div>
             </div>
@@ -497,7 +497,7 @@ function ResultsDashboardPageInner() {
                                 </span>
                                 <p className="text-sm text-slate-300 mt-1">{a.description}</p>
                               </div>
-                              <span className="text-xs text-slate-500 whitespace-nowrap">{a.entityCount} ent</span>
+                              <span className="text-xs text-slate-400 whitespace-nowrap">{a.entityCount} ent</span>
                             </div>
                           </div>
                         ))}
@@ -690,7 +690,7 @@ function ResultsDashboardPageInner() {
                                           <span className="text-sm font-medium w-24 text-right">
                                             {formatCurrency(c.outputValue)}
                                           </span>
-                                          <span className="text-xs text-slate-500 w-12 text-right">
+                                          <span className="text-xs text-slate-400 w-12 text-right">
                                             {pct.toFixed(0)}%
                                           </span>
                                         </div>
@@ -699,22 +699,22 @@ function ResultsDashboardPageInner() {
                                         {hasL3 && (
                                           <div className="flex flex-wrap gap-x-6 gap-y-1 pl-1 text-xs">
                                             {c.componentType && (
-                                              <span className="text-slate-500">Type: <span className="text-slate-300">{c.componentType}</span></span>
+                                              <span className="text-slate-400">Type: <span className="text-slate-300">{c.componentType}</span></span>
                                             )}
                                             {c.goal !== undefined && (
-                                              <span className="text-slate-500">Goal: <span className="text-slate-300 font-mono">{c.goal.toLocaleString()}</span></span>
+                                              <span className="text-slate-400">Goal: <span className="text-slate-300 font-mono">{c.goal.toLocaleString()}</span></span>
                                             )}
                                             {c.actual !== undefined && (
-                                              <span className="text-slate-500">Actual: <span className="text-slate-300 font-mono">{c.actual.toLocaleString()}</span></span>
+                                              <span className="text-slate-400">Actual: <span className="text-slate-300 font-mono">{c.actual.toLocaleString()}</span></span>
                                             )}
                                             {c.attainment !== undefined && (
-                                              <span className="text-slate-500">Attainment: <span className={`font-mono ${c.attainment >= 100 ? 'text-emerald-400' : 'text-amber-400'}`}>{c.attainment.toFixed(1)}%</span></span>
+                                              <span className="text-slate-400">Attainment: <span className={`font-mono ${c.attainment >= 100 ? 'text-emerald-400' : 'text-amber-400'}`}>{c.attainment.toFixed(1)}%</span></span>
                                             )}
                                             {c.rate !== undefined && (
-                                              <span className="text-slate-500">Rate: <span className="text-slate-300 font-mono">{(c.rate * 100).toFixed(1)}%</span></span>
+                                              <span className="text-slate-400">Rate: <span className="text-slate-300 font-mono">{(c.rate * 100).toFixed(1)}%</span></span>
                                             )}
                                             {c.formula && (
-                                              <span className="text-slate-500">Formula: <span className="text-slate-300 font-mono">{c.formula}</span></span>
+                                              <span className="text-slate-400">Formula: <span className="text-slate-300 font-mono">{c.formula}</span></span>
                                             )}
                                           </div>
                                         )}
@@ -722,10 +722,10 @@ function ResultsDashboardPageInner() {
                                         {/* L2: Metric values */}
                                         {hasL2 && (
                                           <div className="pl-1 pt-1 border-t border-slate-700/30">
-                                            <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Metrics</p>
+                                            <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1">Metrics</p>
                                             <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
                                               {Object.entries(c.metrics!).map(([key, val]) => (
-                                                <span key={key} className="text-slate-500">
+                                                <span key={key} className="text-slate-400">
                                                   {key}: <span className="text-slate-300 font-mono">
                                                     {typeof val === 'number' ? val.toLocaleString() : String(val)}
                                                   </span>
@@ -739,16 +739,16 @@ function ResultsDashboardPageInner() {
                                   })}
                                 </div>
                               ) : (
-                                <p className="text-sm text-slate-500">No component details available.</p>
+                                <p className="text-sm text-slate-400">No component details available.</p>
                               )}
 
                               {/* L2: Raw metrics from calculation_results.metrics JSONB */}
                               {Object.keys(row.rawMetrics).length > 0 && (
                                 <div className="pt-2 border-t border-slate-700/30">
-                                  <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-2">Raw Metrics</p>
+                                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-2">Raw Metrics</p>
                                   <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
                                     {Object.entries(row.rawMetrics).map(([key, val]) => (
-                                      <span key={key} className="text-slate-500">
+                                      <span key={key} className="text-slate-400">
                                         {key}: <span className="text-slate-300 font-mono">
                                           {typeof val === 'number' ? val.toLocaleString() : typeof val === 'object' ? JSON.stringify(val) : String(val)}
                                         </span>

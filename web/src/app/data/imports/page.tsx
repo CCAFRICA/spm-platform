@@ -64,7 +64,7 @@ export default function ImportsPage() {
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-50">
               Import Data
             </h1>
-            <p className="text-slate-500 mt-1">
+            <p className="text-slate-400 mt-1">
               Import transactions from external sources
             </p>
           </div>
@@ -90,7 +90,7 @@ export default function ImportsPage() {
                   </div>
                   <div>
                     <p className="text-2xl font-bold">{stats.total}</p>
-                    <p className="text-sm text-slate-500">Total Imports</p>
+                    <p className="text-sm text-slate-400">Total Imports</p>
                   </div>
                 </div>
               </CardContent>
@@ -105,7 +105,7 @@ export default function ImportsPage() {
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-emerald-600">{stats.completed}</p>
-                    <p className="text-sm text-slate-500">Successful</p>
+                    <p className="text-sm text-slate-400">Successful</p>
                   </div>
                 </div>
               </CardContent>
@@ -120,7 +120,7 @@ export default function ImportsPage() {
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-amber-600">{stats.partial}</p>
-                    <p className="text-sm text-slate-500">Partial</p>
+                    <p className="text-sm text-slate-400">Partial</p>
                   </div>
                 </div>
               </CardContent>
@@ -135,7 +135,7 @@ export default function ImportsPage() {
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-red-600">{stats.failed}</p>
-                    <p className="text-sm text-slate-500">Failed</p>
+                    <p className="text-sm text-slate-400">Failed</p>
                   </div>
                 </div>
               </CardContent>

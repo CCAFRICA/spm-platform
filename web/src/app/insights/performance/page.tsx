@@ -223,7 +223,7 @@ export default function InsightsPerformancePage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Team Performance Score</p>
+                    <p className="text-sm font-medium text-slate-400">Team Performance Score</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                       {techCorpSummaryStats.teamScore}
                     </p>
@@ -242,7 +242,7 @@ export default function InsightsPerformancePage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Goal Achievement Rate</p>
+                    <p className="text-sm font-medium text-slate-400">Goal Achievement Rate</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                       {techCorpSummaryStats.goalAchievement}%
                     </p>
@@ -262,11 +262,11 @@ export default function InsightsPerformancePage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Average per Entity</p>
+                    <p className="text-sm font-medium text-slate-400">Average per Entity</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                       {format(techCorpSummaryStats.avgPerEntity)}
                     </p>
-                    <p className="text-sm text-slate-500 mt-2">This quarter</p>
+                    <p className="text-sm text-slate-400 mt-2">This quarter</p>
                   </div>
                   <div className="p-3 bg-purple-100 rounded-full">
                     <Users className="h-5 w-5 text-purple-600" />
@@ -279,7 +279,7 @@ export default function InsightsPerformancePage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Growth Rate (MoM)</p>
+                    <p className="text-sm font-medium text-slate-400">Growth Rate (MoM)</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
                       +{techCorpSummaryStats.growthRate}%
                     </p>
@@ -337,7 +337,7 @@ export default function InsightsPerformancePage() {
                         <p className="text-sm font-medium text-slate-900 dark:text-slate-50 truncate">
                           {performer.name}
                         </p>
-                        <p className="text-xs text-slate-500">{performer.role}</p>
+                        <p className="text-xs text-slate-400">{performer.role}</p>
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
@@ -351,7 +351,7 @@ export default function InsightsPerformancePage() {
                           ) : null}
                           <span className={`text-xs ${
                             performer.trend === 'up' ? 'text-emerald-600' :
-                            performer.trend === 'down' ? 'text-red-600' : 'text-slate-500'
+                            performer.trend === 'down' ? 'text-red-600' : 'text-slate-400'
                           }`}>
                             {performer.achievement}%
                           </span>

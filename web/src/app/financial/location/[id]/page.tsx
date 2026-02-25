@@ -329,7 +329,7 @@ export default function LocationDetailPage() {
               <span className="text-xs text-zinc-400">Checks</span>
             </div>
             <p className="text-xl font-bold">{detail.cheques.toLocaleString()}</p>
-            <p className="text-xs text-zinc-500">Avg {format(detail.avgCheck)}</p>
+            <p className="text-xs text-zinc-400">Avg {format(detail.avgCheck)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -341,7 +341,7 @@ export default function LocationDetailPage() {
             <p className={`text-xl font-bold ${detail.tipRate >= 12 ? 'text-green-500' : 'text-zinc-200'}`}>
               {detail.tipRate.toFixed(1)}%
             </p>
-            <p className="text-xs text-zinc-500">{format(detail.tips)} total</p>
+            <p className="text-xs text-zinc-400">{format(detail.tips)} total</p>
           </CardContent>
         </Card>
         <Card>
@@ -351,7 +351,7 @@ export default function LocationDetailPage() {
               <span className="text-xs text-zinc-400">Guests</span>
             </div>
             <p className="text-xl font-bold">{detail.guests.toLocaleString()}</p>
-            <p className="text-xs text-zinc-500">{detail.avgGuests} per check</p>
+            <p className="text-xs text-zinc-400">{detail.avgGuests} per check</p>
           </CardContent>
         </Card>
         <Card>
@@ -362,7 +362,7 @@ export default function LocationDetailPage() {
             <p className={`text-xl font-bold ${detail.leakageRate > 5 ? 'text-red-500' : detail.leakageRate > 3 ? 'text-amber-500' : 'text-green-500'}`}>
               {detail.leakageRate.toFixed(1)}%
             </p>
-            <p className="text-xs text-zinc-500">{format(detail.discounts + detail.comps)}</p>
+            <p className="text-xs text-zinc-400">{format(detail.discounts + detail.comps)}</p>
           </CardContent>
         </Card>
       </div>
@@ -414,7 +414,7 @@ export default function LocationDetailPage() {
                     <span className="text-sm text-zinc-400">Food</span>
                   </div>
                   <p className="font-bold">{format(detail.food)}</p>
-                  <p className="text-xs text-zinc-500">{foodPct.toFixed(0)}%</p>
+                  <p className="text-xs text-zinc-400">{foodPct.toFixed(0)}%</p>
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
@@ -422,7 +422,7 @@ export default function LocationDetailPage() {
                     <span className="text-sm text-zinc-400">Beverage</span>
                   </div>
                   <p className="font-bold">{format(detail.bev)}</p>
-                  <p className="text-xs text-zinc-500">{(100 - foodPct).toFixed(0)}%</p>
+                  <p className="text-xs text-zinc-400">{(100 - foodPct).toFixed(0)}%</p>
                 </div>
               </div>
             </div>

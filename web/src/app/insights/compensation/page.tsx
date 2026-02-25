@@ -229,7 +229,7 @@ export default function CompensationPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Current Period</p>
+                    <p className="text-sm font-medium text-slate-400">Current Period</p>
                     <p className="text-2xl font-bold text-slate-50 mt-1">
                       {format(techCorpStatsData.currentPeriod)}
                     </p>
@@ -238,7 +238,7 @@ export default function CompensationPage() {
                       <span className="text-sm text-emerald-600 font-medium">
                         +{techCorpStatsData.periodChange}%
                       </span>
-                      <span className="text-sm text-slate-500">vs last period</span>
+                      <span className="text-sm text-slate-400">vs last period</span>
                     </div>
                   </div>
                   <div className="p-3 bg-indigo-100 rounded-full dark:bg-indigo-900/30">
@@ -252,7 +252,7 @@ export default function CompensationPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Year-to-Date</p>
+                    <p className="text-sm font-medium text-slate-400">Year-to-Date</p>
                     <p className="text-2xl font-bold text-slate-50 mt-1">
                       {format(techCorpStatsData.yearToDate)}
                     </p>
@@ -261,7 +261,7 @@ export default function CompensationPage() {
                       <span className="text-sm text-emerald-600 font-medium">
                         +{techCorpStatsData.ytdChange}%
                       </span>
-                      <span className="text-sm text-slate-500">vs last year</span>
+                      <span className="text-sm text-slate-400">vs last year</span>
                     </div>
                   </div>
                   <div className="p-3 bg-emerald-100 rounded-full dark:bg-emerald-900/30">
@@ -275,11 +275,11 @@ export default function CompensationPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Average per Entity</p>
+                    <p className="text-sm font-medium text-slate-400">Average per Entity</p>
                     <p className="text-2xl font-bold text-slate-50 mt-1">
                       {format(techCorpStatsData.avgPerRep)}
                     </p>
-                    <p className="text-sm text-slate-500 mt-2">40 active entities</p>
+                    <p className="text-sm text-slate-400 mt-2">40 active entities</p>
                   </div>
                   <div className="p-3 bg-purple-100 rounded-full dark:bg-purple-900/30">
                     <Users className="h-5 w-5 text-purple-600" />
@@ -292,7 +292,7 @@ export default function CompensationPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Budget Utilization</p>
+                    <p className="text-sm font-medium text-slate-400">Budget Utilization</p>
                     <p className="text-2xl font-bold text-slate-50 mt-1">
                       {techCorpStatsData.budgetUtilization}%
                     </p>

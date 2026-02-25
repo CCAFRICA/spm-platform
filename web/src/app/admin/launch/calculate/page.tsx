@@ -72,8 +72,8 @@ const labels = {
     entitiesProcessed: 'Entities Processed',
     totalCompensation: 'Total Compensation',
     averagePayout: 'Average Payout',
-    recentRuns: 'Recent Batches',
-    noRuns: 'No calculation batches yet',
+    recentRuns: 'Recent Calculation Runs',
+    noRuns: 'No calculation runs yet',
     status: 'Status',
     startedAt: 'Created',
     back: 'Back',
@@ -88,8 +88,8 @@ const labels = {
     entitiesProcessed: 'Entidades Procesadas',
     totalCompensation: 'Compensacion Total',
     averagePayout: 'Pago Promedio',
-    recentRuns: 'Lotes Recientes',
-    noRuns: 'Sin lotes de calculo aun',
+    recentRuns: 'Ejecuciones Recientes',
+    noRuns: 'Sin ejecuciones de calculo aun',
     status: 'Estado',
     startedAt: 'Creado',
     back: 'Volver',
@@ -503,7 +503,7 @@ function CalculatePageInner() {
         <Card>
           <CardContent className="py-4 space-y-4">
             <LifecycleSubway cycle={activeCycle} pipelineConfig={pipelineConfig} />
-            <div className="flex items-center gap-3 text-xs text-slate-500">
+            <div className="flex items-center gap-3 text-xs text-slate-400">
               <span>{entityCount} entities</span>
               <span>|</span>
               <span>{formatCurrency(totalPayout)}</span>
@@ -532,7 +532,7 @@ function CalculatePageInner() {
                     <Users className="h-6 w-6 text-blue-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.entitiesProcessed}</p>
+                    <p className="text-sm text-slate-400">{t.entitiesProcessed}</p>
                     <p className="text-2xl font-bold">{entityCount}</p>
                   </div>
                 </div>
@@ -545,7 +545,7 @@ function CalculatePageInner() {
                     <DollarSign className="h-6 w-6 text-emerald-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.totalCompensation}</p>
+                    <p className="text-sm text-slate-400">{t.totalCompensation}</p>
                     <p className="text-2xl font-bold">{formatCurrency(totalPayout)}</p>
                   </div>
                 </div>
@@ -558,7 +558,7 @@ function CalculatePageInner() {
                     <TrendingUp className="h-6 w-6 text-purple-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">{t.averagePayout}</p>
+                    <p className="text-sm text-slate-400">{t.averagePayout}</p>
                     <p className="text-2xl font-bold">
                       {formatCurrency(entityCount > 0 ? Math.round(totalPayout / entityCount) : 0)}
                     </p>
@@ -567,6 +567,31 @@ function CalculatePageInner() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Zero-Payout Warning (F-58) */}
+          {entityCount > 0 && totalPayout === 0 && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium text-amber-800">
+                  {locale === 'es-MX' ? 'Cálculo Completo — Atención Requerida' : 'Calculation Complete — Attention Required'}
+                </p>
+                <p className="text-sm text-amber-700 mt-1">
+                  {entityCount} {locale === 'es-MX' ? 'entidades procesadas' : 'entities processed'}. {locale === 'es-MX' ? 'Pago total' : 'Total payout'}: {formatCurrency(0)}.
+                  {' '}
+                  {locale === 'es-MX'
+                    ? 'Esto típicamente significa que los campos de datos no están mapeados a los componentes del plan.'
+                    : 'This typically means data fields are not mapped to plan components.'}
+                </p>
+                <Link
+                  href="/operate/import/enhanced"
+                  className="text-sm text-amber-800 underline hover:text-amber-900 mt-1 inline-block"
+                >
+                  {locale === 'es-MX' ? 'Revisar mapeo de campos →' : 'Review field mappings →'}
+                </Link>
+              </div>
+            </div>
+          )}
 
           {/* Entity Results Table */}
           <Card>
@@ -614,7 +639,6 @@ function CalculatePageInner() {
                     const externalId = String(meta?.externalId || '');
                     const entityName = String(meta?.entityName || r.entity_id.slice(0, 8));
                     const comps = Array.isArray(r.components) ? r.components as Array<Record<string, unknown>> : [];
-                    const nonZeroComps = comps.filter(c => Number(c.payout || 0) > 0);
                     const intentTraces = (meta?.intentTraces ?? []) as Array<Record<string, unknown>>;
                     const intentMatch = meta?.intentMatch as boolean | undefined;
                     const isExpanded = expandedEntityId === r.entity_id;
@@ -639,11 +663,16 @@ function CalculatePageInner() {
                       <TableCell className="text-right font-semibold text-emerald-600">
                         {formatCurrency(r.total_payout || 0)}
                       </TableCell>
-                      <TableCell className="text-xs text-slate-500">
-                        <div className="flex items-center gap-2">
-                          <span>{nonZeroComps.length > 0
-                            ? nonZeroComps.map(c => String(c.componentName || '')).join(', ')
-                            : '-'}</span>
+                      <TableCell className="text-xs text-slate-400">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {comps.length > 0 ? comps.map((c, ci) => {
+                            const payout = Number(c.payout || 0);
+                            return (
+                              <span key={ci} className={payout > 0 ? 'text-emerald-500' : 'text-zinc-500'}>
+                                {String(c.componentName || `C${ci + 1}`)}: {formatCurrency(payout)}
+                              </span>
+                            );
+                          }) : '-'}
                           {intentTraces.length > 0 && (
                             <Layers className="h-3 w-3 text-blue-400" />
                           )}
@@ -688,7 +717,7 @@ function CalculatePageInner() {
               {/* Pagination */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-slate-400">
                     Showing {(currentPage - 1) * pageSize + 1}--{Math.min(currentPage * pageSize, filteredResults.length)} of {filteredResults.length}
                   </p>
                   <div className="flex items-center gap-2">
@@ -712,7 +741,7 @@ function CalculatePageInner() {
       {/* No results state */}
       {!activeBatch && selectedPeriod && (
         <Card>
-          <CardContent className="py-12 text-center text-slate-500">
+          <CardContent className="py-12 text-center text-slate-400">
             <Calculator className="h-12 w-12 mx-auto mb-4 text-slate-300" />
             <p className="text-lg font-medium">No calculation batch for this period</p>
             <p className="text-sm mt-1">Import data and run calculations to see results here.</p>
@@ -734,7 +763,7 @@ function CalculatePageInner() {
           <CollapsibleContent>
             <CardContent>
               {recentBatches.length === 0 ? (
-                <p className="text-center text-slate-500 py-8">{t.noRuns}</p>
+                <p className="text-center text-slate-400 py-8">{t.noRuns}</p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -755,7 +784,7 @@ function CalculatePageInner() {
                           </Badge>
                         </TableCell>
                         <TableCell>{batch.entity_count || 0}</TableCell>
-                        <TableCell className="text-sm text-slate-500">
+                        <TableCell className="text-sm text-slate-400">
                           {new Date(batch.created_at).toLocaleString()}
                         </TableCell>
                       </TableRow>

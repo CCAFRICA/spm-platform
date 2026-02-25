@@ -119,7 +119,7 @@ export default function ConfigurationPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Total Personnel</p>
+                  <p className="text-sm text-slate-400">Total Personnel</p>
                   <p className="text-2xl font-bold">55</p>
                 </div>
                 <Users className="h-8 w-8 text-slate-300" />
@@ -130,7 +130,7 @@ export default function ConfigurationPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Entities</p>
+                  <p className="text-sm text-slate-400">Entities</p>
                   <p className="text-2xl font-bold">40</p>
                 </div>
                 <Building2 className="h-8 w-8 text-slate-300" />
@@ -141,7 +141,7 @@ export default function ConfigurationPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Regions</p>
+                  <p className="text-sm text-slate-400">Regions</p>
                   <p className="text-2xl font-bold">4</p>
                 </div>
                 <MapPin className="h-8 w-8 text-slate-300" />
@@ -152,7 +152,7 @@ export default function ConfigurationPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Active</p>
+                  <p className="text-sm text-slate-400">Active</p>
                   <p className="text-2xl font-bold text-emerald-600">100%</p>
                 </div>
                 <Shield className="h-8 w-8 text-emerald-300" />
@@ -239,7 +239,7 @@ export default function ConfigurationPage() {
                             <p className="font-medium text-slate-900 dark:text-slate-50">
                               {person.name}
                             </p>
-                            <p className="text-xs text-slate-500">{person.email}</p>
+                            <p className="text-xs text-slate-400">{person.email}</p>
                           </div>
                         </div>
                       </TableCell>
@@ -266,7 +266,7 @@ export default function ConfigurationPage() {
                 </TableBody>
               </Table>
             </div>
-            <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
+            <div className="mt-4 flex items-center justify-between text-sm text-slate-400">
               <p>Showing {filteredPersonnel.length} of {personnel.length} entities</p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled>Previous</Button>

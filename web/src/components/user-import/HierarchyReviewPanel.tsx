@@ -175,7 +175,7 @@ export function HierarchyReviewPanel({
               <RefreshCw className="h-5 w-5" />
               {isSpanish ? 'Inversiones de Relación Detectadas' : 'Relationship Inversions Detected'}
             </CardTitle>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-400">
               {isSpanish
                 ? 'Diferentes fuentes tienen información contradictoria sobre quién reporta a quién.'
                 : 'Different sources have conflicting information about who reports to whom.'}
@@ -203,7 +203,7 @@ export function HierarchyReviewPanel({
               <AlertTriangle className="h-5 w-5" />
               {isSpanish ? 'Requiere Revisión Manual' : 'Requires Manual Review'}
             </CardTitle>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-400">
               {isSpanish
                 ? 'Estos empleados tienen baja confianza en la detección de jerarquía o conflictos.'
                 : 'These employees have low hierarchy detection confidence or conflicts.'}
@@ -231,7 +231,7 @@ export function HierarchyReviewPanel({
           <CardTitle className="text-lg flex items-center gap-2">
             <CheckCircle className="h-5 w-5 text-emerald-500" />
             {isSpanish ? 'Auto-detectados' : 'Auto-detected'}
-            <span className="ml-2 text-sm font-normal text-slate-500">
+            <span className="ml-2 text-sm font-normal text-slate-400">
               ({autoResolved.length})
             </span>
           </CardTitle>
@@ -249,7 +249,7 @@ export function HierarchyReviewPanel({
                 </div>
                 <div className="flex items-center gap-2">
                   <GitBranch className="h-3 w-3 text-slate-400" />
-                  <span className="text-sm text-slate-500">
+                  <span className="text-sm text-slate-400">
                     {result.inferredManager
                       ? getEmployeeName(result.inferredManager.entityId)
                       : '-'}
@@ -372,7 +372,7 @@ function ReviewItem({
           ) : (
             <ChevronRight className="h-4 w-4 text-slate-400" />
           )}
-          <User className="h-4 w-4 text-slate-500" />
+          <User className="h-4 w-4 text-slate-400" />
           <span className="font-medium">{getEmployeeName(result.entityId)}</span>
         </div>
         <div className="flex items-center gap-3">
@@ -411,7 +411,7 @@ function ReviewItem({
                                 ? SIGNAL_INFO[signal.signal].labelEs
                                 : SIGNAL_INFO[signal.signal].label}
                             </span>
-                            <span className="text-slate-500">
+                            <span className="text-slate-400">
                               ({Math.round(signal.confidence * 100)}%)
                             </span>
                           </div>

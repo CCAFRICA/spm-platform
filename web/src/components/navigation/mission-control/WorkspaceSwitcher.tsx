@@ -20,10 +20,7 @@ import type { TenantFeatures } from '@/types/tenant';
 import {
   Zap,
   TrendingUp,
-  Search,
-  Palette,
   Settings,
-  Shield,
   Activity,
 } from 'lucide-react';
 import {
@@ -37,13 +34,11 @@ interface WorkspaceSwitcherProps {
   collapsed?: boolean;
 }
 
+// OB-97: 4 workspace model
 const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
-  operate: Zap,
   perform: TrendingUp,
-  investigate: Search,
-  design: Palette,
+  operate: Zap,
   configure: Settings,
-  govern: Shield,
   financial: Activity,
 };
 

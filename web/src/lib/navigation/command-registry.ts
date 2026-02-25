@@ -113,14 +113,14 @@ function getActionCommands(role: UserRole, isSpanish: boolean): CommandItem[] {
 
     actions.push({
       id: 'action-create-plan',
-      label: isSpanish ? 'Crear Plan' : 'Create Plan',
-      labelEs: 'Crear Plan',
-      description: isSpanish ? 'Diseñar un nuevo plan de compensación' : 'Design a new compensation plan',
-      descriptionEs: 'Diseñar un nuevo plan de compensación',
-      workspace: 'design',
-      route: '/design/plans/new',
+      label: isSpanish ? 'Importar Plan' : 'Import Plan',
+      labelEs: 'Importar Plan',
+      description: isSpanish ? 'Importar un plan de compensación' : 'Import a compensation plan',
+      descriptionEs: 'Importar un plan de compensación',
+      workspace: 'configure',
+      route: '/admin/launch/plan-import',
       icon: 'PlusCircle',
-      keywords: ['create', 'plan', 'new', 'design', 'crear', 'nuevo', 'diseñar'],
+      keywords: ['create', 'plan', 'new', 'import', 'configure', 'crear', 'nuevo', 'importar'],
       category: 'action',
     });
 

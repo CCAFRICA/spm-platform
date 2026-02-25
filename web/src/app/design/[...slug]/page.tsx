@@ -1,5 +1,6 @@
-import { WorkspaceStub } from '@/components/navigation/WorkspaceStub';
+import { redirect } from 'next/navigation';
 
+// OB-97: Design workspace eliminated → redirects to Configure
 export default function DesignCatchAll() {
-  return <WorkspaceStub workspace="design" />;
+  redirect('/configure');
 }

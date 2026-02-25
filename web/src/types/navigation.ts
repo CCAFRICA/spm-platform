@@ -15,7 +15,7 @@ import type { UserRole } from './auth';
 // WORKSPACE TYPES
 // =============================================================================
 
-export type WorkspaceId = 'operate' | 'perform' | 'investigate' | 'design' | 'configure' | 'govern' | 'financial';
+export type WorkspaceId = 'perform' | 'operate' | 'configure' | 'financial';
 
 export interface Workspace {
   id: WorkspaceId;

@@ -31,13 +31,13 @@ export function AggregateBar({ session }: AggregateBarProps) {
       <div className="grid grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500 mb-1">VL Total</p>
+            <p className="text-xs text-slate-400 mb-1">VL Total</p>
             <p className="text-xl font-bold">{fmt(aggregates.vlTotal)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500 mb-1">GT Total</p>
+            <p className="text-xs text-slate-400 mb-1">GT Total</p>
             <p className="text-xl font-bold">
               {aggregates.gtTotal !== undefined ? fmt(aggregates.gtTotal) : '—'}
             </p>
@@ -45,7 +45,7 @@ export function AggregateBar({ session }: AggregateBarProps) {
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500 mb-1">Difference</p>
+            <p className="text-xs text-slate-400 mb-1">Difference</p>
             <p className={`text-xl font-bold ${
               aggregates.difference !== undefined && Math.abs(aggregates.difference) < 1
                 ? 'text-green-600' : 'text-red-600'
@@ -59,7 +59,7 @@ export function AggregateBar({ session }: AggregateBarProps) {
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500 mb-1">Population</p>
+            <p className="text-xs text-slate-400 mb-1">Population</p>
             <p className="text-xl font-bold">{population.totalEmployees}</p>
             <div className="flex gap-2 mt-1">
               <Badge className="bg-green-100 text-green-700 text-xs">
@@ -83,7 +83,7 @@ export function AggregateBar({ session }: AggregateBarProps) {
       {aggregates.componentTotals.length > 0 && (
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500 mb-3">Component Breakdown</p>
+            <p className="text-xs text-slate-400 mb-3">Component Breakdown</p>
             <div className="grid gap-3" style={{
               gridTemplateColumns: `repeat(${Math.min(aggregates.componentTotals.length, 6)}, 1fr)`,
             }}>

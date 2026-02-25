@@ -41,7 +41,7 @@ function Row({ rank, name, value, isYou }: { rank: number; name: string; value: 
           : 'hover:bg-zinc-800/40'
       }`}
     >
-      <span className="w-6 text-xs text-zinc-500 text-right tabular-nums">#{rank}</span>
+      <span className="w-6 text-xs text-zinc-400 text-right tabular-nums">#{rank}</span>
       <span className={`flex-1 text-sm truncate ${isYou ? 'text-emerald-300 font-medium' : 'text-zinc-300'}`}>
         {name}
       </span>

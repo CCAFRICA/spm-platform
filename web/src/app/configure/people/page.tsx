@@ -151,7 +151,7 @@ function PeopleConfigurePageInner() {
           {/* Filters */}
           <div className="flex gap-3 mb-4">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <Input
                 placeholder={isSpanish ? 'Buscar por nombre o ID externo...' : 'Search by name or external ID...'}
                 value={searchInput}
@@ -192,11 +192,11 @@ function PeopleConfigurePageInner() {
 
           {/* Table */}
           {loading ? (
-            <div className="text-center py-8 text-slate-500">
+            <div className="text-center py-8 text-slate-400">
               {isSpanish ? 'Cargando entidades...' : 'Loading entities...'}
             </div>
           ) : entities.length === 0 ? (
-            <div className="text-center py-8 text-slate-500">
+            <div className="text-center py-8 text-slate-400">
               {search || typeFilter !== 'all' || statusFilter !== 'all'
                 ? (isSpanish ? 'Ninguna entidad coincide con los filtros.' : 'No entities match your filters.')
                 : (isSpanish ? 'No se encontraron entidades.' : 'No entities found.')}
@@ -240,7 +240,7 @@ function PeopleConfigurePageInner() {
                           {e.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-slate-500 text-sm">
+                      <TableCell className="text-slate-400 text-sm">
                         {new Date(e.created_at).toLocaleDateString()}
                       </TableCell>
                     </TableRow>
@@ -253,7 +253,7 @@ function PeopleConfigurePageInner() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-slate-400">
                 {isSpanish
                   ? `Página ${page + 1} de ${totalPages}`
                   : `Page ${page + 1} of ${totalPages}`}

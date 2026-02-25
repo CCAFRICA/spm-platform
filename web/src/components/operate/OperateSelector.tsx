@@ -53,7 +53,7 @@ export function OperateSelector() {
     return (
       <div className="flex items-center gap-2 px-6 py-3" style={{ borderBottom: '1px solid rgba(39, 39, 42, 0.6)' }}>
         <div className="h-4 w-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-        <span className="text-xs text-zinc-500">Loading selections...</span>
+        <span className="text-xs text-zinc-400">Loading selections...</span>
       </div>
     );
   }
@@ -65,7 +65,7 @@ export function OperateSelector() {
     >
       {/* Plan */}
       <div className="flex items-center gap-2">
-        <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider whitespace-nowrap">Plan</label>
+        <label className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider whitespace-nowrap">Plan</label>
         <Select value={selectedPlanId ?? ''} onValueChange={selectPlan}>
           <SelectTrigger className="w-[200px] h-8 text-xs bg-zinc-900/80 border-zinc-700/50">
             <SelectValue placeholder="Select plan..." />
@@ -88,7 +88,7 @@ export function OperateSelector() {
 
       {/* Period */}
       <div className="flex items-center gap-2">
-        <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider whitespace-nowrap">Period</label>
+        <label className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider whitespace-nowrap">Period</label>
         <Select value={selectedPeriodId ?? ''} onValueChange={selectPeriod}>
           <SelectTrigger className="w-[180px] h-8 text-xs bg-zinc-900/80 border-zinc-700/50">
             <SelectValue placeholder="Select period..." />
@@ -109,12 +109,12 @@ export function OperateSelector() {
       {/* Separator */}
       <span className="text-zinc-700 text-xs">/</span>
 
-      {/* Batch */}
+      {/* Calculation Run */}
       <div className="flex items-center gap-2">
-        <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider whitespace-nowrap">Batch</label>
+        <label className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider whitespace-nowrap">Run</label>
         <Select value={selectedBatchId ?? ''} onValueChange={selectBatch}>
           <SelectTrigger className="w-[240px] h-8 text-xs bg-zinc-900/80 border-zinc-700/50">
-            <SelectValue placeholder={batches.length === 0 ? 'No batches' : 'Select batch...'} />
+            <SelectValue placeholder={batches.length === 0 ? 'No runs' : 'Select run...'} />
           </SelectTrigger>
           <SelectContent>
             {batches.map(b => {
@@ -127,7 +127,7 @@ export function OperateSelector() {
                     <span className="truncate">
                       {b.lifecycleState} — {b.entityCount} ent — {formatCurrency(b.totalPayout)}
                     </span>
-                    <span className="text-zinc-500 ml-1 text-[10px]">{dateStr}</span>
+                    <span className="text-zinc-400 ml-1 text-[10px]">{dateStr}</span>
                   </span>
                 </SelectItem>
               );
@@ -136,10 +136,10 @@ export function OperateSelector() {
         </Select>
       </div>
 
-      {/* Batch count indicator */}
+      {/* Run count indicator */}
       {batches.length > 1 && (
         <span className="text-[10px] text-zinc-600">
-          {batches.length} batches
+          {batches.length} runs
         </span>
       )}
     </div>

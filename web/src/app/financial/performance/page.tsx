@@ -133,7 +133,7 @@ export default function LocationBenchmarksPage() {
         {sortField === field ? (
           sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
         ) : (
-          <ArrowUpDown className="h-3 w-3 text-zinc-500" />
+          <ArrowUpDown className="h-3 w-3 text-zinc-400" />
         )}
       </div>
     </TableHead>
@@ -142,7 +142,7 @@ export default function LocationBenchmarksPage() {
   const getRankIcon = (change: number) => {
     if (change > 0) return <ArrowUp className="h-3 w-3 text-green-600" />;
     if (change < 0) return <ArrowDown className="h-3 w-3 text-red-600" />;
-    return <Minus className="h-3 w-3 text-zinc-500" />;
+    return <Minus className="h-3 w-3 text-zinc-400" />;
   };
 
   const getLeakageColor = (leakage: number) => {
@@ -325,7 +325,7 @@ export default function LocationBenchmarksPage() {
                     {/* WoW Change */}
                     <TableCell>
                       {location.wowChange === 0 ? (
-                        <span className="text-zinc-500">—</span>
+                        <span className="text-zinc-400">—</span>
                       ) : (
                         <span className={`font-medium ${Math.abs(location.wowChange) > 10 ? 'font-bold text-amber-600' : location.wowChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {location.wowChange > 0 ? '+' : ''}{location.wowChange.toFixed(1)}%
