@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -34,6 +35,7 @@ export default function NetworkPulseDashboard() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
   const { locale } = useLocale();
+  const router = useRouter();
   const isSpanish = locale === 'es-MX';
 
   const tenantId = currentTenant?.id;
@@ -294,8 +296,9 @@ export default function NetworkPulseDashboard() {
                 {brandLocations.map((location) => (
                   <div
                     key={location.id}
-                    className={`rounded-lg p-3 border-l-4 ${getLocationBg(location.vsNetworkAvg)}`}
+                    className={`rounded-lg p-3 border-l-4 cursor-pointer transition-opacity hover:opacity-80 ${getLocationBg(location.vsNetworkAvg)}`}
                     style={{ borderLeftColor: getLocationBorderColor(location.vsNetworkAvg) }}
+                    onClick={() => router.push(`/financial/location/${location.id}`)}
                   >
                     <div className="flex items-start justify-between">
                       <div className="min-w-0">
