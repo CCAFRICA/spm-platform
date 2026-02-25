@@ -91,7 +91,7 @@ function planConfigToRuleSetInsert(
  * 5-second dedup cache prevents redundant queries from parallel clock services.
  */
 const _rsCache = new Map<string, { data: RuleSetConfig[]; ts: number; promise?: Promise<RuleSetConfig[]> }>();
-const RS_CACHE_TTL = 5000;
+const RS_CACHE_TTL = 30_000; // OB-100: was 5s
 
 export async function getRuleSets(tenantId: string): Promise<RuleSetConfig[]> {
   requireTenantId(tenantId);

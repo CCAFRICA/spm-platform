@@ -192,31 +192,36 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
 
         // Manager persona: scope to one brand's locations
         if (effectivePersona === 'manager') {
-          // Check if user has profile_scope entries
-          if (profile?.id) {
-            const { data: scopeData } = await supabase
-              .from('profile_scope')
-              .select('visible_entity_ids')
-              .eq('profile_id', profile.id)
+          // OB-100: Run profile_scope + entities queries in parallel
+          const [scopeResult, orgsResult] = await Promise.all([
+            profile?.id
+              ? supabase
+                  .from('profile_scope')
+                  .select('visible_entity_ids')
+                  .eq('profile_id', profile.id)
+                  .eq('tenant_id', currentTenant!.id)
+                  .maybeSingle()
+              : Promise.resolve({ data: null }),
+            supabase
+              .from('entities')
+              .select('id, entity_type, metadata')
               .eq('tenant_id', currentTenant!.id)
-              .maybeSingle();
+              .in('entity_type', ['organization', 'location']),
+          ]);
 
-            if (scopeData?.visible_entity_ids?.length) {
-              setEntityId(linkedEntityId);
-              setScope({
-                entityIds: scopeData.visible_entity_ids,
-                canSeeAll: false,
-              });
-              return;
-            }
+          // Check profile_scope first
+          const scopeData = scopeResult.data as { visible_entity_ids?: string[] } | null;
+          if (scopeData?.visible_entity_ids?.length) {
+            setEntityId(linkedEntityId);
+            setScope({
+              entityIds: scopeData.visible_entity_ids,
+              canSeeAll: false,
+            });
+            return;
           }
 
           // VL Admin demo override: scope to first brand's locations
-          const { data: allOrgs } = await supabase
-            .from('entities')
-            .select('id, entity_type, metadata')
-            .eq('tenant_id', currentTenant!.id)
-            .in('entity_type', ['organization', 'location']);
+          const allOrgs = orgsResult.data as Array<{ id: string; entity_type: string; metadata: unknown }> | null;
 
           if (allOrgs) {
             const brandEntities = allOrgs.filter(e =>

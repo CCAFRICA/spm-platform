@@ -177,6 +177,10 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Load data from CompensationClockService (unified source of truth — async Supabase)
   const isRefreshingRef = useRef(false);
+  // OB-100: Use ref to avoid isSpanish in refreshData deps (prevents re-fetch on locale change)
+  const isSpanishRef = useRef(isSpanish);
+  useEffect(() => { isSpanishRef.current = isSpanish; }, [isSpanish]);
+
   const refreshData = useCallback(async () => {
     // Guard: skip ALL Supabase calls if no valid tenant selected.
     if (!user || !userRole || !tenantId) return;
@@ -185,11 +189,12 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     isRefreshingRef.current = true;
 
     try {
+      const lang = isSpanishRef.current;
       // Run all five service calls in parallel
       const [cycle, periods, action, queue, pulse] = await Promise.all([
-        getCycleState(tenantId, isSpanish),
-        getAllPeriods(tenantId, isSpanish),
-        getNextAction(tenantId, clockPersona, isSpanish),
+        getCycleState(tenantId, lang),
+        getAllPeriods(tenantId, lang),
+        getNextAction(tenantId, clockPersona, lang),
         getClockQueueItems(tenantId, clockPersona, user.id),
         getClockPulseMetrics(tenantId, clockPersona, user.id),
       ]);
@@ -203,7 +208,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [user, userRole, tenantId, clockPersona, isSpanish]);
+  }, [user, userRole, tenantId, clockPersona]);
 
   // Initial data load
   useEffect(() => {
@@ -212,7 +217,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Refresh data periodically
   useEffect(() => {
-    const interval = setInterval(refreshData, 60000); // Every minute
+    const interval = setInterval(refreshData, 300_000); // Every 5 minutes (OB-100: was 60s)
     return () => clearInterval(interval);
   }, [refreshData]);
 
