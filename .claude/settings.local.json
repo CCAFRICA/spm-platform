@@ -143,7 +143,8 @@
       "Bash(wc -l /Users/AndrewAfrica/spm-platform/web/public/demo-data/*.txt)",
       "Bash(ls -la /Users/AndrewAfrica/spm-platform/web/public/demo-data/ && wc -l /Users/AndrewAfrica/spm-platform/web/public/demo-data/*.tsv)",
       "Bash(git log --oneline dev --not main | head -20)",
-      "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | tail -30)"
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | tail -30)",
+      "Bash(cat > /Users/AndrewAfrica/spm-platform/HF-059_LOGIN_REDIRECT_LOOP.md << 'EOF'\n# HF-059: LOGIN REDIRECT LOOP — POST OB-97 PRODUCTION BREAK\n# \\(Full prompt committed per Standing Rule 29\\)\n# See conversation context for complete prompt text.\nEOF)"
     ]
   }
 }
