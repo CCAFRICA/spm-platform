@@ -35,13 +35,20 @@ export default function NetworkPulseDashboard() {
   const { format } = useCurrency();
   const { locale } = useLocale();
   const router = useRouter();
-  const { scope } = usePersona();
+  const { persona, entityId, scope } = usePersona();
   const isSpanish = locale === 'es-MX';
 
   const tenantId = currentTenant?.id;
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<NetworkPulseData | null>(null);
+
+  // HF-060: Rep persona redirects to their Server Detail page
+  useEffect(() => {
+    if (persona === 'rep' && entityId) {
+      router.replace(`/financial/server/${entityId}`);
+    }
+  }, [persona, entityId, router]);
 
   // F-8/F-9: Build persona scope for data filtering
   const financialScope: FinancialScope | undefined = useMemo(() => {
@@ -51,14 +58,17 @@ export default function NetworkPulseDashboard() {
   }, [scope]);
 
   useEffect(() => {
+    // Don't load network pulse if rep — we're redirecting to server detail
+    if (persona === 'rep') return;
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
+    setLoading(true);
     loadNetworkPulseData(tenantId, financialScope)
       .then(result => { if (!cancelled) setData(result); })
       .catch(err => console.error('Failed to load network pulse data:', err))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, financialScope]);
+  }, [tenantId, financialScope, persona]);
 
   const networkMetrics = data?.networkMetrics ?? null;
   const locations = data?.locations ?? [];
