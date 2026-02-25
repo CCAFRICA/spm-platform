@@ -1,13 +1,13 @@
 'use client';
 
 /**
- * Monthly Operating Summary Page
+ * Operating Summary Page
  *
  * P&L-style financial summary with per-location breakdown.
  * All data from committed_data (pos_cheque) via financial-data-service.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -21,16 +21,24 @@ import {
 import {
   FileText,
   Activity,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { loadSummaryData, type SummaryPageData } from '@/lib/financial/financial-data-service';
 
-export default function MonthlySummaryPage() {
+type SortField = 'name' | 'brand' | 'revenue' | 'food' | 'bev' | 'tips' | 'discounts' | 'netRevenue';
+type SortOrder = 'asc' | 'desc';
+
+export default function OperatingSummaryPage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<SummaryPageData | null>(null);
+  const [sortField, setSortField] = useState<SortField>('revenue');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
@@ -41,6 +49,51 @@ export default function MonthlySummaryPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [tenantId]);
+
+  const sortedLocations = useMemo(() => {
+    if (!data) return [];
+    const locs = [...data.locationBreakdown];
+    locs.sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case 'name': cmp = a.name.localeCompare(b.name); break;
+        case 'brand': cmp = a.brand.localeCompare(b.brand); break;
+        case 'revenue': cmp = a.revenue - b.revenue; break;
+        case 'food': cmp = a.food - b.food; break;
+        case 'bev': cmp = a.bev - b.bev; break;
+        case 'tips': cmp = a.tips - b.tips; break;
+        case 'discounts': cmp = (a.discounts + a.comps) - (b.discounts + b.comps); break;
+        case 'netRevenue': cmp = a.netRevenue - b.netRevenue; break;
+      }
+      return sortOrder === 'asc' ? cmp : -cmp;
+    });
+    return locs;
+  }, [data, sortField, sortOrder]);
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('desc');
+    }
+  };
+
+  const SortableHead = ({ field, children, className }: { field: SortField; children: React.ReactNode; className?: string }) => (
+    <TableHead
+      className={`cursor-pointer hover:bg-zinc-800/50 transition-colors ${className || ''}`}
+      onClick={() => toggleSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {children}
+        {sortField === field ? (
+          sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+        ) : (
+          <ArrowUpDown className="h-3 w-3 text-zinc-500" />
+        )}
+      </div>
+    </TableHead>
+  );
 
   if (loading) {
     return (
@@ -57,7 +110,7 @@ export default function MonthlySummaryPage() {
           <CardContent className="pt-6 text-center">
             <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">No Data</h2>
-            <p className="text-muted-foreground">Import POS data to see the monthly operating summary.</p>
+            <p className="text-muted-foreground">Import POS data to see the operating summary.</p>
           </CardContent>
         </Card>
       </div>
@@ -70,7 +123,7 @@ export default function MonthlySummaryPage() {
       <div>
         <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
           <FileText className="h-6 w-6 text-primary" />
-          Monthly Operating Summary
+          Operating Summary
         </h1>
         <p className="text-zinc-400">{data.periodLabel}</p>
       </div>
@@ -123,7 +176,7 @@ export default function MonthlySummaryPage() {
         </CardContent>
       </Card>
 
-      {/* Location Breakdown */}
+      {/* Location Breakdown — Sortable */}
       <Card>
         <CardHeader>
           <CardTitle>Location Breakdown</CardTitle>
@@ -133,18 +186,18 @@ export default function MonthlySummaryPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Brand</TableHead>
-                  <TableHead className="text-right">Gross Revenue</TableHead>
-                  <TableHead className="text-right">Food</TableHead>
-                  <TableHead className="text-right">Beverage</TableHead>
-                  <TableHead className="text-right">Tips</TableHead>
-                  <TableHead className="text-right">Discounts</TableHead>
-                  <TableHead className="text-right">Net Revenue</TableHead>
+                  <SortableHead field="name">Location</SortableHead>
+                  <SortableHead field="brand">Brand</SortableHead>
+                  <SortableHead field="revenue" className="text-right">Gross Revenue</SortableHead>
+                  <SortableHead field="food" className="text-right">Food</SortableHead>
+                  <SortableHead field="bev" className="text-right">Beverage</SortableHead>
+                  <SortableHead field="tips" className="text-right">Tips</SortableHead>
+                  <SortableHead field="discounts" className="text-right">Discounts</SortableHead>
+                  <SortableHead field="netRevenue" className="text-right">Net Revenue</SortableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.locationBreakdown.map((loc) => (
+                {sortedLocations.map((loc) => (
                   <TableRow key={loc.name}>
                     <TableCell className="font-medium">{loc.name}</TableCell>
                     <TableCell>

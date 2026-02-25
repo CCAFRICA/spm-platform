@@ -308,11 +308,13 @@ export default function LocationBenchmarksPage() {
                       </div>
                     </TableCell>
 
-                    {/* Avg Check */}
+                    {/* Avg Check — benchmarked against brand avg */}
                     <TableCell>
-                      <span className={location.avgCheck > location.brandAvgCheck ? 'text-green-600' : 'text-red-600'}>
-                        {format(location.avgCheck)}
-                      </span>
+                      {(() => {
+                        const ratio = location.brandAvgCheck > 0 ? location.avgCheck / location.brandAvgCheck : 1;
+                        const color = ratio >= 1.0 ? 'text-green-600' : ratio >= 0.9 ? 'text-zinc-200' : 'text-red-600';
+                        return <span className={color}>{format(location.avgCheck)}</span>;
+                      })()}
                     </TableCell>
 
                     {/* WoW Change */}
