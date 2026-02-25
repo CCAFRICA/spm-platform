@@ -98,7 +98,10 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const persona = override ?? derivedPersona;
   const tokens = PERSONA_TOKENS[persona];
 
-  // Fetch scope from profile_scope
+  // Fetch scope from profile + override persona
+  // HF-060: Added `override` to deps so scope recalculates when DemoPersonaSwitcher changes persona.
+  // Uses effective persona (override ?? derived) instead of user.role so that demo
+  // persona switching actually changes data scope, not just visual identity.
   useEffect(() => {
     if (!user || !currentTenant) {
       setScope({ entityIds: [], canSeeAll: false });
@@ -106,6 +109,8 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       setEntityId(null);
       return;
     }
+
+    const effectivePersona = override ?? derivePersona(user, capabilities);
 
     async function fetchScope() {
       try {
@@ -133,16 +138,118 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
             .maybeSingle();
 
           linkedEntityId = linkedEntity?.id ?? null;
-          setEntityId(linkedEntityId);
         }
 
-        // Admin sees all — no need to query profile_scope
-        if (user!.role === 'vl_admin' || user!.role === 'admin') {
+        // Admin persona sees all — no need to query profile_scope
+        if (effectivePersona === 'admin') {
+          setEntityId(linkedEntityId);
           setScope({ entityIds: [], canSeeAll: true });
           return;
         }
 
-        // Query profile_scope for visible entities
+        // Rep persona: scope to a single server's store
+        if (effectivePersona === 'rep') {
+          // If the user has a linked individual entity, use it
+          if (linkedEntityId) {
+            const { data: linkedEnt } = await supabase
+              .from('entities')
+              .select('id, metadata')
+              .eq('id', linkedEntityId)
+              .maybeSingle();
+            const meta = (linkedEnt?.metadata || {}) as Record<string, unknown>;
+            const storeId = String(meta.store_id || meta.location_id || '');
+            setEntityId(linkedEntityId);
+            setScope({
+              entityIds: storeId ? [storeId] : [linkedEntityId],
+              canSeeAll: false,
+            });
+            return;
+          }
+
+          // VL Admin demo override: pick a sample individual entity from the tenant
+          const { data: sampleIndividual } = await supabase
+            .from('entities')
+            .select('id, metadata')
+            .eq('tenant_id', currentTenant!.id)
+            .eq('entity_type', 'individual')
+            .limit(1)
+            .maybeSingle();
+
+          if (sampleIndividual) {
+            const meta = (sampleIndividual.metadata || {}) as Record<string, unknown>;
+            const storeId = String(meta.store_id || meta.location_id || '');
+            setEntityId(sampleIndividual.id);
+            setScope({
+              entityIds: storeId ? [storeId] : [],
+              canSeeAll: false,
+            });
+          } else {
+            setEntityId(null);
+            setScope({ entityIds: [], canSeeAll: false });
+          }
+          return;
+        }
+
+        // Manager persona: scope to one brand's locations
+        if (effectivePersona === 'manager') {
+          // OB-100: Run profile_scope + entities queries in parallel
+          const [scopeResult, orgsResult] = await Promise.all([
+            profile?.id
+              ? supabase
+                  .from('profile_scope')
+                  .select('visible_entity_ids')
+                  .eq('profile_id', profile.id)
+                  .eq('tenant_id', currentTenant!.id)
+                  .maybeSingle()
+              : Promise.resolve({ data: null }),
+            supabase
+              .from('entities')
+              .select('id, entity_type, metadata')
+              .eq('tenant_id', currentTenant!.id)
+              .in('entity_type', ['organization', 'location']),
+          ]);
+
+          // Check profile_scope first
+          const scopeData = scopeResult.data as { visible_entity_ids?: string[] } | null;
+          if (scopeData?.visible_entity_ids?.length) {
+            setEntityId(linkedEntityId);
+            setScope({
+              entityIds: scopeData.visible_entity_ids,
+              canSeeAll: false,
+            });
+            return;
+          }
+
+          // VL Admin demo override: scope to first brand's locations
+          const allOrgs = orgsResult.data as Array<{ id: string; entity_type: string; metadata: unknown }> | null;
+
+          if (allOrgs) {
+            const brandEntities = allOrgs.filter(e =>
+              (e.metadata as Record<string, unknown>)?.role === 'brand'
+            );
+            const firstBrand = brandEntities[0];
+
+            if (firstBrand) {
+              const brandLocations = allOrgs.filter(e =>
+                e.entity_type === 'location' &&
+                String((e.metadata as Record<string, unknown>)?.brand_id || '') === firstBrand.id
+              );
+              setEntityId(linkedEntityId);
+              setScope({
+                entityIds: brandLocations.map(l => l.id),
+                canSeeAll: false,
+              });
+              return;
+            }
+          }
+
+          // Fallback: manager with no brand data sees all
+          setEntityId(linkedEntityId);
+          setScope({ entityIds: [], canSeeAll: true });
+          return;
+        }
+
+        // Fallback for any other persona: try profile_scope
         if (profile?.id) {
           const { data: scopeData } = await supabase
             .from('profile_scope')
@@ -157,7 +264,6 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
               canSeeAll: false,
             });
           } else {
-            // No scope row — for non-admin, scope to own linked entity only
             setScope({
               entityIds: linkedEntityId ? [linkedEntityId] : [],
               canSeeAll: false,
@@ -166,8 +272,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.warn('[PersonaContext] Failed to fetch scope:', err);
-        // Fail safe: scope to nothing for non-admin
-        if (user!.role === 'vl_admin' || user!.role === 'admin') {
+        if (effectivePersona === 'admin') {
           setScope({ entityIds: [], canSeeAll: true });
         } else {
           setScope({ entityIds: [], canSeeAll: false });
@@ -176,7 +281,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     }
 
     fetchScope();
-  }, [user, currentTenant]);
+  }, [user, currentTenant, override, capabilities]);
 
   const value = useMemo<PersonaContextValue>(() => ({
     persona,

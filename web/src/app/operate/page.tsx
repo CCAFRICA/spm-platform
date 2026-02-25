@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
+import { useFinancialOnly } from '@/hooks/use-financial-only';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
@@ -51,7 +52,13 @@ export default function OperateCockpitPage() {
   const { user } = useAuth();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
   const hasFinancial = useFeature('financial');
+  const isFinancialOnly = useFinancialOnly();
   const tenantId = currentTenant?.id ?? '';
+
+  // OB-100: Financial-only tenants redirect to /financial (no ICM content)
+  useEffect(() => {
+    if (isFinancialOnly) router.replace('/financial');
+  }, [isFinancialOnly, router]);
 
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
   const [activeKey, setActiveKey] = useState('');

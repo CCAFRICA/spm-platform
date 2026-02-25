@@ -24,6 +24,7 @@ import {
 import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
+import { useSession } from "@/contexts/session-context";
 import { isVLAdmin } from "@/types/auth";
 import { accessControl, type AppModule } from "@/lib/access-control";
 import { MODULE_TOKENS, type ModuleId } from "@/lib/design-system/tokens";
@@ -62,6 +63,10 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const locationTerm = useTerm("location", true);
   const salesFinanceEnabled = useFeature("salesFinance");
   const financialEnabled = useFeature("financial");
+  const { ruleSetCount } = useSession();
+
+  // OB-100: Financial-only tenant = financial enabled but no ICM plans
+  const isFinancialOnly = financialEnabled && ruleSetCount === 0;
 
   const [expandedItems, setExpandedItems] = useState<string[]>(["Insights", "Transactions"]);
 
@@ -268,11 +273,16 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     });
   };
 
+  // OB-100: ICM-specific modules hidden for financial-only tenants
+  const ICM_MODULES: AppModule[] = ['my_compensation', 'insights', 'transactions', 'performance'];
+
   // Filter top-level navigation items based on module access
   const filterNavigation = (items: NavItem[]) => {
     return items.filter((item) => {
       // Check module access
       if (item.module && !accessibleModules.includes(item.module)) return false;
+      // OB-100: Hide ICM nav items for financial-only tenants
+      if (isFinancialOnly && item.module && ICM_MODULES.includes(item.module)) return false;
       return true;
     });
   };

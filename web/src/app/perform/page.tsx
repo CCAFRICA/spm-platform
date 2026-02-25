@@ -12,6 +12,8 @@
  * Perform in the sidebar loads the dashboard within the Perform workspace context.
  */
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
@@ -20,11 +22,19 @@ import { AdminDashboard } from '@/components/dashboards/AdminDashboard';
 import { ManagerDashboard } from '@/components/dashboards/ManagerDashboard';
 import { RepDashboard } from '@/components/dashboards/RepDashboard';
 import { useTenant } from '@/contexts/tenant-context';
+import { useFinancialOnly } from '@/hooks/use-financial-only';
 
 function PerformContent() {
+  const router = useRouter();
   const { persona } = usePersona();
   const { availablePeriods, activePeriodKey, setActivePeriod, isLoading } = usePeriod();
   const { currentTenant } = useTenant();
+  const isFinancialOnly = useFinancialOnly();
+
+  // OB-100: Financial-only tenants redirect to /financial (no ICM content)
+  useEffect(() => {
+    if (isFinancialOnly) router.replace('/financial');
+  }, [isFinancialOnly, router]);
 
   if (!currentTenant) {
     return (

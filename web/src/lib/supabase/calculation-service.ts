@@ -123,7 +123,7 @@ export async function getCalculationBatch(
  * share a single Supabase round-trip during the same refresh cycle.
  */
 const _batchCache = new Map<string, { data: CalcBatchRow[]; ts: number; promise?: Promise<CalcBatchRow[]> }>();
-const CACHE_TTL = 5000; // 5 seconds
+const CACHE_TTL = 30_000; // 30 seconds (OB-100: was 5s)
 
 export async function listCalculationBatches(
   tenantId: string,
@@ -720,18 +720,40 @@ export async function getDashboardKPIs(tenantId: string): Promise<DashboardKPIs>
 // Pulse sidebar counts — lightweight queries
 // ──────────────────────────────────────────────
 
+// OB-100: Pulse count cache — 60s TTL prevents redundant count queries on every refresh
+const _pulseCountCache = new Map<string, { value: number; ts: number }>();
+const PULSE_CACHE_TTL = 60_000;
+
+function getCachedCount(key: string): number | null {
+  const cached = _pulseCountCache.get(key);
+  if (cached && Date.now() - cached.ts < PULSE_CACHE_TTL) return cached.value;
+  return null;
+}
+
+function setCachedCount(key: string, value: number): void {
+  _pulseCountCache.set(key, { value, ts: Date.now() });
+}
+
 export async function getProfileCount(tenantId: string): Promise<number> {
   requireTenantId(tenantId);
+  const cacheKey = `profile:${tenantId}`;
+  const cached = getCachedCount(cacheKey);
+  if (cached !== null) return cached;
   const supabase = createClient();
   const { count } = await supabase
     .from('profiles')
     .select('*', { count: 'exact', head: true })
     .eq('tenant_id', tenantId);
-  return count || 0;
+  const result = count || 0;
+  setCachedCount(cacheKey, result);
+  return result;
 }
 
 export async function getBatchCountToday(tenantId: string): Promise<number> {
   requireTenantId(tenantId);
+  const cacheKey = `batchToday:${tenantId}`;
+  const cached = getCachedCount(cacheKey);
+  if (cached !== null) return cached;
   const supabase = createClient();
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -740,13 +762,20 @@ export async function getBatchCountToday(tenantId: string): Promise<number> {
     .select('*', { count: 'exact', head: true })
     .eq('tenant_id', tenantId)
     .gte('created_at', todayStart.toISOString());
-  return count || 0;
+  const result = count || 0;
+  setCachedCount(cacheKey, result);
+  return result;
 }
 
 export async function getTenantCount(): Promise<number> {
+  const cacheKey = 'tenantCount';
+  const cached = getCachedCount(cacheKey);
+  if (cached !== null) return cached;
   const supabase = createClient();
   const { count } = await supabase
     .from('tenants')
     .select('*', { count: 'exact', head: true });
-  return count || 0;
+  const result = count || 0;
+  setCachedCount(cacheKey, result);
+  return result;
 }

@@ -19,6 +19,8 @@ import {
   MapPin,
   Activity,
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
@@ -35,13 +37,30 @@ export default function NetworkPulseDashboard() {
   const { format } = useCurrency();
   const { locale } = useLocale();
   const router = useRouter();
-  const { scope } = usePersona();
+  const { persona, entityId, scope } = usePersona();
   const isSpanish = locale === 'es-MX';
 
   const tenantId = currentTenant?.id;
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<NetworkPulseData | null>(null);
+  // OB-100: Expand/collapse brand groups (all expanded by default)
+  const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
+  const toggleBrand = (brandName: string) => {
+    setExpandedBrands(prev => {
+      const next = new Set(prev);
+      if (next.has(brandName)) next.delete(brandName);
+      else next.add(brandName);
+      return next;
+    });
+  };
+
+  // HF-060: Rep persona redirects to their Server Detail page
+  useEffect(() => {
+    if (persona === 'rep' && entityId) {
+      router.replace(`/financial/server/${entityId}`);
+    }
+  }, [persona, entityId, router]);
 
   // F-8/F-9: Build persona scope for data filtering
   const financialScope: FinancialScope | undefined = useMemo(() => {
@@ -51,18 +70,28 @@ export default function NetworkPulseDashboard() {
   }, [scope]);
 
   useEffect(() => {
+    // Don't load network pulse if rep — we're redirecting to server detail
+    if (persona === 'rep') return;
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
+    setLoading(true);
     loadNetworkPulseData(tenantId, financialScope)
       .then(result => { if (!cancelled) setData(result); })
       .catch(err => console.error('Failed to load network pulse data:', err))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, financialScope]);
+  }, [tenantId, financialScope, persona]);
 
   const networkMetrics = data?.networkMetrics ?? null;
   const locations = data?.locations ?? [];
   const brands = data?.brands ?? [];
+
+  // OB-100: Initialize all brands as expanded when data loads
+  useEffect(() => {
+    if (data?.brands && data.brands.length > 0) {
+      setExpandedBrands(new Set(data.brands.map(b => b.name)));
+    }
+  }, [data]);
 
   if (loading) {
     return (
@@ -275,7 +304,7 @@ export default function NetworkPulseDashboard() {
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }} />
-              <span className="text-muted-foreground">{isSpanish ? 'Dentro ±10%' : 'Within ±10%'}</span>
+              <span className="text-muted-foreground">{isSpanish ? 'Dentro ±5%' : 'Within ±5%'}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded" style={{ backgroundColor: '#ef4444' }} />
@@ -284,109 +313,104 @@ export default function NetworkPulseDashboard() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* F-2: Brand-grouped sections */}
-          {Array.from(locationsByBrand.entries()).map(([brandName, brandLocations]) => (
-            <div key={brandName}>
-              <div className="flex items-center gap-2 mb-3">
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: brandLocations[0]?.brandColor || '#6b7280' }}
-                />
-                <span className="text-sm font-medium text-zinc-300">{brandName}</span>
-                <span className="text-xs text-muted-foreground">
-                  ({brandLocations.length} {brandLocations.length === 1
-                    ? (isSpanish ? 'ubicacion' : 'location')
-                    : (isSpanish ? 'ubicaciones' : 'locations')})
-                </span>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {brandLocations.map((location) => (
-                  <div
-                    key={location.id}
-                    className={`rounded-lg p-3 border-l-4 cursor-pointer transition-opacity hover:opacity-80 ${getLocationBg(location.vsNetworkAvg)}`}
-                    style={{ borderLeftColor: getLocationBorderColor(location.vsNetworkAvg) }}
-                    onClick={() => router.push(`/financial/location/${location.id}`)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm truncate">{location.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{location.city}</p>
-                      </div>
-                      {/* Anomaly indicators */}
-                      <div className="flex gap-1 shrink-0 ml-1">
-                        {location.leakageRate > 5 && (
-                          <div className="w-2 h-2 rounded-full bg-red-500" title={`Leakage ${location.leakageRate.toFixed(1)}%`} />
-                        )}
-                        {location.tipRate < 8 && (
-                          <div className="w-2 h-2 rounded-full bg-amber-500" title={`Tip rate ${location.tipRate.toFixed(1)}%`} />
-                        )}
-                      </div>
-                    </div>
-                    {/* F-3: No cents on large amounts */}
-                    <p className="text-lg font-bold mt-2">{formatWhole(location.revenue)}</p>
-                    {/* Mini Sparkline */}
-                    <div className="h-5 mt-2">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={location.weeklyData.map((v, i) => ({ v, i }))}>
-                          <Line
-                            type="monotone"
-                            dataKey="v"
-                            stroke={location.brandColor}
-                            strokeWidth={1.5}
-                            dot={false}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                    {/* Micro stats */}
-                    <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
-                      <span>Tip {location.tipRate.toFixed(1)}%</span>
-                      <span className={location.leakageRate > 5 ? 'text-red-400' : ''}>
-                        Leak {location.leakageRate.toFixed(1)}%
-                      </span>
-                    </div>
+          {/* OB-100: Brand-grouped sections with expand/collapse + summary stats */}
+          {Array.from(locationsByBrand.entries()).map(([brandName, brandLocations]) => {
+            const brandData = brands.find(b => b.name === brandName);
+            const isExpanded = expandedBrands.has(brandName);
+
+            return (
+              <div key={brandName}>
+                {/* Clickable brand header */}
+                <button
+                  className="flex items-center justify-between w-full mb-3 group cursor-pointer"
+                  onClick={() => toggleBrand(brandName)}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: brandLocations[0]?.brandColor || '#6b7280' }}
+                    />
+                    <span className="text-sm font-medium text-zinc-300">{brandName}</span>
+                    {brandData && (
+                      <Badge variant="secondary" className="text-[10px]">{brandData.concept}</Badge>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      ({brandLocations.length} {brandLocations.length === 1
+                        ? (isSpanish ? 'ubicacion' : 'location')
+                        : (isSpanish ? 'ubicaciones' : 'locations')})
+                    </span>
                   </div>
-                ))}
+                  <div className="flex items-center gap-4">
+                    {/* Summary stats inline */}
+                    {brandData && (
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{formatWhole(brandData.totalRevenue)}</span>
+                        <span>{isSpanish ? 'Prom.' : 'Avg'} {format(brandData.avgCheck)}</span>
+                        <span>Tip {(brandData.tipRate * 100).toFixed(1)}%</span>
+                      </div>
+                    )}
+                    {isExpanded
+                      ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+                </button>
+                {/* Location grid — conditionally rendered */}
+                {isExpanded && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {brandLocations.map((location) => (
+                      <div
+                        key={location.id}
+                        className={`rounded-lg p-3 border-l-4 cursor-pointer transition-opacity hover:opacity-80 ${getLocationBg(location.vsNetworkAvg)}`}
+                        style={{ borderLeftColor: getLocationBorderColor(location.vsNetworkAvg) }}
+                        onClick={() => router.push(`/financial/location/${location.id}`)}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{location.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{location.city}</p>
+                          </div>
+                          {/* Anomaly indicators */}
+                          <div className="flex gap-1 shrink-0 ml-1">
+                            {location.leakageRate > 5 && (
+                              <div className="w-2 h-2 rounded-full bg-red-500" title={`Leakage ${location.leakageRate.toFixed(1)}%`} />
+                            )}
+                            {location.tipRate < 8 && (
+                              <div className="w-2 h-2 rounded-full bg-amber-500" title={`Tip rate ${location.tipRate.toFixed(1)}%`} />
+                            )}
+                          </div>
+                        </div>
+                        {/* F-3: No cents on large amounts */}
+                        <p className="text-lg font-bold mt-2">{formatWhole(location.revenue)}</p>
+                        {/* Mini Sparkline */}
+                        <div className="h-5 mt-2">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={location.weeklyData.map((v, i) => ({ v, i }))}>
+                              <Line
+                                type="monotone"
+                                dataKey="v"
+                                stroke={location.brandColor}
+                                strokeWidth={1.5}
+                                dot={false}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                        {/* Micro stats */}
+                        <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
+                          <span>Tip {location.tipRate.toFixed(1)}%</span>
+                          <span className={location.leakageRate > 5 ? 'text-red-400' : ''}>
+                            Leak {location.leakageRate.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </CardContent>
       </Card>
-
-      {/* SECTION C: Brand Comparison */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {brands.map((brand) => (
-          <Card key={brand.id} className="overflow-hidden">
-            <div className="h-1" style={{ backgroundColor: brand.color }} />
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center justify-between">
-                <span>{brand.name}</span>
-                <Badge variant="secondary" className="text-xs">{brand.concept}</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground">{isSpanish ? 'Ubicaciones' : 'Locations'}</p>
-                  <p className="font-semibold">{brand.locationCount}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">{isSpanish ? 'Ingresos' : 'Revenue'}</p>
-                  <p className="font-semibold">{format(brand.totalRevenue)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">{isSpanish ? 'Cheque Prom.' : 'Avg Check'}</p>
-                  <p className="font-semibold">{format(brand.avgCheck)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">{isSpanish ? 'Tasa Propina' : 'Tip Rate'}</p>
-                  <p className="font-semibold">{(brand.tipRate * 100).toFixed(1)}%</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }
