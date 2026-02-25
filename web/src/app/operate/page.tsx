@@ -55,7 +55,7 @@ export default function OperateCockpitPage() {
   const isFinancialOnly = useFinancialOnly();
   const tenantId = currentTenant?.id ?? '';
 
-  // OB-100: Financial-only tenants redirect to /financial (no ICM content)
+  // OB-101: Financial-only tenants redirect to /financial — block render to prevent ICM flash
   useEffect(() => {
     if (isFinancialOnly) router.replace('/financial');
   }, [isFinancialOnly, router]);
@@ -249,6 +249,15 @@ export default function OperateCockpitPage() {
     : lifecycleState ? toDashboardState(lifecycleState) : 'DRAFT';
 
   const stateDisplay = LIFECYCLE_DISPLAY[dashState as keyof typeof LIFECYCLE_DISPLAY];
+
+  // OB-101: Block ICM content while financial-only redirect is in flight
+  if (isFinancialOnly) {
+    return (
+      <div className="p-8 flex items-center justify-center">
+        <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   if (!tenantId) {
     return (
