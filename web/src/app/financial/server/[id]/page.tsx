@@ -8,6 +8,8 @@
  * - KPI cards (revenue, checks, avg check, tips, performance index)
  * - Weekly trend chart
  * - Check distribution (hourly pattern)
+ *
+ * OB-99: Migrated from direct Supabase queries to service layer (1 request).
  */
 
 import { useEffect, useState } from 'react';
@@ -33,30 +35,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { createClient, requireTenantId } from '@/lib/supabase/client';
-
-interface ServerDetail {
-  id: string;
-  name: string;
-  role: string;
-  locationName: string;
-  meseroId: string;
-  revenue: number;
-  cheques: number;
-  avgCheck: number;
-  tips: number;
-  tipRate: number;
-  guests: number;
-  avgGuests: number;
-  food: number;
-  bev: number;
-  discounts: number;
-  performanceIndex: number;
-  tier: string;
-  tierColor: string;
-  weeklyRevenue: Array<{ week: string; revenue: number }>;
-  hourlyPattern: Array<{ hour: string; cheques: number }>;
-}
+import { loadServerDetailData, type ServerDetailData } from '@/lib/financial/financial-data-service';
 
 export default function ServerDetailPage() {
   const params = useParams();
@@ -66,7 +45,7 @@ export default function ServerDetailPage() {
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
   const [loading, setLoading] = useState(true);
-  const [detail, setDetail] = useState<ServerDetail | null>(null);
+  const [detail, setDetail] = useState<ServerDetailData | null>(null);
 
   useEffect(() => {
     if (!tenantId || !serverId) { setLoading(false); return; }
@@ -74,159 +53,8 @@ export default function ServerDetailPage() {
 
     async function load() {
       try {
-        requireTenantId(tenantId!);
-        const supabase = createClient();
-
-        // Fetch server entity
-        const { data: entity } = await supabase
-          .from('entities')
-          .select('id, display_name, external_id, entity_type, metadata')
-          .eq('tenant_id', tenantId!)
-          .eq('id', serverId)
-          .single();
-
-        if (!entity || cancelled) return;
-
-        const meta = entity.metadata as Record<string, unknown> | null;
-        const meseroId = String(meta?.mesero_id || '');
-        const role = String(meta?.role || 'Mesero');
-
-        // Find location entity
-        const storeId = String(meta?.store_id || meta?.location_id || '');
-        let locationName = '';
-        if (storeId) {
-          const { data: locEntity } = await supabase
-            .from('entities')
-            .select('display_name')
-            .eq('id', storeId)
-            .single();
-          if (locEntity) locationName = locEntity.display_name;
-        }
-
-        // Fetch all cheques and filter by mesero_id
-        const PAGE_SIZE = 1000;
-        const cheques: Array<Record<string, unknown>> = [];
-        let offset = 0;
-        while (true) {
-          const { data, error } = await supabase
-            .from('committed_data')
-            .select('row_data')
-            .eq('tenant_id', tenantId!)
-            .eq('data_type', 'pos_cheque')
-            .range(offset, offset + PAGE_SIZE - 1);
-          if (error || !data || data.length === 0) break;
-          for (const row of data) {
-            const rd = row.row_data as unknown as Record<string, unknown>;
-            if (String(Number(rd.mesero_id) || 0) === meseroId) {
-              cheques.push(rd);
-            }
-          }
-          if (data.length < PAGE_SIZE) break;
-          offset += PAGE_SIZE;
-        }
-
-        if (cancelled) return;
-
-        const n = (v: unknown) => Number(v) || 0;
-
-        let revenue = 0, tips = 0, food = 0, bev = 0, discounts = 0, guests = 0;
-        let chequeCount = 0;
-        const dailyRevenue = new Map<string, number>();
-        const hourlyBuckets = new Map<number, number>();
-
-        for (const rd of cheques) {
-          chequeCount++;
-          revenue += n(rd.total);
-          tips += n(rd.propina);
-          food += n(rd.total_alimentos);
-          bev += n(rd.total_bebidas);
-          discounts += n(rd.total_descuentos) + n(rd.total_cortesias);
-          guests += n(rd.numero_de_personas);
-
-          const dt = String(rd.fecha || '').substring(0, 10);
-          if (dt) dailyRevenue.set(dt, (dailyRevenue.get(dt) || 0) + n(rd.total));
-
-          // Extract hour from cierre (close time) if available
-          const cierre = String(rd.cierre || '');
-          const hourMatch = cierre.match(/(\d{1,2}):/);
-          if (hourMatch) {
-            const hr = parseInt(hourMatch[1]);
-            hourlyBuckets.set(hr, (hourlyBuckets.get(hr) || 0) + 1);
-          }
-        }
-
-        // Weekly buckets
-        const sortedDates = Array.from(dailyRevenue.keys()).sort();
-        const weeklyRevenue: Array<{ week: string; revenue: number }> = [];
-        let weekIdx = 0;
-        let weekTotal = 0;
-        let dayCount = 0;
-        for (const dt of sortedDates) {
-          weekTotal += dailyRevenue.get(dt) || 0;
-          dayCount++;
-          if (dayCount >= 7) {
-            weekIdx++;
-            weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) });
-            weekTotal = 0;
-            dayCount = 0;
-          }
-        }
-        if (dayCount > 0) {
-          weekIdx++;
-          weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) });
-        }
-
-        // Hourly pattern
-        const hourlyPattern: Array<{ hour: string; cheques: number }> = [];
-        for (let h = 8; h <= 23; h++) {
-          hourlyPattern.push({
-            hour: `${h}:00`,
-            cheques: hourlyBuckets.get(h) || 0,
-          });
-        }
-
-        // Performance index (simplified: revenue rank proxy)
-        const avgCheck = chequeCount > 0 ? revenue / chequeCount : 0;
-        const tipRate = revenue > 0 ? (tips / revenue) * 100 : 0;
-        const performanceIndex = Math.min(100, Math.round(
-          (avgCheck > 0 ? Math.min(avgCheck / 500, 1) * 40 : 0) +
-          (tipRate > 0 ? Math.min(tipRate / 20, 1) * 30 : 0) +
-          (chequeCount > 0 ? Math.min(chequeCount / 500, 1) * 30 : 0)
-        ));
-
-        const getTier = (idx: number) => {
-          if (idx >= 85) return { tier: 'Estrella', color: 'bg-yellow-100 text-yellow-700' };
-          if (idx >= 70) return { tier: 'Destacado', color: 'bg-blue-100 text-blue-700' };
-          if (idx >= 50) return { tier: 'Estandar', color: 'bg-zinc-700 text-zinc-300' };
-          return { tier: 'En Desarrollo', color: 'bg-red-100 text-red-700' };
-        };
-
-        const tierInfo = getTier(performanceIndex);
-
-        if (!cancelled) {
-          setDetail({
-            id: entity.id,
-            name: entity.display_name,
-            role,
-            locationName,
-            meseroId,
-            revenue: Math.round(revenue * 100) / 100,
-            cheques: chequeCount,
-            avgCheck: Math.round(avgCheck * 100) / 100,
-            tips: Math.round(tips * 100) / 100,
-            tipRate: Math.round(tipRate * 10) / 10,
-            guests,
-            avgGuests: chequeCount > 0 ? Math.round((guests / chequeCount) * 10) / 10 : 0,
-            food: Math.round(food * 100) / 100,
-            bev: Math.round(bev * 100) / 100,
-            discounts: Math.round(discounts * 100) / 100,
-            performanceIndex,
-            tier: tierInfo.tier,
-            tierColor: tierInfo.color,
-            weeklyRevenue,
-            hourlyPattern,
-          });
-        }
+        const result = await loadServerDetailData(tenantId!, serverId);
+        if (!cancelled) setDetail(result);
       } catch (err) {
         console.error('Failed to load server detail:', err);
       } finally {
