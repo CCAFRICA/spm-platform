@@ -829,3 +829,254 @@ export async function loadTimelineData(
 
   return { data, brandData, brandNames: allBrands, brandColors };
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Operational Patterns (hourly heatmap + day-of-week)
+// ═══════════════════════════════════════════════════════════════════
+
+export interface HeatmapCell {
+  hour: number;
+  day: number; // 0=Sun, 1=Mon ... 6=Sat
+  revenue: number;
+  checks: number;
+  avgCheck: number;
+}
+
+export interface DayOfWeekData {
+  day: string;
+  dayIndex: number;
+  revenue: number;
+  checks: number;
+  avgCheck: number;
+  tips: number;
+  avgGuests: number;
+}
+
+export interface PatternsPageData {
+  heatmap: HeatmapCell[];
+  dayOfWeek: DayOfWeekData[];
+  peakHour: number;
+  peakDay: string;
+  avgDailyRevenue: number;
+  avgDailyChecks: number;
+}
+
+export async function loadPatternsData(tenantId: string): Promise<PatternsPageData | null> {
+  const raw = await fetchRawData(tenantId);
+  if (!raw) return null;
+
+  // Hourly × day-of-week grid (7 days × 24 hours)
+  interface Cell { revenue: number; checks: number; }
+  const grid: Cell[][] = [];
+  for (let d = 0; d < 7; d++) {
+    grid[d] = [];
+    for (let h = 0; h < 24; h++) grid[d][h] = { revenue: 0, checks: 0 };
+  }
+
+  // Day-of-week totals
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayTotals = dayNames.map((_, i) => ({
+    dayIndex: i, revenue: 0, checks: 0, tips: 0, guests: 0, days: new Set<string>(),
+  }));
+
+  for (const c of raw.cheques) {
+    const rd = c.row_data;
+    if (n(rd.cancelado) === 1) continue;
+    const fechaStr = String(rd.fecha || '');
+    if (!fechaStr) continue;
+    const d = new Date(fechaStr);
+    if (isNaN(d.getTime())) continue;
+    const dayOfWeek = d.getDay();
+    const hour = d.getHours();
+    const rev = n(rd.total);
+
+    grid[dayOfWeek][hour].revenue += rev;
+    grid[dayOfWeek][hour].checks++;
+
+    const dateKey = fechaStr.substring(0, 10);
+    dayTotals[dayOfWeek].revenue += rev;
+    dayTotals[dayOfWeek].checks++;
+    dayTotals[dayOfWeek].tips += n(rd.propina);
+    dayTotals[dayOfWeek].guests += n(rd.numero_de_personas);
+    dayTotals[dayOfWeek].days.add(dateKey);
+  }
+
+  // Build heatmap cells
+  const heatmap: HeatmapCell[] = [];
+  for (let d = 0; d < 7; d++) {
+    for (let h = 0; h < 24; h++) {
+      const cell = grid[d][h];
+      if (cell.checks > 0) {
+        heatmap.push({ hour: h, day: d, revenue: round2(cell.revenue), checks: cell.checks, avgCheck: round2(cell.revenue / cell.checks) });
+      }
+    }
+  }
+
+  // Day-of-week data (averaged per day)
+  const dayOfWeek: DayOfWeekData[] = dayTotals.map((dt, i) => {
+    const numDays = dt.days.size || 1;
+    return {
+      day: dayNames[i],
+      dayIndex: i,
+      revenue: round2(dt.revenue / numDays),
+      checks: Math.round(dt.checks / numDays),
+      avgCheck: dt.checks > 0 ? round2(dt.revenue / dt.checks) : 0,
+      tips: round2(dt.tips / numDays),
+      avgGuests: dt.checks > 0 ? round2(dt.guests / dt.checks) : 0,
+    };
+  });
+
+  // Peak hour
+  let maxHourRev = 0, peakHour = 12;
+  const hourTotals: number[] = Array(24).fill(0);
+  for (const cell of heatmap) { hourTotals[cell.hour] += cell.revenue; }
+  hourTotals.forEach((v, h) => { if (v > maxHourRev) { maxHourRev = v; peakHour = h; } });
+
+  // Peak day
+  let maxDayRev = 0, peakDay = 'Mon';
+  dayOfWeek.forEach(d => { if (d.revenue > maxDayRev) { maxDayRev = d.revenue; peakDay = d.day; } });
+
+  // Averages
+  const allDates = new Set<string>();
+  for (const c of raw.cheques) {
+    const dt = String(c.row_data.fecha || '').substring(0, 10);
+    if (dt) allDates.add(dt);
+  }
+  const totalDays = allDates.size || 1;
+  const totalRevenue = dayTotals.reduce((s, d) => s + d.revenue, 0);
+  const totalChecks = dayTotals.reduce((s, d) => s + d.checks, 0);
+
+  return {
+    heatmap,
+    dayOfWeek,
+    peakHour,
+    peakDay,
+    avgDailyRevenue: round2(totalRevenue / totalDays),
+    avgDailyChecks: Math.round(totalChecks / totalDays),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Monthly Operating Summary (P&L)
+// ═══════════════════════════════════════════════════════════════════
+
+export interface SummaryLineItem {
+  label: string;
+  amount: number;
+  percent?: number;
+  isSubtotal?: boolean;
+  isTotal?: boolean;
+}
+
+export interface SummaryPageData {
+  periodLabel: string;
+  lines: SummaryLineItem[];
+  locationBreakdown: Array<{
+    name: string;
+    brand: string;
+    brandColor: string;
+    revenue: number;
+    food: number;
+    bev: number;
+    tips: number;
+    discounts: number;
+    comps: number;
+    netRevenue: number;
+  }>;
+}
+
+export async function loadSummaryData(tenantId: string): Promise<SummaryPageData | null> {
+  const raw = await fetchRawData(tenantId);
+  if (!raw) return null;
+
+  const locations = raw.entities.filter(e => e.entity_type === 'location');
+  const locMap = new Map<string, { name: string; brand: string; brandColor: string; revenue: number; food: number; bev: number; tips: number; discounts: number; comps: number; tax: number; cash: number; card: number; guests: number; cheques: number; cancelled: number }>();
+
+  for (const loc of locations) {
+    const m = loc.metadata || {};
+    locMap.set(loc.id, {
+      name: loc.display_name,
+      brand: String(m.brand_name || ''),
+      brandColor: String(m.brand_color || '#6b7280'),
+      revenue: 0, food: 0, bev: 0, tips: 0, discounts: 0, comps: 0, tax: 0, cash: 0, card: 0, guests: 0, cheques: 0, cancelled: 0,
+    });
+  }
+
+  let totalRevenue = 0, totalFood = 0, totalBev = 0, totalTips = 0;
+  let totalDiscounts = 0, totalComps = 0, totalTax = 0, totalCash = 0, totalCard = 0;
+  let totalGuests = 0, totalCheques = 0, totalCancelled = 0;
+
+  // Determine period label from dates
+  const dates = new Set<string>();
+
+  for (const c of raw.cheques) {
+    const rd = c.row_data;
+    const rev = n(rd.total);
+    const food = n(rd.total_alimentos);
+    const bev = n(rd.total_bebidas);
+    const tips = n(rd.propina);
+    const disc = n(rd.total_descuentos);
+    const comp = n(rd.total_cortesias);
+    const tax = n(rd.total_impuesto);
+    const cash = n(rd.efectivo);
+    const card = n(rd.tarjeta);
+    const guests = n(rd.numero_de_personas);
+    const isCancelled = n(rd.cancelado) === 1;
+
+    totalRevenue += rev; totalFood += food; totalBev += bev; totalTips += tips;
+    totalDiscounts += disc; totalComps += comp; totalTax += tax;
+    totalCash += cash; totalCard += card; totalGuests += guests;
+    totalCheques++; if (isCancelled) totalCancelled++;
+
+    const loc = locMap.get(c.entity_id);
+    if (loc) {
+      loc.revenue += rev; loc.food += food; loc.bev += bev; loc.tips += tips;
+      loc.discounts += disc; loc.comps += comp; loc.tax += tax;
+      loc.cash += cash; loc.card += card; loc.guests += guests;
+      loc.cheques++; if (isCancelled) loc.cancelled++;
+    }
+
+    const dt = String(rd.fecha || '').substring(0, 10);
+    if (dt) dates.add(dt);
+  }
+
+  // Period label
+  const sortedDates = Array.from(dates).sort();
+  const firstDate = sortedDates[0] || '';
+  const lastDate = sortedDates[sortedDates.length - 1] || '';
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const d = new Date(firstDate);
+  const periodLabel = !isNaN(d.getTime()) ? `${monthNames[d.getMonth()]} ${d.getFullYear()}` : `${firstDate} — ${lastDate}`;
+
+  const netRevenue = totalRevenue - totalDiscounts - totalComps;
+
+  const lines: SummaryLineItem[] = [
+    { label: 'Gross Revenue', amount: round2(totalRevenue), isSubtotal: true },
+    { label: '  Food Sales', amount: round2(totalFood), percent: totalRevenue > 0 ? round2((totalFood / totalRevenue) * 100) : 0 },
+    { label: '  Beverage Sales', amount: round2(totalBev), percent: totalRevenue > 0 ? round2((totalBev / totalRevenue) * 100) : 0 },
+    { label: 'Less: Discounts', amount: -round2(totalDiscounts) },
+    { label: 'Less: Comps / Cortesías', amount: -round2(totalComps) },
+    { label: 'Net Revenue', amount: round2(netRevenue), isTotal: true },
+    { label: 'Tax Collected (IVA)', amount: round2(totalTax), percent: totalRevenue > 0 ? round2((totalTax / totalRevenue) * 100) : 0 },
+    { label: 'Tips Collected', amount: round2(totalTips), percent: totalRevenue > 0 ? round2((totalTips / totalRevenue) * 100) : 0 },
+    { label: 'Cash Payments', amount: round2(totalCash), percent: totalRevenue > 0 ? round2((totalCash / totalRevenue) * 100) : 0 },
+    { label: 'Card Payments', amount: round2(totalCard), percent: totalRevenue > 0 ? round2((totalCard / totalRevenue) * 100) : 0 },
+    { label: 'Total Checks', amount: totalCheques },
+    { label: 'Cancelled Checks', amount: totalCancelled, percent: totalCheques > 0 ? round2((totalCancelled / totalCheques) * 100) : 0 },
+    { label: 'Total Guests', amount: totalGuests },
+    { label: 'Average Check', amount: totalCheques > 0 ? round2(totalRevenue / totalCheques) : 0 },
+    { label: 'Average Guests/Check', amount: totalCheques > 0 ? round2(totalGuests / totalCheques) : 0 },
+  ];
+
+  const locationBreakdown = Array.from(locMap.values())
+    .filter(l => l.cheques > 0)
+    .sort((a, b) => b.revenue - a.revenue)
+    .map(l => ({
+      name: l.name, brand: l.brand, brandColor: l.brandColor,
+      revenue: round2(l.revenue), food: round2(l.food), bev: round2(l.bev),
+      tips: round2(l.tips), discounts: round2(l.discounts), comps: round2(l.comps),
+      netRevenue: round2(l.revenue - l.discounts - l.comps),
+    }));
+
+  return { periodLabel, lines, locationBreakdown };
+}
