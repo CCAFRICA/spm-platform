@@ -170,7 +170,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       moduleId: "insights" as ModuleId,
       feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"],
       children: [
-        { name: isSpanish ? "Pulso de Red" : "Network Pulse", href: "/financial", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
+        { name: isSpanish ? "Resumen" : "Overview", href: "/financial", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
+        { name: isSpanish ? "Pulso de Red" : "Network Pulse", href: "/financial/pulse", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
         { name: isSpanish ? "Cronología de Ingresos" : "Revenue Timeline", href: "/financial/timeline", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
         { name: isSpanish ? "Benchmarks de Ubicación" : "Location Benchmarks", href: "/financial/performance", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
         { name: isSpanish ? "Rendimiento de Personal" : "Staff Performance", href: "/financial/staff", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
