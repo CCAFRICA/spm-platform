@@ -43,6 +43,8 @@ import {
 import { TrialGate } from '@/components/trial/TrialGate';
 import { useTrialStatus } from '@/hooks/useTrialStatus';
 import { AgentInbox } from '@/components/agents/AgentInbox';
+import { InsightPanel } from '@/components/intelligence/InsightPanel';
+import { computeAdminInsights } from '@/lib/intelligence/insight-engine';
 
 /** Dynamic lifecycle transition labels (OB-58) */
 const TRANSITION_LABELS: Record<string, { label: string; labelEs: string; next: string }> = {
@@ -270,6 +272,12 @@ export function AdminDashboard() {
     };
   }, [data, budgetPct, distStats]);
 
+  // OB-98: Deterministic insight computation
+  const adminInsights = useMemo(() => {
+    if (!data) return [];
+    return computeAdminInsights(data);
+  }, [data]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -362,6 +370,13 @@ export function AdminDashboard() {
         locale={isSpanish ? 'es' : 'en'}
         accentColor="#6366f1"
         tenantId={tenantId}
+      />
+      <InsightPanel
+        persona="admin"
+        insights={adminInsights}
+        tenantName={currentTenant?.name || ''}
+        periodLabel={activePeriodLabel}
+        locale={isSpanish ? 'es' : 'en'}
       />
       {/* ── Row 1: Hero (5) + Distribution (4) + Lifecycle (3) ── */}
       <div className="grid grid-cols-12 gap-4">

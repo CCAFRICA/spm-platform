@@ -39,6 +39,8 @@ import {
   type RepDashboardData,
 } from '@/lib/data/persona-queries';
 import { AgentInbox } from '@/components/agents/AgentInbox';
+import { InsightPanel } from '@/components/intelligence/InsightPanel';
+import { computeRepInsights } from '@/lib/intelligence/insight-engine';
 
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(5, 150, 105, 0.7), rgba(13, 148, 136, 0.7))',
@@ -112,6 +114,12 @@ export function RepDashboard() {
       historyMonths: data.history.length,
       tierPosition: data.attainment >= 120 ? 'Accelerator' : data.attainment >= 80 ? 'Target' : 'Base',
     };
+  }, [data]);
+
+  // OB-98: Deterministic insight computation
+  const repInsights = useMemo(() => {
+    if (!data) return [];
+    return computeRepInsights(data);
   }, [data]);
 
   // Scenario cards data (6B) — must be before early returns
@@ -216,6 +224,13 @@ export function RepDashboard() {
         locale={locale === 'es-MX' ? 'es' : 'en'}
         accentColor="#10b981"
         tenantId={tenantId}
+      />
+      <InsightPanel
+        persona="rep"
+        insights={repInsights}
+        tenantName={currentTenant?.name || ''}
+        periodLabel={activePeriodLabel}
+        locale={locale === 'es-MX' ? 'es' : 'en'}
       />
       {/* ── Hero: Full width ── */}
       <div style={HERO_STYLE}>
