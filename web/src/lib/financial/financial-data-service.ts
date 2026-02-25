@@ -161,6 +161,47 @@ function round2(v: number): number {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Brand resolution (from organization entities with role='brand')
+// ═══════════════════════════════════════════════════════════════════
+
+export interface BrandInfo {
+  id: string;
+  name: string;
+  code: string;
+  color: string;
+  format: string;
+  avgTicketRange: [number, number];
+  benchmarkChequesMin: number;
+  benchmarkChequesMax: number;
+}
+
+const BRAND_PALETTE = ['#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899'];
+
+function buildBrandLookup(entities: EntityRecord[]): Map<string, BrandInfo> {
+  const brands = entities.filter(e => e.entity_type === 'organization' && (e.metadata as Record<string, unknown>)?.role === 'brand');
+  const lookup = new Map<string, BrandInfo>();
+  brands.forEach((b, i) => {
+    const m = (b.metadata || {}) as Record<string, unknown>;
+    lookup.set(b.id, {
+      id: b.id,
+      name: b.display_name,
+      code: b.external_id || '',
+      color: BRAND_PALETTE[i % BRAND_PALETTE.length],
+      format: String(m.format || ''),
+      avgTicketRange: (m.avg_ticket_range as [number, number]) || [0, 0],
+      benchmarkChequesMin: n(m.benchmark_cheques_per_day_min),
+      benchmarkChequesMax: n(m.benchmark_cheques_per_day_max),
+    });
+  });
+  return lookup;
+}
+
+function getLocationBrand(loc: EntityRecord, brandLookup: Map<string, BrandInfo>): BrandInfo | null {
+  const brandId = String((loc.metadata as Record<string, unknown>)?.brand_id || '');
+  return brandLookup.get(brandId) || null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Network Pulse
 // ═══════════════════════════════════════════════════════════════════
 
@@ -208,7 +249,7 @@ export async function loadNetworkPulseData(tenantId: string): Promise<NetworkPul
   if (!raw) return null;
 
   const locations = raw.entities.filter(e => e.entity_type === 'location');
-  const brandEntities = raw.entities.filter(e => e.entity_type === 'brand');
+  const brandLookup = buildBrandLookup(raw.entities);
 
   // Per-location aggregation
   interface LocAgg {
@@ -220,13 +261,14 @@ export async function loadNetworkPulseData(tenantId: string): Promise<NetworkPul
   }
   const locMap = new Map<string, LocAgg>();
   for (const loc of locations) {
-    const m = loc.metadata || {};
+    const m = (loc.metadata || {}) as Record<string, unknown>;
+    const brand = getLocationBrand(loc, brandLookup);
     locMap.set(loc.id, {
       id: loc.id, name: loc.display_name,
       city: String(m.city || ''),
-      brandId: String(m.brand_id || ''),
-      brandName: String(m.brand_name || ''),
-      brandColor: String(m.brand_color || '#6b7280'),
+      brandId: brand?.id || '',
+      brandName: brand?.name || '',
+      brandColor: brand?.color || '#6b7280',
       revenue: 0, cheques: 0, tips: 0, food: 0, bev: 0,
       discounts: 0, comps: 0,
       daily: new Map(),
@@ -276,12 +318,11 @@ export async function loadNetworkPulseData(tenantId: string): Promise<NetworkPul
 
   // Brand aggregation
   const brandAgg = new Map<string, { id: string; name: string; concept: string; color: string; locs: number; revenue: number; cheques: number; tips: number }>();
-  for (const be of brandEntities) {
-    const m = be.metadata || {};
-    brandAgg.set(be.id, {
-      id: be.id, name: be.display_name,
-      concept: String(m.concept || ''),
-      color: String(m.color || '#6b7280'),
+  for (const [, brand] of Array.from(brandLookup.entries())) {
+    brandAgg.set(brand.id, {
+      id: brand.id, name: brand.name,
+      concept: brand.format,
+      color: brand.color,
       locs: 0, revenue: 0, cheques: 0, tips: 0,
     });
   }
@@ -336,6 +377,7 @@ export async function loadLeakageData(tenantId: string): Promise<LeakagePageData
   if (!raw) return null;
 
   const locations = raw.entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(raw.entities);
   const allDates = Array.from(new Set(raw.cheques.map(c => String(c.row_data.fecha || '').substring(0, 10)))).sort();
 
   // Category totals
@@ -354,8 +396,8 @@ export async function loadLeakageData(tenantId: string): Promise<LeakagePageData
   const locTotals = new Map<string, { revenue: number; leakage: number; name: string; brand: string }>();
 
   for (const loc of locations) {
-    const m = loc.metadata || {};
-    locTotals.set(loc.id, { revenue: 0, leakage: 0, name: loc.display_name, brand: String(m.brand_name || '') });
+    const brand = getLocationBrand(loc, brandLookup);
+    locTotals.set(loc.id, { revenue: 0, leakage: 0, name: loc.display_name, brand: brand?.name || '' });
     locWeekly.set(loc.id, [{ revenue: 0, leakage: 0 }, { revenue: 0, leakage: 0 }, { revenue: 0, leakage: 0 }, { revenue: 0, leakage: 0 }]);
   }
 
@@ -464,6 +506,7 @@ export async function loadPerformanceData(tenantId: string): Promise<LocationBen
   if (!raw) return null;
 
   const locations = raw.entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(raw.entities);
   const allDates = Array.from(new Set(raw.cheques.map(c => String(c.row_data.fecha || '').substring(0, 10)))).sort();
 
   interface LocPerf {
@@ -477,11 +520,12 @@ export async function loadPerformanceData(tenantId: string): Promise<LocationBen
 
   const locMap = new Map<string, LocPerf>();
   for (const loc of locations) {
-    const m = loc.metadata || {};
+    const m = (loc.metadata || {}) as Record<string, unknown>;
+    const brand = getLocationBrand(loc, brandLookup);
     locMap.set(loc.id, {
       id: loc.id, name: loc.display_name, city: String(m.city || ''),
-      brandId: String(m.brand_id || ''), brandName: String(m.brand_name || ''),
-      brandColor: String(m.brand_color || '#6b7280'),
+      brandId: brand?.id || '', brandName: brand?.name || '',
+      brandColor: brand?.color || '#6b7280',
       revenue: 0, cheques: 0, tips: 0, food: 0, bev: 0, discounts: 0, comps: 0,
       daily: new Map(), weeklyRevenue: [0, 0, 0, 0],
     });
@@ -582,14 +626,20 @@ export async function loadStaffData(tenantId: string): Promise<StaffMemberData[]
   const raw = await fetchRawData(tenantId);
   if (!raw) return null;
 
-  const staffEntities = raw.entities.filter(e => e.entity_type === 'person');
+  const staffEntities = raw.entities.filter(e => e.entity_type === 'individual');
+  const locationEntities = raw.entities.filter(e => e.entity_type === 'location');
   const allDates = Array.from(new Set(raw.cheques.map(c => String(c.row_data.fecha || '').substring(0, 10)))).sort();
 
-  // Map external_id (mesero_id as string) → staff entity
-  const staffByExtId = new Map<string, EntityRecord>();
+  // Map mesero_id (from metadata) → staff entity
+  const staffByMeseroId = new Map<string, EntityRecord>();
   for (const se of staffEntities) {
-    if (se.external_id) staffByExtId.set(se.external_id, se);
+    const meseroId = (se.metadata as Record<string, unknown>)?.mesero_id;
+    if (meseroId != null) staffByMeseroId.set(String(meseroId), se);
   }
+
+  // Map location ID → location entity (for resolving staff location names)
+  const locationById = new Map<string, EntityRecord>();
+  for (const le of locationEntities) locationById.set(le.id, le);
 
   // Aggregate by mesero_id
   interface StaffAgg {
@@ -617,7 +667,7 @@ export async function loadStaffData(tenantId: string): Promise<StaffMemberData[]
   // Join to entities and compute metrics
   const staffList: Array<StaffAgg & { entity: EntityRecord }> = [];
   for (const agg of Array.from(staffMap.values())) {
-    const entity = staffByExtId.get(String(agg.meseroId));
+    const entity = staffByMeseroId.get(String(agg.meseroId));
     if (!entity) continue;
     staffList.push({ ...agg, entity });
   }
@@ -653,14 +703,15 @@ export async function loadStaffData(tenantId: string): Promise<StaffMemberData[]
   prevSorted.forEach((s, i) => prevRankMap.set(s.meseroId, i + 1));
 
   return withIndex.map((s, i) => {
-    const meta = s.entity.metadata || {};
+    const meta = (s.entity.metadata || {}) as Record<string, unknown>;
     const rank = i + 1;
+    const locEntity = locationById.get(String(meta.location_id || ''));
     return {
       id: s.entity.id,
       name: s.entity.display_name,
       role: String(meta.role || 'Server'),
       locationId: String(meta.location_id || ''),
-      locationName: String(meta.location_name || ''),
+      locationName: locEntity?.display_name || String(meta.location_ext_id || ''),
       revenue: round2(s.revenue),
       checks: s.checks,
       avgCheck: round2(s.avgCheck),
@@ -701,14 +752,13 @@ export async function loadTimelineData(
   if (!raw) return null;
 
   const locations = raw.entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(raw.entities);
   const locBrandMap = new Map<string, string>();
   const brandColorMap = new Map<string, string>();
   for (const loc of locations) {
-    const m = loc.metadata || {};
-    locBrandMap.set(loc.id, String(m.brand_name || 'Unknown'));
-    if (m.brand_name && m.brand_color) {
-      brandColorMap.set(String(m.brand_name), String(m.brand_color));
-    }
+    const brand = getLocationBrand(loc, brandLookup);
+    locBrandMap.set(loc.id, brand?.name || 'Unknown');
+    if (brand) brandColorMap.set(brand.name, brand.color);
   }
 
   // Aggregate by date
@@ -990,14 +1040,15 @@ export async function loadSummaryData(tenantId: string): Promise<SummaryPageData
   if (!raw) return null;
 
   const locations = raw.entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(raw.entities);
   const locMap = new Map<string, { name: string; brand: string; brandColor: string; revenue: number; food: number; bev: number; tips: number; discounts: number; comps: number; tax: number; cash: number; card: number; guests: number; cheques: number; cancelled: number }>();
 
   for (const loc of locations) {
-    const m = loc.metadata || {};
+    const brand = getLocationBrand(loc, brandLookup);
     locMap.set(loc.id, {
       name: loc.display_name,
-      brand: String(m.brand_name || ''),
-      brandColor: String(m.brand_color || '#6b7280'),
+      brand: brand?.name || '',
+      brandColor: brand?.color || '#6b7280',
       revenue: 0, food: 0, bev: 0, tips: 0, discounts: 0, comps: 0, tax: 0, cash: 0, card: 0, guests: 0, cheques: 0, cancelled: 0,
     });
   }
@@ -1040,13 +1091,18 @@ export async function loadSummaryData(tenantId: string): Promise<SummaryPageData
     if (dt) dates.add(dt);
   }
 
-  // Period label
-  const sortedDates = Array.from(dates).sort();
-  const firstDate = sortedDates[0] || '';
-  const lastDate = sortedDates[sortedDates.length - 1] || '';
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const d = new Date(firstDate);
-  const periodLabel = !isNaN(d.getTime()) ? `${monthNames[d.getMonth()]} ${d.getFullYear()}` : `${firstDate} — ${lastDate}`;
+  // Period label — fetch from periods table for accurate label
+  let periodLabel = '';
+  const supabase = createClient();
+  const { data: periods } = await supabase.from('periods').select('label').eq('tenant_id', tenantId).limit(1).single();
+  if (periods?.label) {
+    periodLabel = periods.label;
+  } else {
+    const sortedDates = Array.from(dates).sort();
+    const firstDate = sortedDates[0] || '';
+    const lastDate = sortedDates[sortedDates.length - 1] || '';
+    periodLabel = `${firstDate} — ${lastDate}`;
+  }
 
   const netRevenue = totalRevenue - totalDiscounts - totalComps;
 

@@ -32,7 +32,7 @@ export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
   vl_admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern', 'financial'],
   admin: ['operate', 'perform', 'investigate', 'design', 'configure', 'govern', 'financial'],
   manager: ['perform', 'investigate', 'govern', 'financial'],
-  sales_rep: ['perform'],
+  sales_rep: ['perform', 'financial'],
 };
 
 // =============================================================================
@@ -109,6 +109,7 @@ export const WORKSPACE_FEATURE_ACCESS: Record<UserRole, Partial<Record<Workspace
   },
   sales_rep: {
     perform: { canViewAll: false, canEdit: false, limitedSections: ['dashboard', 'compensation', 'transactions', 'inquiries'] },
+    financial: { canViewAll: false, canEdit: false, limitedSections: ['staff'] },
   },
 };
 
