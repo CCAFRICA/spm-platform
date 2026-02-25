@@ -285,7 +285,7 @@ export default function NetworkPulseDashboard() {
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }} />
-              <span className="text-muted-foreground">{isSpanish ? 'Dentro ±10%' : 'Within ±10%'}</span>
+              <span className="text-muted-foreground">{isSpanish ? 'Dentro ±5%' : 'Within ±5%'}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded" style={{ backgroundColor: '#ef4444' }} />
