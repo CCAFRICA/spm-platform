@@ -77,12 +77,42 @@ function AuthShellProtected({ children }: AuthShellProps) {
   useEffect(() => {
     if (isLoading || tenantLoading) return;
 
-    // Not authenticated → full page navigation to /login (always works).
-    // Use replace() so unauthenticated visit doesn't pollute browser history.
+    // Not authenticated → redirect to /login.
+    // HF-059: Added redirect loop protection. If middleware passes the request
+    // through (valid cookies) but initAuth() fails to hydrate the user (profile
+    // fetch failure, network error, etc.), this redirect fires. Middleware then
+    // sees valid cookies on /login and redirects back → infinite loop.
+    // Detect rapid redirects via sessionStorage timestamp and break the cycle.
     if (!isAuthenticated) {
+      const LOOP_KEY = 'vl_auth_redirect_ts';
+      const now = Date.now();
+      const lastRedirect = parseInt(sessionStorage.getItem(LOOP_KEY) || '0', 10);
+
+      if (now - lastRedirect < 3000) {
+        // Redirected within last 3 seconds — this is a loop.
+        // Clear all auth state client-side to break the cycle.
+        console.error('[AuthShell] Redirect loop detected — clearing auth state');
+        sessionStorage.removeItem(LOOP_KEY);
+        if (typeof document !== 'undefined') {
+          document.cookie.split(';').forEach(c => {
+            const name = c.trim().split('=')[0];
+            if (name.startsWith('sb-') || name === 'vialuce-tenant-id') {
+              document.cookie = `${name}=; path=/; max-age=0`;
+            }
+          });
+        }
+        // Navigate to /login WITHOUT redirect param to break the cycle
+        window.location.replace('/login');
+        return;
+      }
+
+      sessionStorage.setItem(LOOP_KEY, String(now));
       window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
+
+    // Successfully authenticated — clear any loop detection flag
+    sessionStorage.removeItem('vl_auth_redirect_ts');
 
     // Platform admin without a tenant selected must pick one first
     if (isVLAdmin && !currentTenant && !isTenantExempt) {
