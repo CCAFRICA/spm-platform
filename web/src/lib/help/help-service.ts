@@ -467,8 +467,8 @@ export function getWhatsNew(): WhatsNew[] {
         {
           title: 'Bulk Operations',
           titleEs: 'Operaciones Masivas',
-          description: 'Select multiple items and perform batch actions.',
-          descriptionEs: 'Seleccione múltiples elementos y realice acciones en lote.',
+          description: 'Select multiple items and perform bulk actions.',
+          descriptionEs: 'Seleccione múltiples elementos y realice acciones masivas.',
           icon: 'CheckSquare',
         },
         {

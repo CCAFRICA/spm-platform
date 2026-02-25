@@ -175,7 +175,7 @@ export default function RollbackManagementPage() {
         <TabsList>
           <TabsTrigger value="batches" className="gap-2">
             <Clock className="h-4 w-4" />
-            {isSpanish ? 'Lotes' : 'Batches'}
+            {isSpanish ? 'Ejecuciones' : 'Calculation Runs'}
             {eligibleBatches.length > 0 && (
               <Badge variant="secondary">{eligibleBatches.length}</Badge>
             )}
@@ -200,12 +200,12 @@ export default function RollbackManagementPage() {
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
                 <h3 className="text-lg font-medium">
-                  {isSpanish ? 'No hay lotes para revertir' : 'No batches to rollback'}
+                  {isSpanish ? 'No hay ejecuciones para revertir' : 'No calculation runs to rollback'}
                 </h3>
                 <p className="text-muted-foreground">
                   {isSpanish
-                    ? 'Todos los lotes están en estado inicial'
-                    : 'All batches are in initial state'}
+                    ? 'Todas las ejecuciones están en estado inicial'
+                    : 'All calculation runs are in initial state'}
                 </p>
               </CardContent>
             </Card>
@@ -218,7 +218,7 @@ export default function RollbackManagementPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="font-medium">
-                            {isSpanish ? 'Lote' : 'Batch'} #{batch.batchId.slice(-8)}
+                            {isSpanish ? 'Ejecución' : 'Run'} #{batch.batchId.slice(-8)}
                           </h3>
                           <Badge variant="outline">
                             {simulation.cascadeAnalysis.recordCount} {isSpanish ? 'registros' : 'records'}
@@ -324,7 +324,7 @@ export default function RollbackManagementPage() {
                       <XCircle className="h-5 w-5 text-red-500" />
                       <div>
                         <h3 className="font-medium">
-                          {isSpanish ? 'Lote' : 'Batch'} #{batch.id.slice(-8)}
+                          {isSpanish ? 'Ejecución' : 'Run'} #{batch.id.slice(-8)}
                         </h3>
                         <p className="text-sm text-muted-foreground">
                           {isSpanish ? 'Revertido' : 'Rolled back'} •{' '}
@@ -455,8 +455,8 @@ export default function RollbackManagementPage() {
                     onChange={(e) => setRollbackReason(e.target.value)}
                     placeholder={
                       isSpanish
-                        ? 'Describa por qué se revierte este lote...'
-                        : 'Describe why this batch is being rolled back...'
+                        ? 'Describa por qué se revierte esta ejecución...'
+                        : 'Describe why this calculation run is being rolled back...'
                     }
                   />
                 </div>

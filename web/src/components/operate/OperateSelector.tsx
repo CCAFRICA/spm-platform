@@ -109,12 +109,12 @@ export function OperateSelector() {
       {/* Separator */}
       <span className="text-zinc-700 text-xs">/</span>
 
-      {/* Batch */}
+      {/* Calculation Run */}
       <div className="flex items-center gap-2">
-        <label className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider whitespace-nowrap">Batch</label>
+        <label className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider whitespace-nowrap">Run</label>
         <Select value={selectedBatchId ?? ''} onValueChange={selectBatch}>
           <SelectTrigger className="w-[240px] h-8 text-xs bg-zinc-900/80 border-zinc-700/50">
-            <SelectValue placeholder={batches.length === 0 ? 'No batches' : 'Select batch...'} />
+            <SelectValue placeholder={batches.length === 0 ? 'No runs' : 'Select run...'} />
           </SelectTrigger>
           <SelectContent>
             {batches.map(b => {
@@ -136,10 +136,10 @@ export function OperateSelector() {
         </Select>
       </div>
 
-      {/* Batch count indicator */}
+      {/* Run count indicator */}
       {batches.length > 1 && (
         <span className="text-[10px] text-zinc-600">
-          {batches.length} batches
+          {batches.length} runs
         </span>
       )}
     </div>

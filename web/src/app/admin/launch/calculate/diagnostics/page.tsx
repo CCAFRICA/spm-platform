@@ -142,10 +142,10 @@ export default function CalculationDiagnosticsPage() {
       ...updatedChecks[1],
       status: hasCommittedData ? "pass" : "fail",
       details: hasCommittedData
-        ? `${committedBatches.length} import batches committed`
+        ? `${committedBatches.length} imports committed`
         : "No committed data found",
       detailsEs: hasCommittedData
-        ? `${committedBatches.length} lotes de importación confirmados`
+        ? `${committedBatches.length} importaciones confirmadas`
         : "No se encontraron datos confirmados",
       action: !hasCommittedData
         ? {
