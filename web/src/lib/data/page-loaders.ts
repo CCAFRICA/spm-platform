@@ -105,6 +105,73 @@ export async function loadTenantPeriods(tenantId: string): Promise<Array<{ id: s
 }
 
 // ──────────────────────────────────────────────
+// Module Health Loader (OB-102 — Operate Landing)
+// ──────────────────────────────────────────────
+
+export interface ICMHealthData {
+  ruleSetCount: number;
+  ruleSetName: string | null;
+  entityCount: number;
+  periodCount: number;
+  lastBatchDate: string | null;
+  lifecycleState: string | null;
+  totalPayout: number;
+  lastImportDate: string | null;
+}
+
+export async function loadICMHealthData(tenantId: string): Promise<ICMHealthData> {
+  const supabase = createClient();
+
+  const [ruleSetsRes, entitiesRes, periodsRes, importRes, batchRes] = await Promise.all([
+    supabase
+      .from('rule_sets')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active'),
+    supabase
+      .from('entities')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId),
+    supabase
+      .from('periods')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId),
+    supabase
+      .from('import_batches')
+      .select('id, created_at')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('calculation_batches')
+      .select('id, lifecycle_state, created_at, summary')
+      .eq('tenant_id', tenantId)
+      .is('superseded_by', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const ruleSets = ruleSetsRes.data ?? [];
+  const latestBatch = batchRes.data;
+  const totalPayout = latestBatch?.summary
+    ? extractTotalPayoutFromSummary(latestBatch.summary as Json)
+    : 0;
+
+  return {
+    ruleSetCount: ruleSets.length,
+    ruleSetName: ruleSets[0]?.name ?? null,
+    entityCount: entitiesRes.count ?? 0,
+    periodCount: periodsRes.count ?? 0,
+    lastBatchDate: latestBatch?.created_at ?? null,
+    lifecycleState: latestBatch?.lifecycle_state ?? null,
+    totalPayout,
+    lastImportDate: importRes.data?.created_at ?? null,
+  };
+}
+
+// ──────────────────────────────────────────────
 // Operate Page Loader
 // ──────────────────────────────────────────────
 
