@@ -24,7 +24,7 @@ export function GlobalSearch() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { currentTenant } = useTenant();
-  const { symbol } = useCurrency();
+  const { format: formatCurrency } = useCurrency();
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,7 +92,7 @@ export function GlobalSearch() {
               id: `${c.numero_franquicia}-${c.numero_cheque}`,
               type: 'check',
               title: `Cheque #${c.numero_cheque}`,
-              subtitle: `${c.numero_franquicia} • ${symbol}${c.total.toFixed(2)}`,
+              subtitle: `${c.numero_franquicia} • ${formatCurrency(c.total)}`,
               href: `/transactions/${c.numero_cheque}`,
             })
           );

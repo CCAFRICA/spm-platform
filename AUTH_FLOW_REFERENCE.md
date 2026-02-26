@@ -75,7 +75,7 @@ UNAUTHENTICATED
 | 8 | `web/src/components/layout/auth-shell.tsx` | Client-side auth wrapper + 3s timeout |
 | 9 | `web/src/contexts/tenant-context.tsx` | Tenant derivation from profile or cookie |
 | 10 | `web/src/contexts/session-context.tsx` | Tenant-scoped counts (loadedForTenant) |
-| 11 | ~~`web/src/hooks/use-financial-only.ts`~~ | REMOVED (OB-102) — unified module-aware landing |
+| 11 | `web/src/hooks/use-financial-only.ts` | OB-100: Sidebar nav filtering only (NOT redirects). Returns true when financial enabled + ruleSetCount=0 |
 
 ## Defense-in-Depth Layers
 
@@ -85,7 +85,7 @@ UNAUTHENTICATED
 | 2 | `auth-shell.tsx` | 3s client-side timeout — clears cookies + redirects |
 | 3 | `auth-context.tsx` | initAuth() skips on /login,/landing,/signup |
 | 4 | `auth-shell.tsx` | Redirect loop breaker (sessionStorage timestamp) |
-| 5 | ~~`use-financial-only.ts`~~ | REMOVED (OB-102) — no more financial-only redirect |
+| 5 | `use-financial-only.ts` | OB-100: Sidebar filtering only (NOT redirects) |
 | 6 | `session-context.tsx` | loadedForTenant prevents stale-count race |
 
 ## Known Failure Patterns
@@ -95,7 +95,8 @@ UNAUTHENTICATED
 | 1 | Redirect loop | Duplicate auth checks in multiple files | HF-059: single auth gate | PR#88 |
 | 2 | Redirect loop | Stale session counts (ruleSetCount=0 on tenant switch) | HF-061: loadedForTenant + gated useFinancialOnly | PR#96 |
 | 3 | Infinite spinner | Middleware passing through when getUser() hangs | HF-061 Amendment: 5s timeout + 3s fallback | PR#97 |
-| 4 | "Profile is missing" | fetchCurrentProfile uses .maybeSingle() — errors on >1 row | HF-062: use array query + pick best profile | THIS PR |
+| 4 | "Profile is missing" | fetchCurrentProfile uses .maybeSingle() — errors on >1 row | HF-062: use array query + pick best profile | PR#109 |
+| 5 | Auth bypass (production only) | Vercel Edge middleware caching — serves stale middleware without auth check after deploy | HF-070: guard comment diff forces redeployment | PR#111 |
 
 ## Profile Query Rules
 
