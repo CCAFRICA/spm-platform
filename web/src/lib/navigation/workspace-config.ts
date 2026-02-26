@@ -161,7 +161,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Analisis POS e inteligencia financiera',
     defaultRoute: '/financial',
     accentColor: 'hsl(45, 93%, 47%)', // Gold
-    roles: ['vl_admin', 'admin', 'manager'],
+    roles: ['vl_admin', 'admin', 'manager', 'sales_rep'],
     featureFlag: 'financial',
     sections: [
       {
@@ -169,8 +169,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Network',
         labelEs: 'Red',
         routes: [
-          { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['vl_admin', 'admin', 'manager'] },
-          { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
@@ -178,12 +178,12 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Analysis',
         labelEs: 'Análisis',
         routes: [
-          { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronología de Ingresos', icon: 'LineChart', roles: ['vl_admin', 'admin', 'manager'] },
-          { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicación', icon: 'BarChart3', roles: ['vl_admin', 'admin', 'manager'] },
-          { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['vl_admin', 'admin', 'manager'] },
-          { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Clock', roles: ['vl_admin', 'admin', 'manager'] },
-          { path: '/financial/summary', label: 'Monthly Summary', labelEs: 'Resumen Mensual', icon: 'FileText', roles: ['vl_admin', 'admin', 'manager'] },
-          { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'ShoppingBag', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronología de Ingresos', icon: 'LineChart', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicación', icon: 'BarChart3', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Clock', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/summary', label: 'Monthly Summary', labelEs: 'Resumen Mensual', icon: 'FileText', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'ShoppingBag', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
@@ -191,7 +191,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Controls',
         labelEs: 'Controles',
         routes: [
-          { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['vl_admin', 'admin'] },
+          { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['vl_admin', 'admin', 'manager'] },
         ],
       },
     ],
