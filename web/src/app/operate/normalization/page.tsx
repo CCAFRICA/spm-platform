@@ -125,8 +125,38 @@ export default function NormalizationReviewPage() {
   const stats = result?.stats;
   const expectedSeeds = getExpectedSeedCount();
 
+  // OB-102 Phase 7: Deterministic commentary
+  const normCommentary = (() => {
+    if (!stats) return '';
+    const total = stats.autoClassified + stats.suggested + stats.manual;
+    if (total === 0) return '';
+    const autoPct = Math.round((stats.autoClassified / total) * 100);
+    const dictSize = dictStats?.totalEntries ?? 0;
+    return `Week ${selectedWeek}: ${total} products classified — ${autoPct}% auto, ${stats.suggested} suggest, ${stats.manual} manual. Dictionary: ${dictSize} entries.`;
+  })();
+
   return (
     <div className="space-y-6 p-6">
+      {/* OB-102 Phase 7: Reference frame */}
+      <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+        <span>Week: <span className="text-zinc-200 font-mono">{selectedWeek}</span></span>
+        <span className="text-zinc-600">|</span>
+        <span>Dictionary: <span className="text-zinc-200">{dictStats?.totalEntries ?? 0} entries</span></span>
+        {stats && (
+          <>
+            <span className="text-zinc-600">|</span>
+            <span>Classified: <span className="text-zinc-200">{stats.autoClassified + stats.suggested + stats.manual}</span></span>
+          </>
+        )}
+      </div>
+
+      {/* OB-102 Phase 7: Commentary */}
+      {normCommentary && (
+        <div className="rounded-xl px-5 py-3" style={{ background: 'rgba(24, 24, 27, 0.6)', border: '1px solid rgba(39, 39, 42, 0.4)' }}>
+          <p className="text-sm text-zinc-400 leading-relaxed">{normCommentary}</p>
+        </div>
+      )}
+
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">Product Normalization</h1>

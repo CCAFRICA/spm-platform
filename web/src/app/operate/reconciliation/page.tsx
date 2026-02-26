@@ -532,6 +532,23 @@ export default function ReconciliationPage() {
       <OperateSelector />
 
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      {/* OB-102 Phase 7: Reference frame */}
+      {selectedBatch && (
+        <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+          <span>{isSpanish ? 'Lote' : 'Batch'}: <span className="text-zinc-200 font-mono">{selectedBatch.id.slice(0, 8)}</span></span>
+          <span className="text-zinc-600">|</span>
+          <span>{selectedBatch.entityCount} {isSpanish ? 'entidades' : 'entities'}</span>
+          <span className="text-zinc-600">|</span>
+          <span>{formatCurrency(selectedBatch.totalPayout)}</span>
+          {parsedFile && (
+            <>
+              <span className="text-zinc-600">|</span>
+              <span>{isSpanish ? 'vs' : 'vs'} {parsedFile.fileName} ({parsedFile.rows.length} {isSpanish ? 'filas' : 'rows'})</span>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

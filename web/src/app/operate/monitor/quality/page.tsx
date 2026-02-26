@@ -25,6 +25,7 @@ export default function DataQualityPage() {
   const [isScanning, setIsScanning] = useState(false);
 
   const isSpanish = locale === 'es-MX';
+  const scanDate = new Date().toLocaleDateString(isSpanish ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   const qualityIssues = [
     {
@@ -73,6 +74,13 @@ export default function DataQualityPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* OB-102 Phase 7: Reference frame */}
+      <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+        <span>{isSpanish ? 'Escaneo' : 'Scan'}: <span className="text-zinc-200">{scanDate}</span></span>
+        <span className="text-zinc-600">|</span>
+        <span>{qualityIssues.length} {isSpanish ? 'hallazgos' : 'findings'}</span>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

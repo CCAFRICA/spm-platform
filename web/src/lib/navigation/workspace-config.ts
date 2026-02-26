@@ -63,11 +63,19 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     roles: ['vl_admin', 'admin'],
     sections: [
       {
+        id: 'overview',
+        label: 'Overview',
+        labelEs: 'Resumen',
+        routes: [
+          { path: '/operate', label: 'Operations Overview', labelEs: 'Resumen de Operaciones', icon: 'Activity', roles: ['vl_admin', 'admin'] },
+        ],
+      },
+      {
         id: 'lifecycle',
         label: 'Operations',
         labelEs: 'Operaciones',
         routes: [
-          { path: '/operate', label: 'Operations Center', labelEs: 'Centro de Operaciones', icon: 'Activity', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/lifecycle', label: 'Operations Center', labelEs: 'Centro de Operaciones', icon: 'Zap', roles: ['vl_admin', 'admin'] },
         ],
       },
       {

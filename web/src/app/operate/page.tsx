@@ -1,268 +1,114 @@
 'use client';
 
 /**
- * Operate Cockpit — Admin lifecycle control center
+ * Operate Landing — Module-Aware Bloodwork Dashboard (OB-102)
  *
- * Shows: Period Ribbon, Lifecycle Stepper, Data Readiness,
- * Calculation summary, Results preview, Next action bar.
+ * Unified module health overview replacing the ICM-specific lifecycle cockpit.
+ * Shows health cards per enabled module (ICM, Financial) with:
+ *   - Status indicator (green/amber/red)
+ *   - Key stats from real data
+ *   - Quick action links to module workspaces
+ *   - Deterministic commentary
+ *
+ * Bloodwork Principle (Standing Rule 23):
+ *   All healthy → "All systems operational" (confidence builds silently)
+ *   Issue detected → module card shows amber/red with specific callout
+ *   Detail on demand → click through to module workspace
+ *
+ * Dual-module tenants (Sabor Grupo): both cards side by side
+ * Single-module tenants: one card full width
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
-import { useFinancialOnly } from '@/hooks/use-financial-only';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
+import { useSession } from '@/contexts/session-context';
 import { isVLAdmin } from '@/types/auth';
-import { OperateSelector } from '@/components/operate/OperateSelector';
-import { PeriodRibbon, type PeriodInfo } from '@/components/design-system/PeriodRibbon';
-import { LifecycleStepper } from '@/components/design-system/LifecycleStepper';
-import { DataReadinessPanel, type DataReadiness } from '@/components/design-system/DataReadinessPanel';
-import { DistributionChart } from '@/components/design-system/DistributionChart';
-import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
-import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
+import { loadICMHealthData, type ICMHealthData } from '@/lib/data/page-loaders';
 import { StatusPill } from '@/components/design-system/StatusPill';
-import {
-  transitionLifecycle,
-  toDashboardState,
-  LIFECYCLE_DISPLAY,
-  isDashboardState,
-} from '@/lib/lifecycle/lifecycle-service';
-import { extractAttainment } from '@/lib/data/persona-queries';
-import { loadOperatePageData } from '@/lib/data/page-loaders';
-import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
-import type { Json } from '@/lib/supabase/database.types';
 
-interface CalcSummary {
-  totalPayout: number;
-  entityCount: number;
-  componentCount: number;
-  lastRunAt: string | null;
-  attainmentDist: number[];
-  topEntities: { name: string; value: number }[];
-  bottomEntities: { name: string; value: number }[];
-  componentBreakdown: Array<{ name: string; type: string; payout: number }>;
+interface FinancialHealthData {
+  netRevenue: number;
+  activeLocations: number;
+  totalLocations: number;
+  checksServed: number;
+  brandCount: number;
+  avgCheck: number;
+  tipRate: number;
+  leakageRate: number;
 }
 
-export default function OperateCockpitPage() {
+export default function OperateLandingPage() {
   const router = useRouter();
   const { currentTenant } = useTenant();
-  const { symbol: currencySymbol, format: formatCurrency } = useCurrency();
+  const { format: formatCurrency } = useCurrency();
   const { locale } = useLocale();
   const { user } = useAuth();
+  const { ruleSetCount } = useSession();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
   const hasFinancial = useFeature('financial');
-  const isFinancialOnly = useFinancialOnly();
   const tenantId = currentTenant?.id ?? '';
+  const hasICM = ruleSetCount > 0;
 
-  // AUTH GATE — HF-059/HF-061
-  // Financial-only tenants redirect to /financial.
-  // useFinancialOnly() gates on auth + session loading — returns false until
-  // auth is authenticated AND session counts are loaded for the current tenant.
-  // DO NOT remove the loading checks in useFinancialOnly — they prevent login redirect loops.
-  // See: CC Failure Pattern — Login Redirect Loop (3x regression)
-  useEffect(() => {
-    if (isFinancialOnly) router.replace('/financial');
-  }, [isFinancialOnly, router]);
-
-  const [periods, setPeriods] = useState<PeriodInfo[]>([]);
-  const [activeKey, setActiveKey] = useState('');
-  const [lifecycleState, setLifecycleState] = useState<string | null>(null);
-  const [readiness, setReadiness] = useState<DataReadiness>(defaultReadiness());
-  const [calcSummary, setCalcSummary] = useState<CalcSummary | null>(null);
+  const [icmHealth, setIcmHealth] = useState<ICMHealthData | null>(null);
+  const [financialHealth, setFinancialHealth] = useState<FinancialHealthData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [calcError, setCalcError] = useState<string | null>(null);
-  const [ruleSetId, setRuleSetId] = useState<string | null>(null);
-  const [ruleSetName, setRuleSetName] = useState<string | null>(null);
-  const [zeroPayoutConfirm, setZeroPayoutConfirm] = useState<{ nextState: string } | null>(null);
-  const [lastBatchId, setLastBatchId] = useState<string | null>(null);
 
-  const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
-
-  // Helper: apply loaded data to state
-  const applyData = useCallback((data: Awaited<ReturnType<typeof loadOperatePageData>>) => {
-    const enriched: PeriodInfo[] = data.periods.map(p => ({
-      periodId: p.id,
-      periodKey: p.canonical_key,
-      label: formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
-      status: p.status,
-      lifecycleState: p.lifecycleState,
-      startDate: p.start_date,
-      endDate: p.end_date,
-      needsAttention: false,
-      entityCount: p.entityCount,
-    }));
-
-    setPeriods(enriched);
-
-    // OB-85-cont: Use the loader's smart period selection (prefers period with latest batch)
-    if (data.activePeriodKey) {
-      setActiveKey(data.activePeriodKey);
-    } else {
-      const open = enriched.find(p => p.status === 'open') ?? enriched[0];
-      if (open) setActiveKey(open.periodKey);
-    }
-
-    setRuleSetId(data.ruleSetId);
-    setRuleSetName(data.ruleSetName);
-    setLastBatchId(data.lastBatchId);
-    setLifecycleState(data.lifecycleState);
-
-    setReadiness({
-      plan: data.hasActivePlan
-        ? { status: 'ready', label: isSpanish ? 'Plan activo encontrado' : 'Active plan found' }
-        : { status: 'missing', label: isSpanish ? 'No hay plan activo' : 'No active plan', detail: isSpanish ? 'Configura un rule set en estado activo' : 'Configure an active rule set' },
-      data: data.lastImportStatus
-        ? { status: data.lastImportStatus === 'completed' ? 'ready' : 'warning', label: isSpanish ? 'Datos importados' : 'Data imported', detail: `${isSpanish ? 'Ultimo import' : 'Last import'}: ${data.lastImportStatus}` }
-        : { status: 'missing', label: isSpanish ? 'No hay datos importados' : 'No data imported', detail: isSpanish ? 'Importa datos de transacciones' : 'Import transaction data' },
-      mapping: { status: 'ready', label: isSpanish ? 'Mapeo de entidades' : 'Entity mapping', detail: isSpanish ? 'Basado en entity_relationships' : 'Based on entity_relationships' },
-      validation: data.lastBatchCreatedAt
-        ? { status: 'ready', label: isSpanish ? 'Calculo ejecutado' : 'Calculation executed', detail: `${isSpanish ? 'Ultimo' : 'Last'}: ${new Date(data.lastBatchCreatedAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}` }
-        : { status: 'never', label: isSpanish ? 'Sin calculos previos' : 'No previous calculations', detail: isSpanish ? 'Ejecuta un calculo desde Vista Previa' : 'Run a calculation from Preview' },
-    });
-
-    if (data.outcomes.length > 0) {
-      const sorted = [...data.outcomes].sort((a, b) => b.total_payout - a.total_payout);
-      setCalcSummary({
-        totalPayout: data.outcomes.reduce((s, o) => s + o.total_payout, 0),
-        entityCount: data.outcomes.length,
-        componentCount: data.componentBreakdown.length,
-        lastRunAt: data.lastBatchCreatedAt,
-        attainmentDist: data.outcomes.map(o => extractAttainment(o.attainment_summary as Json)),
-        topEntities: sorted.slice(0, 5).map(o => ({
-          name: data.entityNames.get(o.entity_id) ?? o.entity_id,
-          value: o.total_payout,
-        })),
-        bottomEntities: sorted.slice(-5).reverse().map(o => ({
-          name: data.entityNames.get(o.entity_id) ?? o.entity_id,
-          value: o.total_payout,
-        })),
-        componentBreakdown: data.componentBreakdown,
-      });
-    } else {
-      setCalcSummary(null);
-    }
-  }, [isSpanish]);
-
-  // Single batched load — no inline Supabase queries
-  // HF-063: Skip ICM data loading for financial-only tenants (prevents 100+ wasted requests)
+  // Load module health data
   useEffect(() => {
-    if (!tenantId || isFinancialOnly) return;
+    if (!tenantId) return;
     let cancelled = false;
 
     async function load() {
-      let data;
-      try {
-        data = await loadOperatePageData(tenantId);
-      } catch (err) {
-        console.warn('[Operate] Failed to load page data:', err);
-        return;
+      const promises: Promise<void>[] = [];
+
+      // ICM health
+      if (hasICM) {
+        promises.push(
+          loadICMHealthData(tenantId).then(data => {
+            if (!cancelled) setIcmHealth(data);
+          }).catch(() => {})
+        );
       }
-      if (cancelled) return;
-      applyData(data);
+
+      // Financial health — uses API route
+      if (hasFinancial) {
+        promises.push(
+          fetch('/api/financial/data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId, view: 'network_pulse' }),
+          }).then(r => r.ok ? r.json() : null).then(data => {
+            if (!cancelled && data?.networkMetrics) {
+              setFinancialHealth({
+                netRevenue: data.networkMetrics.netRevenue ?? 0,
+                activeLocations: data.networkMetrics.activeLocations ?? 0,
+                totalLocations: data.networkMetrics.totalLocations ?? 0,
+                checksServed: data.networkMetrics.checksServed ?? 0,
+                brandCount: data.brands?.length ?? 0,
+                avgCheck: data.networkMetrics.avgCheck ?? 0,
+                tipRate: data.networkMetrics.tipRate ?? 0,
+                leakageRate: data.networkMetrics.leakageRate ?? 0,
+              });
+            }
+          }).catch(() => {})
+        );
+      }
+
+      await Promise.all(promises);
+      if (!cancelled) setIsLoading(false);
     }
 
-    load().finally(() => { if (!cancelled) setIsLoading(false); });
+    load();
     return () => { cancelled = true; };
-  }, [tenantId, applyData, isFinancialOnly]);
-
-  // Reload page data after calculation, transition, or period switch
-  const reloadData = useCallback(async (periodKeyOverride?: string) => {
-    if (!tenantId) return;
-    const data = await loadOperatePageData(tenantId, periodKeyOverride);
-    applyData(data);
-    // If a specific period was requested, keep that active key
-    if (periodKeyOverride) setActiveKey(periodKeyOverride);
-  }, [tenantId, applyData]);
-
-  // OB-85-cont: Reload batch/outcomes when user clicks a different period
-  const handlePeriodSelect = useCallback((newKey: string) => {
-    if (newKey === activeKey) return;
-    setActiveKey(newKey);
-    reloadData(newKey);
-  }, [activeKey, reloadData]);
-
-  const handleAdvance = useCallback(async (nextState: string) => {
-    if (!tenantId || !activePeriodId) return;
-    setCalcError(null);
-
-    // DRAFT → PREVIEW: Trigger calculation first
-    if (nextState === 'PREVIEW' && (!lifecycleState || lifecycleState === 'DRAFT')) {
-      if (!ruleSetId) {
-        setCalcError(isSpanish ? 'No hay plan activo. Configura un rule set primero.' : 'No active plan. Configure a rule set first.');
-        return;
-      }
-
-      setIsCalculating(true);
-      try {
-        const response = await fetch('/api/calculation/run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId, periodId: activePeriodId, ruleSetId }),
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          setCalcError(result.error || (isSpanish ? 'Error al ejecutar calculo' : 'Calculation failed'));
-          return;
-        }
-
-        // Calculation succeeded — reload page data to show results
-        await reloadData();
-      } catch (err) {
-        setCalcError(isSpanish ? 'Error de red al ejecutar calculo' : 'Network error running calculation');
-        console.error('[Operate] Calculation error:', err);
-      } finally {
-        setIsCalculating(false);
-      }
-      return;
-    }
-
-    // All other transitions: use lifecycle service
-    const result = await transitionLifecycle(tenantId, activePeriodId, nextState as never);
-    if (result.success) {
-      setLifecycleState(nextState);
-      setPeriods(prev => prev.map(p =>
-        p.periodId === activePeriodId ? { ...p, lifecycleState: nextState } : p
-      ));
-    } else if (result.requiresConfirmation) {
-      // OB-73 Mission 4 / F-63: All payouts are $0 — ask for confirmation
-      setZeroPayoutConfirm({ nextState });
-    } else if (result.error) {
-      setCalcError(result.error);
-    }
-  }, [tenantId, activePeriodId, ruleSetId, lifecycleState, isSpanish, reloadData]);
-
-  // OB-73 Mission 4 / F-63: Handle $0 payout confirmation override
-  const handleZeroPayoutConfirm = useCallback(async () => {
-    if (!zeroPayoutConfirm || !tenantId || !activePeriodId) return;
-    setZeroPayoutConfirm(null);
-    const result = await transitionLifecycle(tenantId, activePeriodId, zeroPayoutConfirm.nextState as never, { forceZeroPayout: true });
-    if (result.success) {
-      setLifecycleState(zeroPayoutConfirm.nextState);
-      setPeriods(prev => prev.map(p =>
-        p.periodId === activePeriodId ? { ...p, lifecycleState: zeroPayoutConfirm.nextState } : p
-      ));
-    } else if (result.error) {
-      setCalcError(result.error);
-    }
-  }, [zeroPayoutConfirm, tenantId, activePeriodId]);
-
-  const dashState = lifecycleState && isDashboardState(lifecycleState)
-    ? lifecycleState
-    : lifecycleState ? toDashboardState(lifecycleState) : 'DRAFT';
-
-  const stateDisplay = LIFECYCLE_DISPLAY[dashState as keyof typeof LIFECYCLE_DISPLAY];
-
-  // HF-063 Amendment: useEffect fires router.replace, this prevents ICM render while it's async-pending.
-  if (isFinancialOnly) return null;
+  }, [tenantId, hasICM, hasFinancial]);
 
   if (!tenantId) {
     return (
       <div className="p-8 text-center text-zinc-400">
-        <p>{isSpanish ? 'Selecciona un tenant para acceder al centro de operaciones.' : 'Select a tenant to access the operations center.'}</p>
+        <p>{isSpanish ? 'Selecciona un tenant.' : 'Select a tenant.'}</p>
       </div>
     );
   }
@@ -272,315 +118,326 @@ export default function OperateCockpitPage() {
       <div className="p-8 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-zinc-400">{isSpanish ? 'Cargando periodos...' : 'Loading periods...'}</p>
+          <p className="text-sm text-zinc-400">{isSpanish ? 'Cargando...' : 'Loading...'}</p>
         </div>
       </div>
     );
   }
 
-  if (periods.length === 0) {
-    return (
-      <div className="p-8 flex flex-col items-center justify-center min-h-[400px] text-center">
-        <div className="text-4xl mb-4">📋</div>
-        <h3 className="text-lg font-semibold text-zinc-200 mb-2">
-          {isSpanish ? 'No hay periodos configurados' : 'No periods configured'}
-        </h3>
-        <p className="text-sm text-zinc-400 max-w-md mb-6">
-          {isSpanish
-            ? 'Crea tu primer periodo para comenzar a gestionar el ciclo de operaciones.'
-            : 'Create your first period to start managing the operations lifecycle.'}
-        </p>
-        <button
-          onClick={() => window.location.href = '/configure/periods'}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-          style={{ backgroundColor: '#7c3aed' }}
-        >
-          {isSpanish ? 'Configurar Periodos' : 'Configure Periods'}
-        </button>
-      </div>
-    );
-  }
+  const noModules = !hasICM && !hasFinancial;
+  const dualModule = hasICM && hasFinancial;
+
+  // Module health status
+  const icmStatus = icmHealth
+    ? (icmHealth.ruleSetCount === 0 ? 'warning' : icmHealth.lastBatchDate ? 'healthy' : 'attention')
+    : 'unknown';
+  const financialStatus = financialHealth
+    ? (financialHealth.leakageRate > 2 ? 'warning' : 'healthy')
+    : 'unknown';
+
+  const allHealthy = (icmStatus === 'healthy' || !hasICM) && (financialStatus === 'healthy' || !hasFinancial);
+
+  // Deterministic commentary
+  const commentary = buildCommentary(isSpanish, icmHealth, financialHealth, hasICM, hasFinancial);
 
   return (
-    <div className="space-y-0">
-      {/* OB-92: Shared selector bar */}
-      <OperateSelector />
-      {/* Period Ribbon */}
-      <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={handlePeriodSelect} isSpanish={isSpanish} />
-
-      <div className="p-6 space-y-6 max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-zinc-100">{isSpanish ? 'Centro de Operaciones' : 'Operations Center'}</h1>
-            <p className="text-sm text-zinc-400">{isSpanish ? 'Gestiona el ciclo de calculo para el periodo seleccionado' : 'Manage the calculation cycle for the selected period'}</p>
-          </div>
-          {lifecycleState && stateDisplay && (
-            <StatusPill color={dashState === 'APPROVED' || dashState === 'POSTED' ? 'emerald' : dashState === 'PUBLISHED' ? 'indigo' : 'zinc'}>
-              {isSpanish ? stateDisplay.labelEs : stateDisplay.label}
-            </StatusPill>
-          )}
+    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-zinc-100">
+            {isSpanish ? 'Centro de Operaciones' : 'Operations Overview'}
+          </h1>
+          <p className="text-sm text-zinc-400">
+            {currentTenant?.displayName ?? currentTenant?.name ?? ''}
+          </p>
         </div>
+        {allHealthy && (
+          <StatusPill color="emerald">
+            {isSpanish ? 'Todos los sistemas operativos' : 'All systems operational'}
+          </StatusPill>
+        )}
+      </div>
 
-        {/* OB-85: Active Plan + Run Calculation */}
-        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">
-                {isSpanish ? 'Plan Activo' : 'Active Plan'}
-              </h4>
-              {ruleSetName ? (
-                <p className="text-sm font-medium text-zinc-200">{ruleSetName}</p>
-              ) : (
-                <p className="text-sm text-zinc-400">{isSpanish ? 'No hay plan activo' : 'No active plan'}</p>
-              )}
-              {activeKey && (
-                <p className="text-[11px] text-zinc-400 mt-0.5">
-                  {isSpanish ? 'Periodo' : 'Period'}: {periods.find(p => p.periodKey === activeKey)?.label ?? activeKey}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => handleAdvance('PREVIEW')}
-              disabled={!activeKey || !ruleSetId || isCalculating}
-              className="px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                backgroundColor: (!activeKey || !ruleSetId || isCalculating) ? '#3f3f46' : '#7c3aed',
-                boxShadow: (!activeKey || !ruleSetId || isCalculating) ? 'none' : '0 0 20px rgba(124, 58, 237, 0.3)',
-              }}
-            >
-              {isCalculating
-                ? (isSpanish ? 'Calculando...' : 'Calculating...')
-                : (isSpanish ? 'Ejecutar Calculo' : 'Run Calculation')}
-            </button>
-          </div>
+      {/* Deterministic Commentary */}
+      {commentary && (
+        <div className="rounded-xl px-5 py-4" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+          <p className="text-sm text-zinc-300 leading-relaxed">{commentary}</p>
         </div>
+      )}
 
-        {/* Lifecycle Stepper */}
-        <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-          {isCalculating ? (
-            <div className="flex items-center gap-3 py-4">
-              <div className="h-5 w-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-zinc-300">{isSpanish ? 'Ejecutando calculo...' : 'Running calculation...'}</span>
-            </div>
-          ) : (
-            <LifecycleStepper
-              currentState={dashState}
-              onAdvance={handleAdvance}
-              onGoBack={handleAdvance}
-              canGoBack={true}
+      {/* Module Health Cards */}
+      {noModules ? (
+        <div className="rounded-2xl p-8 text-center" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+          <p className="text-zinc-400 mb-4">{isSpanish ? 'No hay modulos configurados.' : 'No modules configured.'}</p>
+          <button
+            onClick={() => router.push('/configure')}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white"
+            style={{ backgroundColor: '#7c3aed' }}
+          >
+            {isSpanish ? 'Configurar' : 'Configure'}
+          </button>
+        </div>
+      ) : (
+        <div className={`grid gap-6 ${dualModule ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+          {/* ICM Module Card */}
+          {hasICM && (
+            <ModuleCard
+              title={isSpanish ? 'Compensacion (ICM)' : 'Compensation (ICM)'}
+              status={icmStatus}
+              accentColor="hsl(262, 83%, 58%)"
+              isSpanish={isSpanish}
+              stats={icmHealth ? [
+                { label: isSpanish ? 'Planes Activos' : 'Active Plans', value: String(icmHealth.ruleSetCount), sub: icmHealth.ruleSetName },
+                { label: isSpanish ? 'Entidades' : 'Entities', value: icmHealth.entityCount.toLocaleString() },
+                { label: isSpanish ? 'Ultimo Calculo' : 'Last Calculation', value: icmHealth.lastBatchDate ? formatDate(icmHealth.lastBatchDate, isSpanish) : (isSpanish ? 'Ninguno' : 'None') },
+                { label: isSpanish ? 'Pago Total' : 'Total Payout', value: icmHealth.totalPayout > 0 ? formatCurrency(icmHealth.totalPayout) : '—' },
+              ] : []}
+              actions={[
+                { label: isSpanish ? 'Centro de Operaciones' : 'Operations Center', href: '/operate/lifecycle' },
+                { label: isSpanish ? 'Importar Datos' : 'Import Data', href: '/operate/import/enhanced' },
+                { label: isSpanish ? 'Calcular' : 'Calculate', href: '/admin/launch/calculate' },
+                { label: isSpanish ? 'Ver Resultados' : 'View Results', href: '/operate/results' },
+              ]}
+              onNavigate={(href) => router.push(href)}
             />
           )}
-          {calcError && (
-            <div className="mt-3 px-3 py-2 rounded-lg text-sm text-red-300" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-              {calcError}
-            </div>
-          )}
-          {/* OB-73 Mission 4 / F-63: Zero payout confirmation dialog */}
-          {zeroPayoutConfirm && (
-            <div className="mt-3 px-4 py-3 rounded-lg text-sm" style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-              <p className="text-amber-300 font-medium mb-2">
-                {isSpanish ? 'Todos los pagos son $0' : 'All entity payouts are $0'}
-              </p>
-              <p className="text-zinc-400 text-xs mb-3">
-                {isSpanish
-                  ? 'Todos los resultados de calculo muestran pago $0. ¿Deseas avanzar de todas formas?'
-                  : 'All calculation results show $0 payout. Do you want to advance anyway?'}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleZeroPayoutConfirm}
-                  className="px-3 py-1.5 rounded text-xs font-medium text-white"
-                  style={{ backgroundColor: '#d97706' }}
-                >
-                  {isSpanish ? 'Si, avanzar' : 'Yes, advance'}
-                </button>
-                <button
-                  onClick={() => setZeroPayoutConfirm(null)}
-                  className="px-3 py-1.5 rounded text-xs font-medium text-zinc-400 hover:text-zinc-200"
-                  style={{ backgroundColor: 'rgba(39, 39, 42, 0.8)' }}
-                >
-                  {isSpanish ? 'Cancelar' : 'Cancel'}
-                </button>
-              </div>
-            </div>
+
+          {/* Financial Module Card */}
+          {hasFinancial && (
+            <ModuleCard
+              title={isSpanish ? 'Finanzas' : 'Financial'}
+              status={financialStatus}
+              accentColor="hsl(45, 93%, 47%)"
+              isSpanish={isSpanish}
+              stats={financialHealth ? [
+                { label: isSpanish ? 'Ubicaciones Activas' : 'Active Locations', value: `${financialHealth.activeLocations}/${financialHealth.totalLocations}` },
+                { label: isSpanish ? 'Marcas' : 'Brands', value: String(financialHealth.brandCount) },
+                { label: isSpanish ? 'Ingresos Netos' : 'Net Revenue', value: formatCurrency(financialHealth.netRevenue) },
+                { label: isSpanish ? 'Cheques' : 'Checks Served', value: financialHealth.checksServed.toLocaleString() },
+              ] : []}
+              actions={[
+                { label: isSpanish ? 'Panel Financiero' : 'Financial Dashboard', href: '/financial' },
+                { label: isSpanish ? 'Pulso de Red' : 'Network Pulse', href: '/financial/pulse' },
+                { label: isSpanish ? 'Importar Datos POS' : 'Import POS Data', href: '/operate/import/enhanced' },
+              ]}
+              onNavigate={(href) => router.push(href)}
+              attention={financialHealth && financialHealth.leakageRate > 2 ? (isSpanish
+                ? `Fuga de ${financialHealth.leakageRate.toFixed(1)}% — por encima del objetivo`
+                : `Leakage at ${financialHealth.leakageRate.toFixed(1)}% — above target`) : undefined}
+            />
           )}
         </div>
+      )}
 
-        {/* Financial Module Banner (dual-module tenants) */}
-        {hasFinancial && (
-          <div
-            className="rounded-xl flex items-center justify-between px-5 py-3 cursor-pointer hover:opacity-90 transition-opacity"
-            style={{ background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(59, 130, 246, 0.1))', border: '1px solid rgba(245, 158, 11, 0.3)' }}
-            onClick={() => router.push('/financial')}
+      {/* Recent Activity */}
+      <RecentActivitySection
+        icmHealth={icmHealth}
+        financialHealth={financialHealth}
+        hasICM={hasICM}
+        hasFinancial={hasFinancial}
+        isSpanish={isSpanish}
+      />
+    </div>
+  );
+}
+
+// ─── Module Health Card ────────────────────────────────
+
+interface ModuleCardProps {
+  title: string;
+  status: string;
+  accentColor: string;
+  isSpanish: boolean;
+  stats: Array<{ label: string; value: string; sub?: string | null }>;
+  actions: Array<{ label: string; href: string }>;
+  onNavigate: (href: string) => void;
+  attention?: string;
+}
+
+function ModuleCard({ title, status, accentColor, isSpanish, stats, actions, onNavigate, attention }: ModuleCardProps) {
+  const statusLabel = status === 'healthy'
+    ? (isSpanish ? 'Operativo' : 'Healthy')
+    : status === 'warning'
+      ? (isSpanish ? 'Atencion' : 'Attention')
+      : status === 'attention'
+        ? (isSpanish ? 'Pendiente' : 'Pending')
+        : '—';
+  const statusColor = status === 'healthy' ? '#10b981' : status === 'warning' ? '#f59e0b' : '#71717a';
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+      {/* Header */}
+      <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(39, 39, 42, 0.4)' }}>
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: accentColor }} />
+          <h3 className="text-sm font-semibold text-zinc-100">{title}</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColor }} />
+          <span className="text-xs text-zinc-400">{statusLabel}</span>
+        </div>
+      </div>
+
+      {/* Attention banner */}
+      {attention && (
+        <div className="px-5 py-2" style={{ background: 'rgba(245, 158, 11, 0.08)', borderBottom: '1px solid rgba(245, 158, 11, 0.2)' }}>
+          <p className="text-xs text-amber-300">{attention}</p>
+        </div>
+      )}
+
+      {/* Stats grid */}
+      <div className="px-5 py-4 grid grid-cols-2 gap-4">
+        {stats.map((stat) => (
+          <div key={stat.label}>
+            <p className="text-[11px] text-zinc-500 uppercase tracking-wider">{stat.label}</p>
+            <p className="text-sm font-semibold text-zinc-100 mt-0.5">{stat.value}</p>
+            {stat.sub && <p className="text-[11px] text-zinc-500 truncate">{stat.sub}</p>}
+          </div>
+        ))}
+      </div>
+
+      {/* Actions */}
+      <div className="px-5 py-3 flex flex-wrap gap-2" style={{ borderTop: '1px solid rgba(39, 39, 42, 0.4)' }}>
+        {actions.map((action) => (
+          <button
+            key={action.href}
+            onClick={() => onNavigate(action.href)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-colors"
+            style={{ background: 'rgba(39, 39, 42, 0.6)' }}
           >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(245, 158, 11, 0.2)' }}>
-                <span className="text-amber-400 text-sm font-bold">$</span>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-zinc-200">{isSpanish ? 'Modulo Financiero Activo' : 'Financial Module Active'}</p>
-                <p className="text-xs text-zinc-400">{isSpanish ? 'Ver pulso de red, benchmarks y analisis POS' : 'View network pulse, benchmarks, and POS analytics'}</p>
-              </div>
-            </div>
-            <span className="text-xs text-amber-400 font-medium">{isSpanish ? 'Abrir →' : 'Open →'}</span>
-          </div>
-        )}
-
-        {/* Two-column grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left: Data Readiness */}
-          <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-            <DataReadinessPanel readiness={readiness} />
-          </div>
-
-          {/* Right: Calculation Summary */}
-          <div className="rounded-2xl space-y-3" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-            <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">{isSpanish ? 'Resumen de Calculo' : 'Calculation Summary'}</h4>
-            {calcSummary ? (
-              <div className="space-y-3">
-                {/* OB-85-R3R4 Mission 4: Zero/low payout warning banner */}
-                {calcSummary.totalPayout === 0 && calcSummary.entityCount > 0 && (
-                  <div className="px-3 py-2.5 rounded-lg text-sm" style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                    <p className="text-red-300 font-semibold text-xs mb-1">
-                      {isSpanish ? 'Todos los pagos son $0' : 'All payouts are $0'}
-                    </p>
-                    <p className="text-zinc-400 text-[11px]">
-                      {isSpanish
-                        ? 'Verifica datos importados, mapeo de campos, y configuracion del plan.'
-                        : 'Check imported data, field mappings, and plan configuration.'}
-                    </p>
-                  </div>
-                )}
-                {calcSummary.totalPayout > 0 && calcSummary.entityCount > 0 && (() => {
-                  const zeroCount = calcSummary.attainmentDist.filter(a => a === 0).length;
-                  const zeroRate = zeroCount / calcSummary.entityCount;
-                  if (zeroRate < 0.9) return null;
-                  return (
-                    <div className="px-3 py-2.5 rounded-lg text-sm" style={{ backgroundColor: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                      <p className="text-amber-300 font-semibold text-xs mb-1">
-                        {isSpanish ? `${zeroCount}/${calcSummary.entityCount} entidades con pago $0` : `${zeroCount}/${calcSummary.entityCount} entities with $0 payout`}
-                      </p>
-                      <p className="text-zinc-400 text-[11px]">
-                        {isSpanish
-                          ? 'Mas del 90% de entidades tienen pago cero. Revisa la configuracion del plan.'
-                          : 'Over 90% of entities have zero payout. Review plan configuration.'}
-                      </p>
-                    </div>
-                  );
-                })()}
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-[11px] text-zinc-400">{isSpanish ? 'Pago Total' : 'Total Payout'}</p>
-                    <p className="text-lg font-bold text-zinc-100">
-                      {currencySymbol}<AnimatedNumber value={calcSummary.totalPayout} />
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-zinc-400">{isSpanish ? 'Entidades' : 'Entities'}</p>
-                    <p className="text-lg font-bold text-zinc-100">{calcSummary.entityCount}</p>
-                  </div>
-                </div>
-
-                {/* OB-85: Per-component breakdown */}
-                {calcSummary.componentBreakdown.length > 0 && (
-                  <div className="space-y-1.5 pt-2 border-t border-zinc-800">
-                    <p className="text-[10px] text-zinc-400 uppercase tracking-wider">{isSpanish ? 'Componentes' : 'Components'}</p>
-                    {calcSummary.componentBreakdown.map((comp) => (
-                      <div key={comp.name} className="flex items-center justify-between text-xs">
-                        <span className="text-zinc-400 truncate max-w-[60%]">{comp.name}</span>
-                        <span className="text-zinc-200 tabular-nums font-medium">{formatCurrency(comp.payout)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {calcSummary.lastRunAt && (
-                  <p className="text-[11px] text-zinc-600">
-                    {isSpanish ? 'Ultimo calculo' : 'Last calculation'}: {new Date(calcSummary.lastRunAt).toLocaleString(isSpanish ? 'es-MX' : 'en-US')}
-                  </p>
-                )}
-
-                {/* OB-85: Reconcile button */}
-                <button
-                  onClick={() => router.push(`/operate/reconciliation${lastBatchId ? `?batchId=${lastBatchId}` : ''}`)}
-                  className="w-full mt-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all"
-                  style={{ backgroundColor: '#059669', boxShadow: '0 0 12px rgba(5, 150, 105, 0.2)' }}
-                >
-                  {isSpanish ? 'Reconciliar' : 'Reconcile'} →
-                </button>
-              </div>
-            ) : (
-              <p className="text-sm text-zinc-400">{isSpanish ? 'No hay resultados de calculo para este periodo.' : 'No calculation results for this period.'}</p>
-            )}
-          </div>
-        </div>
-
-        {/* Results Preview */}
-        {calcSummary && calcSummary.attainmentDist.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="rounded-2xl space-y-3" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">{isSpanish ? 'Distribucion de Logro' : 'Attainment Distribution'}</h4>
-              <DistributionChart data={calcSummary.attainmentDist} benchmarkLine={100} />
-            </div>
-            <div className="rounded-2xl space-y-3" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
-              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">{isSpanish ? 'Top 5 Entidades' : 'Top 5 Entities'}</h4>
-              <div className="space-y-2">
-                {calcSummary.topEntities.map((e) => (
-                  <BenchmarkBar
-                    key={e.name}
-                    value={e.value}
-                    benchmark={calcSummary.totalPayout / calcSummary.entityCount}
-                    label={e.name}
-                    rightLabel={<span className="text-emerald-400 tabular-nums">{currencySymbol}{e.value.toLocaleString()}</span>}
-                    color="#10b981"
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* OB-71: AI Governance Assessment — visible when calculation results exist */}
-        {calcSummary && (
-          <AssessmentPanel
-            persona="admin"
-            data={{
-              totalPayout: calcSummary.totalPayout,
-              entityCount: calcSummary.entityCount,
-              avgPayout: calcSummary.entityCount > 0 ? calcSummary.totalPayout / calcSummary.entityCount : 0,
-              lifecycleState: lifecycleState,
-              lastRunAt: calcSummary.lastRunAt,
-              topEntities: calcSummary.topEntities,
-              bottomEntities: calcSummary.bottomEntities,
-              attainmentDistribution: calcSummary.attainmentDist,
-            }}
-            locale={isSpanish ? 'es' : 'en'}
-            accentColor="#7c3aed"
-            tenantId={tenantId}
-          />
-        )}
+            {action.label} →
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
-function defaultReadiness(): DataReadiness {
-  return {
-    plan: { status: 'missing', label: 'Cargando...' },
-    data: { status: 'missing', label: 'Cargando...' },
-    mapping: { status: 'missing', label: 'Cargando...' },
-    validation: { status: 'never', label: 'Cargando...' },
-  };
+// ─── Recent Activity ───────────────────────────────────
+
+interface RecentActivityProps {
+  icmHealth: ICMHealthData | null;
+  financialHealth: FinancialHealthData | null;
+  hasICM: boolean;
+  hasFinancial: boolean;
+  isSpanish: boolean;
 }
 
-function formatLabel(startDate: string, locale: string = 'es-MX'): string {
-  try {
-    const d = new Date(startDate);
-    const month = d.toLocaleString(locale, { month: 'short' });
-    return `${month.charAt(0).toUpperCase() + month.slice(1)} ${d.getFullYear()}`;
-  } catch {
-    return startDate;
+function RecentActivitySection({ icmHealth, financialHealth, hasICM, hasFinancial, isSpanish }: RecentActivityProps) {
+  const events: Array<{ date: string; module: string; description: string; color: string }> = [];
+
+  if (hasICM && icmHealth) {
+    if (icmHealth.lastBatchDate) {
+      events.push({
+        date: icmHealth.lastBatchDate,
+        module: 'ICM',
+        description: isSpanish
+          ? `Calculo completado: ${icmHealth.entityCount} entidades`
+          : `Calculation completed: ${icmHealth.entityCount} entities`,
+        color: '#7c3aed',
+      });
+    }
+    if (icmHealth.lastImportDate) {
+      events.push({
+        date: icmHealth.lastImportDate,
+        module: 'ICM',
+        description: isSpanish ? 'Datos importados' : 'Data imported',
+        color: '#7c3aed',
+      });
+    }
   }
+
+  if (hasFinancial && financialHealth) {
+    events.push({
+      date: new Date().toISOString(),
+      module: isSpanish ? 'Finanzas' : 'Financial',
+      description: isSpanish
+        ? `${financialHealth.activeLocations} ubicaciones activas, ${financialHealth.checksServed.toLocaleString()} cheques`
+        : `${financialHealth.activeLocations} active locations, ${financialHealth.checksServed.toLocaleString()} checks`,
+      color: '#eab308',
+    });
+  }
+
+  events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  if (events.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+      <div className="px-5 py-3" style={{ borderBottom: '1px solid rgba(39, 39, 42, 0.4)' }}>
+        <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+          {isSpanish ? 'Actividad Reciente' : 'Recent Activity'}
+        </h3>
+      </div>
+      <div className="px-5 py-3 space-y-3">
+        {events.slice(0, 7).map((event, i) => (
+          <div key={i} className="flex items-start gap-3">
+            <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ backgroundColor: event.color }} />
+            <div className="min-w-0">
+              <p className="text-xs text-zinc-300">{event.description}</p>
+              <p className="text-[11px] text-zinc-600">
+                <span className="text-zinc-500">{event.module}</span> · {formatDate(event.date, isSpanish)}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Helpers ───────────────────────────────────────────
+
+function formatDate(dateStr: string, isSpanish: boolean): string {
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString(isSpanish ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+}
+
+function buildCommentary(
+  isSpanish: boolean,
+  icm: ICMHealthData | null,
+  financial: FinancialHealthData | null,
+  hasICM: boolean,
+  hasFinancial: boolean,
+): string {
+  const parts: string[] = [];
+
+  if (hasICM && icm) {
+    if (isSpanish) {
+      parts.push(`ICM: ${icm.ruleSetCount} plan${icm.ruleSetCount !== 1 ? 'es' : ''} configurado${icm.ruleSetCount !== 1 ? 's' : ''}, ${icm.entityCount.toLocaleString()} entidades.`);
+      if (icm.lastBatchDate) {
+        parts.push(`Ultimo calculo: ${formatDate(icm.lastBatchDate, true)}.`);
+      } else {
+        parts.push('Sin calculos previos.');
+      }
+    } else {
+      parts.push(`ICM: ${icm.ruleSetCount} plan${icm.ruleSetCount !== 1 ? 's' : ''} configured, ${icm.entityCount.toLocaleString()} entities.`);
+      if (icm.lastBatchDate) {
+        parts.push(`Last calculation: ${formatDate(icm.lastBatchDate, false)}.`);
+      } else {
+        parts.push('No previous calculations.');
+      }
+    }
+  }
+
+  if (hasFinancial && financial) {
+    if (isSpanish) {
+      parts.push(`Finanzas: ${financial.activeLocations} ubicaciones activas, ${financial.brandCount} marca${financial.brandCount !== 1 ? 's' : ''}.`);
+      if (financial.leakageRate > 2) {
+        parts.push(`Fuga ${financial.leakageRate.toFixed(1)}% — por encima del objetivo de 2%.`);
+      }
+    } else {
+      parts.push(`Financial: ${financial.activeLocations} active locations, ${financial.brandCount} brand${financial.brandCount !== 1 ? 's' : ''}.`);
+      if (financial.leakageRate > 2) {
+        parts.push(`Leakage ${financial.leakageRate.toFixed(1)}% — above 2% target.`);
+      }
+    }
+  }
+
+  return parts.join(' ');
 }
