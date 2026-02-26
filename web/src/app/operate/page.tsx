@@ -10,7 +10,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
-import { useFinancialOnly } from '@/hooks/use-financial-only';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
@@ -52,18 +51,7 @@ export default function OperateCockpitPage() {
   const { user } = useAuth();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
   const hasFinancial = useFeature('financial');
-  const isFinancialOnly = useFinancialOnly();
   const tenantId = currentTenant?.id ?? '';
-
-  // AUTH GATE — HF-059/HF-061
-  // Financial-only tenants redirect to /financial.
-  // useFinancialOnly() gates on auth + session loading — returns false until
-  // auth is authenticated AND session counts are loaded for the current tenant.
-  // DO NOT remove the loading checks in useFinancialOnly — they prevent login redirect loops.
-  // See: CC Failure Pattern — Login Redirect Loop (3x regression)
-  useEffect(() => {
-    if (isFinancialOnly) router.replace('/financial');
-  }, [isFinancialOnly, router]);
 
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
   const [activeKey, setActiveKey] = useState('');
@@ -146,9 +134,8 @@ export default function OperateCockpitPage() {
   }, [isSpanish]);
 
   // Single batched load — no inline Supabase queries
-  // HF-063: Skip ICM data loading for financial-only tenants (prevents 100+ wasted requests)
   useEffect(() => {
-    if (!tenantId || isFinancialOnly) return;
+    if (!tenantId) return;
     let cancelled = false;
 
     async function load() {
@@ -165,7 +152,7 @@ export default function OperateCockpitPage() {
 
     load().finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, applyData, isFinancialOnly]);
+  }, [tenantId, applyData]);
 
   // Reload page data after calculation, transition, or period switch
   const reloadData = useCallback(async (periodKeyOverride?: string) => {
@@ -255,9 +242,6 @@ export default function OperateCockpitPage() {
     : lifecycleState ? toDashboardState(lifecycleState) : 'DRAFT';
 
   const stateDisplay = LIFECYCLE_DISPLAY[dashState as keyof typeof LIFECYCLE_DISPLAY];
-
-  // HF-063 Amendment: useEffect fires router.replace, this prevents ICM render while it's async-pending.
-  if (isFinancialOnly) return null;
 
   if (!tenantId) {
     return (

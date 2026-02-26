@@ -46,11 +46,8 @@ UNAUTHENTICATED
     +-- [SessionContext loads counts for THIS tenant (loadedForTenant tracking)]
     |    -> isLoading = true until counts loaded for current tenant
     |
-    +-- [useFinancialOnly check]
-    |    -> Only runs AFTER isAuthenticated AND session loaded AND auth not loading
-    |    -> If financial-only tenant -> redirect /operate|/perform to /financial
-    |
-    +-- [Page renders]
+    +-- [Page renders] (OB-102: useFinancialOnly removed — unified module-aware landing)
+
          -> Dashboard / workspace content
 ```
 
@@ -62,7 +59,7 @@ UNAUTHENTICATED
 4. **SessionContext** loads tenant-specific data AFTER tenant is selected
 5. **Profile query at login** must NOT filter by tenant_id (no tenant selected yet)
 6. **Profile query at login** must handle multiple profiles per auth_user_id
-7. **useFinancialOnly** gates on authLoading + isAuthenticated + sessionLoading
+7. ~~**useFinancialOnly**~~ REMOVED (OB-102) — replaced with unified module-aware landing
 
 ## Files Involved (in execution order)
 
@@ -78,7 +75,7 @@ UNAUTHENTICATED
 | 8 | `web/src/components/layout/auth-shell.tsx` | Client-side auth wrapper + 3s timeout |
 | 9 | `web/src/contexts/tenant-context.tsx` | Tenant derivation from profile or cookie |
 | 10 | `web/src/contexts/session-context.tsx` | Tenant-scoped counts (loadedForTenant) |
-| 11 | `web/src/hooks/use-financial-only.ts` | Financial redirect gate |
+| 11 | ~~`web/src/hooks/use-financial-only.ts`~~ | REMOVED (OB-102) — unified module-aware landing |
 
 ## Defense-in-Depth Layers
 
@@ -88,7 +85,7 @@ UNAUTHENTICATED
 | 2 | `auth-shell.tsx` | 3s client-side timeout — clears cookies + redirects |
 | 3 | `auth-context.tsx` | initAuth() skips on /login,/landing,/signup |
 | 4 | `auth-shell.tsx` | Redirect loop breaker (sessionStorage timestamp) |
-| 5 | `use-financial-only.ts` | Gates on authLoading + isAuthenticated + sessionLoading |
+| 5 | ~~`use-financial-only.ts`~~ | REMOVED (OB-102) — no more financial-only redirect |
 | 6 | `session-context.tsx` | loadedForTenant prevents stale-count race |
 
 ## Known Failure Patterns

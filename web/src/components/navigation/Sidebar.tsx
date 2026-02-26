@@ -24,7 +24,6 @@ import {
 import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
-import { useSession } from "@/contexts/session-context";
 import { isVLAdmin } from "@/types/auth";
 import { accessControl, type AppModule } from "@/lib/access-control";
 import { MODULE_TOKENS, type ModuleId } from "@/lib/design-system/tokens";
@@ -63,10 +62,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const locationTerm = useTerm("location", true);
   const salesFinanceEnabled = useFeature("salesFinance");
   const financialEnabled = useFeature("financial");
-  const { ruleSetCount } = useSession();
-
-  // OB-100: Financial-only tenant = financial enabled but no ICM plans
-  const isFinancialOnly = financialEnabled && ruleSetCount === 0;
 
   const [expandedItems, setExpandedItems] = useState<string[]>(["Insights", "Transactions"]);
 
@@ -258,37 +253,23 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     return item.children.some((child) => pathname === child.href);
   };
 
-  // OB-101 Phase 7: ICM-specific modules hidden in children for financial-only tenants
-  const ICM_CHILD_MODULES: AppModule[] = ['teams', 'personnel'];
-
   // Filter children based on feature flags, access control, and VL Admin status
   const filterChildren = (children: NavChild[]) => {
     return children.filter((child) => {
-      // Check VL Admin only items
       if (child.vlAdminOnly && !userIsVLAdmin) return false;
-      // Check feature flags
       if (child.feature) {
         if (child.feature === "salesFinance" && !salesFinanceEnabled) return false;
         if (child.feature === "financial" && !financialEnabled) return false;
       }
-      // Check module access (skip for VL Admin only items)
       if (!child.vlAdminOnly && child.module && !accessibleModules.includes(child.module)) return false;
-      // OB-101: Hide ICM sub-items for financial-only tenants (PG-47)
-      if (isFinancialOnly && child.module && ICM_CHILD_MODULES.includes(child.module)) return false;
       return true;
     });
   };
 
-  // OB-100: ICM-specific modules hidden for financial-only tenants
-  const ICM_MODULES: AppModule[] = ['my_compensation', 'insights', 'transactions', 'performance'];
-
   // Filter top-level navigation items based on module access
   const filterNavigation = (items: NavItem[]) => {
     return items.filter((item) => {
-      // Check module access
       if (item.module && !accessibleModules.includes(item.module)) return false;
-      // OB-100: Hide ICM nav items for financial-only tenants
-      if (isFinancialOnly && item.module && ICM_MODULES.includes(item.module)) return false;
       return true;
     });
   };
