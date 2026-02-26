@@ -4,6 +4,9 @@
  * GET /api/signals?tenant_id=...&signal_type=...&limit=...
  * Returns classification_signals for the tenant.
  *
+ * POST /api/signals
+ * Creates classification signals (e.g., field_mapping accept/override).
+ *
  * Used by: AI dashboard, VL Admin signal monitoring, closed-loop verification.
  *
  * Columns from SCHEMA_REFERENCE.md:
@@ -80,6 +83,59 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('[Signals API] Exception:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/signals — Create classification signals (field_mapping, etc.)
+ * HF-068: Captures accept/override decisions for closed-loop learning.
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { signals } = body as {
+      signals: Array<{
+        tenant_id: string;
+        signal_type: string;
+        signal_value: Record<string, unknown>;
+        confidence: number;
+        source: string;
+        context: Record<string, unknown>;
+      }>;
+    };
+
+    if (!signals || !Array.isArray(signals) || signals.length === 0) {
+      return NextResponse.json({ error: 'signals array is required' }, { status: 400 });
+    }
+
+    const supabase = await createServerSupabaseClient();
+
+    const rows = signals.map(s => ({
+      tenant_id: s.tenant_id,
+      signal_type: s.signal_type,
+      signal_value: s.signal_value as unknown as undefined,
+      confidence: s.confidence,
+      source: s.source,
+      context: s.context as unknown as undefined,
+    }));
+
+    const { data, error } = await supabase
+      .from('classification_signals')
+      .insert(rows)
+      .select('id');
+
+    if (error) {
+      console.error('[Signals API] Insert failed:', error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, count: data?.length || 0 });
+  } catch (error) {
+    console.error('[Signals API] POST exception:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
