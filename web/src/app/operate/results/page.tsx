@@ -1,10 +1,18 @@
 'use client';
 
 /**
- * Results Dashboard — Five Layers of Proof
+ * Results Dashboard — Five Layers of Proof (OB-102 Phase 4: Cognitive Fit)
  *
  * OB-72 Missions 1+2: Five Layers of Proof
  * OB-92: Batch-aware via OperateContext (Plan × Period × Batch selection)
+ * OB-102 Phase 4: Cognitive Fit enforcement + reference frame + commentary
+ *
+ * Cognitive Fit Map:
+ *   1. Total payout → AnimatedNumber (identification)
+ *   2. Attainment distribution → DistributionChart (distribution)
+ *   3. Component breakdown → BenchmarkBar (comparison)
+ *   4. Anomaly summary → Severity-grouped cards (selection/triage)
+ *   5. Entity drill-down → Expandable table (detail-on-demand)
  *
  * Layer 5 — Outcome: Total, mean, median, components, anomaly count + detail
  * Layer 4 — Population: Per-entity expandable rows with chevron toggle
@@ -37,9 +45,13 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  BarChart3, Users, DollarSign, TrendingUp, AlertTriangle,
-  Search, ArrowLeft, Scale, ChevronDown, ChevronRight, Activity,
+  BarChart3, AlertTriangle,
+  Search, ArrowLeft, ChevronDown, ChevronRight,
 } from 'lucide-react';
+import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
+import { DistributionChart } from '@/components/design-system/DistributionChart';
+import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
+import { StatusPill } from '@/components/design-system/StatusPill';
 
 type CalcResultRow = Database['public']['Tables']['calculation_results']['Row'];
 
@@ -227,6 +239,50 @@ function ResultsDashboardPageInner() {
     return ids.sort();
   }, [results]);
 
+  // OB-102: Attainment values for DistributionChart
+  const attainmentValues = useMemo(() => {
+    return results
+      .map(r => r.overallAttainment)
+      .filter((a): a is number => a !== null && a > 0);
+  }, [results]);
+
+  // OB-102: Deterministic commentary
+  const resultCommentary = useMemo(() => {
+    const lines: string[] = [];
+    if (results.length === 0) return lines;
+
+    const total = results.reduce((s, r) => s + r.totalPayout, 0);
+    const avg = total / results.length;
+
+    // Attainment insight
+    if (attainmentValues.length > 0) {
+      const above100 = attainmentValues.filter(a => a >= 100).length;
+      const pct = Math.round((above100 / attainmentValues.length) * 100);
+      lines.push(`${pct}% of entities met or exceeded target.`);
+    }
+
+    // Anomaly insight
+    if (anomalyReport) {
+      if (anomalyReport.anomalies.length === 0) {
+        lines.push('No anomalies detected.');
+      } else {
+        const affected = anomalyReport.anomalies.reduce((s, a) => s + a.entityCount, 0);
+        lines.push(`${anomalyReport.anomalies.length} anomal${anomalyReport.anomalies.length === 1 ? 'y' : 'ies'} affecting ${affected} entit${affected === 1 ? 'y' : 'ies'}.`);
+      }
+    }
+
+    // Spread insight
+    if (results.length > 1) {
+      const max = Math.max(...results.map(r => r.totalPayout));
+      const min = Math.min(...results.map(r => r.totalPayout));
+      if (avg > 0 && (max - min) / avg > 2) {
+        lines.push('Wide payout spread — review outliers.');
+      }
+    }
+
+    return lines;
+  }, [results, attainmentValues, anomalyReport]);
+
   // OB-92: Generate batch label from context
   const batchLabel = useMemo(() => {
     if (!selectedBatch) return '';
@@ -311,86 +367,73 @@ function ResultsDashboardPageInner() {
         </div>
       </div>
 
-      {/* L5: Outcome Summary — aggregate stats */}
-      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-full bg-emerald-100">
-                <DollarSign className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Total</p>
-                <p className="text-lg font-bold">{formatCurrency(totalPayout)}</p>
-              </div>
+      {/* Reference Frame — context banner */}
+      <div className="rounded-xl px-5 py-3 flex items-center justify-between" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+        <div className="flex items-center gap-4 text-xs text-zinc-400">
+          {selectedBatch && (
+            <>
+              <span>Batch: <span className="text-zinc-200 font-mono">{batchLabel || (selectedBatchId ?? '').slice(0, 8)}</span></span>
+              <span className="text-zinc-600">|</span>
+              <span>{entityCount} entities</span>
+              <span className="text-zinc-600">|</span>
+              <span>{componentTotals.length} components</span>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {anomalyCount === 0 ? (
+            <StatusPill color="emerald">No anomalies</StatusPill>
+          ) : (
+            <StatusPill color="amber">{anomalyCount} anomal{anomalyCount === 1 ? 'y' : 'ies'}</StatusPill>
+          )}
+        </div>
+      </div>
+
+      {/* L5: Outcome Summary — Hero + Compact Stats + Distribution */}
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
+        {/* Hero: Total Payout */}
+        <div className="lg:col-span-5 rounded-2xl p-6" style={{ background: 'linear-gradient(to bottom right, rgba(79, 70, 229, 0.8), rgba(109, 40, 217, 0.8))', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+          <p className="text-xs text-indigo-200/70 uppercase tracking-wider mb-1">Total Payout</p>
+          <div className="text-3xl font-bold text-white">
+            <AnimatedNumber value={totalPayout} prefix="$" decimals={0} />
+          </div>
+          <div className="mt-4 grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-[10px] text-indigo-200/50 uppercase">Entities</p>
+              <p className="text-sm font-semibold text-white">{entityCount.toLocaleString()}</p>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-full bg-blue-100">
-                <Users className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Entities</p>
-                <p className="text-lg font-bold">{entityCount}</p>
-              </div>
+            <div>
+              <p className="text-[10px] text-indigo-200/50 uppercase">Mean</p>
+              <p className="text-sm font-semibold text-white">{formatCurrency(avgPayout)}</p>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-full bg-purple-100">
-                <TrendingUp className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Mean</p>
-                <p className="text-lg font-bold">{formatCurrency(avgPayout)}</p>
-              </div>
+            <div>
+              <p className="text-[10px] text-indigo-200/50 uppercase">Median</p>
+              <p className="text-sm font-semibold text-white">{stats ? formatCurrency(stats.median) : '-'}</p>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-full bg-indigo-100">
-                <Activity className="h-5 w-5 text-indigo-600" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Median</p>
-                <p className="text-lg font-bold">{stats ? formatCurrency(stats.median) : '-'}</p>
-              </div>
+          </div>
+        </div>
+
+        {/* Attainment Distribution */}
+        <div className="lg:col-span-4 rounded-2xl p-5" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+          <p className="text-xs text-zinc-400 uppercase tracking-wider mb-3">Attainment Distribution</p>
+          {attainmentValues.length > 0 ? (
+            <DistributionChart data={attainmentValues} benchmarkLine={100} />
+          ) : (
+            <div className="flex items-center justify-center h-32 text-xs text-zinc-500">
+              No attainment data
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-full bg-amber-100">
-                <Scale className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Components</p>
-                <p className="text-lg font-bold">{componentTotals.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className={anomalyCount > 0 ? 'border-amber-500/50' : ''}>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-full ${anomalyCount > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
-                <AlertTriangle className={`h-5 w-5 ${anomalyCount > 0 ? 'text-amber-600' : 'text-green-600'}`} />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Anomalies</p>
-                <p className="text-lg font-bold">{anomalyCount}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          )}
+        </div>
+
+        {/* Deterministic Commentary */}
+        <div className="lg:col-span-3 rounded-2xl p-5" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+          <p className="text-xs text-zinc-400 uppercase tracking-wider mb-3">Assessment</p>
+          <div className="space-y-2 text-sm text-zinc-300 leading-relaxed">
+            {resultCommentary.map((line, i) => (
+              <p key={i}>{line}</p>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* L5: Bloodwork Anomaly Display (Standing Rule 23) */}
@@ -511,43 +554,28 @@ function ResultsDashboardPageInner() {
         );
       })()}
 
-      {/* Component Breakdown */}
+      {/* Component Breakdown — BenchmarkBar (comparison) */}
       {componentTotals.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Component Breakdown
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {componentTotals.map(comp => {
-                const maxTotal = Math.max(...componentTotals.map(c => c.total), 1);
-                const widthPct = (comp.total / maxTotal) * 100;
-                return (
-                  <div key={comp.componentId} className="flex items-center gap-3">
-                    <span className="text-sm font-medium w-40 truncate" title={comp.componentName}>
-                      {comp.componentName}
-                    </span>
-                    <div className="flex-1 bg-slate-100 rounded-full h-6 relative overflow-hidden">
-                      <div
-                        className="bg-blue-500 h-6 rounded-full transition-all"
-                        style={{ width: `${widthPct}%` }}
-                      />
-                      <span className="absolute inset-0 flex items-center justify-end pr-2 text-xs font-medium">
-                        {formatCurrency(comp.total)}
-                      </span>
-                    </div>
-                    <span className="text-xs text-slate-400 w-16 text-right">
-                      {comp.entityCount} ent
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="rounded-2xl p-5" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+          <p className="text-xs text-zinc-400 uppercase tracking-wider mb-4">Component Breakdown</p>
+          <div className="space-y-3">
+            {componentTotals.map(comp => {
+              const avgPerEntity = comp.entityCount > 0 ? comp.total / comp.entityCount : 0;
+              return (
+                <BenchmarkBar
+                  key={comp.componentId}
+                  value={comp.total}
+                  benchmark={avgPerEntity * entityCount}
+                  max={Math.max(...componentTotals.map(c => c.total)) * 1.1}
+                  label={comp.componentName}
+                  sublabel={`${comp.entityCount} entities`}
+                  rightLabel={formatCurrency(comp.total)}
+                  color="#6366f1"
+                />
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* Entity Table */}
