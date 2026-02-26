@@ -193,8 +193,16 @@ export async function POST(request: NextRequest) {
       console.log(`[ImportCommit] Batch created: ${batchId}`);
     }
 
-    // ── Step 6: Bulk entity resolution ──
+    // ── Step 6: Bulk entity resolution (with roster metadata enrichment) ──
     const externalIds = new Set<string>();
+    // OB-103: Build roster metadata index for entity enrichment
+    const rosterMetadata = new Map<string, Record<string, unknown>>();
+
+    // Identify roster sheet from AI context
+    const rosterSheetName = aiContext?.rosterSheet || null;
+    const NAME_TARGETS = ['name', 'entity_name', 'display_name', 'employee_name', 'nombre'];
+    const ROLE_TARGETS = ['role', 'position', 'puesto', 'title', 'cargo'];
+    const LICENSE_TARGETS = ['productlicenses', 'product_licenses', 'licenses', 'products', 'licencias'];
 
     for (const sheet of sheetData) {
       if (!sheet.mappings) continue;
@@ -212,17 +220,53 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // OB-103: For roster sheets, extract name/role/licenses columns
+      const isRosterSheet = sheet.sheetName === rosterSheetName ||
+        (aiContext?.sheets?.find(s => s.sheetName === sheet.sheetName)?.classification === 'roster');
+
       for (const row of sheet.rows) {
         for (const col of entityCols) {
           const val = row[col];
           if (val != null && String(val).trim()) {
-            externalIds.add(String(val).trim());
+            const eid = String(val).trim();
+            externalIds.add(eid);
+
+            // OB-103: Capture roster metadata per entity (name, role, licenses)
+            if (isRosterSheet && !rosterMetadata.has(eid)) {
+              const meta: Record<string, unknown> = {};
+              for (const [sourceCol, targetField] of Object.entries(sheet.mappings || {})) {
+                const target = targetField.toLowerCase();
+                if (NAME_TARGETS.includes(target)) {
+                  meta.display_name = row[sourceCol] ? String(row[sourceCol]).trim() : null;
+                } else if (ROLE_TARGETS.includes(target)) {
+                  meta.role = row[sourceCol] ? String(row[sourceCol]).trim() : null;
+                }
+              }
+              // OB-103: Detect compound license fields by column name pattern (case-insensitive)
+              for (const key of Object.keys(row)) {
+                const lower = key.toLowerCase().replace(/[\s_-]+/g, '');
+                if (LICENSE_TARGETS.some(t => lower.includes(t))) {
+                  meta.product_licenses = row[key] ? String(row[key]).trim() : null;
+                }
+              }
+              // Fallback: try mapped fields too
+              if (!meta.display_name) {
+                for (const key of Object.keys(row)) {
+                  const lower = key.toLowerCase().replace(/[\s_-]+/g, '_');
+                  if (NAME_TARGETS.some(t => lower.includes(t))) {
+                    meta.display_name = row[key] ? String(row[key]).trim() : null;
+                    break;
+                  }
+                }
+              }
+              rosterMetadata.set(eid, meta);
+            }
           }
         }
       }
     }
 
-    console.log(`[ImportCommit] Unique external IDs: ${externalIds.size}`);
+    console.log(`[ImportCommit] Unique external IDs: ${externalIds.size}, roster metadata: ${rosterMetadata.size}`);
 
     const entityIdMap = new Map<string, string>(); // externalId → UUID
     const allExternalIds = Array.from(externalIds);
@@ -246,15 +290,22 @@ export async function POST(request: NextRequest) {
 
       const newEntityExternalIds = allExternalIds.filter(eid => !entityIdMap.has(eid));
       if (newEntityExternalIds.length > 0) {
-        const newEntities = newEntityExternalIds.map(eid => ({
-          tenant_id: tenantId,
-          external_id: eid,
-          display_name: eid,
-          entity_type: 'individual' as const,
-          status: 'active' as const,
-          temporal_attributes: [] as Json[],
-          metadata: {} as Record<string, Json>,
-        }));
+        // OB-103: Enrich entities with roster metadata (name, role, licenses)
+        const newEntities = newEntityExternalIds.map(eid => {
+          const meta = rosterMetadata.get(eid) || {};
+          return {
+            tenant_id: tenantId,
+            external_id: eid,
+            display_name: (meta.display_name as string) || eid,
+            entity_type: 'individual' as const,
+            status: 'active' as const,
+            temporal_attributes: [] as Json[],
+            metadata: {
+              ...(meta.role ? { role: meta.role } : {}),
+              ...(meta.product_licenses ? { product_licenses: meta.product_licenses } : {}),
+            } as Record<string, Json>,
+          };
+        });
 
         const INSERT_BATCH = 5000;
         for (let i = 0; i < newEntities.length; i += INSERT_BATCH) {
@@ -276,7 +327,7 @@ export async function POST(request: NextRequest) {
             }
           }
         }
-        console.log(`[ImportCommit] Created ${newEntityExternalIds.length} new entities`);
+        console.log(`[ImportCommit] Created ${newEntityExternalIds.length} new entities (${rosterMetadata.size} with roster metadata)`);
       }
     }
 
@@ -544,48 +595,97 @@ export async function POST(request: NextRequest) {
       console.log(`[ImportCommit] Sheet "${sheet.sheetName}": ${insertRows.length} rows inserted`);
     }
 
-    // ── Step 9: Rule set assignments ──
+    // ── Step 9: Rule set assignments (OB-103: multi-plan via ProductLicenses) ──
     let assignmentCount = 0;
     try {
-      const { data: activeRuleSet } = await supabase
+      // Fetch ALL active rule sets for this tenant (multi-plan support)
+      const { data: allRuleSets } = await supabase
         .from('rule_sets')
-        .select('id')
+        .select('id, name')
         .eq('tenant_id', tenantId)
         .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('created_at', { ascending: false });
 
-      if (activeRuleSet) {
+      const ruleSets = allRuleSets || [];
+      console.log(`[ImportCommit] Active rule sets: ${ruleSets.length}`);
+
+      if (ruleSets.length > 0) {
         const entityUuids = Array.from(new Set(
           Array.from(entityIdMap.values()).filter(Boolean)
         ));
 
         if (entityUuids.length > 0) {
-          const existingSet = new Set<string>();
-          const CHECK_BATCH = 200; // Standing rule: Supabase URL limit ≤200 items
+          // Fetch existing assignments for all rule sets at once
+          const existingAssignments = new Set<string>(); // "entityId:ruleSetId"
+          const CHECK_BATCH = 200;
           for (let i = 0; i < entityUuids.length; i += CHECK_BATCH) {
             const slice = entityUuids.slice(i, i + CHECK_BATCH);
             const { data: existing } = await supabase
               .from('rule_set_assignments')
-              .select('entity_id')
+              .select('entity_id, rule_set_id')
               .eq('tenant_id', tenantId)
-              .eq('rule_set_id', activeRuleSet.id)
               .in('entity_id', slice);
 
             if (existing) {
-              for (const a of existing) existingSet.add(a.entity_id);
+              for (const a of existing) existingAssignments.add(`${a.entity_id}:${a.rule_set_id}`);
             }
           }
 
-          const newAssignments = entityUuids
-            .filter(id => !existingSet.has(id))
-            .map(entityId => ({
-              tenant_id: tenantId,
-              entity_id: entityId,
-              rule_set_id: activeRuleSet.id,
-              effective_from: new Date().toISOString().split('T')[0],
-            }));
+          const newAssignments: Array<{
+            tenant_id: string;
+            entity_id: string;
+            rule_set_id: string;
+            effective_from: string;
+          }> = [];
+
+          // OB-103: Build license → rule set name mapping for multi-plan assignment
+          const normalizeForMatch = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, '');
+          const ruleSetNameMap = new Map(ruleSets.map(rs => [normalizeForMatch(rs.name || ''), rs.id]));
+
+          for (const [externalId, entityUuid] of Array.from(entityIdMap.entries())) {
+            const meta = rosterMetadata.get(externalId);
+            const licenses = meta?.product_licenses ? String(meta.product_licenses) : null;
+
+            if (licenses && ruleSets.length > 1) {
+              // OB-103: Multi-plan — parse compound ProductLicenses field
+              const licenseList = licenses.split(',').map(l => l.trim()).filter(Boolean);
+
+              for (const license of licenseList) {
+                const normalizedLicense = normalizeForMatch(license);
+                // Try exact match first, then substring match
+                let matchedRsId = ruleSetNameMap.get(normalizedLicense);
+                if (!matchedRsId) {
+                  for (const [rsNorm, rsId] of Array.from(ruleSetNameMap.entries())) {
+                    if (rsNorm.includes(normalizedLicense) || normalizedLicense.includes(rsNorm)) {
+                      matchedRsId = rsId;
+                      break;
+                    }
+                  }
+                }
+                if (matchedRsId && !existingAssignments.has(`${entityUuid}:${matchedRsId}`)) {
+                  newAssignments.push({
+                    tenant_id: tenantId,
+                    entity_id: entityUuid,
+                    rule_set_id: matchedRsId,
+                    effective_from: new Date().toISOString().split('T')[0],
+                  });
+                  existingAssignments.add(`${entityUuid}:${matchedRsId}`);
+                }
+              }
+            } else {
+              // Single plan fallback — assign to first active rule set
+              const defaultRsId = ruleSets[0].id;
+              if (!existingAssignments.has(`${entityUuid}:${defaultRsId}`)) {
+                newAssignments.push({
+                  tenant_id: tenantId,
+                  entity_id: entityUuid,
+                  rule_set_id: defaultRsId,
+                  effective_from: new Date().toISOString().split('T')[0],
+                });
+                existingAssignments.add(`${entityUuid}:${defaultRsId}`);
+              }
+            }
+          }
 
           if (newAssignments.length > 0) {
             const ASSIGN_BATCH = 5000;
@@ -594,7 +694,8 @@ export async function POST(request: NextRequest) {
               await supabase.from('rule_set_assignments').insert(slice);
             }
             assignmentCount = newAssignments.length;
-            console.log(`[ImportCommit] Created ${assignmentCount} rule_set_assignments`);
+            const uniqueRuleSets = new Set(newAssignments.map(a => a.rule_set_id)).size;
+            console.log(`[ImportCommit] Created ${assignmentCount} rule_set_assignments across ${uniqueRuleSets} plans`);
           }
         }
       }
