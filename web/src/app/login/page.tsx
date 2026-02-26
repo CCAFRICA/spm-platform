@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
+
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/auth-context';
@@ -217,14 +217,6 @@ export default function LoginPage() {
             {googleLoading ? 'Redirecting...' : 'Continue with Google'}
           </button>
         </div>
-
-        {/* Signup link */}
-        <p style={{ textAlign: 'center', marginTop: '24px', fontSize: '14px', color: '#94A3B8' }}>
-          Don&apos;t have an account?{' '}
-          <Link href="/signup" style={{ color: '#E8A838', textDecoration: 'none', fontWeight: 600 }}>
-            Start Free &rarr;
-          </Link>
-        </p>
 
         {/* Footer */}
         <motion.p

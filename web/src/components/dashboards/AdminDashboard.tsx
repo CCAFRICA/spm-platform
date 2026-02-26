@@ -21,7 +21,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
 import { usePeriod } from '@/contexts/period-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
@@ -85,6 +85,7 @@ export function AdminDashboard() {
   const { user } = useAuth();
   const userIsVLAdmin = user && isVLAdmin(user);
   const tenantId = currentTenant?.id ?? '';
+  const hasFinancial = useFeature('financial');
   const { checkGate } = useTrialStatus(currentTenant?.id);
   const lifecycleGate = checkGate('lifecycle');
   const searchParams = useSearchParams();
@@ -309,11 +310,17 @@ export function AdminDashboard() {
     return (
       <div className="text-center py-16 space-y-3">
         <p className="text-zinc-400">
-          {isSpanish ? 'No hay resultados de calculo para este periodo.' : 'No calculation results for this period.'}
+          {isSpanish ? 'No hay resultados para este periodo.' : 'No results for this period.'}
         </p>
         <p className="text-sm text-zinc-600">
           {isSpanish ? 'Ejecuta un calculo desde el Centro de Operaciones para ver los datos aqui.' : 'Run a calculation from the Operations Center to see data here.'}
         </p>
+        {hasFinancial && (
+          <a href="/financial" className="inline-block mt-2 px-4 py-2 rounded-lg text-sm font-medium text-amber-300 hover:text-amber-200 transition-colors"
+            style={{ background: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
+            {isSpanish ? 'Ver Panel Financiero' : 'View Financial Dashboard'} →
+          </a>
+        )}
       </div>
     );
   }

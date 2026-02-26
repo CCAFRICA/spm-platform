@@ -19,7 +19,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
@@ -88,6 +88,8 @@ export function ManagerDashboard() {
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
+  const hasFinancial = useFeature('financial');
+  const isSpanish = locale === 'es-MX';
 
   const [data, setData] = useState<ManagerDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -218,8 +220,18 @@ export function ManagerDashboard() {
   if (!data || data.teamMembers.length === 0) {
     return (
       <div className="text-center py-16 space-y-3">
-        <p style={{ color: '#a1a1aa' }}>No hay datos de equipo para este periodo.</p>
-        <p className="text-sm" style={{ color: '#52525b' }}>Los resultados apareceran cuando se ejecuten los calculos para las entidades de tu equipo.</p>
+        <p style={{ color: '#a1a1aa' }}>
+          {isSpanish ? 'No hay datos de equipo para este periodo.' : 'No team data for this period.'}
+        </p>
+        <p className="text-sm" style={{ color: '#52525b' }}>
+          {isSpanish ? 'Los resultados apareceran cuando se ejecuten los calculos.' : 'Results will appear when calculations run.'}
+        </p>
+        {hasFinancial && (
+          <a href="/financial" className="inline-block mt-2 px-4 py-2 rounded-lg text-sm font-medium text-amber-300 hover:text-amber-200 transition-colors"
+            style={{ background: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
+            {isSpanish ? 'Ver Panel Financiero' : 'View Financial Dashboard'} →
+          </a>
+        )}
       </div>
     );
   }

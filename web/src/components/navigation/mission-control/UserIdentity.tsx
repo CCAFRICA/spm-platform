@@ -8,6 +8,7 @@
 
 import { useAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import { getUserDisplayRole, isVLAdmin } from '@/types/auth';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -34,12 +35,24 @@ interface UserIdentityProps {
 export function UserIdentity({ collapsed = false }: UserIdentityProps) {
   const { user, logout } = useAuth();
   const { locale } = useLocale();
+  const { persona } = usePersona();
 
   if (!user) return null;
 
   const userIsVLAdmin = isVLAdmin(user);
   const isSpanish = locale === 'es-MX';
-  const displayRole = getUserDisplayRole(user);
+  const baseRole = getUserDisplayRole(user);
+
+  // HF-063D: Show active persona role when VL Admin has persona override
+  const PERSONA_ROLE_LABELS: Record<string, string> = {
+    admin: 'Admin',
+    manager: isSpanish ? 'Gerente' : 'Manager',
+    rep: isSpanish ? 'Representante' : 'Rep',
+  };
+  const displayRole = userIsVLAdmin && persona !== 'admin'
+    ? `${PERSONA_ROLE_LABELS[persona]} (demo)`
+    : baseRole;
+
   const initials = user.name
     .split(' ')
     .map(n => n[0])

@@ -191,7 +191,7 @@ export default function OperateLandingPage() {
                 { label: isSpanish ? 'Planes Activos' : 'Active Plans', value: String(icmHealth.ruleSetCount), sub: icmHealth.ruleSetName },
                 { label: isSpanish ? 'Entidades' : 'Entities', value: icmHealth.entityCount.toLocaleString() },
                 { label: isSpanish ? 'Ultimo Calculo' : 'Last Calculation', value: icmHealth.lastBatchDate ? formatDate(icmHealth.lastBatchDate, isSpanish) : (isSpanish ? 'Ninguno' : 'None') },
-                { label: isSpanish ? 'Pago Total' : 'Total Payout', value: icmHealth.totalPayout > 0 ? formatCurrency(icmHealth.totalPayout) : '—' },
+                { label: isSpanish ? 'Ultimo Resultado' : 'Last Result', value: icmHealth.totalPayout > 0 ? formatCurrency(icmHealth.totalPayout) : '—' },
               ] : []}
               actions={[
                 { label: isSpanish ? 'Centro de Operaciones' : 'Operations Center', href: '/operate/lifecycle' },

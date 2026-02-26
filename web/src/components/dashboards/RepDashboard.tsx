@@ -33,6 +33,7 @@ import { ComponentStack } from '@/components/design-system/ComponentStack';
 import { RelativeLeaderboard } from '@/components/design-system/RelativeLeaderboard';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
 import { useLocale } from '@/contexts/locale-context';
+import { useFeature } from '@/contexts/tenant-context';
 import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
   getRepDashboardData,
@@ -77,6 +78,8 @@ export function RepDashboard() {
   const { entityId } = usePersona();
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
+  const hasFinancial = useFeature('financial');
+  const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id ?? '';
 
   const [data, setData] = useState<RepDashboardData | null>(null);
@@ -207,8 +210,18 @@ export function RepDashboard() {
   if (!data || data.totalPayout === 0) {
     return (
       <div className="text-center py-16 space-y-3">
-        <p style={{ color: '#a1a1aa' }}>No hay resultados de compensacion para este periodo.</p>
-        <p className="text-sm" style={{ color: '#52525b' }}>Tus resultados apareceran aqui cuando se ejecute el calculo.</p>
+        <p style={{ color: '#a1a1aa' }}>
+          {isSpanish ? 'No hay resultados para este periodo.' : 'No results for this period.'}
+        </p>
+        <p className="text-sm" style={{ color: '#52525b' }}>
+          {isSpanish ? 'Tus resultados apareceran aqui cuando se ejecute el calculo.' : 'Your results will appear here when the calculation runs.'}
+        </p>
+        {hasFinancial && (
+          <a href="/financial" className="inline-block mt-2 px-4 py-2 rounded-lg text-sm font-medium text-amber-300 hover:text-amber-200 transition-colors"
+            style={{ background: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
+            {isSpanish ? 'Ver Panel Financiero' : 'View Financial Dashboard'} →
+          </a>
+        )}
       </div>
     );
   }
