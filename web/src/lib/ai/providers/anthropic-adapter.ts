@@ -520,6 +520,8 @@ export class AnthropicAdapter implements AIProviderAdapter {
 
     if (pdfBase64 && request.task === 'plan_interpretation') {
       // PDF document block — send directly to Claude for native reading
+      // HF-064: Strip data URI prefix if present (safety net)
+      const cleanBase64 = pdfBase64.replace(/^data:[^;]+;base64,/, '');
       const textPrompt = this.buildUserPrompt(request);
       messageContent = [
         {
@@ -527,7 +529,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
           source: {
             type: 'base64',
             media_type: pdfMediaType,
-            data: pdfBase64,
+            data: cleanBase64,
           },
         },
         {

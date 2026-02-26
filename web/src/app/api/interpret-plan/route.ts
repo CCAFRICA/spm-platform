@@ -12,6 +12,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// HF-064: Extend timeout for AI interpretation (PDF takes 20-30s)
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   console.log('\n========== API ROUTE: /api/interpret-plan ==========');
 
@@ -52,6 +55,16 @@ export async function POST(request: NextRequest) {
     console.log('Tokens:', response.tokenUsage);
 
     const interpretation = response.result;
+
+    // HF-064: Detect AI service fallback/error response
+    if (interpretation.fallback || interpretation.error) {
+      const errorMsg = (interpretation.error as string) || 'AI interpretation returned no results';
+      console.error('AI interpretation failed (fallback):', errorMsg);
+      return NextResponse.json(
+        { success: false, error: `AI interpretation failed: ${errorMsg}` },
+        { status: 500 }
+      );
+    }
 
     // OB-23 DIAG: Write full AI response to file
     try {

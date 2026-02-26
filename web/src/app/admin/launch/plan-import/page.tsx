@@ -14,6 +14,7 @@ import {
   isAIInterpreterAvailable,
   type PlanInterpretation,
 } from '@/lib/compensation/plan-interpreter';
+import { interpretationToPlanConfig } from '@/lib/compensation/ai-plan-interpreter';
 import type { RuleSetConfig, PlanComponent, AdditiveLookupConfig } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 import {
@@ -438,9 +439,15 @@ function PlanImportPageInner() {
         if (!res.ok || !data.success) {
           throw new Error(data.error || 'PDF interpretation failed');
         }
+        // HF-064: Build planConfig for PDF path (matches non-PDF path from interpretPlanDocument)
+        const pdfPlanConfig = data.interpretation
+          ? interpretationToPlanConfig(data.interpretation, currentTenant?.id || 'default', user?.id || 'system')
+          : undefined;
         result = {
+          success: true,
           method: data.method as 'ai' | 'heuristic',
           interpretation: data.interpretation,
+          planConfig: pdfPlanConfig,
           confidence: data.confidence,
         };
       } else {
