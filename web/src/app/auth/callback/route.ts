@@ -46,14 +46,16 @@ export async function GET(request: NextRequest) {
   }
 
   // Check if user has a profile — if not, auto-provision
+  // HF-062: Use array query instead of .maybeSingle() — platform users
+  // can have multiple profiles across tenants. .maybeSingle() errors on >1 row.
   const adminClient = await createServiceRoleClient();
-  const { data: profile } = await adminClient
+  const { data: existingProfiles } = await adminClient
     .from('profiles')
     .select('id, tenant_id')
     .eq('auth_user_id', session.user.id)
-    .maybeSingle();
+    .limit(1);
 
-  if (!profile) {
+  if (!existingProfiles || existingProfiles.length === 0) {
     // New Google SSO user — create tenant + profile
     try {
       const email = session.user.email || '';
