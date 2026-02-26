@@ -53,7 +53,7 @@ function PerformContent() {
   const { availablePeriods, activePeriodKey, setActivePeriod, isLoading: periodLoading } = usePeriod();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
-  const { ruleSetCount, entityCount, batchCount } = useSession();
+  const { ruleSetCount, entityCount } = useSession();
   const hasFinancial = useFeature('financial');
   const { locale } = useLocale();
   const { user } = useAuth();
@@ -112,14 +112,6 @@ function PerformContent() {
     return () => { cancelled = true; };
   }, [tenantId, hasICM, hasFinancial]);
 
-  if (!currentTenant) {
-    return (
-      <div className="p-8 text-center text-zinc-400">
-        <p>{isSpanish ? 'Selecciona un tenant.' : 'Select a tenant to view your dashboard.'}</p>
-      </div>
-    );
-  }
-
   const noModules = !hasICM && !hasFinancial;
   const hasICMResults = hasICM && icmHealth && icmHealth.lastBatchDate !== null && icmHealth.totalPayout > 0;
 
@@ -129,10 +121,18 @@ function PerformContent() {
       ? (isSpanish ? 'Rendimiento del Equipo' : 'Team Performance')
       : (isSpanish ? 'Mi Rendimiento' : 'My Performance');
 
-  // Deterministic commentary
+  // Deterministic commentary — must be called before any early return (Rules of Hooks)
   const commentary = useMemo(() => {
-    return buildPerformCommentary(isSpanish, icmHealth, financialData, hasICM, hasFinancial, formatCurrency, persona);
-  }, [isSpanish, icmHealth, financialData, hasICM, hasFinancial, formatCurrency, persona]);
+    return buildPerformCommentary(isSpanish, icmHealth, financialData, hasICM, hasFinancial, formatCurrency);
+  }, [isSpanish, icmHealth, financialData, hasICM, hasFinancial, formatCurrency]);
+
+  if (!currentTenant) {
+    return (
+      <div className="p-8 text-center text-zinc-400">
+        <p>{isSpanish ? 'Selecciona un tenant.' : 'Select a tenant to view your dashboard.'}</p>
+      </div>
+    );
+  }
 
   return (
     <PersonaLayout persona={persona}>
@@ -470,15 +470,6 @@ function FinancialOnlyPerformance({ data, isSpanish, formatCurrency, onNavigate 
 
 // ─── Helpers ──────────────────────────────────────────────────
 
-function formatDate(dateStr: string, isSpanish: boolean): string {
-  try {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString(isSpanish ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return dateStr;
-  }
-}
-
 function buildPerformCommentary(
   isSpanish: boolean,
   icm: ICMHealthData | null,
@@ -486,7 +477,6 @@ function buildPerformCommentary(
   hasICM: boolean,
   hasFinancial: boolean,
   formatCurrency: (n: number) => string,
-  persona: string,
 ): string {
   const parts: string[] = [];
 
