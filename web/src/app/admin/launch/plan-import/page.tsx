@@ -321,7 +321,7 @@ function PlanImportPageInner() {
     setCurrentFileIndex(0);
     setCompletedPlans([]);
     setShowBatchSummary(false);
-    processFile(files[0]);
+    processFile(files[0], 0);
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -341,7 +341,9 @@ function PlanImportPageInner() {
   }, [initializeQueue]);
 
   // Process uploaded file
-  const processFile = async (file: File) => {
+  // HF-064: Accept fileIndex explicitly to avoid stale closure on currentFileIndex
+  const processFile = async (file: File, fileIndex?: number) => {
+    const idx = fileIndex ?? currentFileIndex;
     setIsAnalyzing(true);
     setParsedPlan(null);
     setImportResult(null);
@@ -600,8 +602,9 @@ function PlanImportPageInner() {
       setPlanDescription(parsed.description);
 
       // OB-104: Update queue entry with interpretation results (still processing until import)
+      // HF-064: Use idx (explicit param) instead of currentFileIndex (stale closure)
       setQueueEntries(prev => prev.map((entry, i) =>
-        i === currentFileIndex ? {
+        i === idx ? {
           ...entry,
           planName: parsed.name,
           confidence: parsed.overallConfidence,
@@ -618,8 +621,9 @@ function PlanImportPageInner() {
       console.error('Error processing file:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       // OB-104: Update queue entry with failure status and file name
+      // HF-064: Use idx (explicit param) instead of currentFileIndex (stale closure)
       setQueueEntries(prev => prev.map((entry, i) =>
-        i === currentFileIndex ? { ...entry, status: 'failed' as QueueFileStatus, error: `${file.name}: ${errorMsg}` } : entry
+        i === idx ? { ...entry, status: 'failed' as QueueFileStatus, error: `${file.name}: ${errorMsg}` } : entry
       ));
       setImportResult({
         success: false,
@@ -1005,7 +1009,7 @@ function PlanImportPageInner() {
                       i === nextIndex ? { ...entry, status: 'processing' as QueueFileStatus } : entry
                     ));
                     setCurrentFileIndex(nextIndex);
-                    processFile(fileQueue[nextIndex]);
+                    processFile(fileQueue[nextIndex], nextIndex);
                   }}
                 >
                   <ArrowRight className="h-4 w-4 mr-2" />
@@ -1180,7 +1184,7 @@ function PlanImportPageInner() {
                       setQueueEntries(prev => prev.map((entry, i) =>
                         i === currentFileIndex ? { ...entry, status: 'processing' as QueueFileStatus, error: undefined } : entry
                       ));
-                      processFile(fileQueue[currentFileIndex]);
+                      processFile(fileQueue[currentFileIndex], currentFileIndex);
                     }}
                   >
                     <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
@@ -1202,7 +1206,7 @@ function PlanImportPageInner() {
                         setQueueEntries(prev => prev.map((entry, i) =>
                           i === nextIndex ? { ...entry, status: 'processing' as QueueFileStatus } : entry
                         ));
-                        processFile(fileQueue[nextIndex]);
+                        processFile(fileQueue[nextIndex], nextIndex);
                       }}
                     >
                       <SkipForward className="h-3.5 w-3.5 mr-1.5" />
@@ -1236,7 +1240,7 @@ function PlanImportPageInner() {
                         setQueueEntries(prev => prev.map((entry, i) =>
                           i === currentFileIndex ? { file: newFile, status: 'processing' as QueueFileStatus } : entry
                         ));
-                        processFile(newFile);
+                        processFile(newFile, currentFileIndex);
                       }
                     }}
                   />
