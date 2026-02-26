@@ -49,6 +49,7 @@ import {
   Sparkles,
   History,
   Layers,
+  Clock,
   Calculator,
   BarChart3,
   Table,
@@ -109,7 +110,7 @@ const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: str
 
 // Static icon map for route icons
 const ROUTE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  Upload, Sparkles, History, Layers, Calculator, BarChart3, Table, Sliders,
+  Upload, Sparkles, History, Layers, Clock, Calculator, BarChart3, Table, Sliders,
   GitCompare, AlertTriangle, CheckSquare, DollarSign, Wallet, Calendar, RefreshCw,
   Activity, Database, ShieldCheck, LayoutDashboard, FileText, Receipt, Users,
   Trophy, LineChart, PieChart, HelpCircle, PlusCircle, Search, FileSearch,
