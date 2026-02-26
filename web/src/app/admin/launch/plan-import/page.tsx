@@ -67,6 +67,7 @@ import {
   Brain,
   Cpu,
   Calendar,
+  Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -76,8 +77,8 @@ const labels = {
     title: 'Plan Import',
     subtitle: 'Import and interpret compensation plan structure',
     uploadTitle: 'Upload Plan File',
-    uploadDesc: 'Drag and drop or click to upload CSV, Excel, JSON, TSV, or PowerPoint files',
-    supportedFormats: 'Supported formats: CSV, XLSX, XLS, JSON, TSV, PPTX',
+    uploadDesc: 'Drag and drop or click to upload plan files (PDF, XLSX, PPTX, CSV). Multiple files supported.',
+    supportedFormats: 'Supported formats: PDF, XLSX, XLS, CSV, TSV, JSON, PPTX, DOCX',
     analyzing: 'Analyzing plan structure...',
     aiAnalyzing: 'AI is analyzing your plan...',
     aiAnalyzingDesc: 'Using Claude AI to intelligently interpret your compensation plan structure',
@@ -124,8 +125,8 @@ const labels = {
     title: 'Importar Plan',
     subtitle: 'Importar e interpretar la estructura del plan de compensación',
     uploadTitle: 'Subir Archivo de Plan',
-    uploadDesc: 'Arrastre y suelte o haga clic para subir archivos CSV, Excel, JSON, TSV o PowerPoint',
-    supportedFormats: 'Formatos soportados: CSV, XLSX, XLS, JSON, TSV, PPTX',
+    uploadDesc: 'Arrastre y suelte o haga clic para subir archivos de plan (PDF, XLSX, PPTX, CSV). Se admiten múltiples archivos.',
+    supportedFormats: 'Formatos soportados: PDF, XLSX, XLS, CSV, TSV, JSON, PPTX, DOCX',
     analyzing: 'Analizando estructura del plan...',
     aiAnalyzing: 'La IA está analizando su plan...',
     aiAnalyzingDesc: 'Usando Claude AI para interpretar inteligentemente la estructura de su plan de compensación',
@@ -251,6 +252,10 @@ function PlanImportPageInner() {
   const [editingComponent, setEditingComponent] = useState<DetectedComponent | null>(null);
   const [importResult, setImportResult] = useState<{ success: boolean; ruleSetId?: string; error?: string } | null>(null);
 
+  // Multi-file queue (Decision 49)
+  const [fileQueue, setFileQueue] = useState<File[]>([]);
+  const [currentFileIndex, setCurrentFileIndex] = useState(0);
+  const [completedPlans, setCompletedPlans] = useState<Array<{ name: string; ruleSetId: string; fileName: string }>>([]);
   // Plan metadata
   const [ruleSetName, setPlanName] = useState('');
   const [planDescription, setPlanDescription] = useState('');
@@ -290,7 +295,16 @@ function PlanImportPageInner() {
     e.preventDefault();
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) {
+    if (files.length > 1) {
+      // Multi-file: queue all, process first
+      setFileQueue(files);
+      setCurrentFileIndex(0);
+      setCompletedPlans([]);
+      processFile(files[0]);
+    } else if (files.length === 1) {
+      setFileQueue(files);
+      setCurrentFileIndex(0);
+      setCompletedPlans([]);
       processFile(files[0]);
     }
   }, []);
@@ -298,7 +312,11 @@ function PlanImportPageInner() {
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      processFile(files[0]);
+      const fileArray = Array.from(files);
+      setFileQueue(fileArray);
+      setCurrentFileIndex(0);
+      setCompletedPlans([]);
+      processFile(fileArray[0]);
     }
   }, []);
 
@@ -369,22 +387,52 @@ function PlanImportPageInner() {
       }
 
       console.log('\n========== DOCUMENT CONTENT FOR AI ==========');
+      console.log('Format:', parsedFile.format);
       console.log('Content length:', documentContent.length, 'chars');
-      console.log('Content preview (first 2000 chars):');
-      console.log(documentContent.substring(0, 2000));
-      console.log('...');
+      if (parsedFile.format !== 'pdf') {
+        console.log('Content preview (first 2000 chars):');
+        console.log(documentContent.substring(0, 2000));
+      } else {
+        console.log('PDF base64 length:', parsedFile.pdfBase64?.length || 0);
+      }
       console.log('==============================================\n');
 
       // Progress: Starting interpretation
       setAnalysisProgress(40);
 
-      // Use AI-powered interpretation (with heuristic fallback)
-      const result = await interpretPlanDocument(
-        documentContent,
-        currentTenant?.id || 'default',
-        user?.id || 'system',
-        locale
-      );
+      // For PDF files, send base64 directly to the API (Decision 50)
+      let result;
+      if (parsedFile.format === 'pdf' && parsedFile.pdfBase64) {
+        console.log('Sending PDF directly to AI via document block...');
+        const res = await fetch('/api/interpret-plan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            documentContent: `[PDF document: ${file.name}]`,
+            pdfBase64: parsedFile.pdfBase64,
+            pdfMediaType: parsedFile.pdfMediaType || 'application/pdf',
+            tenantId: currentTenant?.id || 'default',
+            userId: user?.id || 'system',
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'PDF interpretation failed');
+        }
+        result = {
+          method: data.method as 'ai' | 'heuristic',
+          interpretation: data.interpretation,
+          confidence: data.confidence,
+        };
+      } else {
+        // Use standard AI-powered interpretation (with heuristic fallback)
+        result = await interpretPlanDocument(
+          documentContent,
+          currentTenant?.id || 'default',
+          user?.id || 'system',
+          locale
+        );
+      }
 
       // Progress: Processing results
       setAnalysisProgress(80);
@@ -403,7 +451,7 @@ function PlanImportPageInner() {
       }
 
       // Convert AI components to DetectedComponent format with full calculation details
-      const components: DetectedComponent[] = (interpretation.components || []).map((comp) => {
+      const components: DetectedComponent[] = (interpretation.components || []).map((comp: Record<string, unknown>) => {
         // Null-safe access to calculationMethod
         const calcMethod = (comp?.calculationMethod as unknown as Record<string, unknown>) || {};
         const componentType =
@@ -414,9 +462,9 @@ function PlanImportPageInner() {
               : ((comp?.type || 'tier_lookup') as PlanComponent['componentType']);
 
         const detected: DetectedComponent = {
-          id: comp?.id || `component-${Date.now()}`,
-          name: comp?.name || 'Unknown Component',
-          nameEs: comp?.nameEs,
+          id: String(comp?.id || `component-${Date.now()}`),
+          name: String(comp?.name || 'Unknown Component'),
+          nameEs: comp?.nameEs as string | undefined,
           type: componentType,
           metricSource:
             calcMethod && 'metric' in calcMethod
@@ -425,8 +473,8 @@ function PlanImportPageInner() {
                 ? String((calcMethod.rowAxis as Record<string, unknown>)?.metric || 'metric')
                 : 'metric',
           measurementLevel: 'individual',
-          confidence: comp?.confidence ?? 50,
-          reasoning: comp?.reasoning || '',
+          confidence: Number(comp?.confidence ?? 50),
+          reasoning: String(comp?.reasoning || ''),
           config: {
             componentType,
             measurementLevel: 'individual',
@@ -736,6 +784,14 @@ function PlanImportPageInner() {
       console.log('[handleImport] Plan saved and activated via API:', ruleSet.id);
 
       setImportResult({ success: true, ruleSetId: planConfig.id });
+
+      // Track completed plan for multi-file queue
+      setCompletedPlans(prev => [...prev, {
+        name: ruleSetName || parsedPlan?.name || 'Unnamed Plan',
+        ruleSetId: planConfig.id,
+        fileName: fileQueue[currentFileIndex]?.name || 'unknown',
+      }]);
+
       console.log('[handleImport] SUCCESS - Import complete');
     } catch (error) {
       console.error('[handleImport] ERROR:', error);
@@ -845,55 +901,111 @@ function PlanImportPageInner() {
             </CardContent>
           </Card>
 
-          {/* Next Steps */}
-          <Card className="border-primary/30 bg-primary/5">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <ArrowRight className="h-4 w-4 text-primary" />
-                {locale === 'es-MX' ? 'Siguiente Paso' : 'Next Step'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-2">
-                <a
-                  href="/operate/import"
-                  className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
+          {/* Multi-file: completed plans summary */}
+          {completedPlans.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">{completedPlans.length} {completedPlans.length === 1 ? 'plan' : 'plans'} imported</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-1">
+                  {completedPlans.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      <span className="text-zinc-300">{p.fileName}</span>
+                      <span className="text-zinc-500">→</span>
+                      <span className="text-zinc-100">{p.name}</span>
+                    </div>
+                  ))}
+                  {currentFileIndex < fileQueue.length - 1 && (
+                    <div className="flex items-center gap-2 text-sm text-zinc-500">
+                      <Clock className="h-3.5 w-3.5" />
+                      <span>{fileQueue.length - currentFileIndex - 1} file(s) remaining in queue</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Multi-file: Next File button */}
+          {currentFileIndex < fileQueue.length - 1 && (
+            <Card className="border-blue-800 bg-blue-900/20">
+              <CardContent className="flex items-center gap-4 py-4">
+                <FileText className="h-8 w-8 text-blue-400" />
+                <div className="flex-1">
+                  <p className="font-medium text-blue-100">
+                    Next: {fileQueue[currentFileIndex + 1]?.name}
+                  </p>
+                  <p className="text-sm text-blue-300">
+                    File {currentFileIndex + 2} of {fileQueue.length}
+                  </p>
+                </div>
+                <Button
+                  onClick={() => {
+                    const nextIndex = currentFileIndex + 1;
+                    setCurrentFileIndex(nextIndex);
+                    processFile(fileQueue[nextIndex]);
+                  }}
                 >
-                  <div className="p-3 bg-primary/10 rounded-lg">
-                    <Upload className="h-6 w-6 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold mb-1">
-                      {locale === 'es-MX' ? 'Importar Datos' : 'Import Data Package'}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {locale === 'es-MX'
-                        ? 'Cargar el paquete de datos de Excel con las metricas de rendimiento de los empleados.'
-                        : 'Upload the Excel data package with employee performance metrics.'}
-                    </p>
-                  </div>
-                </a>
-                <a
-                  href="/configure/periods"
-                  className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
-                >
-                  <div className="p-3 bg-muted rounded-lg">
-                    <Calendar className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold mb-1">
-                      {locale === 'es-MX' ? 'Configurar Periodos' : 'Configure Payroll Periods'}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {locale === 'es-MX'
-                        ? 'Definir los periodos de nomina para el procesamiento de incentivos.'
-                        : 'Define payroll periods for incentive processing.'}
-                    </p>
-                  </div>
-                </a>
-              </div>
-            </CardContent>
-          </Card>
+                  <ArrowRight className="h-4 w-4 mr-2" />
+                  Process Next File
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Next Steps (only when all files are done) */}
+          {(currentFileIndex >= fileQueue.length - 1) && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ArrowRight className="h-4 w-4 text-primary" />
+                  {locale === 'es-MX' ? 'Siguiente Paso' : 'Next Step'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <a
+                    href="/operate/import"
+                    className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
+                  >
+                    <div className="p-3 bg-primary/10 rounded-lg">
+                      <Upload className="h-6 w-6 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold mb-1">
+                        {locale === 'es-MX' ? 'Importar Datos' : 'Import Data Package'}
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        {locale === 'es-MX'
+                          ? 'Cargar el paquete de datos de Excel con las metricas de rendimiento de los empleados.'
+                          : 'Upload the Excel data package with employee performance metrics.'}
+                      </p>
+                    </div>
+                  </a>
+                  <a
+                    href="/configure/periods"
+                    className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
+                  >
+                    <div className="p-3 bg-muted rounded-lg">
+                      <Calendar className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold mb-1">
+                        {locale === 'es-MX' ? 'Configurar Periodos' : 'Configure Periods'}
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        {locale === 'es-MX'
+                          ? 'Definir los periodos para el procesamiento de resultados.'
+                          : 'Define periods for outcome processing.'}
+                      </p>
+                    </div>
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -955,7 +1067,8 @@ function PlanImportPageInner() {
               <input
                 id="file-input"
                 type="file"
-                accept=".csv,.xlsx,.xls,.json,.tsv,.pptx"
+                multiple
+                accept=".pdf,.pptx,.docx,.xlsx,.xls,.csv,.tsv,.json"
                 className="hidden"
                 onChange={handleFileSelect}
               />

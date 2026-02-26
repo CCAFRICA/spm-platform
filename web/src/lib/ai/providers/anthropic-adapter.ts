@@ -512,7 +512,32 @@ export class AnthropicAdapter implements AIProviderAdapter {
     }
 
     const systemPrompt = SYSTEM_PROMPTS[request.task];
-    const userPrompt = this.buildUserPrompt(request);
+
+    // Build message content — supports both plain text and document blocks (PDF)
+    const pdfBase64 = request.input.pdfBase64 as string | undefined;
+    const pdfMediaType = (request.input.pdfMediaType as string) || 'application/pdf';
+    let messageContent: unknown;
+
+    if (pdfBase64 && request.task === 'plan_interpretation') {
+      // PDF document block — send directly to Claude for native reading
+      const textPrompt = this.buildUserPrompt(request);
+      messageContent = [
+        {
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: pdfMediaType,
+            data: pdfBase64,
+          },
+        },
+        {
+          type: 'text',
+          text: textPrompt,
+        },
+      ];
+    } else {
+      messageContent = this.buildUserPrompt(request);
+    }
 
     const response = await fetch(ANTHROPIC_API_URL, {
       method: 'POST',
@@ -520,6 +545,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
         'Content-Type': 'application/json',
         'x-api-key': this.apiKey,
         'anthropic-version': ANTHROPIC_VERSION,
+        'anthropic-beta': 'pdfs-2024-09-25',
       },
       body: JSON.stringify({
         model: this.config.model || 'claude-sonnet-4-20250514',
@@ -529,7 +555,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
         messages: [
           {
             role: 'user',
-            content: userPrompt,
+            content: messageContent,
           },
         ],
       }),
@@ -604,14 +630,16 @@ ${input.planComponents ? `\nPlan Components: ${JSON.stringify(input.planComponen
 
 Return the mapping JSON.`;
 
-      case 'plan_interpretation':
+      case 'plan_interpretation': {
+        // For PDF documents, content is provided via document block — don't repeat it in text
+        const isPdfDocument = !!input.pdfBase64;
+        const contentSection = isPdfDocument
+          ? 'The compensation plan document has been provided above. Analyze it thoroughly.'
+          : `DOCUMENT CONTENT:\n---\n${input.content}\n---\nFormat: ${input.format}`;
+
         return `Analyze the following compensation plan document and extract its COMPLETE structure INCLUDING ALL PAYOUT VALUES FROM EVERY TABLE.
 
-DOCUMENT CONTENT:
----
-${input.content}
----
-Format: ${input.format}
+${contentSection}
 
 CRITICAL: For each component, you MUST extract the complete calculationMethod with ALL numeric values from the tables. Empty tiers/matrices will cause $0 payouts.
 
@@ -651,6 +679,7 @@ Return a JSON object with:
   "confidence": 0-100,
   "reasoning": "Overall analysis reasoning"
 }`;
+      }
 
       case 'workbook_analysis':
         return `Analyze the following multi-sheet workbook and determine how the sheets relate to each other and to the compensation plan.

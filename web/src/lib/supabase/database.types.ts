@@ -57,7 +57,7 @@ export type RelationshipSource =
   | 'imported_explicit';
 export type RuleSetStatus = 'draft' | 'pending_approval' | 'active' | 'archived';
 export type PeriodType = 'monthly' | 'quarterly' | 'biweekly' | 'weekly' | 'annual';
-export type PeriodStatus = 'open' | 'calculating' | 'review' | 'closed' | 'paid';
+export type PeriodStatus = 'draft' | 'open' | 'calculating' | 'data_collection' | 'calculation_pending' | 'calculated' | 'review' | 'approved' | 'finalized' | 'closed' | 'paid';
 export type BatchType = 'standard' | 'superseding' | 'adjustment' | 'reversal';
 export type LifecycleState =
   | 'DRAFT'

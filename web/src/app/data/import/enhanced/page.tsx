@@ -897,6 +897,8 @@ function DataPackageImportPageInner() {
   // Upload state - keep file reference for parsing all rows on submit
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [, setWorksheets] = useState<WorksheetInfo[]>([]);
+  const [fileQueue, setFileQueue] = useState<File[]>([]);
+  const [periodsCreated, setPeriodsCreated] = useState(false);
 
   // Analysis state
   const [analysis, setAnalysis] = useState<WorkbookAnalysis | null>(null);
@@ -1346,11 +1348,17 @@ function DataPackageImportPageInner() {
     }
   }, [analyzeWorkbook, tenantId, currentTenant, user]);
 
-  // Drop zone handler
+  // Drop zone handler — takes first file (multi-file handled via queue below)
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileSelect(file);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      // Queue remaining files for batch processing
+      if (files.length > 1) {
+        setFileQueue(files.slice(1));
+      }
+      handleFileSelect(files[0]);
+    }
   }, [handleFileSelect]);
 
   // Update field mapping
@@ -1373,13 +1381,13 @@ function DataPackageImportPageInner() {
         };
       });
 
-      // Check if sheet has at least one mapping
+      // Check if sheet has all required fields mapped (across all sheets)
       const hasMapping = updatedMappings.some(m => m.targetField);
 
       return {
         ...sheet,
         mappings: updatedMappings,
-        isComplete: hasMapping,
+        isComplete: hasMapping, // Per-sheet flag; full validation in canProceed()
       };
     }));
   }, [targetFields]);
@@ -1989,9 +1997,13 @@ function DataPackageImportPageInner() {
         return false;
       case 'analyze':
         return !!analysis && analysis.sheets.length > 0;
-      case 'map':
-        // Can proceed if current sheet has at least one mapping
-        return currentSheetMapping?.mappings.some(m => m.targetField) || false;
+      case 'map': {
+        // CLT-100 F11 fix: Check ALL required fields are mapped across all sheets, not just "some"
+        const allMapped = fieldMappings.flatMap(s => s.mappings.filter(m => m.targetField));
+        const mappedIds = new Set(allMapped.map(m => m.targetField));
+        const requiredIds = targetFields.filter(f => f.isRequired).map(f => f.id);
+        return requiredIds.every(id => mappedIds.has(id));
+      }
       case 'validate':
         return validationComplete;
       case 'approve':
@@ -2200,31 +2212,42 @@ function DataPackageImportPageInner() {
                     <div>
                       <p className="font-medium text-lg">
                         {isSpanish
-                          ? 'Arrastre un libro de Excel aquí'
-                          : 'Drop an Excel workbook here'}
+                          ? 'Arrastre archivos de datos aquí'
+                          : 'Drop data files here'}
                       </p>
                       <p className="text-muted-foreground">
                         {isSpanish
-                          ? 'Soporta .xlsx, .csv, .txt, .tsv'
-                          : 'Supports .xlsx, .csv, .txt, .tsv'}
+                          ? 'Soporta .xlsx, .csv, .txt, .tsv — seleccione múltiples archivos'
+                          : 'Supports .xlsx, .csv, .txt, .tsv — select multiple files'}
                       </p>
                     </div>
                     <input
                       type="file"
                       accept=".xlsx,.xls,.csv,.txt,.tsv"
+                      multiple
                       className="hidden"
                       id="file-input"
                       onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileSelect(file);
+                        const files = Array.from(e.target.files || []);
+                        if (files.length > 0) {
+                          if (files.length > 1) {
+                            setFileQueue(files.slice(1));
+                          }
+                          handleFileSelect(files[0]);
+                        }
                       }}
                     />
                     <Button asChild size="lg">
                       <label htmlFor="file-input" className="cursor-pointer">
                         <Upload className="h-4 w-4 mr-2" />
-                        {isSpanish ? 'Seleccionar Archivo' : 'Select File'}
+                        {isSpanish ? 'Seleccionar Archivos' : 'Select Files'}
                       </label>
                     </Button>
+                    {fileQueue.length > 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        {fileQueue.length + 1} {isSpanish ? 'archivos seleccionados' : 'files selected'} — {isSpanish ? 'procesando el primero' : 'processing first'}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -3032,26 +3055,69 @@ function DataPackageImportPageInner() {
                               <div key={p.canonicalKey} className="p-3 bg-muted rounded-lg border">
                                 <p className="text-sm font-medium">{p.label}</p>
                                 <p className="text-xs text-muted-foreground">
-                                  {p.recordCount.toLocaleString()} {isSpanish ? 'registros' : 'records'}
+                                  {p.startDate} — {p.endDate}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {p.sheetsPresent.length} {isSpanish ? 'hojas' : 'sheets'}
+                                  {p.recordCount.toLocaleString()} {isSpanish ? 'registros' : 'records'} · {p.sheetsPresent.length} {isSpanish ? 'hojas' : 'sheets'}
                                 </p>
                               </div>
                             ))}
                           </div>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                            <span>
-                              {isSpanish ? 'Frecuencia' : 'Frequency'}: {
-                                validationResult.detectedPeriods.frequency === 'monthly' ? (isSpanish ? 'Mensual' : 'Monthly') :
-                                validationResult.detectedPeriods.frequency === 'quarterly' ? (isSpanish ? 'Trimestral' : 'Quarterly') :
-                                validationResult.detectedPeriods.frequency === 'annual' ? (isSpanish ? 'Anual' : 'Annual') :
-                                (isSpanish ? 'Desconocido' : 'Unknown')
-                              }
-                            </span>
-                            <span>
-                              {isSpanish ? 'Confianza' : 'Confidence'}: {validationResult.detectedPeriods.confidence}%
-                            </span>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                              <span>
+                                {isSpanish ? 'Frecuencia' : 'Frequency'}: {
+                                  validationResult.detectedPeriods.frequency === 'monthly' ? (isSpanish ? 'Mensual' : 'Monthly') :
+                                  validationResult.detectedPeriods.frequency === 'quarterly' ? (isSpanish ? 'Trimestral' : 'Quarterly') :
+                                  validationResult.detectedPeriods.frequency === 'annual' ? (isSpanish ? 'Anual' : 'Annual') :
+                                  (isSpanish ? 'Desconocido' : 'Unknown')
+                                }
+                              </span>
+                              <span>
+                                {isSpanish ? 'Confianza' : 'Confidence'}: {validationResult.detectedPeriods.confidence}%
+                              </span>
+                            </div>
+                            {/* Decision 47: Import-driven period creation */}
+                            {!periodsCreated ? (
+                              <Button
+                                size="sm"
+                                onClick={async () => {
+                                  if (!tenantId || !validationResult.detectedPeriods) return;
+                                  try {
+                                    const periods = validationResult.detectedPeriods.periods.map(p => ({
+                                      tenant_id: tenantId,
+                                      label: p.label,
+                                      period_type: validationResult.detectedPeriods!.frequency === 'unknown' ? 'monthly' : validationResult.detectedPeriods!.frequency,
+                                      start_date: p.startDate,
+                                      end_date: p.endDate,
+                                      canonical_key: p.canonicalKey,
+                                      status: 'draft',
+                                    }));
+                                    const res = await fetch('/api/periods', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ tenantId, periods }),
+                                    });
+                                    if (res.ok) {
+                                      setPeriodsCreated(true);
+                                    } else {
+                                      const err = await res.json().catch(() => ({}));
+                                      console.error('Period creation failed:', err);
+                                    }
+                                  } catch (err) {
+                                    console.error('Period creation error:', err);
+                                  }
+                                }}
+                              >
+                                <Calendar className="h-3 w-3 mr-1" />
+                                {isSpanish ? 'Crear Períodos' : 'Create Periods'}
+                              </Button>
+                            ) : (
+                              <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50">
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                {isSpanish ? 'Períodos creados' : 'Periods created'}
+                              </Badge>
+                            )}
                           </div>
                         </div>
                       ) : (
@@ -3642,6 +3708,42 @@ function DataPackageImportPageInner() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Multi-file: Process next file in queue */}
+              {fileQueue.length > 0 && (
+                <Card className="border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30">
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-blue-800 dark:text-blue-200">
+                        {fileQueue.length} {isSpanish ? 'archivos restantes en cola' : 'files remaining in queue'}
+                      </p>
+                      <p className="text-sm text-blue-600 dark:text-blue-300">
+                        {isSpanish ? 'Siguiente' : 'Next'}: {fileQueue[0]?.name}
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => {
+                        const nextFile = fileQueue[0];
+                        setFileQueue(prev => prev.slice(1));
+                        // Reset state for next file
+                        setCurrentStep('upload');
+                        setAnalysis(null);
+                        setFieldMappings([]);
+                        setValidationComplete(false);
+                        setValidationResult(null);
+                        setImportResult(null);
+                        setImportId(null);
+                        setImportComplete(false);
+                        setPeriodsCreated(false);
+                        if (nextFile) handleFileSelect(nextFile);
+                      }}
+                    >
+                      <ArrowRight className="h-4 w-4 mr-2" />
+                      {isSpanish ? 'Procesar Siguiente' : 'Process Next File'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* What's Next Section */}
               <Card className="border-primary/30 bg-primary/5">

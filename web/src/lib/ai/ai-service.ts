@@ -218,16 +218,24 @@ export class AIService {
 
   /**
    * Interpret a compensation plan document
+   * For PDF: pass pdfBase64 + pdfMediaType instead of content
    */
   async interpretPlan(
     content: string,
     format: string,
-    signalContext?: { tenantId?: string; userId?: string }
+    signalContext?: { tenantId?: string; userId?: string },
+    pdfBase64?: string,
+    pdfMediaType?: string
   ): Promise<AIResponse & { result: PlanInterpretationResult }> {
+    const input: Record<string, unknown> = { content, format };
+    if (pdfBase64) {
+      input.pdfBase64 = pdfBase64;
+      input.pdfMediaType = pdfMediaType || 'application/pdf';
+    }
     const response = await this.execute(
       {
         task: 'plan_interpretation',
-        input: { content, format },
+        input,
         options: { responseFormat: 'json', maxTokens: 8192 },
       },
       true,

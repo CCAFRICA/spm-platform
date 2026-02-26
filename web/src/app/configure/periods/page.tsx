@@ -1,22 +1,18 @@
 'use client';
 
 /**
- * Configure > Periods - Payroll Period Management
+ * Configure > Periods — Period Management
  *
- * Create and manage payroll periods for compensation calculations.
- * Uses PeriodProcessor to share storage with the Calculate page.
+ * Create and manage periods for outcome calculations.
+ * Uses Supabase via /api/periods for all CRUD.
+ *
+ * Decision 48: Periods require start_date + end_date as explicit date fields.
+ * Date pickers are the PRIMARY inputs. Quick Fill is a CONVENIENCE.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
-import { useAuth } from '@/contexts/auth-context';
-import {
-  getPeriodProcessor,
-  getValidTransitions,
-  type PayrollPeriod,
-  type PeriodStatus,
-} from '@/lib/payroll/period-processor';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -57,8 +53,16 @@ import {
   Calculator,
   Eye,
   Wallet,
+  Zap,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+// =============================================================================
+// STATUS CONFIG
+// =============================================================================
+
+type PeriodStatus = 'draft' | 'open' | 'data_collection' | 'calculation_pending' | 'calculated' | 'review' | 'approved' | 'finalized' | 'paid' | 'closed';
 
 const STATUS_CONFIG: Record<PeriodStatus, { label: string; labelEs: string; color: string; icon: React.ReactNode }> = {
   draft: { label: 'Draft', labelEs: 'Borrador', color: 'bg-slate-500', icon: <Clock className="h-3 w-3" /> },
@@ -73,156 +77,303 @@ const STATUS_CONFIG: Record<PeriodStatus, { label: string; labelEs: string; colo
   closed: { label: 'Closed', labelEs: 'Cerrado', color: 'bg-slate-800', icon: <Lock className="h-3 w-3" /> },
 };
 
+const VALID_TRANSITIONS: Record<PeriodStatus, PeriodStatus[]> = {
+  draft: ['open'],
+  open: ['data_collection', 'draft'],
+  data_collection: ['calculation_pending', 'open'],
+  calculation_pending: ['calculated', 'data_collection'],
+  calculated: ['review', 'calculation_pending'],
+  review: ['approved', 'calculated', 'calculation_pending'],
+  approved: ['finalized', 'review'],
+  finalized: ['paid', 'approved'],
+  paid: ['closed'],
+  closed: [],
+};
+
 type PeriodType = 'monthly' | 'quarterly';
+
+interface SupabasePeriod {
+  id: string;
+  canonical_key: string;
+  label: string;
+  period_type: string;
+  start_date: string;
+  end_date: string;
+  status: PeriodStatus;
+}
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function lastDayOfMonth(year: number, month: number): string {
+  // month is 1-based
+  const d = new Date(year, month, 0);
+  return d.toISOString().split('T')[0];
+}
+
+function firstDayOfMonth(year: number, month: number): string {
+  // month is 1-based
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
+function buildCanonicalKey(startDate: string): string {
+  // e.g. "2024-01-01" → "2024-01"
+  return startDate.substring(0, 7);
+}
+
+function formatDateDisplay(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// =============================================================================
+// COMPONENT
+// =============================================================================
 
 export default function PeriodsPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
-  const { user } = useAuth();
-
+  const tenantId = currentTenant?.id;
   const isSpanish = locale === 'es-MX';
 
-  const [periods, setPeriods] = useState<PayrollPeriod[]>([]);
+  const [periods, setPeriods] = useState<SupabasePeriod[]>([]);
+  const [loading, setLoading] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showStatusDialog, setShowStatusDialog] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<PayrollPeriod | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<SupabasePeriod | null>(null);
   const [newStatus, setNewStatus] = useState<PeriodStatus | ''>('');
-  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  // New period form state
-  const [newPeriodYear, setNewPeriodYear] = useState(new Date().getFullYear());
-  const [newPeriodMonth, setNewPeriodMonth] = useState(new Date().getMonth() + 1);
-  const [newPeriodType, setNewPeriodType] = useState<PeriodType>('monthly');
+  // --- Create Period form state (Decision 48: date pickers are primary) ---
+  const [periodName, setPeriodName] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
-  // Load periods from PeriodProcessor
-  const loadPeriods = useCallback(() => {
-    if (!currentTenant) return;
-    const processor = getPeriodProcessor(currentTenant.id);
-    const allPeriods = processor.getPeriods();
-    setPeriods(allPeriods);
-  }, [currentTenant]);
+  // Quick Fill convenience
+  const [qfYear, setQfYear] = useState(new Date().getFullYear());
+  const [qfMonth, setQfMonth] = useState(new Date().getMonth() + 1);
+  const [qfType, setQfType] = useState<PeriodType>('monthly');
+
+  // ==========================================================================
+  // LOAD PERIODS FROM SUPABASE
+  // ==========================================================================
+
+  const loadPeriods = useCallback(async () => {
+    if (!tenantId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/periods?tenant_id=${tenantId}`);
+      const data = await res.json();
+      setPeriods(data.periods ?? []);
+    } catch (err) {
+      console.error('[Periods] Load failed:', err);
+    }
+    setLoading(false);
+  }, [tenantId]);
 
   useEffect(() => {
     loadPeriods();
   }, [loadPeriods]);
 
-  // Create a single monthly period
-  const handleCreatePeriod = () => {
-    if (!user || !currentTenant) return;
+  // ==========================================================================
+  // QUICK FILL — Populate date fields from Year/Month/Type
+  // ==========================================================================
 
-    const processor = getPeriodProcessor(currentTenant.id);
-    const startDate = new Date(newPeriodYear, newPeriodMonth - 1, 1);
-    const endDate = new Date(newPeriodYear, newPeriodMonth, 0); // Last day of month
-    const payDate = new Date(newPeriodYear, newPeriodMonth, 15); // 15th of next month
+  const handleQuickFill = () => {
+    if (qfType === 'monthly') {
+      const start = firstDayOfMonth(qfYear, qfMonth);
+      const end = lastDayOfMonth(qfYear, qfMonth);
+      setStartDate(start);
+      setEndDate(end);
+      setPeriodName(`${MONTH_NAMES[qfMonth - 1]} ${qfYear}`);
+    } else {
+      // Quarterly: month determines quarter
+      const quarter = Math.ceil(qfMonth / 3);
+      const startMonth = (quarter - 1) * 3 + 1;
+      const endMonth = startMonth + 2;
+      const start = firstDayOfMonth(qfYear, startMonth);
+      const end = lastDayOfMonth(qfYear, endMonth);
+      setStartDate(start);
+      setEndDate(end);
+      setPeriodName(`Q${quarter} ${qfYear}`);
+    }
+  };
 
-    const monthNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
+  // ==========================================================================
+  // CREATE SINGLE PERIOD
+  // ==========================================================================
 
+  const handleCreatePeriod = async () => {
+    if (!tenantId || !startDate || !endDate || !periodName) {
+      toast.error('Period name, start date, and end date are required');
+      return;
+    }
+    if (startDate >= endDate) {
+      toast.error('Start date must be before end date');
+      return;
+    }
+
+    setCreating(true);
     try {
-      processor.createPeriod({
-        name: `${monthNames[newPeriodMonth - 1]} ${newPeriodYear}`,
-        periodType: 'monthly',
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0],
-        payDate: payDate.toISOString().split('T')[0],
-        createdBy: user.id,
+      const res = await fetch('/api/periods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: tenantId,
+          periods: [{
+            label: periodName,
+            period_type: qfType,
+            start_date: startDate,
+            end_date: endDate,
+            canonical_key: buildCanonicalKey(startDate),
+            status: 'draft',
+          }],
+        }),
       });
 
-      loadPeriods();
-      setShowCreateDialog(false);
-      toast.success(isSpanish ? 'Período creado' : 'Period created');
-    } catch (error) {
-      toast.error(isSpanish ? 'Error al crear período' : 'Error creating period');
-      console.error(error);
-    }
-  };
-
-  // Generate all periods for a year
-  const handleGenerateYear = () => {
-    if (!user || !currentTenant) return;
-
-    const processor = getPeriodProcessor(currentTenant.id);
-
-    try {
-      const newPeriods = processor.generateYearPeriods(
-        newPeriodYear,
-        newPeriodType,
-        user.id
-      );
-
-      loadPeriods();
-      setShowCreateDialog(false);
-      toast.success(
-        isSpanish
-          ? `${newPeriods.length} períodos creados`
-          : `${newPeriods.length} periods created`
-      );
-    } catch (error) {
-      toast.error(isSpanish ? 'Error al generar períodos' : 'Error generating periods');
-      console.error(error);
-    }
-  };
-
-  // Change period status
-  const handleStatusChange = async () => {
-    if (!selectedPeriod || !newStatus || !user || !currentTenant) return;
-
-    setIsTransitioning(true);
-
-    try {
-      const processor = getPeriodProcessor(currentTenant.id);
-      const result = await processor.transitionStatus(
-        selectedPeriod.id,
-        newStatus,
-        user.id
-      );
-
-      if (result.success) {
-        loadPeriods();
-        setShowStatusDialog(false);
-        setSelectedPeriod(null);
-        setNewStatus('');
-        toast.success(isSpanish ? 'Estado actualizado' : 'Status updated');
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to create period');
       } else {
-        toast.error(result.error || (isSpanish ? 'Error al actualizar' : 'Error updating'));
+        toast.success(isSpanish ? 'Período creado' : 'Period created');
+        setShowCreateDialog(false);
+        resetForm();
+        await loadPeriods();
       }
-    } catch (error) {
-      toast.error(isSpanish ? 'Error al actualizar estado' : 'Error updating status');
-      console.error(error);
-    } finally {
-      setIsTransitioning(false);
+    } catch (err) {
+      console.error('[Periods] Create failed:', err);
+      toast.error('Failed to create period');
+    }
+    setCreating(false);
+  };
+
+  // ==========================================================================
+  // GENERATE ALL PERIODS FOR A YEAR
+  // ==========================================================================
+
+  const handleGenerateYear = async () => {
+    if (!tenantId) return;
+
+    setCreating(true);
+    try {
+      const newPeriods: Array<{
+        label: string;
+        period_type: string;
+        start_date: string;
+        end_date: string;
+        canonical_key: string;
+        status: string;
+      }> = [];
+
+      if (qfType === 'monthly') {
+        for (let m = 1; m <= 12; m++) {
+          const start = firstDayOfMonth(qfYear, m);
+          const end = lastDayOfMonth(qfYear, m);
+          newPeriods.push({
+            label: `${MONTH_NAMES[m - 1]} ${qfYear}`,
+            period_type: 'monthly',
+            start_date: start,
+            end_date: end,
+            canonical_key: buildCanonicalKey(start),
+            status: 'draft',
+          });
+        }
+      } else {
+        for (let q = 1; q <= 4; q++) {
+          const startMonth = (q - 1) * 3 + 1;
+          const endMonth = startMonth + 2;
+          const start = firstDayOfMonth(qfYear, startMonth);
+          const end = lastDayOfMonth(qfYear, endMonth);
+          newPeriods.push({
+            label: `Q${q} ${qfYear}`,
+            period_type: 'quarterly',
+            start_date: start,
+            end_date: end,
+            canonical_key: buildCanonicalKey(start),
+            status: 'draft',
+          });
+        }
+      }
+
+      const res = await fetch('/api/periods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: tenantId, periods: newPeriods }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to generate periods');
+      } else {
+        const count = data.created?.length ?? newPeriods.length;
+        toast.success(isSpanish ? `${count} períodos creados` : `${count} periods created`);
+        setShowCreateDialog(false);
+        resetForm();
+        await loadPeriods();
+      }
+    } catch (err) {
+      console.error('[Periods] Generate failed:', err);
+      toast.error('Failed to generate periods');
+    }
+    setCreating(false);
+  };
+
+  // ==========================================================================
+  // DELETE DRAFT PERIOD
+  // ==========================================================================
+
+  const handleDeletePeriod = async (periodId: string) => {
+    if (!tenantId) return;
+    try {
+      const res = await fetch('/api/periods', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: tenantId, period_id: periodId }),
+      });
+
+      if (res.ok) {
+        toast.success(isSpanish ? 'Período eliminado' : 'Period deleted');
+        await loadPeriods();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to delete');
+      }
+    } catch (err) {
+      console.error('[Periods] Delete failed:', err);
+      toast.error('Failed to delete period');
     }
   };
 
-  // Delete a draft period
-  const handleDeletePeriod = (periodId: string) => {
-    if (!currentTenant) return;
-    const processor = getPeriodProcessor(currentTenant.id);
-    const success = processor.deletePeriod(periodId);
+  // ==========================================================================
+  // STATUS CHANGE (updates Supabase via PATCH — future, for now toast only)
+  // ==========================================================================
 
-    if (success) {
-      loadPeriods();
-      toast.success(isSpanish ? 'Período eliminado' : 'Period deleted');
-    } else {
-      toast.error(isSpanish ? 'Solo se pueden eliminar períodos en borrador' : 'Only draft periods can be deleted');
-    }
+  const handleStatusChange = async () => {
+    if (!selectedPeriod || !newStatus) return;
+    // Status transitions will be handled by the lifecycle engine
+    // For now, just close the dialog
+    toast.info('Status transitions coming soon via lifecycle engine');
+    setShowStatusDialog(false);
+    setSelectedPeriod(null);
+    setNewStatus('');
   };
 
-  // Open status change dialog
-  const openStatusDialog = (period: PayrollPeriod) => {
+  const resetForm = () => {
+    setPeriodName('');
+    setStartDate('');
+    setEndDate('');
+  };
+
+  const openStatusDialog = (period: SupabasePeriod) => {
     setSelectedPeriod(period);
     setNewStatus('');
     setShowStatusDialog(true);
-  };
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
   };
 
   return (
@@ -231,11 +382,11 @@ export default function PeriodsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">
-            {isSpanish ? 'Períodos de Nómina' : 'Payroll Periods'}
+            {isSpanish ? 'Períodos' : 'Periods'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             {isSpanish
-              ? 'Crear y gestionar períodos para cálculos de compensación'
+              ? 'Crear y gestionar períodos para cálculos'
               : 'Create and manage periods for outcome calculations'}
           </p>
         </div>
@@ -253,18 +404,18 @@ export default function PeriodsPage() {
             {isSpanish ? 'Períodos' : 'Periods'}
           </CardTitle>
           <CardDescription>
-            {periods.length} {isSpanish ? 'períodos configurados' : 'periods configured'}
+            {loading ? (isSpanish ? 'Cargando...' : 'Loading...') : `${periods.length} ${isSpanish ? 'períodos configurados' : 'periods configured'}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {periods.length === 0 ? (
+          {periods.length === 0 && !loading ? (
             <div className="text-center py-12 text-slate-500">
               <Calendar className="h-12 w-12 mx-auto mb-4 text-slate-300" />
               <p>{isSpanish ? 'No hay períodos configurados' : 'No periods configured'}</p>
               <p className="text-sm mt-1">
                 {isSpanish
-                  ? 'Crea un período para comenzar'
-                  : 'Create a period to get started'}
+                  ? 'Crea un período o genera un año completo'
+                  : 'Create a period or generate a full year'}
               </p>
             </div>
           ) : (
@@ -272,24 +423,28 @@ export default function PeriodsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>{isSpanish ? 'Período' : 'Period'}</TableHead>
-                  <TableHead>{isSpanish ? 'Fecha Inicio' : 'Start Date'}</TableHead>
-                  <TableHead>{isSpanish ? 'Fecha Fin' : 'End Date'}</TableHead>
-                  <TableHead>{isSpanish ? 'Fecha de Pago' : 'Pay Date'}</TableHead>
+                  <TableHead>{isSpanish ? 'Rango de Fechas' : 'Date Range'}</TableHead>
+                  <TableHead>{isSpanish ? 'Tipo' : 'Type'}</TableHead>
                   <TableHead>{isSpanish ? 'Estado' : 'Status'}</TableHead>
                   <TableHead>{isSpanish ? 'Acciones' : 'Actions'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {periods.map(period => {
-                  const statusConfig = STATUS_CONFIG[period.status];
-                  const allowedTransitions = getValidTransitions(period.status);
+                  const statusConfig = STATUS_CONFIG[period.status] || STATUS_CONFIG.draft;
+                  const allowedTransitions = VALID_TRANSITIONS[period.status] || [];
 
                   return (
                     <TableRow key={period.id}>
-                      <TableCell className="font-medium">{period.name}</TableCell>
-                      <TableCell>{formatDate(period.startDate)}</TableCell>
-                      <TableCell>{formatDate(period.endDate)}</TableCell>
-                      <TableCell>{formatDate(period.payDate)}</TableCell>
+                      <TableCell className="font-medium">{period.label}</TableCell>
+                      <TableCell className="text-sm text-zinc-400">
+                        {formatDateDisplay(period.start_date)} – {formatDateDisplay(period.end_date)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {period.period_type}
+                        </Badge>
+                      </TableCell>
                       <TableCell>
                         <Badge className={`${statusConfig.color} text-white gap-1`}>
                           {statusConfig.icon}
@@ -304,17 +459,17 @@ export default function PeriodsPage() {
                               size="sm"
                               onClick={() => openStatusDialog(period)}
                             >
-                              {isSpanish ? 'Cambiar Estado' : 'Change Status'}
+                              {isSpanish ? 'Estado' : 'Status'}
                             </Button>
                           )}
                           {period.status === 'draft' && (
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-900/20"
                               onClick={() => handleDeletePeriod(period.id)}
                             >
-                              {isSpanish ? 'Eliminar' : 'Delete'}
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           )}
                         </div>
@@ -328,77 +483,133 @@ export default function PeriodsPage() {
         </CardContent>
       </Card>
 
-      {/* Create Period Dialog */}
+      {/* ================================================================== */}
+      {/* CREATE PERIOD DIALOG — Decision 48                                */}
+      {/* Date pickers are PRIMARY. Quick Fill is CONVENIENCE.              */}
+      {/* ================================================================== */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
               {isSpanish ? 'Crear Período' : 'Create Period'}
             </DialogTitle>
             <DialogDescription>
               {isSpanish
-                ? 'Crea un nuevo período de nómina o genera todos los períodos del año'
-                : 'Create a new payroll period or generate all periods for the year'}
+                ? 'Crea un período con límites de fecha explícitos.'
+                : 'Create a period with explicit date boundaries.'}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-2">
+            {/* Period Name */}
+            <div>
+              <Label>{isSpanish ? 'Nombre del Período' : 'Period Name'}</Label>
+              <Input
+                value={periodName}
+                onChange={(e) => setPeriodName(e.target.value)}
+                placeholder="Q1 2024"
+              />
+            </div>
+
+            {/* Date pickers — PRIMARY inputs */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>{isSpanish ? 'Año' : 'Year'}</Label>
+                <Label>{isSpanish ? 'Fecha Inicio' : 'Start Date'}</Label>
                 <Input
-                  type="number"
-                  value={newPeriodYear}
-                  onChange={(e) => setNewPeriodYear(parseInt(e.target.value))}
-                  min={2020}
-                  max={2030}
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
                 />
               </div>
               <div>
-                <Label>{isSpanish ? 'Mes' : 'Month'}</Label>
-                <Select
-                  value={String(newPeriodMonth)}
-                  onValueChange={(v) => setNewPeriodMonth(parseInt(v))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[
-                      'January', 'February', 'March', 'April', 'May', 'June',
-                      'July', 'August', 'September', 'October', 'November', 'December',
-                    ].map((month, i) => (
-                      <SelectItem key={i + 1} value={String(i + 1)}>
-                        {month}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>{isSpanish ? 'Fecha Fin' : 'End Date'}</Label>
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
               </div>
             </div>
 
-            <div>
-              <Label>{isSpanish ? 'Tipo de Período' : 'Period Type'}</Label>
-              <Select
-                value={newPeriodType}
-                onValueChange={(v) => setNewPeriodType(v as PeriodType)}
+            {/* Quick Fill — CONVENIENCE section */}
+            <div className="border border-zinc-700 rounded-lg p-3 space-y-3">
+              <p className="text-xs text-zinc-500 font-medium flex items-center gap-1">
+                <Zap className="h-3 w-3" />
+                {isSpanish ? 'Llenado Rápido' : 'Quick Fill'}
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <Label className="text-xs">{isSpanish ? 'Año' : 'Year'}</Label>
+                  <Input
+                    type="number"
+                    value={qfYear}
+                    onChange={(e) => setQfYear(parseInt(e.target.value))}
+                    min={2020}
+                    max={2030}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">{isSpanish ? 'Mes' : 'Month'}</Label>
+                  <Select
+                    value={String(qfMonth)}
+                    onValueChange={(v) => setQfMonth(parseInt(v))}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTH_NAMES.map((month, i) => (
+                        <SelectItem key={i + 1} value={String(i + 1)}>
+                          {month.substring(0, 3)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">{isSpanish ? 'Tipo' : 'Type'}</Label>
+                  <Select
+                    value={qfType}
+                    onValueChange={(v) => setQfType(v as PeriodType)}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">{isSpanish ? 'Mensual' : 'Monthly'}</SelectItem>
+                      <SelectItem value="quarterly">{isSpanish ? 'Trimestral' : 'Quarterly'}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleQuickFill}
+                className="w-full"
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="monthly">{isSpanish ? 'Mensual' : 'Monthly'}</SelectItem>
-                  <SelectItem value="quarterly">{isSpanish ? 'Trimestral' : 'Quarterly'}</SelectItem>
-                </SelectContent>
-              </Select>
+                {isSpanish ? 'Llenar Fechas' : 'Auto-Fill Dates'}
+              </Button>
             </div>
           </div>
 
-          <DialogFooter className="flex gap-2">
-            <Button variant="outline" onClick={handleGenerateYear}>
-              {isSpanish ? `Generar ${newPeriodYear}` : `Generate ${newPeriodYear}`}
+          <DialogFooter className="flex gap-2 sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={handleGenerateYear}
+              disabled={creating}
+            >
+              {creating ? <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> : null}
+              {isSpanish
+                ? `Generar ${qfType === 'monthly' ? '12' : '4'} (${qfYear})`
+                : `Generate ${qfType === 'monthly' ? '12' : '4'} (${qfYear})`}
             </Button>
-            <Button onClick={handleCreatePeriod}>
+            <Button
+              onClick={handleCreatePeriod}
+              disabled={creating || !periodName || !startDate || !endDate}
+            >
+              {creating ? <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> : null}
               {isSpanish ? 'Crear Período' : 'Create Period'}
             </Button>
           </DialogFooter>
@@ -413,7 +624,7 @@ export default function PeriodsPage() {
               {isSpanish ? 'Cambiar Estado del Período' : 'Change Period Status'}
             </DialogTitle>
             <DialogDescription>
-              {selectedPeriod?.name}
+              {selectedPeriod?.label}
             </DialogDescription>
           </DialogHeader>
 
@@ -424,7 +635,7 @@ export default function PeriodsPage() {
                 <SelectValue placeholder={isSpanish ? 'Seleccionar estado' : 'Select status'} />
               </SelectTrigger>
               <SelectContent>
-                {selectedPeriod && getValidTransitions(selectedPeriod.status).map(status => (
+                {selectedPeriod && (VALID_TRANSITIONS[selectedPeriod.status] || []).map(status => (
                   <SelectItem key={status} value={status}>
                     {isSpanish ? STATUS_CONFIG[status].labelEs : STATUS_CONFIG[status].label}
                   </SelectItem>
@@ -437,10 +648,8 @@ export default function PeriodsPage() {
             <Button variant="outline" onClick={() => setShowStatusDialog(false)}>
               {isSpanish ? 'Cancelar' : 'Cancel'}
             </Button>
-            <Button onClick={handleStatusChange} disabled={!newStatus || isTransitioning}>
-              {isTransitioning
-                ? (isSpanish ? 'Actualizando...' : 'Updating...')
-                : (isSpanish ? 'Actualizar' : 'Update')}
+            <Button onClick={handleStatusChange} disabled={!newStatus}>
+              {isSpanish ? 'Actualizar' : 'Update'}
             </Button>
           </DialogFooter>
         </DialogContent>

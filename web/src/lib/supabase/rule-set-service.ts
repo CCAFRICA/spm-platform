@@ -293,6 +293,44 @@ export async function activateRuleSet(
   return ruleSetToPlanConfig(data as RuleSet);
 }
 
+/**
+ * OB-103: Activate a rule set WITHOUT deactivating others (multi-plan support).
+ * Used when tenant needs multiple active plans simultaneously.
+ */
+export async function activateRuleSetAdditive(
+  tenantId: string,
+  ruleSetId: string
+): Promise<RuleSetConfig | null> {
+  const supabase = createClient();
+  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+    status: 'active',
+  };
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .update(updateRow)
+    .eq('tenant_id', tenantId)
+    .eq('id', ruleSetId)
+    .select()
+    .single();
+  if (error) return null;
+  return ruleSetToPlanConfig(data as RuleSet);
+}
+
+/**
+ * OB-103: Get all active rule sets for a tenant (multi-plan).
+ */
+export async function getActiveRuleSets(tenantId: string): Promise<RuleSetConfig[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('rule_sets')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active')
+    .order('name');
+  if (error || !data) return [];
+  return data.map(rs => ruleSetToPlanConfig(rs as RuleSet)).filter(Boolean) as RuleSetConfig[];
+}
+
 // ──────────────────────────────────────────────
 // Rule Set Assignment CRUD
 // ──────────────────────────────────────────────

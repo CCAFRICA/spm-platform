@@ -17,27 +17,31 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { documentContent, tenantId, userId } = body;
+    const { documentContent, tenantId, userId, pdfBase64, pdfMediaType } = body;
 
-    if (!documentContent) {
+    if (!documentContent && !pdfBase64) {
       return NextResponse.json(
-        { error: 'documentContent is required' },
+        { error: 'documentContent or pdfBase64 is required' },
         { status: 400 }
       );
     }
 
-    console.log('Document content length:', documentContent.length, 'chars');
+    console.log('Document content length:', documentContent?.length || 0, 'chars');
+    console.log('PDF base64 length:', pdfBase64?.length || 0, 'chars');
     console.log('Tenant ID:', tenantId);
     console.log('User ID:', userId);
 
     // Use AIService for provider abstraction
     const aiService = getAIService();
 
-    console.log('Calling AIService.interpretPlan...');
+    const format = pdfBase64 ? 'pdf' : 'text';
+    console.log(`Calling AIService.interpretPlan (format: ${format})...`);
     const response = await aiService.interpretPlan(
-      documentContent,
-      'text', // format
-      { tenantId, userId }
+      documentContent || `[PDF document: ${pdfBase64?.length || 0} bytes base64]`,
+      format,
+      { tenantId, userId },
+      pdfBase64,
+      pdfMediaType
     );
 
     console.log('\n========== AI RESPONSE ==========');

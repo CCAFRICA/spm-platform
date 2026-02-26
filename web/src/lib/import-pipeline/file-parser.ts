@@ -17,7 +17,7 @@ export interface WorksheetInfo {
 export interface ParsedFile {
   headers: string[];
   rows: Record<string, unknown>[];
-  format: 'csv' | 'tsv' | 'json' | 'pptx' | 'xlsx' | 'unknown';
+  format: 'csv' | 'tsv' | 'json' | 'pptx' | 'xlsx' | 'pdf' | 'unknown';
   rowCount: number;
   metadata: {
     fileName?: string;
@@ -31,6 +31,10 @@ export interface ParsedFile {
   worksheets?: WorksheetInfo[];
   /** Currently selected worksheet name */
   selectedSheet?: string;
+  /** Base64-encoded file content for PDF files (sent directly to AI) */
+  pdfBase64?: string;
+  /** MIME type for document files */
+  pdfMediaType?: string;
 }
 
 export interface ParseOptions {
@@ -59,6 +63,26 @@ export async function parseFile(
   options: ParseOptions = {}
 ): Promise<ParsedFile> {
   const mergedOptions = { ...DEFAULT_OPTIONS, ...options };
+
+  // Check for PDF files — read as base64, AI interprets directly
+  if (isPDFFile(file)) {
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for (let i = 0; i < uint8Array.length; i++) {
+      binary += String.fromCharCode(uint8Array[i]);
+    }
+    const base64 = btoa(binary);
+    return {
+      headers: [],
+      rows: [],
+      format: 'pdf',
+      rowCount: 0,
+      metadata: { fileName: file.name, fileSize: file.size },
+      pdfBase64: base64,
+      pdfMediaType: 'application/pdf',
+    };
+  }
 
   // Check for PPTX files first (binary format)
   if (isPPTXFile(file)) {
@@ -375,6 +399,14 @@ function parseJSON(content: string): ParsedFile {
 export function isExcelFile(file: File): boolean {
   const extension = file.name.split('.').pop()?.toLowerCase();
   return extension === 'xlsx' || extension === 'xls';
+}
+
+/**
+ * Check if file is a PDF document
+ */
+export function isPDFFile(file: File): boolean {
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  return extension === 'pdf' || file.type === 'application/pdf';
 }
 
 /**
