@@ -151,7 +151,8 @@
       "Bash(cat > OB-101_FINANCIAL_DESIGN_VISION.md << 'PROMPT_EOF'\n# OB-101: FINANCIAL MODULE — DESIGN VISION ENFORCEMENT\nPrompt committed as first action per standing rules.\nSee git history for full prompt content.\nPROMPT_EOF\ngit add OB-101_FINANCIAL_DESIGN_VISION.md && git commit -m \"OB-101: Commit prompt — Financial Module Design Vision Enforcement\" && git push origin dev)",
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" || true && rm -rf .next && npm run build 2>&1)",
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1)",
-      "Bash(cat > HF-062_AUTH_FLOW_AUDIT.md << 'PROMPT_EOF'\n# HF-062: Complete Auth Flow Audit and Fix\nPrompt committed per CC Standing Rule 29.\nSee git history for full prompt text.\nPROMPT_EOF\ngit add HF-062_AUTH_FLOW_AUDIT.md && git commit -m \"$\\(cat <<'EOF'\nHF-062 Phase 0: Commit prompt — complete auth flow audit\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin dev)"
+      "Bash(cat > HF-062_AUTH_FLOW_AUDIT.md << 'PROMPT_EOF'\n# HF-062: Complete Auth Flow Audit and Fix\nPrompt committed per CC Standing Rule 29.\nSee git history for full prompt text.\nPROMPT_EOF\ngit add HF-062_AUTH_FLOW_AUDIT.md && git commit -m \"$\\(cat <<'EOF'\nHF-062 Phase 0: Commit prompt — complete auth flow audit\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin dev)",
+      "Bash(cat > HF-063_PERSISTENT_DEFECT_RESOLUTION.md << 'PROMPT_EOF'\n# HF-063: Persistent Defect Resolution — Browser-Verified\nPrompt committed per CC Standing Rule 29.\nSee git history for full prompt text.\nPROMPT_EOF\ngit add HF-063_PERSISTENT_DEFECT_RESOLUTION.md && git commit -m \"$\\(cat <<'EOF'\nHF-063 Phase 0: Commit prompt — persistent defect resolution\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin dev)"
     ]
   }
 }
