@@ -68,6 +68,17 @@ const FIELD_SYNONYMS: Record<string, string[]> = {
   currency: ['currency_code', 'curr', 'moneda'],
   commissionRate: ['commission_rate', 'rate', 'commission_pct', 'comm_rate', 'percentage'],
   notes: ['comments', 'remarks', 'notas', 'memo'],
+  // HF-065 F25: Hierarchy, contact, employment field synonyms
+  branch_name: ['branchname', 'branch', 'sucursal', 'oficina', 'office_name', 'office'],
+  branch_id: ['branchid', 'branch_code', 'office_id', 'office_code'],
+  department: ['dept', 'departamento', 'division', 'unit'],
+  location: ['ubicacion', 'site', 'location_name', 'workplace'],
+  manager_id: ['managerid', 'supervisor_id', 'boss_id', 'reports_to'],
+  manager_name: ['managername', 'supervisor', 'supervisor_name', 'boss'],
+  email: ['employee_email', 'correo', 'email_address', 'e_mail', 'correo_electronico'],
+  phone: ['phone_number', 'telefono', 'tel', 'mobile', 'cell'],
+  hire_date: ['hiredate', 'start_date', 'fecha_contratacion', 'date_hired', 'join_date'],
+  product_licenses: ['productlicenses', 'licenses', 'licencias', 'certifications', 'certs'],
 };
 
 // ============================================
