@@ -13,6 +13,7 @@ import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
 import { useFinancialOnly } from '@/hooks/use-financial-only';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
+import { useSession } from '@/contexts/session-context';
 import { isVLAdmin } from '@/types/auth';
 import { OperateSelector } from '@/components/operate/OperateSelector';
 import { PeriodRibbon, type PeriodInfo } from '@/components/design-system/PeriodRibbon';
@@ -49,7 +50,8 @@ export default function OperateCockpitPage() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol, format: formatCurrency } = useCurrency();
   const { locale } = useLocale();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
+  const { isLoading: sessionLoading } = useSession();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
   const hasFinancial = useFeature('financial');
   const isFinancialOnly = useFinancialOnly();
@@ -256,8 +258,11 @@ export default function OperateCockpitPage() {
 
   const stateDisplay = LIFECYCLE_DISPLAY[dashState as keyof typeof LIFECYCLE_DISPLAY];
 
-  // OB-101: Block ICM content while financial-only redirect is in flight
-  if (isFinancialOnly) {
+  // HF-063 Amendment: Block ALL content while financial-only check is pending.
+  // useFinancialOnly() returns false during auth/session loading. router.replace is async.
+  // Gate: if financial feature is enabled AND (still loading OR confirmed financial-only),
+  // don't render ICM content — prevents flash before redirect completes.
+  if (hasFinancial && (authLoading || sessionLoading || isFinancialOnly)) {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
