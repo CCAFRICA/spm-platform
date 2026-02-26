@@ -101,8 +101,44 @@ function PayPageInner() {
   const pendingApprovals = approveStatus?.actionCount || 0;
   const isReadyForPay = approveStatus?.state === 'completed';
 
+  // OB-102 Phase 7: Deterministic commentary
+  const payCommentary = (() => {
+    const parts: string[] = [];
+    if (entityCount > 0) {
+      parts.push(displaySpanish
+        ? `${entityCount} entidades, ${componentCount} componentes, pago total ${formatCurrency(totalPayout)}.`
+        : `${entityCount} entities, ${componentCount} components, total payout ${formatCurrency(totalPayout)}.`);
+    }
+    if (isReadyForPay) {
+      parts.push(displaySpanish ? 'Aprobaciones completas — listo para procesar.' : 'Approvals complete — ready to process.');
+    } else if (pendingApprovals > 0) {
+      parts.push(displaySpanish ? `${pendingApprovals} aprobaciones pendientes.` : `${pendingApprovals} pending approvals.`);
+    }
+    return parts.join(' ');
+  })();
+
   return (
     <div className="p-6 space-y-6">
+      {/* OB-102 Phase 7: Reference frame */}
+      {latestBatch && (
+        <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+          <span>{displaySpanish ? 'Periodo' : 'Period'}: <span className="text-zinc-200">{cycleState?.periodLabel ?? '—'}</span></span>
+          <span className="text-zinc-600">|</span>
+          <span>{entityCount} {displaySpanish ? 'entidades' : 'entities'}</span>
+          <span className="text-zinc-600">|</span>
+          <span>{formatCurrency(totalPayout)}</span>
+          <span className="text-zinc-600">|</span>
+          <span>{displaySpanish ? 'Estado' : 'State'}: <span className="text-zinc-200">{latestBatch.lifecycle_state}</span></span>
+        </div>
+      )}
+
+      {/* OB-102 Phase 7: Commentary */}
+      {payCommentary && (
+        <div className="rounded-xl px-5 py-3" style={{ background: 'rgba(24, 24, 27, 0.6)', border: '1px solid rgba(39, 39, 42, 0.4)' }}>
+          <p className="text-sm text-zinc-400 leading-relaxed">{payCommentary}</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
