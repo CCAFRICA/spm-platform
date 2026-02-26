@@ -2018,11 +2018,15 @@ function DataPackageImportPageInner() {
       case 'analyze':
         return !!analysis && analysis.sheets.length > 0;
       case 'map': {
-        // CLT-100 F11 fix: Check ALL required fields are mapped across all sheets, not just "some"
+        // HF-066 FIX: Only entityId is universally required at the mapping stage.
+        // Plan component metrics (matrixConfig, tierConfig, etc.) are checked in the
+        // validate step as warnings, NOT blockers here. The old check required every
+        // plan-derived isRequired field to be mapped — but uploaded files may not
+        // contain columns for all plan metrics, permanently blocking Next.
         const allMapped = fieldMappings.flatMap(s => s.mappings.filter(m => m.targetField));
         const mappedIds = new Set(allMapped.map(m => m.targetField));
-        const requiredIds = targetFields.filter(f => f.isRequired).map(f => f.id);
-        return requiredIds.every(id => mappedIds.has(id));
+        // entityId must be mapped somewhere across all sheets
+        return mappedIds.has('entityId');
       }
       case 'validate':
         return validationComplete;
