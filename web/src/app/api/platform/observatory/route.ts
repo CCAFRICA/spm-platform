@@ -56,10 +56,24 @@ export async function GET(request: NextRequest) {
 
     switch (tab) {
       case 'fleet': {
+        // HF-067: Shared data fetch — Queue and Fleet consume the same stats.
+        // Uses count: 'exact' queries instead of .limit(10000) row counting.
+        const { data: tenants } = await supabase
+          .from('tenants')
+          .select('id, name, slug, settings, created_at, updated_at')
+          .order('name');
+
+        const safeTenants = tenants ?? [];
+        const tenantIds = safeTenants.map(t => t.id);
+
+        const stats = tenantIds.length > 0
+          ? await fetchSharedTenantStats(supabase, tenantIds)
+          : { entityCounts: new Map(), profileCounts: new Map(), committedDataCounts: new Map(), latestBatchByTenant: new Map(), latestPeriodByTenant: new Map(), payoutByTenant: new Map(), allBatches: [] } as SharedTenantStats;
+
         const [overview, tenantCards, queue] = await Promise.all([
-          fetchFleetOverview(supabase),
-          fetchTenantFleetCards(supabase),
-          fetchOperationsQueue(supabase),
+          fetchFleetOverview(supabase, safeTenants, stats),
+          Promise.resolve(buildTenantFleetCards(safeTenants, stats)),
+          Promise.resolve(buildOperationsQueue(safeTenants, stats)),
         ]);
         // Populate attention items count from queue
         overview.openAttentionItems = queue.filter(q => q.severity !== 'info').length;
@@ -88,7 +102,7 @@ export async function GET(request: NextRequest) {
 }
 
 // ═══════════════════════════════════════════════
-// Fleet Tab
+// Fleet Tab — Shared Data Layer (HF-067)
 // ═══════════════════════════════════════════════
 
 // ── MRR lookup by tier ──
@@ -96,29 +110,121 @@ const TIER_MRR: Record<string, number> = {
   Inicio: 299, Crecimiento: 999, Profesional: 2999, Empresarial: 7999,
 };
 
-async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOverview> {
-  const [tenantRes, entityRes, batchRes, periodRes, signalsRes, dataRes] = await Promise.all([
-    supabase.from('tenants').select('id, settings, created_at'),
+/**
+ * Per-tenant stats shared between Queue and Fleet.
+ * Uses count: 'exact' queries instead of .limit(10000) row fetching.
+ */
+interface SharedTenantStats {
+  entityCounts: Map<string, number>;
+  profileCounts: Map<string, number>;
+  committedDataCounts: Map<string, number>;
+  latestBatchByTenant: Map<string, { lifecycle_state: string; created_at: string }>;
+  latestPeriodByTenant: Map<string, { id: string; canonical_key: string; label: string; status: string }>;
+  payoutByTenant: Map<string, number>;
+  allBatches: Array<{ tenant_id: string; lifecycle_state: string; created_at: string; updated_at: string | null }>;
+}
+
+/**
+ * Fetch per-tenant counts using exact count queries (no .limit truncation).
+ * With ~10 tenants, this runs ~30 lightweight count queries in parallel —
+ * far less data than fetching 22K+ entity rows.
+ */
+async function fetchSharedTenantStats(supabase: ServiceClient, tenantIds: string[]): Promise<SharedTenantStats> {
+  // Per-tenant exact counts for large tables (entities, profiles, committed_data)
+  const entityCountPromises = tenantIds.map(id =>
+    supabase.from('entities').select('*', { count: 'exact', head: true }).eq('tenant_id', id)
+      .then(r => [id, r.count ?? 0] as const)
+  );
+  const profileCountPromises = tenantIds.map(id =>
+    supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('tenant_id', id)
+      .then(r => [id, r.count ?? 0] as const)
+  );
+  const dataCountPromises = tenantIds.map(id =>
+    supabase.from('committed_data').select('*', { count: 'exact', head: true }).eq('tenant_id', id)
+      .then(r => [id, r.count ?? 0] as const)
+  );
+
+  // Detail rows: batches (need lifecycle_state), periods (need label), outcomes (need payout)
+  const batchPromise = supabase.from('calculation_batches')
+    .select('tenant_id, lifecycle_state, created_at, updated_at')
+    .in('tenant_id', tenantIds)
+    .order('created_at', { ascending: false });
+
+  const periodPromise = supabase.from('periods')
+    .select('id, tenant_id, canonical_key, label, start_date, status')
+    .in('tenant_id', tenantIds)
+    .order('start_date', { ascending: false });
+
+  const outcomePromise = supabase.from('entity_period_outcomes')
+    .select('tenant_id, period_id, total_payout')
+    .in('tenant_id', tenantIds);
+
+  // Run ALL queries in parallel
+  const [entityResults, profileResults, dataResults, batchRes, periodRes, outcomeRes] = await Promise.all([
+    Promise.all(entityCountPromises),
+    Promise.all(profileCountPromises),
+    Promise.all(dataCountPromises),
+    batchPromise,
+    periodPromise,
+    outcomePromise,
+  ]);
+
+  const entityCounts = new Map(entityResults);
+  const profileCounts = new Map(profileResults);
+  const committedDataCounts = new Map(dataResults);
+
+  const allBatches = (batchRes.data ?? []) as Array<{ tenant_id: string; lifecycle_state: string; created_at: string; updated_at: string | null }>;
+  const allPeriods = periodRes.data ?? [];
+  const allOutcomes = outcomeRes.data ?? [];
+
+  // Latest batch per tenant (already ordered by created_at desc)
+  const latestBatchByTenant = new Map<string, { lifecycle_state: string; created_at: string }>();
+  for (const b of allBatches) {
+    if (!latestBatchByTenant.has(b.tenant_id)) {
+      latestBatchByTenant.set(b.tenant_id, { lifecycle_state: b.lifecycle_state, created_at: b.created_at });
+    }
+  }
+
+  // Latest period per tenant (already ordered by start_date desc)
+  const latestPeriodByTenant = new Map<string, { id: string; canonical_key: string; label: string; status: string }>();
+  for (const p of allPeriods) {
+    if (!latestPeriodByTenant.has(p.tenant_id)) {
+      latestPeriodByTenant.set(p.tenant_id, { id: p.id, canonical_key: p.canonical_key, label: p.label, status: p.status });
+    }
+  }
+
+  // Sum payout per tenant for their latest period only
+  const payoutByTenant = new Map<string, number>();
+  for (const o of allOutcomes) {
+    const latestPeriod = latestPeriodByTenant.get(o.tenant_id);
+    if (latestPeriod && o.period_id === latestPeriod.id) {
+      payoutByTenant.set(o.tenant_id, (payoutByTenant.get(o.tenant_id) ?? 0) + (o.total_payout || 0));
+    }
+  }
+
+  return { entityCounts, profileCounts, committedDataCounts, latestBatchByTenant, latestPeriodByTenant, payoutByTenant, allBatches };
+}
+
+async function fetchFleetOverview(
+  supabase: ServiceClient,
+  tenants: Array<{ id: string; settings: unknown; created_at: string }>,
+  stats: SharedTenantStats,
+): Promise<FleetOverview> {
+  // Global counts (not per-tenant) for overview metrics
+  const [entityRes, periodRes, signalsRes, dataRes] = await Promise.all([
     supabase.from('entities').select('*', { count: 'exact', head: true }),
-    supabase.from('calculation_batches').select('id, tenant_id, lifecycle_state, created_at, updated_at'),
     supabase.from('periods').select('*', { count: 'exact', head: true }).neq('status', 'closed'),
     supabase.from('classification_signals').select('confidence').limit(1000),
     supabase.from('committed_data').select('*', { count: 'exact', head: true }),
   ]);
 
-  if (tenantRes.error) {
-    console.error('[fetchFleetOverview] tenants query error:', tenantRes.error);
-  }
-
-  const tenants = tenantRes.data ?? [];
-  const batches = batchRes.data ?? [];
   const signals = signalsRes.data ?? [];
   const tenantCount = tenants.length;
 
   // Active tenants: had a calculation in the last 30 days
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const activeTenantIds = new Set<string>();
-  for (const b of batches) {
+  for (const b of stats.allBatches) {
     if (new Date(b.created_at).getTime() > thirtyDaysAgo) {
       activeTenantIds.add(b.tenant_id);
     }
@@ -137,7 +243,7 @@ async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOvervie
   const thisMonth = new Date();
   const firstOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
   let lifecycleThroughput = 0;
-  for (const b of batches) {
+  for (const b of stats.allBatches) {
     if (['PAID', 'PUBLISHED'].includes(b.lifecycle_state) && new Date(b.created_at) >= firstOfMonth) {
       lifecycleThroughput++;
     }
@@ -146,7 +252,7 @@ async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOvervie
   // Avg days in lifecycle: from created_at to updated_at for completed batches
   let totalDays = 0;
   let completedCount = 0;
-  for (const b of batches) {
+  for (const b of stats.allBatches) {
     if (['PAID', 'PUBLISHED', 'CLOSED'].includes(b.lifecycle_state) && b.updated_at) {
       const days = (new Date(b.updated_at).getTime() - new Date(b.created_at).getTime()) / (1000 * 60 * 60 * 24);
       totalDays += days;
@@ -165,7 +271,7 @@ async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOvervie
     tenantCount,
     activeTenantCount: activeTenantIds.size || tenantCount,
     totalEntities: entityRes.count ?? 0,
-    totalBatches: batches.length,
+    totalBatches: stats.allBatches.length,
     activePeriodsCount: periodRes.count ?? 0,
     mrr,
     openAttentionItems: 0, // filled after queue is computed
@@ -176,64 +282,14 @@ async function fetchFleetOverview(supabase: ServiceClient): Promise<FleetOvervie
   };
 }
 
-async function fetchTenantFleetCards(supabase: ServiceClient): Promise<TenantFleetCard[]> {
-  const { data: tenants, error: tenantError } = await supabase
-    .from('tenants')
-    .select('id, name, slug, settings, created_at, updated_at')
-    .order('name');
-
-  if (tenantError) {
-    console.error('[fetchTenantFleetCards] tenants query error:', tenantError);
-  }
-
-  if (!tenants || tenants.length === 0) return [];
-
-  const tenantIds = tenants.map(t => t.id);
-
-  // Bulk fetch all related data in parallel (5 queries instead of 5N)
-  const [allEntities, allProfiles, allPeriods, allBatches, allOutcomes] = await Promise.all([
-    supabase.from('entities').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
-    supabase.from('profiles').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
-    supabase.from('periods').select('id, tenant_id, canonical_key, label, start_date, status')
-      .in('tenant_id', tenantIds).order('start_date', { ascending: false }).limit(10000),
-    supabase.from('calculation_batches').select('tenant_id, lifecycle_state, entity_count, created_at')
-      .in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(10000),
-    supabase.from('entity_period_outcomes').select('tenant_id, period_id, total_payout')
-      .in('tenant_id', tenantIds).limit(10000),
-  ]);
-
-  const entityCounts = countByField(allEntities.data ?? [], 'tenant_id');
-  const profileCounts = countByField(allProfiles.data ?? [], 'tenant_id');
-
-  // Latest period per tenant (data is ordered by start_date desc)
-  const latestPeriodByTenant = new Map<string, { id: string; canonical_key: string; label: string; status: string }>();
-  for (const p of (allPeriods.data ?? [])) {
-    if (!latestPeriodByTenant.has(p.tenant_id)) {
-      latestPeriodByTenant.set(p.tenant_id, { id: p.id, canonical_key: p.canonical_key, label: p.label, status: p.status });
-    }
-  }
-
-  // Latest batch per tenant (data is ordered by created_at desc)
-  const latestBatchByTenant = new Map<string, { lifecycle_state: string; created_at: string }>();
-  for (const b of (allBatches.data ?? [])) {
-    if (!latestBatchByTenant.has(b.tenant_id)) {
-      latestBatchByTenant.set(b.tenant_id, { lifecycle_state: b.lifecycle_state, created_at: b.created_at });
-    }
-  }
-
-  // Sum payout per tenant for their latest period only
-  const payoutByTenant = new Map<string, number>();
-  for (const o of (allOutcomes.data ?? [])) {
-    const latestPeriod = latestPeriodByTenant.get(o.tenant_id);
-    if (latestPeriod && o.period_id === latestPeriod.id) {
-      payoutByTenant.set(o.tenant_id, (payoutByTenant.get(o.tenant_id) ?? 0) + (o.total_payout || 0));
-    }
-  }
-
+function buildTenantFleetCards(
+  tenants: Array<{ id: string; name: string; slug: string; settings: unknown; created_at: string; updated_at: string | null }>,
+  stats: SharedTenantStats,
+): TenantFleetCard[] {
   return tenants.map(t => {
     const settings = (t.settings || {}) as Record<string, unknown>;
-    const latestPeriod = latestPeriodByTenant.get(t.id);
-    const latestBatch = latestBatchByTenant.get(t.id);
+    const latestPeriod = stats.latestPeriodByTenant.get(t.id);
+    const latestBatch = stats.latestBatchByTenant.get(t.id);
 
     return {
       id: t.id,
@@ -242,50 +298,34 @@ async function fetchTenantFleetCards(supabase: ServiceClient): Promise<TenantFle
       industry: (settings.industry as string) || '',
       country: (settings.country_code as string) || '',
       status: 'active',
-      entityCount: entityCounts.get(t.id) ?? 0,
-      userCount: profileCounts.get(t.id) ?? 0,
+      entityCount: stats.entityCounts.get(t.id) ?? 0,
+      userCount: stats.profileCounts.get(t.id) ?? 0,
       periodCount: 0,
       latestPeriodLabel: latestPeriod?.label ?? latestPeriod?.canonical_key ?? null,
       latestPeriodStatus: latestPeriod?.status ?? null,
       latestLifecycleState: latestBatch?.lifecycle_state ?? null,
-      latestBatchPayout: payoutByTenant.get(t.id) ?? 0,
+      latestBatchPayout: stats.payoutByTenant.get(t.id) ?? 0,
       lastActivity: latestBatch?.created_at || t.updated_at || t.created_at,
       createdAt: t.created_at,
+      dataRowCount: stats.committedDataCounts.get(t.id) ?? 0,
     };
   });
 }
 
-async function fetchOperationsQueue(supabase: ServiceClient): Promise<OperationsQueueItem[]> {
-  const { data: tenants } = await supabase
-    .from('tenants')
-    .select('id, name, created_at');
-
-  if (!tenants) return [];
-
-  const tenantIds = tenants.map(t => t.id);
-
-  // Bulk fetch entity counts and latest batches (2 queries instead of 2N)
-  const [allEntities, allBatches] = await Promise.all([
-    supabase.from('entities').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
-    supabase.from('calculation_batches').select('tenant_id, lifecycle_state, created_at')
-      .in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(10000),
-  ]);
-
-  const entityCounts = countByField(allEntities.data ?? [], 'tenant_id');
-
-  // Latest batch per tenant
-  const latestBatchByTenant = new Map<string, { lifecycle_state: string; created_at: string }>();
-  for (const b of (allBatches.data ?? [])) {
-    if (!latestBatchByTenant.has(b.tenant_id)) {
-      latestBatchByTenant.set(b.tenant_id, { lifecycle_state: b.lifecycle_state, created_at: b.created_at });
-    }
-  }
-
+function buildOperationsQueue(
+  tenants: Array<{ id: string; name: string; created_at: string }>,
+  stats: SharedTenantStats,
+): OperationsQueueItem[] {
   const items: OperationsQueueItem[] = [];
   const STALL_THRESHOLD = 48 * 60 * 60 * 1000;
 
   for (const t of tenants) {
-    if ((entityCounts.get(t.id) ?? 0) === 0) {
+    const entityCount = stats.entityCounts.get(t.id) ?? 0;
+    const dataRowCount = stats.committedDataCounts.get(t.id) ?? 0;
+
+    // HF-067: Check committed_data count, not just entities.
+    // A tenant has data if committed_data rows exist, regardless of entity resolution.
+    if (dataRowCount === 0 && entityCount === 0) {
       const daysSinceCreation = Math.floor((Date.now() - new Date(t.created_at).getTime()) / (24 * 60 * 60 * 1000));
       items.push({
         tenantId: t.id,
@@ -298,7 +338,7 @@ async function fetchOperationsQueue(supabase: ServiceClient): Promise<Operations
       continue;
     }
 
-    const latest = latestBatchByTenant.get(t.id);
+    const latest = stats.latestBatchByTenant.get(t.id);
     if (!latest) {
       items.push({
         tenantId: t.id,

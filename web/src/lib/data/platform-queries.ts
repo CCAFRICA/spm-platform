@@ -44,6 +44,7 @@ export interface TenantFleetCard {
   latestBatchPayout: number;
   lastActivity: string;
   createdAt: string;
+  dataRowCount: number;
 }
 
 export interface OperationsQueueItem {
@@ -195,20 +196,35 @@ export async function getTenantFleetCards(): Promise<TenantFleetCard[]> {
 
   const tenantIds = tenants.map(t => t.id);
 
-  // Bulk fetch all related data in parallel (5 queries instead of 5N)
-  const [allEntities, allProfiles, allPeriods, allBatches, allOutcomes] = await Promise.all([
-    supabase.from('entities').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
-    supabase.from('profiles').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
+  // HF-067: Per-tenant exact counts (no .limit truncation) + detail rows
+  const entityCountPromises = tenantIds.map(id =>
+    supabase.from('entities').select('*', { count: 'exact', head: true }).eq('tenant_id', id)
+      .then(r => [id, r.count ?? 0] as const)
+  );
+  const profileCountPromises = tenantIds.map(id =>
+    supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('tenant_id', id)
+      .then(r => [id, r.count ?? 0] as const)
+  );
+  const dataCountPromises = tenantIds.map(id =>
+    supabase.from('committed_data').select('*', { count: 'exact', head: true }).eq('tenant_id', id)
+      .then(r => [id, r.count ?? 0] as const)
+  );
+
+  const [entityResults, profileResults, dataResults, allPeriods, allBatches, allOutcomes] = await Promise.all([
+    Promise.all(entityCountPromises),
+    Promise.all(profileCountPromises),
+    Promise.all(dataCountPromises),
     supabase.from('periods').select('id, tenant_id, canonical_key, label, start_date, status')
-      .in('tenant_id', tenantIds).order('start_date', { ascending: false }).limit(10000),
+      .in('tenant_id', tenantIds).order('start_date', { ascending: false }),
     supabase.from('calculation_batches').select('tenant_id, lifecycle_state, entity_count, created_at')
-      .in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(10000),
+      .in('tenant_id', tenantIds).order('created_at', { ascending: false }),
     supabase.from('entity_period_outcomes').select('tenant_id, period_id, total_payout')
-      .in('tenant_id', tenantIds).limit(10000),
+      .in('tenant_id', tenantIds),
   ]);
 
-  const entityCounts = countByField(allEntities.data ?? [], 'tenant_id');
-  const profileCounts = countByField(allProfiles.data ?? [], 'tenant_id');
+  const entityCounts = new Map(entityResults);
+  const profileCounts = new Map(profileResults);
+  const committedDataCounts = new Map(dataResults);
 
   const latestPeriodByTenant = new Map<string, { id: string; canonical_key: string; label: string; status: string }>();
   for (const p of (allPeriods.data ?? [])) {
@@ -253,6 +269,7 @@ export async function getTenantFleetCards(): Promise<TenantFleetCard[]> {
       latestBatchPayout: payoutByTenant.get(t.id) ?? 0,
       lastActivity: latestBatch?.created_at || t.updated_at || t.created_at,
       createdAt: t.created_at,
+      dataRowCount: committedDataCounts.get(t.id) ?? 0,
     };
   });
 }
@@ -272,14 +289,25 @@ export async function getOperationsQueue(): Promise<OperationsQueueItem[]> {
 
   const tenantIds = tenants.map(t => t.id);
 
-  // Bulk fetch entity counts and latest batches (2 queries instead of 2N)
-  const [allEntities, allBatches] = await Promise.all([
-    supabase.from('entities').select('tenant_id').in('tenant_id', tenantIds).limit(10000),
+  // HF-067: Per-tenant exact counts + batches (no .limit truncation)
+  const entityCountPromises = tenantIds.map(id =>
+    supabase.from('entities').select('*', { count: 'exact', head: true }).eq('tenant_id', id)
+      .then(r => [id, r.count ?? 0] as const)
+  );
+  const dataCountPromises = tenantIds.map(id =>
+    supabase.from('committed_data').select('*', { count: 'exact', head: true }).eq('tenant_id', id)
+      .then(r => [id, r.count ?? 0] as const)
+  );
+
+  const [entityResults, dataResults, allBatches] = await Promise.all([
+    Promise.all(entityCountPromises),
+    Promise.all(dataCountPromises),
     supabase.from('calculation_batches').select('tenant_id, lifecycle_state, created_at')
-      .in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(10000),
+      .in('tenant_id', tenantIds).order('created_at', { ascending: false }),
   ]);
 
-  const entityCounts = countByField(allEntities.data ?? [], 'tenant_id');
+  const entityCounts = new Map(entityResults);
+  const committedDataCounts = new Map(dataResults);
 
   const latestBatchByTenant = new Map<string, { lifecycle_state: string; created_at: string }>();
   for (const b of (allBatches.data ?? [])) {
@@ -292,7 +320,11 @@ export async function getOperationsQueue(): Promise<OperationsQueueItem[]> {
   const STALL_THRESHOLD = 48 * 60 * 60 * 1000;
 
   for (const t of tenants) {
-    if ((entityCounts.get(t.id) ?? 0) === 0) {
+    const entityCount = entityCounts.get(t.id) ?? 0;
+    const dataRowCount = committedDataCounts.get(t.id) ?? 0;
+
+    // HF-067: Check committed_data, not just entities
+    if (dataRowCount === 0 && entityCount === 0) {
       items.push({
         tenantId: t.id,
         tenantName: t.name,
