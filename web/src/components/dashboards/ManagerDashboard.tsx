@@ -83,7 +83,7 @@ function computeMomentum(trend: number[]): { symbol: string; color: string; labe
 
 export function ManagerDashboard() {
   const { currentTenant } = useTenant();
-  const { symbol: currencySymbol } = useCurrency();
+  const { symbol: currencySymbol, format } = useCurrency();
   const { scope } = usePersona();
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
@@ -335,13 +335,13 @@ export function ManagerDashboard() {
               <div className="flex justify-between">
                 <span style={{ color: '#71717a', fontSize: '11px' }}>Run rate</span>
                 <span style={{ color: '#e4e4e7', fontSize: '11px', fontWeight: 500 }}>
-                  {currencySymbol}{pacing.dailyRate.toLocaleString(undefined, { maximumFractionDigits: 0 })}/day
+                  {format(pacing.dailyRate)}/day
                 </span>
               </div>
               <div className="flex justify-between">
                 <span style={{ color: '#71717a', fontSize: '11px' }}>Target</span>
                 <span style={{ color: '#a1a1aa', fontSize: '11px' }}>
-                  {currencySymbol}{pacing.targetDailyRate.toLocaleString(undefined, { maximumFractionDigits: 0 })}/day
+                  {format(pacing.targetDailyRate)}/day
                 </span>
               </div>
               <div className="flex justify-between">
@@ -466,7 +466,7 @@ export function ManagerDashboard() {
                 </div>
                 {/* Payout */}
                 <span className="tabular-nums w-20 text-right flex-shrink-0" style={{ color: '#a1a1aa', fontSize: '11px' }}>
-                  {currencySymbol}{member.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {format(member.totalPayout)}
                 </span>
                 {/* Streak badge */}
                 <div className="w-14 flex-shrink-0 text-right">

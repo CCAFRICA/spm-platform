@@ -569,7 +569,7 @@ export default function OperateCockpitPage() {
                     value={e.value}
                     benchmark={calcSummary.totalPayout / calcSummary.entityCount}
                     label={e.name}
-                    rightLabel={<span className="text-emerald-400 tabular-nums">{currencySymbol}{e.value.toLocaleString()}</span>}
+                    rightLabel={<span className="text-emerald-400 tabular-nums">{formatCurrency(e.value)}</span>}
                     color="#10b981"
                   />
                 ))}

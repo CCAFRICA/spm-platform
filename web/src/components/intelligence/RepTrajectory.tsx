@@ -46,7 +46,7 @@ const CARD_STYLE = {
 // ──────────────────────────────────────────────
 
 export function RepTrajectoryPanel({ data, ruleSetConfig, attainments }: RepTrajectoryProps) {
-  const { symbol: currencySymbol } = useCurrency();
+  const { format } = useCurrency();
   const { activePeriodLabel } = usePeriod();
 
   // Compute trajectory deterministically
@@ -127,7 +127,7 @@ export function RepTrajectoryPanel({ data, ruleSetConfig, attainments }: RepTraj
               {bestOpportunity.distanceToNextTier.toFixed(1)}% to go
             </span>
             <span style={{ color: ACCENT, fontSize: '13px', fontWeight: 600 }}>
-              +{currencySymbol}{bestOpportunity.incrementalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              +{format(bestOpportunity.incrementalValue)}
             </span>
           </div>
         </div>
@@ -174,7 +174,7 @@ export function RepTrajectoryPanel({ data, ruleSetConfig, attainments }: RepTraj
                   </td>
                   <td style={{ padding: '8px 12px' }}>
                     <span style={{ color: ACCENT, fontSize: '13px', fontWeight: 600 }}>
-                      +{currencySymbol}{t.incrementalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      +{format(t.incrementalValue)}
                     </span>
                   </td>
                 </tr>
@@ -201,7 +201,7 @@ export function RepTrajectoryPanel({ data, ruleSetConfig, attainments }: RepTraj
           </span>
         </div>
         <span style={{ color: '#E2E8F0', fontSize: '15px', fontWeight: 600 }}>
-          {currencySymbol}{data.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          {format(data.totalPayout)}
         </span>
       </div>
       <div style={{
@@ -221,9 +221,9 @@ export function RepTrajectoryPanel({ data, ruleSetConfig, attainments }: RepTraj
           </span>
         </div>
         <span style={{ color: ACCENT, fontSize: '15px', fontWeight: 700 }}>
-          {currencySymbol}{(data.totalPayout + totalPotential).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          {format(data.totalPayout + totalPotential)}
           <span style={{ fontSize: '12px', fontWeight: 500, marginLeft: '4px' }}>
-            (+{currencySymbol}{totalPotential.toLocaleString(undefined, { maximumFractionDigits: 0 })})
+            (+{format(totalPotential)})
           </span>
         </span>
       </div>

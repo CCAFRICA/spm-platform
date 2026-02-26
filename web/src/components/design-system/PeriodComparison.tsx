@@ -14,6 +14,11 @@ interface PeriodComparisonProps {
   sortBy?: 'change' | 'name' | 'value';
 }
 
+function fmtAmt(v: number, sym: string) {
+  const fd = Math.abs(v) >= 10_000 ? 0 : 2;
+  return `${sym}${v.toLocaleString(undefined, { minimumFractionDigits: fd, maximumFractionDigits: fd })}`;
+}
+
 export function PeriodComparison({
   period1,
   period2,
@@ -87,7 +92,7 @@ export function PeriodComparison({
               {row.change >= 0 ? '\u25B2' : '\u25BC'} {Math.abs(row.changePct).toFixed(1)}%
             </span>
             <span className="text-[11px] text-zinc-400 tabular-nums w-20 text-right flex-shrink-0">
-              {currency}{row.v2.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {fmtAmt(row.v2, currency)}
             </span>
           </div>
         ))}

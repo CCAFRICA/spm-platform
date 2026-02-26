@@ -74,7 +74,7 @@ function calculatePayout(attainment: number, tiers: TierConfig[]): number {
 
 export function RepDashboard() {
   const { currentTenant } = useTenant();
-  const { symbol: currencySymbol } = useCurrency();
+  const { symbol: currencySymbol, format } = useCurrency();
   const { entityId } = usePersona();
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
@@ -347,7 +347,7 @@ export function RepDashboard() {
               Ritmo Actual
             </p>
             <p className="text-2xl font-bold mt-2" style={{ color: '#ffffff' }}>
-              {currencySymbol}{scenarios.current.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {format(scenarios.current.payout)}
             </p>
             <p style={{ color: '#a1a1aa', fontSize: '11px', marginTop: '4px' }}>
               {scenarios.current.attainment.toFixed(0)}% logro
@@ -359,7 +359,7 @@ export function RepDashboard() {
               Estiramiento
             </p>
             <p className="text-2xl font-bold mt-2" style={{ color: '#a5b4fc' }}>
-              {currencySymbol}{scenarios.stretch.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {format(scenarios.stretch.payout)}
             </p>
             <p style={{ color: '#a1a1aa', fontSize: '11px', marginTop: '4px' }}>
               {scenarios.stretch.attainment.toFixed(0)}% · {scenarios.stretchTier}
@@ -371,7 +371,7 @@ export function RepDashboard() {
               Maximo
             </p>
             <p className="text-2xl font-bold mt-2" style={{ color: '#facc15' }}>
-              {currencySymbol}{scenarios.maximum.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {format(scenarios.maximum.payout)}
             </p>
             <p style={{ color: '#a1a1aa', fontSize: '11px', marginTop: '4px' }}>
               {scenarios.maximum.attainment.toFixed(0)}% · {scenarios.maxTier}
@@ -409,14 +409,14 @@ export function RepDashboard() {
                     >
                       <span className="text-xs" style={{ color: '#d4d4d8' }}>{c.name}</span>
                       <span className="text-xs tabular-nums font-medium" style={{ color: '#a1a1aa' }}>
-                        {currencySymbol}{c.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        {format(c.value)}
                       </span>
                     </button>
                   ))}
                   <div className="flex items-center justify-between pt-2 mt-2" style={{ borderTop: '1px solid rgba(39, 39, 42, 0.6)' }}>
                     <span className="text-xs font-medium" style={{ color: '#e4e4e7' }}>Total</span>
                     <span className="text-sm font-bold tabular-nums" style={{ color: '#ffffff' }}>
-                      {currencySymbol}{data.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      {format(data.totalPayout)}
                     </span>
                   </div>
                 </div>
@@ -523,7 +523,7 @@ export function RepDashboard() {
                   {paceClock.dailyRateNeeded > 0 && (
                     <div style={{ background: 'rgba(52, 211, 153, 0.08)', borderRadius: '8px', padding: '8px', marginTop: '4px' }}>
                       <p style={{ color: '#34d399', fontSize: '11px', fontWeight: 500 }}>
-                        {currencySymbol}{paceClock.dailyRateNeeded.toLocaleString(undefined, { maximumFractionDigits: 0 })}/dia para meta
+                        {format(paceClock.dailyRateNeeded)}/dia para meta
                       </p>
                     </div>
                   )}
@@ -543,7 +543,7 @@ export function RepDashboard() {
                   <div key={i} className="text-center p-2 rounded-lg" style={{ background: 'rgba(39, 39, 42, 0.5)' }}>
                     <p style={{ color: '#71717a', fontSize: '10px' }} className="truncate">{h.period}</p>
                     <p className="text-sm font-bold tabular-nums mt-1" style={{ color: '#e4e4e7' }}>
-                      {currencySymbol}{h.payout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      {format(h.payout)}
                     </p>
                   </div>
                 ))}

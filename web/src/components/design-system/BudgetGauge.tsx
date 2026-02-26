@@ -7,6 +7,11 @@ interface BudgetGaugeProps {
   label?: string;
 }
 
+function fmtAmt(v: number, sym: string) {
+  const fd = Math.abs(v) >= 10_000 ? 0 : 2;
+  return `${sym}${v.toLocaleString(undefined, { minimumFractionDigits: fd, maximumFractionDigits: fd })}`;
+}
+
 export function BudgetGauge({ actual, budget, currency = '$', label }: BudgetGaugeProps) {
   const max = Math.max(actual, budget) * 1.15 || 1;
   const actualPercent = (actual / max) * 100;
@@ -24,8 +29,8 @@ export function BudgetGauge({ actual, budget, currency = '$', label }: BudgetGau
     : 'text-emerald-400';
 
   const deltaLabel = isOver
-    ? `${currency}${Math.abs(delta).toLocaleString(undefined, { maximumFractionDigits: 0 })} sobre presupuesto`
-    : `${currency}${Math.abs(delta).toLocaleString(undefined, { maximumFractionDigits: 0 })} bajo presupuesto`;
+    ? `${fmtAmt(Math.abs(delta), currency)} sobre presupuesto`
+    : `${fmtAmt(Math.abs(delta), currency)} bajo presupuesto`;
 
   return (
     <div className="space-y-2">
@@ -47,10 +52,10 @@ export function BudgetGauge({ actual, budget, currency = '$', label }: BudgetGau
       <div className="flex items-baseline justify-between">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-medium text-zinc-200 tabular-nums">
-            {currency}{actual.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            {fmtAmt(actual, currency)}
           </span>
           <span className="text-[11px] text-zinc-500">
-            de {currency}{budget.toLocaleString(undefined, { maximumFractionDigits: 0 })} ({pct}%)
+            de {fmtAmt(budget, currency)} ({pct}%)
           </span>
         </div>
         <span className={`text-[11px] ${deltaColor}`}>{deltaLabel}</span>

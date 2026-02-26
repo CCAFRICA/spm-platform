@@ -68,7 +68,7 @@ const CATEGORY_LABELS: Record<string, { en: string; es: string }> = {
 
 export default function DisputeQueuePage() {
   const { currentTenant } = useTenant();
-  const { symbol: currencySymbol } = useCurrency();
+  const { format: formatCurrencyCanonical } = useCurrency();
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
 
@@ -109,7 +109,7 @@ export default function DisputeQueuePage() {
 
   const formatCurrency = (value: number | null) => {
     if (value == null) return '—';
-    return `${currencySymbol}${value.toLocaleString(isSpanish ? 'es-MX' : 'en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    return formatCurrencyCanonical(value);
   };
 
   if (isLoading) {
