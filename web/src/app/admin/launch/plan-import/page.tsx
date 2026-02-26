@@ -68,6 +68,9 @@ import {
   Cpu,
   Calendar,
   Clock,
+  RotateCcw,
+  SkipForward,
+  FolderOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -240,6 +243,17 @@ interface ParsedPlan {
   rawApiResponse?: string;
 }
 
+// OB-104: File queue status tracking
+type QueueFileStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'skipped';
+interface QueueFileEntry {
+  file: File;
+  status: QueueFileStatus;
+  planName?: string;
+  confidence?: number;
+  error?: string;
+  ruleSetId?: string;
+}
+
 function PlanImportPageInner() {
   const router = useRouter();
   const { user } = useAuth();
@@ -256,6 +270,10 @@ function PlanImportPageInner() {
   const [fileQueue, setFileQueue] = useState<File[]>([]);
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [completedPlans, setCompletedPlans] = useState<Array<{ name: string; ruleSetId: string; fileName: string }>>([]);
+
+  // OB-104: Queue status tracking for batch context
+  const [queueEntries, setQueueEntries] = useState<QueueFileEntry[]>([]);
+  const [showBatchSummary, setShowBatchSummary] = useState(false);
   // Plan metadata
   const [ruleSetName, setPlanName] = useState('');
   const [planDescription, setPlanDescription] = useState('');
@@ -291,34 +309,35 @@ function PlanImportPageInner() {
     setIsDragging(false);
   }, []);
 
+  // OB-104: Initialize queue entries when files are selected
+  const initializeQueue = useCallback((files: File[]) => {
+    const entries: QueueFileEntry[] = files.map((file, i) => ({
+      file,
+      status: i === 0 ? 'processing' : 'queued',
+    }));
+    setQueueEntries(entries);
+    setFileQueue(files);
+    setCurrentFileIndex(0);
+    setCompletedPlans([]);
+    setShowBatchSummary(false);
+    processFile(files[0]);
+  }, []);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files);
-    if (files.length > 1) {
-      // Multi-file: queue all, process first
-      setFileQueue(files);
-      setCurrentFileIndex(0);
-      setCompletedPlans([]);
-      processFile(files[0]);
-    } else if (files.length === 1) {
-      setFileQueue(files);
-      setCurrentFileIndex(0);
-      setCompletedPlans([]);
-      processFile(files[0]);
+    if (files.length > 0) {
+      initializeQueue(files);
     }
-  }, []);
+  }, [initializeQueue]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      const fileArray = Array.from(files);
-      setFileQueue(fileArray);
-      setCurrentFileIndex(0);
-      setCompletedPlans([]);
-      processFile(fileArray[0]);
+      initializeQueue(Array.from(files));
     }
-  }, []);
+  }, [initializeQueue]);
 
   // Process uploaded file
   const processFile = async (file: File) => {
@@ -573,6 +592,15 @@ function PlanImportPageInner() {
       setPlanName(parsed.name);
       setPlanDescription(parsed.description);
 
+      // OB-104: Update queue entry with interpretation results (still processing until import)
+      setQueueEntries(prev => prev.map((entry, i) =>
+        i === currentFileIndex ? {
+          ...entry,
+          planName: parsed.name,
+          confidence: parsed.overallConfidence,
+        } : entry
+      ));
+
       // OB-91: Run plan validation if additive_lookup config available
       if (parsed.planConfig?.configuration && isAdditiveLookupConfig(parsed.planConfig.configuration)) {
         const vResult = validatePlanConfig(parsed.planConfig.configuration as AdditiveLookupConfig);
@@ -581,9 +609,14 @@ function PlanImportPageInner() {
       }
     } catch (error) {
       console.error('Error processing file:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      // OB-104: Update queue entry with failure status and file name
+      setQueueEntries(prev => prev.map((entry, i) =>
+        i === currentFileIndex ? { ...entry, status: 'failed' as QueueFileStatus, error: `${file.name}: ${errorMsg}` } : entry
+      ));
       setImportResult({
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: `${file.name} — ${errorMsg}`,
       });
     } finally {
       setIsAnalyzing(false);
@@ -785,12 +818,28 @@ function PlanImportPageInner() {
 
       setImportResult({ success: true, ruleSetId: planConfig.id });
 
+      // OB-104: Update queue entry with success status
+      setQueueEntries(prev => prev.map((entry, i) =>
+        i === currentFileIndex ? {
+          ...entry,
+          status: 'completed' as QueueFileStatus,
+          planName: ruleSetName || parsedPlan?.name || 'Unnamed Plan',
+          confidence: parsedPlan?.overallConfidence,
+          ruleSetId: planConfig.id,
+        } : entry
+      ));
+
       // Track completed plan for multi-file queue
       setCompletedPlans(prev => [...prev, {
         name: ruleSetName || parsedPlan?.name || 'Unnamed Plan',
         ruleSetId: planConfig.id,
         fileName: fileQueue[currentFileIndex]?.name || 'unknown',
       }]);
+
+      // OB-104: Show batch summary when all files in a multi-file queue are done
+      if (currentFileIndex >= fileQueue.length - 1 && fileQueue.length > 1) {
+        setShowBatchSummary(true);
+      }
 
       console.log('[handleImport] SUCCESS - Import complete');
     } catch (error) {
@@ -944,6 +993,10 @@ function PlanImportPageInner() {
                 <Button
                   onClick={() => {
                     const nextIndex = currentFileIndex + 1;
+                    // OB-104: Update queue entries — mark next as processing
+                    setQueueEntries(prev => prev.map((entry, i) =>
+                      i === nextIndex ? { ...entry, status: 'processing' as QueueFileStatus } : entry
+                    ));
                     setCurrentFileIndex(nextIndex);
                     processFile(fileQueue[nextIndex]);
                   }}
@@ -1009,14 +1062,179 @@ function PlanImportPageInner() {
         </div>
       )}
 
-      {/* Import Error */}
+      {/* OB-104: File Queue Panel — shows when multiple files are queued */}
+      {queueEntries.length > 1 && (
+        <Card className="border-slate-700 bg-slate-900/50">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium text-slate-200 flex items-center gap-2">
+                <FolderOpen className="h-4 w-4" />
+                {locale === 'es-MX' ? 'Cola de Importacion' : 'Plan Import Queue'} — {queueEntries.length} {locale === 'es-MX' ? 'archivos' : 'files'}
+              </p>
+              <span className="text-xs text-slate-400">
+                {locale === 'es-MX' ? 'Archivo' : 'File'} {currentFileIndex + 1} {locale === 'es-MX' ? 'de' : 'of'} {queueEntries.length}
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {queueEntries.map((entry, i) => (
+                <div key={i} className={cn(
+                  'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm',
+                  i === currentFileIndex ? 'bg-slate-800 border border-slate-600' : 'opacity-70'
+                )}>
+                  {entry.status === 'completed' && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
+                  {entry.status === 'processing' && <div className="h-3.5 w-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin shrink-0" />}
+                  {entry.status === 'failed' && <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />}
+                  {entry.status === 'skipped' && <SkipForward className="h-3.5 w-3.5 text-slate-500 shrink-0" />}
+                  {entry.status === 'queued' && <div className="h-3.5 w-3.5 rounded-full border border-slate-500 shrink-0" />}
+                  <span className={cn('truncate flex-1', i === currentFileIndex ? 'text-slate-100 font-medium' : 'text-slate-400')}>
+                    {entry.file.name}
+                  </span>
+                  {entry.status === 'completed' && entry.planName && (
+                    <span className="text-xs text-emerald-400 shrink-0">{entry.planName}</span>
+                  )}
+                  {entry.status === 'completed' && entry.confidence && (
+                    <Badge className={cn('text-[10px] shrink-0', getConfidenceColor(entry.confidence))}>
+                      {entry.confidence}%
+                    </Badge>
+                  )}
+                  {entry.status === 'failed' && (
+                    <span className="text-xs text-red-400 shrink-0">{locale === 'es-MX' ? 'Error' : 'Failed'}</span>
+                  )}
+                  {entry.status === 'skipped' && (
+                    <span className="text-xs text-slate-500 shrink-0">{locale === 'es-MX' ? 'Omitido' : 'Skipped'}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* OB-104: Batch Completion Summary */}
+      {showBatchSummary && queueEntries.length > 1 && (
+        <Card className="border-emerald-700 bg-emerald-900/20">
+          <CardContent className="py-6">
+            <div className="flex items-center gap-3 mb-4">
+              <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+              <div>
+                <p className="font-medium text-emerald-100">
+                  {locale === 'es-MX' ? 'Importacion de Planes Completa' : 'Plan Import Complete'} — {queueEntries.length} {locale === 'es-MX' ? 'archivos procesados' : 'files processed'}
+                </p>
+                <p className="text-sm text-emerald-300">
+                  {queueEntries.filter(e => e.status === 'completed').length} {locale === 'es-MX' ? 'exitosos' : 'succeeded'} · {queueEntries.filter(e => e.status === 'failed').length} {locale === 'es-MX' ? 'fallidos' : 'failed'} · {queueEntries.filter(e => e.status === 'skipped').length} {locale === 'es-MX' ? 'omitidos' : 'skipped'}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-1.5 mb-4">
+              {queueEntries.map((entry, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  {entry.status === 'completed' && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+                  {entry.status === 'failed' && <XCircle className="h-3.5 w-3.5 text-red-400" />}
+                  {entry.status === 'skipped' && <SkipForward className="h-3.5 w-3.5 text-slate-500" />}
+                  <span className="text-slate-300">{entry.file.name}</span>
+                  {entry.planName && <span className="text-slate-500">→ {entry.planName}</span>}
+                  {entry.confidence && <span className="text-xs text-slate-400">{entry.confidence}%</span>}
+                  {entry.error && <span className="text-xs text-red-400">{entry.error}</span>}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" size="sm" onClick={() => router.push('/admin/launch')}>
+                {locale === 'es-MX' ? 'Ver Planes' : 'View Plans'}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setQueueEntries([]); setShowBatchSummary(false); setParsedPlan(null); setImportResult(null); }}>
+                {locale === 'es-MX' ? 'Importar Mas' : 'Import More'}
+              </Button>
+              <Button size="sm" onClick={() => router.push('/operate/import')}>
+                {locale === 'es-MX' ? 'Continuar a Importar Datos' : 'Continue to Data Import'} →
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Import Error — OB-104: Enhanced with file name, recovery options */}
       {importResult?.success === false && (
         <Card className="border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20">
-          <CardContent className="flex items-center gap-4 py-4">
-            <XCircle className="h-8 w-8 text-red-500" />
-            <div className="flex-1">
-              <p className="font-medium text-red-900 dark:text-red-100">{t.importError}</p>
-              <p className="text-sm text-red-700 dark:text-red-300">{importResult.error}</p>
+          <CardContent className="py-4">
+            <div className="flex items-start gap-4">
+              <XCircle className="h-8 w-8 text-red-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-medium text-red-900 dark:text-red-100">{t.importError}</p>
+                <p className="text-sm text-red-700 dark:text-red-300 mt-1">{importResult.error}</p>
+                {/* OB-104: Recovery options */}
+                <div className="flex gap-2 mt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setImportResult(null);
+                      setParsedPlan(null);
+                      setQueueEntries(prev => prev.map((entry, i) =>
+                        i === currentFileIndex ? { ...entry, status: 'processing' as QueueFileStatus, error: undefined } : entry
+                      ));
+                      processFile(fileQueue[currentFileIndex]);
+                    }}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                    {locale === 'es-MX' ? 'Reintentar' : 'Retry This File'}
+                  </Button>
+                  {currentFileIndex < fileQueue.length - 1 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Mark current as skipped, move to next
+                        setQueueEntries(prev => prev.map((entry, i) =>
+                          i === currentFileIndex ? { ...entry, status: 'skipped' as QueueFileStatus } : entry
+                        ));
+                        setImportResult(null);
+                        setParsedPlan(null);
+                        const nextIndex = currentFileIndex + 1;
+                        setCurrentFileIndex(nextIndex);
+                        setQueueEntries(prev => prev.map((entry, i) =>
+                          i === nextIndex ? { ...entry, status: 'processing' as QueueFileStatus } : entry
+                        ));
+                        processFile(fileQueue[nextIndex]);
+                      }}
+                    >
+                      <SkipForward className="h-3.5 w-3.5 mr-1.5" />
+                      {locale === 'es-MX' ? 'Omitir y Siguiente' : 'Skip & Process Next'}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setImportResult(null);
+                      setParsedPlan(null);
+                      setQueueEntries(prev => prev.map((entry, i) =>
+                        i === currentFileIndex ? { ...entry, status: 'queued' as QueueFileStatus, error: undefined } : entry
+                      ));
+                      document.getElementById('replace-file-input')?.click();
+                    }}
+                  >
+                    <Upload className="h-3.5 w-3.5 mr-1.5" />
+                    {locale === 'es-MX' ? 'Reemplazar Archivo' : 'Upload Different File'}
+                  </Button>
+                  <input
+                    id="replace-file-input"
+                    type="file"
+                    accept=".pdf,.pptx,.docx,.xlsx,.xls,.csv,.tsv,.json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const newFile = e.target.files?.[0];
+                      if (newFile) {
+                        setFileQueue(prev => prev.map((f, i) => i === currentFileIndex ? newFile : f));
+                        setQueueEntries(prev => prev.map((entry, i) =>
+                          i === currentFileIndex ? { file: newFile, status: 'processing' as QueueFileStatus } : entry
+                        ));
+                        processFile(newFile);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1472,6 +1690,26 @@ function PlanImportPageInner() {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {/* OB-104: Accept All Warnings button */}
+                  {validationResult && validationResult.anomalies.filter(a => a.severity !== 'critical' && !resolvedAnomalies.has(anomalyKey(a))).length > 0 && (
+                    <div className="mt-3 flex justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const next = new Set(resolvedAnomalies);
+                          validationResult.anomalies
+                            .filter(a => a.severity !== 'critical')
+                            .forEach(a => next.add(anomalyKey(a)));
+                          setResolvedAnomalies(next);
+                        }}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                        {locale === 'es-MX' ? 'Aceptar Todas las Advertencias' : 'Accept All Warnings'}
+                      </Button>
                     </div>
                   )}
                 </div>
