@@ -84,10 +84,10 @@ export default function RevenueTimelinePage() {
   }, [tenantId, granularity, financialScope]);
 
   const METRIC_CONFIG = {
-    revenue: { label: 'Revenue', format: (v: number) => `${symbol}${(v / 1000).toFixed(0)}K`, icon: DollarSign },
+    revenue: { label: 'Revenue', format: (v: number) => format(v), icon: DollarSign },
     checks: { label: 'Checks Served', format: (v: number) => v.toLocaleString(), icon: Receipt },
-    avgCheck: { label: 'Avg Check', format: (v: number) => `${symbol}${v.toFixed(2)}`, icon: TrendingUp },
-    tips: { label: 'Tips', format: (v: number) => `${symbol}${(v / 1000).toFixed(1)}K`, icon: Percent },
+    avgCheck: { label: 'Avg Check', format: (v: number) => format(v), icon: TrendingUp },
+    tips: { label: 'Tips', format: (v: number) => format(v), icon: Percent },
   };
 
   const chartData: TimelinePoint[] = timelineData?.data ?? [];
@@ -191,7 +191,7 @@ export default function RevenueTimelinePage() {
                 </p>
                 <p className="text-2xl font-bold">
                   {metric === 'avgCheck'
-                    ? `${symbol}${stats.avg.toFixed(2)}`
+                    ? format(stats.avg)
                     : metricConfig.format(stats.total)}
                 </p>
               </div>

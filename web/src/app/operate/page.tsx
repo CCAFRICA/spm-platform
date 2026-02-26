@@ -110,7 +110,7 @@ interface ActivityEvent {
   description: string;
 }
 
-async function loadRecentActivity(tenantId: string): Promise<ActivityEvent[]> {
+async function loadRecentActivity(tenantId: string, currencySymbol: string = 'MX$'): Promise<ActivityEvent[]> {
   const supabase = createClient();
   const events: ActivityEvent[] = [];
 
@@ -137,7 +137,7 @@ async function loadRecentActivity(tenantId: string): Promise<ActivityEvent[]> {
     events.push({
       date: batch.created_at,
       module: 'ICM',
-      description: `Calculation ${batch.lifecycle_state}: ${batch.entity_count} entities${totalPayout > 0 ? `, ${formatCompactCurrency(totalPayout)}` : ''}`,
+      description: `Calculation ${batch.lifecycle_state}: ${batch.entity_count} entities${totalPayout > 0 ? `, ${formatCompactCurrency(totalPayout, currencySymbol)}` : ''}`,
     });
   }
 
@@ -156,10 +156,12 @@ async function loadRecentActivity(tenantId: string): Promise<ActivityEvent[]> {
   return events.slice(0, 7);
 }
 
-function formatCompactCurrency(amount: number): string {
-  if (amount >= 1_000_000) return `MX$${(amount / 1_000_000).toFixed(2)}M`;
-  if (amount >= 1_000) return `MX$${(amount / 1_000).toFixed(0)}K`;
-  return `MX$${amount.toFixed(0)}`;
+// PDR-01: Compact currency using canonical formatter pattern (no hardcoded MX$)
+function formatCompactCurrency(amount: number, symbol: string): string {
+  const abs = Math.abs(amount);
+  if (abs >= 1_000_000) return `${symbol}${(amount / 1_000_000).toFixed(1)}M`;
+  if (abs >= 10_000) return `${symbol}${Math.round(amount).toLocaleString()}`;
+  return `${symbol}${amount.toFixed(2)}`;
 }
 
 // ─── Main Page Component ──────────────────────────────────────
@@ -167,7 +169,7 @@ function formatCompactCurrency(amount: number): string {
 export default function OperateLandingPage() {
   const router = useRouter();
   const { currentTenant } = useTenant();
-  const { format: formatCurrency } = useCurrency();
+  const { format: formatCurrency, symbol: currencySymbol } = useCurrency();
   const { locale } = useLocale();
   const { user } = useAuth();
   const { ruleSetCount } = useSession();
@@ -222,7 +224,7 @@ export default function OperateLandingPage() {
       }
 
       promises.push(
-        loadRecentActivity(tenantId).then(events => {
+        loadRecentActivity(tenantId, currencySymbol).then(events => {
           if (!cancelled) setRecentActivity(events);
         }).catch(() => {})
       );
