@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -242,6 +242,18 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
     );
   };
+
+  // HF-065 F18: Auto-expand the section that contains the active page.
+  // Without this, navigating to a child page re-mounts the sidebar
+  // and resets expandedItems to defaults, collapsing the active section.
+  useEffect(() => {
+    for (const item of navigation) {
+      if (item.children?.some(child => pathname === child.href || pathname.startsWith(child.href + '/'))) {
+        setExpandedItems(prev => prev.includes(item.name) ? prev : [...prev, item.name]);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";

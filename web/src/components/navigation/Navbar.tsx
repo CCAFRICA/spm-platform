@@ -164,10 +164,14 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
       const sub = pathname.split('/')[2];
       if (sub) {
         const labels: Record<string, { en: string; es: string }> = {
+          pulse: { en: 'Network Pulse', es: 'Pulso de Red' },
           performance: { en: 'Location Benchmarks', es: 'Benchmarks de Ubicación' },
           timeline: { en: 'Revenue Timeline', es: 'Línea de Tiempo de Ingresos' },
           staff: { en: 'Staff Performance', es: 'Rendimiento del Personal' },
           leakage: { en: 'Leakage Monitor', es: 'Monitor de Fugas' },
+          patterns: { en: 'Operational Patterns', es: 'Patrones Operacionales' },
+          summary: { en: 'Monthly Summary', es: 'Resumen Mensual' },
+          products: { en: 'Product Mix', es: 'Mezcla de Productos' },
         };
         if (labels[sub]) {
           segments.push({ label: isSpanish ? labels[sub].es : labels[sub].en });

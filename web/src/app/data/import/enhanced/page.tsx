@@ -225,7 +225,7 @@ interface TargetField {
   label: string;
   labelEs: string;
   isRequired: boolean;
-  category: 'identifier' | 'metric' | 'dimension' | 'date' | 'amount' | 'custom';
+  category: 'identifier' | 'metric' | 'dimension' | 'date' | 'amount' | 'custom' | 'hierarchy' | 'contact' | 'employment';
   componentId?: string;
   componentName?: string;
 }
@@ -610,7 +610,9 @@ function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] 
     { id: 'entityId', label: 'Entity ID', labelEs: 'ID Empleado', isRequired: true, category: 'identifier' },
     { id: 'name', label: 'Entity Name', labelEs: 'Nombre', isRequired: false, category: 'identifier' },  // CLT-08
     { id: 'storeId', label: 'Store ID', labelEs: 'ID Tienda', isRequired: false, category: 'identifier' },
-    { id: 'date', label: 'Date', labelEs: 'Fecha', isRequired: true, category: 'date' },
+    // HF-065 F28: date is NOT required — roster imports have no date column.
+    // Only entityId is truly required for all import types.
+    { id: 'date', label: 'Date', labelEs: 'Fecha', isRequired: false, category: 'date' },
     { id: 'period', label: 'Period', labelEs: 'Período', isRequired: false, category: 'date' },
     { id: 'year', label: 'Year', labelEs: 'Year', isRequired: false, category: 'date' },
     { id: 'month', label: 'Month', labelEs: 'Month', isRequired: false, category: 'date' },
@@ -621,6 +623,24 @@ function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] 
     { id: 'attainment', label: 'Achievement %', labelEs: '% Cumplimiento', isRequired: false, category: 'metric' },
     { id: 'quantity', label: 'Quantity', labelEs: 'Cantidad', isRequired: false, category: 'metric' },
     { id: 'storeRange', label: 'Store Range', labelEs: 'Rango Tienda', isRequired: false, category: 'identifier' },
+
+    // HF-065 F25: Hierarchy fields — common org structure data
+    { id: 'branch_name', label: 'Branch Name', labelEs: 'Nombre de Sucursal', isRequired: false, category: 'hierarchy' },
+    { id: 'branch_id', label: 'Branch ID', labelEs: 'ID Sucursal', isRequired: false, category: 'hierarchy' },
+    { id: 'region', label: 'Region', labelEs: 'Region', isRequired: false, category: 'hierarchy' },
+    { id: 'department', label: 'Department', labelEs: 'Departamento', isRequired: false, category: 'hierarchy' },
+    { id: 'location', label: 'Location', labelEs: 'Ubicacion', isRequired: false, category: 'hierarchy' },
+    { id: 'manager_id', label: 'Manager ID', labelEs: 'ID Gerente', isRequired: false, category: 'hierarchy' },
+    { id: 'manager_name', label: 'Manager Name', labelEs: 'Nombre Gerente', isRequired: false, category: 'hierarchy' },
+
+    // HF-065 F25: Contact fields
+    { id: 'email', label: 'Employee Email', labelEs: 'Correo Electronico', isRequired: false, category: 'contact' },
+    { id: 'phone', label: 'Phone Number', labelEs: 'Telefono', isRequired: false, category: 'contact' },
+
+    // HF-065 F25: Employment fields
+    { id: 'hire_date', label: 'Hire Date', labelEs: 'Fecha de Contratacion', isRequired: false, category: 'employment' },
+    { id: 'status', label: 'Status', labelEs: 'Estatus', isRequired: false, category: 'employment' },
+    { id: 'product_licenses', label: 'Product Licenses', labelEs: 'Licencias de Producto', isRequired: false, category: 'employment' },
   ];
 
   // Check if plan has additive lookup config with variants
@@ -2113,11 +2133,17 @@ function DataPackageImportPageInner() {
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           <Badge variant="secondary">AI-Powered</Badge>
-          {activePlan && (
+          {/* HF-065 F26: Show import type context instead of plan name for rosters.
+              Roster data is tenant-level, not plan-scoped. */}
+          {analysis && analysis.rosterDetected?.found && !analysis.sheets.some(s => s.classification !== 'roster' && s.classification !== 'unrelated') ? (
+            <Badge variant="outline" className="ml-2">
+              {isSpanish ? 'Datos de Personal' : 'Personnel Data'}
+            </Badge>
+          ) : activePlan ? (
             <Badge variant="outline" className="ml-2">
               {activePlan.name}
             </Badge>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -2845,8 +2871,8 @@ function DataPackageImportPageInner() {
                         </div>
                       )}
 
-                      {/* Components status summary */}
-                      {activePlan && (
+                      {/* Components status summary — HF-065 F26: Show plan context only for transaction data */}
+                      {activePlan && !(analysis?.rosterDetected?.found && !analysis?.sheets.some(s => s.classification !== 'roster' && s.classification !== 'unrelated')) && (
                         <div className="pt-2 border-t mt-2">
                           <p className="text-xs text-muted-foreground">
                             {isSpanish
