@@ -36,6 +36,15 @@ function PerformContent() {
     if (isFinancialOnly) router.replace('/financial');
   }, [isFinancialOnly, router]);
 
+  // OB-101: Block ICM content while financial-only redirect is in flight
+  if (isFinancialOnly) {
+    return (
+      <div className="p-8 flex items-center justify-center">
+        <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   if (!currentTenant) {
     return (
       <div className="p-8 text-center text-zinc-400">

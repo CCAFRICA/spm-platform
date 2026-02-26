@@ -170,7 +170,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       moduleId: "insights" as ModuleId,
       feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"],
       children: [
-        { name: isSpanish ? "Pulso de Red" : "Network Pulse", href: "/financial", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
+        { name: isSpanish ? "Resumen" : "Overview", href: "/financial", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
+        { name: isSpanish ? "Pulso de Red" : "Network Pulse", href: "/financial/pulse", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
         { name: isSpanish ? "Cronología de Ingresos" : "Revenue Timeline", href: "/financial/timeline", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
         { name: isSpanish ? "Benchmarks de Ubicación" : "Location Benchmarks", href: "/financial/performance", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
         { name: isSpanish ? "Rendimiento de Personal" : "Staff Performance", href: "/financial/staff", feature: "financial" as keyof import("@/types/tenant").TenantConfig["features"] },
@@ -257,6 +258,9 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     return item.children.some((child) => pathname === child.href);
   };
 
+  // OB-101 Phase 7: ICM-specific modules hidden in children for financial-only tenants
+  const ICM_CHILD_MODULES: AppModule[] = ['teams', 'personnel'];
+
   // Filter children based on feature flags, access control, and VL Admin status
   const filterChildren = (children: NavChild[]) => {
     return children.filter((child) => {
@@ -269,6 +273,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       }
       // Check module access (skip for VL Admin only items)
       if (!child.vlAdminOnly && child.module && !accessibleModules.includes(child.module)) return false;
+      // OB-101: Hide ICM sub-items for financial-only tenants (PG-47)
+      if (isFinancialOnly && child.module && ICM_CHILD_MODULES.includes(child.module)) return false;
       return true;
     });
   };

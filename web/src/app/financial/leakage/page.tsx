@@ -131,6 +131,30 @@ export default function LeakageMonitorPage() {
     );
   }
 
+  // Deterministic commentary (PG-44)
+  const commentaryLines: string[] = [];
+  {
+    commentaryLines.push(
+      `Total leakage: ${format(stats.totalLeakage)}. ${stats.aboveThreshold} of ${locations.length} locations above threshold.`
+    );
+    if (stats.topOffender) {
+      commentaryLines.push(
+        `Highest rate: ${stats.topOffender.name} at ${stats.topOffender.leakageRate.toFixed(1)}% (threshold ${stats.topOffender.threshold}%).`
+      );
+    }
+    if (categories.length > 0) {
+      const topCat = [...categories].sort((a, b) => b.amount - a.amount)[0];
+      commentaryLines.push(
+        `Largest category: ${topCat.category} (${format(topCat.amount)}).`
+      );
+    }
+    if (stats.trendChange !== 0) {
+      commentaryLines.push(
+        `Leakage rate ${stats.trendChange > 0 ? 'increased' : 'decreased'} ${Math.abs(stats.trendChange).toFixed(1)}% vs prior period.`
+      );
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -152,6 +176,23 @@ export default function LeakageMonitorPage() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Commentary (PG-44) */}
+      {commentaryLines.length > 0 && (
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Observations</p>
+            <div className="space-y-1">
+              {commentaryLines.map((line, i) => (
+                <p key={i} className={`text-sm ${i === 0 ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                  {i > 0 && <span className="text-zinc-600 mr-1">{'\u00B7'}</span>}
+                  {line}
+                </p>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 4 Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

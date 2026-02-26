@@ -135,6 +135,23 @@ export default function RevenueTimelinePage() {
     );
   }
 
+  // Deterministic commentary (PG-44)
+  const commentaryLines: string[] = [];
+  if (chartData.length > 0) {
+    commentaryLines.push(
+      `Total ${metricConfig.label}: ${metric === 'avgCheck' ? metricConfig.format(stats.avg) : metricConfig.format(stats.total)} over ${chartData.length} ${granularity === 'day' ? 'days' : granularity === 'week' ? 'weeks' : 'months'}.`
+    );
+    if (stats.change !== 0) {
+      commentaryLines.push(
+        `Period change: ${stats.change > 0 ? '+' : ''}${stats.change.toFixed(1)}% from first to last ${granularity}.`
+      );
+    }
+    if (chartData.length >= 2) {
+      const peak = chartData.reduce((best, d) => d[metric] > best[metric] ? d : best, chartData[0]);
+      commentaryLines.push(`Peak ${granularity}: ${peak.label} (${metricConfig.format(peak[metric])}).`);
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -142,6 +159,23 @@ export default function RevenueTimelinePage() {
         <h1 className="text-2xl font-bold text-zinc-100">Revenue Timeline</h1>
         <p className="text-zinc-400">Track financial performance over time</p>
       </div>
+
+      {/* Commentary (PG-44) */}
+      {commentaryLines.length > 0 && (
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Observations</p>
+            <div className="space-y-1">
+              {commentaryLines.map((line, i) => (
+                <p key={i} className={`text-sm ${i === 0 ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                  {i > 0 && <span className="text-zinc-600 mr-1">{'\u00B7'}</span>}
+                  {line}
+                </p>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

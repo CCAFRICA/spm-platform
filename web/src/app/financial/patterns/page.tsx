@@ -168,6 +168,26 @@ export default function OperationalPatternsPage() {
         </Select>
       </div>
 
+      {/* Commentary (PG-44) */}
+      <Card>
+        <CardContent className="pt-4 pb-3">
+          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Observations</p>
+          <div className="space-y-1">
+            <p className="text-sm text-zinc-200">
+              Peak activity: {data.peakDay} at {HOUR_LABELS[data.peakHour]}.
+            </p>
+            <p className="text-sm text-zinc-400">
+              {'\u00B7'} Average daily revenue: {format(data.avgDailyRevenue)} across {data.avgDailyChecks.toLocaleString()} checks.
+            </p>
+            {data.avgServiceMinutes > 0 && (
+              <p className="text-sm text-zinc-400">
+                {'\u00B7'} Average service time: {data.avgServiceMinutes.toFixed(0)} minutes per check.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
