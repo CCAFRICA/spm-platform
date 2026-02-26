@@ -146,8 +146,9 @@ export default function OperateCockpitPage() {
   }, [isSpanish]);
 
   // Single batched load — no inline Supabase queries
+  // HF-063: Skip ICM data loading for financial-only tenants (prevents 100+ wasted requests)
   useEffect(() => {
-    if (!tenantId) return;
+    if (!tenantId || isFinancialOnly) return;
     let cancelled = false;
 
     async function load() {
@@ -164,7 +165,7 @@ export default function OperateCockpitPage() {
 
     load().finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, applyData]);
+  }, [tenantId, applyData, isFinancialOnly]);
 
   // Reload page data after calculation, transition, or period switch
   const reloadData = useCallback(async (periodKeyOverride?: string) => {
