@@ -131,16 +131,32 @@ export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    // Both session and user confirmed — query profiles
-    const { data, error } = await supabase
+    // Both session and user confirmed — query profiles.
+    // HF-062: Use array query instead of .maybeSingle().
+    // The profiles table has NO unique constraint on auth_user_id — platform
+    // users can have profiles across multiple tenants. .maybeSingle() errors
+    // when >1 row matches ("JSON object requested, multiple rows returned"),
+    // causing "Account found but profile is missing" on login.
+    const { data: profiles, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('auth_user_id', user.id)
-      .maybeSingle();
+      .order('created_at', { ascending: true })
+      .limit(10);
 
-    if (error || !data) return null;
+    if (error) {
+      console.error('[Auth] Profile query failed:', error.message);
+      return null;
+    }
 
-    const profile = data as Profile;
+    if (!profiles || profiles.length === 0) return null;
+
+    // If multiple profiles, prefer platform-level (vl_admin or manage_tenants)
+    const profile = (
+      profiles.find(p => p.role === 'vl_admin') ||
+      profiles.find(p => ((p.capabilities as string[]) || []).includes('manage_tenants')) ||
+      profiles[0]
+    ) as Profile;
     return {
       id: profile.id,
       authUserId: profile.auth_user_id,
