@@ -43,6 +43,7 @@ import { CalculationWaterfall, type WaterfallStep } from '@/components/design-sy
 import { ComponentStack } from '@/components/design-system/ComponentStack';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
+import { usePersona } from '@/contexts/persona-context';
 import { getByEmployee } from '@/lib/disputes/dispute-service';
 import { createDraft, submitDispute } from '@/lib/disputes/dispute-service';
 import { EarningsSummaryCard } from '@/components/compensation/EarningsSummaryCard';
@@ -91,6 +92,7 @@ function mapRole(role: string): 'vl_admin' | 'platform_admin' | 'manager' | 'sal
 export default function MyCompensationPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
+  const { persona } = usePersona();
   const { format: formatCurrency, symbol: currencySymbol } = useCurrency();
   const [period, setPeriod] = useState<Period>('current');
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
@@ -122,7 +124,8 @@ export default function MyCompensationPage() {
 
     const loadData = async () => {
       try {
-        const userRole = mapRole(user.role);
+        // PDR-05: Use effectivePersona from persona context, not user.role
+        const userRole = mapRole(persona || user.role);
         const batches = await listCalculationBatches(currentTenant.id);
 
         // Find first batch visible to this role
