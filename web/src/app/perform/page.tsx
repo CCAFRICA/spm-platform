@@ -31,7 +31,12 @@ function PerformContent() {
   const { currentTenant } = useTenant();
   const isFinancialOnly = useFinancialOnly();
 
-  // OB-100: Financial-only tenants redirect to /financial (no ICM content)
+  // AUTH GATE — HF-059/HF-061
+  // Financial-only tenants redirect to /financial.
+  // useFinancialOnly() gates on auth + session loading — returns false until
+  // auth is authenticated AND session counts are loaded for the current tenant.
+  // DO NOT remove the loading checks in useFinancialOnly — they prevent login redirect loops.
+  // See: CC Failure Pattern — Login Redirect Loop (3x regression)
   useEffect(() => {
     if (isFinancialOnly) router.replace('/financial');
   }, [isFinancialOnly, router]);
