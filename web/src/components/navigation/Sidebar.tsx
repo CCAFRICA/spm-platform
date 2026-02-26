@@ -247,12 +247,13 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   // Without this, navigating to a child page re-mounts the sidebar
   // and resets expandedItems to defaults, collapsing the active section.
   useEffect(() => {
-    for (const item of navItems) {
+    for (const item of navigation) {
       if (item.children?.some(child => pathname === child.href || pathname.startsWith(child.href + '/'))) {
         setExpandedItems(prev => prev.includes(item.name) ? prev : [...prev, item.name]);
       }
     }
-  }, [pathname, navItems]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
