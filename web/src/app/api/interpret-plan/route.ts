@@ -137,9 +137,11 @@ export async function POST(request: NextRequest) {
       confidence: response.confidence * 100, // Return as 0-100 for backward compat
     });
   } catch (error) {
-    console.error('Error in interpret-plan API:', error);
+    // HF-064: Include full error detail for diagnosis
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error in interpret-plan API:', errorMessage);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { success: false, error: `Interpretation failed: ${errorMessage}` },
       { status: 500 }
     );
   }
