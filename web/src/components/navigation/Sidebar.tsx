@@ -29,6 +29,7 @@ import { accessControl, type AppModule } from "@/lib/access-control";
 import { MODULE_TOKENS, type ModuleId } from "@/lib/design-system/tokens";
 import { getPageStatus, type PageStatus } from "@/lib/navigation/page-status";
 import { canAccessWorkspace } from "@/lib/auth/role-permissions";
+import { useFinancialOnly } from "@/hooks/use-financial-only";
 
 interface NavChild {
   name: string;
@@ -62,6 +63,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const locationTerm = useTerm("location", true);
   const salesFinanceEnabled = useFeature("salesFinance");
   const financialEnabled = useFeature("financial");
+  const isFinancialOnly = useFinancialOnly();
 
   const [expandedItems, setExpandedItems] = useState<string[]>(["Insights", "Transactions"]);
 
@@ -281,10 +283,14 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     });
   };
 
-  // Filter top-level navigation items based on module access
+  // OB-100: ICM-specific hrefs hidden for financial-only tenants (no ICM plans)
+  const ICM_ONLY_HREFS = new Set(['/my-compensation', '/insights', '/transactions', '/performance', '/approvals']);
+
+  // Filter top-level navigation items based on module access + financial-only
   const filterNavigation = (items: NavItem[]) => {
     return items.filter((item) => {
       if (item.module && !accessibleModules.includes(item.module)) return false;
+      if (isFinancialOnly && ICM_ONLY_HREFS.has(item.href)) return false;
       return true;
     });
   };
