@@ -2133,11 +2133,17 @@ function DataPackageImportPageInner() {
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           <Badge variant="secondary">AI-Powered</Badge>
-          {activePlan && (
+          {/* HF-065 F26: Show import type context instead of plan name for rosters.
+              Roster data is tenant-level, not plan-scoped. */}
+          {analysis && analysis.rosterDetected?.found && !analysis.sheets.some(s => s.classification !== 'roster' && s.classification !== 'unrelated') ? (
+            <Badge variant="outline" className="ml-2">
+              {isSpanish ? 'Datos de Personal' : 'Personnel Data'}
+            </Badge>
+          ) : activePlan ? (
             <Badge variant="outline" className="ml-2">
               {activePlan.name}
             </Badge>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -2865,8 +2871,8 @@ function DataPackageImportPageInner() {
                         </div>
                       )}
 
-                      {/* Components status summary */}
-                      {activePlan && (
+                      {/* Components status summary — HF-065 F26: Show plan context only for transaction data */}
+                      {activePlan && !(analysis?.rosterDetected?.found && !analysis?.sheets.some(s => s.classification !== 'roster' && s.classification !== 'unrelated')) && (
                         <div className="pt-2 border-t mt-2">
                           <p className="text-xs text-muted-foreground">
                             {isSpanish
