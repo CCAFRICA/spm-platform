@@ -59,9 +59,9 @@ export function ObservatoryTab() {
 
   // OB-89: Filter test/development tenants from demo view
   const TEST_TENANT_PATTERNS = /test|pipeline|retailco|frmx|retail conglomerate|demo seed/i;
-  // OB-100: Show tenants with entities OR completed calculations (e.g. Optica Luminar)
+  // HF-067: Show tenants with entities OR data rows OR completed calculations
   const demoTenants = tenantCards.filter(t =>
-    showTestTenants || (!TEST_TENANT_PATTERNS.test(t.name) && (t.entityCount > 0 || t.latestLifecycleState !== null))
+    showTestTenants || (!TEST_TENANT_PATTERNS.test(t.name) && (t.entityCount > 0 || (t.dataRowCount ?? 0) > 0 || t.latestLifecycleState !== null))
   );
 
   useEffect(() => {
@@ -320,13 +320,15 @@ export function ObservatoryTab() {
           gap: '16px',
         }}>
           {demoTenants.map(tenant => {
+            // HF-067: Use dataRowCount for truth — a tenant has data if committed_data exists
+            const hasData = (tenant.dataRowCount ?? 0) > 0 || tenant.entityCount > 0;
             const healthColor = tenant.latestLifecycleState
               ? (['POSTED', 'CLOSED', 'PAID', 'PUBLISHED'].includes(tenant.latestLifecycleState) ? '#10B981' : '#F59E0B')
-              : (tenant.entityCount > 0 ? '#F59E0B' : '#EF4444');
+              : (hasData ? '#F59E0B' : '#EF4444');
 
             const nextAction = tenant.latestLifecycleState
               ? (NEXT_ACTIONS[tenant.latestLifecycleState] || 'Continue lifecycle')
-              : (tenant.entityCount > 0 ? 'Run first calculation' : 'Upload data');
+              : (hasData ? 'Run first calculation' : 'Upload data');
 
             const lastCalcDays = tenant.lastActivity
               ? Math.floor((Date.now() - new Date(tenant.lastActivity).getTime()) / (1000 * 60 * 60 * 24))
@@ -392,7 +394,11 @@ export function ObservatoryTab() {
                 <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' }}>
                   <div>
                     <span style={{ color: '#94A3B8', fontSize: '13px' }}>Entities</span>
-                    <p style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{tenant.entityCount}</p>
+                    <p style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{tenant.entityCount.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <span style={{ color: '#94A3B8', fontSize: '13px' }}>Data Rows</span>
+                    <p style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{(tenant.dataRowCount ?? 0).toLocaleString()}</p>
                   </div>
                   <div>
                     <span style={{ color: '#94A3B8', fontSize: '13px' }}>Users</span>
