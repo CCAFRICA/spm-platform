@@ -1,10 +1,19 @@
 'use client';
 
 /**
- * Operate Cockpit — Admin lifecycle control center
+ * Operations Center — ICM Lifecycle Cockpit (OB-102 Phase 5)
  *
- * Shows: Period Ribbon, Lifecycle Stepper, Data Readiness,
- * Calculation summary, Results preview, Next action bar.
+ * Full lifecycle management for the ICM calculation cycle.
+ * Moved from /operate to /operate/lifecycle (OB-102 Phase 2).
+ *
+ * Cognitive Fit Map:
+ *   1. Lifecycle state → LifecycleStepper (planning/sequence)
+ *   2. Data readiness → DataReadinessPanel (checklist/progress)
+ *   3. Total payout → AnimatedNumber (identification)
+ *   4. Attainment → DistributionChart (distribution)
+ *   5. Top entities → BenchmarkBar (comparison)
+ *   6. AI assessment → AssessmentPanel (intelligence)
+ *   7. Reference frame + deterministic commentary
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -293,11 +302,20 @@ export default function OperateCockpitPage() {
       <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={handlePeriodSelect} isSpanish={isSpanish} />
 
       <div className="p-6 space-y-6 max-w-6xl mx-auto">
-        {/* Header */}
+        {/* Header with back-nav */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-zinc-100">{isSpanish ? 'Centro de Operaciones' : 'Operations Center'}</h1>
-            <p className="text-sm text-zinc-400">{isSpanish ? 'Gestiona el ciclo de calculo para el periodo seleccionado' : 'Manage the calculation cycle for the selected period'}</p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/operate')}
+              className="text-zinc-500 hover:text-zinc-300 transition-colors"
+              title={isSpanish ? 'Volver al resumen' : 'Back to overview'}
+            >
+              ←
+            </button>
+            <div>
+              <h1 className="text-xl font-bold text-zinc-100">{isSpanish ? 'Centro de Operaciones' : 'Operations Center'}</h1>
+              <p className="text-sm text-zinc-400">{isSpanish ? 'Gestiona el ciclo de calculo para el periodo seleccionado' : 'Manage the calculation cycle for the selected period'}</p>
+            </div>
           </div>
           {lifecycleState && stateDisplay && (
             <StatusPill color={dashState === 'APPROVED' || dashState === 'POSTED' ? 'emerald' : dashState === 'PUBLISHED' ? 'indigo' : 'zinc'}>
@@ -305,6 +323,40 @@ export default function OperateCockpitPage() {
             </StatusPill>
           )}
         </div>
+
+        {/* OB-102: Deterministic commentary */}
+        {!isLoading && (() => {
+          const lines: string[] = [];
+          const activePeriod = periods.find(p => p.periodKey === activeKey);
+          if (activePeriod) {
+            const periodLabel = activePeriod.label || activeKey;
+            if (isSpanish) {
+              lines.push(`Periodo activo: ${periodLabel}.`);
+            } else {
+              lines.push(`Active period: ${periodLabel}.`);
+            }
+          }
+          if (readiness.plan.status === 'missing') {
+            lines.push(isSpanish ? 'Plan activo requerido para calcular.' : 'Active plan required to calculate.');
+          }
+          if (readiness.data.status === 'missing') {
+            lines.push(isSpanish ? 'Importa datos antes de calcular.' : 'Import data before calculating.');
+          }
+          if (calcSummary) {
+            const avg = calcSummary.entityCount > 0 ? calcSummary.totalPayout / calcSummary.entityCount : 0;
+            if (isSpanish) {
+              lines.push(`${calcSummary.entityCount} entidades, pago promedio ${formatCurrency(avg)}.`);
+            } else {
+              lines.push(`${calcSummary.entityCount} entities, avg payout ${formatCurrency(avg)}.`);
+            }
+          }
+          if (lines.length === 0) return null;
+          return (
+            <div className="rounded-xl px-5 py-3" style={{ background: 'rgba(24, 24, 27, 0.6)', border: '1px solid rgba(39, 39, 42, 0.4)' }}>
+              <p className="text-sm text-zinc-400 leading-relaxed">{lines.join(' ')}</p>
+            </div>
+          );
+        })()}
 
         {/* OB-85: Active Plan + Run Calculation */}
         <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
