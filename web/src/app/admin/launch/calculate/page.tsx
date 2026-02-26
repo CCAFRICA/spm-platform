@@ -17,7 +17,7 @@ import { RequireRole } from '@/components/auth/RequireRole';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import {
   getRuleSets,
-  activateRuleSet,
+  activateRuleSetAdditive,
 } from '@/lib/supabase/rule-set-service';
 import {
   listCalculationBatches,
@@ -103,6 +103,7 @@ interface RuleSetStatus {
   hasActivePlan: boolean;
   activePlanName: string | null;
   activeRuleSetId: string | null;
+  activePlans: Array<{ id: string; name: string }>;
   draftPlans: Array<{ id: string; name: string }>;
 }
 
@@ -114,7 +115,7 @@ function CalculatePageInner() {
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [planStatus, setPlanStatus] = useState<RuleSetStatus>({
     hasPlans: false, hasActivePlan: false, activePlanName: null,
-    activeRuleSetId: null, draftPlans: [],
+    activeRuleSetId: null, activePlans: [], draftPlans: [],
   });
   const [isActivating, setIsActivating] = useState(false);
   const [recentBatches, setRecentBatches] = useState<CalcBatchRow[]>([]);
@@ -143,18 +144,22 @@ function CalculatePageInner() {
 
     const loadData = async () => {
       try {
-        // Load rule sets
+        // Load rule sets (OB-103: support multiple active plans)
         const ruleSets = await getRuleSets(currentTenant.id);
-        const activeRS = ruleSets.find(rs => rs.status === 'active');
+        const activeRSList = ruleSets.filter(rs => rs.status === 'active');
+        const firstActive = activeRSList[0] || null;
         const draftRS = ruleSets
           .filter(rs => rs.status === 'draft')
           .map(rs => ({ id: rs.id, name: rs.name }));
 
         setPlanStatus({
           hasPlans: ruleSets.length > 0,
-          hasActivePlan: !!activeRS,
-          activePlanName: activeRS?.name || null,
-          activeRuleSetId: activeRS?.id || null,
+          hasActivePlan: activeRSList.length > 0,
+          activePlanName: activeRSList.length > 1
+            ? `${activeRSList.length} plans active`
+            : firstActive?.name || null,
+          activeRuleSetId: firstActive?.id || null,
+          activePlans: activeRSList.map(rs => ({ id: rs.id, name: rs.name })),
           draftPlans: draftRS,
         });
 
@@ -238,28 +243,42 @@ function CalculatePageInner() {
     }
   };
 
-  // Run calculation
+  // Run calculation — OB-103: multi-plan support
   const handleRunCalculation = async () => {
-    if (!currentTenant || !selectedPeriod || !planStatus.activeRuleSetId || !user) return;
+    if (!currentTenant || !selectedPeriod || !user) return;
+    const plansToRun = planStatus.activePlans.length > 0
+      ? planStatus.activePlans
+      : planStatus.activeRuleSetId ? [{ id: planStatus.activeRuleSetId, name: planStatus.activePlanName || '' }] : [];
+
+    if (plansToRun.length === 0) return;
+
     setIsCalculating(true);
     try {
-      const result = await runCalculation({
-        tenantId: currentTenant.id,
-        periodId: selectedPeriod,
-        ruleSetId: planStatus.activeRuleSetId,
-        userId: user.id,
-      });
+      // Run each plan sequentially for the selected period
+      const errors: string[] = [];
+      for (const plan of plansToRun) {
+        console.log(`[Calculate] Running plan: ${plan.name} (${plan.id})`);
+        const result = await runCalculation({
+          tenantId: currentTenant.id,
+          periodId: selectedPeriod,
+          ruleSetId: plan.id,
+          userId: user.id,
+        });
 
-      if (!result.success) {
-        alert(`Calculation failed: ${result.error}`);
-        return;
+        if (!result.success) {
+          errors.push(`${plan.name}: ${result.error}`);
+        }
+      }
+
+      if (errors.length > 0) {
+        alert(`Some calculations failed:\n${errors.join('\n')}`);
       }
 
       // Refresh batches and results
       const batches = await listCalculationBatches(currentTenant.id);
       setRecentBatches(batches.slice(0, 10));
 
-      // Load the new batch
+      // Load the latest batch
       const batch = await getActiveBatch(currentTenant.id, selectedPeriod);
       setActiveBatch(batch);
       if (batch) {
@@ -277,20 +296,24 @@ function CalculatePageInner() {
     }
   };
 
-  // Activate a draft rule set
+  // Activate a draft rule set (OB-103: additive — doesn't deactivate others)
   const handleActivateRuleSet = async (ruleSetId: string) => {
     if (!user || !currentTenant) return;
     setIsActivating(true);
     try {
-      await activateRuleSet(currentTenant.id, ruleSetId);
+      await activateRuleSetAdditive(currentTenant.id, ruleSetId);
       // Refresh
       const ruleSets = await getRuleSets(currentTenant.id);
-      const activeRS = ruleSets.find(rs => rs.status === 'active');
+      const activeRSList = ruleSets.filter(rs => rs.status === 'active');
+      const firstActive = activeRSList[0] || null;
       setPlanStatus({
         hasPlans: ruleSets.length > 0,
-        hasActivePlan: !!activeRS,
-        activePlanName: activeRS?.name || null,
-        activeRuleSetId: activeRS?.id || null,
+        hasActivePlan: activeRSList.length > 0,
+        activePlanName: activeRSList.length > 1
+          ? `${activeRSList.length} plans active`
+          : firstActive?.name || null,
+        activeRuleSetId: firstActive?.id || null,
+        activePlans: activeRSList.map(rs => ({ id: rs.id, name: rs.name })),
         draftPlans: ruleSets.filter(rs => rs.status === 'draft').map(rs => ({ id: rs.id, name: rs.name })),
       });
     } catch (error) {
@@ -447,9 +470,19 @@ function CalculatePageInner() {
             <div className="flex items-center gap-2 text-green-800">
               <CheckCircle2 className="h-5 w-5" />
               <span className="font-medium">
-                {locale === 'es-MX' ? 'Plan Activo' : 'Active Rule Set'}:
+                {locale === 'es-MX' ? 'Planes Activos' : 'Active Plans'}:
               </span>
-              <span>{planStatus.activePlanName}</span>
+              {planStatus.activePlans.length <= 1 ? (
+                <span>{planStatus.activePlanName}</span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {planStatus.activePlans.map(p => (
+                    <Badge key={p.id} variant="secondary" className="bg-green-100 text-green-800 border-green-300">
+                      {p.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -490,7 +523,9 @@ function CalculatePageInner() {
               ) : (
                 <>
                   <Play className="h-4 w-4 mr-2" />
-                  {locale === 'es-MX' ? 'Ejecutar Calculo' : 'Run Calculation'}
+                  {planStatus.activePlans.length > 1
+                    ? (locale === 'es-MX' ? `Calcular ${planStatus.activePlans.length} Planes` : `Calculate All ${planStatus.activePlans.length} Plans`)
+                    : (locale === 'es-MX' ? 'Ejecutar Calculo' : 'Run Calculation')}
                 </>
               )}
             </Button>
