@@ -21,9 +21,7 @@ import { PeriodRibbon } from '@/components/design-system/PeriodRibbon';
 import { AdminDashboard } from '@/components/dashboards/AdminDashboard';
 import { ManagerDashboard } from '@/components/dashboards/ManagerDashboard';
 import { RepDashboard } from '@/components/dashboards/RepDashboard';
-import { useTenant, useFeature } from '@/contexts/tenant-context';
-import { useAuth } from '@/contexts/auth-context';
-import { useSession } from '@/contexts/session-context';
+import { useTenant } from '@/contexts/tenant-context';
 import { useFinancialOnly } from '@/hooks/use-financial-only';
 
 function PerformContent() {
@@ -31,9 +29,6 @@ function PerformContent() {
   const { persona } = usePersona();
   const { availablePeriods, activePeriodKey, setActivePeriod, isLoading } = usePeriod();
   const { currentTenant } = useTenant();
-  const hasFinancial = useFeature('financial');
-  const { isLoading: authLoading } = useAuth();
-  const { isLoading: sessionLoading } = useSession();
   const isFinancialOnly = useFinancialOnly();
 
   // AUTH GATE — HF-059/HF-061
@@ -46,17 +41,8 @@ function PerformContent() {
     if (isFinancialOnly) router.replace('/financial');
   }, [isFinancialOnly, router]);
 
-  // HF-063 Amendment: Block ALL content while financial-only check is pending.
-  // useFinancialOnly() returns false during auth/session loading. router.replace is async.
-  // Gate: if financial feature is enabled AND (still loading OR confirmed financial-only),
-  // don't render ICM content — prevents flash before redirect completes.
-  if (hasFinancial && (authLoading || sessionLoading || isFinancialOnly)) {
-    return (
-      <div className="p-8 flex items-center justify-center">
-        <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  // HF-063 Amendment: useEffect fires router.replace, this prevents ICM render while it's async-pending.
+  if (isFinancialOnly) return null;
 
   if (!currentTenant) {
     return (
