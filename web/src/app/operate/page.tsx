@@ -201,7 +201,7 @@ export default function OperateLandingPage() {
           fetch('/api/financial/data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tenantId, view: 'network_pulse' }),
+            body: JSON.stringify({ tenantId, mode: 'network_pulse' }),
           }).then(r => r.ok ? r.json() : null).then(data => {
             if (!cancelled && data?.networkMetrics) {
               const nm = data.networkMetrics;
