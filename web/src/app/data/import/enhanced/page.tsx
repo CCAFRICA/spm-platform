@@ -57,7 +57,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import {
-  parseFile,
   getExcelWorksheets,
   isExcelFile,
   type WorksheetInfo,
@@ -91,8 +90,8 @@ function storeImportContext(ctx: AIImportContext) { console.log('[Import] Contex
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function storeFieldMappings(_tenantId: string, _batchId: string, _mappings: unknown[]) { /* stored in batch metadata */ }
 // createClient removed — import commit now uses server-side API route
-import { classifyFile, recordClassificationFeedback } from '@/lib/ai/file-classifier';
-import { AI_CONFIDENCE } from '@/lib/ai/types';
+import { recordClassificationFeedback } from '@/lib/ai/file-classifier';
+// AI_CONFIDENCE removed — CSV path now uses analyzeWorkbook (HF-068)
 
 // Step definitions
 type Step = 'upload' | 'analyze' | 'map' | 'validate' | 'approve' | 'complete';
@@ -1289,84 +1288,15 @@ function DataPackageImportPageInner() {
     if (isExcelFile(file)) {
       const sheets = await getExcelWorksheets(file);
       setWorksheets(sheets);
-      // Automatically analyze multi-sheet workbooks
-      await analyzeWorkbook(file);
-    } else {
-      // For single-file formats (CSV, TSV, TXT), use AI classification
-      setIsProcessing(true);
-      try {
-        const parsed = await parseFile(file);
-
-        // Read file content for AI classification
-        const fileContent = await file.text();
-        const contentPreview = fileContent.substring(0, 5000);
-
-        // Call AI file classifier
-        console.log('Calling AI file classifier for:', file.name);
-        const classificationResult = await classifyFile(
-          file.name,
-          contentPreview,
-          {
-            fileSize: file.size,
-            mimeType: file.type,
-            columnCount: parsed.headers.length,
-            rowCount: parsed.rowCount,
-            headers: parsed.headers,
-            tenantModules: currentTenant?.features ? Object.keys(currentTenant.features).filter(k => currentTenant.features?.[k as keyof typeof currentTenant.features]) : [],
-          },
-          tenantId,
-          user?.id
-        );
-
-        console.log('AI Classification result:', classificationResult);
-
-        // Store classification for UI display
-        setAiClassification(classificationResult.classification);
-
-        // Determine classification to use based on confidence
-        const classification = classificationResult.classification;
-        const confidenceNorm = classification.confidence / 100;
-
-        // Create analysis with AI classification results
-        const simpleAnalysis: WorkbookAnalysis = {
-          sheets: [{
-            name: file.name,
-            classification: classification.fileType === 'pos_cheque' ? 'pos_cheque' : 'component_data',
-            classificationConfidence: classification.confidence,
-            classificationReasoning: classification.reasoning,
-            matchedComponent: null,
-            matchedComponentConfidence: 0,
-            detectedPrimaryKey: null,
-            detectedDateColumn: null,
-            detectedAmountColumns: [],
-            suggestedFieldMappings: [],
-            headers: parsed.headers,
-            rowCount: parsed.rowCount,
-            sampleRows: parsed.rows.slice(0, 5),
-          }],
-          relationships: [],
-          sheetGroups: [],
-          rosterDetected: { found: false, sheetName: null, entityIdColumn: null, storeAssignmentColumn: null, canCreateUsers: false },
-          periodDetected: { found: false, dateColumn: '', dateRange: { start: null, end: null }, periodType: 'unknown' },
-          gaps: [],
-          extras: [],
-          overallConfidence: classification.confidence,
-          summary: confidenceNorm >= AI_CONFIDENCE.AUTO_APPLY
-            ? `AI detected: ${classification.fileType} (auto-applied)`
-            : confidenceNorm >= AI_CONFIDENCE.SUGGEST
-              ? `AI suggests: ${classification.fileType} (please confirm)`
-              : `AI detected: ${classification.fileType} (low confidence - please verify)`,
-        };
-        setAnalysis(simpleAnalysis);
-        setAnalysisConfidence(classification.confidence);
-        setCurrentStep('analyze');
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to parse file');
-      } finally {
-        setIsProcessing(false);
-      }
     }
-  }, [analyzeWorkbook, tenantId, currentTenant, user]);
+
+    // HF-068 FIX: Route ALL file types through analyzeWorkbook().
+    // SheetJS (XLSX.read) handles CSV/TSV/XLSX uniformly in parseAllSheets().
+    // The AI endpoint produces both classification AND per-column field mappings.
+    // Previously, CSV files went through classifyFile() which only classified
+    // file type but never created fieldMappings — leaving the map step empty.
+    await analyzeWorkbook(file);
+  }, [analyzeWorkbook]);
 
   // Drop zone handler — takes first file (multi-file handled via queue below)
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -1914,6 +1844,45 @@ function DataPackageImportPageInner() {
         ),
       }));
       storeFieldMappings(tenantId, result.batchId, mappingsToStore);
+
+      // HF-068: Capture classification signals for field mapping decisions (closed-loop learning).
+      // Each confirmed/overridden mapping becomes a signal for the ML flywheel.
+      try {
+        const mappingSignals = fieldMappings.flatMap(sheet =>
+          sheet.mappings
+            .filter(m => m.targetField) // Only confirmed mappings
+            .map(m => ({
+              tenant_id: tenantId,
+              signal_type: 'field_mapping',
+              signal_value: {
+                source_column: m.sourceColumn,
+                target_field: m.targetField,
+                ai_confidence: m.confidence,
+                tier: m.tier,
+                action: m.tier === 'auto' && m.confirmed ? 'accepted' : 'overridden',
+              },
+              confidence: m.confidence / 100, // Normalize to 0-1
+              source: 'smart-mapper',
+              context: {
+                sheet_name: sheet.sheetName,
+                file_name: uploadedFile.name,
+                batch_id: result.batchId,
+              },
+            }))
+        );
+
+        if (mappingSignals.length > 0) {
+          await fetch('/api/signals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ signals: mappingSignals }),
+          });
+          console.log(`[Import] ${mappingSignals.length} field mapping signals captured for closed-loop learning`);
+        }
+      } catch (signalErr) {
+        // Non-blocking — don't fail the import if signal capture fails
+        console.warn('[Import] Classification signal capture failed:', signalErr);
+      }
 
       console.log(`[Import] Server commit complete: ${result.recordCount} records, ${result.entityCount} entities, ${result.periodCount} periods in ${result.elapsedSeconds}s`);
 
