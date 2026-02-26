@@ -148,8 +148,10 @@ export function ManagerDashboard() {
   }, [data]);
 
   // Pacing indicator (5C)
+  // OB-104 F10: Return null when teamTotal is 0 (no calculation data) to avoid "Behind Pace MX$0/day"
   const pacing = useMemo(() => {
     if (!data || data.teamMembers.length === 0) return null;
+    if (data.teamTotal === 0) return null;
     // Estimate: assume we're midway through the period
     const daysPassed = 15;
     const daysInPeriod = 30;
