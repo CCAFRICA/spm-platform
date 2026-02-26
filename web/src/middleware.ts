@@ -123,10 +123,12 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // AUTH GATE — HF-059/HF-061/HF-061-AMENDMENT
-  // This is the ONLY location for server-side auth redirect logic.
+  // AUTH GATE — HF-059/HF-061/HF-070
+  // This is the ONLY location for auth redirect logic.
   // DO NOT add auth redirects in layouts, components, or other middleware.
-  // See: CC Failure Pattern — Login Redirect Loop (4x occurrence)
+  // DO NOT add redirects that fire before auth session hydrates.
+  // DO NOT create Supabase sessions in API routes using service role client.
+  // See: CC Failure Pattern — Auth Bypass/Redirect Loop (4x regression)
   //
   // Refresh session and get user — may trigger setAll (token refresh).
   // CRITICAL: Wrap in try/catch WITH timeout. If Supabase is unreachable
