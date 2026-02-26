@@ -123,15 +123,27 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // AUTH GATE — HF-059/HF-061/HF-061-AMENDMENT
+  // This is the ONLY location for server-side auth redirect logic.
+  // DO NOT add auth redirects in layouts, components, or other middleware.
+  // See: CC Failure Pattern — Login Redirect Loop (4x occurrence)
+  //
   // Refresh session and get user — may trigger setAll (token refresh).
-  // CRITICAL: Wrap in try/catch. If Supabase is unreachable, the middleware
-  // must NOT crash (which would let the request pass through unguarded).
+  // CRITICAL: Wrap in try/catch WITH timeout. If Supabase is unreachable
+  // or slow (Edge Function timeout on Vercel), the middleware must
+  // FAIL-CLOSED: redirect to /login, NOT pass through unguarded.
+  const AUTH_TIMEOUT_MS = 5000;
   let user = null;
   try {
-    const { data } = await supabase.auth.getUser();
-    user = data.user;
+    const result = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Auth check timed out')), AUTH_TIMEOUT_MS)
+      ),
+    ]);
+    user = result.data.user;
   } catch (err) {
-    console.error('[Middleware] getUser() failed — treating as unauthenticated:', err);
+    console.error('[Middleware] getUser() failed or timed out — treating as unauthenticated:', err);
     // Fall through with user=null → will redirect to /landing or /login
   }
 

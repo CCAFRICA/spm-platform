@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
@@ -124,6 +124,36 @@ function AuthShellProtected({ children }: AuthShellProps) {
       router.push('/select-tenant');
     }
   }, [isAuthenticated, isLoading, tenantLoading, isVLAdmin, currentTenant, isTenantExempt, pathname, router]);
+
+  // TIMEOUT FALLBACK — HF-061 Amendment
+  // If auth hasn't resolved after 3 seconds, assume unauthenticated and redirect.
+  // This is defense-in-depth — middleware is the primary gate.
+  // The 3s delay prevents the redirect loop that occurred when this fired immediately.
+  // Without this, a hanging getSession()/getUser()/fetchCurrentProfile() causes
+  // isLoading=true forever → user sees infinite spinner.
+  const timeoutFired = useRef(false);
+  useEffect(() => {
+    if (!isLoading && !tenantLoading) return; // Already resolved, no timeout needed
+
+    const timeout = setTimeout(() => {
+      if (timeoutFired.current) return;
+      // Still loading after 3s — likely no valid session or Supabase unreachable
+      console.warn('[AuthShell] Auth timeout after 3s — redirecting to login');
+      timeoutFired.current = true;
+      // Clear cookies to prevent stale-cookie loops
+      if (typeof document !== 'undefined') {
+        document.cookie.split(';').forEach(c => {
+          const name = c.trim().split('=')[0];
+          if (name.startsWith('sb-') || name === 'vialuce-tenant-id') {
+            document.cookie = `${name}=; path=/; max-age=0`;
+          }
+        });
+      }
+      window.location.replace('/login');
+    }, 3000);
+
+    return () => clearTimeout(timeout);
+  }, [isLoading, tenantLoading]);
 
   // Show loading state while checking auth or tenant
   if (isLoading || tenantLoading) {
