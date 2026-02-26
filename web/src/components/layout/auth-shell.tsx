@@ -77,7 +77,12 @@ function AuthShellProtected({ children }: AuthShellProps) {
   useEffect(() => {
     if (isLoading || tenantLoading) return;
 
-    // Not authenticated → redirect to /login.
+    // AUTH GATE — HF-059/HF-061
+    // This is the ONLY client-side location for auth redirect logic.
+    // DO NOT add auth redirects in layouts, components, or other middleware.
+    // DO NOT add redirects that fire before auth session hydrates.
+    // See: CC Failure Pattern — Login Redirect Loop (3x regression)
+    //
     // HF-059: Added redirect loop protection. If middleware passes the request
     // through (valid cookies) but initAuth() fails to hydrate the user (profile
     // fetch failure, network error, etc.), this redirect fires. Middleware then

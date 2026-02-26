@@ -56,16 +56,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const tenantId = currentTenant?.id ?? '';
 
   const [counts, setCounts] = useState<SessionCounts>(DEFAULT_COUNTS);
-  const [isLoading, setIsLoading] = useState(true);
+  const [queryLoading, setQueryLoading] = useState(false);
+  // HF-061: Track which tenant counts were loaded for.
+  // Prevents stale-count race: when tenantId changes, isLoading stays true
+  // until counts are loaded for the NEW tenant. Without this, there's one
+  // render cycle where isLoading=false but counts are default zeros, which
+  // causes useFinancialOnly() to misfire redirects.
+  const [loadedForTenant, setLoadedForTenant] = useState<string | null>(null);
 
   const loadCounts = useCallback(async () => {
     if (!tenantId) {
       setCounts(DEFAULT_COUNTS);
-      setIsLoading(false);
+      setLoadedForTenant('');
+      setQueryLoading(false);
       return;
     }
 
-    setIsLoading(true);
+    setQueryLoading(true);
     try {
       const supabase = createClient();
 
@@ -87,16 +94,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         importBatchCount: importRes.count ?? 0,
         signalCount: signalRes.count ?? 0,
       });
+      setLoadedForTenant(tenantId);
     } catch (err) {
       console.warn('[SessionContext] Failed to load counts:', err);
+      setLoadedForTenant(tenantId); // Mark as loaded even on error to avoid infinite loading
     } finally {
-      setIsLoading(false);
+      setQueryLoading(false);
     }
   }, [tenantId]);
 
   useEffect(() => {
     loadCounts();
   }, [loadCounts]);
+
+  // HF-061: Effective loading = query running OR counts are stale (loaded for different tenant)
+  const isLoading = queryLoading || loadedForTenant !== (tenantId || '');
 
   const value = useMemo<SessionContextValue>(() => ({
     ...counts,
