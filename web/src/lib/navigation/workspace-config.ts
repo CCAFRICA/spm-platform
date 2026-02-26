@@ -161,7 +161,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Network',
         labelEs: 'Red',
         routes: [
-          { path: '/financial', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['vl_admin', 'admin', 'manager'] },
         ],
       },
       {

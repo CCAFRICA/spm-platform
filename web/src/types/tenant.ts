@@ -132,8 +132,8 @@ export interface TenantRegistry {
 
 // Helper Functions
 export function formatTenantCurrency(amount: number, currency: Currency, locale: Locale): string {
-  // OB-101 PDR-01: No cents on amounts >= 1,000 (cleaner display for large financial amounts)
-  const fractionDigits = Math.abs(amount) >= 1000 ? 0 : 2;
+  // PDR-01: No cents on amounts >= MX$10,000 (cleaner display for large financial amounts)
+  const fractionDigits = Math.abs(amount) >= 10000 ? 0 : 2;
   const formatted = new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: currency,
