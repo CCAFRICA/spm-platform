@@ -187,8 +187,9 @@ export function RepDashboard() {
   }, [data]);
 
   // Pace clock data (6C) — must be before early returns
+  // OB-104 F10: Return null when no calculation data to avoid zero-rate display
   const paceClock = useMemo(() => {
-    if (!data) return null;
+    if (!data || data.totalPayout === 0) return null;
     const daysPassed = 15;
     const daysInPeriod = 30;
     const daysRemaining = daysInPeriod - daysPassed;
