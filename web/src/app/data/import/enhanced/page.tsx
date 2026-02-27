@@ -2665,27 +2665,9 @@ function DataPackageImportPageInner() {
                     <CardTitle className="text-base">
                       {isSpanish ? 'Vista Previa de Datos' : 'Data Preview'}
                     </CardTitle>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={previewRowIndex === 0}
-                        onClick={() => setPreviewRowIndex(i => Math.max(0, i - 1))}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <span className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Fila' : 'Row'} {previewRowIndex + 1} / {currentMappingSheet.sampleRows.length}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={previewRowIndex >= currentMappingSheet.sampleRows.length - 1}
-                        onClick={() => setPreviewRowIndex(i => Math.min(currentMappingSheet.sampleRows.length - 1, i + 1))}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {currentMappingSheet.sampleRows.length} {isSpanish ? 'filas' : 'rows'}
+                    </span>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -2693,10 +2675,10 @@ function DataPackageImportPageInner() {
                     <table className="w-full text-sm">
                       <thead className="bg-muted">
                         <tr>
-                          {currentMappingSheet.headers.slice(0, 8).map(header => {
+                          {currentMappingSheet.headers.map(header => {
                             const translation = translateColumn(header);
                             return (
-                              <th key={header} className="px-3 py-2 text-left font-medium">
+                              <th key={header} className="px-3 py-2 text-left font-medium whitespace-nowrap">
                                 <div>
                                   {header}
                                   {showTranslations && translation && (
@@ -2711,26 +2693,28 @@ function DataPackageImportPageInner() {
                         </tr>
                       </thead>
                       <tbody>
-                        <tr className="border-t">
-                          {currentMappingSheet.headers.slice(0, 8).filter(h => h != null).map(header => {
-                            const value = currentMappingSheet.sampleRows[previewRowIndex]?.[header];
-                            // HF-073: Smart formatting — currency, Excel serial dates
-                            const isAmountField = header && (
-                              header.toLowerCase().includes('monto') ||
-                              header.toLowerCase().includes('venta') ||
-                              header.toLowerCase().includes('total') ||
-                              header.toLowerCase().includes('amount') ||
-                              header.toLowerCase().includes('balance') ||
-                              header.toLowerCase().includes('salary') ||
-                              header.toLowerCase().includes('pago')
-                            );
-                            return (
-                              <td key={header} className="px-3 py-2">
-                                {isAmountField ? formatCurrency(value) : formatPreviewValue(value, header)}
-                              </td>
-                            );
-                          })}
-                        </tr>
+                        {currentMappingSheet.sampleRows.map((row, rowIdx) => (
+                          <tr key={rowIdx} className="border-t">
+                            {currentMappingSheet.headers.filter(h => h != null).map(header => {
+                              const value = row?.[header];
+                              // HF-073: Smart formatting — currency, Excel serial dates
+                              const isAmountField = header && (
+                                header.toLowerCase().includes('monto') ||
+                                header.toLowerCase().includes('venta') ||
+                                header.toLowerCase().includes('total') ||
+                                header.toLowerCase().includes('amount') ||
+                                header.toLowerCase().includes('balance') ||
+                                header.toLowerCase().includes('salary') ||
+                                header.toLowerCase().includes('pago')
+                              );
+                              return (
+                                <td key={header} className="px-3 py-2 whitespace-nowrap">
+                                  {isAmountField ? formatCurrency(value) : formatPreviewValue(value, header)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
