@@ -21,12 +21,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { sheets, tenantId, userId, planComponents, expectedFields } = body as {
+    const { sheets, tenantId, userId, planComponents, expectedFields, priorMappings } = body as {
       sheets: SheetSample[];
       tenantId: string;
       userId?: string;
       planComponents?: { id: string; name: string; type: string }[];
       expectedFields?: Record<string, string[]>;
+      priorMappings?: Array<{ sourceColumn: string; targetField: string; action: string }>;
     };
 
     if (!sheets || !Array.isArray(sheets) || sheets.length === 0) {
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
     console.log('Sheets count:', sheets.length);
     console.log('Tenant ID:', tenantId);
     console.log('Plan components:', planComponents?.length || 0);
+    console.log('Prior mapping signals:', priorMappings?.length || 0);
 
     // Format sheets info for the prompt
     const sheetsInfo = sheets.map((sheet, i) => {
@@ -71,6 +73,14 @@ ${sampleStr}`;
       expectedFieldsStr = Object.entries(expectedFields).map(([compId, fields]) =>
         `${compId}: ${fields.join(', ')}`
       ).join('\n');
+    }
+
+    // OB-107: Include prior mapping signals in AI prompt for closed-loop learning
+    if (priorMappings && priorMappings.length > 0) {
+      const priorStr = priorMappings.map(m =>
+        `- Column "${m.sourceColumn}" → "${m.targetField}" (${m.action === 'overridden' ? 'user corrected from AI suggestion' : 'user accepted AI suggestion'})`
+      ).join('\n');
+      expectedFieldsStr += `\n\nPRIOR CONFIRMED FIELD MAPPINGS FOR THIS CUSTOMER:\n${priorStr}\nUse these prior decisions to improve your suggestions. If a column name matches a prior decision, use the confirmed mapping.`;
     }
 
     // Use AIService for provider abstraction

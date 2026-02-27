@@ -1081,6 +1081,36 @@ function DataPackageImportPageInner() {
         })) || null;
       }
 
+      // OB-107: Read prior classification signals for closed-loop learning
+      const priorMappings: Array<{ sourceColumn: string; targetField: string; action: string }> = [];
+      if (tenantId) {
+        try {
+          const signalRes = await fetch(`/api/signals?tenant_id=${tenantId}&signal_type=field_mapping&limit=100`);
+          if (signalRes.ok) {
+            const signalData = await signalRes.json();
+            const signals = signalData.signals || [];
+            // Extract best mapping per source column (most recent wins)
+            const seen = new Set<string>();
+            for (const sig of signals) {
+              const sv = sig.signal_value as { source_column?: string; target_field?: string; action?: string } | null;
+              if (sv?.source_column && sv?.target_field && !seen.has(sv.source_column)) {
+                seen.add(sv.source_column);
+                priorMappings.push({
+                  sourceColumn: sv.source_column,
+                  targetField: sv.target_field,
+                  action: sv.action || 'accepted',
+                });
+              }
+            }
+            if (priorMappings.length > 0) {
+              console.log(`[Smart Import] Loaded ${priorMappings.length} prior mapping signals for tenant`);
+            }
+          }
+        } catch (err) {
+          console.warn('[Smart Import] Failed to load prior signals (non-blocking):', err);
+        }
+      }
+
       // Call the AI analysis endpoint
       const response = await fetch('/api/analyze-workbook', {
         method: 'POST',
@@ -1090,6 +1120,7 @@ function DataPackageImportPageInner() {
           tenantId,
           planComponents,
           expectedFields: null,
+          priorMappings: priorMappings.length > 0 ? priorMappings : undefined,
         }),
       });
 
