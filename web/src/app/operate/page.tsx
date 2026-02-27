@@ -397,6 +397,50 @@ export default function OperateLandingPage() {
 
   const [pipelineData, setPipelineData] = useState<PipelineData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [redirecting, setRedirecting] = useState(false);
+
+  // HF-076: Module-aware landing routing — Decision 57
+  // After 9 failed attempts at this page, route to the best page per tenant.
+  useEffect(() => {
+    if (!tenantId || !pipelineData || redirecting) return;
+
+    // 1. Financial-only tenant → Network Pulse
+    if (hasFinancial && !hasICM) {
+      setRedirecting(true);
+      router.replace('/financial');
+      return;
+    }
+
+    // 2. Dual-module → whichever module has more recent activity
+    if (hasFinancial && hasICM) {
+      const lastCalcDate = pipelineData.latestBatch?.created_at;
+      const hasFinancialData = pipelineData.financialData?.hasData;
+      if (hasFinancialData && (!lastCalcDate)) {
+        setRedirecting(true);
+        router.replace('/financial');
+        return;
+      }
+      // If both have data, ICM logic below picks the right ICM page
+    }
+
+    // 3. ICM with completed calculation → results page
+    if (hasICM && pipelineData.latestBatch) {
+      setRedirecting(true);
+      router.replace('/admin/launch/calculate');
+      return;
+    }
+
+    // 4. ICM with data but no calculations → import page
+    if (hasICM && pipelineData.dataRowCount > 0) {
+      setRedirecting(true);
+      router.replace('/data/import/enhanced');
+      return;
+    }
+
+    // 5. Empty or setup-needed tenant → import page
+    setRedirecting(true);
+    router.replace('/data/import/enhanced');
+  }, [tenantId, pipelineData, hasFinancial, hasICM, redirecting, router]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -485,15 +529,17 @@ export default function OperateLandingPage() {
     );
   }
 
-  // ─── Loading ─────────────────────────────────────────────
+  // ─── Loading / Redirecting ─────────────────────────────────
 
-  if (isLoading || !pipelineData) {
+  if (isLoading || !pipelineData || redirecting) {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-zinc-400">
-            {isSpanish ? 'Cargando operaciones...' : 'Loading operations overview...'}
+            {redirecting
+              ? (isSpanish ? 'Redirigiendo...' : 'Redirecting...')
+              : (isSpanish ? 'Cargando operaciones...' : 'Loading operations overview...')}
           </p>
         </div>
       </div>
