@@ -42,8 +42,6 @@ import {
   Database,
   Map,
   Calculator,
-  ChevronLeft,
-  ChevronRight,
   Link2,
   AlertCircle,
   Info,
@@ -947,7 +945,6 @@ function DataPackageImportPageInner() {
   // Mapping state
   const [fieldMappings, setFieldMappings] = useState<SheetFieldMapping[]>([]);
   const [currentMappingSheetIndex, setCurrentMappingSheetIndex] = useState(0);
-  const [previewRowIndex, setPreviewRowIndex] = useState(0);
   const [showTranslations, setShowTranslations] = useState(true);
   const [customFields, setCustomFields] = useState<string[]>([]);
   const [newCustomField, setNewCustomField] = useState('');
@@ -1973,14 +1970,12 @@ function DataPackageImportPageInner() {
   const goToNextSheet = useCallback(() => {
     if (currentMappingSheetIndex < mappableSheets.length - 1) {
       setCurrentMappingSheetIndex(prev => prev + 1);
-      setPreviewRowIndex(0);
     }
   }, [currentMappingSheetIndex, mappableSheets.length]);
 
   const goToPrevSheet = useCallback(() => {
     if (currentMappingSheetIndex > 0) {
       setCurrentMappingSheetIndex(prev => prev - 1);
-      setPreviewRowIndex(0);
     }
   }, [currentMappingSheetIndex]);
 
@@ -2604,7 +2599,6 @@ function DataPackageImportPageInner() {
                         key={sheet.name}
                         onClick={() => {
                           setCurrentMappingSheetIndex(idx);
-                          setPreviewRowIndex(0);
                         }}
                         className={cn(
                           'w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all',
