@@ -116,6 +116,73 @@ Source: Live Supabase queries (bayqxeiltnpjrvflksfa.supabase.co)
 
 ---
 
+## PHASE 2: CONFIDENCE SCORE TRUTH — TRACE THE 50%
+
+### Full Trace: UI → Source
+
+```
+UI displays: "50% confidence" on per-file cards and overall analysis
+  ↑ Rendered at: enhanced/page.tsx:2807 — variable: pf.analysisConfidence (per-file)
+  ↑ Rendered at: enhanced/page.tsx:2774 — variable: analysisConfidence (overall)
+  ↑ Set at: enhanced/page.tsx:1591 — expression: result.confidence || 0 (per-file)
+  ↑ Set at: enhanced/page.tsx:1627 — expression: mergedAnalysis.overallConfidence (multi-file average)
+  ↑ Comes from: analyze-workbook/route.ts:187 — expression: response.confidence * 100
+  ↑ Comes from: ai-service.ts:93 — adapterResponse.confidence (spread from adapter)
+  ↑ SET AT: anthropic-adapter.ts:630 — THE SOURCE:
+
+    const confidence = (result.confidence as number) / 100 || 0.5;
+
+    When AI returns confidence 85: 85/100 = 0.85 → works correctly
+    When AI returns confidence 0 or undefined: 0/100 = 0 → 0 || 0.5 = 0.5
+    Then route.ts:187 multiplies: 0.5 * 100 = 50
+```
+
+### ROOT CAUSE: anthropic-adapter.ts:630
+
+The `|| 0.5` operator is a **JavaScript falsy fallback**. It triggers when:
+- AI doesn't return a top-level `confidence` field in JSON (returns `undefined`)
+- AI returns `confidence: 0` (falsy)
+- JSON parsing fails to extract the field
+
+The AI prompt for `workbook_analysis` asks for `"confidence": 0-100` in the response JSON schema. But the AI sometimes omits it or nests it differently. When that happens, `(undefined as number) / 100` = `NaN`, and `NaN || 0.5` = `0.5`.
+
+**This is AP-7 (Never hardcode confidence scores) — the 0.5 default IS the hardcoded 50%.**
+
+### What OB-113 Actually Changed
+
+OB-113 made these confidence-related changes:
+1. Changed approve threshold from `>= 50` to `>= 60` — **correct but irrelevant to 50% source**
+2. Changed "Quality" label to "AI Confidence" — **display only**
+3. Changed consistency score from hardcoded 95 to real calculation — **correct, addresses different metric**
+4. Changed validate page to show `analysisConfidence` — **display only**
+
+**OB-113 did NOT touch:**
+- `anthropic-adapter.ts:630` — the `|| 0.5` fallback that produces 50%
+- The API route that multiplies confidence by 100
+- The AI prompt to ensure confidence is always returned
+- Per-file card rendering (line 2807) which shows `pf.analysisConfidence`
+
+**Verdict: OB-113 touched the DISPLAY of confidence, not the SOURCE of 50%.**
+
+### Per-Sheet Classification Confidence (Different Variable)
+
+The per-sheet badges at line 2556 show `sheet.classificationConfidence`:
+```tsx
+{(sheet.classificationConfidence || 0) > 0 ? `${sheet.classificationConfidence}%` : (isSpanish ? 'IA' : 'AI')}
+```
+This comes from the AI's per-sheet response (not the top-level confidence). When classificationConfidence is 0 or missing, it falls back to showing "AI" text instead of a number. This is a different pathway but also subject to AI output variability.
+
+### FIX LOCATION
+
+**File**: `web/src/lib/ai/providers/anthropic-adapter.ts`
+**Line**: 630
+**Change**: `const confidence = (result.confidence as number) / 100 || 0.5;`
+**To**: `const confidence = typeof result.confidence === 'number' && result.confidence > 0 ? result.confidence / 100 : 0;`
+
+This eliminates the 0.5 default. When AI doesn't return confidence, it should be 0 (unknown), not 0.5 (fake 50%). The UI already handles 0 by showing "AI" text.
+
+---
+
 ## PHASE 1: ROUTING TRUTH — WHERE DOES EACH TENANT ACTUALLY LAND?
 
 ### Routing Code Location
