@@ -79,7 +79,7 @@ const CARD_STYLE = {
 
 export function AdminDashboard() {
   const { currentTenant } = useTenant();
-  const { symbol: currencySymbol } = useCurrency();
+  const { symbol: currencySymbol, format } = useCurrency();
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const { user } = useAuth();
@@ -217,7 +217,7 @@ export function AdminDashboard() {
         label: 'Calculations run',
         labelEs: 'Calculos ejecutados',
         met: data.totalPayout > 0,
-        detail: data.totalPayout > 0 ? `${currencySymbol}${data.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'Not run',
+        detail: data.totalPayout > 0 ? format(data.totalPayout) : 'Not run',
       },
       {
         label: 'All entities covered',
@@ -253,7 +253,7 @@ export function AdminDashboard() {
       },
     ];
     return criteria;
-  }, [data, distStats, budgetPct, currencySymbol]);
+  }, [data, distStats, budgetPct, format]);
 
   const readinessMet = readinessCriteria.filter(c => c.met).length;
 
@@ -413,7 +413,7 @@ export function AdminDashboard() {
             {currencySymbol}<AnimatedNumber value={data.totalPayout} />
           </p>
           <p style={{ color: 'rgba(199, 210, 254, 0.8)', fontSize: '13px', marginTop: '4px' }}>
-            {budgetPct}% of {isBudgetEstimated ? 'est. ' : ''}budget ({currencySymbol}{budgetTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })})
+            {budgetPct}% of {isBudgetEstimated ? 'est. ' : ''}budget ({format(budgetTotal)})
           </p>
           <div className="mt-1">
             <TrendArrow delta={3.2} label={isSpanish ? 'vs periodo anterior' : 'vs prior period'} size="sm" />
@@ -532,7 +532,7 @@ export function AdminDashboard() {
                         value={store.totalPayout}
                         benchmark={storeBudget}
                         label={store.entityName}
-                        sublabel={`${currencySymbol}${store.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ${currencySymbol}${storeBudget.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                        sublabel={`${format(store.totalPayout)} / ${format(storeBudget)}`}
                         rightLabel={
                           <span className="tabular-nums font-medium" style={{ color: deltaPct >= 0 ? '#34d399' : '#f87171', fontSize: '12px' }}>
                             {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%

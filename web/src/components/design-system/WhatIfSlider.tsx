@@ -46,6 +46,11 @@ export function WhatIfSlider({
   const delta = projectedPayout - currentPayout;
   const deltaPercent = currentPayout > 0 ? ((delta / currentPayout) * 100).toFixed(1) : '0.0';
 
+  const fmtAmt = (v: number) => {
+    const fd = Math.abs(v) >= 10_000 ? 0 : 2;
+    return `${currency}${v.toLocaleString(undefined, { minimumFractionDigits: fd, maximumFractionDigits: fd })}`;
+  };
+
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = Number(e.target.value);
     setSliderValue(val);
@@ -109,13 +114,13 @@ export function WhatIfSlider({
         <div>
           <p className="text-[11px] text-zinc-400">Pago proyectado</p>
           <p className="text-lg font-bold text-zinc-100 tabular-nums">
-            {currency}{projectedPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            {fmtAmt(projectedPayout)}
           </p>
         </div>
         <div className="text-right">
           <p className="text-[11px] text-zinc-400">Delta vs actual</p>
           <p className={`text-sm font-medium tabular-nums ${delta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {delta >= 0 ? '+' : ''}{currency}{delta.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            {delta >= 0 ? '+' : ''}{fmtAmt(delta)}
             <span className="text-zinc-400 ml-1">({delta >= 0 ? '+' : ''}{deltaPercent}%)</span>
           </p>
         </div>

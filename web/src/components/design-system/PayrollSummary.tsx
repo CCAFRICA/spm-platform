@@ -29,6 +29,11 @@ function stateLabel(state?: string): string {
   return state;
 }
 
+function fmtCurrencyAmt(v: number, sym: string) {
+  const fd = Math.abs(v) >= 10_000 ? 0 : 2;
+  return `${sym}${v.toLocaleString(undefined, { minimumFractionDigits: fd, maximumFractionDigits: fd })}`;
+}
+
 function statePillColor(state?: string): 'emerald' | 'amber' | 'indigo' | 'zinc' {
   if (!state) return 'zinc';
   if (state === 'APPROVED' || state === 'POSTED' || state === 'PAID') return 'emerald';
@@ -71,6 +76,8 @@ export function PayrollSummary({
   }, [sorted, groupBy]);
 
   const total = rows.reduce((s, r) => s + r.totalPayout, 0);
+
+  const fmtAmt = (v: number) => fmtCurrencyAmt(v, currency);
 
   function toggleSort(col: SortCol) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -121,7 +128,7 @@ export function PayrollSummary({
             <td className="text-xs font-medium text-zinc-300 py-2 px-2">Total</td>
             {rows.some(r => r.entityType) && <td />}
             <td className="text-xs font-bold text-zinc-100 py-2 px-2 text-right tabular-nums">
-              {currency}{total.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {fmtAmt(total)}
             </td>
             <td className="text-xs text-zinc-400 py-2 px-2 text-center">{rows.length}</td>
             <td />
@@ -163,7 +170,7 @@ function GroupRows({
           <td className="text-xs text-zinc-300 py-1.5 px-2">{row.entityName}</td>
           {showType && <td className="text-[11px] text-zinc-400 py-1.5 px-2">{row.entityType ?? '-'}</td>}
           <td className="text-xs text-zinc-200 py-1.5 px-2 text-right tabular-nums">
-            {currency}{row.totalPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            {fmtCurrencyAmt(row.totalPayout, currency)}
           </td>
           <td className="text-xs text-zinc-400 py-1.5 px-2 text-center">{row.components}</td>
           <td className="py-1.5 px-2">

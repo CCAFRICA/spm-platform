@@ -13,6 +13,11 @@ interface CalculationWaterfallProps {
   currency?: string;
 }
 
+function fmtAmt(v: number, sym: string) {
+  const fd = Math.abs(v) >= 10_000 ? 0 : 2;
+  return `${sym}${v.toLocaleString(undefined, { minimumFractionDigits: fd, maximumFractionDigits: fd })}`;
+}
+
 export function CalculationWaterfall({ steps, currency = '$' }: CalculationWaterfallProps) {
   const bars = useMemo(() => {
     let runningTotal = 0;
@@ -89,7 +94,7 @@ export function CalculationWaterfall({ steps, currency = '$' }: CalculationWater
               />
             </div>
             <span className={`text-[11px] tabular-nums w-24 text-right flex-shrink-0 ${textColor}`}>
-              {bar.type === 'subtract' ? '-' : ''}{currency}{Math.abs(bar.value).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {bar.type === 'subtract' ? '-' : ''}{fmtAmt(Math.abs(bar.value), currency)}
             </span>
           </div>
         );
