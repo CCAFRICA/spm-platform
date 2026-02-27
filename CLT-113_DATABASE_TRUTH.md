@@ -113,3 +113,63 @@ Source: Live Supabase queries (bayqxeiltnpjrvflksfa.supabase.co)
 4. **Sabor has financial:true but also compensation:true**: Routing logic needs to handle this overlap.
 5. **Optica payout seems inflated**: $4.19B suggests either calculation scale issue or intentional test data.
 6. **Sabor has never run calculation**: Zero batches, zero results, despite having 47K committed data rows.
+
+---
+
+## PHASE 1: ROUTING TRUTH — WHERE DOES EACH TENANT ACTUALLY LAND?
+
+### Routing Code Location
+
+**Primary routing**: `web/src/app/operate/page.tsx:402-443` (HF-076 Decision 57)
+
+Logic chain:
+1. Line 395: `hasICM = ruleSetCount > 0` (from session-context)
+2. Line 393: `hasFinancial = useFeature('financial')` (checks tenant.features.financial)
+3. Line 408: `if (hasFinancial && !hasICM)` → redirect to `/financial`
+4. Line 415: `if (hasFinancial && hasICM)` → check recent activity, redirect to `/financial` if no calc batches
+5. Line 427: `if (hasICM && pipelineData.latestBatch)` → redirect to `/admin/launch/calculate`
+6. Line 434: `if (hasICM && pipelineData.dataRowCount > 0)` → redirect to `/data/import/enhanced`
+7. Line 441: fallthrough → redirect to `/data/import/enhanced`
+
+**useFinancialOnly hook**: `web/src/hooks/use-financial-only.ts:15-21`
+- Returns `hasFinancial && ruleSetCount === 0`
+- Used by Sidebar for nav filtering
+
+**ruleSetCount source**: `web/src/contexts/session-context.tsx:84`
+- `supabase.from('rule_sets').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId)`
+- **CRITICAL: Counts ALL rule_sets including archived. Does NOT filter by status=active.**
+
+### Per-Tenant Routing Analysis
+
+| Tenant | features.financial | ruleSetCount (all) | Active RS | hasFinancial | hasICM | Expected Landing | Actual Landing |
+|--------|-------------------|-------------------|-----------|-------------|--------|-----------------|----------------|
+| Sabor | true | 2 | 2 | TRUE | TRUE (2>0) | /financial (financial-only) | WRONG: Goes to dual-module path (line 415), then probably /data/import/enhanced (no calc batches) |
+| MBC | undefined (false) | 18 | 5 | FALSE | TRUE (18>0) | /admin/launch/calculate or /data/import/enhanced | Goes to line 427: has 1 batch → /admin/launch/calculate |
+| Optica | undefined (false) | 2 | 1 | FALSE | TRUE (2>0) | /admin/launch/calculate | Goes to line 427: has 6 batches → /admin/launch/calculate |
+
+### Root Causes
+
+**T-01: Sabor lands on /data/import/enhanced instead of /financial**
+- Root cause 1: `ruleSetCount` at session-context.tsx:84 counts ALL rule_sets (including archived) without filtering by status
+- Sabor has 2 rule sets (both active), so `hasICM = true`
+- HF-076 line 408 checks `hasFinancial && !hasICM` — evaluates to `true && false = false`
+- Falls through to dual-module path (line 415), then ICM path
+- Since Sabor has 0 calculation batches, it hits line 434 (data > 0) → /data/import/enhanced
+- **BUT WAIT**: The real design issue is that Sabor IS a dual-module tenant (financial + ICM rule sets). The `useFinancialOnly` hook was designed for tenants with financial but ZERO rule sets. Sabor has rule sets.
+- **Fix options**: Either (a) remove Sabor's rule sets if they're not real ICM plans, or (b) update routing to prioritize financial for tenants where financial is the primary module
+
+**T-02: MBC routing works correctly**
+- MBC has no financial feature, hasICM=true (18 rule sets), has 1 calc batch
+- Correctly routes to /admin/launch/calculate
+- No routing bug for MBC
+
+**T-03: Optica routing works correctly**
+- Optica has no financial feature, hasICM=true (2 rule sets), has 6 calc batches
+- Correctly routes to /admin/launch/calculate
+- No routing bug for Optica
+
+**T-04: ruleSetCount includes archived rule sets**
+- session-context.tsx:84 does NOT filter by status
+- MBC has 18 total but only 5 active — `ruleSetCount = 18`
+- This inflates the count but doesn't break routing (any > 0 means hasICM)
+- DOES affect useFinancialOnly: even if a tenant has only archived ICM plans, it won't be treated as financial-only
