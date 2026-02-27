@@ -146,6 +146,8 @@ interface AnalyzedSheet {
     sourceColumn: string;
     targetField: string;
     confidence: number;
+    reasoning?: string;  // OB-110: AI reasoning for mapping
+    warning?: string;    // OB-110: Calibration warning
   }>;
   headers: string[];
   rowCount: number;
@@ -212,6 +214,7 @@ interface SheetFieldMapping {
     confirmed: boolean;
     isRequired: boolean;
     tier: MappingTier;  // CLT-08: Track which tier this mapping is in
+    warning?: string;   // OB-110: Calibration warning from post-AI analysis
   }>;
   isComplete: boolean;
 }
@@ -1318,6 +1321,9 @@ function DataPackageImportPageInner() {
                 console.log(`[Field Mapping] ${header}: ${source} -> ${tier.toUpperCase()} -> "${effectiveTargetField}" (${Math.round(effectiveConfidence)}%)`);
               }
 
+              // OB-110: Pass through calibration warning from post-AI analysis
+              const calibrationWarning = (suggestion as { warning?: string } | undefined)?.warning;
+
               return {
                 sourceColumn: header,
                 targetField: effectiveTargetField,
@@ -1325,6 +1331,7 @@ function DataPackageImportPageInner() {
                 confirmed,
                 isRequired,
                 tier,
+                ...(calibrationWarning ? { warning: calibrationWarning } : {}),
               };
             });
 
@@ -2826,6 +2833,10 @@ function DataPackageImportPageInner() {
                               <Languages className="h-3 w-3" />
                               {translation}
                             </p>
+                          )}
+                          {/* OB-110: Calibration warning from post-AI analysis */}
+                          {mapping.warning && (
+                            <p className="text-amber-400 text-xs mt-1">⚠ {mapping.warning}</p>
                           )}
                         </div>
 

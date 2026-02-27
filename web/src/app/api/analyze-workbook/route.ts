@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAIService } from '@/lib/ai';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
-import { extractSampleValues, getFieldTypePromptList } from '@/lib/import-pipeline/smart-mapper';
+import { extractSampleValues, calibrateFieldMappings } from '@/lib/import-pipeline/smart-mapper';
 
 interface SheetSample {
   name: string;
@@ -113,6 +113,51 @@ ${headersStr}`;
     console.log('Tokens:', response.tokenUsage);
 
     const analysis = response.result;
+
+    // OB-110: Post-AI confidence calibration per sheet
+    // Cross-reference AI's suggested types against actual sample values
+    if (analysis.sheets && Array.isArray(analysis.sheets)) {
+      for (let i = 0; i < (analysis.sheets as unknown[]).length; i++) {
+        const sheet = (analysis.sheets as Array<{
+          name: string;
+          classification: string;
+          classificationConfidence: number;
+          suggestedFieldMappings?: Array<{ sourceColumn: string; targetField: string; confidence: number; reasoning?: string }>;
+        }>)[i];
+        const sourceSheet = sheets.find(s => s.name === sheet.name);
+        if (!sheet.suggestedFieldMappings || !sourceSheet) continue;
+
+        const sheetSamples = extractSampleValues(
+          sourceSheet.sampleRows as Record<string, unknown>[],
+          5
+        );
+
+        const rawMappings = sheet.suggestedFieldMappings.map(m => ({
+          column: m.sourceColumn,
+          target: m.targetField,
+          confidence: (m.confidence || 0) / 100, // Normalize to 0-1 for calibration
+          reasoning: m.reasoning || '',
+        }));
+
+        const calibrated = calibrateFieldMappings(rawMappings, sheetSamples);
+
+        // Write calibrated results back
+        sheet.suggestedFieldMappings = calibrated.map(c => ({
+          sourceColumn: c.column,
+          targetField: c.target,
+          confidence: Math.round(c.confidence * 100), // Back to 0-100
+          reasoning: c.reasoning,
+          ...(c.warning ? { warning: c.warning } : {}),
+        }));
+
+        // Log calibration adjustments
+        const adjusted = calibrated.filter(c => c.warning);
+        if (adjusted.length > 0) {
+          console.log(`[OB-110 Calibration] Sheet "${sheet.name}": ${adjusted.length} fields adjusted`);
+          adjusted.forEach(a => console.log(`  - "${a.column}": ${a.warning}`));
+        }
+      }
+    }
 
     console.log('\n========== PARSED ANALYSIS ==========');
     console.log('Sheets analyzed:', (analysis.sheets as unknown[])?.length || 0);
