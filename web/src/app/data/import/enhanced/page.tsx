@@ -1167,6 +1167,7 @@ function DataPackageImportPageInner() {
     entityCount: number;
     periodCount: number;
     periods: Array<{ key: string; id: string }>;
+    assignmentCount?: number; // OB-112: Rule set assignments created
     elapsedSeconds: number;
   } | null>(null);
 
@@ -2067,10 +2068,13 @@ function DataPackageImportPageInner() {
       const userId = user?.id || 'system';
 
       // OB-111: Multi-file commit — each file committed separately (PG-13)
+      // OB-112: Fix count aggregation — deduplicate entities/periods across files
       if (parsedFiles.length > 1) {
-        let totalRecords = 0, totalEntities = 0, totalPeriods = 0;
+        let totalRecords = 0;
         let lastBatchId: string | null = null;
-        const allPeriods: Array<{ key: string; id: string }> = [];
+        const periodMap: Record<string, string> = {}; // key → id (deduplicates across files)
+        let maxEntities = 0; // OB-112: Track highest entity count (each commit sees all entities)
+        let totalAssignments = 0;
         const startTime = Date.now();
 
         console.log(`[OB-111] Committing ${parsedFiles.length} files separately...`);
@@ -2163,25 +2167,36 @@ function DataPackageImportPageInner() {
           if (response.ok) {
             const result = await response.json();
             totalRecords += result.recordCount || 0;
-            totalEntities += result.entityCount || 0;
-            totalPeriods += result.periodCount || 0;
-            if (result.periods) allPeriods.push(...result.periods);
+            // OB-112: Deduplicate entity/period counts across files
+            // Each commit returns entityIdMap.size (all entities it resolved, not just new ones)
+            // Using max avoids inflating counts when files share entity populations
+            maxEntities = Math.max(maxEntities, result.entityCount || 0);
+            // Deduplicate periods by canonical key
+            if (result.periods) {
+              for (const p of result.periods as Array<{ key: string; id: string }>) {
+                periodMap[p.key] = p.id;
+              }
+            }
+            totalAssignments += result.assignmentCount || 0;
             lastBatchId = result.batchId;
-            console.log(`[OB-111] Committed ${pf.filename}: ${result.recordCount} records`);
+            console.log(`[OB-111] Committed ${pf.filename}: ${result.recordCount} records, ${result.entityCount} entities, ${result.periodCount} periods`);
           } else {
             console.error(`[OB-111] Commit failed for ${pf.filename}: ${response.status}`);
           }
         }
 
+        // OB-112: Use deduplicated counts
+        const allPeriods = Object.entries(periodMap).map(([key, id]) => ({ key, id }));
         const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
-        console.log(`[OB-111] Multi-file commit complete: ${totalRecords} records, ${totalEntities} entities in ${elapsedSeconds}s`);
+        console.log(`[OB-112] Multi-file commit complete: ${totalRecords} records, ${maxEntities} entities, ${allPeriods.length} periods, ${totalAssignments} assignments in ${elapsedSeconds}s`);
 
         setImportId(lastBatchId);
         setImportResult({
           recordCount: totalRecords,
-          entityCount: totalEntities,
-          periodCount: totalPeriods,
+          entityCount: maxEntities,
+          periodCount: allPeriods.length,
           periods: allPeriods,
+          assignmentCount: totalAssignments,
           elapsedSeconds,
         });
         setIsImporting(false);
@@ -2365,6 +2380,7 @@ function DataPackageImportPageInner() {
         entityCount: result.entityCount || 0,
         periodCount: result.periodCount || 0,
         periods: result.periods || [],
+        assignmentCount: result.assignmentCount || 0,
         elapsedSeconds: result.elapsedSeconds || 0,
       });
       setIsImporting(false);
@@ -4302,7 +4318,7 @@ function DataPackageImportPageInner() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-4">
+                  <div className="grid gap-4 md:grid-cols-5">
                     <div className="text-center p-4 bg-emerald-900/20 rounded-lg">
                       <p className="text-2xl font-bold text-emerald-400">
                         {importResult?.recordCount?.toLocaleString() || analysis?.sheets.reduce((sum, s) => sum + s.rowCount, 0).toLocaleString() || 0}
@@ -4325,6 +4341,15 @@ function DataPackageImportPageInner() {
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {isSpanish ? 'Períodos' : 'Periods'}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-emerald-900/20 rounded-lg">
+                      <p className="text-2xl font-bold text-emerald-400">
+                        {importResult?.assignmentCount || 0}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        <Link2 className="h-3 w-3 inline mr-1" />
+                        {isSpanish ? 'Asignaciones' : 'Assignments'}
                       </p>
                     </div>
                     <div className="text-center p-4 bg-emerald-900/20 rounded-lg">
