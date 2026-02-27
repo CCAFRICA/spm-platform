@@ -200,10 +200,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       module: "data_import",
       moduleId: "data",
       children: [
-        { name: isSpanish ? "Importar" : "Import", href: "/data/import", module: "data_import" },
-        { name: isSpanish ? "Importación Avanzada" : "Enhanced Import", href: "/data/import/enhanced", module: "data_import" },
-        { name: isSpanish ? "Operaciones Diarias" : "Daily Operations", href: "/data/operations", module: "data_import" },
-        { name: isSpanish ? "Preparación de Datos" : "Data Readiness", href: "/data/readiness", module: "data_import" },
+        { name: isSpanish ? "Importar Datos" : "Import Data", href: "/data/import/enhanced", module: "data_import" },
+        { name: isSpanish ? "Historial" : "Import History", href: "/operate/import/history", module: "data_import" },
         { name: isSpanish ? "Calidad de Datos" : "Data Quality", href: "/data/quality", module: "data_import" },
       ],
     },
