@@ -183,6 +183,63 @@ This eliminates the 0.5 default. When AI doesn't return confidence, it should be
 
 ---
 
+## PHASE 3: PLAN CONTEXT TRUTH — WHY WRONG PLAN EVERYWHERE
+
+### Plan Selection Logic
+
+**State**: `enhanced/page.tsx:1149` — `const [activePlan, setActivePlan] = useState<RuleSetConfig | null>(null);`
+
+**Load**: `enhanced/page.tsx:1191-1205` — useEffect on mount:
+```
+getRuleSets(tenantId)                              // rule-set-service.ts:96-116
+  → supabase.from('rule_sets').select('*')         // NO order, NO status filter
+    .eq('tenant_id', tenantId)
+  → plans.filter(p => p.status === 'active')       // Client-side active filter
+  → activePlans[0]                                 // FIRST in Supabase default order
+  → setActivePlan(first)
+```
+
+**Selection UI**: `enhanced/page.tsx:2871-2876` — dropdown that lets user change plan. But defaults to `activePlans[0]` on load.
+
+### MBC Active Plans in Supabase Default Order
+
+```
+[0] CFG Insurance Referral Program 2024  (59146196... created 2026-02-27 02:09:43)
+[1] Deposit Growth Incentive — Q1 2024   (ecc2507b... created 2026-02-27 02:10:06)
+[2] Mortgage Origination Bonus Plan 2024 (af511146... created 2026-02-27 02:10:46)
+[3] Consumer Lending Commission Plan 2024 (9ab2c0d1... created 2026-02-27 02:08:18)
+[4] Insurance Referral Program 2024      (574faa83... created 2026-02-26 17:24:29)
+```
+
+**activePlans[0] = "CFG Insurance Referral Program 2024"** — This is the wrong plan for deposit data imports.
+
+### Why 5 Active Plans Instead of 4
+
+MBC has TWO active insurance referral plans:
+- "CFG Insurance Referral Program 2024" (59146196...) — created 2026-02-27 02:09
+- "Insurance Referral Program 2024" (574faa83...) — created 2026-02-26 17:24
+
+These appear to be duplicate plans from separate import sessions. The "CFG" prefix version was created during the multi-file import (OB-111), while the non-prefixed version was from an earlier session.
+
+**Expected**: 4 unique plans (Deposit Growth, Mortgage Origination, Consumer Lending, Insurance Referral)
+**Actual**: 5 active plans (the 4 above + a duplicate insurance referral)
+
+### Root Cause Chain
+
+1. **No ORDER BY on rule_sets query**: `rule-set-service.ts:106-108` — Supabase returns in insertion order, making plan selection non-deterministic
+2. **First-in-array selection**: `enhanced/page.tsx:1197` — `activePlans[0]` is always the first in Supabase order, not the most relevant for the data being imported
+3. **No data→plan matching**: The import page doesn't analyze the uploaded files to auto-select the matching plan. User must manually switch.
+4. **Duplicate active plans**: Plan import doesn't deduplicate — each import creates a new row regardless of whether an identical plan name already exists as active.
+
+### Impact
+
+- All metrics on Validate and Approve pages reference the wrong plan's components
+- Calculation preview uses wrong plan's tiers/rates
+- Field mapping targets wrong plan's expected fields
+- User must manually select the correct plan from dropdown every time
+
+---
+
 ## PHASE 1: ROUTING TRUTH — WHERE DOES EACH TENANT ACTUALLY LAND?
 
 ### Routing Code Location
