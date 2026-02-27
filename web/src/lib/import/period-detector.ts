@@ -30,6 +30,7 @@ interface SheetInput {
   name: string;
   rows: Record<string, unknown>[];
   mappings: Array<{ sourceColumn: string; targetField: string | null }>;
+  classification?: string; // OB-107: sheet classification from AI analysis
 }
 
 /**
@@ -42,6 +43,10 @@ export function detectPeriods(sheets: SheetInput[]): PeriodDetectionResult {
 
   for (const sheet of sheets) {
     if (!sheet.rows || sheet.rows.length === 0) continue;
+
+    // OB-107: Skip roster/personnel sheets — their dates are entity attributes
+    // (e.g., HireDate), not performance period boundaries
+    if (sheet.classification === 'roster' || sheet.classification === 'unrelated') continue;
 
     // Find columns mapped to period-related targets
     const yearMapping = sheet.mappings.find(

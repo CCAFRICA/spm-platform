@@ -1465,14 +1465,19 @@ function DataPackageImportPageInner() {
       });
 
       // HF-053: Period detection using field mappings + full row data
-      const sheetsForDetection = fieldMappings.map(fm => ({
-        name: fm.sheetName,
-        rows: fullSheetData[fm.sheetName] || [],
-        mappings: fm.mappings.filter(m => m.targetField).map(m => ({
-          sourceColumn: m.sourceColumn,
-          targetField: m.targetField,
-        })),
-      }));
+      // OB-107: Pass sheet classification so roster dates don't create periods
+      const sheetsForDetection = fieldMappings.map(fm => {
+        const analyzedSheet = analysis.sheets.find(s => s.name === fm.sheetName);
+        return {
+          name: fm.sheetName,
+          rows: fullSheetData[fm.sheetName] || [],
+          mappings: fm.mappings.filter(m => m.targetField).map(m => ({
+            sourceColumn: m.sourceColumn,
+            targetField: m.targetField,
+          })),
+          classification: analyzedSheet?.classification,
+        };
+      });
       const periodDetectionResult = detectPeriods(sheetsForDetection);
 
       // Build periodInfo from detection result
@@ -2548,7 +2553,7 @@ function DataPackageImportPageInner() {
                       {isSpanish ? 'Componente Detectado' : 'Matched Component'}: {currentMappingSheet.matchedComponent}
                     </p>
                     <p className="text-xs text-green-700">
-                      {currentMappingSheet.matchedComponentConfidence}% {isSpanish ? 'confianza' : 'confidence'}
+                      {currentMappingSheet.matchedComponentConfidence ?? 0}% {isSpanish ? 'confianza' : 'confidence'}
                     </p>
                   </div>
                 </div>
@@ -2654,7 +2659,7 @@ function DataPackageImportPageInner() {
                           // CLT-08: Tier-based styling
                           mapping.tier === 'auto' && 'border-green-200 bg-green-50/50',
                           mapping.tier === 'suggested' && 'border-amber-200 bg-amber-50/30',
-                          mapping.tier === 'unresolved' && 'border-red-200 bg-red-50/30'
+                          mapping.tier === 'unresolved' && 'border-zinc-200 bg-zinc-50/30'
                         )}
                       >
                         <div className="flex-1 min-w-0">
@@ -2672,8 +2677,8 @@ function DataPackageImportPageInner() {
                               </Badge>
                             )}
                             {mapping.tier === 'unresolved' && (
-                              <Badge variant="outline" className="text-xs bg-red-100 text-red-700 border-red-300">
-                                {isSpanish ? 'Sin Resolver' : 'Unresolved'}
+                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                {isSpanish ? 'Se Preservará' : 'Will be preserved'}
                               </Badge>
                             )}
                           </div>
@@ -2692,7 +2697,7 @@ function DataPackageImportPageInner() {
                             className={cn(
                               'w-full p-2 border rounded-md text-sm',
                               mapping.targetField && 'border-primary',
-                              mapping.tier === 'unresolved' && !mapping.targetField && 'border-red-300'
+                              mapping.tier === 'unresolved' && !mapping.targetField && 'border-zinc-300'
                             )}
                             value={mapping.targetField || ''}
                             onChange={(e) => updateFieldMapping(
