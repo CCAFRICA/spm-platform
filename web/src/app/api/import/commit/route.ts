@@ -334,10 +334,26 @@ export async function POST(request: NextRequest) {
     console.log(`[ImportCommit] Entity map: ${entityIdMap.size} total`);
 
     // ── Step 7: Period deduplication ──
+    // OB-107: Build classification lookup from AI context to skip roster sheets
+    const sheetClassifications = new Map<string, string>();
+    if (aiContext?.sheets) {
+      for (const s of aiContext.sheets) {
+        sheetClassifications.set(s.sheetName, s.classification);
+      }
+    }
+
     const uniquePeriods = new Map<string, { year: number; month: number }>();
 
     for (const sheet of sheetData) {
       if (!sheet.mappings && !sheet.rows[0]) continue;
+
+      // OB-107: Skip roster/personnel sheets for period detection.
+      // Roster dates (HireDate, StartDate) are entity attributes, not performance boundaries.
+      const classification = sheetClassifications.get(sheet.sheetName);
+      if (classification === 'roster' || classification === 'unrelated') {
+        console.log(`[ImportCommit] Skipping period detection for ${classification} sheet: "${sheet.sheetName}"`);
+        continue;
+      }
 
       const yearCols: string[] = [];
       const monthCols: string[] = [];

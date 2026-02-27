@@ -932,6 +932,8 @@ function DataPackageImportPageInner() {
   const [newCustomField, setNewCustomField] = useState('');
 
   // Plan state
+  // OB-107: Load ALL active plans for multi-plan routing
+  const [allActivePlans, setAllActivePlans] = useState<RuleSetConfig[]>([]);
   const [activePlan, setActivePlan] = useState<RuleSetConfig | null>(null);
   const [targetFields, setTargetFields] = useState<TargetField[]>([]);
 
@@ -971,14 +973,20 @@ function DataPackageImportPageInner() {
   const tenantId = currentTenant?.id;
   const currency = currentTenant?.currency || 'MXN';
 
-  // Load tenant's active plan on mount
+  // Load tenant's active plans on mount
+  // OB-107: Load ALL active plans for multi-plan routing
   useEffect(() => {
     if (!tenantId) return; // Guard for when tenant not selected
     getRuleSets(tenantId)
       .then((plans) => {
-        const active = plans.find(p => p.status === 'active');
-        setActivePlan(active || null);
-        setTargetFields(extractTargetFieldsFromPlan(active || null));
+        const activePlans = plans.filter(p => p.status === 'active');
+        setAllActivePlans(activePlans);
+        const first = activePlans[0] || null;
+        setActivePlan(first);
+        setTargetFields(extractTargetFieldsFromPlan(first));
+        if (activePlans.length > 1) {
+          console.log(`[Smart Import] Multi-plan tenant: ${activePlans.length} active plans loaded`);
+        }
       })
       .catch((err) => console.error('Error loading rule sets:', err));
   }, [tenantId]);
@@ -1081,6 +1089,36 @@ function DataPackageImportPageInner() {
         })) || null;
       }
 
+      // OB-107: Read prior classification signals for closed-loop learning
+      const priorMappings: Array<{ sourceColumn: string; targetField: string; action: string }> = [];
+      if (tenantId) {
+        try {
+          const signalRes = await fetch(`/api/signals?tenant_id=${tenantId}&signal_type=field_mapping&limit=100`);
+          if (signalRes.ok) {
+            const signalData = await signalRes.json();
+            const signals = signalData.signals || [];
+            // Extract best mapping per source column (most recent wins)
+            const seen = new Set<string>();
+            for (const sig of signals) {
+              const sv = sig.signal_value as { source_column?: string; target_field?: string; action?: string } | null;
+              if (sv?.source_column && sv?.target_field && !seen.has(sv.source_column)) {
+                seen.add(sv.source_column);
+                priorMappings.push({
+                  sourceColumn: sv.source_column,
+                  targetField: sv.target_field,
+                  action: sv.action || 'accepted',
+                });
+              }
+            }
+            if (priorMappings.length > 0) {
+              console.log(`[Smart Import] Loaded ${priorMappings.length} prior mapping signals for tenant`);
+            }
+          }
+        } catch (err) {
+          console.warn('[Smart Import] Failed to load prior signals (non-blocking):', err);
+        }
+      }
+
       // Call the AI analysis endpoint
       const response = await fetch('/api/analyze-workbook', {
         method: 'POST',
@@ -1090,6 +1128,7 @@ function DataPackageImportPageInner() {
           tenantId,
           planComponents,
           expectedFields: null,
+          priorMappings: priorMappings.length > 0 ? priorMappings : undefined,
         }),
       });
 
@@ -1465,14 +1504,19 @@ function DataPackageImportPageInner() {
       });
 
       // HF-053: Period detection using field mappings + full row data
-      const sheetsForDetection = fieldMappings.map(fm => ({
-        name: fm.sheetName,
-        rows: fullSheetData[fm.sheetName] || [],
-        mappings: fm.mappings.filter(m => m.targetField).map(m => ({
-          sourceColumn: m.sourceColumn,
-          targetField: m.targetField,
-        })),
-      }));
+      // OB-107: Pass sheet classification so roster dates don't create periods
+      const sheetsForDetection = fieldMappings.map(fm => {
+        const analyzedSheet = analysis.sheets.find(s => s.name === fm.sheetName);
+        return {
+          name: fm.sheetName,
+          rows: fullSheetData[fm.sheetName] || [],
+          mappings: fm.mappings.filter(m => m.targetField).map(m => ({
+            sourceColumn: m.sourceColumn,
+            targetField: m.targetField,
+          })),
+          classification: analyzedSheet?.classification,
+        };
+      });
       const periodDetectionResult = detectPeriods(sheetsForDetection);
 
       // Build periodInfo from detection result
@@ -2273,6 +2317,43 @@ function DataPackageImportPageInner() {
                 </Badge>
               </div>
 
+              {/* OB-107: Multi-plan selector — shown when tenant has multiple active plans */}
+              {allActivePlans.length > 1 && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Database className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <p className="font-medium text-blue-800">
+                          {isSpanish ? 'Plan de Compensación' : 'Compensation Plan'}
+                        </p>
+                        <p className="text-xs text-blue-600">
+                          {isSpanish
+                            ? `${allActivePlans.length} planes activos — seleccione el plan para este archivo`
+                            : `${allActivePlans.length} active plans — select the plan for this file`}
+                        </p>
+                      </div>
+                    </div>
+                    <select
+                      className="px-3 py-2 border border-blue-300 rounded-md text-sm bg-white min-w-[200px]"
+                      value={activePlan?.id || ''}
+                      onChange={(e) => {
+                        const selectedPlan = allActivePlans.find(p => p.id === e.target.value) || null;
+                        setActivePlan(selectedPlan);
+                        setTargetFields(extractTargetFieldsFromPlan(selectedPlan));
+                        console.log(`[Smart Import] Plan changed to: ${selectedPlan?.name || 'none'}`);
+                      }}
+                    >
+                      {allActivePlans.map(plan => (
+                        <option key={plan.id} value={plan.id}>
+                          {plan.name || plan.id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               {/* AI Classification Alert */}
               {aiClassification && (
                 <div className={cn(
@@ -2548,7 +2629,7 @@ function DataPackageImportPageInner() {
                       {isSpanish ? 'Componente Detectado' : 'Matched Component'}: {currentMappingSheet.matchedComponent}
                     </p>
                     <p className="text-xs text-green-700">
-                      {currentMappingSheet.matchedComponentConfidence}% {isSpanish ? 'confianza' : 'confidence'}
+                      {currentMappingSheet.matchedComponentConfidence ?? 0}% {isSpanish ? 'confianza' : 'confidence'}
                     </p>
                   </div>
                 </div>
@@ -2654,7 +2735,7 @@ function DataPackageImportPageInner() {
                           // CLT-08: Tier-based styling
                           mapping.tier === 'auto' && 'border-green-200 bg-green-50/50',
                           mapping.tier === 'suggested' && 'border-amber-200 bg-amber-50/30',
-                          mapping.tier === 'unresolved' && 'border-red-200 bg-red-50/30'
+                          mapping.tier === 'unresolved' && 'border-zinc-200 bg-zinc-50/30'
                         )}
                       >
                         <div className="flex-1 min-w-0">
@@ -2672,8 +2753,8 @@ function DataPackageImportPageInner() {
                               </Badge>
                             )}
                             {mapping.tier === 'unresolved' && (
-                              <Badge variant="outline" className="text-xs bg-red-100 text-red-700 border-red-300">
-                                {isSpanish ? 'Sin Resolver' : 'Unresolved'}
+                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                {isSpanish ? 'Se Preservará' : 'Will be preserved'}
                               </Badge>
                             )}
                           </div>
@@ -2692,7 +2773,7 @@ function DataPackageImportPageInner() {
                             className={cn(
                               'w-full p-2 border rounded-md text-sm',
                               mapping.targetField && 'border-primary',
-                              mapping.tier === 'unresolved' && !mapping.targetField && 'border-red-300'
+                              mapping.tier === 'unresolved' && !mapping.targetField && 'border-zinc-300'
                             )}
                             value={mapping.targetField || ''}
                             onChange={(e) => updateFieldMapping(
