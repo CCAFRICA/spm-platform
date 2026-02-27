@@ -642,6 +642,21 @@ function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] 
     { id: 'quantity', label: 'Quantity', labelEs: 'Cantidad', isRequired: false, category: 'metric' },
     { id: 'storeRange', label: 'Store Range', labelEs: 'Rango Tienda', isRequired: false, category: 'identifier' },
 
+    // OB-110: Expanded taxonomy — new types for AI accuracy
+    { id: 'store_name', label: 'Store/Location Name', labelEs: 'Nombre Tienda', isRequired: false, category: 'identifier' },
+    { id: 'transaction_id', label: 'Transaction ID', labelEs: 'ID Transacción', isRequired: false, category: 'identifier' },
+    { id: 'reference_id', label: 'Reference ID', labelEs: 'ID Referencia', isRequired: false, category: 'identifier' },
+    { id: 'currency_code', label: 'Currency Code', labelEs: 'Código Moneda', isRequired: false, category: 'amount' },
+    { id: 'rate', label: 'Rate/Percentage', labelEs: 'Tasa/Porcentaje', isRequired: false, category: 'amount' },
+    { id: 'count_growth', label: 'Growth Count', labelEs: 'Conteo Crecimiento', isRequired: false, category: 'metric' },
+    { id: 'count_reduction', label: 'Reduction Count', labelEs: 'Conteo Reducción', isRequired: false, category: 'metric' },
+    { id: 'score', label: 'Score/Rating', labelEs: 'Puntaje/Calificación', isRequired: false, category: 'metric' },
+    { id: 'product_code', label: 'Product Code', labelEs: 'Código Producto', isRequired: false, category: 'classification' },
+    { id: 'product_name', label: 'Product Name', labelEs: 'Nombre Producto', isRequired: false, category: 'classification' },
+    { id: 'category', label: 'Category', labelEs: 'Categoría', isRequired: false, category: 'classification' },
+    { id: 'boolean_flag', label: 'Yes/No Flag', labelEs: 'Indicador Sí/No', isRequired: false, category: 'classification' },
+    { id: 'text', label: 'Text/Description', labelEs: 'Texto/Descripción', isRequired: false, category: 'custom' },
+
     // HF-065 F25: Hierarchy fields — common org structure data
     { id: 'branch_name', label: 'Branch Name', labelEs: 'Nombre de Sucursal', isRequired: false, category: 'hierarchy' },
     { id: 'branch_id', label: 'Branch ID', labelEs: 'ID Sucursal', isRequired: false, category: 'hierarchy' },
@@ -2795,7 +2810,7 @@ function DataPackageImportPageInner() {
                             </option>
 
                             {/* Required Fields Group */}
-                            <optgroup label={isSpanish ? 'Campos Requeridos' : 'Required Fields'}>
+                            <optgroup label={isSpanish ? '★ Campos Requeridos' : '★ Required Fields'}>
                               {targetFields.filter(f => f.isRequired).map(field => (
                                 <option key={field.id} value={field.id}>
                                   {isSpanish ? field.labelEs : field.label} *
@@ -2803,12 +2818,54 @@ function DataPackageImportPageInner() {
                               ))}
                             </optgroup>
 
-                            {/* Optional Fields Group */}
-                            <optgroup label={isSpanish ? 'Campos Opcionales' : 'Optional Fields'}>
-                              {targetFields.filter(f => !f.isRequired).map(field => (
+                            {/* OB-110: Category-grouped field types */}
+                            <optgroup label={isSpanish ? 'Identidad' : 'Identity'}>
+                              {targetFields.filter(f => !f.isRequired && f.category === 'identifier').map(field => (
                                 <option key={field.id} value={field.id}>
                                   {isSpanish ? field.labelEs : field.label}
                                   {field.componentName && ` (${field.componentName})`}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Temporal' : 'Temporal'}>
+                              {targetFields.filter(f => !f.isRequired && f.category === 'date').map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Financiero' : 'Financial'}>
+                              {targetFields.filter(f => !f.isRequired && f.category === 'amount').map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
+                                  {field.componentName && ` (${field.componentName})`}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Métricas' : 'Metrics'}>
+                              {targetFields.filter(f => !f.isRequired && f.category === 'metric').map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
+                                  {field.componentName && ` (${field.componentName})`}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Clasificación' : 'Classification'}>
+                              {targetFields.filter(f => !f.isRequired && (f.category === 'classification' || f.category === 'custom')).map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Organización' : 'Organization'}>
+                              {targetFields.filter(f => !f.isRequired && (f.category === 'hierarchy' || f.category === 'contact' || f.category === 'employment')).map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
                                 </option>
                               ))}
                             </optgroup>
