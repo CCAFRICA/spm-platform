@@ -477,7 +477,7 @@ function CalculatePageInner() {
               ) : (
                 <div className="flex flex-wrap gap-1">
                   {planStatus.activePlans.map(p => (
-                    <Badge key={p.id} variant="secondary" className="bg-green-100 text-green-800 border-green-300">
+                    <Badge key={p.id} variant="secondary" className="bg-emerald-900/50 text-emerald-300 border-emerald-600">
                       {p.name}
                     </Badge>
                   ))}
@@ -812,7 +812,7 @@ function CalculatePageInner() {
                   <TableBody>
                     {recentBatches.map((batch) => (
                       <TableRow key={batch.id}>
-                        <TableCell>{batch.period_id}</TableCell>
+                        <TableCell>{periodMap.get(batch.period_id) || batch.period_id.slice(0, 8)}</TableCell>
                         <TableCell>
                           <Badge className={getStateColor(batch.lifecycle_state)}>
                             {getStateLabel(batch.lifecycle_state)}

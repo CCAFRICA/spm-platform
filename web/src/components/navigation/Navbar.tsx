@@ -218,13 +218,13 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
                 {currentTenant.name}
               </span>
               {breadcrumbs.length > 0 && (
-                <ChevronRight className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
+                <ChevronRight className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
               )}
             </>
           )}
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1">
-              {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-zinc-600 shrink-0" />}
+              {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-zinc-500 shrink-0" />}
               {crumb.isHome && <Home className="h-3.5 w-3.5 text-zinc-400 shrink-0" />}
               <span
                 className={

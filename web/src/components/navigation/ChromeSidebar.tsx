@@ -559,9 +559,9 @@ function SectionNav({ section, wsAccent, isSpanish, collapsed, pathname, isExpan
             {routeCount}
           </span>
           {isExpanded ? (
-            <ChevronDown className="h-3 w-3 text-zinc-600" />
+            <ChevronDown className="h-3 w-3 text-zinc-400" />
           ) : (
-            <ChevronRight className="h-3 w-3 text-zinc-600" />
+            <ChevronRight className="h-3 w-3 text-zinc-400" />
           )}
         </span>
       </button>
