@@ -69,6 +69,7 @@ import type { RuleSetConfig, PlanComponent } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 // directCommitImportDataAsync removed — now uses server-side /api/import/commit
 import { detectPeriods, type PeriodDetectionResult } from '@/lib/import/period-detector';
+import { extractSampleValues } from '@/lib/import-pipeline/smart-mapper';
 
 interface AIImportContext {
   tenantId: string;
@@ -228,6 +229,26 @@ interface TargetField {
   category: 'identifier' | 'metric' | 'dimension' | 'date' | 'amount' | 'custom' | 'hierarchy' | 'contact' | 'employment' | 'classification';
   componentId?: string;
   componentName?: string;
+}
+
+// OB-111: Per-file parsed state for multi-file import
+interface ParsedFileState {
+  file: File;
+  filename: string;
+  fileIndex: number;
+  sheets: Array<{
+    name: string;
+    headers: string[];
+    rowCount: number;
+    sampleRows: Record<string, unknown>[];
+    sampleValues: Record<string, string[]>;
+  }>;
+  fullSheetData: Record<string, Record<string, unknown>[]>;
+  // Populated after AI analysis:
+  analysis: WorkbookAnalysis | null;
+  analysisConfidence: number;
+  fieldMappings: SheetFieldMapping[];
+  isAnalyzing: boolean;
 }
 
 // ============================================
@@ -996,7 +1017,8 @@ function DataPackageImportPageInner() {
   // Upload state - keep file reference for parsing all rows on submit
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [, setWorksheets] = useState<WorksheetInfo[]>([]);
-  const [fileQueue, setFileQueue] = useState<File[]>([]);
+  // OB-111: Multi-file state — each file parsed independently
+  const [parsedFiles, setParsedFiles] = useState<ParsedFileState[]>([]);
   const [periodsCreated, setPeriodsCreated] = useState(false);
 
   // Analysis state
@@ -1420,18 +1442,86 @@ function DataPackageImportPageInner() {
     await analyzeWorkbook(file);
   }, [analyzeWorkbook]);
 
-  // Drop zone handler — takes first file (multi-file handled via queue below)
+  // OB-111: Multi-file upload handler — parse ALL files independently before analysis
+  const handleMultiFileUpload = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+
+    // Parse all files independently (AP-12 compliance: NO buffer concatenation)
+    const parsed: ParsedFileState[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, {
+          type: 'array',
+          cellFormula: false,
+          cellNF: false,
+          cellStyles: false,
+        });
+
+        const fullData: Record<string, Record<string, unknown>[]> = {};
+        const sheets = workbook.SheetNames.map(name => {
+          const ws = workbook.Sheets[name];
+          const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+            defval: null,
+            raw: true,
+          });
+          const headers = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
+          fullData[name] = jsonData;
+          const sampleValues = extractSampleValues(jsonData.slice(0, 15) as Record<string, unknown>[], 5);
+
+          return {
+            name,
+            headers,
+            rowCount: jsonData.length,
+            sampleRows: jsonData.slice(0, 5),
+            sampleValues,
+          };
+        });
+
+        parsed.push({
+          file,
+          filename: file.name,
+          fileIndex: i,
+          sheets,
+          fullSheetData: fullData,
+          analysis: null,
+          analysisConfidence: 0,
+          fieldMappings: [],
+          isAnalyzing: false,
+        });
+      } catch (err) {
+        console.error(`[OB-111] Failed to parse ${file.name}:`, err);
+        parsed.push({
+          file,
+          filename: file.name,
+          fileIndex: i,
+          sheets: [],
+          fullSheetData: {},
+          analysis: null,
+          analysisConfidence: 0,
+          fieldMappings: [],
+          isAnalyzing: false,
+        });
+      }
+    }
+
+    setParsedFiles(parsed);
+    console.log(`[OB-111] Parsed ${parsed.length} files independently: ${parsed.map(p => `${p.filename} (${p.sheets.length} sheets, ${p.sheets.reduce((s, sh) => s + sh.rowCount, 0)} rows)`).join(', ')}`);
+
+    // Trigger analysis using existing single-file flow
+    // Phase 3 will add per-file parallel analysis
+    await handleFileSelect(files[0]);
+  }, [handleFileSelect]);
+
+  // Drop zone handler — OB-111: process ALL files, not just first
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      // Queue remaining files for batch processing
-      if (files.length > 1) {
-        setFileQueue(files.slice(1));
-      }
-      handleFileSelect(files[0]);
+      handleMultiFileUpload(files);
     }
-  }, [handleFileSelect]);
+  }, [handleMultiFileUpload]);
 
   // Update field mapping
   const updateFieldMapping = useCallback((sheetName: string, sourceColumn: string, targetField: string | null) => {
@@ -2354,10 +2444,7 @@ function DataPackageImportPageInner() {
                       onChange={(e) => {
                         const files = Array.from(e.target.files || []);
                         if (files.length > 0) {
-                          if (files.length > 1) {
-                            setFileQueue(files.slice(1));
-                          }
-                          handleFileSelect(files[0]);
+                          handleMultiFileUpload(files);
                         }
                       }}
                     />
@@ -2367,9 +2454,9 @@ function DataPackageImportPageInner() {
                         {isSpanish ? 'Seleccionar Archivos' : 'Select Files'}
                       </label>
                     </Button>
-                    {fileQueue.length > 0 && (
+                    {parsedFiles.length > 1 && (
                       <p className="text-sm text-muted-foreground">
-                        {fileQueue.length + 1} {isSpanish ? 'archivos seleccionados' : 'files selected'} — {isSpanish ? 'procesando el primero' : 'processing first'}
+                        {parsedFiles.length} {isSpanish ? 'archivos analizados' : 'files parsed'} — {parsedFiles.reduce((sum, f) => sum + f.sheets.reduce((s, sh) => s + sh.rowCount, 0), 0)} {isSpanish ? 'filas totales' : 'total rows'}
                       </p>
                     )}
                   </div>
@@ -3905,38 +3992,24 @@ function DataPackageImportPageInner() {
                 </CardContent>
               </Card>
 
-              {/* Multi-file: Process next file in queue */}
-              {fileQueue.length > 0 && (
+              {/* OB-111: Multi-file batch summary */}
+              {parsedFiles.length > 1 && (
                 <Card className="border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-blue-800 dark:text-blue-200">
-                        {fileQueue.length} {isSpanish ? 'archivos restantes en cola' : 'files remaining in queue'}
-                      </p>
-                      <p className="text-sm text-blue-600 dark:text-blue-300">
-                        {isSpanish ? 'Siguiente' : 'Next'}: {fileQueue[0]?.name}
-                      </p>
+                  <CardContent className="p-4">
+                    <p className="font-medium text-blue-800 dark:text-blue-200 mb-2">
+                      {parsedFiles.length} {isSpanish ? 'archivos procesados en este lote' : 'files processed in this batch'}
+                    </p>
+                    <div className="space-y-1">
+                      {parsedFiles.map((pf, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-300">
+                          <CheckCircle className="h-3 w-3" />
+                          <span>{pf.filename}</span>
+                          <span className="text-blue-400">
+                            ({pf.sheets.reduce((s, sh) => s + sh.rowCount, 0)} {isSpanish ? 'filas' : 'rows'})
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                    <Button
-                      onClick={() => {
-                        const nextFile = fileQueue[0];
-                        setFileQueue(prev => prev.slice(1));
-                        // Reset state for next file
-                        setCurrentStep('upload');
-                        setAnalysis(null);
-                        setFieldMappings([]);
-                        setValidationComplete(false);
-                        setValidationResult(null);
-                        setImportResult(null);
-                        setImportId(null);
-                        setImportComplete(false);
-                        setPeriodsCreated(false);
-                        if (nextFile) handleFileSelect(nextFile);
-                      }}
-                    >
-                      <ArrowRight className="h-4 w-4 mr-2" />
-                      {isSpanish ? 'Procesar Siguiente' : 'Process Next File'}
-                    </Button>
                   </CardContent>
                 </Card>
               )}
@@ -4026,6 +4099,7 @@ function DataPackageImportPageInner() {
                         // Reset all state for new import
                         setCurrentStep('upload');
                         setUploadedFile(null);
+                        setParsedFiles([]);
                         setAnalysis(null);
                         setFieldMappings([]);
                         setValidationResult(null);
