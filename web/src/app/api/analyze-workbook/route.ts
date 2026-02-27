@@ -3,11 +3,15 @@
  *
  * Server-side endpoint for AI-powered multi-sheet workbook analysis.
  * Uses AIService for provider abstraction and training signal capture.
+ *
+ * OB-110: Now passes full sample values per column (not just 2 rows × 5 cols)
+ * for accurate AI field classification.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAIService } from '@/lib/ai';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
+import { extractSampleValues, getFieldTypePromptList } from '@/lib/import-pipeline/smart-mapper';
 
 interface SheetSample {
   name: string;
@@ -42,21 +46,28 @@ export async function POST(request: NextRequest) {
     console.log('Plan components:', planComponents?.length || 0);
     console.log('Prior mapping signals:', priorMappings?.length || 0);
 
-    // Format sheets info for the prompt
+    // OB-110: Format sheets info with FULL sample values per column
+    // This is the key fix — AI needs sample VALUES to classify correctly,
+    // not just column headers.
     const sheetsInfo = sheets.map((sheet, i) => {
-      const headersStr = sheet.headers.map((h, j) => `    ${j + 1}. "${h}"`).join('\n');
-      const sampleStr = sheet.sampleRows.slice(0, 2).map((row, j) => {
-        const values = sheet.headers.slice(0, 5).map(h => `${h}: ${row[h] ?? 'null'}`).join(', ');
-        return `    Sample ${j + 1}: { ${values}${sheet.headers.length > 5 ? ', ...' : ''} }`;
+      const sampleValues = extractSampleValues(
+        sheet.sampleRows as Record<string, unknown>[],
+        5
+      );
+
+      const headersStr = sheet.headers.map((h, j) => {
+        const samples = sampleValues[h] || [];
+        const sampleStr = samples.length > 0
+          ? `  sample values: [${samples.map(s => `"${s}"`).join(', ')}]`
+          : '  (no sample values)';
+        return `    ${j + 1}. "${h}"\n${sampleStr}`;
       }).join('\n');
 
       return `
 Sheet ${i + 1}: "${sheet.name}"
   Row count: ${sheet.rowCount}
   Columns (${sheet.headers.length}):
-${headersStr}
-  Sample data:
-${sampleStr}`;
+${headersStr}`;
     }).join('\n\n');
 
     // Format plan components

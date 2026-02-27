@@ -593,15 +593,58 @@ function normalizeFieldWithPatterns(
   return { targetField: null, confidence: 0 };
 }
 
+// OB-110: Map AI's new snake_case types to existing camelCase dropdown IDs
+const AI_TYPE_TO_FIELD_ID: Record<string, string> = {
+  'entity_id': 'entityId',
+  'entity_name': 'name',
+  'store_id': 'storeId',
+  'store_name': 'store_name',
+  'transaction_id': 'transaction_id',
+  'reference_id': 'reference_id',
+  'date': 'date',
+  'period': 'period',
+  'amount': 'amount',
+  'currency_code': 'currency_code',
+  'rate': 'rate',
+  'count_growth': 'count_growth',
+  'count_reduction': 'count_reduction',
+  'quantity': 'quantity',
+  'achievement_pct': 'attainment',
+  'score': 'score',
+  'role': 'role',
+  'product_code': 'product_code',
+  'product_name': 'product_name',
+  'category': 'category',
+  'status': 'status',
+  'boolean_flag': 'boolean_flag',
+  'text': 'text',
+  'unknown': 'unknown',
+  // Legacy aliases the AI might still return
+  'entityId': 'entityId',
+  'storeId': 'storeId',
+  'name': 'name',
+  'attainment': 'attainment',
+  'goal': 'goal',
+  'storeRange': 'storeRange',
+};
+
 function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields: TargetField[]): string | null {
   if (!suggestion) return null;
+
+  // OB-110: First try direct mapping from AI type to dropdown ID
+  const directMap = AI_TYPE_TO_FIELD_ID[suggestion];
+  if (directMap) {
+    // Verify this ID exists in targetFields
+    const exists = targetFields.some(f => f.id === directMap);
+    if (exists) return directMap;
+  }
 
   const normalized = suggestion.toLowerCase().replace(/[\s_-]+/g, '_').trim();
 
   // Match against targetField id, label, and labelEs
   for (const field of targetFields) {
     if (!field?.id || !field?.label) continue;
-    const fieldNorm = field.id.toLowerCase();
+    const fieldNorm = field.id.toLowerCase().replace(/[\s_-]+/g, '_');
     const labelNorm = field.label.toLowerCase().replace(/[\s_-]+/g, '_');
     const labelEsNorm = field.labelEs?.toLowerCase().replace(/[\s_-]+/g, '_');
 
