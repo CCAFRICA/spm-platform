@@ -1004,6 +1004,117 @@ async function runSecondPassClassification(
   return updatedMappings;
 }
 
+// OB-111: Extracted three-tier mapping logic for reuse in multi-file flow
+async function buildThreeTierMappings(
+  analyzedSheets: AnalyzedSheet[],
+  inTargetFields: TargetField[],
+  activePlan: RuleSetConfig | null,
+  tenantId: string | undefined,
+): Promise<{ mappings: SheetFieldMapping[]; effectiveTargetFields: TargetField[] }> {
+  let effectiveTargetFields = inTargetFields;
+  if (effectiveTargetFields.length === 0) {
+    console.warn('[Field Mapping] targetFields is empty — using inline base fields fallback');
+    effectiveTargetFields = extractTargetFieldsFromPlan(activePlan);
+  }
+  console.log('[Field Mapping] Target fields available:', effectiveTargetFields.length);
+
+  let tier1Count = 0, tier2Count = 0, tier3Count = 0;
+  let patternMatchCount = 0;
+
+  const mappings: SheetFieldMapping[] = analyzedSheets
+    .filter((sheet) => sheet.classification !== 'unrelated')
+    .map((sheet) => {
+      const validHeaders = (sheet.headers || []).filter(h => h != null && h !== '');
+      const sheetMappings = validHeaders.map(header => {
+        const headerNorm = header?.toLowerCase()?.trim() || '';
+        const suggestion = sheet.suggestedFieldMappings?.find(
+          m => m?.sourceColumn && headerNorm && m.sourceColumn.toLowerCase().trim() === headerNorm
+        );
+        const aiConfidence = suggestion?.confidence || 0;
+
+        const normalizedTargetField = normalizeAISuggestionToFieldId(
+          suggestion?.targetField || null,
+          effectiveTargetFields
+        );
+
+        let effectiveTargetField = normalizedTargetField;
+        let effectiveConfidence = aiConfidence;
+        let usedPatternMatch = false;
+
+        if (!normalizedTargetField) {
+          const patternResult = normalizeFieldWithPatterns(header, effectiveTargetFields);
+          if (patternResult.targetField) {
+            effectiveTargetField = patternResult.targetField;
+            effectiveConfidence = patternResult.confidence * 100;
+            usedPatternMatch = true;
+            patternMatchCount++;
+          }
+        }
+
+        let tier: MappingTier;
+        let confirmed: boolean;
+        if (effectiveTargetField && effectiveConfidence >= 85 && !usedPatternMatch) {
+          tier = 'auto';
+          confirmed = true;
+          tier1Count++;
+        } else if (effectiveTargetField && (effectiveConfidence >= 60 || usedPatternMatch)) {
+          tier = 'suggested';
+          confirmed = false;
+          tier2Count++;
+        } else {
+          tier = 'unresolved';
+          effectiveTargetField = null;
+          confirmed = false;
+          tier3Count++;
+        }
+
+        const isRequired = effectiveTargetFields.find(f => f.id === effectiveTargetField)?.isRequired || false;
+        const calibrationWarning = (suggestion as { warning?: string } | undefined)?.warning;
+
+        return {
+          sourceColumn: header,
+          targetField: effectiveTargetField,
+          confidence: effectiveConfidence,
+          confirmed,
+          isRequired,
+          tier,
+          ...(calibrationWarning ? { warning: calibrationWarning } : {}),
+        };
+      });
+
+      const hasRequiredMappings = sheetMappings.some(m =>
+        m.targetField && effectiveTargetFields.find(f => f.id === m.targetField)?.isRequired
+      );
+
+      return {
+        sheetName: sheet.name,
+        mappings: sheetMappings,
+        isComplete: hasRequiredMappings,
+      };
+    });
+
+  console.log(`[Smart Import] Three-tier summary (BEFORE second pass):`);
+  console.log(`  Tier 1 (auto): ${tier1Count} | Tier 2 (suggested): ${tier2Count} (${patternMatchCount} pattern) | Tier 3 (unresolved): ${tier3Count}`);
+
+  let finalMappings = mappings;
+  if (tier3Count > 0 && activePlan && tenantId) {
+    console.log(`[Smart Import] ${tier3Count} unresolved fields — running second pass...`);
+    try {
+      finalMappings = await runSecondPassClassification(
+        analyzedSheets,
+        mappings,
+        activePlan,
+        effectiveTargetFields,
+        tenantId
+      );
+    } catch (err) {
+      console.warn('[Smart Import] Second pass failed, using first-pass results:', err);
+    }
+  }
+
+  return { mappings: finalMappings, effectiveTargetFields };
+}
+
 function DataPackageImportPageInner() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
@@ -1257,155 +1368,12 @@ function DataPackageImportPageInner() {
         });
         setAnalysisConfidence(data.confidence || 0);
 
-        // CLT-08 FIX: Three-tier auto-confirmation of AI mappings
-        // Tier 1 (auto): ≥85% — pre-selected and confirmed, no user action needed
-        // Tier 2 (suggested): 60-84% — pre-selected but flagged for review
-        // Tier 3 (unresolved): <60% — requires human selection
-
-        // HF-046 FIX: Guard against stale closure where targetFields is empty.
-        // If getRuleSets hasn't resolved yet (race condition), compute base fields inline.
-        // Without this, normalizeAISuggestionToFieldId returns null for EVERY field
-        // because targetFields.some() always returns false on an empty array.
-        let effectiveTargetFields = targetFields;
-        if (effectiveTargetFields.length === 0) {
-          console.warn('[Field Mapping] targetFields is empty — using inline base fields fallback');
-          effectiveTargetFields = extractTargetFieldsFromPlan(activePlan);
-          // Also update the state so Step 3 rendering has the fields for dropdowns
-          setTargetFields(effectiveTargetFields);
-        }
-        console.log('[Field Mapping] Target fields available:', effectiveTargetFields.length, effectiveTargetFields.map(f => f.id));
-
-        let tier1Count = 0, tier2Count = 0, tier3Count = 0;
-        let patternMatchCount = 0;
-
-        const mappings: SheetFieldMapping[] = analyzedSheets
-          .filter((sheet: AnalyzedSheet) => sheet.classification !== 'unrelated')
-          .map((sheet: AnalyzedSheet) => {
-            // Filter out undefined/empty headers
-            const validHeaders = (sheet.headers || []).filter(h => h != null && h !== '');
-            const sheetMappings = validHeaders.map(header => {
-              // Case-insensitive matching with whitespace normalization
-              const headerNorm = header?.toLowerCase()?.trim() || '';
-              const suggestion = sheet.suggestedFieldMappings?.find(
-                m => m?.sourceColumn && headerNorm && m.sourceColumn.toLowerCase().trim() === headerNorm
-              );
-              const aiConfidence = suggestion?.confidence || 0;
-
-              // Normalize AI suggestion to a valid dropdown option ID
-              const normalizedTargetField = normalizeAISuggestionToFieldId(
-                suggestion?.targetField || null,
-                effectiveTargetFields
-              );
-
-              // CLT-08 FIX 2: If AI didn't provide a mapping, try compound pattern matching
-              let effectiveTargetField = normalizedTargetField;
-              let effectiveConfidence = aiConfidence;
-              let usedPatternMatch = false;
-
-              if (!normalizedTargetField) {
-                const patternResult = normalizeFieldWithPatterns(header, effectiveTargetFields);
-                if (patternResult.targetField) {
-                  effectiveTargetField = patternResult.targetField;
-                  effectiveConfidence = patternResult.confidence * 100; // Convert to percentage
-                  usedPatternMatch = true;
-                  patternMatchCount++;
-                  console.log(`[Field Mapping] Pattern match: "${header}" -> "${patternResult.targetField}" (${Math.round(effectiveConfidence)}%)`);
-                }
-              }
-
-              // CLT-08: Determine tier based on confidence AND whether we have a valid mapping
-              let tier: MappingTier;
-              let confirmed: boolean;
-
-              if (effectiveTargetField && effectiveConfidence >= 85 && !usedPatternMatch) {
-                // Tier 1: Auto-confirmed — high AI confidence, pre-selected
-                tier = 'auto';
-                confirmed = true;
-                tier1Count++;
-              } else if (effectiveTargetField && (effectiveConfidence >= 60 || usedPatternMatch)) {
-                // Tier 2: Suggested — medium confidence OR pattern match, needs review
-                tier = 'suggested';
-                confirmed = false;
-                tier2Count++;
-              } else {
-                // Tier 3: Unresolved — no mapping found
-                tier = 'unresolved';
-                effectiveTargetField = null;
-                confirmed = false;
-                tier3Count++;
-              }
-
-              const isRequired = effectiveTargetFields.find(f => f.id === effectiveTargetField)?.isRequired || false;
-
-              // Debug logging for all tiers
-              if (tier !== 'unresolved') {
-                const source = usedPatternMatch ? 'PATTERN' : 'AI';
-                console.log(`[Field Mapping] ${header}: ${source} -> ${tier.toUpperCase()} -> "${effectiveTargetField}" (${Math.round(effectiveConfidence)}%)`);
-              }
-
-              // OB-110: Pass through calibration warning from post-AI analysis
-              const calibrationWarning = (suggestion as { warning?: string } | undefined)?.warning;
-
-              return {
-                sourceColumn: header,
-                targetField: effectiveTargetField,
-                confidence: effectiveConfidence, // Use effective confidence (may be from pattern match)
-                confirmed,
-                isRequired,
-                tier,
-                ...(calibrationWarning ? { warning: calibrationWarning } : {}),
-              };
-            });
-
-            // Check if required fields are mapped
-            const hasRequiredMappings = sheetMappings.some(m =>
-              m.targetField && effectiveTargetFields.find(f => f.id === m.targetField)?.isRequired
-            );
-
-            return {
-              sheetName: sheet.name,
-              mappings: sheetMappings,
-              isComplete: hasRequiredMappings,
-            };
-          });
-
-        // CLT-08: Log tier summary for zero-touch verification
-        console.log(`[Smart Import] Three-tier summary (BEFORE second pass):`);
-        console.log(`  Tier 1 (auto-confirmed, ≥85%): ${tier1Count} fields`);
-        console.log(`  Tier 2 (suggested, 60-84% or pattern): ${tier2Count} fields (${patternMatchCount} from pattern matching)`);
-        console.log(`  Tier 3 (unresolved, <60%): ${tier3Count} fields`);
-        console.log(`  Total: ${tier1Count + tier2Count + tier3Count} fields`);
-
-        // CLT-08 FIX 2: Run second-pass classification for unresolved fields
-        let finalMappings = mappings;
-        if (tier3Count > 0 && activePlan && tenantId) {
-          console.log(`[Smart Import] ${tier3Count} unresolved fields — running plan-context second pass...`);
-          try {
-            finalMappings = await runSecondPassClassification(
-              analyzedSheets,
-              mappings,
-              activePlan,
-              effectiveTargetFields,
-              tenantId
-            );
-
-            // Recount tiers after second pass
-            let newTier1 = 0, newTier2 = 0, newTier3 = 0;
-            for (const sheet of finalMappings) {
-              for (const m of sheet.mappings) {
-                if (m.tier === 'auto') newTier1++;
-                else if (m.tier === 'suggested') newTier2++;
-                else newTier3++;
-              }
-            }
-            console.log(`[Smart Import] Three-tier summary (AFTER second pass):`);
-            console.log(`  Tier 1 (auto): ${newTier1} fields`);
-            console.log(`  Tier 2 (suggested): ${newTier2} fields`);
-            console.log(`  Tier 3 (unresolved): ${newTier3} fields`);
-            console.log(`[Smart Import] Second pass resolved ${tier3Count - newTier3} fields`);
-          } catch (err) {
-            console.warn('[Smart Import] Second pass failed, using first-pass results:', err);
-          }
+        // OB-111: Use extracted buildThreeTierMappings for reuse in multi-file flow
+        const { mappings: finalMappings, effectiveTargetFields: etf } = await buildThreeTierMappings(
+          analyzedSheets, targetFields, activePlan, tenantId
+        );
+        if (etf.length > 0 && targetFields.length === 0) {
+          setTargetFields(etf);
         }
 
         setFieldMappings(finalMappings);
@@ -1442,11 +1410,25 @@ function DataPackageImportPageInner() {
     await analyzeWorkbook(file);
   }, [analyzeWorkbook]);
 
-  // OB-111: Multi-file upload handler — parse ALL files independently before analysis
+  // OB-111: Multi-file upload handler — parse ALL files independently, analyze each
   const handleMultiFileUpload = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
 
-    // Parse all files independently (AP-12 compliance: NO buffer concatenation)
+    // Single file: use existing optimized path
+    if (files.length === 1) {
+      setParsedFiles([]); // Will be populated if needed later
+      await handleFileSelect(files[0]);
+      return;
+    }
+
+    // MULTI-FILE PATH (OB-111)
+    setIsProcessing(true);
+    setError(null);
+    setAnalysis(null);
+    setFieldMappings([]);
+    setUploadedFile(files[0]); // Keep first file ref for commit compat
+
+    // Step 1: Parse all files independently (AP-12 compliance)
     const parsed: ParsedFileState[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -1488,7 +1470,7 @@ function DataPackageImportPageInner() {
           analysis: null,
           analysisConfidence: 0,
           fieldMappings: [],
-          isAnalyzing: false,
+          isAnalyzing: true,
         });
       } catch (err) {
         console.error(`[OB-111] Failed to parse ${file.name}:`, err);
@@ -1507,12 +1489,162 @@ function DataPackageImportPageInner() {
     }
 
     setParsedFiles(parsed);
-    console.log(`[OB-111] Parsed ${parsed.length} files independently: ${parsed.map(p => `${p.filename} (${p.sheets.length} sheets, ${p.sheets.reduce((s, sh) => s + sh.rowCount, 0)} rows)`).join(', ')}`);
+    console.log(`[OB-111] Parsed ${parsed.length} files independently`);
 
-    // Trigger analysis using existing single-file flow
-    // Phase 3 will add per-file parallel analysis
-    await handleFileSelect(files[0]);
-  }, [handleFileSelect]);
+    try {
+      // Step 2: Get shared context (plan components + prior mappings)
+      let planComponents = null;
+      if (activePlan?.configuration && isAdditiveLookupConfig(activePlan.configuration)) {
+        planComponents = activePlan.configuration.variants?.[0]?.components?.map(c => ({
+          id: c.id,
+          name: c.name,
+          type: c.componentType,
+        })) || null;
+      }
+
+      const priorMappings: Array<{ sourceColumn: string; targetField: string; action: string }> = [];
+      if (tenantId) {
+        try {
+          const signalRes = await fetch(`/api/signals?tenant_id=${tenantId}&signal_type=field_mapping&limit=100`);
+          if (signalRes.ok) {
+            const signalData = await signalRes.json();
+            const signals = signalData.signals || [];
+            const seen = new Set<string>();
+            for (const sig of signals) {
+              const sv = sig.signal_value as { source_column?: string; target_field?: string; action?: string } | null;
+              if (sv?.source_column && sv?.target_field && !seen.has(sv.source_column)) {
+                seen.add(sv.source_column);
+                priorMappings.push({
+                  sourceColumn: sv.source_column,
+                  targetField: sv.target_field,
+                  action: sv.action || 'accepted',
+                });
+              }
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      // Step 3: Analyze each file independently in PARALLEL (PG-09)
+      console.log(`[OB-111] Analyzing ${parsed.length} files in parallel...`);
+      const apiResults = await Promise.all(
+        parsed.map(async (pf) => {
+          if (pf.sheets.length === 0) return null;
+          try {
+            const response = await fetch('/api/analyze-workbook', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sheets: pf.sheets.map(s => ({
+                  name: s.name,
+                  headers: s.headers,
+                  rowCount: s.rowCount,
+                  sampleRows: s.sampleRows,
+                })),
+                tenantId,
+                planComponents,
+                expectedFields: null,
+                priorMappings: priorMappings.length > 0 ? priorMappings : undefined,
+              }),
+            });
+            if (!response.ok) throw new Error(`${response.status}`);
+            return await response.json();
+          } catch (err) {
+            console.error(`[OB-111] Analysis failed for ${pf.filename}:`, err);
+            return null;
+          }
+        })
+      );
+
+      // Step 4: Process results — merge all sheets with filename prefix
+      const allAnalyzedSheets: AnalyzedSheet[] = [];
+      const allFullSheetData: Record<string, Record<string, unknown>[]> = {};
+
+      for (let i = 0; i < parsed.length; i++) {
+        const pf = parsed[i];
+        const result = apiResults[i];
+
+        if (result?.success && result?.analysis) {
+          const prefix = `[${pf.filename}] `;
+          const analyzedSheets = (result.analysis.sheets as AnalyzedSheet[]).map(s => {
+            const sourceSheet = pf.sheets.find(ss => ss.name === s.name);
+            return {
+              ...s,
+              name: `${prefix}${s.name}`,
+              headers: sourceSheet?.headers || [],
+              rowCount: sourceSheet?.rowCount || 0,
+              sampleRows: sourceSheet?.sampleRows || [],
+            };
+          });
+          allAnalyzedSheets.push(...analyzedSheets);
+
+          // Merge full sheet data with prefixed names
+          for (const [sheetName, data] of Object.entries(pf.fullSheetData)) {
+            allFullSheetData[`${prefix}${sheetName}`] = data;
+          }
+
+          // Update per-file state
+          parsed[i] = {
+            ...pf,
+            analysis: result.analysis,
+            analysisConfidence: result.confidence || 0,
+            isAnalyzing: false,
+          };
+        } else {
+          parsed[i] = { ...pf, isAnalyzing: false };
+        }
+      }
+
+      setParsedFiles([...parsed]);
+      setFullSheetData(allFullSheetData);
+
+      // Step 5: Build merged analysis for downstream UI
+      const mergedAnalysis: WorkbookAnalysis = {
+        sheets: allAnalyzedSheets,
+        relationships: [],
+        sheetGroups: [],
+        rosterDetected: { found: false, sheetName: null, entityIdColumn: null, storeAssignmentColumn: null, canCreateUsers: false },
+        periodDetected: { found: false, dateColumn: '', dateRange: { start: null, end: null }, periodType: '' },
+        gaps: [],
+        extras: [],
+        overallConfidence: Math.round(
+          apiResults.reduce((sum, r) => sum + (r?.confidence || 0), 0) /
+          Math.max(apiResults.filter(r => r?.success).length, 1)
+        ),
+        summary: `${parsed.length} files analyzed with ${allAnalyzedSheets.length} total sheets`,
+      };
+
+      // Merge roster detection from any file
+      for (const result of apiResults) {
+        if (result?.analysis?.rosterDetected?.found) {
+          mergedAnalysis.rosterDetected = result.analysis.rosterDetected;
+          break;
+        }
+      }
+
+      setAnalysis(mergedAnalysis);
+      setAnalysisConfidence(mergedAnalysis.overallConfidence);
+
+      // Step 6: Build three-tier field mappings for ALL sheets
+      const { mappings: finalMappings, effectiveTargetFields: etf } = await buildThreeTierMappings(
+        allAnalyzedSheets, targetFields, activePlan, tenantId
+      );
+      if (etf.length > 0 && targetFields.length === 0) {
+        setTargetFields(etf);
+      }
+
+      setFieldMappings(finalMappings);
+      setCurrentMappingSheetIndex(0);
+      setCurrentStep('analyze');
+
+      console.log(`[OB-111] Multi-file analysis complete: ${allAnalyzedSheets.length} sheets, ${finalMappings.length} mappable`);
+    } catch (err) {
+      console.error('[OB-111] Multi-file analysis error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to analyze files');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [handleFileSelect, activePlan, tenantId, targetFields]);
 
   // Drop zone handler — OB-111: process ALL files, not just first
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -2484,6 +2616,80 @@ function DataPackageImportPageInner() {
                   {analysisConfidence}% {isSpanish ? 'confianza' : 'confidence'}
                 </Badge>
               </div>
+
+              {/* OB-111: Per-file summary cards (multi-file only) */}
+              {parsedFiles.length > 1 && (
+                <div className="space-y-3">
+                  <h3 className="font-medium flex items-center gap-2">
+                    <FileSpreadsheet className="h-4 w-4" />
+                    {parsedFiles.length} {isSpanish ? 'archivos cargados' : 'files uploaded'}
+                    <span className="text-muted-foreground text-sm font-normal">
+                      — {parsedFiles.reduce((sum, f) => sum + f.sheets.reduce((s, sh) => s + sh.rowCount, 0), 0)} {isSpanish ? 'filas totales' : 'total rows'}
+                    </span>
+                  </h3>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {parsedFiles.map((pf, idx) => (
+                      <div key={idx} className="border border-zinc-700 rounded-lg p-4 bg-zinc-800/30">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-zinc-400 text-sm font-mono bg-zinc-800 px-2 py-0.5 rounded">{idx + 1}</span>
+                            <h4 className="text-zinc-200 font-medium truncate">{pf.filename}</h4>
+                          </div>
+                          <span className="text-zinc-400 text-sm whitespace-nowrap">
+                            {pf.sheets.reduce((s, sh) => s + sh.rowCount, 0)} {isSpanish ? 'filas' : 'rows'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-zinc-500 mb-2">
+                          {pf.sheets.length} {pf.sheets.length !== 1 ? (isSpanish ? 'hojas' : 'sheets') : (isSpanish ? 'hoja' : 'sheet')} · {pf.sheets[0]?.headers.length || 0} {isSpanish ? 'columnas' : 'columns'}
+                        </div>
+                        {/* Classification result */}
+                        {pf.analysis && (
+                          <div className="flex flex-wrap items-center gap-1 mb-2">
+                            <Badge variant={pf.analysisConfidence >= 80 ? 'default' : 'secondary'} className="text-xs">
+                              {Math.round(pf.analysisConfidence)}% {isSpanish ? 'confianza' : 'confidence'}
+                            </Badge>
+                            {(pf.analysis.sheets as AnalyzedSheet[])?.map((s: AnalyzedSheet, si: number) => {
+                              const config = CLASSIFICATION_CONFIG[s.classification as SheetClassification];
+                              return config ? (
+                                <Badge key={si} variant="outline" className={cn('text-xs', config.color)}>
+                                  {isSpanish ? config.labelEs : config.label}
+                                </Badge>
+                              ) : null;
+                            })}
+                          </div>
+                        )}
+                        {pf.isAnalyzing && (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            {isSpanish ? 'Analizando...' : 'Analyzing...'}
+                          </div>
+                        )}
+                        {/* Column preview */}
+                        <div className="flex flex-wrap gap-1">
+                          {pf.sheets[0]?.headers.slice(0, 6).map((col, ci) => (
+                            <span key={ci} className="text-xs bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded">{col}</span>
+                          ))}
+                          {(pf.sheets[0]?.headers.length || 0) > 6 && (
+                            <span className="text-xs text-zinc-600">+{pf.sheets[0].headers.length - 6}</span>
+                          )}
+                        </div>
+                        {/* Multi-sheet file (e.g., XLSX with multiple tabs) */}
+                        {pf.sheets.length > 1 && (
+                          <div className="mt-2 space-y-0.5 border-t border-zinc-700/50 pt-2">
+                            {pf.sheets.map((sheet, si) => (
+                              <div key={si} className="flex items-center gap-2 text-xs text-zinc-500">
+                                <span className="font-mono">{si + 1}.</span>
+                                <span>{sheet.name}</span>
+                                <span className="text-zinc-600">· {sheet.rowCount} {isSpanish ? 'filas' : 'rows'} × {sheet.headers.length} {isSpanish ? 'cols' : 'cols'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* OB-107: Multi-plan selector — shown when tenant has multiple active plans */}
               {allActivePlans.length > 1 && (
