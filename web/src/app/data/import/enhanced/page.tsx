@@ -2066,7 +2066,131 @@ function DataPackageImportPageInner() {
     try {
       const userId = user?.id || 'system';
 
-      // ── HF-047: FILE-BASED IMPORT PIPELINE ──
+      // OB-111: Multi-file commit — each file committed separately (PG-13)
+      if (parsedFiles.length > 1) {
+        let totalRecords = 0, totalEntities = 0, totalPeriods = 0;
+        let lastBatchId: string | null = null;
+        const allPeriods: Array<{ key: string; id: string }> = [];
+        const startTime = Date.now();
+
+        console.log(`[OB-111] Committing ${parsedFiles.length} files separately...`);
+
+        for (const pf of parsedFiles) {
+          if (pf.sheets.length === 0) continue;
+
+          // Prepare upload for this file
+          const prepareResponse = await fetch('/api/import/prepare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId, fileName: pf.filename }),
+          });
+          if (!prepareResponse.ok) {
+            console.error(`[OB-111] Prepare failed for ${pf.filename}`);
+            continue;
+          }
+          const { storagePath, signedUrl, batchId } = await prepareResponse.json();
+
+          // Upload file to storage
+          const uploadResponse = await fetch(signedUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': pf.file.type || 'application/octet-stream' },
+            body: pf.file,
+          });
+          if (!uploadResponse.ok) {
+            console.error(`[OB-111] Upload failed for ${pf.filename}`);
+            continue;
+          }
+
+          // Build sheet mappings for THIS file (strip [filename] prefix)
+          const prefix = `[${pf.filename}] `;
+          const fileSheetMappings: Record<string, Record<string, string>> = {};
+          for (const fm of fieldMappings) {
+            if (!fm.sheetName.startsWith(prefix)) continue;
+            const originalName = fm.sheetName.slice(prefix.length);
+            const mappings: Record<string, string> = {};
+            fm.mappings.forEach(m => {
+              if (m.targetField) mappings[m.sourceColumn] = m.targetField;
+            });
+            if (Object.keys(mappings).length > 0) {
+              fileSheetMappings[originalName] = mappings;
+            }
+          }
+
+          // Build AI context for this file
+          const fileAnalysisSheets = (pf.analysis?.sheets as AnalyzedSheet[]) || [];
+          const fileImportContext: AIImportContext = {
+            tenantId,
+            batchId,
+            timestamp: new Date().toISOString(),
+            rosterSheet: pf.analysis?.rosterDetected?.sheetName || null,
+            rosterEmployeeIdColumn: pf.analysis?.rosterDetected?.entityIdColumn || null,
+            sheets: fileAnalysisSheets.map(sheet => {
+              const confirmedMapping = fieldMappings.find(fm => fm.sheetName === `${prefix}${sheet.name}`);
+              const sheetFieldMappings = confirmedMapping
+                ? confirmedMapping.mappings
+                    .filter(m => m.targetField)
+                    .map(m => ({ sourceColumn: m.sourceColumn, semanticType: m.targetField!, confidence: m.confidence }))
+                : (sheet.suggestedFieldMappings || [])
+                    .filter(fm => fm.targetField)
+                    .map(fm => ({ sourceColumn: fm.sourceColumn, semanticType: fm.targetField!, confidence: fm.confidence }));
+              return {
+                sheetName: sheet.name,
+                classification: sheet.classification,
+                matchedComponent: sheet.matchedComponent,
+                matchedComponentConfidence: sheet.matchedComponentConfidence,
+                fieldMappings: sheetFieldMappings,
+              };
+            }),
+          };
+
+          // Commit this file
+          const commitBody: Record<string, unknown> = {
+            tenantId,
+            userId,
+            fileName: pf.filename,
+            storagePath,
+            sheetMappings: fileSheetMappings,
+            detectedPeriods: validationResult?.detectedPeriods?.periods || [],
+            aiContext: fileImportContext,
+          };
+
+          const response = await fetch('/api/import/commit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(commitBody),
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            totalRecords += result.recordCount || 0;
+            totalEntities += result.entityCount || 0;
+            totalPeriods += result.periodCount || 0;
+            if (result.periods) allPeriods.push(...result.periods);
+            lastBatchId = result.batchId;
+            console.log(`[OB-111] Committed ${pf.filename}: ${result.recordCount} records`);
+          } else {
+            console.error(`[OB-111] Commit failed for ${pf.filename}: ${response.status}`);
+          }
+        }
+
+        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+        console.log(`[OB-111] Multi-file commit complete: ${totalRecords} records, ${totalEntities} entities in ${elapsedSeconds}s`);
+
+        setImportId(lastBatchId);
+        setImportResult({
+          recordCount: totalRecords,
+          entityCount: totalEntities,
+          periodCount: totalPeriods,
+          periods: allPeriods,
+          elapsedSeconds,
+        });
+        setIsImporting(false);
+        setImportComplete(true);
+        setCurrentStep('complete');
+        return; // Skip single-file flow below
+      }
+
+      // ── HF-047: FILE-BASED IMPORT PIPELINE (single file) ──
       // Step 1: Get signed upload URL from server
       console.log('[Import] Step 1: Preparing file upload...');
       const prepareResponse = await fetch('/api/import/prepare', {
@@ -2972,10 +3096,20 @@ function DataPackageImportPageInner() {
                     ))}
                   </div>
 
-                  {/* Current Sheet Info */}
+                  {/* Current Sheet Info — OB-111: show file context for multi-file */}
                   <div>
-                    <p className="font-medium">{currentMappingSheet.name}</p>
+                    <p className="font-medium">
+                      {parsedFiles.length > 1 && currentMappingSheet.name.startsWith('[')
+                        ? currentMappingSheet.name.split('] ').slice(1).join('] ')
+                        : currentMappingSheet.name}
+                    </p>
                     <p className="text-xs text-muted-foreground">
+                      {parsedFiles.length > 1 && currentMappingSheet.name.startsWith('[') && (
+                        <span className="text-blue-400 mr-2">
+                          <FileSpreadsheet className="h-3 w-3 inline mr-1" />
+                          {currentMappingSheet.name.split('] ')[0].slice(1)}
+                        </span>
+                      )}
                       {isSpanish ? 'Hoja' : 'Sheet'} {currentMappingSheetIndex + 1} / {mappableSheets.length}
                     </p>
                   </div>
@@ -3888,6 +4022,51 @@ function DataPackageImportPageInner() {
                         ? 'Estas advertencias no bloquean la importación, pero se recomienda revisar antes de aprobar.'
                         : 'These warnings do not block import, but review is recommended before approval.'}
                     </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* OB-111: Multi-file batch summary before commit */}
+              {parsedFiles.length > 1 && (
+                <Card className="border-blue-700 bg-blue-950/20">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Upload className="h-4 w-4 text-blue-400" />
+                      {isSpanish ? 'Resumen del Lote' : 'Batch Summary'} — {parsedFiles.length} {isSpanish ? 'archivos' : 'files'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {parsedFiles.map((pf, idx) => {
+                        const confidentMappings = pf.analysis
+                          ? fieldMappings
+                              .filter(fm => fm.sheetName.startsWith(`[${pf.filename}]`))
+                              .flatMap(fm => fm.mappings.filter(m => m.targetField && m.confidence >= 50)).length
+                          : 0;
+                        const totalMappings = pf.analysis
+                          ? fieldMappings
+                              .filter(fm => fm.sheetName.startsWith(`[${pf.filename}]`))
+                              .flatMap(fm => fm.mappings).length
+                          : 0;
+                        const totalRows = pf.sheets.reduce((s, sh) => s + sh.rowCount, 0);
+                        return (
+                          <div key={idx} className="flex items-center gap-3 p-2 rounded bg-zinc-800/50">
+                            <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm text-zinc-200 truncate block">{pf.filename}</span>
+                              <span className="text-xs text-zinc-500">
+                                {totalRows} {isSpanish ? 'filas' : 'rows'} · {confidentMappings}/{totalMappings} {isSpanish ? 'campos' : 'fields'}
+                              </span>
+                            </div>
+                            {pf.analysis && (
+                              <Badge variant="outline" className="text-xs shrink-0">
+                                {Math.round(pf.analysisConfidence)}%
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </CardContent>
                 </Card>
               )}
