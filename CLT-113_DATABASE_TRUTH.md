@@ -424,6 +424,67 @@ data_type: "Sheet1" — 1,611 rows (ALL financial data lumped together)
 
 ---
 
+## PHASE 6: REQUEST COUNT TRUTH — N+1 DIAGNOSIS
+
+### Query Sources Inventory
+
+**Import Page (enhanced/page.tsx)**: 4 `.from()` calls — relatively low. The import page makes most of its requests through API routes (/api/analyze-workbook, /api/import/commit), not direct Supabase queries.
+
+**Context Providers (mounted on every page):**
+
+| Context | Queries per Mount | Tables Queried | Trigger |
+|---------|-------------------|---------------|---------|
+| session-context.tsx | 6 | entities, periods, calculation_batches, rule_sets, import_batches, classification_signals | Tenant change |
+| navigation-context.tsx | 5 (via service calls) | calculation_batches, rule_sets, periods, entities, profiles | Mount + every 300s (OB-100: was 60s) |
+| persona-context.tsx | 2-6 | profiles, entities, profile_scope | Mount + persona change |
+| tenant-context.tsx | 1-2 | tenants | Mount |
+| locale-context.tsx | 1 | profiles | Mount |
+| operate-context.tsx | 3 | rule_sets, periods, calculation_batches | Mount (on /operate pages) |
+
+**Service Layer (web/src/lib/supabase/)**:
+- calculation-service.ts: 28 `.from()` calls (highest — includes pulse count functions with caching)
+- data-service.ts: 21 `.from()` calls
+- rule-set-service.ts: 16 `.from()` calls (with 30s cache TTL per OB-100)
+- entity-service.ts: 14 `.from()` calls
+
+### OB-100 N+1 Fixes Already Applied
+
+OB-100 was planned (in plan file) but the Phase 1 changes were already implemented:
+- navigation-context.tsx: `setInterval(refreshData, 300_000)` (line 220) — 5 min instead of 60s ✓
+- calculation-service.ts: `CACHE_TTL = 30_000` — 30s cache ✓
+- rule-set-service.ts: `RS_CACHE_TTL = 30_000` — 30s cache ✓
+- Pulse count functions: 60s cache per function ✓
+- `isRefreshingRef` prevents concurrent refreshes ✓
+
+### Top Repeated Query Sources
+
+1. **React Strict Mode double-mount** (dev only): Every context provider mounts twice in development, doubling all initial queries. This is expected React behavior and NOT a production issue.
+
+2. **session-context 6 parallel count queries**: Run on every tenant change. These are HEAD requests (count only) — lightweight but numerous.
+
+3. **navigation-context 5 service calls every 300s**: getCycleState, getAllPeriods, getNextAction, getClockQueueItems, getClockPulseMetrics. Each calls 1-3 Supabase queries internally.
+
+4. **persona-context entity queries**: For manager persona, runs profile lookup + entity scope queries. Multiple sequential queries with data dependencies (profile.id → entities).
+
+### Expected Request Profile (Post-OB-100)
+
+| Event | Estimated Requests | Source |
+|-------|-------------------|--------|
+| Fresh page load | ~20-25 | Context providers mount |
+| Page navigation | ~5-8 | Page-specific data + some context re-eval |
+| Background (per 5 min) | ~5 | navigation-context refreshData |
+| React Strict Mode (dev only) | 2x above | Double-mount, not in production |
+
+### Remaining N+1 Candidates
+
+1. **operate-context.tsx** queries rule_sets + periods + calculation_batches on mount. If a user navigates between /operate pages, this context re-initializes each time (3 queries per navigation).
+
+2. **persona-context.tsx** has sequential queries that could be parallelized further for the manager path (profile → profile_scope → entities chain).
+
+3. **getRuleSets (rule-set-service.ts:96-116)** queries ALL rule_sets with no status filter, then client-side filters to active. MBC sends 18 rows when only 5 are needed. Adding `&status=eq.active` would reduce payload.
+
+---
+
 ## PHASE 1: ROUTING TRUTH — WHERE DOES EACH TENANT ACTUALLY LAND?
 
 ### Routing Code Location
