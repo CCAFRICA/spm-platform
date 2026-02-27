@@ -2092,7 +2092,7 @@ function DataPackageImportPageInner() {
             <div className="flex items-center gap-2">
               <p className="font-medium truncate">{sheet.name}</p>
               <Badge variant="outline" className="text-xs">
-                {sheet.classificationConfidence}%
+                {(sheet.classificationConfidence || 0) > 0 ? `${sheet.classificationConfidence}%` : (isSpanish ? 'IA' : 'AI')}
               </Badge>
             </div>
             <p className="text-sm opacity-75">
@@ -3521,7 +3521,7 @@ function DataPackageImportPageInner() {
                       <p className={cn(
                         'text-3xl font-bold',
                         (validationResult?.overallScore || analysisConfidence) >= 80 ? 'text-emerald-400' :
-                        (validationResult?.overallScore || analysisConfidence) >= 60 ? 'text-yellow-600' : 'text-red-600'
+                        (validationResult?.overallScore || analysisConfidence) >= 60 ? 'text-amber-400' : 'text-red-400'
                       )}>
                         {validationResult?.overallScore || analysisConfidence}%
                       </p>
