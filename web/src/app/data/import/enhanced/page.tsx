@@ -225,7 +225,7 @@ interface TargetField {
   label: string;
   labelEs: string;
   isRequired: boolean;
-  category: 'identifier' | 'metric' | 'dimension' | 'date' | 'amount' | 'custom' | 'hierarchy' | 'contact' | 'employment';
+  category: 'identifier' | 'metric' | 'dimension' | 'date' | 'amount' | 'custom' | 'hierarchy' | 'contact' | 'employment' | 'classification';
   componentId?: string;
   componentName?: string;
 }
