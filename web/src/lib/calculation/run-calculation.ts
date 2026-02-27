@@ -483,10 +483,32 @@ export function buildMetricsForComponent(
       }
     } else {
       // Non-store metrics: entity + storeMatch ONLY (no aggregated store fallback)
-      resolvedMetrics[metricName] =
-        entityMetrics[semanticType] ??
-        storeMatchMetrics[semanticType] ??
-        0;
+      // First try literal semantic key (e.g., metrics["amount"])
+      let nonStoreResolved = entityMetrics[semanticType] ?? storeMatchMetrics[semanticType];
+
+      // OB-106: If literal key not found, search all keys by inferred semantic type.
+      // This handles metric name mismatches where the rule_set uses a generic name
+      // (e.g., "insurance_sales") but the data has a specific enriched key
+      // (e.g., "reactivacion_club_proteccion_sales") — both infer to "amount".
+      // OB-106: semanticType is already guaranteed non-'unknown' here (filtered at line 442)
+      if (nonStoreResolved === undefined) {
+        for (const [key, val] of Object.entries(entityMetrics)) {
+          if (inferSemanticType(key) === semanticType) {
+            nonStoreResolved = val;
+            break;
+          }
+        }
+      }
+      if (nonStoreResolved === undefined) {
+        for (const [key, val] of Object.entries(storeMatchMetrics)) {
+          if (inferSemanticType(key) === semanticType) {
+            nonStoreResolved = val;
+            break;
+          }
+        }
+      }
+
+      resolvedMetrics[metricName] = nonStoreResolved ?? 0;
     }
   }
 
