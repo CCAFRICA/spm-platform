@@ -301,6 +301,129 @@ These appear to be duplicate plans from separate import sessions. The "CFG" pref
 
 ---
 
+## PHASE 5: CALCULATION PIPELINE TRUTH — WHY $0.00
+
+### MBC Calculation State
+
+- **1 calculation batch** exists (lifecycle_state: PREVIEW)
+- **25 calculation results** — all with `total_payout: 0.0`
+- **Only 1 rule set calculated**: Mortgage Origination Bonus Plan 2024 (af511146...)
+- **Only 1 period**: 251c00c3... (one of the 4 periods)
+
+### The $0.00 Trace
+
+```
+Engine expects: metrics["quarterly_mortgage_origination_volume"]
+  ↑ From: component.tierConfig.metric (run-calculation.ts:329)
+  ↑ Component: Mortgage Origination Bonus (tier_lookup type)
+  ↑ Rule set: Mortgage Origination Bonus Plan 2024
+
+Engine finds in committed_data (aggregated via aggregateMetrics):
+  DisbursementDate, InterestRate, LoanAmount, OfficerID, Term_Months,
+  _rowIndex, amount, date, entityId, quantity, rate
+
+Engine resolves:
+  1. metrics["quarterly_mortgage_origination_volume"] → undefined
+  2. metrics["attainment"] → undefined
+  3. metricValue = 0 (fallback at run-calculation.ts:63)
+
+Tier lookup (evaluateTierLookup, line 62-85):
+  metricValue=0 → matches tier "Up to MXN 5,000,000" [0-5M]
+  tier.value = 0.002 (the RATE, not a fixed amount)
+  payout = 0.002
+
+But total_payout in DB = 0.0 (discrepancy with component payout 0.002)
+```
+
+### The Semantic Binding Gap
+
+This is the core architectural issue:
+
+```
+PLAN COMPONENT                    COMMITTED DATA ROW_DATA
+quarterly_mortgage_origination_volume    →    ???
+                                              LoanAmount: 3,036,733.58
+                                              InterestRate: 422.9
+                                              Term_Months: 690
+                                              DisbursementDate: 951476
+                                              OfficerID: 21105
+```
+
+**There is NO layer that maps `LoanAmount` → `quarterly_mortgage_origination_volume`.**
+
+The plan says "look up the metric called quarterly_mortgage_origination_volume in a tier table." The data has `LoanAmount` (the actual mortgage origination amount). But nothing tells the engine that `LoanAmount` IS `quarterly_mortgage_origination_volume`.
+
+### Why Optica Works But MBC Doesn't
+
+**Optica's data flow:**
+- import → AI classifies sheets → sheet names match component patterns (e.g., "Venta_Individual" matches optical/sales patterns)
+- `findMatchingSheet` (line 282-322) matches using SHEET_COMPONENT_PATTERNS (regex patterns for optical industry)
+- `aggregateMetrics` sums numeric fields → produces keys like "amount", "quantity", "attainment"
+- Component metrics use generic names like "attainment" which exist in the aggregated data
+
+**MBC's data flow:**
+- import → AI classifies → BUT all CSVs get data_type "Sheet1" (generic CSV default)
+- `findMatchingSheet("Mortgage Origination Bonus", ["Sheet1", "Personnel"])` → no match
+- Even if sheet matched, `aggregateMetrics` produces `LoanAmount`, `InterestRate` — NOT `quarterly_mortgage_origination_volume`
+- The metric name in the plan component is a BUSINESS concept, not a field name from the data
+
+### input_bindings: The Missing Link
+
+The `rule_sets.input_bindings` column (SCHEMA_REFERENCE.md:100) was designed for exactly this purpose:
+
+```json
+// WHAT input_bindings SHOULD contain:
+{
+  "quarterly_mortgage_origination_volume": {
+    "source_field": "LoanAmount",
+    "aggregation": "sum",
+    "period_scope": "quarterly"
+  }
+}
+```
+
+But for MBC, `input_bindings` is NULL/empty `{}` on ALL 5 active rule sets.
+
+The plan import (AI interpretation) creates component definitions with semantic metric names but NEVER populates input_bindings to map those names to actual data fields. This gap means the engine can never resolve metrics for any tenant whose data field names don't happen to match the component's metric names exactly.
+
+### Why the Engine Still Ran (and Produced Results)
+
+- `findMatchingSheet` at line 300-306 does fuzzy name matching: `normSheet.includes(normComponent)` or `normComponent.includes(normSheet)`
+- "Sheet1" doesn't contain "mortgage_origination_bonus" → no match
+- BUT the engine still runs — it just produces empty metrics for the component
+- With empty metrics, tier lookup evaluates `0` and matches the first tier
+- The payout (0.002 rate) gets stored but total_payout = 0.0
+
+### Optica Regression Check
+
+```
+Optica results: 3,607
+Total payout: $4,192,522,508.96
+```
+
+Previous expected: 719 results, ~$1,253,832. The current data shows significantly more results and higher totals — likely from additional calculation runs against new data (febrero 2026 import).
+
+### MBC Committed Data Structure
+
+```
+data_type: "Personnel" — 50 rows (employee roster)
+data_type: "Sheet1" — 1,611 rows (ALL financial data lumped together)
+```
+
+8 CSV files were imported but all got data_type "Sheet1" because CSV files don't have real sheet names (XLSX.js defaults to "Sheet1"). There's no way to distinguish deposit data from mortgage data from insurance data — it's all "Sheet1".
+
+### Root Cause Summary
+
+| Root Cause | Layer | Fix Type |
+|-----------|-------|----------|
+| input_bindings NULL on all rule sets | Data | Requires semantic binding layer in plan import |
+| Component metrics use business concepts, data has raw field names | Architecture | Need binding resolution: plan metric → data field |
+| CSV files all get data_type "Sheet1" | Import pipeline | Per-file data_type should use AI classification, not XLSX.js default |
+| findMatchingSheet can't match "Sheet1" to any component | Calculation | Needs input_bindings or AI context to resolve |
+| No per-file data_type differentiation | Import commit | Multi-file import should tag each file's committed_data with the classified type |
+
+---
+
 ## PHASE 1: ROUTING TRUTH — WHERE DOES EACH TENANT ACTUALLY LAND?
 
 ### Routing Code Location
