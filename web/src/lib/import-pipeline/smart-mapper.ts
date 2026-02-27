@@ -24,6 +24,237 @@ export interface MappingTemplate {
   usageCount: number;
 }
 
+// ============================================
+// OB-110: EXPANDED FIELD TYPE TAXONOMY (22 types)
+// ============================================
+
+/**
+ * Expanded field type taxonomy — 22 types organized by category.
+ *
+ * Design principles:
+ * - Korean Test compliant: no type depends on English column names
+ * - Directional metrics distinguished: growth ≠ reduction
+ * - Identity types distinguished: ID ≠ Name, Entity ≠ Store
+ * - Financial types distinguished: Amount ≠ Currency Code ≠ Rate
+ * - Every type has a description used in the AI prompt
+ *
+ * Source: OB-110 (alpha.2.0), derived from CLT-109 F-21/CLT-102 F-51
+ */
+export const BASE_FIELD_TYPES = {
+  // === Identity ===
+  entity_id:       { label: 'Entity ID',            category: 'identity',       description: 'Unique identifier for a person, account, or entity (numeric or alphanumeric code)' },
+  entity_name:     { label: 'Entity Name',           category: 'identity',       description: 'Display name of a person or entity — contains human-readable names like "Carlos Garcia"' },
+  store_id:        { label: 'Store/Location ID',     category: 'identity',       description: 'Identifier code for a store, branch, office, or location' },
+  store_name:      { label: 'Store/Location Name',   category: 'identity',       description: 'Human-readable name of a store, branch, office, or location' },
+  transaction_id:  { label: 'Transaction ID',        category: 'identity',       description: 'Unique identifier for a transaction, order, event, or record' },
+  reference_id:    { label: 'Reference ID',          category: 'identity',       description: 'A cross-reference to another record, system, or external identifier' },
+
+  // === Temporal ===
+  date:            { label: 'Date',                  category: 'temporal',       description: 'A date value — transaction date, snapshot date, hire date, effective date' },
+  period:          { label: 'Period',                category: 'temporal',       description: 'A time period label or identifier — month name, quarter label, period code' },
+
+  // === Financial ===
+  amount:          { label: 'Amount',                category: 'financial',      description: 'A monetary value — revenue, deposit balance, payout, sale total, balance' },
+  currency_code:   { label: 'Currency Code',         category: 'financial',      description: 'ISO currency code like USD, MXN, EUR — short text strings, NOT monetary amounts' },
+  rate:            { label: 'Rate/Percentage',       category: 'financial',      description: 'A rate, percentage, or ratio — commission rate, tip percentage, discount rate' },
+
+  // === Metrics (directional) ===
+  count_growth:    { label: 'Growth Count',          category: 'metric',         description: 'Count of items ADDED, opened, gained, acquired — new accounts, new customers, units sold' },
+  count_reduction: { label: 'Reduction Count',       category: 'metric',         description: 'Count of items REMOVED, closed, lost, churned — closed accounts, cancellations, returns' },
+  quantity:        { label: 'Quantity',              category: 'metric',         description: 'A generic count when direction is unclear or neutral — total items, headcount, visits' },
+  achievement_pct: { label: 'Achievement %',         category: 'metric',         description: 'Attainment or achievement as a percentage of goal or target' },
+  score:           { label: 'Score/Rating',          category: 'metric',         description: 'A performance score, quality rating, index value, or ranking number' },
+
+  // === Classification ===
+  role:            { label: 'Role/Position',         category: 'classification', description: 'Job title, role, position, or function — values like "Manager", "Sales Rep", "mesero"' },
+  product_code:    { label: 'Product Code',          category: 'classification', description: 'SKU, product ID, product code, or catalog number' },
+  product_name:    { label: 'Product Name',          category: 'classification', description: 'Product or service description or name' },
+  category:        { label: 'Category',              category: 'classification', description: 'A grouping label — department, division, segment, tier, type, class' },
+  status:          { label: 'Status',                category: 'classification', description: 'A status indicator — active, inactive, approved, pending, open, closed' },
+  boolean_flag:    { label: 'Yes/No Flag',           category: 'classification', description: 'A boolean or binary value — 0/1, true/false, yes/no, si/no' },
+
+  // === Other ===
+  text:            { label: 'Text/Description',      category: 'other',          description: 'Free text, notes, comments, or descriptions — not classifiable as a structured type' },
+  unknown:         { label: 'Unknown',               category: 'other',          description: 'Cannot determine field type — will be preserved in raw data regardless' },
+} as const;
+
+export type BaseFieldType = keyof typeof BASE_FIELD_TYPES;
+
+/**
+ * Backward compatibility aliases — map old keys to new.
+ * Handles both camelCase (existing platform IDs) and legacy names.
+ */
+export const FIELD_TYPE_ALIASES: Record<string, BaseFieldType> = {
+  // Legacy name aliases
+  'name': 'entity_name',
+  'employee_id': 'entity_id',
+  'location': 'store_name',
+  'location_id': 'store_id',
+  'percent': 'rate',
+  'pct': 'achievement_pct',
+  // CamelCase aliases (used by existing extractTargetFieldsFromPlan)
+  'entityId': 'entity_id',
+  'entityName': 'entity_name',
+  'storeId': 'store_id',
+  'storeName': 'store_name',
+  'transactionId': 'transaction_id',
+  'referenceId': 'reference_id',
+  'currencyCode': 'currency_code',
+  'currency': 'currency_code',
+  'countGrowth': 'count_growth',
+  'countReduction': 'count_reduction',
+  'achievementPct': 'achievement_pct',
+  'attainment': 'achievement_pct',
+  'goal': 'amount',  // goals are monetary amounts
+  'storeRange': 'category',
+  'productId': 'product_code',
+  'productName': 'product_name',
+  'boolean': 'boolean_flag',
+};
+
+/**
+ * Resolve a field type key to a canonical BaseFieldType.
+ * Handles aliases, camelCase variants, and direct keys.
+ */
+export function resolveFieldType(type: string): BaseFieldType {
+  if (type in BASE_FIELD_TYPES) return type as BaseFieldType;
+  if (type in FIELD_TYPE_ALIASES) return FIELD_TYPE_ALIASES[type];
+  return 'unknown';
+}
+
+/**
+ * Get all field types as an array for dropdown display.
+ * Grouped by category for UI organization.
+ */
+export function getFieldTypeOptions(): Array<{ value: string; label: string; category: string }> {
+  return Object.entries(BASE_FIELD_TYPES).map(([key, def]) => ({
+    value: key,
+    label: def.label,
+    category: def.category,
+  }));
+}
+
+/**
+ * Get field type descriptions for inclusion in AI prompts.
+ */
+export function getFieldTypePromptList(): string {
+  return Object.entries(BASE_FIELD_TYPES)
+    .map(([key, def]) => `- ${key}: ${def.description}`)
+    .join('\n');
+}
+
+/**
+ * Extract sample values from parsed row data for each column.
+ * Returns up to `maxSamples` non-null, non-empty values per column.
+ * Used to give the AI actual data examples for more accurate classification.
+ */
+export function extractSampleValues(
+  rows: Record<string, unknown>[],
+  maxSamples: number = 5
+): Record<string, string[]> {
+  const samples: Record<string, string[]> = {};
+  if (!rows || rows.length === 0) return samples;
+
+  const columns = Object.keys(rows[0]);
+  for (const col of columns) {
+    const checkRows = rows.slice(0, Math.min(maxSamples * 3, rows.length));
+    const values = checkRows
+      .map(row => row[col])
+      .filter(v => v !== null && v !== undefined && String(v).trim() !== '')
+      .slice(0, maxSamples)
+      .map(v => String(v).slice(0, 100));
+    samples[col] = values;
+  }
+  return samples;
+}
+
+/**
+ * Post-AI confidence calibration.
+ * Catches patterns the LLM might miss by cross-referencing
+ * the AI's suggested type against actual sample values.
+ */
+export function calibrateFieldMappings(
+  mappings: Array<{ column: string; target: string; confidence: number; reasoning: string }>,
+  sampleValues: Record<string, string[]>
+): Array<{ column: string; target: string; confidence: number; reasoning: string; warning?: string }> {
+
+  const calibrated = mappings.map(m => {
+    const samples = sampleValues[m.column] || [];
+    let adjusted = m.confidence;
+    let warning: string | undefined;
+
+    // Rule 1: "amount" target but samples contain non-numeric text
+    if (m.target === 'amount' && samples.length > 0) {
+      const numericCount = samples.filter(v => !isNaN(Number(v.replace(/[,$.\s]/g, '')))).length;
+      if (numericCount < samples.length * 0.5) {
+        adjusted = Math.min(adjusted, 0.25);
+        warning = 'Sample values contain non-numeric text but mapped to Amount. Check if this should be currency_code or text.';
+      }
+    }
+
+    // Rule 2: "entity_name" or "role" but all samples are numeric
+    if (['entity_name', 'role'].includes(m.target) && samples.length > 0) {
+      const allNumeric = samples.every(v => !isNaN(Number(v)));
+      if (allNumeric) {
+        adjusted = Math.min(adjusted, 0.35);
+        warning = `Sample values are all numeric but mapped to ${m.target}. Check if this should be entity_id or score.`;
+      }
+    }
+
+    // Rule 3: "currency_code" but samples are numeric (probably amount)
+    if (m.target === 'currency_code' && samples.length > 0) {
+      const allNumeric = samples.every(v => !isNaN(Number(v.replace(/[,$.\s]/g, ''))));
+      if (allNumeric) {
+        adjusted = Math.min(adjusted, 0.35);
+        warning = 'Sample values are numeric but mapped to Currency Code. Check if this should be amount.';
+      }
+    }
+
+    // Rule 4: "date" but samples don't look like dates
+    if (m.target === 'date' && samples.length > 0) {
+      const datePattern = /\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}|\d{5,}/;
+      const looksLikeDate = samples.some(v => datePattern.test(v));
+      if (!looksLikeDate) {
+        adjusted = Math.min(adjusted, 0.40);
+        warning = "Sample values don't look like dates. Check mapping.";
+      }
+    }
+
+    // Rule 5: All sample values identical — possible default or placeholder
+    if (samples.length >= 3) {
+      const unique = new Set(samples);
+      if (unique.size === 1) {
+        adjusted = Math.min(adjusted, Math.max(m.confidence - 0.2, 0.3));
+        warning = (warning ? warning + ' ' : '') + `All sample values identical ("${samples[0]}") — possible default value.`;
+      }
+    }
+
+    return { ...m, confidence: Math.round(adjusted * 100) / 100, warning };
+  });
+
+  // Batch-level: detect duplicate target assignments for different columns
+  const targetCounts = new Map<string, string[]>();
+  for (const m of calibrated) {
+    if (m.target === 'unknown' || m.target === 'text') continue;
+    const existing = targetCounts.get(m.target) || [];
+    existing.push(m.column);
+    targetCounts.set(m.target, existing);
+  }
+
+  return calibrated.map(m => {
+    const dupes = targetCounts.get(m.target) || [];
+    if (dupes.length > 1 && m.target !== 'amount' && m.target !== 'date') {
+      return {
+        ...m,
+        confidence: Math.min(m.confidence, 0.50),
+        warning: (m.warning ? m.warning + ' ' : '') +
+          `Multiple columns mapped to "${m.target}": [${dupes.join(', ')}]. Consider using more specific types (e.g., count_growth vs count_reduction).`,
+      };
+    }
+    return m;
+  });
+}
+
 // Platform fields that can be mapped to
 const PLATFORM_FIELDS = [
   { name: 'orderId', label: 'Order ID', labelEs: 'ID de Pedido', required: false },

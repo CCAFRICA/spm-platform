@@ -26,7 +26,7 @@ import {
   Save,
 } from 'lucide-react';
 import type { FieldMapping } from '@/lib/import-pipeline/smart-mapper';
-import { getPlatformFields } from '@/lib/import-pipeline/smart-mapper';
+import { getPlatformFields, getFieldTypeOptions } from '@/lib/import-pipeline/smart-mapper';
 import { useLocale } from '@/contexts/locale-context';
 import { cn } from '@/lib/utils';
 
@@ -48,6 +48,7 @@ export function FieldMapper({
   const [templateName, setTemplateName] = useState('');
 
   const platformFields = getPlatformFields();
+  const expandedTypes = getFieldTypeOptions();
   const requiredFields = platformFields.filter((f) => f.required).map((f) => f.name);
 
   const handleMappingChange = (sourceField: string, targetField: string | null) => {
@@ -201,10 +202,39 @@ export function FieldMapper({
                     <SelectContent>
                       <SelectItem value="none">
                         <span className="text-muted-foreground">
-                          {isSpanish ? '— No mapear —' : '— Don\'t map —'}
+                          {isSpanish ? '— No mapear —' : "— Don't map —"}
                         </span>
                       </SelectItem>
-                      {platformFields.map((field) => {
+                      {/* OB-110: Grouped by category from expanded taxonomy */}
+                      {(['identity', 'temporal', 'financial', 'metric', 'classification', 'other'] as const).map(cat => {
+                        const catFields = expandedTypes.filter(f => f.category === cat);
+                        if (catFields.length === 0) return null;
+                        const catLabel = { identity: 'Identity', temporal: 'Temporal', financial: 'Financial', metric: 'Metrics', classification: 'Classification', other: 'Other' }[cat];
+                        return catFields.map((field) => {
+                          const isAlreadyMapped = mappings.some(
+                            (m) => m.targetField === field.value && m.sourceField !== mapping.sourceField
+                          );
+                          return (
+                            <SelectItem
+                              key={field.value}
+                              value={field.value}
+                              disabled={isAlreadyMapped}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">[{catLabel}]</span>
+                                <span>{field.label}</span>
+                                {isAlreadyMapped && (
+                                  <span className="text-xs text-muted-foreground">
+                                    ({isSpanish ? 'ya mapeado' : 'already mapped'})
+                                  </span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          );
+                        });
+                      })}
+                      {/* Legacy platform fields for backward compatibility */}
+                      {platformFields.filter(pf => !expandedTypes.some(et => et.value === pf.name)).map((field) => {
                         const isAlreadyMapped = mappings.some(
                           (m) => m.targetField === field.name && m.sourceField !== mapping.sourceField
                         );
@@ -218,11 +248,6 @@ export function FieldMapper({
                               <span>{isSpanish ? field.labelEs : field.label}</span>
                               {field.required && (
                                 <span className="text-red-500">*</span>
-                              )}
-                              {isAlreadyMapped && (
-                                <span className="text-xs text-muted-foreground">
-                                  ({isSpanish ? 'ya mapeado' : 'already mapped'})
-                                </span>
                               )}
                             </div>
                           </SelectItem>

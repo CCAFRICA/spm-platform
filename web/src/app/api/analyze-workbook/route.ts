@@ -3,11 +3,15 @@
  *
  * Server-side endpoint for AI-powered multi-sheet workbook analysis.
  * Uses AIService for provider abstraction and training signal capture.
+ *
+ * OB-110: Now passes full sample values per column (not just 2 rows × 5 cols)
+ * for accurate AI field classification.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAIService } from '@/lib/ai';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
+import { extractSampleValues, calibrateFieldMappings } from '@/lib/import-pipeline/smart-mapper';
 
 interface SheetSample {
   name: string;
@@ -42,21 +46,28 @@ export async function POST(request: NextRequest) {
     console.log('Plan components:', planComponents?.length || 0);
     console.log('Prior mapping signals:', priorMappings?.length || 0);
 
-    // Format sheets info for the prompt
+    // OB-110: Format sheets info with FULL sample values per column
+    // This is the key fix — AI needs sample VALUES to classify correctly,
+    // not just column headers.
     const sheetsInfo = sheets.map((sheet, i) => {
-      const headersStr = sheet.headers.map((h, j) => `    ${j + 1}. "${h}"`).join('\n');
-      const sampleStr = sheet.sampleRows.slice(0, 2).map((row, j) => {
-        const values = sheet.headers.slice(0, 5).map(h => `${h}: ${row[h] ?? 'null'}`).join(', ');
-        return `    Sample ${j + 1}: { ${values}${sheet.headers.length > 5 ? ', ...' : ''} }`;
+      const sampleValues = extractSampleValues(
+        sheet.sampleRows as Record<string, unknown>[],
+        5
+      );
+
+      const headersStr = sheet.headers.map((h, j) => {
+        const samples = sampleValues[h] || [];
+        const sampleStr = samples.length > 0
+          ? `  sample values: [${samples.map(s => `"${s}"`).join(', ')}]`
+          : '  (no sample values)';
+        return `    ${j + 1}. "${h}"\n${sampleStr}`;
       }).join('\n');
 
       return `
 Sheet ${i + 1}: "${sheet.name}"
   Row count: ${sheet.rowCount}
   Columns (${sheet.headers.length}):
-${headersStr}
-  Sample data:
-${sampleStr}`;
+${headersStr}`;
     }).join('\n\n');
 
     // Format plan components
@@ -102,6 +113,51 @@ ${sampleStr}`;
     console.log('Tokens:', response.tokenUsage);
 
     const analysis = response.result;
+
+    // OB-110: Post-AI confidence calibration per sheet
+    // Cross-reference AI's suggested types against actual sample values
+    if (analysis.sheets && Array.isArray(analysis.sheets)) {
+      for (let i = 0; i < (analysis.sheets as unknown[]).length; i++) {
+        const sheet = (analysis.sheets as Array<{
+          name: string;
+          classification: string;
+          classificationConfidence: number;
+          suggestedFieldMappings?: Array<{ sourceColumn: string; targetField: string; confidence: number; reasoning?: string }>;
+        }>)[i];
+        const sourceSheet = sheets.find(s => s.name === sheet.name);
+        if (!sheet.suggestedFieldMappings || !sourceSheet) continue;
+
+        const sheetSamples = extractSampleValues(
+          sourceSheet.sampleRows as Record<string, unknown>[],
+          5
+        );
+
+        const rawMappings = sheet.suggestedFieldMappings.map(m => ({
+          column: m.sourceColumn,
+          target: m.targetField,
+          confidence: (m.confidence || 0) / 100, // Normalize to 0-1 for calibration
+          reasoning: m.reasoning || '',
+        }));
+
+        const calibrated = calibrateFieldMappings(rawMappings, sheetSamples);
+
+        // Write calibrated results back
+        sheet.suggestedFieldMappings = calibrated.map(c => ({
+          sourceColumn: c.column,
+          targetField: c.target,
+          confidence: Math.round(c.confidence * 100), // Back to 0-100
+          reasoning: c.reasoning,
+          ...(c.warning ? { warning: c.warning } : {}),
+        }));
+
+        // Log calibration adjustments
+        const adjusted = calibrated.filter(c => c.warning);
+        if (adjusted.length > 0) {
+          console.log(`[OB-110 Calibration] Sheet "${sheet.name}": ${adjusted.length} fields adjusted`);
+          adjusted.forEach(a => console.log(`  - "${a.column}": ${a.warning}`));
+        }
+      }
+    }
 
     console.log('\n========== PARSED ANALYSIS ==========');
     console.log('Sheets analyzed:', (analysis.sheets as unknown[])?.length || 0);

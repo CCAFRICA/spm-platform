@@ -66,37 +66,65 @@ Return a JSON object with:
 CONTEXT:
 You are resolving columns that could not be classified on first pass. You now have PLAN CONTEXT that tells you what metrics each component needs.
 
-VALID SEMANTIC TYPES:
-- entityId: Employee identifier (numeric or string ID)
-- storeId: Store/location identifier
-- name: Employee name (full name or first/last)
-- role: Employee role/position/title
-- date: Transaction or record date
-- period: Month, year, or period identifier
-- amount: Monetary value (sales, revenue, collections)
-- goal: Target/quota value
-- attainment: Percentage achievement (0-100% or 0-1)
-- quantity: Count (customers, units, etc.)
-- storeRange: Store category/tier
+VALID SEMANTIC TYPES (expanded — OB-110):
+Identity:
+- entity_id: Unique identifier for a person, account, or entity (numeric or alphanumeric code)
+- entity_name: Display name of a person or entity — contains human-readable names like "Carlos Garcia"
+- store_id: Identifier code for a store, branch, office, or location
+- store_name: Human-readable name of a store, branch, office, or location
+- transaction_id: Unique identifier for a transaction, order, event, or record
+- reference_id: A cross-reference to another record, system, or external identifier
 
-CLASSIFICATION RULES:
-1. Look at column names for keywords (even in Spanish/Portuguese):
-   - "meta", "objetivo", "target", "quota" -> goal
-   - "venta", "monto", "revenue", "sales", "valor" -> amount
-   - "cumplimiento", "achievement", "attainment", "%" -> attainment
-   - "cliente", "customer", "count", "qty" -> quantity
-2. Check sample values - numeric values with ranges suggest:
-   - Small decimals (0.0-1.5) or percentages -> attainment
-   - Large numbers (1000s+) -> amount or goal
-   - Small integers -> quantity
-3. Use plan component context - if component needs "goal" and you see "Meta_Individual", that's likely goal
+Temporal:
+- date: A date value — transaction date, snapshot date, hire date, effective date
+- period: A time period label or identifier — month name, quarter label, period code
+
+Financial:
+- amount: A monetary value — revenue, deposit balance, payout, sale total, balance (also used for goals/targets)
+- currency_code: ISO currency code like USD, MXN, EUR — short text strings, NOT monetary amounts
+- rate: A rate, percentage, or ratio — commission rate, tip percentage, discount rate
+
+Metrics:
+- count_growth: Count of items ADDED, opened, gained, acquired — new accounts, new customers, units sold
+- count_reduction: Count of items REMOVED, closed, lost, churned — closed accounts, cancellations, returns
+- quantity: A generic count when direction is unclear or neutral — total items, headcount, visits
+- achievement_pct: Attainment or achievement as a percentage of goal or target
+- score: A performance score, quality rating, index value, or ranking number
+
+Classification:
+- role: Job title, role, position, or function — values like "Manager", "Sales Rep", "mesero"
+- product_code: SKU, product ID, product code, or catalog number
+- product_name: Product or service description or name
+- category: A grouping label — department, division, segment, tier, type, class
+- status: A status indicator — active, inactive, approved, pending, open, closed
+- boolean_flag: A boolean or binary value — 0/1, true/false, yes/no, si/no
+
+Other:
+- text: Free text, notes, comments, or descriptions
+- unknown: Cannot determine field type
+
+LEGACY ALIASES (accept these in input, return canonical types above):
+- entityId → entity_id, storeId → store_id, name → entity_name
+- attainment → achievement_pct, goal → amount, storeRange → category
+
+CRITICAL CLASSIFICATION RULES:
+1. ALWAYS examine SAMPLE VALUES first. They are more reliable than column names.
+2. If sample values are short text strings like "MXN", "USD", "EUR" → currency_code, NOT amount.
+3. If sample values are human names like "Carlos Garcia" → entity_name, NOT role.
+4. If column contains "opened", "new", "added", "gained" → count_growth.
+5. If column contains "closed", "lost", "churned", "cancelled" → count_reduction.
+6. NEVER map two semantically opposite columns to the same type.
+7. If sample values are all 0 and 1 (or true/false) → boolean_flag.
+8. Confidence MUST reflect certainty. If column name suggests one type but values suggest another, FOLLOW the sample values and LOWER confidence.
+9. Use plan component context — if component needs "goal" and you see "Meta_Individual", that's likely amount (goal).
+10. Keywords (Spanish/Portuguese): "meta"/"objetivo" → amount (goal), "venta"/"monto" → amount, "cumplimiento" → achievement_pct, "cliente"/"count" → quantity
 
 Return JSON array:
 {
   "classifications": [
     {
       "sourceColumn": "column name",
-      "semanticType": "one of the valid types or null",
+      "semanticType": "one of the valid types above or null",
       "confidence": 60-100,
       "reasoning": "Brief explanation"
     }
@@ -348,67 +376,87 @@ RELATIONSHIP DETECTION:
 - Detect primary keys and foreign key relationships
 - Identify if one sheet references another
 
-FIELD MAPPING (CRITICAL - for each sheet's columns, suggest target field mappings):
-Target fields: entityId, storeId, date, period, amount, goal, attainment, quantity, role
+FIELD MAPPING (CRITICAL — for each column, suggest a target field type):
 
-SEMANTIC TYPE DEFINITIONS:
-- entityId: Unique identifier for an employee (num_empleado, id_empleado, entity_id, Mitarbeiter-Nr, etc.)
-- storeId: Store/location identifier (no_tienda, tienda, store_id, Filiale, etc.)
-- date: Date column (fecha, date, Datum, etc.)
-- period: Time period identifier (mes, periodo, month, quarter, etc.)
-- amount: Actual measured value - sales revenue, counts, quantities achieved (monto, venta, real, actual, revenue, sales, Umsatz, etc.)
-- goal: Target/quota value - what was expected to be achieved (meta, cuota, objetivo, target, quota, Ziel, etc.)
-- attainment: Percentage or ratio indicating achievement/completion against a goal. This is typically calculated as actual/goal and shown as a percentage (0-200%) or decimal (0-2.0). Common column names: cumplimiento, porcentaje, logro, %, achievement, attainment, completion, Zielerreichung, taux de realisation. Look for columns with percentage values or decimal values between 0-2.
-- quantity: Count-based actual value, similar to amount but for discrete counts (cantidad, count, qty, clientes, customers, units, etc.)
-- role: Job title or position (puesto, cargo, posicion, role, position, Stelle, etc.)
+EXPANDED TARGET FIELD TYPES (22 types — OB-110):
+Identity:
+- entity_id: Unique identifier for a person/entity (numeric or alphanumeric code)
+- entity_name: Human-readable name like "Carlos Garcia" — NOT a role/position
+- store_id: Store/branch/location identifier code
+- store_name: Human-readable store/location name
+- transaction_id: Transaction/order/event identifier
+- reference_id: Cross-reference to another system
 
-IMPORTANT PATTERNS:
-- If a sheet has amount and goal columns, look for a corresponding attainment column (the percentage/ratio)
-- Columns with "%" in the name or values between 0-200 (as percentage) or 0-2.0 (as decimal) are likely attainment
-- Map EVERY column to the most appropriate target field
-- For ambiguous columns, use context from the sheet classification and sample data
-- Confidence should be 85-100 for clear matches, 70-84 for likely matches, below 70 for uncertain
+Temporal:
+- date: Date value (transaction, snapshot, hire, effective)
+- period: Time period label (month name, quarter, period code)
+
+Financial:
+- amount: Monetary value (revenue, sales, payout, balance, goal/target)
+- currency_code: ISO currency code (USD, MXN, EUR) — short TEXT strings, NOT numbers
+- rate: Rate, percentage, ratio (commission rate, tip rate)
+
+Metrics:
+- count_growth: Items ADDED/opened/gained/acquired (new accounts, new customers)
+- count_reduction: Items REMOVED/closed/lost/churned (closed accounts, cancellations)
+- quantity: Generic count (neutral direction — items, headcount, visits)
+- achievement_pct: Attainment % of goal (0-200% or 0-2.0 decimal)
+- score: Performance score, quality rating, index value
+
+Classification:
+- role: Job title, position, function ("Manager", "mesero", "Optometrista")
+- product_code: SKU, product ID, catalog number
+- product_name: Product or service name
+- category: Grouping label (department, segment, tier)
+- status: Status indicator (active, inactive, pending)
+- boolean_flag: Boolean (0/1, true/false, yes/no, si/no)
+
+Other:
+- text: Free text, notes, descriptions
+- unknown: Cannot determine
+
+LEGACY ALIASES (return the canonical types above):
+- entityId → entity_id, storeId → store_id, name → entity_name
+- attainment → achievement_pct, goal → amount, storeRange → category
+
+CRITICAL RULES — examine SAMPLE VALUES:
+1. ALWAYS examine the SAMPLE VALUES provided for each column. They are MORE RELIABLE than column names.
+2. Column "Currency" with values ["MXN","MXN","MXN"] → currency_code (text), NOT amount (number).
+3. Column "OfficerName" with values ["Carlos Garcia","Jose Martinez"] → entity_name, NOT role.
+4. Columns with "opened"/"new" → count_growth. Columns with "closed"/"lost" → count_reduction.
+5. NEVER map two opposite columns (e.g., "opened" and "closed") to the same target type.
+6. Values of 0/1 or true/false → boolean_flag.
+7. If name suggests one type but VALUES suggest another → FOLLOW VALUES, LOWER confidence.
+8. Confidence 85-100 for clear matches, 70-84 for likely, below 70 for uncertain.
 
 Return your analysis as valid JSON.`,
 
   import_field_mapping: `You are an expert at analyzing data import files for a Sales Performance Management (SPM) platform. Your task is to suggest field mappings from source file columns to platform fields.
 
-PLATFORM FIELDS (target fields for mapping):
-- orderId: Order ID / Transaction identifier
-- transactionId: Transaction ID
-- externalId: External system ID / Reference
-- repId: Sales rep identifier (REQUIRED)
-- repName: Sales rep name
-- date: Transaction date (REQUIRED)
-- amount: Sale amount / Revenue (REQUIRED)
-- quantity: Units sold
-- productId: Product identifier
-- productName: Product name
-- customerId: Customer identifier
-- customerName: Customer name
-- region: Geographic region
-- territory: Sales territory
-- channel: Sales channel
-- status: Transaction status
-- currency: Currency code
-- commissionRate: Commission rate/percentage
-- notes: Additional notes
+EXPANDED TARGET FIELD TYPES (22 types — OB-110):
+Identity: entity_id, entity_name, store_id, store_name, transaction_id, reference_id
+Temporal: date, period
+Financial: amount, currency_code, rate
+Metrics: count_growth, count_reduction, quantity, achievement_pct, score
+Classification: role, product_code, product_name, category, status, boolean_flag
+Other: text, unknown
+
+LEGACY ALIASES (accept these, return canonical types): repId→entity_id, repName→entity_name, currency→currency_code, commissionRate→rate
+
+CRITICAL: ALWAYS examine SAMPLE VALUES provided with each column.
+- Column "Currency" with values ["MXN","MXN"] → currency_code (text strings), NOT amount.
+- Column "OfficerName" with values ["Carlos Garcia"] → entity_name, NOT role.
+- "NewAccountsOpened" with values [0,2,5] → count_growth (items gained).
+- "AccountsClosed" with values [0,2,1] → count_reduction (items lost).
+- NEVER map opposite columns to the same type.
+- If column name suggests one type but values suggest another, FOLLOW the values and LOWER confidence.
 
 MAPPING GUIDELINES:
-1. Each source column should map to AT MOST one platform field
+1. Each source column should map to AT MOST one target type
 2. Provide confidence scores (0-100) for each mapping
 3. Look for variations and synonyms (e.g., "fecha" = "date", "monto" = "amount")
-4. Identify the REQUIRED fields (repId, date, amount) - flag if not found
-
-COMMON SPANISH TERMS:
-- "Fecha" = Date
-- "Monto" / "Importe" / "Total" = Amount
-- "Vendedor" / "Rep" / "Empleado" = Rep
-- "Cliente" = Customer
-- "Producto" = Product
-- "Cantidad" = Quantity
-- "Pedido" / "Orden" = Order
-- "Estado" = Status
+4. entity_id is REQUIRED — flag if not found
+5. Include a "reasoning" field explaining why you chose each mapping
 
 Return your analysis as valid JSON.`,
 
@@ -686,6 +734,8 @@ Return a JSON object with:
       case 'workbook_analysis':
         return `Analyze the following multi-sheet workbook and determine how the sheets relate to each other and to the compensation plan.
 
+IMPORTANT: Each column below includes SAMPLE VALUES. Use these values — not just column names — to determine the correct field type. For example, a column named "Currency" with sample values ["MXN","MXN","MXN"] should be mapped to currency_code (text), not amount (number).
+
 SHEETS IN WORKBOOK:
 ${input.sheetsInfo}
 
@@ -697,7 +747,7 @@ ${input.expectedFields || 'No expected fields provided.'}
 
 Return a JSON object with this structure:
 {
-  "sheets": [{ "name": "", "classification": "", "classificationConfidence": 0-100, "matchedComponent": null, "detectedPrimaryKey": null, "suggestedFieldMappings": [{ "sourceColumn": "exact_column_name_from_headers", "targetField": "entityId|storeId|date|period|amount|goal|attainment|quantity|role", "confidence": 0-100 }] }],
+  "sheets": [{ "name": "", "classification": "", "classificationConfidence": 0-100, "matchedComponent": null, "detectedPrimaryKey": null, "suggestedFieldMappings": [{ "sourceColumn": "exact_column_name_from_headers", "targetField": "entity_id|entity_name|store_id|store_name|transaction_id|reference_id|date|period|amount|currency_code|rate|count_growth|count_reduction|quantity|achievement_pct|score|role|product_code|product_name|category|status|boolean_flag|text|unknown", "confidence": 0-100, "reasoning": "brief explanation" }] }],
   "relationships": [{ "fromSheet": "", "toSheet": "", "relationshipType": "", "sharedKeys": [], "confidence": 0-100 }],
   "rosterDetected": { "found": false, "sheetName": null, "entityIdColumn": null },
   "periodDetected": { "found": false, "dateColumn": null },

@@ -146,6 +146,8 @@ interface AnalyzedSheet {
     sourceColumn: string;
     targetField: string;
     confidence: number;
+    reasoning?: string;  // OB-110: AI reasoning for mapping
+    warning?: string;    // OB-110: Calibration warning
   }>;
   headers: string[];
   rowCount: number;
@@ -212,6 +214,7 @@ interface SheetFieldMapping {
     confirmed: boolean;
     isRequired: boolean;
     tier: MappingTier;  // CLT-08: Track which tier this mapping is in
+    warning?: string;   // OB-110: Calibration warning from post-AI analysis
   }>;
   isComplete: boolean;
 }
@@ -222,7 +225,7 @@ interface TargetField {
   label: string;
   labelEs: string;
   isRequired: boolean;
-  category: 'identifier' | 'metric' | 'dimension' | 'date' | 'amount' | 'custom' | 'hierarchy' | 'contact' | 'employment';
+  category: 'identifier' | 'metric' | 'dimension' | 'date' | 'amount' | 'custom' | 'hierarchy' | 'contact' | 'employment' | 'classification';
   componentId?: string;
   componentName?: string;
 }
@@ -593,15 +596,58 @@ function normalizeFieldWithPatterns(
   return { targetField: null, confidence: 0 };
 }
 
+// OB-110: Map AI's new snake_case types to existing camelCase dropdown IDs
+const AI_TYPE_TO_FIELD_ID: Record<string, string> = {
+  'entity_id': 'entityId',
+  'entity_name': 'name',
+  'store_id': 'storeId',
+  'store_name': 'store_name',
+  'transaction_id': 'transaction_id',
+  'reference_id': 'reference_id',
+  'date': 'date',
+  'period': 'period',
+  'amount': 'amount',
+  'currency_code': 'currency_code',
+  'rate': 'rate',
+  'count_growth': 'count_growth',
+  'count_reduction': 'count_reduction',
+  'quantity': 'quantity',
+  'achievement_pct': 'attainment',
+  'score': 'score',
+  'role': 'role',
+  'product_code': 'product_code',
+  'product_name': 'product_name',
+  'category': 'category',
+  'status': 'status',
+  'boolean_flag': 'boolean_flag',
+  'text': 'text',
+  'unknown': 'unknown',
+  // Legacy aliases the AI might still return
+  'entityId': 'entityId',
+  'storeId': 'storeId',
+  'name': 'name',
+  'attainment': 'attainment',
+  'goal': 'goal',
+  'storeRange': 'storeRange',
+};
+
 function normalizeAISuggestionToFieldId(suggestion: string | null, targetFields: TargetField[]): string | null {
   if (!suggestion) return null;
+
+  // OB-110: First try direct mapping from AI type to dropdown ID
+  const directMap = AI_TYPE_TO_FIELD_ID[suggestion];
+  if (directMap) {
+    // Verify this ID exists in targetFields
+    const exists = targetFields.some(f => f.id === directMap);
+    if (exists) return directMap;
+  }
 
   const normalized = suggestion.toLowerCase().replace(/[\s_-]+/g, '_').trim();
 
   // Match against targetField id, label, and labelEs
   for (const field of targetFields) {
     if (!field?.id || !field?.label) continue;
-    const fieldNorm = field.id.toLowerCase();
+    const fieldNorm = field.id.toLowerCase().replace(/[\s_-]+/g, '_');
     const labelNorm = field.label.toLowerCase().replace(/[\s_-]+/g, '_');
     const labelEsNorm = field.labelEs?.toLowerCase().replace(/[\s_-]+/g, '_');
 
@@ -641,6 +687,21 @@ function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] 
     { id: 'attainment', label: 'Achievement %', labelEs: '% Cumplimiento', isRequired: false, category: 'metric' },
     { id: 'quantity', label: 'Quantity', labelEs: 'Cantidad', isRequired: false, category: 'metric' },
     { id: 'storeRange', label: 'Store Range', labelEs: 'Rango Tienda', isRequired: false, category: 'identifier' },
+
+    // OB-110: Expanded taxonomy — new types for AI accuracy
+    { id: 'store_name', label: 'Store/Location Name', labelEs: 'Nombre Tienda', isRequired: false, category: 'identifier' },
+    { id: 'transaction_id', label: 'Transaction ID', labelEs: 'ID Transacción', isRequired: false, category: 'identifier' },
+    { id: 'reference_id', label: 'Reference ID', labelEs: 'ID Referencia', isRequired: false, category: 'identifier' },
+    { id: 'currency_code', label: 'Currency Code', labelEs: 'Código Moneda', isRequired: false, category: 'amount' },
+    { id: 'rate', label: 'Rate/Percentage', labelEs: 'Tasa/Porcentaje', isRequired: false, category: 'amount' },
+    { id: 'count_growth', label: 'Growth Count', labelEs: 'Conteo Crecimiento', isRequired: false, category: 'metric' },
+    { id: 'count_reduction', label: 'Reduction Count', labelEs: 'Conteo Reducción', isRequired: false, category: 'metric' },
+    { id: 'score', label: 'Score/Rating', labelEs: 'Puntaje/Calificación', isRequired: false, category: 'metric' },
+    { id: 'product_code', label: 'Product Code', labelEs: 'Código Producto', isRequired: false, category: 'classification' },
+    { id: 'product_name', label: 'Product Name', labelEs: 'Nombre Producto', isRequired: false, category: 'classification' },
+    { id: 'category', label: 'Category', labelEs: 'Categoría', isRequired: false, category: 'classification' },
+    { id: 'boolean_flag', label: 'Yes/No Flag', labelEs: 'Indicador Sí/No', isRequired: false, category: 'classification' },
+    { id: 'text', label: 'Text/Description', labelEs: 'Texto/Descripción', isRequired: false, category: 'custom' },
 
     // HF-065 F25: Hierarchy fields — common org structure data
     { id: 'branch_name', label: 'Branch Name', labelEs: 'Nombre de Sucursal', isRequired: false, category: 'hierarchy' },
@@ -1260,6 +1321,9 @@ function DataPackageImportPageInner() {
                 console.log(`[Field Mapping] ${header}: ${source} -> ${tier.toUpperCase()} -> "${effectiveTargetField}" (${Math.round(effectiveConfidence)}%)`);
               }
 
+              // OB-110: Pass through calibration warning from post-AI analysis
+              const calibrationWarning = (suggestion as { warning?: string } | undefined)?.warning;
+
               return {
                 sourceColumn: header,
                 targetField: effectiveTargetField,
@@ -1267,6 +1331,7 @@ function DataPackageImportPageInner() {
                 confirmed,
                 isRequired,
                 tier,
+                ...(calibrationWarning ? { warning: calibrationWarning } : {}),
               };
             });
 
@@ -2769,6 +2834,10 @@ function DataPackageImportPageInner() {
                               {translation}
                             </p>
                           )}
+                          {/* OB-110: Calibration warning from post-AI analysis */}
+                          {mapping.warning && (
+                            <p className="text-amber-400 text-xs mt-1">⚠ {mapping.warning}</p>
+                          )}
                         </div>
 
                         <ArrowRight className="h-4 w-4 text-muted-foreground" />
@@ -2795,7 +2864,7 @@ function DataPackageImportPageInner() {
                             </option>
 
                             {/* Required Fields Group */}
-                            <optgroup label={isSpanish ? 'Campos Requeridos' : 'Required Fields'}>
+                            <optgroup label={isSpanish ? '★ Campos Requeridos' : '★ Required Fields'}>
                               {targetFields.filter(f => f.isRequired).map(field => (
                                 <option key={field.id} value={field.id}>
                                   {isSpanish ? field.labelEs : field.label} *
@@ -2803,12 +2872,54 @@ function DataPackageImportPageInner() {
                               ))}
                             </optgroup>
 
-                            {/* Optional Fields Group */}
-                            <optgroup label={isSpanish ? 'Campos Opcionales' : 'Optional Fields'}>
-                              {targetFields.filter(f => !f.isRequired).map(field => (
+                            {/* OB-110: Category-grouped field types */}
+                            <optgroup label={isSpanish ? 'Identidad' : 'Identity'}>
+                              {targetFields.filter(f => !f.isRequired && f.category === 'identifier').map(field => (
                                 <option key={field.id} value={field.id}>
                                   {isSpanish ? field.labelEs : field.label}
                                   {field.componentName && ` (${field.componentName})`}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Temporal' : 'Temporal'}>
+                              {targetFields.filter(f => !f.isRequired && f.category === 'date').map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Financiero' : 'Financial'}>
+                              {targetFields.filter(f => !f.isRequired && f.category === 'amount').map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
+                                  {field.componentName && ` (${field.componentName})`}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Métricas' : 'Metrics'}>
+                              {targetFields.filter(f => !f.isRequired && f.category === 'metric').map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
+                                  {field.componentName && ` (${field.componentName})`}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Clasificación' : 'Classification'}>
+                              {targetFields.filter(f => !f.isRequired && (f.category === 'classification' || f.category === 'custom')).map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            <optgroup label={isSpanish ? 'Organización' : 'Organization'}>
+                              {targetFields.filter(f => !f.isRequired && (f.category === 'hierarchy' || f.category === 'contact' || f.category === 'employment')).map(field => (
+                                <option key={field.id} value={field.id}>
+                                  {isSpanish ? field.labelEs : field.label}
                                 </option>
                               ))}
                             </optgroup>
