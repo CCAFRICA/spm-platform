@@ -540,6 +540,27 @@ function translateColumn(column: string): string | null {
   return COLUMN_TRANSLATIONS[normalized] || null;
 }
 
+// HF-073: Format Data Preview cell values — detect Excel serial dates, currency
+function formatPreviewValue(value: unknown, columnName: string): string {
+  if (value === null || value === undefined) return '';
+
+  // Excel serial date detection:
+  // Numeric value in plausible range AND column name suggests a date
+  if (
+    typeof value === 'number' &&
+    value > 25569 && // Jan 1, 1970 in Excel serial
+    value < 73051 && // Dec 31, 2099 in Excel serial
+    /date|fecha|period|periodo|snapshot|time|hired|start|end|inicio|fin/i.test(columnName)
+  ) {
+    const jsDate = new Date((value - 25569) * 86400000);
+    if (!isNaN(jsDate.getTime())) {
+      return jsDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+  }
+
+  return String(value);
+}
+
 /**
  * OB-72 Korean Test: Field mapping is AI-first.
  *
@@ -2693,15 +2714,19 @@ function DataPackageImportPageInner() {
                         <tr className="border-t">
                           {currentMappingSheet.headers.slice(0, 8).filter(h => h != null).map(header => {
                             const value = currentMappingSheet.sampleRows[previewRowIndex]?.[header];
-                            // Format currency values
+                            // HF-073: Smart formatting — currency, Excel serial dates
                             const isAmountField = header && (
                               header.toLowerCase().includes('monto') ||
                               header.toLowerCase().includes('venta') ||
-                              header.toLowerCase().includes('total')
+                              header.toLowerCase().includes('total') ||
+                              header.toLowerCase().includes('amount') ||
+                              header.toLowerCase().includes('balance') ||
+                              header.toLowerCase().includes('salary') ||
+                              header.toLowerCase().includes('pago')
                             );
                             return (
                               <td key={header} className="px-3 py-2">
-                                {isAmountField ? formatCurrency(value) : String(value ?? '')}
+                                {isAmountField ? formatCurrency(value) : formatPreviewValue(value, header)}
                               </td>
                             );
                           })}
