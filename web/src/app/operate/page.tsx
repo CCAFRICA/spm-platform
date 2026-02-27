@@ -64,7 +64,7 @@ interface PipelineData {
   entityCount: number;
   dataRowCount: number;
   periods: Array<{ id: string; label: string | null; start_date: string; end_date: string }>;
-  latestBatch: { id: string; status: string; created_at: string; summary: Record<string, unknown> | null } | null;
+  latestBatch: { id: string; lifecycle_state: string; created_at: string; summary: Record<string, unknown> | null } | null;
   financialData: {
     hasData: boolean;
     locationCount: number;
@@ -83,15 +83,6 @@ function formatCompactCurrency(amount: number, symbol: string): string {
   if (abs >= 1_000_000) return `${symbol}${(amount / 1_000_000).toFixed(1)}M`;
   if (abs >= 10_000) return `${symbol}${Math.round(amount).toLocaleString()}`;
   return `${symbol}${amount.toFixed(2)}`;
-}
-
-function formatDate(dateStr: string, isSpanish: boolean): string {
-  try {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString(isSpanish ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return dateStr;
-  }
 }
 
 function shortDate(dateStr: string): string {
@@ -436,7 +427,7 @@ export default function OperateLandingPage() {
           .order('start_date'),
         supabase
           .from('calculation_batches')
-          .select('id, status, created_at, summary')
+          .select('id, lifecycle_state, created_at, summary')
           .eq('tenant_id', tenantId)
           .order('created_at', { ascending: false })
           .limit(1),
@@ -460,7 +451,7 @@ export default function OperateLandingPage() {
       const entityCount = entitiesRes.count ?? 0;
       const dataRowCount = dataRes.count ?? 0;
       const periods = (periodsRes.data ?? []) as Array<{ id: string; label: string | null; start_date: string; end_date: string }>;
-      const batches = (batchesRes.data ?? []) as Array<{ id: string; status: string; created_at: string; summary: Record<string, unknown> | null }>;
+      const batches = (batchesRes.data ?? []) as Array<{ id: string; lifecycle_state: string; created_at: string; summary: Record<string, unknown> | null }>;
       const latestBatch = batches.length > 0 ? batches[0] : null;
 
       let financialData: PipelineData['financialData'] = null;
