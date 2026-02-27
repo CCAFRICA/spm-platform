@@ -94,6 +94,9 @@ export default function TransactionsPage() {
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [franquicias, setFranquicias] = useState<Franquicia[]>([]);
   const [metadata, setMetadata] = useState<{ lastImport: string | null; totalImported: number } | null>(null);
+  // OB-109: ICM committed data for dynamic tenants
+  const [committedRows, setCommittedRows] = useState<Array<{ id: string; row_data: Record<string, unknown>; created_at: string }>>([]);
+  const [committedTotal, setCommittedTotal] = useState(0);
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
   const isRetail = currentTenant?.industry === 'Retail';
@@ -101,6 +104,7 @@ export default function TransactionsPage() {
   // Only use mock data for static tenants (retailco, restaurantmx, techcorp)
   // Dynamic tenants start empty
   const hasMockData = isStaticTenant(currentTenant?.id);
+  const isDynamicICM = !hasMockData && !isHospitality && !!currentTenant?.id;
 
   // Load data based on tenant type
   useEffect(() => {
@@ -120,6 +124,24 @@ export default function TransactionsPage() {
           setTurnos(turnosData);
           setFranquicias(franquiciasData);
           setMetadata(metadataData);
+        } else if (isDynamicICM && currentTenant?.id) {
+          // OB-109: Load committed_data for ICM tenants (CLT51A-F39)
+          const { createClient } = await import('@/lib/supabase/client');
+          const supabase = createClient();
+          const [dataRes, countRes] = await Promise.all([
+            supabase
+              .from('committed_data')
+              .select('id, row_data, created_at')
+              .eq('tenant_id', currentTenant.id)
+              .order('created_at', { ascending: false })
+              .limit(100),
+            supabase
+              .from('committed_data')
+              .select('id', { count: 'exact', head: true })
+              .eq('tenant_id', currentTenant.id),
+          ]);
+          setCommittedRows((dataRes.data ?? []) as Array<{ id: string; row_data: Record<string, unknown>; created_at: string }>);
+          setCommittedTotal(countRes.count ?? 0);
         }
       } catch (error) {
         console.error('Error loading data:', error);
@@ -129,7 +151,7 @@ export default function TransactionsPage() {
       }
     }
     loadData();
-  }, [isHospitality]);
+  }, [isHospitality, isDynamicICM, currentTenant?.id]);
 
   // Helper functions for hospitality
   const getMeseroName = useCallback((meseroId: number) => {
@@ -315,7 +337,7 @@ export default function TransactionsPage() {
             </Button>
           )}
           <Button variant="outline" size="sm" asChild>
-            <Link href="/data/import">
+            <Link href="/data/import/enhanced">
               <Upload className="mr-2 h-4 w-4" />
               {isSpanish ? 'Importar' : 'Import'}
             </Link>
@@ -391,7 +413,7 @@ export default function TransactionsPage() {
               Importa tu archivo de cheques para comenzar a ver los datos.
             </p>
             <Button asChild>
-              <Link href="/data/import">
+              <Link href="/data/import/enhanced">
                 <Upload className="mr-2 h-4 w-4" />
                 Importar Cheques
               </Link>
@@ -486,6 +508,39 @@ export default function TransactionsPage() {
                   ))}
                 </TableBody>
               </Table>
+            ) : isDynamicICM && committedRows.length > 0 ? (
+              // OB-109: Dynamic ICM tenant — committed data browser (CLT51A-F39)
+              <div>
+                <div className="mb-3 text-sm text-muted-foreground">
+                  {committedTotal.toLocaleString()} {isSpanish ? 'registros importados' : 'imported records'} — {isSpanish ? 'mostrando los ultimos 100' : 'showing latest 100'}
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {committedRows.length > 0 && Object.keys(committedRows[0].row_data).slice(0, 8).map(key => (
+                          <TableHead key={key} className="whitespace-nowrap">{key}</TableHead>
+                        ))}
+                        <TableHead>{isSpanish ? 'Importado' : 'Imported'}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {committedRows.map(row => (
+                        <TableRow key={row.id}>
+                          {Object.entries(row.row_data).slice(0, 8).map(([key, val]) => (
+                            <TableCell key={key} className="text-sm whitespace-nowrap max-w-[200px] truncate" title={String(val ?? '')}>
+                              {String(val ?? '')}
+                            </TableCell>
+                          ))}
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(row.created_at).toLocaleDateString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             ) : (
               // Tech company table (Deals/Orders)
               <Table>
