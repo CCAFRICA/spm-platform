@@ -67,7 +67,6 @@ import {
   ArrowRight,
   Brain,
   Cpu,
-  Calendar,
   Clock,
   RotateCcw,
   SkipForward,
@@ -1031,7 +1030,7 @@ function PlanImportPageInner() {
               <CardContent>
                 <div className="grid gap-4 md:grid-cols-2">
                   <a
-                    href="/operate/import"
+                    href="/data/import/enhanced"
                     className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
                   >
                     <div className="p-3 bg-primary/10 rounded-lg">
@@ -1039,30 +1038,30 @@ function PlanImportPageInner() {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold mb-1">
-                        {locale === 'es-MX' ? 'Importar Datos' : 'Import Data Package'}
+                        {locale === 'es-MX' ? 'Importar Plantilla y Datos' : 'Import Roster & Data'}
                       </h3>
                       <p className="text-sm text-muted-foreground">
                         {locale === 'es-MX'
-                          ? 'Cargar el paquete de datos de Excel con las metricas de rendimiento de los empleados.'
-                          : 'Upload the Excel data package with employee performance metrics.'}
+                          ? 'Cargar la plantilla de empleados y datos de rendimiento para calcular compensaciones.'
+                          : 'Upload your employee roster and performance data to run calculations.'}
                       </p>
                     </div>
                   </a>
                   <a
-                    href="/configure/periods"
+                    href="/performance/plans"
                     className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
                   >
                     <div className="p-3 bg-muted rounded-lg">
-                      <Calendar className="h-6 w-6 text-muted-foreground" />
+                      <FileText className="h-6 w-6 text-muted-foreground" />
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold mb-1">
-                        {locale === 'es-MX' ? 'Configurar Periodos' : 'Configure Periods'}
+                        {locale === 'es-MX' ? 'Ver Planes' : 'View Plans'}
                       </h3>
                       <p className="text-sm text-muted-foreground">
                         {locale === 'es-MX'
-                          ? 'Definir los periodos para el procesamiento de resultados.'
-                          : 'Define periods for outcome processing.'}
+                          ? 'Revisar los planes de compensacion importados.'
+                          : 'Review the compensation plans you just imported.'}
                       </p>
                     </div>
                   </a>
