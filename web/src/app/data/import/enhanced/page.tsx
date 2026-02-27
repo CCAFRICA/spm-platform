@@ -1767,8 +1767,26 @@ function DataPackageImportPageInner() {
           });
         }
 
-        // Consistency check (numeric fields should have consistent formats)
-        const consistencyScore = 95; // Assume high consistency for now
+        // OB-113: Real consistency check — verify numeric fields have consistent types
+        let consistentCells = 0;
+        let checkedCells = 0;
+        for (const mapping of mappedFields) {
+          if (!mapping.targetField) continue;
+          const values = sheetData.sampleRows.map(r => r[mapping.sourceColumn]).filter(v => v != null);
+          if (values.length < 2) continue;
+          // Check if all non-null values share the same type (all numbers, all strings, etc.)
+          const types = values.map(v => typeof v);
+          const dominantType = types.sort((a, b) =>
+            types.filter(t => t === b).length - types.filter(t => t === a).length
+          )[0];
+          for (const t of types) {
+            checkedCells++;
+            if (t === dominantType) consistentCells++;
+          }
+        }
+        const consistencyScore = checkedCells > 0
+          ? Math.round((consistentCells / checkedCells) * 100)
+          : 100; // No data to check → assume consistent
 
         // Check for negative values in amount fields
         const amountMappings = mappedFields.filter(m =>
@@ -2950,8 +2968,9 @@ function DataPackageImportPageInner() {
                 </div>
               )}
 
-              {/* Roster Detection Alert */}
-              {analysis.rosterDetected.found && (
+              {/* OB-113: Legacy classification cards — only show in single-file mode.
+                  Multi-file mode uses OB-111 per-file cards above. */}
+              {parsedFiles.length <= 1 && analysis.rosterDetected.found && (
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-start gap-3">
                     <Users className="h-5 w-5 text-blue-600 mt-0.5" />
@@ -2975,7 +2994,9 @@ function DataPackageImportPageInner() {
                 </div>
               )}
 
-              {/* Sheet Groups */}
+              {/* OB-113: Sheet classification groups — only show in single-file mode.
+                  Multi-file mode uses OB-111 per-file cards above, not per-sheet categories. */}
+              {parsedFiles.length <= 1 && (
               <div className="space-y-4">
                 {/* Component Data Sheets */}
                 {analysis.sheets.filter(s => s.classification === 'component_data').length > 0 && (
@@ -3037,6 +3058,7 @@ function DataPackageImportPageInner() {
                   </div>
                 )}
               </div>
+              )}
 
               {/* Relationships */}
               {analysis.relationships.length > 0 && (
@@ -3536,142 +3558,143 @@ function DataPackageImportPageInner() {
               {/* Validation Results */}
               {!isValidating && validationResult && (
                 <>
-                  {/* Overall Status Banner */}
-                  <div className={cn(
-                    'p-6 rounded-lg flex items-center gap-4',
-                    validationResult.isValid
-                      ? 'bg-emerald-900/20 border border-emerald-700'
-                      : 'bg-amber-900/20 border border-amber-700'
-                  )}>
-                    <div className={cn(
-                      'p-3 rounded-full',
-                      validationResult.isValid ? 'bg-emerald-900/40' : 'bg-amber-900/40'
-                    )}>
-                      {validationResult.isValid ? (
-                        <CheckCircle className="h-8 w-8 text-emerald-400" />
-                      ) : (
-                        <AlertTriangle className="h-8 w-8 text-amber-400" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className={cn(
-                        'text-xl font-semibold',
-                        validationResult.isValid ? 'text-emerald-300' : 'text-amber-300'
-                      )}>
-                        {validationResult.isValid
-                          ? (isSpanish ? 'Validación Exitosa' : 'Validation Passed')
-                          : (isSpanish ? 'Revisión Recomendada' : 'Review Recommended')}
-                      </h3>
-                      <p className={validationResult.isValid ? 'text-emerald-400' : 'text-amber-400'}>
-                        {isSpanish
-                          ? `Puntuación de calidad: ${validationResult.overallScore}%`
-                          : `Quality score: ${validationResult.overallScore}%`}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <div className={cn(
-                        'text-4xl font-bold',
-                        validationResult.overallScore >= 80 ? 'text-emerald-400' :
-                        validationResult.overallScore >= 60 ? 'text-amber-400' : 'text-red-400'
-                      )}>
-                        {validationResult.overallScore}%
+                  {/* OB-113: Import Status — real pipeline numbers, no fake quality percentages */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Database className="h-4 w-4" />
+                        {isSpanish ? 'Estado de Importación' : 'Import Status'}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-4 md:grid-cols-4">
+                        <div className="p-4 bg-muted rounded-lg text-center">
+                          <p className="text-2xl font-bold text-primary">
+                            {(analysis?.sheets || []).reduce((sum, s) => sum + s.rowCount, 0).toLocaleString()}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {isSpanish ? 'Registros' : 'Records'}
+                            {parsedFiles.length > 1 && ` (${parsedFiles.length} ${isSpanish ? 'archivos' : 'files'})`}
+                          </p>
+                        </div>
+                        <div className="p-4 bg-muted rounded-lg text-center">
+                          <p className="text-2xl font-bold text-primary">
+                            {fieldMappings.reduce((sum, m) => sum + m.mappings.filter(f => f.targetField).length, 0)}
+                            /{fieldMappings.reduce((sum, m) => sum + m.mappings.length, 0)}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {isSpanish ? 'Campos Mapeados' : 'Fields Mapped'}
+                          </p>
+                        </div>
+                        <div className="p-4 bg-muted rounded-lg text-center">
+                          <p className="text-2xl font-bold text-primary">
+                            {validationResult.detectedPeriods?.periods.length || 0}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {isSpanish ? 'Períodos' : 'Periods'}
+                          </p>
+                        </div>
+                        <div className="p-4 bg-muted rounded-lg text-center">
+                          <p className="text-2xl font-bold text-emerald-400">
+                            {analysisConfidence}%
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {isSpanish ? 'Confianza AI' : 'AI Confidence'}
+                          </p>
+                        </div>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Calidad General' : 'Overall Quality'}
-                      </p>
-                    </div>
-                  </div>
 
-                  {/* Quality Scores Grid */}
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {validationResult.sheetScores.map((score) => (
-                      <Card key={score.sheetName}>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm flex items-center justify-between">
-                            <span className="truncate">{score.sheetName}</span>
-                            <Badge variant={score.overallScore >= 80 ? 'default' : 'secondary'}>
-                              {score.overallScore}%
-                            </Badge>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-2">
-                            {/* Score Bars */}
-                            <div className="space-y-1">
-                              <div className="flex justify-between text-xs">
-                                <span>{isSpanish ? 'Completitud' : 'Completeness'}</span>
-                                <span>{score.completenessScore}%</span>
-                              </div>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={cn(
-                                    'h-full rounded-full transition-all',
-                                    score.completenessScore >= 80 ? 'bg-emerald-500' :
-                                    score.completenessScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                                  )}
-                                  style={{ width: `${score.completenessScore}%` }}
-                                />
-                              </div>
-                            </div>
-                            <div className="space-y-1">
-                              <div className="flex justify-between text-xs">
-                                <span>{isSpanish ? 'Validez' : 'Validity'}</span>
-                                <span>{score.validityScore}%</span>
-                              </div>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={cn(
-                                    'h-full rounded-full transition-all',
-                                    score.validityScore >= 80 ? 'bg-emerald-500' :
-                                    score.validityScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                                  )}
-                                  style={{ width: `${score.validityScore}%` }}
-                                />
-                              </div>
-                            </div>
-                            <div className="space-y-1">
-                              <div className="flex justify-between text-xs">
-                                <span>{isSpanish ? 'Consistencia' : 'Consistency'}</span>
-                                <span>{score.consistencyScore}%</span>
-                              </div>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={cn(
-                                    'h-full rounded-full transition-all',
-                                    score.consistencyScore >= 80 ? 'bg-emerald-500' :
-                                    score.consistencyScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                                  )}
-                                  style={{ width: `${score.consistencyScore}%` }}
-                                />
-                              </div>
+                      {/* Unmapped columns — attention items only */}
+                      {(() => {
+                        const unmappedCols = fieldMappings.flatMap(m =>
+                          m.mappings.filter(f => !f.targetField).map(f => f.sourceColumn)
+                        );
+                        if (unmappedCols.length === 0) return null;
+                        return (
+                          <div className="mt-4 pt-4 border-t">
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {unmappedCols.length} {isSpanish ? 'columnas sin mapear (preservadas en datos crudos)' : 'unmapped columns (preserved in raw data)'}:
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {unmappedCols.slice(0, 12).map((col, i) => (
+                                <Badge key={i} variant="outline" className="text-xs text-muted-foreground">
+                                  {col}
+                                </Badge>
+                              ))}
+                              {unmappedCols.length > 12 && (
+                                <Badge variant="outline" className="text-xs text-muted-foreground">
+                                  +{unmappedCols.length - 12}
+                                </Badge>
+                              )}
                             </div>
                           </div>
+                        );
+                      })()}
 
-                          {/* Issues */}
-                          {score.issues.length > 0 && (
-                            <div className="mt-3 pt-3 border-t space-y-1">
-                              {score.issues.slice(0, 2).map((issue, idx) => (
-                                <div
-                                  key={idx}
-                                  className={cn(
-                                    'text-xs p-2 rounded flex items-start gap-2',
-                                    issue.severity === 'error' ? 'bg-red-50 text-red-700' :
-                                    issue.severity === 'warning' ? 'bg-yellow-50 text-yellow-700' :
-                                    'bg-blue-50 text-blue-700'
-                                  )}
-                                >
-                                  {issue.severity === 'error' ? <XCircle className="h-3 w-3 mt-0.5" /> :
-                                   issue.severity === 'warning' ? <AlertTriangle className="h-3 w-3 mt-0.5" /> :
-                                   <Info className="h-3 w-3 mt-0.5" />}
-                                  <span>{issue.description}</span>
-                                </div>
-                              ))}
-                            </div>
+                      {/* Real validation issues */}
+                      {validationResult.sheetScores.some(s => s.issues.length > 0) && (
+                        <div className="mt-4 pt-4 border-t space-y-2">
+                          <p className="text-sm font-medium flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4 text-amber-400" />
+                            {isSpanish ? 'Atención' : 'Attention'}
+                          </p>
+                          {validationResult.sheetScores.flatMap(score =>
+                            score.issues.slice(0, 3).map((issue, idx) => (
+                              <div
+                                key={`${score.sheetName}-${idx}`}
+                                className="text-xs p-2 rounded flex items-start gap-2 bg-amber-900/20 text-amber-300 border border-amber-800/30"
+                              >
+                                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                                <span><span className="font-medium">{score.sheetName}:</span> {issue.description}</span>
+                              </div>
+                            ))
                           )}
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* OB-113: Per-sheet summary — clean list, no fake score bars */}
+                  {validationResult.sheetScores.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">
+                        {isSpanish ? 'Por Hoja' : 'Per Sheet'}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {validationResult.sheetScores.map((score) => {
+                          const sheetMapping = fieldMappings.find(m => m.sheetName === score.sheetName);
+                          const mappedCount = sheetMapping?.mappings.filter(m => m.targetField).length || 0;
+                          const totalCount = sheetMapping?.mappings.length || 0;
+                          return (
+                            <div key={score.sheetName} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <FileSpreadsheet className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="text-sm font-medium truncate">{score.sheetName}</span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                                <span>{mappedCount}/{totalCount} {isSpanish ? 'campos' : 'fields'}</span>
+                                {score.issues.length > 0 ? (
+                                  <Badge variant="secondary" className="text-xs">
+                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                    {score.issues.length}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="default" className="text-xs bg-emerald-600">
+                                    <CheckCircle className="h-3 w-3 mr-1" />
+                                    OK
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  )}
 
                   {/* Period Detection — HF-053: Shows actual detected periods from field mappings */}
                   <Card>
@@ -4054,10 +4077,11 @@ function DataPackageImportPageInner() {
                   <CardContent>
                     <div className="space-y-2">
                       {parsedFiles.map((pf, idx) => {
+                        // OB-113: Use 60% threshold to match three-tier system (was 50% — AP-7 violation)
                         const confidentMappings = pf.analysis
                           ? fieldMappings
                               .filter(fm => fm.sheetName.startsWith(`[${pf.filename}]`))
-                              .flatMap(fm => fm.mappings.filter(m => m.targetField && m.confidence >= 50)).length
+                              .flatMap(fm => fm.mappings.filter(m => m.targetField && m.confidence >= 60)).length
                           : 0;
                         const totalMappings = pf.analysis
                           ? fieldMappings
@@ -4122,13 +4146,13 @@ function DataPackageImportPageInner() {
                     <div className="text-center p-4 bg-muted rounded-lg">
                       <p className={cn(
                         'text-3xl font-bold',
-                        (validationResult?.overallScore || analysisConfidence) >= 80 ? 'text-emerald-400' :
-                        (validationResult?.overallScore || analysisConfidence) >= 60 ? 'text-amber-400' : 'text-red-400'
+                        analysisConfidence >= 80 ? 'text-emerald-400' :
+                        analysisConfidence >= 60 ? 'text-amber-400' : 'text-red-400'
                       )}>
-                        {validationResult?.overallScore || analysisConfidence}%
+                        {analysisConfidence}%
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Calidad' : 'Quality'}
+                        {isSpanish ? 'Confianza AI' : 'AI Confidence'}
                       </p>
                     </div>
                   </div>
