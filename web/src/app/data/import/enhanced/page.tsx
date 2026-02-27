@@ -69,6 +69,7 @@ import type { RuleSetConfig, PlanComponent } from '@/types/compensation-plan';
 import { isAdditiveLookupConfig } from '@/types/compensation-plan';
 // directCommitImportDataAsync removed — now uses server-side /api/import/commit
 import { detectPeriods, type PeriodDetectionResult } from '@/lib/import/period-detector';
+import { extractSampleValues } from '@/lib/import-pipeline/smart-mapper';
 
 interface AIImportContext {
   tenantId: string;
@@ -228,6 +229,26 @@ interface TargetField {
   category: 'identifier' | 'metric' | 'dimension' | 'date' | 'amount' | 'custom' | 'hierarchy' | 'contact' | 'employment' | 'classification';
   componentId?: string;
   componentName?: string;
+}
+
+// OB-111: Per-file parsed state for multi-file import
+interface ParsedFileState {
+  file: File;
+  filename: string;
+  fileIndex: number;
+  sheets: Array<{
+    name: string;
+    headers: string[];
+    rowCount: number;
+    sampleRows: Record<string, unknown>[];
+    sampleValues: Record<string, string[]>;
+  }>;
+  fullSheetData: Record<string, Record<string, unknown>[]>;
+  // Populated after AI analysis:
+  analysis: WorkbookAnalysis | null;
+  analysisConfidence: number;
+  fieldMappings: SheetFieldMapping[];
+  isAnalyzing: boolean;
 }
 
 // ============================================
@@ -983,6 +1004,117 @@ async function runSecondPassClassification(
   return updatedMappings;
 }
 
+// OB-111: Extracted three-tier mapping logic for reuse in multi-file flow
+async function buildThreeTierMappings(
+  analyzedSheets: AnalyzedSheet[],
+  inTargetFields: TargetField[],
+  activePlan: RuleSetConfig | null,
+  tenantId: string | undefined,
+): Promise<{ mappings: SheetFieldMapping[]; effectiveTargetFields: TargetField[] }> {
+  let effectiveTargetFields = inTargetFields;
+  if (effectiveTargetFields.length === 0) {
+    console.warn('[Field Mapping] targetFields is empty — using inline base fields fallback');
+    effectiveTargetFields = extractTargetFieldsFromPlan(activePlan);
+  }
+  console.log('[Field Mapping] Target fields available:', effectiveTargetFields.length);
+
+  let tier1Count = 0, tier2Count = 0, tier3Count = 0;
+  let patternMatchCount = 0;
+
+  const mappings: SheetFieldMapping[] = analyzedSheets
+    .filter((sheet) => sheet.classification !== 'unrelated')
+    .map((sheet) => {
+      const validHeaders = (sheet.headers || []).filter(h => h != null && h !== '');
+      const sheetMappings = validHeaders.map(header => {
+        const headerNorm = header?.toLowerCase()?.trim() || '';
+        const suggestion = sheet.suggestedFieldMappings?.find(
+          m => m?.sourceColumn && headerNorm && m.sourceColumn.toLowerCase().trim() === headerNorm
+        );
+        const aiConfidence = suggestion?.confidence || 0;
+
+        const normalizedTargetField = normalizeAISuggestionToFieldId(
+          suggestion?.targetField || null,
+          effectiveTargetFields
+        );
+
+        let effectiveTargetField = normalizedTargetField;
+        let effectiveConfidence = aiConfidence;
+        let usedPatternMatch = false;
+
+        if (!normalizedTargetField) {
+          const patternResult = normalizeFieldWithPatterns(header, effectiveTargetFields);
+          if (patternResult.targetField) {
+            effectiveTargetField = patternResult.targetField;
+            effectiveConfidence = patternResult.confidence * 100;
+            usedPatternMatch = true;
+            patternMatchCount++;
+          }
+        }
+
+        let tier: MappingTier;
+        let confirmed: boolean;
+        if (effectiveTargetField && effectiveConfidence >= 85 && !usedPatternMatch) {
+          tier = 'auto';
+          confirmed = true;
+          tier1Count++;
+        } else if (effectiveTargetField && (effectiveConfidence >= 60 || usedPatternMatch)) {
+          tier = 'suggested';
+          confirmed = false;
+          tier2Count++;
+        } else {
+          tier = 'unresolved';
+          effectiveTargetField = null;
+          confirmed = false;
+          tier3Count++;
+        }
+
+        const isRequired = effectiveTargetFields.find(f => f.id === effectiveTargetField)?.isRequired || false;
+        const calibrationWarning = (suggestion as { warning?: string } | undefined)?.warning;
+
+        return {
+          sourceColumn: header,
+          targetField: effectiveTargetField,
+          confidence: effectiveConfidence,
+          confirmed,
+          isRequired,
+          tier,
+          ...(calibrationWarning ? { warning: calibrationWarning } : {}),
+        };
+      });
+
+      const hasRequiredMappings = sheetMappings.some(m =>
+        m.targetField && effectiveTargetFields.find(f => f.id === m.targetField)?.isRequired
+      );
+
+      return {
+        sheetName: sheet.name,
+        mappings: sheetMappings,
+        isComplete: hasRequiredMappings,
+      };
+    });
+
+  console.log(`[Smart Import] Three-tier summary (BEFORE second pass):`);
+  console.log(`  Tier 1 (auto): ${tier1Count} | Tier 2 (suggested): ${tier2Count} (${patternMatchCount} pattern) | Tier 3 (unresolved): ${tier3Count}`);
+
+  let finalMappings = mappings;
+  if (tier3Count > 0 && activePlan && tenantId) {
+    console.log(`[Smart Import] ${tier3Count} unresolved fields — running second pass...`);
+    try {
+      finalMappings = await runSecondPassClassification(
+        analyzedSheets,
+        mappings,
+        activePlan,
+        effectiveTargetFields,
+        tenantId
+      );
+    } catch (err) {
+      console.warn('[Smart Import] Second pass failed, using first-pass results:', err);
+    }
+  }
+
+  return { mappings: finalMappings, effectiveTargetFields };
+}
+
 function DataPackageImportPageInner() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
@@ -996,7 +1128,8 @@ function DataPackageImportPageInner() {
   // Upload state - keep file reference for parsing all rows on submit
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [, setWorksheets] = useState<WorksheetInfo[]>([]);
-  const [fileQueue, setFileQueue] = useState<File[]>([]);
+  // OB-111: Multi-file state — each file parsed independently
+  const [parsedFiles, setParsedFiles] = useState<ParsedFileState[]>([]);
   const [periodsCreated, setPeriodsCreated] = useState(false);
 
   // Analysis state
@@ -1235,155 +1368,12 @@ function DataPackageImportPageInner() {
         });
         setAnalysisConfidence(data.confidence || 0);
 
-        // CLT-08 FIX: Three-tier auto-confirmation of AI mappings
-        // Tier 1 (auto): ≥85% — pre-selected and confirmed, no user action needed
-        // Tier 2 (suggested): 60-84% — pre-selected but flagged for review
-        // Tier 3 (unresolved): <60% — requires human selection
-
-        // HF-046 FIX: Guard against stale closure where targetFields is empty.
-        // If getRuleSets hasn't resolved yet (race condition), compute base fields inline.
-        // Without this, normalizeAISuggestionToFieldId returns null for EVERY field
-        // because targetFields.some() always returns false on an empty array.
-        let effectiveTargetFields = targetFields;
-        if (effectiveTargetFields.length === 0) {
-          console.warn('[Field Mapping] targetFields is empty — using inline base fields fallback');
-          effectiveTargetFields = extractTargetFieldsFromPlan(activePlan);
-          // Also update the state so Step 3 rendering has the fields for dropdowns
-          setTargetFields(effectiveTargetFields);
-        }
-        console.log('[Field Mapping] Target fields available:', effectiveTargetFields.length, effectiveTargetFields.map(f => f.id));
-
-        let tier1Count = 0, tier2Count = 0, tier3Count = 0;
-        let patternMatchCount = 0;
-
-        const mappings: SheetFieldMapping[] = analyzedSheets
-          .filter((sheet: AnalyzedSheet) => sheet.classification !== 'unrelated')
-          .map((sheet: AnalyzedSheet) => {
-            // Filter out undefined/empty headers
-            const validHeaders = (sheet.headers || []).filter(h => h != null && h !== '');
-            const sheetMappings = validHeaders.map(header => {
-              // Case-insensitive matching with whitespace normalization
-              const headerNorm = header?.toLowerCase()?.trim() || '';
-              const suggestion = sheet.suggestedFieldMappings?.find(
-                m => m?.sourceColumn && headerNorm && m.sourceColumn.toLowerCase().trim() === headerNorm
-              );
-              const aiConfidence = suggestion?.confidence || 0;
-
-              // Normalize AI suggestion to a valid dropdown option ID
-              const normalizedTargetField = normalizeAISuggestionToFieldId(
-                suggestion?.targetField || null,
-                effectiveTargetFields
-              );
-
-              // CLT-08 FIX 2: If AI didn't provide a mapping, try compound pattern matching
-              let effectiveTargetField = normalizedTargetField;
-              let effectiveConfidence = aiConfidence;
-              let usedPatternMatch = false;
-
-              if (!normalizedTargetField) {
-                const patternResult = normalizeFieldWithPatterns(header, effectiveTargetFields);
-                if (patternResult.targetField) {
-                  effectiveTargetField = patternResult.targetField;
-                  effectiveConfidence = patternResult.confidence * 100; // Convert to percentage
-                  usedPatternMatch = true;
-                  patternMatchCount++;
-                  console.log(`[Field Mapping] Pattern match: "${header}" -> "${patternResult.targetField}" (${Math.round(effectiveConfidence)}%)`);
-                }
-              }
-
-              // CLT-08: Determine tier based on confidence AND whether we have a valid mapping
-              let tier: MappingTier;
-              let confirmed: boolean;
-
-              if (effectiveTargetField && effectiveConfidence >= 85 && !usedPatternMatch) {
-                // Tier 1: Auto-confirmed — high AI confidence, pre-selected
-                tier = 'auto';
-                confirmed = true;
-                tier1Count++;
-              } else if (effectiveTargetField && (effectiveConfidence >= 60 || usedPatternMatch)) {
-                // Tier 2: Suggested — medium confidence OR pattern match, needs review
-                tier = 'suggested';
-                confirmed = false;
-                tier2Count++;
-              } else {
-                // Tier 3: Unresolved — no mapping found
-                tier = 'unresolved';
-                effectiveTargetField = null;
-                confirmed = false;
-                tier3Count++;
-              }
-
-              const isRequired = effectiveTargetFields.find(f => f.id === effectiveTargetField)?.isRequired || false;
-
-              // Debug logging for all tiers
-              if (tier !== 'unresolved') {
-                const source = usedPatternMatch ? 'PATTERN' : 'AI';
-                console.log(`[Field Mapping] ${header}: ${source} -> ${tier.toUpperCase()} -> "${effectiveTargetField}" (${Math.round(effectiveConfidence)}%)`);
-              }
-
-              // OB-110: Pass through calibration warning from post-AI analysis
-              const calibrationWarning = (suggestion as { warning?: string } | undefined)?.warning;
-
-              return {
-                sourceColumn: header,
-                targetField: effectiveTargetField,
-                confidence: effectiveConfidence, // Use effective confidence (may be from pattern match)
-                confirmed,
-                isRequired,
-                tier,
-                ...(calibrationWarning ? { warning: calibrationWarning } : {}),
-              };
-            });
-
-            // Check if required fields are mapped
-            const hasRequiredMappings = sheetMappings.some(m =>
-              m.targetField && effectiveTargetFields.find(f => f.id === m.targetField)?.isRequired
-            );
-
-            return {
-              sheetName: sheet.name,
-              mappings: sheetMappings,
-              isComplete: hasRequiredMappings,
-            };
-          });
-
-        // CLT-08: Log tier summary for zero-touch verification
-        console.log(`[Smart Import] Three-tier summary (BEFORE second pass):`);
-        console.log(`  Tier 1 (auto-confirmed, ≥85%): ${tier1Count} fields`);
-        console.log(`  Tier 2 (suggested, 60-84% or pattern): ${tier2Count} fields (${patternMatchCount} from pattern matching)`);
-        console.log(`  Tier 3 (unresolved, <60%): ${tier3Count} fields`);
-        console.log(`  Total: ${tier1Count + tier2Count + tier3Count} fields`);
-
-        // CLT-08 FIX 2: Run second-pass classification for unresolved fields
-        let finalMappings = mappings;
-        if (tier3Count > 0 && activePlan && tenantId) {
-          console.log(`[Smart Import] ${tier3Count} unresolved fields — running plan-context second pass...`);
-          try {
-            finalMappings = await runSecondPassClassification(
-              analyzedSheets,
-              mappings,
-              activePlan,
-              effectiveTargetFields,
-              tenantId
-            );
-
-            // Recount tiers after second pass
-            let newTier1 = 0, newTier2 = 0, newTier3 = 0;
-            for (const sheet of finalMappings) {
-              for (const m of sheet.mappings) {
-                if (m.tier === 'auto') newTier1++;
-                else if (m.tier === 'suggested') newTier2++;
-                else newTier3++;
-              }
-            }
-            console.log(`[Smart Import] Three-tier summary (AFTER second pass):`);
-            console.log(`  Tier 1 (auto): ${newTier1} fields`);
-            console.log(`  Tier 2 (suggested): ${newTier2} fields`);
-            console.log(`  Tier 3 (unresolved): ${newTier3} fields`);
-            console.log(`[Smart Import] Second pass resolved ${tier3Count - newTier3} fields`);
-          } catch (err) {
-            console.warn('[Smart Import] Second pass failed, using first-pass results:', err);
-          }
+        // OB-111: Use extracted buildThreeTierMappings for reuse in multi-file flow
+        const { mappings: finalMappings, effectiveTargetFields: etf } = await buildThreeTierMappings(
+          analyzedSheets, targetFields, activePlan, tenantId
+        );
+        if (etf.length > 0 && targetFields.length === 0) {
+          setTargetFields(etf);
         }
 
         setFieldMappings(finalMappings);
@@ -1420,18 +1410,250 @@ function DataPackageImportPageInner() {
     await analyzeWorkbook(file);
   }, [analyzeWorkbook]);
 
-  // Drop zone handler — takes first file (multi-file handled via queue below)
+  // OB-111: Multi-file upload handler — parse ALL files independently, analyze each
+  const handleMultiFileUpload = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+
+    // Single file: use existing optimized path
+    if (files.length === 1) {
+      setParsedFiles([]); // Will be populated if needed later
+      await handleFileSelect(files[0]);
+      return;
+    }
+
+    // MULTI-FILE PATH (OB-111)
+    setIsProcessing(true);
+    setError(null);
+    setAnalysis(null);
+    setFieldMappings([]);
+    setUploadedFile(files[0]); // Keep first file ref for commit compat
+
+    // Step 1: Parse all files independently (AP-12 compliance)
+    const parsed: ParsedFileState[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, {
+          type: 'array',
+          cellFormula: false,
+          cellNF: false,
+          cellStyles: false,
+        });
+
+        const fullData: Record<string, Record<string, unknown>[]> = {};
+        const sheets = workbook.SheetNames.map(name => {
+          const ws = workbook.Sheets[name];
+          const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+            defval: null,
+            raw: true,
+          });
+          const headers = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
+          fullData[name] = jsonData;
+          const sampleValues = extractSampleValues(jsonData.slice(0, 15) as Record<string, unknown>[], 5);
+
+          return {
+            name,
+            headers,
+            rowCount: jsonData.length,
+            sampleRows: jsonData.slice(0, 5),
+            sampleValues,
+          };
+        });
+
+        parsed.push({
+          file,
+          filename: file.name,
+          fileIndex: i,
+          sheets,
+          fullSheetData: fullData,
+          analysis: null,
+          analysisConfidence: 0,
+          fieldMappings: [],
+          isAnalyzing: true,
+        });
+      } catch (err) {
+        console.error(`[OB-111] Failed to parse ${file.name}:`, err);
+        parsed.push({
+          file,
+          filename: file.name,
+          fileIndex: i,
+          sheets: [],
+          fullSheetData: {},
+          analysis: null,
+          analysisConfidence: 0,
+          fieldMappings: [],
+          isAnalyzing: false,
+        });
+      }
+    }
+
+    setParsedFiles(parsed);
+    console.log(`[OB-111] Parsed ${parsed.length} files independently`);
+
+    try {
+      // Step 2: Get shared context (plan components + prior mappings)
+      let planComponents = null;
+      if (activePlan?.configuration && isAdditiveLookupConfig(activePlan.configuration)) {
+        planComponents = activePlan.configuration.variants?.[0]?.components?.map(c => ({
+          id: c.id,
+          name: c.name,
+          type: c.componentType,
+        })) || null;
+      }
+
+      const priorMappings: Array<{ sourceColumn: string; targetField: string; action: string }> = [];
+      if (tenantId) {
+        try {
+          const signalRes = await fetch(`/api/signals?tenant_id=${tenantId}&signal_type=field_mapping&limit=100`);
+          if (signalRes.ok) {
+            const signalData = await signalRes.json();
+            const signals = signalData.signals || [];
+            const seen = new Set<string>();
+            for (const sig of signals) {
+              const sv = sig.signal_value as { source_column?: string; target_field?: string; action?: string } | null;
+              if (sv?.source_column && sv?.target_field && !seen.has(sv.source_column)) {
+                seen.add(sv.source_column);
+                priorMappings.push({
+                  sourceColumn: sv.source_column,
+                  targetField: sv.target_field,
+                  action: sv.action || 'accepted',
+                });
+              }
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      // Step 3: Analyze each file independently in PARALLEL (PG-09)
+      console.log(`[OB-111] Analyzing ${parsed.length} files in parallel...`);
+      const apiResults = await Promise.all(
+        parsed.map(async (pf) => {
+          if (pf.sheets.length === 0) return null;
+          try {
+            const response = await fetch('/api/analyze-workbook', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sheets: pf.sheets.map(s => ({
+                  name: s.name,
+                  headers: s.headers,
+                  rowCount: s.rowCount,
+                  sampleRows: s.sampleRows,
+                })),
+                tenantId,
+                planComponents,
+                expectedFields: null,
+                priorMappings: priorMappings.length > 0 ? priorMappings : undefined,
+              }),
+            });
+            if (!response.ok) throw new Error(`${response.status}`);
+            return await response.json();
+          } catch (err) {
+            console.error(`[OB-111] Analysis failed for ${pf.filename}:`, err);
+            return null;
+          }
+        })
+      );
+
+      // Step 4: Process results — merge all sheets with filename prefix
+      const allAnalyzedSheets: AnalyzedSheet[] = [];
+      const allFullSheetData: Record<string, Record<string, unknown>[]> = {};
+
+      for (let i = 0; i < parsed.length; i++) {
+        const pf = parsed[i];
+        const result = apiResults[i];
+
+        if (result?.success && result?.analysis) {
+          const prefix = `[${pf.filename}] `;
+          const analyzedSheets = (result.analysis.sheets as AnalyzedSheet[]).map(s => {
+            const sourceSheet = pf.sheets.find(ss => ss.name === s.name);
+            return {
+              ...s,
+              name: `${prefix}${s.name}`,
+              headers: sourceSheet?.headers || [],
+              rowCount: sourceSheet?.rowCount || 0,
+              sampleRows: sourceSheet?.sampleRows || [],
+            };
+          });
+          allAnalyzedSheets.push(...analyzedSheets);
+
+          // Merge full sheet data with prefixed names
+          for (const [sheetName, data] of Object.entries(pf.fullSheetData)) {
+            allFullSheetData[`${prefix}${sheetName}`] = data;
+          }
+
+          // Update per-file state
+          parsed[i] = {
+            ...pf,
+            analysis: result.analysis,
+            analysisConfidence: result.confidence || 0,
+            isAnalyzing: false,
+          };
+        } else {
+          parsed[i] = { ...pf, isAnalyzing: false };
+        }
+      }
+
+      setParsedFiles([...parsed]);
+      setFullSheetData(allFullSheetData);
+
+      // Step 5: Build merged analysis for downstream UI
+      const mergedAnalysis: WorkbookAnalysis = {
+        sheets: allAnalyzedSheets,
+        relationships: [],
+        sheetGroups: [],
+        rosterDetected: { found: false, sheetName: null, entityIdColumn: null, storeAssignmentColumn: null, canCreateUsers: false },
+        periodDetected: { found: false, dateColumn: '', dateRange: { start: null, end: null }, periodType: '' },
+        gaps: [],
+        extras: [],
+        overallConfidence: Math.round(
+          apiResults.reduce((sum, r) => sum + (r?.confidence || 0), 0) /
+          Math.max(apiResults.filter(r => r?.success).length, 1)
+        ),
+        summary: `${parsed.length} files analyzed with ${allAnalyzedSheets.length} total sheets`,
+      };
+
+      // Merge roster detection from any file
+      for (const result of apiResults) {
+        if (result?.analysis?.rosterDetected?.found) {
+          mergedAnalysis.rosterDetected = result.analysis.rosterDetected;
+          break;
+        }
+      }
+
+      setAnalysis(mergedAnalysis);
+      setAnalysisConfidence(mergedAnalysis.overallConfidence);
+
+      // Step 6: Build three-tier field mappings for ALL sheets
+      const { mappings: finalMappings, effectiveTargetFields: etf } = await buildThreeTierMappings(
+        allAnalyzedSheets, targetFields, activePlan, tenantId
+      );
+      if (etf.length > 0 && targetFields.length === 0) {
+        setTargetFields(etf);
+      }
+
+      setFieldMappings(finalMappings);
+      setCurrentMappingSheetIndex(0);
+      setCurrentStep('analyze');
+
+      console.log(`[OB-111] Multi-file analysis complete: ${allAnalyzedSheets.length} sheets, ${finalMappings.length} mappable`);
+    } catch (err) {
+      console.error('[OB-111] Multi-file analysis error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to analyze files');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [handleFileSelect, activePlan, tenantId, targetFields]);
+
+  // Drop zone handler — OB-111: process ALL files, not just first
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      // Queue remaining files for batch processing
-      if (files.length > 1) {
-        setFileQueue(files.slice(1));
-      }
-      handleFileSelect(files[0]);
+      handleMultiFileUpload(files);
     }
-  }, [handleFileSelect]);
+  }, [handleMultiFileUpload]);
 
   // Update field mapping
   const updateFieldMapping = useCallback((sheetName: string, sourceColumn: string, targetField: string | null) => {
@@ -1844,7 +2066,131 @@ function DataPackageImportPageInner() {
     try {
       const userId = user?.id || 'system';
 
-      // ── HF-047: FILE-BASED IMPORT PIPELINE ──
+      // OB-111: Multi-file commit — each file committed separately (PG-13)
+      if (parsedFiles.length > 1) {
+        let totalRecords = 0, totalEntities = 0, totalPeriods = 0;
+        let lastBatchId: string | null = null;
+        const allPeriods: Array<{ key: string; id: string }> = [];
+        const startTime = Date.now();
+
+        console.log(`[OB-111] Committing ${parsedFiles.length} files separately...`);
+
+        for (const pf of parsedFiles) {
+          if (pf.sheets.length === 0) continue;
+
+          // Prepare upload for this file
+          const prepareResponse = await fetch('/api/import/prepare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId, fileName: pf.filename }),
+          });
+          if (!prepareResponse.ok) {
+            console.error(`[OB-111] Prepare failed for ${pf.filename}`);
+            continue;
+          }
+          const { storagePath, signedUrl, batchId } = await prepareResponse.json();
+
+          // Upload file to storage
+          const uploadResponse = await fetch(signedUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': pf.file.type || 'application/octet-stream' },
+            body: pf.file,
+          });
+          if (!uploadResponse.ok) {
+            console.error(`[OB-111] Upload failed for ${pf.filename}`);
+            continue;
+          }
+
+          // Build sheet mappings for THIS file (strip [filename] prefix)
+          const prefix = `[${pf.filename}] `;
+          const fileSheetMappings: Record<string, Record<string, string>> = {};
+          for (const fm of fieldMappings) {
+            if (!fm.sheetName.startsWith(prefix)) continue;
+            const originalName = fm.sheetName.slice(prefix.length);
+            const mappings: Record<string, string> = {};
+            fm.mappings.forEach(m => {
+              if (m.targetField) mappings[m.sourceColumn] = m.targetField;
+            });
+            if (Object.keys(mappings).length > 0) {
+              fileSheetMappings[originalName] = mappings;
+            }
+          }
+
+          // Build AI context for this file
+          const fileAnalysisSheets = (pf.analysis?.sheets as AnalyzedSheet[]) || [];
+          const fileImportContext: AIImportContext = {
+            tenantId,
+            batchId,
+            timestamp: new Date().toISOString(),
+            rosterSheet: pf.analysis?.rosterDetected?.sheetName || null,
+            rosterEmployeeIdColumn: pf.analysis?.rosterDetected?.entityIdColumn || null,
+            sheets: fileAnalysisSheets.map(sheet => {
+              const confirmedMapping = fieldMappings.find(fm => fm.sheetName === `${prefix}${sheet.name}`);
+              const sheetFieldMappings = confirmedMapping
+                ? confirmedMapping.mappings
+                    .filter(m => m.targetField)
+                    .map(m => ({ sourceColumn: m.sourceColumn, semanticType: m.targetField!, confidence: m.confidence }))
+                : (sheet.suggestedFieldMappings || [])
+                    .filter(fm => fm.targetField)
+                    .map(fm => ({ sourceColumn: fm.sourceColumn, semanticType: fm.targetField!, confidence: fm.confidence }));
+              return {
+                sheetName: sheet.name,
+                classification: sheet.classification,
+                matchedComponent: sheet.matchedComponent,
+                matchedComponentConfidence: sheet.matchedComponentConfidence,
+                fieldMappings: sheetFieldMappings,
+              };
+            }),
+          };
+
+          // Commit this file
+          const commitBody: Record<string, unknown> = {
+            tenantId,
+            userId,
+            fileName: pf.filename,
+            storagePath,
+            sheetMappings: fileSheetMappings,
+            detectedPeriods: validationResult?.detectedPeriods?.periods || [],
+            aiContext: fileImportContext,
+          };
+
+          const response = await fetch('/api/import/commit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(commitBody),
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            totalRecords += result.recordCount || 0;
+            totalEntities += result.entityCount || 0;
+            totalPeriods += result.periodCount || 0;
+            if (result.periods) allPeriods.push(...result.periods);
+            lastBatchId = result.batchId;
+            console.log(`[OB-111] Committed ${pf.filename}: ${result.recordCount} records`);
+          } else {
+            console.error(`[OB-111] Commit failed for ${pf.filename}: ${response.status}`);
+          }
+        }
+
+        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+        console.log(`[OB-111] Multi-file commit complete: ${totalRecords} records, ${totalEntities} entities in ${elapsedSeconds}s`);
+
+        setImportId(lastBatchId);
+        setImportResult({
+          recordCount: totalRecords,
+          entityCount: totalEntities,
+          periodCount: totalPeriods,
+          periods: allPeriods,
+          elapsedSeconds,
+        });
+        setIsImporting(false);
+        setImportComplete(true);
+        setCurrentStep('complete');
+        return; // Skip single-file flow below
+      }
+
+      // ── HF-047: FILE-BASED IMPORT PIPELINE (single file) ──
       // Step 1: Get signed upload URL from server
       console.log('[Import] Step 1: Preparing file upload...');
       const prepareResponse = await fetch('/api/import/prepare', {
@@ -2354,10 +2700,7 @@ function DataPackageImportPageInner() {
                       onChange={(e) => {
                         const files = Array.from(e.target.files || []);
                         if (files.length > 0) {
-                          if (files.length > 1) {
-                            setFileQueue(files.slice(1));
-                          }
-                          handleFileSelect(files[0]);
+                          handleMultiFileUpload(files);
                         }
                       }}
                     />
@@ -2367,9 +2710,9 @@ function DataPackageImportPageInner() {
                         {isSpanish ? 'Seleccionar Archivos' : 'Select Files'}
                       </label>
                     </Button>
-                    {fileQueue.length > 0 && (
+                    {parsedFiles.length > 1 && (
                       <p className="text-sm text-muted-foreground">
-                        {fileQueue.length + 1} {isSpanish ? 'archivos seleccionados' : 'files selected'} — {isSpanish ? 'procesando el primero' : 'processing first'}
+                        {parsedFiles.length} {isSpanish ? 'archivos analizados' : 'files parsed'} — {parsedFiles.reduce((sum, f) => sum + f.sheets.reduce((s, sh) => s + sh.rowCount, 0), 0)} {isSpanish ? 'filas totales' : 'total rows'}
                       </p>
                     )}
                   </div>
@@ -2397,6 +2740,80 @@ function DataPackageImportPageInner() {
                   {analysisConfidence}% {isSpanish ? 'confianza' : 'confidence'}
                 </Badge>
               </div>
+
+              {/* OB-111: Per-file summary cards (multi-file only) */}
+              {parsedFiles.length > 1 && (
+                <div className="space-y-3">
+                  <h3 className="font-medium flex items-center gap-2">
+                    <FileSpreadsheet className="h-4 w-4" />
+                    {parsedFiles.length} {isSpanish ? 'archivos cargados' : 'files uploaded'}
+                    <span className="text-muted-foreground text-sm font-normal">
+                      — {parsedFiles.reduce((sum, f) => sum + f.sheets.reduce((s, sh) => s + sh.rowCount, 0), 0)} {isSpanish ? 'filas totales' : 'total rows'}
+                    </span>
+                  </h3>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {parsedFiles.map((pf, idx) => (
+                      <div key={idx} className="border border-zinc-700 rounded-lg p-4 bg-zinc-800/30">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-zinc-400 text-sm font-mono bg-zinc-800 px-2 py-0.5 rounded">{idx + 1}</span>
+                            <h4 className="text-zinc-200 font-medium truncate">{pf.filename}</h4>
+                          </div>
+                          <span className="text-zinc-400 text-sm whitespace-nowrap">
+                            {pf.sheets.reduce((s, sh) => s + sh.rowCount, 0)} {isSpanish ? 'filas' : 'rows'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-zinc-500 mb-2">
+                          {pf.sheets.length} {pf.sheets.length !== 1 ? (isSpanish ? 'hojas' : 'sheets') : (isSpanish ? 'hoja' : 'sheet')} · {pf.sheets[0]?.headers.length || 0} {isSpanish ? 'columnas' : 'columns'}
+                        </div>
+                        {/* Classification result */}
+                        {pf.analysis && (
+                          <div className="flex flex-wrap items-center gap-1 mb-2">
+                            <Badge variant={pf.analysisConfidence >= 80 ? 'default' : 'secondary'} className="text-xs">
+                              {Math.round(pf.analysisConfidence)}% {isSpanish ? 'confianza' : 'confidence'}
+                            </Badge>
+                            {(pf.analysis.sheets as AnalyzedSheet[])?.map((s: AnalyzedSheet, si: number) => {
+                              const config = CLASSIFICATION_CONFIG[s.classification as SheetClassification];
+                              return config ? (
+                                <Badge key={si} variant="outline" className={cn('text-xs', config.color)}>
+                                  {isSpanish ? config.labelEs : config.label}
+                                </Badge>
+                              ) : null;
+                            })}
+                          </div>
+                        )}
+                        {pf.isAnalyzing && (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            {isSpanish ? 'Analizando...' : 'Analyzing...'}
+                          </div>
+                        )}
+                        {/* Column preview */}
+                        <div className="flex flex-wrap gap-1">
+                          {pf.sheets[0]?.headers.slice(0, 6).map((col, ci) => (
+                            <span key={ci} className="text-xs bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded">{col}</span>
+                          ))}
+                          {(pf.sheets[0]?.headers.length || 0) > 6 && (
+                            <span className="text-xs text-zinc-600">+{pf.sheets[0].headers.length - 6}</span>
+                          )}
+                        </div>
+                        {/* Multi-sheet file (e.g., XLSX with multiple tabs) */}
+                        {pf.sheets.length > 1 && (
+                          <div className="mt-2 space-y-0.5 border-t border-zinc-700/50 pt-2">
+                            {pf.sheets.map((sheet, si) => (
+                              <div key={si} className="flex items-center gap-2 text-xs text-zinc-500">
+                                <span className="font-mono">{si + 1}.</span>
+                                <span>{sheet.name}</span>
+                                <span className="text-zinc-600">· {sheet.rowCount} {isSpanish ? 'filas' : 'rows'} × {sheet.headers.length} {isSpanish ? 'cols' : 'cols'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* OB-107: Multi-plan selector — shown when tenant has multiple active plans */}
               {allActivePlans.length > 1 && (
@@ -2679,10 +3096,20 @@ function DataPackageImportPageInner() {
                     ))}
                   </div>
 
-                  {/* Current Sheet Info */}
+                  {/* Current Sheet Info — OB-111: show file context for multi-file */}
                   <div>
-                    <p className="font-medium">{currentMappingSheet.name}</p>
+                    <p className="font-medium">
+                      {parsedFiles.length > 1 && currentMappingSheet.name.startsWith('[')
+                        ? currentMappingSheet.name.split('] ').slice(1).join('] ')
+                        : currentMappingSheet.name}
+                    </p>
                     <p className="text-xs text-muted-foreground">
+                      {parsedFiles.length > 1 && currentMappingSheet.name.startsWith('[') && (
+                        <span className="text-blue-400 mr-2">
+                          <FileSpreadsheet className="h-3 w-3 inline mr-1" />
+                          {currentMappingSheet.name.split('] ')[0].slice(1)}
+                        </span>
+                      )}
                       {isSpanish ? 'Hoja' : 'Sheet'} {currentMappingSheetIndex + 1} / {mappableSheets.length}
                     </p>
                   </div>
@@ -3599,6 +4026,51 @@ function DataPackageImportPageInner() {
                 </Card>
               )}
 
+              {/* OB-111: Multi-file batch summary before commit */}
+              {parsedFiles.length > 1 && (
+                <Card className="border-blue-700 bg-blue-950/20">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Upload className="h-4 w-4 text-blue-400" />
+                      {isSpanish ? 'Resumen del Lote' : 'Batch Summary'} — {parsedFiles.length} {isSpanish ? 'archivos' : 'files'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {parsedFiles.map((pf, idx) => {
+                        const confidentMappings = pf.analysis
+                          ? fieldMappings
+                              .filter(fm => fm.sheetName.startsWith(`[${pf.filename}]`))
+                              .flatMap(fm => fm.mappings.filter(m => m.targetField && m.confidence >= 50)).length
+                          : 0;
+                        const totalMappings = pf.analysis
+                          ? fieldMappings
+                              .filter(fm => fm.sheetName.startsWith(`[${pf.filename}]`))
+                              .flatMap(fm => fm.mappings).length
+                          : 0;
+                        const totalRows = pf.sheets.reduce((s, sh) => s + sh.rowCount, 0);
+                        return (
+                          <div key={idx} className="flex items-center gap-3 p-2 rounded bg-zinc-800/50">
+                            <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm text-zinc-200 truncate block">{pf.filename}</span>
+                              <span className="text-xs text-zinc-500">
+                                {totalRows} {isSpanish ? 'filas' : 'rows'} · {confidentMappings}/{totalMappings} {isSpanish ? 'campos' : 'fields'}
+                              </span>
+                            </div>
+                            {pf.analysis && (
+                              <Badge variant="outline" className="text-xs shrink-0">
+                                {Math.round(pf.analysisConfidence)}%
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Package Awareness - Complete Overview */}
               <Card>
                 <CardHeader>
@@ -3905,38 +4377,24 @@ function DataPackageImportPageInner() {
                 </CardContent>
               </Card>
 
-              {/* Multi-file: Process next file in queue */}
-              {fileQueue.length > 0 && (
+              {/* OB-111: Multi-file batch summary */}
+              {parsedFiles.length > 1 && (
                 <Card className="border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-blue-800 dark:text-blue-200">
-                        {fileQueue.length} {isSpanish ? 'archivos restantes en cola' : 'files remaining in queue'}
-                      </p>
-                      <p className="text-sm text-blue-600 dark:text-blue-300">
-                        {isSpanish ? 'Siguiente' : 'Next'}: {fileQueue[0]?.name}
-                      </p>
+                  <CardContent className="p-4">
+                    <p className="font-medium text-blue-800 dark:text-blue-200 mb-2">
+                      {parsedFiles.length} {isSpanish ? 'archivos procesados en este lote' : 'files processed in this batch'}
+                    </p>
+                    <div className="space-y-1">
+                      {parsedFiles.map((pf, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-300">
+                          <CheckCircle className="h-3 w-3" />
+                          <span>{pf.filename}</span>
+                          <span className="text-blue-400">
+                            ({pf.sheets.reduce((s, sh) => s + sh.rowCount, 0)} {isSpanish ? 'filas' : 'rows'})
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                    <Button
-                      onClick={() => {
-                        const nextFile = fileQueue[0];
-                        setFileQueue(prev => prev.slice(1));
-                        // Reset state for next file
-                        setCurrentStep('upload');
-                        setAnalysis(null);
-                        setFieldMappings([]);
-                        setValidationComplete(false);
-                        setValidationResult(null);
-                        setImportResult(null);
-                        setImportId(null);
-                        setImportComplete(false);
-                        setPeriodsCreated(false);
-                        if (nextFile) handleFileSelect(nextFile);
-                      }}
-                    >
-                      <ArrowRight className="h-4 w-4 mr-2" />
-                      {isSpanish ? 'Procesar Siguiente' : 'Process Next File'}
-                    </Button>
                   </CardContent>
                 </Card>
               )}
@@ -4026,6 +4484,7 @@ function DataPackageImportPageInner() {
                         // Reset all state for new import
                         setCurrentStep('upload');
                         setUploadedFile(null);
+                        setParsedFiles([]);
                         setAnalysis(null);
                         setFieldMappings([]);
                         setValidationResult(null);
