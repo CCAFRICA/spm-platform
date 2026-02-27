@@ -240,6 +240,67 @@ These appear to be duplicate plans from separate import sessions. The "CFG" pref
 
 ---
 
+## PHASE 4: VALIDATE/APPROVE PAGE TRUTH — WHAT'S FAKE, WHAT'S REAL
+
+### Validate Page Metrics
+
+| Displayed Metric | File:Line | Source Expression | Real or Fake? | Notes |
+|---|---|---|---|---|
+| Records count | page.tsx:3573 | `(analysis?.sheets \|\| []).reduce((sum, s) => sum + s.rowCount, 0)` | **REAL** | From AI analysis of actual sheets |
+| Fields Mapped (N/M) | page.tsx:3582-3583 | `fieldMappings.reduce(mapped/total)` | **REAL** | Actual mapping state |
+| Periods | page.tsx:3591 | `validationResult.detectedPeriods?.periods.length` | **REAL** | From HF-053 period detection |
+| AI Confidence | page.tsx:3599 | `analysisConfidence` | **REAL-ISH** | Source is real but value may be 50% due to adapter fallback (Phase 2 finding) |
+| Unmapped columns | page.tsx:3609-3610 | `fieldMappings.flatMap(m => m.mappings.filter(f => !f.targetField))` | **REAL** | Actual unmapped fields |
+| Validation issues | page.tsx:3641-3651 | `validationResult.sheetScores.flatMap(score => score.issues)` | **REAL** | Real issues from validation |
+| Per-sheet field count | page.tsx:3678 | `mappedCount/totalCount` | **REAL** | Actual per-sheet mapping counts |
+| Per-sheet issue badges | page.tsx:3679-3689 | `score.issues.length` | **REAL** | Real issue count |
+| Completeness score | page.tsx:1728-1730 | `requiredMapped.length / totalRequired * 100` | **REAL** | Ratio of required fields mapped |
+| Validity score | page.tsx:1754-1756 | `(1 - nullCount / totalCells) * 100` | **REAL** | Non-null cell percentage from sample rows |
+| Consistency score | page.tsx:1770-1789 | OB-113 real type check | **REAL** | OB-113 fixed this (was hardcoded 95) |
+| Overall quality | page.tsx:1816-1817 | `0.3*completeness + 0.4*validity + 0.3*consistency` | **REAL** | Weighted average, now uses real consistency |
+| Calculation Preview values | page.tsx:1986,1995 | `Math.random() * 1500`, hardcoded tier lookup | **FAKE** | Uses random numbers and hardcoded thresholds, not real calculation engine |
+
+### Approve Page Metrics
+
+| Displayed Metric | File:Line | Source Expression | Real or Fake? | Notes |
+|---|---|---|---|---|
+| Per-file confidence % | page.tsx:4103 | `Math.round(pf.analysisConfidence)` | **REAL-ISH** | May be 50% due to adapter fallback |
+| Per-file rows | page.tsx:4091 | `pf.sheets.reduce((s, sh) => s + sh.rowCount, 0)` | **REAL** | From parsed file data |
+| Per-file fields | page.tsx:4098 | `confidentMappings/totalMappings` | **REAL** | Field count at ≥60% confidence |
+| Sheets count | page.tsx:4125 | `analysis.sheets.length` | **REAL** | Actual sheet count |
+| Records count | page.tsx:4132 | `analysis.sheets.reduce(sum + rowCount)` | **REAL** | Same as validate |
+| Mapped Fields | page.tsx:4140 | `fieldMappings.reduce(mapped count)` | **REAL** | Same as validate |
+| AI Confidence | page.tsx:4152 | `analysisConfidence` | **REAL-ISH** | Three-tier coloring (OB-113), but value may be 50% |
+| Sheet Breakdown | page.tsx:4166-4206 | Per-sheet rows, mapped/preserved counts, component match | **REAL** | Real per-sheet data |
+| Active Plan name | page.tsx:4213+ | `activePlan.name` | **REAL but WRONG PLAN** | Shows whatever activePlans[0] is (Phase 3 finding) |
+
+### Complete Step Metrics (Post-Commit)
+
+| Displayed Metric | File:Line | Source Expression | Real or Fake? |
+|---|---|---|---|
+| Record count | page.tsx:4344 | `importResult.recordCount` | **REAL** — from commit API response |
+| Entity count | page.tsx:4350 | `importResult.entityCount` | **REAL** — OB-112 fixed (Math.max) |
+| Period count | page.tsx:4356 | `importResult.periodCount` | **REAL** — OB-112 fixed (dedup) |
+| Assignment count | page.tsx:4372 | `importResult.assignmentCount` | **REAL** — OB-112 added |
+| Data Quality % | page.tsx:4381 | `validationResult?.overallScore \|\| analysisConfidence` | **MIXED** — uses overallScore first (real weighted average) but label says "Data Quality" not "AI Confidence" |
+
+### OB-113 Gap Analysis
+
+**What OB-113 fixed:**
+- Removed fake "Quality score: X%" banner from validate step ✓
+- Replaced fake per-sheet quality bars with real field/issue counts ✓
+- Changed approve page "Quality" label to "AI Confidence" ✓
+- Changed threshold from 50% to 60% ✓
+- Made consistency score real instead of hardcoded 95% ✓
+
+**What OB-113 did NOT fix:**
+- Complete step (line 4381) still uses `validationResult?.overallScore` with "Data Quality" label
+- Calculation Preview still uses random/hardcoded values (line 1986: `Math.random()`)
+- All confidence values still subject to 50% adapter fallback (anthropic-adapter.ts:630)
+- Plan context still wrong (Phase 3 finding — unrelated to OB-113 scope)
+
+---
+
 ## PHASE 1: ROUTING TRUTH — WHERE DOES EACH TENANT ACTUALLY LAND?
 
 ### Routing Code Location
