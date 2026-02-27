@@ -524,13 +524,13 @@ const COLUMN_TRANSLATIONS: Record<string, string> = {
 
 // Classification icon and color mapping
 const CLASSIFICATION_CONFIG: Record<SheetClassification, { icon: typeof Users; color: string; label: string; labelEs: string }> = {
-  roster: { icon: Users, color: 'bg-blue-100 border-blue-300 text-blue-800', label: 'Entity Roster', labelEs: 'Plantilla de Empleados' },
-  component_data: { icon: Database, color: 'bg-green-100 border-green-300 text-green-800', label: 'Component Data', labelEs: 'Datos de Componente' },
-  reference: { icon: Map, color: 'bg-purple-100 border-purple-300 text-purple-800', label: 'Reference Data', labelEs: 'Datos de Referencia' },
-  regional_partition: { icon: GitBranch, color: 'bg-orange-100 border-orange-300 text-orange-800', label: 'Regional Data', labelEs: 'Datos Regionales' },
-  period_summary: { icon: Calculator, color: 'bg-cyan-100 border-cyan-300 text-cyan-800', label: 'Period Summary', labelEs: 'Resumen del Período' },
-  unrelated: { icon: AlertCircle, color: 'bg-gray-100 border-gray-300 text-gray-600', label: 'Unrelated', labelEs: 'No Relacionado' },
-  pos_cheque: { icon: BarChart3, color: 'bg-amber-100 border-amber-300 text-amber-800', label: 'POS Cheque Data', labelEs: 'Datos de Cheques POS' },
+  roster: { icon: Users, color: 'bg-blue-900/30 border-blue-700 text-blue-300', label: 'Entity Roster', labelEs: 'Plantilla de Empleados' },
+  component_data: { icon: Database, color: 'bg-emerald-900/30 border-emerald-700 text-emerald-300', label: 'Component Data', labelEs: 'Datos de Componente' },
+  reference: { icon: Map, color: 'bg-purple-900/30 border-purple-700 text-purple-300', label: 'Reference Data', labelEs: 'Datos de Referencia' },
+  regional_partition: { icon: GitBranch, color: 'bg-orange-900/30 border-orange-700 text-orange-300', label: 'Regional Data', labelEs: 'Datos Regionales' },
+  period_summary: { icon: Calculator, color: 'bg-cyan-900/30 border-cyan-700 text-cyan-300', label: 'Period Summary', labelEs: 'Resumen del Período' },
+  unrelated: { icon: AlertCircle, color: 'bg-zinc-800/50 border-zinc-600 text-zinc-400', label: 'Unrelated', labelEs: 'No Relacionado' },
+  pos_cheque: { icon: BarChart3, color: 'bg-amber-900/30 border-amber-700 text-amber-300', label: 'POS Cheque Data', labelEs: 'Datos de Cheques POS' },
 };
 
 // Helper: Translate column name
@@ -538,6 +538,27 @@ function translateColumn(column: string): string | null {
   if (!column) return null;
   const normalized = column.toLowerCase().replace(/[\s_-]+/g, '_').trim();
   return COLUMN_TRANSLATIONS[normalized] || null;
+}
+
+// HF-073: Format Data Preview cell values — detect Excel serial dates, currency
+function formatPreviewValue(value: unknown, columnName: string): string {
+  if (value === null || value === undefined) return '';
+
+  // Excel serial date detection:
+  // Numeric value in plausible range AND column name suggests a date
+  if (
+    typeof value === 'number' &&
+    value > 25569 && // Jan 1, 1970 in Excel serial
+    value < 73051 && // Dec 31, 2099 in Excel serial
+    /date|fecha|period|periodo|snapshot|time|hired|start|end|inicio|fin/i.test(columnName)
+  ) {
+    const jsDate = new Date((value - 25569) * 86400000);
+    if (!isNaN(jsDate.getTime())) {
+      return jsDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+  }
+
+  return String(value);
 }
 
 /**
@@ -2092,7 +2113,7 @@ function DataPackageImportPageInner() {
             <div className="flex items-center gap-2">
               <p className="font-medium truncate">{sheet.name}</p>
               <Badge variant="outline" className="text-xs">
-                {sheet.classificationConfidence}%
+                {(sheet.classificationConfidence || 0) > 0 ? `${sheet.classificationConfidence}%` : (isSpanish ? 'IA' : 'AI')}
               </Badge>
             </div>
             <p className="text-sm opacity-75">
@@ -2181,7 +2202,7 @@ function DataPackageImportPageInner() {
                 className={cn(
                   'flex items-center gap-3 px-4 py-2 rounded-lg transition-colors whitespace-nowrap',
                   isActive && 'bg-primary text-primary-foreground',
-                  isPast && 'bg-green-100 text-green-700',
+                  isPast && 'bg-emerald-900/30 text-emerald-300',
                   !isActive && !isPast && 'bg-muted text-muted-foreground',
                   isClickable && 'cursor-pointer hover:opacity-80'
                 )}
@@ -2190,7 +2211,7 @@ function DataPackageImportPageInner() {
                   className={cn(
                     'flex items-center justify-center h-8 w-8 rounded-full',
                     isActive && 'bg-primary-foreground/20',
-                    isPast && 'bg-green-200',
+                    isPast && 'bg-emerald-800/50',
                     !isActive && !isPast && 'bg-muted-foreground/20'
                   )}
                 >
@@ -2206,7 +2227,7 @@ function DataPackageImportPageInner() {
                 </div>
               </button>
               {index < STEPS.length - 1 && (
-                <div className={cn('h-0.5 w-8 mx-2', isPast ? 'bg-green-500' : 'bg-muted')} />
+                <div className={cn('h-0.5 w-8 mx-2', isPast ? 'bg-emerald-500' : 'bg-muted')} />
               )}
             </div>
           );
@@ -2359,28 +2380,28 @@ function DataPackageImportPageInner() {
                 <div className={cn(
                   "p-4 border rounded-lg",
                   aiClassification.confidence >= 90
-                    ? "bg-green-50 border-green-200"
+                    ? "bg-emerald-900/20 border-emerald-700"
                     : aiClassification.confidence >= 70
-                      ? "bg-yellow-50 border-yellow-200"
-                      : "bg-orange-50 border-orange-200"
+                      ? "bg-amber-900/20 border-amber-700"
+                      : "bg-orange-900/20 border-orange-700"
                 )}>
                   <div className="flex items-start gap-3">
                     <Sparkles className={cn(
                       "h-5 w-5 mt-0.5",
                       aiClassification.confidence >= 90
-                        ? "text-green-600"
+                        ? "text-emerald-400"
                         : aiClassification.confidence >= 70
-                          ? "text-yellow-600"
-                          : "text-orange-600"
+                          ? "text-amber-400"
+                          : "text-orange-400"
                     )} />
                     <div className="flex-1">
                       <p className={cn(
                         "font-medium",
                         aiClassification.confidence >= 90
-                          ? "text-green-800"
+                          ? "text-emerald-300"
                           : aiClassification.confidence >= 70
-                            ? "text-yellow-800"
-                            : "text-orange-800"
+                            ? "text-amber-300"
+                            : "text-orange-300"
                       )}>
                         {isSpanish ? 'Clasificación AI' : 'AI Classification'}: {aiClassification.fileType}
                         {aiClassification.confidence >= 90 && (
@@ -2590,7 +2611,7 @@ function DataPackageImportPageInner() {
                           idx === currentMappingSheetIndex
                             ? 'bg-primary text-primary-foreground'
                             : fieldMappings.find(m => m.sheetName === sheet.name)?.isComplete
-                              ? 'bg-green-500 text-white'
+                              ? 'bg-emerald-600 text-white'
                               : 'bg-muted-foreground/20 text-muted-foreground'
                         )}
                       >
@@ -2622,14 +2643,16 @@ function DataPackageImportPageInner() {
 
               {/* Component Banner (if matched) */}
               {currentMappingSheet.matchedComponent && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
-                  <Database className="h-5 w-5 text-green-600" />
+                <div className="p-3 bg-emerald-900/20 border border-emerald-700 rounded-lg flex items-center gap-2">
+                  <Database className="h-5 w-5 text-emerald-400" />
                   <div>
-                    <p className="font-medium text-green-800">
+                    <p className="font-medium text-emerald-300">
                       {isSpanish ? 'Componente Detectado' : 'Matched Component'}: {currentMappingSheet.matchedComponent}
                     </p>
-                    <p className="text-xs text-green-700">
-                      {currentMappingSheet.matchedComponentConfidence ?? 0}% {isSpanish ? 'confianza' : 'confidence'}
+                    <p className="text-xs text-emerald-400">
+                      {(currentMappingSheet.matchedComponentConfidence ?? 0) > 0
+                        ? `${currentMappingSheet.matchedComponentConfidence}% ${isSpanish ? 'confianza' : 'confidence'}`
+                        : (isSpanish ? 'IA sugerido' : 'AI suggested')}
                     </p>
                   </div>
                 </div>
@@ -2691,15 +2714,19 @@ function DataPackageImportPageInner() {
                         <tr className="border-t">
                           {currentMappingSheet.headers.slice(0, 8).filter(h => h != null).map(header => {
                             const value = currentMappingSheet.sampleRows[previewRowIndex]?.[header];
-                            // Format currency values
+                            // HF-073: Smart formatting — currency, Excel serial dates
                             const isAmountField = header && (
                               header.toLowerCase().includes('monto') ||
                               header.toLowerCase().includes('venta') ||
-                              header.toLowerCase().includes('total')
+                              header.toLowerCase().includes('total') ||
+                              header.toLowerCase().includes('amount') ||
+                              header.toLowerCase().includes('balance') ||
+                              header.toLowerCase().includes('salary') ||
+                              header.toLowerCase().includes('pago')
                             );
                             return (
                               <td key={header} className="px-3 py-2">
-                                {isAmountField ? formatCurrency(value) : String(value ?? '')}
+                                {isAmountField ? formatCurrency(value) : formatPreviewValue(value, header)}
                               </td>
                             );
                           })}
@@ -2733,9 +2760,9 @@ function DataPackageImportPageInner() {
                         className={cn(
                           'flex items-center gap-4 p-3 border rounded-lg',
                           // CLT-08: Tier-based styling
-                          mapping.tier === 'auto' && 'border-green-200 bg-green-50/50',
-                          mapping.tier === 'suggested' && 'border-amber-200 bg-amber-50/30',
-                          mapping.tier === 'unresolved' && 'border-zinc-200 bg-zinc-50/30'
+                          mapping.tier === 'auto' && 'border-emerald-700 bg-emerald-900/20',
+                          mapping.tier === 'suggested' && 'border-amber-700 bg-amber-900/20',
+                          mapping.tier === 'unresolved' && 'border-zinc-700 bg-zinc-900/20'
                         )}
                       >
                         <div className="flex-1 min-w-0">
@@ -2743,17 +2770,17 @@ function DataPackageImportPageInner() {
                             <p className="font-medium truncate">{mapping.sourceColumn}</p>
                             {/* CLT-08: Three-tier badges */}
                             {mapping.tier === 'auto' && (
-                              <Badge variant="outline" className="text-xs bg-green-100 text-green-700 border-green-300">
-                                AI ✓ {mapping.confidence}%
+                              <Badge variant="outline" className="text-xs bg-emerald-900/50 text-emerald-300 border-emerald-600">
+                                {mapping.confidence > 0 ? `AI ✓ ${Math.round(mapping.confidence)}%` : (isSpanish ? 'IA sugerido' : 'AI suggested')}
                               </Badge>
                             )}
                             {mapping.tier === 'suggested' && (
-                              <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300">
-                                {isSpanish ? 'Revisar' : 'Review'} {mapping.confidence}%
+                              <Badge variant="outline" className="text-xs bg-amber-900/50 text-amber-300 border-amber-600">
+                                {mapping.confidence > 0 ? `${isSpanish ? 'Revisar' : 'Review'} ${Math.round(mapping.confidence)}%` : (isSpanish ? 'Revisar' : 'Review')}
                               </Badge>
                             )}
                             {mapping.tier === 'unresolved' && (
-                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                              <Badge variant="outline" className="text-xs bg-zinc-800 text-zinc-300 border-zinc-600">
                                 {isSpanish ? 'Se Preservará' : 'Will be preserved'}
                               </Badge>
                             )}
@@ -2773,7 +2800,7 @@ function DataPackageImportPageInner() {
                             className={cn(
                               'w-full p-2 border rounded-md text-sm',
                               mapping.targetField && 'border-primary',
-                              mapping.tier === 'unresolved' && !mapping.targetField && 'border-zinc-300'
+                              mapping.tier === 'unresolved' && !mapping.targetField && 'border-zinc-600'
                             )}
                             value={mapping.targetField || ''}
                             onChange={(e) => updateFieldMapping(
@@ -2828,7 +2855,7 @@ function DataPackageImportPageInner() {
 
                         {/* Preserved indicator for unmapped non-unresolved fields */}
                         {!mapping.targetField && mapping.tier !== 'unresolved' && (
-                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 shrink-0">
+                          <Badge variant="outline" className="text-xs bg-blue-900/30 text-blue-300 border-blue-700 shrink-0">
                             {isSpanish ? 'Preservado' : 'Preserved'}
                           </Badge>
                         )}
@@ -2941,8 +2968,8 @@ function DataPackageImportPageInner() {
 
                 {/* All clear message if no issues */}
                 {criticalFieldIssues.length === 0 && fieldMappings.length > 0 && (
-                  <Card className="border-2 border-green-300 bg-green-50">
-                    <CardContent className="py-3 flex items-center gap-2 text-green-700">
+                  <Card className="border-2 border-emerald-700 bg-emerald-900/20">
+                    <CardContent className="py-3 flex items-center gap-2 text-emerald-300">
                       <CheckCircle className="h-4 w-4" />
                       <span className="text-sm font-medium">
                         {isSpanish
@@ -2981,29 +3008,29 @@ function DataPackageImportPageInner() {
                   <div className={cn(
                     'p-6 rounded-lg flex items-center gap-4',
                     validationResult.isValid
-                      ? 'bg-green-50 border border-green-200'
-                      : 'bg-yellow-50 border border-yellow-200'
+                      ? 'bg-emerald-900/20 border border-emerald-700'
+                      : 'bg-amber-900/20 border border-amber-700'
                   )}>
                     <div className={cn(
                       'p-3 rounded-full',
-                      validationResult.isValid ? 'bg-green-100' : 'bg-yellow-100'
+                      validationResult.isValid ? 'bg-emerald-900/40' : 'bg-amber-900/40'
                     )}>
                       {validationResult.isValid ? (
-                        <CheckCircle className="h-8 w-8 text-green-600" />
+                        <CheckCircle className="h-8 w-8 text-emerald-400" />
                       ) : (
-                        <AlertTriangle className="h-8 w-8 text-yellow-600" />
+                        <AlertTriangle className="h-8 w-8 text-amber-400" />
                       )}
                     </div>
                     <div className="flex-1">
                       <h3 className={cn(
                         'text-xl font-semibold',
-                        validationResult.isValid ? 'text-green-800' : 'text-yellow-800'
+                        validationResult.isValid ? 'text-emerald-300' : 'text-amber-300'
                       )}>
                         {validationResult.isValid
                           ? (isSpanish ? 'Validación Exitosa' : 'Validation Passed')
                           : (isSpanish ? 'Revisión Recomendada' : 'Review Recommended')}
                       </h3>
-                      <p className={validationResult.isValid ? 'text-green-700' : 'text-yellow-700'}>
+                      <p className={validationResult.isValid ? 'text-emerald-400' : 'text-amber-400'}>
                         {isSpanish
                           ? `Puntuación de calidad: ${validationResult.overallScore}%`
                           : `Quality score: ${validationResult.overallScore}%`}
@@ -3012,8 +3039,8 @@ function DataPackageImportPageInner() {
                     <div className="text-right">
                       <div className={cn(
                         'text-4xl font-bold',
-                        validationResult.overallScore >= 80 ? 'text-green-600' :
-                        validationResult.overallScore >= 60 ? 'text-yellow-600' : 'text-red-600'
+                        validationResult.overallScore >= 80 ? 'text-emerald-400' :
+                        validationResult.overallScore >= 60 ? 'text-amber-400' : 'text-red-400'
                       )}>
                         {validationResult.overallScore}%
                       </div>
@@ -3047,7 +3074,7 @@ function DataPackageImportPageInner() {
                                 <div
                                   className={cn(
                                     'h-full rounded-full transition-all',
-                                    score.completenessScore >= 80 ? 'bg-green-500' :
+                                    score.completenessScore >= 80 ? 'bg-emerald-500' :
                                     score.completenessScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
                                   )}
                                   style={{ width: `${score.completenessScore}%` }}
@@ -3063,7 +3090,7 @@ function DataPackageImportPageInner() {
                                 <div
                                   className={cn(
                                     'h-full rounded-full transition-all',
-                                    score.validityScore >= 80 ? 'bg-green-500' :
+                                    score.validityScore >= 80 ? 'bg-emerald-500' :
                                     score.validityScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
                                   )}
                                   style={{ width: `${score.validityScore}%` }}
@@ -3079,7 +3106,7 @@ function DataPackageImportPageInner() {
                                 <div
                                   className={cn(
                                     'h-full rounded-full transition-all',
-                                    score.consistencyScore >= 80 ? 'bg-green-500' :
+                                    score.consistencyScore >= 80 ? 'bg-emerald-500' :
                                     score.consistencyScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
                                   )}
                                   style={{ width: `${score.consistencyScore}%` }}
@@ -3193,7 +3220,7 @@ function DataPackageImportPageInner() {
                                 {isSpanish ? 'Crear Períodos' : 'Create Periods'}
                               </Button>
                             ) : (
-                              <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50">
+                              <Badge variant="outline" className="text-emerald-300 border-emerald-700 bg-emerald-900/30">
                                 <CheckCircle className="h-3 w-3 mr-1" />
                                 {isSpanish ? 'Períodos creados' : 'Periods created'}
                               </Badge>
@@ -3240,7 +3267,7 @@ function DataPackageImportPageInner() {
                             </div>
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">{isSpanish ? 'Coincidentes' : 'Matched'}:</span>
-                              <span className="text-green-600">{validationResult.crossSheetValidation.entityIdMatch.matchedCount}</span>
+                              <span className="text-emerald-400">{validationResult.crossSheetValidation.entityIdMatch.matchedCount}</span>
                             </div>
                           </div>
                           {validationResult.crossSheetValidation.entityIdMatch.unmatchedIds.length > 0 && (
@@ -3350,7 +3377,7 @@ function DataPackageImportPageInner() {
                                     <td key={comp.componentId} className="px-3 py-2 text-right">
                                       <div>
                                         <span className={cn(
-                                          comp.lookupResult > 0 ? 'text-green-600' : 'text-muted-foreground'
+                                          comp.lookupResult > 0 ? 'text-emerald-400' : 'text-muted-foreground'
                                         )}>
                                           {formatCurrency(comp.lookupResult)}
                                         </span>
@@ -3363,13 +3390,13 @@ function DataPackageImportPageInner() {
                                   <td className="px-3 py-2 text-right font-semibold">
                                     <span className={cn(
                                       preview.totalIncentive > 0
-                                        ? 'text-green-600'
+                                        ? 'text-emerald-400'
                                         : 'text-muted-foreground'
                                     )}>
                                       {formatCurrency(preview.totalIncentive)}
                                     </span>
                                     {preview.totalIncentive > 0 && (
-                                      <TrendingUp className="inline-block h-3 w-3 ml-1 text-green-500" />
+                                      <TrendingUp className="inline-block h-3 w-3 ml-1 text-emerald-400" />
                                     )}
                                   </td>
                                 </tr>
@@ -3397,34 +3424,34 @@ function DataPackageImportPageInner() {
                 <div className="flex items-center justify-between">
                   {/* Node 1: Upload */}
                   <div className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center text-white">
+                    <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white">
                       <CheckCircle className="h-6 w-6" />
                     </div>
                     <p className="text-xs mt-2 font-medium">{isSpanish ? 'Cargado' : 'Uploaded'}</p>
                   </div>
-                  <div className="flex-1 h-1 bg-green-500 mx-2" />
+                  <div className="flex-1 h-1 bg-emerald-600 mx-2" />
 
                   {/* Node 2: Analyzed */}
                   <div className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center text-white">
+                    <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white">
                       <CheckCircle className="h-6 w-6" />
                     </div>
                     <p className="text-xs mt-2 font-medium">{isSpanish ? 'Analizado' : 'Analyzed'}</p>
                   </div>
-                  <div className="flex-1 h-1 bg-green-500 mx-2" />
+                  <div className="flex-1 h-1 bg-emerald-600 mx-2" />
 
                   {/* Node 3: Mapped */}
                   <div className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center text-white">
+                    <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white">
                       <CheckCircle className="h-6 w-6" />
                     </div>
                     <p className="text-xs mt-2 font-medium">{isSpanish ? 'Mapeado' : 'Mapped'}</p>
                   </div>
-                  <div className="flex-1 h-1 bg-green-500 mx-2" />
+                  <div className="flex-1 h-1 bg-emerald-600 mx-2" />
 
                   {/* Node 4: Validated */}
                   <div className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center text-white">
+                    <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white">
                       <CheckCircle className="h-6 w-6" />
                     </div>
                     <p className="text-xs mt-2 font-medium">{isSpanish ? 'Validado' : 'Validated'}</p>
@@ -3518,8 +3545,8 @@ function DataPackageImportPageInner() {
                     <div className="text-center p-4 bg-muted rounded-lg">
                       <p className={cn(
                         'text-3xl font-bold',
-                        (validationResult?.overallScore || analysisConfidence) >= 80 ? 'text-green-600' :
-                        (validationResult?.overallScore || analysisConfidence) >= 60 ? 'text-yellow-600' : 'text-red-600'
+                        (validationResult?.overallScore || analysisConfidence) >= 80 ? 'text-emerald-400' :
+                        (validationResult?.overallScore || analysisConfidence) >= 60 ? 'text-amber-400' : 'text-red-400'
                       )}>
                         {validationResult?.overallScore || analysisConfidence}%
                       </p>
@@ -3558,7 +3585,7 @@ function DataPackageImportPageInner() {
                             </div>
                             <div className="flex items-center gap-2">
                               {mappedCount > 0 && (
-                                <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                <Badge variant="outline" className="text-xs bg-emerald-900/30 text-emerald-300 border-emerald-700">
                                   {mappedCount} {isSpanish ? 'mapeados' : 'mapped'}
                                 </Badge>
                               )}
@@ -3688,19 +3715,19 @@ function DataPackageImportPageInner() {
           {currentStep === 'complete' && (
             <div className="space-y-8">
               {/* Success Banner */}
-              <div className="p-8 bg-gradient-to-r from-green-50 to-green-100 border border-green-200 rounded-lg text-center">
-                <div className="w-20 h-20 mx-auto bg-green-500 rounded-full flex items-center justify-center mb-4">
+              <div className="p-8 bg-gradient-to-r from-emerald-900/20 to-emerald-900/30 border border-emerald-700 rounded-lg text-center">
+                <div className="w-20 h-20 mx-auto bg-emerald-600 rounded-full flex items-center justify-center mb-4">
                   <CheckCircle className="h-12 w-12 text-white" />
                 </div>
-                <h2 className="text-2xl font-bold text-green-800 mb-2">
+                <h2 className="text-2xl font-bold text-emerald-300 mb-2">
                   {isSpanish ? '¡Importación Completada!' : 'Import Complete!'}
                 </h2>
-                <p className="text-green-700 mb-4">
+                <p className="text-emerald-400 mb-4">
                   {isSpanish
                     ? 'Los datos han sido importados exitosamente al sistema.'
                     : 'Data has been successfully imported into the system.'}
                 </p>
-                <Badge variant="outline" className="text-green-700 border-green-400 text-lg px-4 py-1">
+                <Badge variant="outline" className="text-emerald-300 border-emerald-600 text-lg px-4 py-1">
                   {isSpanish ? 'ID de Importación' : 'Import ID'}: #{importId?.slice(-8)}
                 </Badge>
               </div>
@@ -3715,32 +3742,32 @@ function DataPackageImportPageInner() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-4">
-                    <div className="text-center p-4 bg-green-50 rounded-lg">
-                      <p className="text-2xl font-bold text-green-600">
+                    <div className="text-center p-4 bg-emerald-900/20 rounded-lg">
+                      <p className="text-2xl font-bold text-emerald-400">
                         {importResult?.recordCount?.toLocaleString() || analysis?.sheets.reduce((sum, s) => sum + s.rowCount, 0).toLocaleString() || 0}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {isSpanish ? 'Registros Importados' : 'Records Imported'}
                       </p>
                     </div>
-                    <div className="text-center p-4 bg-green-50 rounded-lg">
-                      <p className="text-2xl font-bold text-green-600">
+                    <div className="text-center p-4 bg-emerald-900/20 rounded-lg">
+                      <p className="text-2xl font-bold text-emerald-400">
                         {importResult?.entityCount?.toLocaleString() || '—'}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {isSpanish ? 'Entidades' : 'Entities'}
                       </p>
                     </div>
-                    <div className="text-center p-4 bg-green-50 rounded-lg">
-                      <p className="text-2xl font-bold text-green-600">
+                    <div className="text-center p-4 bg-emerald-900/20 rounded-lg">
+                      <p className="text-2xl font-bold text-emerald-400">
                         {importResult?.periodCount || 0}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {isSpanish ? 'Períodos' : 'Periods'}
                       </p>
                     </div>
-                    <div className="text-center p-4 bg-green-50 rounded-lg">
-                      <p className="text-2xl font-bold text-green-600">
+                    <div className="text-center p-4 bg-emerald-900/20 rounded-lg">
+                      <p className="text-2xl font-bold text-emerald-400">
                         {validationResult?.overallScore || analysisConfidence}%
                       </p>
                       <p className="text-sm text-muted-foreground">
@@ -3765,7 +3792,7 @@ function DataPackageImportPageInner() {
                                 {p.recordCount.toLocaleString()} {isSpanish ? 'registros' : 'records'}
                               </p>
                             </div>
-                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                            <Badge variant="outline" className="text-xs bg-emerald-900/30 text-emerald-300 border-emerald-700">
                               {importResult?.periods?.some(ip => ip.key === p.canonicalKey)
                                 ? (isSpanish ? 'Creado' : 'Created')
                                 : (isSpanish ? 'Existente' : 'Existing')}
@@ -3778,7 +3805,7 @@ function DataPackageImportPageInner() {
                             <div>
                               <p className="text-sm font-medium">{p.key}</p>
                             </div>
-                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                            <Badge variant="outline" className="text-xs bg-emerald-900/30 text-emerald-300 border-emerald-700">
                               {isSpanish ? 'Creado' : 'Created'}
                             </Badge>
                           </div>

@@ -354,9 +354,9 @@ export default function CalculationDiagnosticsPage() {
                   {isSpanish ? "Ejecutar Cálculos" : "Run Calculations"}
                 </Button>
               </Link>
-              <Link href="/admin/launch">
+              <Link href="/admin/launch/calculate">
                 <Button variant="outline">
-                  {isSpanish ? "Volver al Lanzamiento" : "Back to Launch"}
+                  {isSpanish ? "Volver a Calcular" : "Back to Calculate"}
                 </Button>
               </Link>
             </div>

@@ -908,7 +908,7 @@ function PlanImportPageInner() {
     <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/admin/launch')}>
+        <Button variant="ghost" size="icon" onClick={() => router.push('/performance/plans')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
@@ -1150,7 +1150,7 @@ function PlanImportPageInner() {
               ))}
             </div>
             <div className="flex gap-3">
-              <Button variant="outline" size="sm" onClick={() => router.push('/admin/launch')}>
+              <Button variant="outline" size="sm" onClick={() => router.push('/performance/plans')}>
                 {locale === 'es-MX' ? 'Ver Planes' : 'View Plans'}
               </Button>
               <Button variant="outline" size="sm" onClick={() => { setQueueEntries([]); setShowBatchSummary(false); setParsedPlan(null); setImportResult(null); }}>
