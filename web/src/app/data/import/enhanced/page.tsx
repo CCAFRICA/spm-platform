@@ -932,6 +932,8 @@ function DataPackageImportPageInner() {
   const [newCustomField, setNewCustomField] = useState('');
 
   // Plan state
+  // OB-107: Load ALL active plans for multi-plan routing
+  const [allActivePlans, setAllActivePlans] = useState<RuleSetConfig[]>([]);
   const [activePlan, setActivePlan] = useState<RuleSetConfig | null>(null);
   const [targetFields, setTargetFields] = useState<TargetField[]>([]);
 
@@ -971,14 +973,20 @@ function DataPackageImportPageInner() {
   const tenantId = currentTenant?.id;
   const currency = currentTenant?.currency || 'MXN';
 
-  // Load tenant's active plan on mount
+  // Load tenant's active plans on mount
+  // OB-107: Load ALL active plans for multi-plan routing
   useEffect(() => {
     if (!tenantId) return; // Guard for when tenant not selected
     getRuleSets(tenantId)
       .then((plans) => {
-        const active = plans.find(p => p.status === 'active');
-        setActivePlan(active || null);
-        setTargetFields(extractTargetFieldsFromPlan(active || null));
+        const activePlans = plans.filter(p => p.status === 'active');
+        setAllActivePlans(activePlans);
+        const first = activePlans[0] || null;
+        setActivePlan(first);
+        setTargetFields(extractTargetFieldsFromPlan(first));
+        if (activePlans.length > 1) {
+          console.log(`[Smart Import] Multi-plan tenant: ${activePlans.length} active plans loaded`);
+        }
       })
       .catch((err) => console.error('Error loading rule sets:', err));
   }, [tenantId]);
@@ -2308,6 +2316,43 @@ function DataPackageImportPageInner() {
                   {analysisConfidence}% {isSpanish ? 'confianza' : 'confidence'}
                 </Badge>
               </div>
+
+              {/* OB-107: Multi-plan selector — shown when tenant has multiple active plans */}
+              {allActivePlans.length > 1 && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Database className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <p className="font-medium text-blue-800">
+                          {isSpanish ? 'Plan de Compensación' : 'Compensation Plan'}
+                        </p>
+                        <p className="text-xs text-blue-600">
+                          {isSpanish
+                            ? `${allActivePlans.length} planes activos — seleccione el plan para este archivo`
+                            : `${allActivePlans.length} active plans — select the plan for this file`}
+                        </p>
+                      </div>
+                    </div>
+                    <select
+                      className="px-3 py-2 border border-blue-300 rounded-md text-sm bg-white min-w-[200px]"
+                      value={activePlan?.id || ''}
+                      onChange={(e) => {
+                        const selectedPlan = allActivePlans.find(p => p.id === e.target.value) || null;
+                        setActivePlan(selectedPlan);
+                        setTargetFields(extractTargetFieldsFromPlan(selectedPlan));
+                        console.log(`[Smart Import] Plan changed to: ${selectedPlan?.name || 'none'}`);
+                      }}
+                    >
+                      {allActivePlans.map(plan => (
+                        <option key={plan.id} value={plan.id}>
+                          {plan.name || plan.id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
 
               {/* AI Classification Alert */}
               {aiClassification && (
