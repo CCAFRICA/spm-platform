@@ -67,14 +67,14 @@ export interface CalculationRunResult {
  */
 export interface MetricDerivationRule {
   metric: string;          // Target metric name (from plan configuration)
-  operation: 'count' | 'sum';  // Derivation operation
+  operation: 'count' | 'sum' | 'delta';  // Derivation operation
   source_pattern: string;  // Regex pattern to match data_type/sheet name
   filters: Array<{
     field: string;         // Field name in row_data (discovered at runtime)
     operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
     value: string | number | boolean;
   }>;
-  source_field?: string;   // OB-119: Field to sum (for operation='sum')
+  source_field?: string;   // OB-119: Field to sum (for operation='sum' or 'delta')
 }
 
 /**
@@ -84,20 +84,22 @@ export interface MetricDerivationRule {
  * Zero hardcoded field names. Zero DB queries. Works on in-memory rows.
  * Korean Test: All field names and values come from derivation rules, not code.
  *
- * @param entitySheetData - Map<sheetName, rows> already loaded for this entity
+ * @param entitySheetData - Map<sheetName, rows> already loaded for this entity (current period)
  * @param derivations - Derivation rules from input_bindings.metric_derivations
+ * @param priorPeriodData - OB-121: Optional prior period data for delta operations
  * @returns Map of derived metric name → numeric value
  */
 export function applyMetricDerivations(
   entitySheetData: Map<string, Array<{ row_data: Json }>>,
-  derivations: MetricDerivationRule[]
+  derivations: MetricDerivationRule[],
+  priorPeriodData?: Map<string, Array<{ row_data: Json }>>
 ): Record<string, number> {
   const derived: Record<string, number> = {};
 
   for (const rule of derivations) {
     const sourceRegex = new RegExp(rule.source_pattern, 'i');
 
-    // Find all sheets matching the source pattern
+    // Find all sheets matching the source pattern (current period)
     let matchingRows: Array<{ row_data: Json }> = [];
     for (const [sheetName, rows] of Array.from(entitySheetData.entries())) {
       if (sourceRegex.test(sheetName)) {
@@ -109,7 +111,6 @@ export function applyMetricDerivations(
 
     // Apply derivation operation
     if (rule.operation === 'sum' && rule.source_field) {
-      // OB-119: Sum a specific field across all matching rows
       let total = 0;
       for (const row of matchingRows) {
         const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
@@ -119,6 +120,36 @@ export function applyMetricDerivations(
         if (typeof val === 'number') total += val;
       }
       derived[rule.metric] = total;
+    } else if (rule.operation === 'delta' && rule.source_field) {
+      // OB-121: Period-over-period delta = current_sum - prior_sum
+      let currentTotal = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+        const val = rd[rule.source_field];
+        if (typeof val === 'number') currentTotal += val;
+      }
+
+      let priorTotal = 0;
+      if (priorPeriodData) {
+        for (const [sheetName, rows] of Array.from(priorPeriodData.entries())) {
+          if (sourceRegex.test(sheetName)) {
+            for (const row of rows) {
+              const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+                ? row.row_data as Record<string, unknown>
+                : {};
+              const val = rd[rule.source_field];
+              if (typeof val === 'number') priorTotal += val;
+            }
+          }
+        }
+      }
+
+      derived[rule.metric] = currentTotal - priorTotal;
+      if (!priorPeriodData) {
+        console.log(`[Derivation] delta: no prior period data for "${rule.metric}" — using current value only`);
+      }
     } else if (rule.operation === 'count') {
       let count = 0;
       for (const row of matchingRows) {
@@ -813,12 +844,28 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   // ── 3. Fetch period info ──
   const { data: period } = await supabase
     .from('periods')
-    .select('id, canonical_key')
+    .select('id, canonical_key, start_date')
     .eq('id', periodId)
     .single();
 
   if (!period) {
     return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'Period not found' };
+  }
+
+  // ── 3b. OB-121: Find prior period (for delta derivations) ──
+  const hasDeltaDerivations = metricDerivations.some(d => d.operation === 'delta');
+  let priorPeriodId: string | null = null;
+  if (hasDeltaDerivations && period.start_date) {
+    const { data: priorPeriod } = await supabase
+      .from('periods')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .lt('start_date', period.start_date)
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .single();
+    priorPeriodId = priorPeriod?.id ?? null;
+    console.log(`[RunCalculation] Prior period for delta: ${priorPeriodId ?? 'none (first period)'}`);
   }
 
   // ── 4. Fetch committed data (OB-75: paginated, no 1000-row cap) ──
@@ -881,6 +928,45 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   }
 
   console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData.length} data rows (paginated fetch)`);
+
+  // ── 4b. OB-121: Fetch prior period data (only if delta derivations exist) ──
+  const priorDataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
+  if (priorPeriodId) {
+    const priorCommittedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+    let priorPage = 0;
+    while (true) {
+      const from = priorPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data: page } = await supabase
+        .from('committed_data')
+        .select('entity_id, data_type, row_data')
+        .eq('tenant_id', tenantId)
+        .eq('period_id', priorPeriodId)
+        .range(from, to);
+
+      if (!page || page.length === 0) break;
+      priorCommittedData.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      priorPage++;
+    }
+
+    // Group by entity_id → data_type → rows (same structure as dataByEntity)
+    for (const row of priorCommittedData) {
+      if (row.entity_id) {
+        if (!priorDataByEntity.has(row.entity_id)) {
+          priorDataByEntity.set(row.entity_id, new Map());
+        }
+        const entitySheets = priorDataByEntity.get(row.entity_id)!;
+        const sheetName = row.data_type || '_unknown';
+        if (!entitySheets.has(sheetName)) {
+          entitySheets.set(sheetName, []);
+        }
+        entitySheets.get(sheetName)!.push({ row_data: row.row_data });
+      }
+    }
+
+    console.log(`[RunCalculation] Prior period data: ${priorCommittedData.length} rows for ${priorDataByEntity.size} entities`);
+  }
 
   // ── OB-85-R3 Fix 1: Entity data consolidation ──
   // Match by row_data.entityId (employee number), not external_id.
@@ -1075,8 +1161,10 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     }
 
     // OB-118: Derive metrics once per entity from loaded data
+    // OB-121: Pass prior period data for delta derivations
+    const entityPriorData = priorDataByEntity.get(entityId);
     const derivedMetrics = metricDerivations.length > 0
-      ? applyMetricDerivations(entitySheetData, metricDerivations)
+      ? applyMetricDerivations(entitySheetData, metricDerivations, entityPriorData)
       : {};
 
     // Evaluate each component with sheet-aware metrics
