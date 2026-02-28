@@ -132,7 +132,8 @@ export async function POST(request: NextRequest) {
     assignPage++;
   }
 
-  const entityIds = assignments.map(a => a.entity_id);
+  // HF-078: Deduplicate entity IDs to prevent UNIQUE constraint violations
+  const entityIds = Array.from(new Set(assignments.map(a => a.entity_id)));
   if (entityIds.length === 0) {
     return NextResponse.json(
       { error: 'No entities assigned to this rule set', log },
