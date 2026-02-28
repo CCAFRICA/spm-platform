@@ -243,71 +243,6 @@ export function extractMetricConfig(component: {
 }
 
 /**
- * @deprecated SHEET_COMPONENT_PATTERNS is a legacy pattern-matching table.
- * OB-122 will replace this with input_bindings-driven metric resolution.
- * Do NOT add new entries. Use convergence-service.ts for new bindings.
- *
- * OB-24: Sheet-to-component matching patterns
- * Maps sheet name patterns to component types via regex.
- */
-export const SHEET_COMPONENT_PATTERNS: Array<{
-  sheetPatterns: RegExp[];
-  componentPatterns: RegExp[];
-}> = [
-  {
-    // Individual optical sales
-    sheetPatterns: [/venta.*individual/i, /individual.*venta/i, /optical.*sales/i],
-    componentPatterns: [/optical.*sales/i, /individual.*sales/i, /venta.*optica/i],
-  },
-  {
-    // Store sales
-    sheetPatterns: [/venta.*tienda/i, /tienda.*venta/i, /store.*sales/i],
-    componentPatterns: [/store.*sales/i, /tienda/i],
-  },
-  {
-    // New customers
-    sheetPatterns: [/clientes.*nuevos/i, /new.*customer/i, /nuevos.*clientes/i],
-    componentPatterns: [/new.*customer/i, /clientes.*nuevos/i],
-  },
-  {
-    // Collections
-    sheetPatterns: [/cobranza/i, /collection/i, /cobro/i],
-    componentPatterns: [/collection/i, /cobranza/i],
-  },
-  {
-    // Insurance (Club de Protección)
-    sheetPatterns: [/club.*proteccion/i, /proteccion/i, /insurance/i, /seguro/i],
-    componentPatterns: [/insurance/i, /proteccion/i, /seguro/i],
-  },
-  {
-    // Extended warranty (Garantía Extendida)
-    sheetPatterns: [/garantia.*extendida/i, /warranty/i, /garantia/i],
-    componentPatterns: [/service/i, /warranty/i, /garantia/i],
-  },
-  // ── OB-116: MBC (banking/financial) patterns ──
-  {
-    // Mortgage origination / closings
-    sheetPatterns: [/mortgage/i, /closing/i, /hipoteca/i],
-    componentPatterns: [/mortgage/i, /hipoteca/i],
-  },
-  {
-    // Loan disbursements / consumer lending
-    sheetPatterns: [/loan.*disbursement/i, /disbursement/i, /desembolso/i, /prestamo/i],
-    componentPatterns: [/loan.*commission/i, /lending/i, /prestamo/i],
-  },
-  {
-    // Deposit growth / balances
-    sheetPatterns: [/deposit/i, /balance/i, /deposito/i],
-    componentPatterns: [/deposit/i, /deposito/i],
-  },
-  {
-    // Insurance referrals (banking)
-    sheetPatterns: [/referral/i, /referido/i],
-    componentPatterns: [/referral/i, /referido/i],
-  },
-];
-
-/**
  * Find the sheet that matches a plan component by matching component names/IDs.
  * The AI Import Context stores which sheet feeds which plan component.
  */
@@ -343,26 +278,6 @@ export function findSheetForComponent(
       normId.includes(matchedNorm)
     ) {
       return sheet.sheetName;
-    }
-  }
-
-  // STRATEGY 2: OB-24 Pattern-based matching (Spanish sheet names → English components)
-  for (const mapping of SHEET_COMPONENT_PATTERNS) {
-    // Check if component matches any pattern
-    const componentMatches = mapping.componentPatterns.some(
-      (pattern) => pattern.test(componentName) || pattern.test(componentId)
-    );
-
-    if (componentMatches) {
-      // Find a sheet that matches the corresponding sheet patterns
-      for (const sheet of aiContextSheets) {
-        const sheetMatches = mapping.sheetPatterns.some((pattern) =>
-          pattern.test(sheet.sheetName)
-        );
-        if (sheetMatches) {
-          return sheet.sheetName;
-        }
-      }
     }
   }
 

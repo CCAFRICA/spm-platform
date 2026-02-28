@@ -52,7 +52,7 @@ interface CommitRequest {
 // OB-119: Normalize filename to semantic data_type — strip date suffixes and prefixes
 // "CFG_Loan_Disbursements_Jan2024.csv" → "loan_disbursements"
 // "CFG_Mortgage_Closings_Q1_2024.csv" → "mortgage_closings"
-// This makes data_type match SHEET_COMPONENT_PATTERNS in metric-resolver.ts
+// This produces clean semantic data_types for input_bindings resolution
 function normalizeFileNameToDataType(fn: string): string {
   let stem = fn.replace(/\.[^.]+$/, ''); // Remove extension
   stem = stem.replace(/^[A-Z]{2,5}_/, ''); // Strip common prefix (e.g., "CFG_")
@@ -765,7 +765,7 @@ export async function POST(request: NextRequest) {
         const stem = fileName.replace(/\.[^.]+$/, '');
         return `${aiSheet.classification}:${stem}`;
       }
-      // Priority 3 (OB-119): Normalized filename — semantic type for SHEET_COMPONENT_PATTERNS
+      // Priority 3 (OB-119): Normalized filename — semantic data_type for input_bindings
       // Strips date suffixes and prefixes: "CFG_Loan_Disbursements_Jan2024" → "loan_disbursements"
       const normalized = normalizeFileNameToDataType(fileName);
       if (normalized && normalized.length > 2) {

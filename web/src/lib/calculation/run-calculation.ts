@@ -24,7 +24,6 @@ import type {
 import {
   inferSemanticType,
   findSheetForComponent,
-  SHEET_COMPONENT_PATTERNS,
 } from '@/lib/orchestration/metric-resolver';
 import { executeOperation, type EntityData } from '@/lib/calculation/intent-executor';
 import { isIntentOperation, type IntentOperation } from '@/lib/calculation/intent-types';
@@ -471,13 +470,8 @@ export interface AIContextSheet {
 /**
  * Find which sheet (data_type) feeds a given plan component.
  *
- * OB-75: Uses AI Import Context (persisted in import_batches.metadata)
- * instead of hardcoded SHEET_COMPONENT_PATTERNS.
- * Korean Test: PASSES — AI determined the mapping at import time,
- * so the calculation engine is language-agnostic.
- *
- * Fallback: if no AI context available, uses findSheetForComponent()
- * from metric-resolver which has both AI-first and legacy pattern matching.
+ * OB-122: Uses AI Import Context + direct name matching only.
+ * No hardcoded pattern tables — Korean Test compliant.
  */
 export function findMatchingSheet(
   componentName: string,
@@ -502,19 +496,6 @@ export function findMatchingSheet(
     const normSheet = sheet.toLowerCase().replace(/[-\s]/g, '_');
     if (normSheet.includes(normComponent) || normComponent.includes(normSheet)) {
       return sheet;
-    }
-  }
-
-  // OB-85-R3 Fix 2: Pattern-based matching (cross-language sheet↔component)
-  // When no AI context, use SHEET_COMPONENT_PATTERNS directly against availableSheets.
-  for (const mapping of SHEET_COMPONENT_PATTERNS) {
-    const componentMatches = mapping.componentPatterns.some(p => p.test(componentName));
-    if (componentMatches) {
-      for (const sheet of availableSheets) {
-        if (mapping.sheetPatterns.some(p => p.test(sheet))) {
-          return sheet;
-        }
-      }
     }
   }
 
@@ -667,39 +648,28 @@ export function buildMetricsForComponent(
     if (semanticType === 'unknown') continue;
 
     if (/store/i.test(metricName)) {
-      // Store metrics: find the RIGHT store sheet using SHEET_COMPONENT_PATTERNS
-      // Match the metric name against patterns to find the specific store sheet
+      // OB-122: Store metrics — semantic type resolution (no hardcoded patterns)
+      // Try matched store sheet first, then iterate all store sheets by semantic type
       if (storeMatchMetrics[semanticType] !== undefined) {
         resolvedMetrics[metricName] = storeMatchMetrics[semanticType];
       } else {
         let found = false;
-        for (const mapping of SHEET_COMPONENT_PATTERNS) {
-          if (mapping.componentPatterns.some(p => p.test(metricName))) {
-            // First: check store-level sheets (null entity_id)
-            for (const [sheetName, sheetMetrics] of Array.from(perSheetStoreMetrics.entries())) {
-              if (mapping.sheetPatterns.some(p => p.test(sheetName))) {
-                resolvedMetrics[metricName] = sheetMetrics[semanticType] ?? 0;
-                found = true;
-                break;
-              }
+        // Check store-level sheets (null entity_id)
+        for (const [, sheetMetrics] of Array.from(perSheetStoreMetrics.entries())) {
+          if (sheetMetrics[semanticType] !== undefined) {
+            resolvedMetrics[metricName] = sheetMetrics[semanticType];
+            found = true;
+            break;
+          }
+        }
+        // Fallback: entity-level sheets aggregated per store
+        if (!found && entitySheetStoreAggregates) {
+          for (const [, sheetMetrics] of Array.from(entitySheetStoreAggregates.entries())) {
+            if (sheetMetrics[semanticType] !== undefined) {
+              resolvedMetrics[metricName] = sheetMetrics[semanticType];
+              found = true;
+              break;
             }
-            if (found) break;
-
-            // OB-85-R6: Check entity-level sheets aggregated per store.
-            // When a store-prefixed metric matches a component pattern (e.g., optical)
-            // but no store-level sheet matches the pattern's sheet patterns
-            // (because the data is entity-level like Base_Venta_Individual),
-            // use the per-store aggregate of entity-level data.
-            if (entitySheetStoreAggregates) {
-              for (const [sheetName, sheetMetrics] of Array.from(entitySheetStoreAggregates.entries())) {
-                if (mapping.sheetPatterns.some(p => p.test(sheetName))) {
-                  resolvedMetrics[metricName] = sheetMetrics[semanticType] ?? 0;
-                  found = true;
-                  break;
-                }
-              }
-            }
-            if (found) break;
           }
         }
         if (!found) {
