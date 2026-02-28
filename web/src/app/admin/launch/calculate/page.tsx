@@ -29,7 +29,6 @@ import {
   getStateColor,
   type CalculationState,
 } from '@/lib/calculation/lifecycle-utils';
-import { runCalculation } from '@/lib/calculation/run-calculation';
 import {
   type CalculationCycle,
   performLifecycleTransition,
@@ -244,6 +243,8 @@ function CalculatePageInner() {
   };
 
   // Run calculation — OB-103: multi-plan support
+  // HF-079: Call API route (service role) instead of client-side runCalculation()
+  // Eliminates dual code path (AP-17) and ensures DELETE-before-INSERT works via service role
   const handleRunCalculation = async () => {
     if (!currentTenant || !selectedPeriod || !user) return;
     const plansToRun = planStatus.activePlans.length > 0
@@ -254,19 +255,24 @@ function CalculatePageInner() {
 
     setIsCalculating(true);
     try {
-      // Run each plan sequentially for the selected period
+      // Run each plan sequentially via API route (server-side, service role client)
       const errors: string[] = [];
       for (const plan of plansToRun) {
         console.log(`[Calculate] Running plan: ${plan.name} (${plan.id})`);
-        const result = await runCalculation({
-          tenantId: currentTenant.id,
-          periodId: selectedPeriod,
-          ruleSetId: plan.id,
-          userId: user.id,
+        const response = await fetch('/api/calculation/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId: currentTenant.id,
+            periodId: selectedPeriod,
+            ruleSetId: plan.id,
+          }),
         });
 
-        if (!result.success) {
-          errors.push(`${plan.name}: ${result.error}`);
+        const result = await response.json();
+
+        if (!response.ok || result.error) {
+          errors.push(`${plan.name}: ${result.error || 'Unknown error'}`);
         }
       }
 
