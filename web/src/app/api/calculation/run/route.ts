@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
   // ── 3. Fetch period ──
   const { data: period } = await supabase
     .from('periods')
-    .select('id, canonical_key')
+    .select('id, canonical_key, start_date')
     .eq('id', periodId)
     .single();
 
@@ -174,6 +174,22 @@ export async function POST(request: NextRequest) {
   }
 
   addLog(`Period: ${period.canonical_key}`);
+
+  // ── 3b. OB-121: Find prior period (for delta derivations) ──
+  const hasDeltaDerivations = metricDerivations.some(d => d.operation === 'delta');
+  let priorPeriodId: string | null = null;
+  if (hasDeltaDerivations && period.start_date) {
+    const { data: priorPeriod } = await supabase
+      .from('periods')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .lt('start_date', period.start_date)
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .single();
+    priorPeriodId = priorPeriod?.id ?? null;
+    addLog(`Prior period for delta: ${priorPeriodId ?? 'none (first period)'}`);
+  }
 
   // ── 4. Fetch committed data (OB-75: paginated, no 1000-row cap) ──
   const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
@@ -244,6 +260,44 @@ export async function POST(request: NextRequest) {
   const storeRowCount = committedData.length - entityRowCount;
   addLog(`${committedData.length} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
   addLog(`Store data: ${storeData.size} unique stores`);
+
+  // ── 4b. OB-121: Fetch prior period data (only if delta derivations exist) ──
+  const priorDataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
+  if (priorPeriodId) {
+    const priorCommittedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+    let priorPage = 0;
+    while (true) {
+      const from = priorPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data: page } = await supabase
+        .from('committed_data')
+        .select('entity_id, data_type, row_data')
+        .eq('tenant_id', tenantId)
+        .eq('period_id', priorPeriodId)
+        .range(from, to);
+
+      if (!page || page.length === 0) break;
+      priorCommittedData.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      priorPage++;
+    }
+
+    for (const row of priorCommittedData) {
+      if (row.entity_id) {
+        if (!priorDataByEntity.has(row.entity_id)) {
+          priorDataByEntity.set(row.entity_id, new Map());
+        }
+        const entitySheets = priorDataByEntity.get(row.entity_id)!;
+        const sheetName = row.data_type || '_unknown';
+        if (!entitySheets.has(sheetName)) {
+          entitySheets.set(sheetName, []);
+        }
+        entitySheets.get(sheetName)!.push({ row_data: row.row_data });
+      }
+    }
+
+    addLog(`Prior period data: ${priorCommittedData.length} rows for ${priorDataByEntity.size} entities`);
+  }
 
   // ── OB-85-R3 Fix 1: Entity data consolidation ──
   // The import creates separate entity UUIDs per sheet for the same employee.
@@ -615,8 +669,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ── OB-118: Derive metrics once per entity from loaded data ──
+    // OB-121: Pass prior period data for delta derivations
+    const entityPriorData = priorDataByEntity.get(entityId);
     const derivedMetrics = metricDerivations.length > 0
-      ? applyMetricDerivations(entitySheetData, metricDerivations)
+      ? applyMetricDerivations(entitySheetData, metricDerivations, entityPriorData)
       : {};
 
     // ── CURRENT ENGINE PATH ──
@@ -802,7 +858,20 @@ export async function POST(request: NextRequest) {
     console.warn('[CalcAPI] Training signal persist failed (non-blocking):', err);
   });
 
-  // ── 7. Write calculation_results (OB-75: batched for 22K+ entities) ──
+  // ── 7. Write calculation_results (OB-121: DELETE before INSERT to prevent stale accumulation) ──
+  const { error: cleanupErr } = await supabase
+    .from('calculation_results')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('period_id', periodId);
+
+  if (cleanupErr) {
+    console.warn(`[CalcAPI] OB-121 cleanup failed (non-blocking): ${cleanupErr.message}`);
+  } else {
+    addLog(`OB-121: Cleaned old calculation_results for plan=${ruleSetId} period=${periodId}`);
+  }
+
   const insertRows = entityResults.map(r => ({
     tenant_id: tenantId,
     batch_id: batch.id,

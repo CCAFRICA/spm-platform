@@ -42,10 +42,20 @@ interface BindingMatch {
   matchReason: string;
 }
 
+export interface ConvergenceGap {
+  component: string;
+  componentIndex: number;
+  requiredMetrics: string[];
+  calculationOp: string;
+  reason: string;
+  resolution: string;
+}
+
 export interface ConvergenceResult {
   derivations: MetricDerivationRule[];
   matchReport: Array<{ component: string; dataType: string; confidence: number; reason: string }>;
   signals: Array<{ domain: string; fieldName: string; semanticType: string; confidence: number }>;
+  gaps: ConvergenceGap[];
 }
 
 // ──────────────────────────────────────────────
@@ -60,6 +70,7 @@ export async function convergeBindings(
   const derivations: MetricDerivationRule[] = [];
   const matchReport: ConvergenceResult['matchReport'] = [];
   const signals: ConvergenceResult['signals'] = [];
+  const gaps: ConvergenceGap[] = [];
 
   // 1. Fetch rule set
   const { data: ruleSet } = await supabase
@@ -68,15 +79,28 @@ export async function convergeBindings(
     .eq('id', ruleSetId)
     .single();
 
-  if (!ruleSet) return { derivations, matchReport, signals };
+  if (!ruleSet) return { derivations, matchReport, signals, gaps };
 
   // 2. Extract plan requirements
   const components = extractComponents(ruleSet.components);
-  if (components.length === 0) return { derivations, matchReport, signals };
+  if (components.length === 0) return { derivations, matchReport, signals, gaps };
 
   // 3. Inventory data capabilities
   const capabilities = await inventoryData(tenantId, supabase);
-  if (capabilities.length === 0) return { derivations, matchReport, signals };
+  if (capabilities.length === 0) {
+    // All components are gaps — no data at all
+    for (const comp of components) {
+      gaps.push({
+        component: comp.name,
+        componentIndex: comp.index,
+        requiredMetrics: comp.expectedMetrics,
+        calculationOp: comp.calculationOp,
+        reason: 'No committed data found for this tenant',
+        resolution: `Import data for this plan's components`,
+      });
+    }
+    return { derivations, matchReport, signals, gaps };
+  }
 
   // 4. Match components to data types
   const matches = matchComponentsToData(components, capabilities);
@@ -110,8 +134,46 @@ export async function convergeBindings(
     }
   }
 
-  console.log(`[Convergence] ${ruleSet.name}: ${derivations.length} derivations from ${matches.length} matches`);
-  return { derivations, matchReport, signals };
+  // 6. Detect convergence gaps — components with no matching data
+  const matchedComponentIndices = new Set(matches.map(m => m.component.index));
+  for (const comp of components) {
+    if (matchedComponentIndices.has(comp.index)) {
+      // Check if matched component still has unresolved metrics
+      const compDerivations = derivations.filter(d =>
+        comp.expectedMetrics.includes(d.metric)
+      );
+      const resolvedMetrics = new Set(compDerivations.map(d => d.metric));
+      const unresolvedMetrics = comp.expectedMetrics.filter(m => !resolvedMetrics.has(m));
+      if (unresolvedMetrics.length > 0) {
+        gaps.push({
+          component: comp.name,
+          componentIndex: comp.index,
+          requiredMetrics: unresolvedMetrics,
+          calculationOp: comp.calculationOp,
+          reason: `Matched data type but ${unresolvedMetrics.length} metric(s) could not be derived`,
+          resolution: `Import data containing fields that map to: ${unresolvedMetrics.join(', ')}`,
+        });
+      }
+    } else {
+      // No matching data type at all
+      const opHint = comp.calculationOp === 'ratio' || comp.calculationOp === 'bounded_lookup_1d'
+        ? 'ratio/lookup-based calculation requires structured data with numerator and denominator fields'
+        : `${comp.calculationOp} calculation requires matching data`;
+      gaps.push({
+        component: comp.name,
+        componentIndex: comp.index,
+        requiredMetrics: comp.expectedMetrics,
+        calculationOp: comp.calculationOp,
+        reason: `No matching data type found — ${opHint}`,
+        resolution: comp.expectedMetrics.length > 0
+          ? `Import data for metrics: ${comp.expectedMetrics.join(', ')}`
+          : `Import data with a data_type matching component "${comp.name}"`,
+      });
+    }
+  }
+
+  console.log(`[Convergence] ${ruleSet.name}: ${derivations.length} derivations, ${gaps.length} gaps from ${matches.length} matches`);
+  return { derivations, matchReport, signals, gaps };
 }
 
 // ──────────────────────────────────────────────
