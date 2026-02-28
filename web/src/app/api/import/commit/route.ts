@@ -13,6 +13,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import type { Json } from '@/lib/supabase/database.types';
 import * as XLSX from 'xlsx';
+import { getAIService } from '@/lib/ai';
+import { SHEET_COMPONENT_PATTERNS } from '@/lib/orchestration/metric-resolver';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 minutes max
@@ -47,6 +49,22 @@ interface CommitRequest {
   storagePath: string;
   sheetMappings: Record<string, Record<string, string>>;
   aiContext?: AIImportContext;
+}
+
+// OB-119: Normalize filename to semantic data_type — strip date suffixes and prefixes
+// "CFG_Loan_Disbursements_Jan2024.csv" → "loan_disbursements"
+// "CFG_Mortgage_Closings_Q1_2024.csv" → "mortgage_closings"
+// This makes data_type match SHEET_COMPONENT_PATTERNS in metric-resolver.ts
+function normalizeFileNameToDataType(fn: string): string {
+  let stem = fn.replace(/\.[^.]+$/, ''); // Remove extension
+  stem = stem.replace(/^[A-Z]{2,5}_/, ''); // Strip common prefix (e.g., "CFG_")
+  // Strip date suffixes: Jan2024, Feb2024, Q1_2024, 2024-01, 2024, etc.
+  stem = stem.replace(/_?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{4}$/i, '');
+  stem = stem.replace(/_?Q[1-4]_?\d{4}$/i, '');
+  stem = stem.replace(/_?\d{4}[-_]\d{2}$/i, '');
+  stem = stem.replace(/_?\d{4}$/i, '');
+  stem = stem.replace(/_+$/, ''); // Clean trailing underscores
+  return stem.toLowerCase().replace(/[\s-]+/g, '_');
 }
 
 // Entity ID — generic target field IDs only (AP-5/AP-6: no hardcoded language-specific names)
@@ -153,6 +171,121 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Step 4.5: AI Field Mapping (OB-119: Three-tier resolution chain) ──
+    // Call AI to classify field types for each sheet. Inject results into
+    // sheet.mappings so downstream entity/period detection picks them up.
+    // Tier 1: AI classification (this step)
+    // Tier 2: Existing mapping targets (ENTITY_ID_TARGETS, PERIOD_TARGETS)
+    // Tier 3: Raw header name matching (existing auto-detect fallback)
+    const aiDetectedRosterSheets = new Set<string>();
+
+    for (const sheet of sheetData) {
+      const headers = Object.keys(sheet.rows[0] || {});
+      if (headers.length === 0) continue;
+
+      // If AI context from import UI already has field mappings, inject those
+      const aiCtxSheet = aiContext?.sheets?.find(s => s.sheetName === sheet.sheetName);
+      if (aiCtxSheet?.fieldMappings?.length) {
+        if (!sheet.mappings) sheet.mappings = {};
+        let injected = 0;
+        for (const fm of aiCtxSheet.fieldMappings) {
+          if (fm.confidence >= 70 && fm.semanticType) {
+            sheet.mappings[fm.sourceColumn] = fm.semanticType;
+            injected++;
+          }
+        }
+        if (aiCtxSheet.classification === 'roster') {
+          aiDetectedRosterSheets.add(sheet.sheetName);
+        }
+        console.log(`[ImportCommit] OB-119 AI context "${sheet.sheetName}": ${injected} mappings injected from UI`);
+        continue;
+      }
+
+      // No existing AI context — call AI field mapping service directly
+      try {
+        const aiService = getAIService();
+        const headersStr = headers.map((h, i) => `${i + 1}. "${h}"`).join('\n');
+        const sampleRows = sheet.rows.slice(0, 3);
+        const sampleDataStr = sampleRows.map((row, i) => {
+          const values = headers.map(h => `${h}: ${row[h] ?? 'null'}`).join(', ');
+          return `Row ${i + 1}: { ${values} }`;
+        }).join('\n');
+
+        const aiResponse = await aiService.suggestImportFieldMappings(
+          headersStr,
+          sampleDataStr,
+          `File: ${fileName}`,
+          { tenantId }
+        );
+
+        if (aiResponse.confidence > 0) {
+          const aiResult = aiResponse.result as {
+            mappings?: Array<{ sourceField: string; targetField: string | null; confidence: number }>;
+          };
+          const aiMappings = aiResult.mappings || [];
+
+          // Inject high-confidence AI mappings into sheet.mappings
+          if (!sheet.mappings) sheet.mappings = {};
+          let injected = 0;
+          for (const m of aiMappings) {
+            if (m.targetField && m.confidence >= 70) {
+              sheet.mappings[m.sourceField] = m.targetField;
+              injected++;
+            }
+          }
+
+          // Detect roster sheet: has role/status fields but no amount
+          const mappedTargets = new Set(
+            aiMappings.filter(m => m.confidence >= 70 && m.targetField).map(m => m.targetField)
+          );
+          if ((mappedTargets.has('role') || mappedTargets.has('status')) && !mappedTargets.has('amount')) {
+            aiDetectedRosterSheets.add(sheet.sheetName);
+          }
+
+          const entityCol = aiMappings.find(m => m.targetField === 'entity_id');
+          const dateCol = aiMappings.find(m => m.targetField === 'date');
+          console.log(`[ImportCommit] OB-119 AI "${sheet.sheetName}": ${injected} mappings (entity=${entityCol?.sourceField || 'none'}@${entityCol?.confidence || 0}%, date=${dateCol?.sourceField || 'none'}@${dateCol?.confidence || 0}%)`);
+        } else {
+          console.log(`[ImportCommit] OB-119 AI "${sheet.sheetName}": confidence=0, falling back to Tier 2/3`);
+        }
+      } catch (aiErr) {
+        console.warn(`[ImportCommit] OB-119 AI mapping failed for "${sheet.sheetName}" (Tier 2/3 fallback):`, aiErr instanceof Error ? aiErr.message : aiErr);
+      }
+    }
+
+    // OB-119 Tier 2: Roster detection by header analysis when AI unavailable
+    // Roster sheets have name/role/status columns but no primary amount column
+    if (aiDetectedRosterSheets.size === 0) {
+      const rosterNameKeys = ['name', 'entity_name', 'display_name', 'employee_name', 'nombre', 'firstname', 'lastname'];
+      const rosterRoleKeys = ['role', 'position', 'puesto', 'title', 'cargo', 'status', 'estado'];
+      for (const sheet of sheetData) {
+        const headers = Object.keys(sheet.rows[0] || {}).map(h => h.toLowerCase());
+        const hasEntityId = headers.some(h => ENTITY_ID_TARGETS.includes(h.replace(/[\s_-]+/g, '_')));
+        const hasName = headers.some(h => rosterNameKeys.some(t => h.includes(t)));
+        const hasRoleOrStatus = headers.some(h => rosterRoleKeys.some(t => h.includes(t)));
+        // Check if sheet has a primary amount column (numeric values avg > 100)
+        // Exclude entity ID columns (their IDs happen to be numbers too)
+        let hasAmountCol = false;
+        for (const key of Object.keys(sheet.rows[0] || {})) {
+          const keyLower = key.toLowerCase().replace(/[\s_-]+/g, '_');
+          if (ENTITY_ID_TARGETS.includes(keyLower)) continue; // Skip entity ID columns
+          if (key.startsWith('_')) continue;
+          const vals = sheet.rows.slice(0, 20).map(r => r[key]).filter(v => typeof v === 'number');
+          if (vals.length >= 10) {
+            const avg = (vals as number[]).reduce((s, n) => s + n, 0) / vals.length;
+            if (avg > 100 && (avg < 43000 || avg > 48000)) { hasAmountCol = true; break; }
+          }
+        }
+
+        if (hasEntityId && hasName && hasRoleOrStatus && !hasAmountCol) {
+          aiDetectedRosterSheets.add(sheet.sheetName);
+          console.log(`[ImportCommit] OB-119 Tier 2 roster: "${sheet.sheetName}" detected (entity+name+status, no amount)`);
+        }
+      }
+    }
+
+    console.log(`[ImportCommit] OB-119 complete: ${aiDetectedRosterSheets.size} roster sheets detected`);
+
     // ── Step 5: Create import batch ──
     // OB-75: Include AI context in metadata if available
     const batchMetadata = aiContext ? {
@@ -222,7 +355,8 @@ export async function POST(request: NextRequest) {
 
       // OB-103: For roster sheets, extract name/role/licenses columns
       const isRosterSheet = sheet.sheetName === rosterSheetName ||
-        (aiContext?.sheets?.find(s => s.sheetName === sheet.sheetName)?.classification === 'roster');
+        (aiContext?.sheets?.find(s => s.sheetName === sheet.sheetName)?.classification === 'roster') ||
+        aiDetectedRosterSheets.has(sheet.sheetName);
 
       for (const row of sheet.rows) {
         for (const col of entityCols) {
@@ -333,6 +467,65 @@ export async function POST(request: NextRequest) {
 
     console.log(`[ImportCommit] Entity map: ${entityIdMap.size} total`);
 
+    // ── Step 6.5: Tier 2 Value-Based Entity Detection (OB-119) ──
+    // If no entity column found by AI/header matching, check if column values
+    // match existing entity external_ids. Korean-test compliant: no hardcoded names.
+    if (entityIdMap.size === 0) {
+      // Load existing entities for this tenant
+      const { data: existingEntities } = await supabase
+        .from('entities')
+        .select('id, external_id')
+        .eq('tenant_id', tenantId);
+
+      if (existingEntities && existingEntities.length > 0) {
+        const existingExternalIds = new Set(existingEntities.map(e => String(e.external_id)));
+        for (const e of existingEntities) {
+          if (e.external_id) entityIdMap.set(String(e.external_id), e.id);
+        }
+
+        // For each sheet, find the column with the best match against entity external_ids
+        for (const sheet of sheetData) {
+          if (!sheet.rows[0]) continue;
+          const headers = Object.keys(sheet.rows[0]);
+
+          // Already has entity mapping?
+          const hasEntityMapping = sheet.mappings && Object.values(sheet.mappings).some(
+            t => ENTITY_ID_TARGETS.includes(t.toLowerCase())
+          );
+          if (hasEntityMapping) continue;
+
+          // Sample first 50 rows for value matching
+          const sampleRows = sheet.rows.slice(0, 50);
+          let bestCol = '';
+          let bestOverlap = 0;
+
+          for (const col of headers) {
+            if (col.startsWith('_')) continue; // Skip internal cols
+            const values = sampleRows.map(r => r[col]).filter(v => v != null);
+            if (values.length < 3) continue;
+
+            // Check overlap with existing entity IDs
+            const matches = values.filter(v => existingExternalIds.has(String(v).trim()));
+            const overlap = matches.length / values.length;
+
+            if (overlap > bestOverlap) {
+              bestOverlap = overlap;
+              bestCol = col;
+            }
+          }
+
+          // If ≥50% of values match existing entities, treat as entity column
+          if (bestCol && bestOverlap >= 0.5) {
+            if (!sheet.mappings) sheet.mappings = {};
+            sheet.mappings[bestCol] = 'entity_id';
+            console.log(`[ImportCommit] OB-119 Tier 2 entity: "${bestCol}" in "${sheet.sheetName}" matches ${(bestOverlap * 100).toFixed(0)}% of existing entities`);
+          }
+        }
+
+        console.log(`[ImportCommit] OB-119 Tier 2 entity: loaded ${entityIdMap.size} existing entities`);
+      }
+    }
+
     // ── Step 7: Period deduplication ──
     // OB-107: Build classification lookup from AI context to skip roster sheets
     const sheetClassifications = new Map<string, string>();
@@ -350,8 +543,8 @@ export async function POST(request: NextRequest) {
       // OB-107: Skip roster/personnel sheets for period detection.
       // Roster dates (HireDate, StartDate) are entity attributes, not performance boundaries.
       const classification = sheetClassifications.get(sheet.sheetName);
-      if (classification === 'roster' || classification === 'unrelated') {
-        console.log(`[ImportCommit] Skipping period detection for ${classification} sheet: "${sheet.sheetName}"`);
+      if (classification === 'roster' || classification === 'unrelated' || aiDetectedRosterSheets.has(sheet.sheetName)) {
+        console.log(`[ImportCommit] Skipping period detection for ${classification || 'ai-detected-roster'} sheet: "${sheet.sheetName}"`);
         continue;
       }
 
@@ -370,6 +563,34 @@ export async function POST(request: NextRequest) {
       if (sheet.mappings) {
         for (const [source, target] of Object.entries(sheet.mappings)) {
           if (PERIOD_TARGETS.includes(target)) periodCols.push(source);
+        }
+      }
+
+      // OB-119 Tier 2: Auto-detect date columns by value analysis (when AI unavailable)
+      if (yearCols.length === 0 && monthCols.length === 0 && periodCols.length === 0 && sheet.rows[0]) {
+        const sampleValues = sheet.rows.slice(0, 20);
+        for (const key of Object.keys(sheet.rows[0])) {
+          const values = sampleValues.map(r => r[key]).filter(v => v != null);
+          if (values.length < 3) continue;
+
+          // Check if values look like Excel serial dates (2020-2030 range: 43831-47848)
+          const dateValues = values.filter(v =>
+            typeof v === 'number' && (v as number) >= 43831 && (v as number) <= 47848
+          );
+
+          if (dateValues.length >= values.length * 0.7) {
+            // Verify dates cluster in reasonable range (not amounts that happen to be in date range)
+            const dates = dateValues.map(v => new Date(((v as number) - 25569) * 86400 * 1000));
+            const years = new Set(dates.map(d => d.getUTCFullYear()));
+
+            // If dates span at most 2 years, it's likely a date column
+            if (years.size <= 2) {
+              periodCols.push(key);
+              if (sheet.mappings) sheet.mappings[key] = 'date';
+              console.log(`[ImportCommit] OB-119 Tier 2: Auto-detected date column "${key}" (${dateValues.length}/${values.length} Excel serial dates, years: ${Array.from(years).join(',')})`);
+              break;
+            }
+          }
         }
       }
 
@@ -536,16 +757,23 @@ export async function POST(request: NextRequest) {
     // OB-115: Resolve meaningful data_type from AI classification instead of XLSX.js sheet name.
     // Priority: 1) AI matchedComponent  2) AI classification + filename  3) filename (no ext)  4) sheet name
     const resolveDataType = (sheetName: string): string => {
+      // Priority 1: AI matchedComponent from import UI context
       const aiSheet = aiContext?.sheets?.find(s => s.sheetName === sheetName);
       if (aiSheet?.matchedComponent) {
         return aiSheet.matchedComponent;
       }
+      // Priority 2: AI classification from import UI context
       if (aiSheet?.classification && aiSheet.classification !== 'unrelated') {
-        // Use classification + filename stem for differentiation (e.g. "component_data:CFG_Deposit_Balances_Q1_2024")
         const stem = fileName.replace(/\.[^.]+$/, '');
         return `${aiSheet.classification}:${stem}`;
       }
-      // Fallback: if sheet name is generic "Sheet1" (CSV default), use filename stem instead
+      // Priority 3 (OB-119): Normalized filename — semantic type for SHEET_COMPONENT_PATTERNS
+      // Strips date suffixes and prefixes: "CFG_Loan_Disbursements_Jan2024" → "loan_disbursements"
+      const normalized = normalizeFileNameToDataType(fileName);
+      if (normalized && normalized.length > 2) {
+        return normalized;
+      }
+      // Priority 4: If sheet name is generic "Sheet1" (CSV default), use filename stem instead
       if (sheetName === 'Sheet1' || sheetName === 'Hoja1') {
         return fileName.replace(/\.[^.]+$/, '');
       }
@@ -736,6 +964,169 @@ export async function POST(request: NextRequest) {
       }
     } catch (assignErr) {
       console.warn('[ImportCommit] Rule set assignment failed (non-blocking):', assignErr);
+    }
+
+    // ── Step 9.5: Auto-populate input_bindings (OB-119 Phase 4) ──
+    // For rule_sets with empty input_bindings, generate metric_derivations by
+    // matching component names to data_types (via SHEET_COMPONENT_PATTERNS) and
+    // finding the primary value field from AI field mappings.
+    try {
+      // Build data_type → field semantic mappings from AI/Tier 2 results
+      const dataTypeFieldMap = new Map<string, Map<string, string>>();
+      for (const sheet of sheetData) {
+        const dataType = resolveDataType(sheet.sheetName);
+        if (!dataTypeFieldMap.has(dataType)) {
+          dataTypeFieldMap.set(dataType, new Map());
+        }
+        const fieldMap = dataTypeFieldMap.get(dataType)!;
+        if (sheet.mappings) {
+          for (const [source, target] of Object.entries(sheet.mappings)) {
+            // Only include AI-mapped fields (target differs from source)
+            if (target !== source) fieldMap.set(source, target);
+          }
+        }
+      }
+
+      // OB-119 Tier 2: Infer field types from column values when AI didn't classify
+      for (const sheet of sheetData) {
+        const dataType = resolveDataType(sheet.sheetName);
+        const fieldMap = dataTypeFieldMap.get(dataType);
+        if (!fieldMap) continue;
+
+        // Skip if we already have amount/count fields from AI
+        const hasValueField = Array.from(fieldMap.values()).some(
+          t => t === 'amount' || t === 'count_growth' || t === 'quantity'
+        );
+        if (hasValueField) continue;
+
+        // Scan columns to find the primary amount field
+        const sampleRows = sheet.rows.slice(0, 30);
+        for (const key of Object.keys(sheet.rows[0] || {})) {
+          if (key.startsWith('_')) continue; // Skip internal
+          if (fieldMap.has(key)) continue; // Already mapped
+
+          const values = sampleRows.map(r => r[key]).filter(v => v != null && typeof v === 'number');
+          if (values.length < sampleRows.length * 0.5) continue; // Need 50% numeric
+
+          const nums = values as number[];
+          const avg = nums.reduce((s, v) => s + v, 0) / nums.length;
+
+          // Amount: avg > 100 (monetary values), not in serial date range
+          if (avg > 100 && (avg < 43000 || avg > 48000)) {
+            fieldMap.set(key, 'amount');
+            console.log(`[ImportCommit] OB-119 Tier 2 field: "${key}" in ${dataType} → amount (avg=${avg.toFixed(0)})`);
+            break; // One amount field per data_type
+          }
+        }
+      }
+
+      console.log(`[ImportCommit] OB-119 data_type fields: ${Array.from(dataTypeFieldMap.entries()).map(([dt, fm]) => `${dt}(${fm.size})`).join(', ')}`);
+
+      // Get all active rule sets for this tenant
+      const { data: ruleSetsFull } = await supabase
+        .from('rule_sets')
+        .select('id, name, components, input_bindings')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active');
+
+      const dataTypes = Array.from(dataTypeFieldMap.keys());
+
+      for (const rs of ruleSetsFull || []) {
+        // Only update if input_bindings is empty or null
+        const existingBindings = rs.input_bindings as Record<string, unknown> | null;
+        if (existingBindings && Object.keys(existingBindings).length > 0) {
+          console.log(`[ImportCommit] OB-119 Skipping "${rs.name}" — input_bindings already populated`);
+          continue;
+        }
+
+        const componentsJson = rs.components as Record<string, unknown>;
+        const variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
+        const components = (variants[0]?.components as Array<Record<string, unknown>>) ?? [];
+
+        // OB-119: Generate MetricDerivationRule-compatible derivations
+        const derivations: Array<{
+          metric: string;           // matches MetricDerivationRule.metric
+          operation: 'sum' | 'count';
+          source_pattern: string;   // matches MetricDerivationRule.source_pattern
+          source_field?: string;    // matches MetricDerivationRule.source_field
+          filters: Array<{ field: string; operator: string; value: unknown }>;
+        }> = [];
+
+        for (const comp of components) {
+          const compName = (comp.name || comp.id || '') as string;
+          const intent = comp.calculationIntent as Record<string, unknown> | undefined;
+          const tierConfig = comp.tierConfig as Record<string, unknown> | undefined;
+
+          // Get the metric name this component expects
+          const intentInput = intent?.input as Record<string, unknown> | undefined;
+          const intentSourceSpec = intentInput?.sourceSpec as Record<string, unknown> | undefined;
+          const calcMethod = comp.calculationMethod as Record<string, unknown> | undefined;
+          const metricName = (
+            tierConfig?.metric ||
+            intent?.metric ||
+            intentInput?.metric ||
+            intentSourceSpec?.field ||   // AI-interpreted plans store metric here
+            calcMethod?.metric           // calculationMethod also has metric
+          ) as string | undefined;
+          if (!metricName) continue;
+
+          // Match component to data_type using SHEET_COMPONENT_PATTERNS
+          let matchedDataType: string | null = null;
+          for (const pattern of SHEET_COMPONENT_PATTERNS) {
+            const compMatch = pattern.componentPatterns.some(p => p.test(compName));
+            if (!compMatch) continue;
+            for (const dt of dataTypes) {
+              const dtMatch = pattern.sheetPatterns.some(p => p.test(dt));
+              if (dtMatch) { matchedDataType = dt; break; }
+            }
+            if (matchedDataType) break;
+          }
+
+          if (!matchedDataType) continue;
+
+          // Find the primary value field in this data_type from AI mappings
+          const fieldMap = dataTypeFieldMap.get(matchedDataType);
+          if (!fieldMap) continue;
+
+          // Priority: amount > count_growth > quantity > boolean_flag
+          let sourceField: string | null = null;
+          let aggregation = 'sum';
+          for (const [source, semantic] of Array.from(fieldMap.entries())) {
+            if (semantic === 'amount') { sourceField = source; break; }
+          }
+          if (!sourceField) {
+            for (const [source, semantic] of Array.from(fieldMap.entries())) {
+              if (semantic === 'count_growth' || semantic === 'quantity') { sourceField = source; break; }
+            }
+          }
+          if (!sourceField) {
+            for (const [source, semantic] of Array.from(fieldMap.entries())) {
+              if (semantic === 'boolean_flag') { sourceField = source; aggregation = 'count'; break; }
+            }
+          }
+
+          if (sourceField) {
+            derivations.push({
+              metric: metricName,
+              operation: aggregation as 'sum' | 'count',
+              source_pattern: matchedDataType,
+              source_field: sourceField,
+              filters: [],
+            });
+            console.log(`[ImportCommit] OB-119 binding: "${compName}" → ${metricName} = ${aggregation}(${sourceField}) from ${matchedDataType}`);
+          }
+        }
+
+        if (derivations.length > 0) {
+          await supabase
+            .from('rule_sets')
+            .update({ input_bindings: { metric_derivations: derivations } as unknown as Json })
+            .eq('id', rs.id);
+          console.log(`[ImportCommit] OB-119 Updated "${rs.name}" with ${derivations.length} metric derivations`);
+        }
+      }
+    } catch (bindErr) {
+      console.warn('[ImportCommit] OB-119 input_bindings generation failed (non-blocking):', bindErr);
     }
 
     // ── Step 10: Update batch status ──

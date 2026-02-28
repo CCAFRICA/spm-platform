@@ -51,7 +51,6 @@ import {
   BarChart3,
   Calendar,
   RefreshCw,
-  TrendingUp,
   XCircle,
 } from 'lucide-react';
 import {

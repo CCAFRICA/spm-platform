@@ -67,13 +67,14 @@ export interface CalculationRunResult {
  */
 export interface MetricDerivationRule {
   metric: string;          // Target metric name (e.g., "ins_vida_qualified_referrals")
-  operation: 'count';      // Derivation operation (count matching rows)
+  operation: 'count' | 'sum';  // Derivation operation
   source_pattern: string;  // Regex pattern to match data_type/sheet name
   filters: Array<{
     field: string;         // Field name in row_data (e.g., "ProductCode")
     operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
     value: string | number | boolean;
   }>;
+  source_field?: string;   // OB-119: Field to sum (for operation='sum')
 }
 
 /**
@@ -107,7 +108,18 @@ export function applyMetricDerivations(
     if (matchingRows.length === 0) continue;
 
     // Apply derivation operation
-    if (rule.operation === 'count') {
+    if (rule.operation === 'sum' && rule.source_field) {
+      // OB-119: Sum a specific field across all matching rows
+      let total = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+        const val = rd[rule.source_field];
+        if (typeof val === 'number') total += val;
+      }
+      derived[rule.metric] = total;
+    } else if (rule.operation === 'count') {
       let count = 0;
       for (const row of matchingRows) {
         const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
@@ -275,7 +287,8 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
   let payout = 0;
   let details: Record<string, unknown> = {};
 
-  if (!component.enabled) {
+  // OB-119: Treat missing 'enabled' as true (AI-interpreted plans omit this field)
+  if (component.enabled === false) {
     return {
       componentId: component.id,
       componentName: component.name,
