@@ -822,7 +822,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     assignPage++;
   }
 
-  const entityIds = assignments.map(a => a.entity_id);
+  // HF-078: Deduplicate entity IDs to prevent UNIQUE constraint violations
+  const entityIds = Array.from(new Set(assignments.map(a => a.entity_id)));
   if (entityIds.length === 0) {
     return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'No entities assigned to this rule set' };
   }
@@ -1212,16 +1213,32 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   console.log(`[RunCalculation] Calculated ${entityResults.length} entities, total payout: ${grandTotal}`);
 
-  // ── 7. Write results ──
+  // ── 7. Write results (HF-078: DELETE before INSERT to prevent UNIQUE constraint violations) ──
+  const { error: cleanupErr } = await supabase
+    .from('calculation_results')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('period_id', periodId);
+
+  if (cleanupErr) {
+    console.warn(`[RunCalculation] HF-078 cleanup failed (non-blocking): ${cleanupErr.message}`);
+  }
+
   try {
     await writeCalculationResults(tenantId, batch.id, entityResults);
-  } catch (writeErr) {
+  } catch (writeErr: unknown) {
+    const errMsg = writeErr instanceof Error
+      ? writeErr.message
+      : (typeof writeErr === 'object' && writeErr !== null && 'message' in writeErr)
+        ? String((writeErr as Record<string, unknown>).message)
+        : JSON.stringify(writeErr);
     return {
       success: false,
       batchId: batch.id,
       entityCount: entityResults.length,
       totalPayout: grandTotal,
-      error: `Failed to write results: ${writeErr instanceof Error ? writeErr.message : 'unknown'}`,
+      error: `Failed to write results: ${errMsg}`,
     };
   }
 
