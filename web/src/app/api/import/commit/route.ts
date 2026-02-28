@@ -14,8 +14,6 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
 import type { Json } from '@/lib/supabase/database.types';
 import * as XLSX from 'xlsx';
 import { getAIService } from '@/lib/ai';
-import { SHEET_COMPONENT_PATTERNS } from '@/lib/orchestration/metric-resolver';
-
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 minutes max
 
@@ -966,167 +964,38 @@ export async function POST(request: NextRequest) {
       console.warn('[ImportCommit] Rule set assignment failed (non-blocking):', assignErr);
     }
 
-    // ── Step 9.5: Auto-populate input_bindings (OB-119 Phase 4) ──
-    // For rule_sets with empty input_bindings, generate metric_derivations by
-    // matching component names to data_types (via SHEET_COMPONENT_PATTERNS) and
-    // finding the primary value field from AI field mappings.
+    // ── Step 9.5: Converge input_bindings (OB-120) ──
+    // Replaced OB-119 Phase 4 inline binding generation with convergence service.
+    // Semantic matching of plan requirements → data capabilities → MetricDerivationRules.
     try {
-      // Build data_type → field semantic mappings from AI/Tier 2 results
-      const dataTypeFieldMap = new Map<string, Map<string, string>>();
-      for (const sheet of sheetData) {
-        const dataType = resolveDataType(sheet.sheetName);
-        if (!dataTypeFieldMap.has(dataType)) {
-          dataTypeFieldMap.set(dataType, new Map());
-        }
-        const fieldMap = dataTypeFieldMap.get(dataType)!;
-        if (sheet.mappings) {
-          for (const [source, target] of Object.entries(sheet.mappings)) {
-            // Only include AI-mapped fields (target differs from source)
-            if (target !== source) fieldMap.set(source, target);
-          }
-        }
-      }
+      const { convergeBindings } = await import('@/lib/intelligence/convergence-service');
 
-      // OB-119 Tier 2: Infer field types from column values when AI didn't classify
-      for (const sheet of sheetData) {
-        const dataType = resolveDataType(sheet.sheetName);
-        const fieldMap = dataTypeFieldMap.get(dataType);
-        if (!fieldMap) continue;
-
-        // Skip if we already have amount/count fields from AI
-        const hasValueField = Array.from(fieldMap.values()).some(
-          t => t === 'amount' || t === 'count_growth' || t === 'quantity'
-        );
-        if (hasValueField) continue;
-
-        // Scan columns to find the primary amount field
-        const sampleRows = sheet.rows.slice(0, 30);
-        for (const key of Object.keys(sheet.rows[0] || {})) {
-          if (key.startsWith('_')) continue; // Skip internal
-          if (fieldMap.has(key)) continue; // Already mapped
-
-          const values = sampleRows.map(r => r[key]).filter(v => v != null && typeof v === 'number');
-          if (values.length < sampleRows.length * 0.5) continue; // Need 50% numeric
-
-          const nums = values as number[];
-          const avg = nums.reduce((s, v) => s + v, 0) / nums.length;
-
-          // Amount: avg > 100 (monetary values), not in serial date range
-          if (avg > 100 && (avg < 43000 || avg > 48000)) {
-            fieldMap.set(key, 'amount');
-            console.log(`[ImportCommit] OB-119 Tier 2 field: "${key}" in ${dataType} → amount (avg=${avg.toFixed(0)})`);
-            break; // One amount field per data_type
-          }
-        }
-      }
-
-      console.log(`[ImportCommit] OB-119 data_type fields: ${Array.from(dataTypeFieldMap.entries()).map(([dt, fm]) => `${dt}(${fm.size})`).join(', ')}`);
-
-      // Get all active rule sets for this tenant
-      const { data: ruleSetsFull } = await supabase
+      const { data: activeRS } = await supabase
         .from('rule_sets')
-        .select('id, name, components, input_bindings')
+        .select('id, name, input_bindings')
         .eq('tenant_id', tenantId)
         .eq('status', 'active');
 
-      const dataTypes = Array.from(dataTypeFieldMap.keys());
-
-      for (const rs of ruleSetsFull || []) {
-        // Only update if input_bindings is empty or null
-        const existingBindings = rs.input_bindings as Record<string, unknown> | null;
-        if (existingBindings && Object.keys(existingBindings).length > 0) {
-          console.log(`[ImportCommit] OB-119 Skipping "${rs.name}" — input_bindings already populated`);
-          continue;
-        }
-
-        const componentsJson = rs.components as Record<string, unknown>;
-        const variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
-        const components = (variants[0]?.components as Array<Record<string, unknown>>) ?? [];
-
-        // OB-119: Generate MetricDerivationRule-compatible derivations
-        const derivations: Array<{
-          metric: string;           // matches MetricDerivationRule.metric
-          operation: 'sum' | 'count';
-          source_pattern: string;   // matches MetricDerivationRule.source_pattern
-          source_field?: string;    // matches MetricDerivationRule.source_field
-          filters: Array<{ field: string; operator: string; value: unknown }>;
-        }> = [];
-
-        for (const comp of components) {
-          const compName = (comp.name || comp.id || '') as string;
-          const intent = comp.calculationIntent as Record<string, unknown> | undefined;
-          const tierConfig = comp.tierConfig as Record<string, unknown> | undefined;
-
-          // Get the metric name this component expects
-          const intentInput = intent?.input as Record<string, unknown> | undefined;
-          const intentSourceSpec = intentInput?.sourceSpec as Record<string, unknown> | undefined;
-          const calcMethod = comp.calculationMethod as Record<string, unknown> | undefined;
-          const metricName = (
-            tierConfig?.metric ||
-            intent?.metric ||
-            intentInput?.metric ||
-            intentSourceSpec?.field ||   // AI-interpreted plans store metric here
-            calcMethod?.metric           // calculationMethod also has metric
-          ) as string | undefined;
-          if (!metricName) continue;
-
-          // Match component to data_type using SHEET_COMPONENT_PATTERNS
-          let matchedDataType: string | null = null;
-          for (const pattern of SHEET_COMPONENT_PATTERNS) {
-            const compMatch = pattern.componentPatterns.some(p => p.test(compName));
-            if (!compMatch) continue;
-            for (const dt of dataTypes) {
-              const dtMatch = pattern.sheetPatterns.some(p => p.test(dt));
-              if (dtMatch) { matchedDataType = dt; break; }
-            }
-            if (matchedDataType) break;
-          }
-
-          if (!matchedDataType) continue;
-
-          // Find the primary value field in this data_type from AI mappings
-          const fieldMap = dataTypeFieldMap.get(matchedDataType);
-          if (!fieldMap) continue;
-
-          // Priority: amount > count_growth > quantity > boolean_flag
-          let sourceField: string | null = null;
-          let aggregation = 'sum';
-          for (const [source, semantic] of Array.from(fieldMap.entries())) {
-            if (semantic === 'amount') { sourceField = source; break; }
-          }
-          if (!sourceField) {
-            for (const [source, semantic] of Array.from(fieldMap.entries())) {
-              if (semantic === 'count_growth' || semantic === 'quantity') { sourceField = source; break; }
+      for (const rs of activeRS || []) {
+        const result = await convergeBindings(tenantId, rs.id, supabase);
+        if (result.derivations.length > 0) {
+          const existing = ((rs.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
+          const merged = [...existing];
+          for (const d of result.derivations) {
+            // Only add if no existing derivation targets the same metric
+            if (!merged.some(e => e.metric === (d as unknown as Record<string, unknown>).metric)) {
+              merged.push(d as unknown as Record<string, unknown>);
             }
           }
-          if (!sourceField) {
-            for (const [source, semantic] of Array.from(fieldMap.entries())) {
-              if (semantic === 'boolean_flag') { sourceField = source; aggregation = 'count'; break; }
-            }
-          }
-
-          if (sourceField) {
-            derivations.push({
-              metric: metricName,
-              operation: aggregation as 'sum' | 'count',
-              source_pattern: matchedDataType,
-              source_field: sourceField,
-              filters: [],
-            });
-            console.log(`[ImportCommit] OB-119 binding: "${compName}" → ${metricName} = ${aggregation}(${sourceField}) from ${matchedDataType}`);
-          }
-        }
-
-        if (derivations.length > 0) {
           await supabase
             .from('rule_sets')
-            .update({ input_bindings: { metric_derivations: derivations } as unknown as Json })
+            .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
             .eq('id', rs.id);
-          console.log(`[ImportCommit] OB-119 Updated "${rs.name}" with ${derivations.length} metric derivations`);
+          console.log(`[ImportCommit] OB-120 converged "${rs.name}": ${result.derivations.length} new derivations`);
         }
       }
-    } catch (bindErr) {
-      console.warn('[ImportCommit] OB-119 input_bindings generation failed (non-blocking):', bindErr);
+    } catch (convErr) {
+      console.warn('[ImportCommit] OB-120 convergence failed (non-blocking):', convErr);
     }
 
     // ── Step 10: Update batch status ──

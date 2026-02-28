@@ -336,7 +336,39 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
   // (empty tiers, wrong metric) but calculationIntent has the correct structure.
   if (payout === 0 && component.calculationIntent) {
     try {
-      const intentOp = component.calculationIntent as unknown as IntentOperation;
+      let intentOp = component.calculationIntent as unknown as IntentOperation;
+
+      // OB-120: Transform postProcessing.rateFromLookup into scalar_multiply wrapper.
+      // AI plan interpretation generates bounded_lookup_1d + postProcessing for compound
+      // operations (rate × volume), but the executor only handles nested IntentOperations.
+      // Transform: bounded_lookup_1d{postProcessing:{scalar_multiply, rateFromLookup}}
+      //         → scalar_multiply{input: volume, rate: bounded_lookup_1d}
+      const rawIntent = intentOp as unknown as Record<string, unknown>;
+      const postProc = rawIntent.postProcessing as Record<string, unknown> | undefined;
+      if (intentOp.operation === 'bounded_lookup_1d' && postProc?.rateFromLookup) {
+        const lookupWithoutPost = { ...rawIntent };
+        delete lookupWithoutPost.postProcessing;
+        intentOp = {
+          operation: 'scalar_multiply',
+          input: postProc.input || rawIntent.input,
+          rate: lookupWithoutPost,
+        } as unknown as IntentOperation;
+      }
+
+      // OB-120: Auto-detect isMarginal for bounded_lookup_1d with rate-like outputs.
+      // Mirrors OB-117 rate heuristic in evaluateTierLookup: if all non-zero outputs
+      // are < 1.0, they represent rates to multiply against the input value.
+      if (intentOp.operation === 'bounded_lookup_1d') {
+        const bl = intentOp as unknown as Record<string, unknown>;
+        const outputs = bl.outputs as number[] | undefined;
+        if (!bl.isMarginal && Array.isArray(outputs)) {
+          const nonZero = outputs.filter(v => v !== 0);
+          if (nonZero.length > 0 && nonZero.every(v => v > 0 && v < 1.0)) {
+            bl.isMarginal = true;
+          }
+        }
+      }
+
       if (isIntentOperation(intentOp)) {
         const entityData: EntityData = {
           entityId: '',
