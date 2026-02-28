@@ -13,8 +13,6 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { MetricDerivationRule } from '@/lib/calculation/run-calculation';
-import { SHEET_COMPONENT_PATTERNS } from '@/lib/orchestration/metric-resolver';
-
 // ──────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────
@@ -351,30 +349,8 @@ function matchComponentsToData(
   const dataTypes = capabilities.map(c => c.dataType);
 
   for (const comp of components) {
-    // Tier 1: Try SHEET_COMPONENT_PATTERNS (existing infrastructure)
-    let matched = false;
-    for (const pattern of SHEET_COMPONENT_PATTERNS) {
-      const compMatch = pattern.componentPatterns.some(p => p.test(comp.name));
-      if (compMatch) {
-        for (const dt of dataTypes) {
-          const dtMatch = pattern.sheetPatterns.some(p => p.test(dt));
-          if (dtMatch) {
-            matches.push({
-              component: comp,
-              dataType: dt,
-              matchConfidence: 0.85,
-              matchReason: 'SHEET_COMPONENT_PATTERNS match',
-            });
-            matched = true;
-            break;
-          }
-        }
-      }
-      if (matched) break;
-    }
-    if (matched) continue;
-
-    // Tier 2: Token-based matching — component name tokens vs data_type tokens
+    // OB-122: Semantic matching only — no hardcoded patterns
+    // Token-based matching — component name tokens vs data_type tokens
     const compTokens = tokenize(comp.name);
     let bestDt = '';
     let bestScore = 0;
