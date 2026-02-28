@@ -80,24 +80,24 @@ export interface LegacyExportFormat {
   PERIOD: string;
   PLAN_NAME: string;
   VARIANT_NAME: string;
-  // Columns 13-16: Optical Sales
-  OPTICAL_ACTUAL: number;
-  OPTICAL_TARGET: number;
-  OPTICAL_ATTAINMENT: number;
-  OPTICAL_BONUS: number;
-  // Columns 17-20: Store Performance
-  STORE_ACTUAL: number;
-  STORE_TARGET: number;
-  STORE_ATTAINMENT: number;
-  STORE_BONUS: number;
-  // Columns 21-23: Customer acquisition (no target)
-  CUSTOMER_ACTUAL: number;
-  CUSTOMER_TARGET: number;
-  CUSTOMER_BONUS: number;
-  // Columns 24-26: Other components
-  COLLECTION_BONUS: number;
-  INSURANCE_BONUS: number;
-  SERVICES_BONUS: number;
+  // Columns 13-16: Component A (with actual/target/attainment)
+  COMP_A_ACTUAL: number;
+  COMP_A_TARGET: number;
+  COMP_A_ATTAINMENT: number;
+  COMP_A_BONUS: number;
+  // Columns 17-20: Component B (with actual/target/attainment)
+  COMP_B_ACTUAL: number;
+  COMP_B_TARGET: number;
+  COMP_B_ATTAINMENT: number;
+  COMP_B_BONUS: number;
+  // Columns 21-23: Component C (actual/target only)
+  COMP_C_ACTUAL: number;
+  COMP_C_TARGET: number;
+  COMP_C_BONUS: number;
+  // Columns 24-26: Components D, E, F (bonus only)
+  COMP_D_BONUS: number;
+  COMP_E_BONUS: number;
+  COMP_F_BONUS: number;
   // Columns 27-30: Totals and audit
   TOTAL_INCENTIVE: number;
   CURRENCY: string;
@@ -235,23 +235,11 @@ export function formatForReconciliation(result: CalculationResult): Reconciliati
 }
 
 /**
- * Format result for legacy system export (30-column format)
+ * @deprecated Legacy 30-column export format for a specific tenant.
+ * This function maps components by name patterns to fixed export columns.
+ * Should be replaced with a configurable export template (OB-122 scope).
  */
 export function formatForLegacyExport(result: CalculationResult): LegacyExportFormat {
-  // Component type identification patterns
-  const opticalPatterns = ['comp-optical', 'optical', 'Optical Sales', 'Venta Óptica'];
-  const storePatterns = ['comp-store', 'store', 'Store Performance', 'Tienda'];
-  const customerPatterns = ['comp-customers', 'customers', 'New Customers', 'Clientes Nuevos'];
-  const collectionPatterns = ['comp-collections', 'collections', 'Collections', 'Cobranza'];
-  const insurancePatterns = ['comp-insurance', 'insurance', 'Insurance Sales', 'Seguros'];
-  const servicesPatterns = ['comp-services', 'services', 'Additional Services', 'Servicios'];
-
-  const matchesComponent = (component: { componentId: string; componentName: string }, patterns: string[]) =>
-    patterns.some(p =>
-      component.componentId.toLowerCase().includes(p.toLowerCase()) ||
-      component.componentName.toLowerCase().includes(p.toLowerCase())
-    );
-
   const legacyResult: LegacyExportFormat = {
     // Columns 1-12: Employee/Period metadata
     EMP_ID: result.entityId,
@@ -266,24 +254,24 @@ export function formatForLegacyExport(result: CalculationResult): LegacyExportFo
     PERIOD: result.period,
     PLAN_NAME: result.ruleSetName,
     VARIANT_NAME: result.variantName || 'Standard',
-    // Columns 13-16: Optical Sales
-    OPTICAL_ACTUAL: 0,
-    OPTICAL_TARGET: 0,
-    OPTICAL_ATTAINMENT: 0,
-    OPTICAL_BONUS: 0,
-    // Columns 17-20: Store Performance
-    STORE_ACTUAL: 0,
-    STORE_TARGET: 0,
-    STORE_ATTAINMENT: 0,
-    STORE_BONUS: 0,
-    // Columns 21-23: Customer acquisition
-    CUSTOMER_ACTUAL: 0,
-    CUSTOMER_TARGET: 0,
-    CUSTOMER_BONUS: 0,
-    // Columns 24-26: Other components
-    COLLECTION_BONUS: 0,
-    INSURANCE_BONUS: 0,
-    SERVICES_BONUS: 0,
+    // Columns 13-16: Component A (with actual/target/attainment)
+    COMP_A_ACTUAL: 0,
+    COMP_A_TARGET: 0,
+    COMP_A_ATTAINMENT: 0,
+    COMP_A_BONUS: 0,
+    // Columns 17-20: Component B (with actual/target/attainment)
+    COMP_B_ACTUAL: 0,
+    COMP_B_TARGET: 0,
+    COMP_B_ATTAINMENT: 0,
+    COMP_B_BONUS: 0,
+    // Columns 21-23: Component C (actual/target only)
+    COMP_C_ACTUAL: 0,
+    COMP_C_TARGET: 0,
+    COMP_C_BONUS: 0,
+    // Columns 24-26: Components D, E, F (bonus only)
+    COMP_D_BONUS: 0,
+    COMP_E_BONUS: 0,
+    COMP_F_BONUS: 0,
     // Columns 27-30: Totals and audit
     TOTAL_INCENTIVE: result.totalIncentive,
     CURRENCY: result.currency,
@@ -291,30 +279,38 @@ export function formatForLegacyExport(result: CalculationResult): LegacyExportFo
     CALC_VERSION: `v${result.ruleSetVersion || 1}`,
   };
 
-  // Map components to legacy columns with full detail
-  for (const component of result.components) {
+  // Map components to legacy columns by index position
+  for (let i = 0; i < result.components.length && i < 6; i++) {
+    const component = result.components[i];
     const inputs = component.inputs || {};
 
-    if (matchesComponent(component, opticalPatterns)) {
-      legacyResult.OPTICAL_ACTUAL = inputs.actual || 0;
-      legacyResult.OPTICAL_TARGET = inputs.target || 0;
-      legacyResult.OPTICAL_ATTAINMENT = inputs.attainment ? inputs.attainment * 100 : 0;
-      legacyResult.OPTICAL_BONUS = component.outputValue;
-    } else if (matchesComponent(component, storePatterns)) {
-      legacyResult.STORE_ACTUAL = inputs.actual || 0;
-      legacyResult.STORE_TARGET = inputs.target || 0;
-      legacyResult.STORE_ATTAINMENT = inputs.attainment ? inputs.attainment * 100 : 0;
-      legacyResult.STORE_BONUS = component.outputValue;
-    } else if (matchesComponent(component, customerPatterns)) {
-      legacyResult.CUSTOMER_ACTUAL = inputs.actual || 0;
-      legacyResult.CUSTOMER_TARGET = inputs.target || 0;
-      legacyResult.CUSTOMER_BONUS = component.outputValue;
-    } else if (matchesComponent(component, collectionPatterns)) {
-      legacyResult.COLLECTION_BONUS = component.outputValue;
-    } else if (matchesComponent(component, insurancePatterns)) {
-      legacyResult.INSURANCE_BONUS = component.outputValue;
-    } else if (matchesComponent(component, servicesPatterns)) {
-      legacyResult.SERVICES_BONUS = component.outputValue;
+    switch (i) {
+      case 0: // Component A: full detail (actual/target/attainment/bonus)
+        legacyResult.COMP_A_ACTUAL = inputs.actual || 0;
+        legacyResult.COMP_A_TARGET = inputs.target || 0;
+        legacyResult.COMP_A_ATTAINMENT = inputs.attainment ? inputs.attainment * 100 : 0;
+        legacyResult.COMP_A_BONUS = component.outputValue;
+        break;
+      case 1: // Component B: full detail
+        legacyResult.COMP_B_ACTUAL = inputs.actual || 0;
+        legacyResult.COMP_B_TARGET = inputs.target || 0;
+        legacyResult.COMP_B_ATTAINMENT = inputs.attainment ? inputs.attainment * 100 : 0;
+        legacyResult.COMP_B_BONUS = component.outputValue;
+        break;
+      case 2: // Component C: actual/target/bonus
+        legacyResult.COMP_C_ACTUAL = inputs.actual || 0;
+        legacyResult.COMP_C_TARGET = inputs.target || 0;
+        legacyResult.COMP_C_BONUS = component.outputValue;
+        break;
+      case 3: // Component D: bonus only
+        legacyResult.COMP_D_BONUS = component.outputValue;
+        break;
+      case 4: // Component E: bonus only
+        legacyResult.COMP_E_BONUS = component.outputValue;
+        break;
+      case 5: // Component F: bonus only
+        legacyResult.COMP_F_BONUS = component.outputValue;
+        break;
     }
   }
 
@@ -416,24 +412,24 @@ function exportLegacyCSV(results: CalculationResult[]): string {
     'PERIOD',
     'PLAN_NAME',
     'VARIANT_NAME',
-    // Columns 13-16: Optical Sales
-    'OPTICAL_ACTUAL',
-    'OPTICAL_TARGET',
-    'OPTICAL_ATTAINMENT',
-    'OPTICAL_BONUS',
-    // Columns 17-20: Store Performance
-    'STORE_ACTUAL',
-    'STORE_TARGET',
-    'STORE_ATTAINMENT',
-    'STORE_BONUS',
-    // Columns 21-23: Customer acquisition
-    'CUSTOMER_ACTUAL',
-    'CUSTOMER_TARGET',
-    'CUSTOMER_BONUS',
-    // Columns 24-26: Other components
-    'COLLECTION_BONUS',
-    'INSURANCE_BONUS',
-    'SERVICES_BONUS',
+    // Columns 13-16: Component A
+    'COMP_A_ACTUAL',
+    'COMP_A_TARGET',
+    'COMP_A_ATTAINMENT',
+    'COMP_A_BONUS',
+    // Columns 17-20: Component B
+    'COMP_B_ACTUAL',
+    'COMP_B_TARGET',
+    'COMP_B_ATTAINMENT',
+    'COMP_B_BONUS',
+    // Columns 21-23: Component C
+    'COMP_C_ACTUAL',
+    'COMP_C_TARGET',
+    'COMP_C_BONUS',
+    // Columns 24-26: Components D, E, F
+    'COMP_D_BONUS',
+    'COMP_E_BONUS',
+    'COMP_F_BONUS',
     // Columns 27-30: Totals and audit
     'TOTAL_INCENTIVE',
     'CURRENCY',
@@ -457,24 +453,24 @@ function exportLegacyCSV(results: CalculationResult[]): string {
       legacy.PERIOD,
       legacy.PLAN_NAME,
       legacy.VARIANT_NAME,
-      // Columns 13-16: Optical Sales
-      legacy.OPTICAL_ACTUAL.toFixed(2),
-      legacy.OPTICAL_TARGET.toFixed(2),
-      legacy.OPTICAL_ATTAINMENT.toFixed(1),
-      legacy.OPTICAL_BONUS.toFixed(2),
-      // Columns 17-20: Store Performance
-      legacy.STORE_ACTUAL.toFixed(2),
-      legacy.STORE_TARGET.toFixed(2),
-      legacy.STORE_ATTAINMENT.toFixed(1),
-      legacy.STORE_BONUS.toFixed(2),
-      // Columns 21-23: Customer acquisition
-      legacy.CUSTOMER_ACTUAL.toFixed(0),
-      legacy.CUSTOMER_TARGET.toFixed(0),
-      legacy.CUSTOMER_BONUS.toFixed(2),
-      // Columns 24-26: Other components
-      legacy.COLLECTION_BONUS.toFixed(2),
-      legacy.INSURANCE_BONUS.toFixed(2),
-      legacy.SERVICES_BONUS.toFixed(2),
+      // Columns 13-16: Component A
+      legacy.COMP_A_ACTUAL.toFixed(2),
+      legacy.COMP_A_TARGET.toFixed(2),
+      legacy.COMP_A_ATTAINMENT.toFixed(1),
+      legacy.COMP_A_BONUS.toFixed(2),
+      // Columns 17-20: Component B
+      legacy.COMP_B_ACTUAL.toFixed(2),
+      legacy.COMP_B_TARGET.toFixed(2),
+      legacy.COMP_B_ATTAINMENT.toFixed(1),
+      legacy.COMP_B_BONUS.toFixed(2),
+      // Columns 21-23: Component C
+      legacy.COMP_C_ACTUAL.toFixed(0),
+      legacy.COMP_C_TARGET.toFixed(0),
+      legacy.COMP_C_BONUS.toFixed(2),
+      // Columns 24-26: Components D, E, F
+      legacy.COMP_D_BONUS.toFixed(2),
+      legacy.COMP_E_BONUS.toFixed(2),
+      legacy.COMP_F_BONUS.toFixed(2),
       // Columns 27-30: Totals and audit
       legacy.TOTAL_INCENTIVE.toFixed(2),
       legacy.CURRENCY,
