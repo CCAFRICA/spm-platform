@@ -74,6 +74,9 @@ export async function POST(request: NextRequest) {
       population_config: {
         eligible_roles: planConfig.eligibleRoles || [],
       } as unknown as Json,
+      // TODO (Decision 64): Plan import should generate input_bindings from AI interpretation.
+      // Currently empty — the semantic binding layer will map component metrics to data fields.
+      // See CLT-113 T-14 and OB-115 Phase 2 diagnostic.
       input_bindings: {} as Json,
       components: planConfig.configuration as unknown as Json,
       cadence_config: {} as Json,
