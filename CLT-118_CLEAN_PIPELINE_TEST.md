@@ -267,6 +267,27 @@ This is exactly the scope of Decision 64's remaining work (OB-119 through OB-122
 
 ---
 
+## Additional Finding: Metric Name Reconciliation Gap
+
+Post-test restoration with proper entity_id and period_id linkage (0% null) still produced $0. Root cause: AI plan interpretation generates metric names like `total_loan_disbursement` while actual data fields are `LoanAmount`. The calculationIntent expects AI-named metrics; the data provides raw field names.
+
+This is a **sixth gap** beyond the five identified above: the AI plan interpreter and the data importer produce different vocabularies. OB-121 (Convergence Layer) must bridge this by generating metric mappings: `total_loan_disbursement = SUM(LoanAmount WHERE data_type LIKE '%Loan_Disbursements%')`.
+
+### Post-Test Tenant State
+
+```
+committed_data: 1,588 rows (0% null entity_id, 0% null period_id)
+entities: 25
+periods: 3 (2024-01, 2024-02, 2024-03)
+rule_sets: 4 (AI-interpreted, calculationIntent only, no tierConfig)
+assignments: 67
+Grand Total: $0 (metric name mismatch)
+```
+
+To restore $7.4M working state: re-import plan documents through the UI (produces both tierConfig and calculationIntent with data-matched metric names).
+
+---
+
 *CLT-118 — Fresh import. No manual wiring. Grand Total: $0.*
 *Plan Intelligence: Working. Data Intelligence: Not built yet. Engine Intelligence: Ready.*
 *"If you have to hand it the answer, it's not intelligence — it's a lookup table."*
