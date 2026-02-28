@@ -868,10 +868,12 @@ export async function POST(request: NextRequest) {
     .eq('period_id', periodId);
 
   if (cleanupErr) {
-    console.warn(`[CalcAPI] OB-121 cleanup failed (non-blocking): ${cleanupErr.message}`);
-  } else {
-    addLog(`OB-121: Cleaned old calculation_results for plan=${ruleSetId} period=${periodId}`);
+    return NextResponse.json(
+      { error: `Failed to clear existing results: ${cleanupErr.message}`, log },
+      { status: 500 }
+    );
   }
+  addLog(`OB-121: Cleaned old calculation_results for plan=${ruleSetId} period=${periodId}`);
 
   const insertRows = entityResults.map(r => ({
     tenant_id: tenantId,
