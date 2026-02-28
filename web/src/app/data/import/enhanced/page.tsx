@@ -4378,10 +4378,10 @@ function DataPackageImportPageInner() {
                     </div>
                     <div className="text-center p-4 bg-emerald-900/20 rounded-lg">
                       <p className="text-2xl font-bold text-emerald-400">
-                        {validationResult?.overallScore || analysisConfidence}%
+                        {analysisConfidence}%
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Calidad de Datos' : 'Data Quality'}
+                        {isSpanish ? 'Confianza AI' : 'AI Confidence'}
                       </p>
                     </div>
                   </div>
