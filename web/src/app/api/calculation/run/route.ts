@@ -15,8 +15,10 @@ import {
   evaluateComponent,
   aggregateMetrics,
   buildMetricsForComponent,
+  applyMetricDerivations,
   type ComponentResult,
   type AIContextSheet,
+  type MetricDerivationRule,
 } from '@/lib/calculation/run-calculation';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
 import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
@@ -91,6 +93,14 @@ export async function POST(request: NextRequest) {
   }
 
   addLog(`Rule set "${ruleSet.name}" has ${defaultComponents.length} components, ${variants.length} variants`);
+
+  // ── OB-118: Parse metric derivation rules from input_bindings ──
+  const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+  const metricDerivations: MetricDerivationRule[] =
+    (inputBindings?.metric_derivations as MetricDerivationRule[] | undefined) ?? [];
+  if (metricDerivations.length > 0) {
+    addLog(`OB-118 Metric derivations: ${metricDerivations.length} rules from input_bindings`);
+  }
 
   // ── OB-76: Transform components to intents (once, before entity loop) ──
   const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
@@ -604,6 +614,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── OB-118: Derive metrics once per entity from loaded data ──
+    const derivedMetrics = metricDerivations.length > 0
+      ? applyMetricDerivations(entitySheetData, metricDerivations)
+      : {};
+
     // ── CURRENT ENGINE PATH ──
     const componentResults: ComponentResult[] = [];
     let entityTotal = 0;
@@ -621,6 +636,11 @@ export async function POST(request: NextRequest) {
         aiContextSheets,
         entityStoreAgg
       );
+      // OB-118: Merge derived metrics into component metrics
+      // Derived metrics take precedence (they're specifically configured)
+      for (const [key, value] of Object.entries(derivedMetrics)) {
+        metrics[key] = value;
+      }
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
       perComponentMetrics.push(metrics);

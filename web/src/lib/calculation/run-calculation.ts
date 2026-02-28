@@ -58,6 +58,87 @@ export interface CalculationRunResult {
 }
 
 // ──────────────────────────────────────────────
+// OB-118: Metric Derivation — count/filter/group on loaded data
+// ──────────────────────────────────────────────
+
+/**
+ * A single metric derivation rule from input_bindings.metric_derivations.
+ * Domain-agnostic: field names, values, and operators come from config.
+ */
+export interface MetricDerivationRule {
+  metric: string;          // Target metric name (e.g., "ins_vida_qualified_referrals")
+  operation: 'count';      // Derivation operation (count matching rows)
+  source_pattern: string;  // Regex pattern to match data_type/sheet name
+  filters: Array<{
+    field: string;         // Field name in row_data (e.g., "ProductCode")
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+    value: string | number | boolean;
+  }>;
+}
+
+/**
+ * Apply metric derivation rules to already-loaded entity data.
+ * Produces numeric metrics from categorical/string data via count+filter.
+ *
+ * Zero hardcoded field names. Zero DB queries. Works on in-memory rows.
+ * Korean Test: All field names and values come from derivation rules, not code.
+ *
+ * @param entitySheetData - Map<sheetName, rows> already loaded for this entity
+ * @param derivations - Derivation rules from input_bindings.metric_derivations
+ * @returns Map of derived metric name → numeric value
+ */
+export function applyMetricDerivations(
+  entitySheetData: Map<string, Array<{ row_data: Json }>>,
+  derivations: MetricDerivationRule[]
+): Record<string, number> {
+  const derived: Record<string, number> = {};
+
+  for (const rule of derivations) {
+    const sourceRegex = new RegExp(rule.source_pattern, 'i');
+
+    // Find all sheets matching the source pattern
+    let matchingRows: Array<{ row_data: Json }> = [];
+    for (const [sheetName, rows] of Array.from(entitySheetData.entries())) {
+      if (sourceRegex.test(sheetName)) {
+        matchingRows = matchingRows.concat(rows);
+      }
+    }
+
+    if (matchingRows.length === 0) continue;
+
+    // Apply derivation operation
+    if (rule.operation === 'count') {
+      let count = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+
+        // Check all filter conditions (AND logic)
+        const allMatch = rule.filters.every(filter => {
+          const fieldValue = rd[filter.field];
+          switch (filter.operator) {
+            case 'eq':       return fieldValue === filter.value;
+            case 'neq':      return fieldValue !== filter.value;
+            case 'gt':       return typeof fieldValue === 'number' && fieldValue > (filter.value as number);
+            case 'gte':      return typeof fieldValue === 'number' && fieldValue >= (filter.value as number);
+            case 'lt':       return typeof fieldValue === 'number' && fieldValue < (filter.value as number);
+            case 'lte':      return typeof fieldValue === 'number' && fieldValue <= (filter.value as number);
+            case 'contains': return typeof fieldValue === 'string' && fieldValue.includes(String(filter.value));
+            default:         return false;
+          }
+        });
+
+        if (allMatch) count++;
+      }
+      derived[rule.metric] = count;
+    }
+  }
+
+  return derived;
+}
+
+// ──────────────────────────────────────────────
 // Component Evaluators
 // ──────────────────────────────────────────────
 
@@ -613,6 +694,11 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   console.log(`[RunCalculation] Rule set "${ruleSet.name}" has ${defaultComponents.length} components, ${variants.length} variants`);
 
+  // ── OB-118: Parse metric derivation rules from input_bindings ──
+  const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+  const metricDerivations: MetricDerivationRule[] =
+    (inputBindings?.metric_derivations as MetricDerivationRule[] | undefined) ?? [];
+
   // ── 2. Fetch entities with assignments (OB-75: paginated) ──
   const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
   const assignments: Array<{ entity_id: string }> = [];
@@ -919,6 +1005,11 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       }
     }
 
+    // OB-118: Derive metrics once per entity from loaded data
+    const derivedMetrics = metricDerivations.length > 0
+      ? applyMetricDerivations(entitySheetData, metricDerivations)
+      : {};
+
     // Evaluate each component with sheet-aware metrics
     const componentResults: ComponentResult[] = [];
     let entityTotal = 0;
@@ -930,6 +1021,10 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         entityStoreData,
         aiContextSheets
       );
+      // OB-118: Merge derived metrics
+      for (const [key, value] of Object.entries(derivedMetrics)) {
+        metrics[key] = value;
+      }
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
       entityTotal += result.payout;
