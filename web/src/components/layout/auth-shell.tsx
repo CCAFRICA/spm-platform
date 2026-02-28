@@ -14,7 +14,7 @@ import { DemoPersonaSwitcher } from '@/components/demo/DemoPersonaSwitcher';
 import { cn } from '@/lib/utils';
 
 // Routes that don't require a tenant to be selected
-const TENANT_EXEMPT_ROUTES = ['/login', '/select-tenant'];
+const TENANT_EXEMPT_ROUTES = ['/login', '/select-tenant', '/admin/tenants/new'];
 
 // Routes that should not show the app shell (sidebar/navbar)
 const SHELL_EXCLUDED_ROUTES = ['/login', '/select-tenant'];
