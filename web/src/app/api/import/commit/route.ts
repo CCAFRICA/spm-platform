@@ -245,9 +245,42 @@ export async function POST(request: NextRequest) {
           const entityCol = aiMappings.find(m => m.targetField === 'entity_id');
           const dateCol = aiMappings.find(m => m.targetField === 'date');
           console.log(`[ImportCommit] OB-119 AI "${sheet.sheetName}": ${injected} mappings (entity=${entityCol?.sourceField || 'none'}@${entityCol?.confidence || 0}%, date=${dateCol?.sourceField || 'none'}@${dateCol?.confidence || 0}%)`);
+        } else {
+          console.log(`[ImportCommit] OB-119 AI "${sheet.sheetName}": confidence=0, falling back to Tier 2/3`);
         }
       } catch (aiErr) {
         console.warn(`[ImportCommit] OB-119 AI mapping failed for "${sheet.sheetName}" (Tier 2/3 fallback):`, aiErr instanceof Error ? aiErr.message : aiErr);
+      }
+    }
+
+    // OB-119 Tier 2: Roster detection by header analysis when AI unavailable
+    // Roster sheets have name/role/status columns but no primary amount column
+    if (aiDetectedRosterSheets.size === 0) {
+      const rosterNameKeys = ['name', 'entity_name', 'display_name', 'employee_name', 'nombre', 'firstname', 'lastname'];
+      const rosterRoleKeys = ['role', 'position', 'puesto', 'title', 'cargo', 'status', 'estado'];
+      for (const sheet of sheetData) {
+        const headers = Object.keys(sheet.rows[0] || {}).map(h => h.toLowerCase());
+        const hasEntityId = headers.some(h => ENTITY_ID_TARGETS.includes(h.replace(/[\s_-]+/g, '_')));
+        const hasName = headers.some(h => rosterNameKeys.some(t => h.includes(t)));
+        const hasRoleOrStatus = headers.some(h => rosterRoleKeys.some(t => h.includes(t)));
+        // Check if sheet has a primary amount column (numeric values avg > 100)
+        // Exclude entity ID columns (their IDs happen to be numbers too)
+        let hasAmountCol = false;
+        for (const key of Object.keys(sheet.rows[0] || {})) {
+          const keyLower = key.toLowerCase().replace(/[\s_-]+/g, '_');
+          if (ENTITY_ID_TARGETS.includes(keyLower)) continue; // Skip entity ID columns
+          if (key.startsWith('_')) continue;
+          const vals = sheet.rows.slice(0, 20).map(r => r[key]).filter(v => typeof v === 'number');
+          if (vals.length >= 10) {
+            const avg = (vals as number[]).reduce((s, n) => s + n, 0) / vals.length;
+            if (avg > 100 && (avg < 43000 || avg > 48000)) { hasAmountCol = true; break; }
+          }
+        }
+
+        if (hasEntityId && hasName && hasRoleOrStatus && !hasAmountCol) {
+          aiDetectedRosterSheets.add(sheet.sheetName);
+          console.log(`[ImportCommit] OB-119 Tier 2 roster: "${sheet.sheetName}" detected (entity+name+status, no amount)`);
+        }
       }
     }
 
@@ -433,6 +466,65 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[ImportCommit] Entity map: ${entityIdMap.size} total`);
+
+    // ── Step 6.5: Tier 2 Value-Based Entity Detection (OB-119) ──
+    // If no entity column found by AI/header matching, check if column values
+    // match existing entity external_ids. Korean-test compliant: no hardcoded names.
+    if (entityIdMap.size === 0) {
+      // Load existing entities for this tenant
+      const { data: existingEntities } = await supabase
+        .from('entities')
+        .select('id, external_id')
+        .eq('tenant_id', tenantId);
+
+      if (existingEntities && existingEntities.length > 0) {
+        const existingExternalIds = new Set(existingEntities.map(e => String(e.external_id)));
+        for (const e of existingEntities) {
+          if (e.external_id) entityIdMap.set(String(e.external_id), e.id);
+        }
+
+        // For each sheet, find the column with the best match against entity external_ids
+        for (const sheet of sheetData) {
+          if (!sheet.rows[0]) continue;
+          const headers = Object.keys(sheet.rows[0]);
+
+          // Already has entity mapping?
+          const hasEntityMapping = sheet.mappings && Object.values(sheet.mappings).some(
+            t => ENTITY_ID_TARGETS.includes(t.toLowerCase())
+          );
+          if (hasEntityMapping) continue;
+
+          // Sample first 50 rows for value matching
+          const sampleRows = sheet.rows.slice(0, 50);
+          let bestCol = '';
+          let bestOverlap = 0;
+
+          for (const col of headers) {
+            if (col.startsWith('_')) continue; // Skip internal cols
+            const values = sampleRows.map(r => r[col]).filter(v => v != null);
+            if (values.length < 3) continue;
+
+            // Check overlap with existing entity IDs
+            const matches = values.filter(v => existingExternalIds.has(String(v).trim()));
+            const overlap = matches.length / values.length;
+
+            if (overlap > bestOverlap) {
+              bestOverlap = overlap;
+              bestCol = col;
+            }
+          }
+
+          // If ≥50% of values match existing entities, treat as entity column
+          if (bestCol && bestOverlap >= 0.5) {
+            if (!sheet.mappings) sheet.mappings = {};
+            sheet.mappings[bestCol] = 'entity_id';
+            console.log(`[ImportCommit] OB-119 Tier 2 entity: "${bestCol}" in "${sheet.sheetName}" matches ${(bestOverlap * 100).toFixed(0)}% of existing entities`);
+          }
+        }
+
+        console.log(`[ImportCommit] OB-119 Tier 2 entity: loaded ${entityIdMap.size} existing entities`);
+      }
+    }
 
     // ── Step 7: Period deduplication ──
     // OB-107: Build classification lookup from AI context to skip roster sheets
@@ -895,6 +987,39 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // OB-119 Tier 2: Infer field types from column values when AI didn't classify
+      for (const sheet of sheetData) {
+        const dataType = resolveDataType(sheet.sheetName);
+        const fieldMap = dataTypeFieldMap.get(dataType);
+        if (!fieldMap) continue;
+
+        // Skip if we already have amount/count fields from AI
+        const hasValueField = Array.from(fieldMap.values()).some(
+          t => t === 'amount' || t === 'count_growth' || t === 'quantity'
+        );
+        if (hasValueField) continue;
+
+        // Scan columns to find the primary amount field
+        const sampleRows = sheet.rows.slice(0, 30);
+        for (const key of Object.keys(sheet.rows[0] || {})) {
+          if (key.startsWith('_')) continue; // Skip internal
+          if (fieldMap.has(key)) continue; // Already mapped
+
+          const values = sampleRows.map(r => r[key]).filter(v => v != null && typeof v === 'number');
+          if (values.length < sampleRows.length * 0.5) continue; // Need 50% numeric
+
+          const nums = values as number[];
+          const avg = nums.reduce((s, v) => s + v, 0) / nums.length;
+
+          // Amount: avg > 100 (monetary values), not in serial date range
+          if (avg > 100 && (avg < 43000 || avg > 48000)) {
+            fieldMap.set(key, 'amount');
+            console.log(`[ImportCommit] OB-119 Tier 2 field: "${key}" in ${dataType} → amount (avg=${avg.toFixed(0)})`);
+            break; // One amount field per data_type
+          }
+        }
+      }
+
       console.log(`[ImportCommit] OB-119 data_type fields: ${Array.from(dataTypeFieldMap.entries()).map(([dt, fm]) => `${dt}(${fm.size})`).join(', ')}`);
 
       // Get all active rule sets for this tenant
@@ -918,11 +1043,13 @@ export async function POST(request: NextRequest) {
         const variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
         const components = (variants[0]?.components as Array<Record<string, unknown>>) ?? [];
 
+        // OB-119: Generate MetricDerivationRule-compatible derivations
         const derivations: Array<{
-          targetMetric: string;
-          sourceField: string;
-          dataTypePattern: string;
-          aggregation: string;
+          metric: string;           // matches MetricDerivationRule.metric
+          operation: 'sum' | 'count';
+          source_pattern: string;   // matches MetricDerivationRule.source_pattern
+          source_field?: string;    // matches MetricDerivationRule.source_field
+          filters: Array<{ field: string; operator: string; value: unknown }>;
         }> = [];
 
         for (const comp of components) {
@@ -932,7 +1059,15 @@ export async function POST(request: NextRequest) {
 
           // Get the metric name this component expects
           const intentInput = intent?.input as Record<string, unknown> | undefined;
-          const metricName = (tierConfig?.metric || intent?.metric || intentInput?.metric) as string | undefined;
+          const intentSourceSpec = intentInput?.sourceSpec as Record<string, unknown> | undefined;
+          const calcMethod = comp.calculationMethod as Record<string, unknown> | undefined;
+          const metricName = (
+            tierConfig?.metric ||
+            intent?.metric ||
+            intentInput?.metric ||
+            intentSourceSpec?.field ||   // AI-interpreted plans store metric here
+            calcMethod?.metric           // calculationMethod also has metric
+          ) as string | undefined;
           if (!metricName) continue;
 
           // Match component to data_type using SHEET_COMPONENT_PATTERNS
@@ -972,10 +1107,11 @@ export async function POST(request: NextRequest) {
 
           if (sourceField) {
             derivations.push({
-              targetMetric: metricName,
-              sourceField,
-              dataTypePattern: matchedDataType,
-              aggregation,
+              metric: metricName,
+              operation: aggregation as 'sum' | 'count',
+              source_pattern: matchedDataType,
+              source_field: sourceField,
+              filters: [],
             });
             console.log(`[ImportCommit] OB-119 binding: "${compName}" → ${metricName} = ${aggregation}(${sourceField}) from ${matchedDataType}`);
           }
