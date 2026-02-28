@@ -116,12 +116,18 @@ function transformTierLookup(
   const boundaries: Boundary[] = config.tiers.map(t => toBoundary(t.min, t.max));
   const outputs: number[] = config.tiers.map(t => t.value);
 
+  // OB-117: Carry isMarginal from AI-produced calculationIntent if present.
+  // When true, the executor multiplies output × inputValue (rate × volume).
+  const aiIntent = component.calculationIntent as Record<string, unknown> | undefined;
+  const isMarginal = aiIntent?.isMarginal === true;
+
   const intent: IntentOperation = {
     operation: 'bounded_lookup_1d',
     input: metricSource(config.metric),
     boundaries,
     outputs,
     noMatchBehavior: 'zero',
+    ...(isMarginal ? { isMarginal: true } : {}),
   };
 
   return buildComponentIntent(component, componentIndex, intent, [config.metric]);
