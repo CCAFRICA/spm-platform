@@ -267,7 +267,7 @@ export function summarizeByType(
 ): Record<LedgerEntryType, number> {
   const summary: Record<LedgerEntryType, number> = {
     base_salary: 0,
-    commission: 0,
+    variable_payout: 0,
     bonus: 0,
     spiff: 0,
     adjustment: 0,
@@ -343,9 +343,9 @@ export function validateCalculationResult(
     warnings.push('Net payout is negative - employee owes money');
   }
 
-  // Check for missing commission when expected
-  if (result.byType.commission === 0 && result.entries.some((e) => e.ruleSetId)) {
-    warnings.push('No commission calculated despite having plan assignments');
+  // Check for missing variable payout when expected
+  if (result.byType.variable_payout === 0 && result.entries.some((e) => e.ruleSetId)) {
+    warnings.push('No variable payout calculated despite having plan assignments');
   }
 
   // Check for unusually high payouts
@@ -353,11 +353,11 @@ export function validateCalculationResult(
     warnings.push('Gross payout exceeds $100,000 - please verify');
   }
 
-  // Check for clawbacks exceeding commissions
-  const commissions = result.byType.commission + result.byType.bonus;
+  // Check for clawbacks exceeding earnings
+  const earnings = result.byType.variable_payout + result.byType.bonus;
   const clawbacks = Math.abs(result.byType.clawback);
-  if (clawbacks > commissions) {
-    warnings.push('Clawbacks exceed earned commissions');
+  if (clawbacks > earnings) {
+    warnings.push('Clawbacks exceed earned payouts');
   }
 
   return {
