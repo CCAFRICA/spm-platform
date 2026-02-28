@@ -533,6 +533,25 @@ export async function POST(request: NextRequest) {
     };
 
     // ── Step 8: Build and bulk-insert committed_data ──
+    // OB-115: Resolve meaningful data_type from AI classification instead of XLSX.js sheet name.
+    // Priority: 1) AI matchedComponent  2) AI classification + filename  3) filename (no ext)  4) sheet name
+    const resolveDataType = (sheetName: string): string => {
+      const aiSheet = aiContext?.sheets?.find(s => s.sheetName === sheetName);
+      if (aiSheet?.matchedComponent) {
+        return aiSheet.matchedComponent;
+      }
+      if (aiSheet?.classification && aiSheet.classification !== 'unrelated') {
+        // Use classification + filename stem for differentiation (e.g. "component_data:CFG_Deposit_Balances_Q1_2024")
+        const stem = fileName.replace(/\.[^.]+$/, '');
+        return `${aiSheet.classification}:${stem}`;
+      }
+      // Fallback: if sheet name is generic "Sheet1" (CSV default), use filename stem instead
+      if (sheetName === 'Sheet1' || sheetName === 'Hoja1') {
+        return fileName.replace(/\.[^.]+$/, '');
+      }
+      return sheetName;
+    };
+
     let totalRecords = 0;
 
     for (const sheet of sheetData) {
@@ -578,9 +597,9 @@ export async function POST(request: NextRequest) {
           import_batch_id: batchId,
           entity_id: entityId,
           period_id: periodId,
-          data_type: sheet.sheetName,
+          data_type: resolveDataType(sheet.sheetName),
           row_data: { ...content, _sheetName: sheet.sheetName, _rowIndex: i },
-          metadata: { source_sheet: sheet.sheetName },
+          metadata: { source_sheet: sheet.sheetName, resolved_data_type: resolveDataType(sheet.sheetName) },
         };
       });
 
