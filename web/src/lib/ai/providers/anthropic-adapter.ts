@@ -627,7 +627,9 @@ export class AnthropicAdapter implements AIProviderAdapter {
     const result = this.parseJsonResponse(content);
 
     // Extract confidence from result or default
-    const confidence = (result.confidence as number) / 100 || 0.5;
+    const confidence = typeof result.confidence === 'number' && result.confidence > 0
+      ? result.confidence / 100
+      : 0;
 
     // Token usage from response
     const tokenUsage = {
