@@ -81,7 +81,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         supabase.from('entities').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId),
         supabase.from('periods').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId),
         supabase.from('calculation_batches').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId),
-        supabase.from('rule_sets').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId),
+        supabase.from('rule_sets').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('status', 'active'),
         supabase.from('import_batches').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId),
         supabase.from('classification_signals').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId),
       ]);
