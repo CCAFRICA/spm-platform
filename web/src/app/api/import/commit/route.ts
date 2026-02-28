@@ -50,6 +50,22 @@ interface CommitRequest {
   aiContext?: AIImportContext;
 }
 
+// OB-119: Normalize filename to semantic data_type — strip date suffixes and prefixes
+// "CFG_Loan_Disbursements_Jan2024.csv" → "loan_disbursements"
+// "CFG_Mortgage_Closings_Q1_2024.csv" → "mortgage_closings"
+// This makes data_type match SHEET_COMPONENT_PATTERNS in metric-resolver.ts
+function normalizeFileNameToDataType(fn: string): string {
+  let stem = fn.replace(/\.[^.]+$/, ''); // Remove extension
+  stem = stem.replace(/^[A-Z]{2,5}_/, ''); // Strip common prefix (e.g., "CFG_")
+  // Strip date suffixes: Jan2024, Feb2024, Q1_2024, 2024-01, 2024, etc.
+  stem = stem.replace(/_?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{4}$/i, '');
+  stem = stem.replace(/_?Q[1-4]_?\d{4}$/i, '');
+  stem = stem.replace(/_?\d{4}[-_]\d{2}$/i, '');
+  stem = stem.replace(/_?\d{4}$/i, '');
+  stem = stem.replace(/_+$/, ''); // Clean trailing underscores
+  return stem.toLowerCase().replace(/[\s-]+/g, '_');
+}
+
 // Entity ID — generic target field IDs only (AP-5/AP-6: no hardcoded language-specific names)
 // The AI field mapper on the client maps source columns (ID Empleado, Num Empleado, etc.) to these generic targets.
 const ENTITY_ID_TARGETS = ['entityid', 'entity_id', 'employeeid', 'employee_id', 'external_id', 'externalid', 'repid', 'rep_id'];
@@ -648,16 +664,23 @@ export async function POST(request: NextRequest) {
     // OB-115: Resolve meaningful data_type from AI classification instead of XLSX.js sheet name.
     // Priority: 1) AI matchedComponent  2) AI classification + filename  3) filename (no ext)  4) sheet name
     const resolveDataType = (sheetName: string): string => {
+      // Priority 1: AI matchedComponent from import UI context
       const aiSheet = aiContext?.sheets?.find(s => s.sheetName === sheetName);
       if (aiSheet?.matchedComponent) {
         return aiSheet.matchedComponent;
       }
+      // Priority 2: AI classification from import UI context
       if (aiSheet?.classification && aiSheet.classification !== 'unrelated') {
-        // Use classification + filename stem for differentiation (e.g. "component_data:CFG_Deposit_Balances_Q1_2024")
         const stem = fileName.replace(/\.[^.]+$/, '');
         return `${aiSheet.classification}:${stem}`;
       }
-      // Fallback: if sheet name is generic "Sheet1" (CSV default), use filename stem instead
+      // Priority 3 (OB-119): Normalized filename — semantic type for SHEET_COMPONENT_PATTERNS
+      // Strips date suffixes and prefixes: "CFG_Loan_Disbursements_Jan2024" → "loan_disbursements"
+      const normalized = normalizeFileNameToDataType(fileName);
+      if (normalized && normalized.length > 2) {
+        return normalized;
+      }
+      // Priority 4: If sheet name is generic "Sheet1" (CSV default), use filename stem instead
       if (sheetName === 'Sheet1' || sheetName === 'Hoja1') {
         return fileName.replace(/\.[^.]+$/, '');
       }
