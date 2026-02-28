@@ -55,6 +55,10 @@ export interface BoundedLookup1D {
   boundaries: Boundary[];
   outputs: number[];
   noMatchBehavior: 'zero' | 'error' | 'nearest';
+  /** OB-117: When true, outputs are rates (e.g., 0.003 = 0.3%) to multiply
+   * against the input value, not flat payout amounts. The executor returns
+   * output × inputValue instead of just output. */
+  isMarginal?: boolean;
 }
 
 /** 2D grid lookup — maps two values to a grid output */

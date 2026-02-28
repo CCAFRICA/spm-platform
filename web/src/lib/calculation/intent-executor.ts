@@ -164,7 +164,9 @@ function executeBoundedLookup1D(
     return op.noMatchBehavior === 'zero' ? 0 : 0;
   }
 
-  const output = op.outputs[idx] ?? 0;
+  const rawOutput = op.outputs[idx] ?? 0;
+  // OB-117: isMarginal — outputs are rates to multiply against the input value
+  const output = op.isMarginal ? rawOutput * inputValue : rawOutput;
   trace.lookupResolution = {
     rowBoundaryMatched: {
       min: op.boundaries[idx].min,
@@ -172,6 +174,7 @@ function executeBoundedLookup1D(
       index: idx,
     },
     outputValue: output,
+    ...(op.isMarginal ? { isMarginal: true, rate: rawOutput, inputValue } : {}),
   };
   return output;
 }
@@ -374,7 +377,8 @@ function executeTemporalWindow(
 // Operation Dispatch
 // ──────────────────────────────────────────────
 
-function executeOperation(
+// OB-117: Exported for use by evaluateComponent's calculationIntent fallback
+export function executeOperation(
   op: IntentOperation,
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,

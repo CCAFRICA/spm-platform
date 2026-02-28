@@ -26,6 +26,8 @@ import {
   findSheetForComponent,
   SHEET_COMPONENT_PATTERNS,
 } from '@/lib/orchestration/metric-resolver';
+import { executeOperation, type EntityData } from '@/lib/calculation/intent-executor';
+import { isIntentOperation, type IntentOperation } from '@/lib/calculation/intent-types';
 
 // ──────────────────────────────────────────────
 // Types
@@ -62,13 +64,21 @@ export interface CalculationRunResult {
 export function evaluateTierLookup(config: TierConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
   const metricValue = metrics[config.metric] ?? metrics['attainment'] ?? 0;
 
+  // OB-117: Rate detection heuristic — if all non-zero tier values are < 1.0,
+  // they represent rates (e.g., 0.002 = 0.2%) to multiply against the metric value,
+  // not flat payout amounts. This handles plans like Mortgage Origination where
+  // tier values are commission rates applied to origination volume.
+  const nonZeroValues = config.tiers.map(t => t.value).filter(v => v !== 0);
+  const allRates = nonZeroValues.length > 0 && nonZeroValues.every(v => v > 0 && v < 1.0);
+
   for (const tier of config.tiers) {
     const min = Number.isFinite(tier.min) ? tier.min : -Infinity;
     const max = Number.isFinite(tier.max) ? tier.max : Infinity;
 
     if (metricValue >= min && metricValue <= max) {
+      const basePayout = allRates ? tier.value * metricValue : tier.value;
       return {
-        payout: tier.value,
+        payout: basePayout,
         details: {
           metric: config.metric,
           metricValue,
@@ -76,6 +86,8 @@ export function evaluateTierLookup(config: TierConfig, metrics: Record<string, n
           tierMin: min,
           tierMax: max,
           tierPayout: tier.value,
+          rateDetected: allRates,
+          rateApplied: allRates ? `${tier.value} × ${metricValue}` : undefined,
         },
       };
     }
@@ -222,6 +234,37 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
         details = r.details;
       }
       break;
+  }
+
+  // OB-117: calculationIntent fallback — when legacy evaluator produces $0
+  // and the component has an AI-produced calculationIntent, attempt evaluation
+  // via the intent executor. This handles cases where tierConfig is broken
+  // (empty tiers, wrong metric) but calculationIntent has the correct structure.
+  if (payout === 0 && component.calculationIntent) {
+    try {
+      const intentOp = component.calculationIntent as unknown as IntentOperation;
+      if (isIntentOperation(intentOp)) {
+        const entityData: EntityData = {
+          entityId: '',
+          metrics,
+          attributes: {},
+        };
+        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
+        const intentPayout = executeOperation(intentOp, entityData, inputLog, {});
+        if (intentPayout > 0) {
+          payout = intentPayout;
+          details = {
+            ...details,
+            fallbackSource: 'calculationIntent',
+            intentOperation: intentOp.operation,
+            intentPayout,
+            intentInputs: inputLog,
+          };
+        }
+      }
+    } catch {
+      // Fallback failed silently — use original $0 payout
+    }
   }
 
   return {
