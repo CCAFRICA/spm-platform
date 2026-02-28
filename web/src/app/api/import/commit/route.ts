@@ -457,6 +457,34 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // OB-119 Tier 2: Auto-detect date columns by value analysis (when AI unavailable)
+      if (yearCols.length === 0 && monthCols.length === 0 && periodCols.length === 0 && sheet.rows[0]) {
+        const sampleValues = sheet.rows.slice(0, 20);
+        for (const key of Object.keys(sheet.rows[0])) {
+          const values = sampleValues.map(r => r[key]).filter(v => v != null);
+          if (values.length < 3) continue;
+
+          // Check if values look like Excel serial dates (2020-2030 range: 43831-47848)
+          const dateValues = values.filter(v =>
+            typeof v === 'number' && (v as number) >= 43831 && (v as number) <= 47848
+          );
+
+          if (dateValues.length >= values.length * 0.7) {
+            // Verify dates cluster in reasonable range (not amounts that happen to be in date range)
+            const dates = dateValues.map(v => new Date(((v as number) - 25569) * 86400 * 1000));
+            const years = new Set(dates.map(d => d.getUTCFullYear()));
+
+            // If dates span at most 2 years, it's likely a date column
+            if (years.size <= 2) {
+              periodCols.push(key);
+              if (sheet.mappings) sheet.mappings[key] = 'date';
+              console.log(`[ImportCommit] OB-119 Tier 2: Auto-detected date column "${key}" (${dateValues.length}/${values.length} Excel serial dates, years: ${Array.from(years).join(',')})`);
+              break;
+            }
+          }
+        }
+      }
+
       for (const row of sheet.rows) {
         let year: number | null = null;
         let month: number | null = null;
