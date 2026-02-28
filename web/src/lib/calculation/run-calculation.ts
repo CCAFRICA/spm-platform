@@ -66,11 +66,11 @@ export interface CalculationRunResult {
  * Domain-agnostic: field names, values, and operators come from config.
  */
 export interface MetricDerivationRule {
-  metric: string;          // Target metric name (e.g., "ins_vida_qualified_referrals")
+  metric: string;          // Target metric name (from plan configuration)
   operation: 'count' | 'sum';  // Derivation operation
   source_pattern: string;  // Regex pattern to match data_type/sheet name
   filters: Array<{
-    field: string;         // Field name in row_data (e.g., "ProductCode")
+    field: string;         // Field name in row_data (discovered at runtime)
     operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
     value: string | number | boolean;
   }>;
@@ -159,8 +159,8 @@ export function evaluateTierLookup(config: TierConfig, metrics: Record<string, n
 
   // OB-117: Rate detection heuristic — if all non-zero tier values are < 1.0,
   // they represent rates (e.g., 0.002 = 0.2%) to multiply against the metric value,
-  // not flat payout amounts. This handles plans like Mortgage Origination where
-  // tier values are commission rates applied to origination volume.
+  // not flat payout amounts. This handles plans where tier values are
+  // rates applied to a volume metric.
   const nonZeroValues = config.tiers.map(t => t.value).filter(v => v !== 0);
   const allRates = nonZeroValues.length > 0 && nonZeroValues.every(v => v > 0 && v < 1.0);
 
@@ -657,8 +657,7 @@ export function buildMetricsForComponent(
 
       // OB-106: If literal key not found, search all keys by inferred semantic type.
       // This handles metric name mismatches where the rule_set uses a generic name
-      // (e.g., "insurance_sales") but the data has a specific enriched key
-      // (e.g., "reactivacion_club_proteccion_sales") — both infer to "amount".
+      // but the data has a specific enriched key — both infer to the same semantic type.
       // OB-106: semanticType is already guaranteed non-'unknown' here (filtered at line 442)
       if (nonStoreResolved === undefined) {
         for (const [key, val] of Object.entries(entityMetrics)) {
