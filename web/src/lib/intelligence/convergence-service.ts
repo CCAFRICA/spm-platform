@@ -430,8 +430,7 @@ function generateFilteredCountDerivations(
     }
   }
 
-  // Also try matching against any ProductName-like field
-  // (component "Auto Insurance Referrals" → ProductName "Auto Bundle" → ProductCode "INS-AUTO")
+  // Fallback: try matching metric tokens against category values in each field
   if (!bestCatField || bestCatScore < 0.3) {
     // Try matching metric name tokens against category values
     for (const metricName of component.expectedMetrics) {
