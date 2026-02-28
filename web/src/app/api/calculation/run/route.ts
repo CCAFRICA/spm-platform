@@ -802,7 +802,20 @@ export async function POST(request: NextRequest) {
     console.warn('[CalcAPI] Training signal persist failed (non-blocking):', err);
   });
 
-  // ── 7. Write calculation_results (OB-75: batched for 22K+ entities) ──
+  // ── 7. Write calculation_results (OB-121: DELETE before INSERT to prevent stale accumulation) ──
+  const { error: cleanupErr } = await supabase
+    .from('calculation_results')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('period_id', periodId);
+
+  if (cleanupErr) {
+    console.warn(`[CalcAPI] OB-121 cleanup failed (non-blocking): ${cleanupErr.message}`);
+  } else {
+    addLog(`OB-121: Cleaned old calculation_results for plan=${ruleSetId} period=${periodId}`);
+  }
+
   const insertRows = entityResults.map(r => ({
     tenant_id: tenantId,
     batch_id: batch.id,
