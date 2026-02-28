@@ -105,7 +105,9 @@ export async function getRuleSets(tenantId: string): Promise<RuleSetConfig[]> {
     const { data, error } = await supabase
       .from('rule_sets')
       .select('*')
-      .eq('tenant_id', tenantId);
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+      .order('name');
     if (error) throw error;
     const result = ((data || []) as RuleSet[]).map(ruleSetToPlanConfig);
     _rsCache.set(tenantId, { data: result, ts: Date.now() });

@@ -1938,87 +1938,8 @@ function DataPackageImportPageInner() {
           });
       });
 
-      // Calculation preview (sample for 3 employees)
+      // Calculation preview — actual calculations run after import commit
       const calculationPreview: CalculationPreviewResult[] = [];
-
-      // Get first data sheet with employee data
-      const firstDataSheet = dataSheets[0];
-      const firstDataMapping = fieldMappings.find(m => m.sheetName === firstDataSheet?.name);
-
-      if (firstDataSheet && firstDataMapping && activePlan) {
-        const employeeMapping = firstDataMapping.mappings.find(m => m.targetField === 'entityId');
-
-        // HF-053: Use matched entities (in roster AND in data), not just first 3 sample rows
-        const allFirstSheetRows = fullSheetData[firstDataSheet.name] || firstDataSheet.sampleRows;
-        const previewRows = allFirstSheetRows
-          .filter(row => {
-            if (!employeeMapping) return true;
-            const id = String(row[employeeMapping.sourceColumn] || '');
-            return entityIds.size === 0 || entityIds.has(id); // Use matched entities if available
-          })
-          .slice(0, 3); // Preview first 3 matched
-
-        previewRows.forEach((row, idx) => {
-          const entityId = employeeMapping
-            ? String(row[employeeMapping.sourceColumn] || `EMP-${idx + 1}`)
-            : `EMP-${idx + 1}`;
-
-          // Generate mock calculation preview based on plan components
-          const components: ComponentPreview[] = [];
-          let totalIncentive = 0;
-
-          if (activePlan.configuration && isAdditiveLookupConfig(activePlan.configuration)) {
-            const variant = activePlan.configuration.variants[0];
-            variant?.components?.forEach(comp => {
-              let inputValue = 0;
-              let lookupResult = 0;
-
-              // Try to find mapped metric
-              if (comp.matrixConfig) {
-                const metricMapping = firstDataMapping.mappings.find(m =>
-                  m.targetField === comp.matrixConfig!.rowMetric
-                );
-                if (metricMapping) {
-                  const val = row[metricMapping.sourceColumn];
-                  inputValue = typeof val === 'number' ? val : parseFloat(String(val)) || 0;
-                }
-                // Simulate lookup (random for demo)
-                lookupResult = Math.round(inputValue > 0 ? 500 + Math.random() * 1500 : 0);
-              } else if (comp.tierConfig) {
-                const metricMapping = firstDataMapping.mappings.find(m =>
-                  m.targetField === comp.tierConfig!.metric
-                );
-                if (metricMapping) {
-                  const val = row[metricMapping.sourceColumn];
-                  inputValue = typeof val === 'number' ? val : parseFloat(String(val)) || 0;
-                }
-                lookupResult = inputValue >= 100 ? 300 : inputValue >= 90 ? 150 : 0;
-              }
-
-              totalIncentive += lookupResult;
-
-              components.push({
-                componentId: comp.id,
-                componentName: comp.name,
-                inputMetric: comp.matrixConfig?.rowMetric || comp.tierConfig?.metric || 'metric',
-                inputValue,
-                lookupResult,
-                calculation: lookupResult > 0
-                  ? `${inputValue.toFixed(1)}% → ${currency} ${lookupResult.toLocaleString()}`
-                  : isSpanish ? 'No califica' : 'Does not qualify',
-              });
-            });
-          }
-
-          calculationPreview.push({
-            entityId,
-            components,
-            totalIncentive,
-            currency,
-            flags: totalIncentive === 0 ? [isSpanish ? 'Sin incentivo' : 'No incentive'] : [],
-          });
-        });
-      }
 
       // Calculate overall score
       let overallScore = sheetScores.length > 0
@@ -3884,7 +3805,7 @@ function DataPackageImportPageInner() {
                     </Card>
                   )}
 
-                  {/* Calculation Preview */}
+                  {/* Calculation Preview — actual calculations run after import commit */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-base flex items-center gap-2">
@@ -3893,73 +3814,13 @@ function DataPackageImportPageInner() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {validationResult.calculationPreview.length === 0 ? (
-                        <p className="text-muted-foreground text-sm text-center py-4">
+                      <div className="p-4 rounded-lg border border-gray-700 bg-gray-800/50">
+                        <p className="text-sm text-gray-400">
                           {isSpanish
-                            ? 'No hay datos suficientes para generar vista previa'
-                            : 'Not enough data to generate preview'}
+                            ? 'La vista previa de cálculo estará disponible después de importar los datos.'
+                            : 'Calculation preview will be available after data is imported and calculation is run.'}
                         </p>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead className="bg-muted">
-                              <tr>
-                                <th className="px-3 py-2 text-left font-medium">
-                                  {isSpanish ? 'Empleado' : 'Entity'}
-                                </th>
-                                {validationResult.calculationPreview[0]?.components.map(comp => (
-                                  <th key={comp.componentId} className="px-3 py-2 text-right font-medium">
-                                    {comp.componentName}
-                                  </th>
-                                ))}
-                                <th className="px-3 py-2 text-right font-medium">
-                                  {isSpanish ? 'Total' : 'Total'}
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {validationResult.calculationPreview.map((preview, idx) => (
-                                <tr key={preview.entityId} className={cn('border-t', idx % 2 === 0 && 'bg-muted/30')}>
-                                  <td className="px-3 py-2 font-medium">
-                                    {preview.entityId}
-                                    {preview.flags.length > 0 && (
-                                      <span className="ml-2 text-xs text-orange-500">
-                                        ({preview.flags[0]})
-                                      </span>
-                                    )}
-                                  </td>
-                                  {preview.components.map(comp => (
-                                    <td key={comp.componentId} className="px-3 py-2 text-right">
-                                      <div>
-                                        <span className={cn(
-                                          comp.lookupResult > 0 ? 'text-emerald-400' : 'text-muted-foreground'
-                                        )}>
-                                          {formatCurrency(comp.lookupResult)}
-                                        </span>
-                                        <p className="text-xs text-muted-foreground">
-                                          {comp.inputValue > 0 ? `${comp.inputValue.toFixed(1)}%` : '-'}
-                                        </p>
-                                      </div>
-                                    </td>
-                                  ))}
-                                  <td className="px-3 py-2 text-right font-semibold">
-                                    <span className={cn(
-                                      preview.totalIncentive > 0
-                                        ? 'text-emerald-400'
-                                        : 'text-muted-foreground'
-                                    )}>
-                                      {formatCurrency(preview.totalIncentive)}
-                                    </span>
-                                    {preview.totalIncentive > 0 && (
-                                      <TrendingUp className="inline-block h-3 w-3 ml-1 text-emerald-400" />
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
+                      </div>
                     </CardContent>
                   </Card>
                 </>
@@ -4378,10 +4239,10 @@ function DataPackageImportPageInner() {
                     </div>
                     <div className="text-center p-4 bg-emerald-900/20 rounded-lg">
                       <p className="text-2xl font-bold text-emerald-400">
-                        {validationResult?.overallScore || analysisConfidence}%
+                        {analysisConfidence}%
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Calidad de Datos' : 'Data Quality'}
+                        {isSpanish ? 'Confianza AI' : 'AI Confidence'}
                       </p>
                     </div>
                   </div>
