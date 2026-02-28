@@ -354,7 +354,6 @@ function generateDerivationsForMatch(
   const comp = match.component;
 
   // Check if this is a shared-base pattern (multiple components → same data_type)
-  // Example: 5 Insurance Referral components all map to insurance_referrals
   const sameDataTypeMatches = allMatches.filter(m => m.dataType === match.dataType);
   const isSharedBase = sameDataTypeMatches.length > 1;
 
@@ -367,7 +366,7 @@ function generateDerivationsForMatch(
   for (const metricName of comp.expectedMetrics) {
     // Determine operation: scalar_multiply with constant rate → count, otherwise → sum
     const needsCount = comp.calculationOp === 'scalar_multiply' && comp.calculationRate !== undefined
-      && comp.calculationRate > 1; // Fixed rate like 850 per referral = count-based
+      && comp.calculationRate > 1; // Fixed rate per unit = count-based
     const needsSum = !needsCount && capability.numericFields.length > 0;
 
     if (needsSum) {
@@ -397,8 +396,8 @@ function generateDerivationsForMatch(
 
 /**
  * Generate COUNT derivation rules with category+boolean filters.
- * Handles the Insurance Referral pattern: multiple components each needing
- * a count of rows filtered by product category + qualified status.
+ * Handles the shared-base pattern: multiple components each needing
+ * a count of rows filtered by category + boolean status.
  */
 function generateFilteredCountDerivations(
   component: PlanComponent,
@@ -408,7 +407,6 @@ function generateFilteredCountDerivations(
   const rules: MetricDerivationRule[] = [];
 
   // Extract the variant token from this component's name
-  // "Term Life Insurance Referrals" → tokens: ['term', 'life', 'insurance', 'referrals']
   const compTokens = tokenize(component.name);
 
   // Find the categorical field whose values best match component name tokens
@@ -492,5 +490,5 @@ function tokenize(name: string): string[] {
 
 const STOP_WORDS = new Set([
   'the', 'and', 'for', 'per', 'ins', 'cfg', 'q1', 'q2', 'q3', 'q4',
-  '2024', '2025', '2026', 'plan', 'program', 'commission',
+  '2024', '2025', '2026', 'plan', 'program',
 ]);

@@ -143,7 +143,7 @@ function testAcceleratorApplication(): ValidationResult {
       triggerType: 'attainment',
       triggerThreshold: 100,
       multiplier: 1.5,
-      appliesTo: ['commission'],
+      appliesTo: ['variable_payout'],
       retroactive: false,
     };
 
@@ -153,8 +153,8 @@ function testAcceleratorApplication(): ValidationResult {
         batchId: 'batch-1',
         entityId: 'emp-001',
         periodId: 'period-1',
-        type: 'commission',
-        description: 'Commission',
+        type: 'variable_payout',
+        description: 'Variable Payout',
         amount: 10000,
         currency: 'USD',
         sourceType: 'transaction',

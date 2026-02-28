@@ -59,7 +59,7 @@ export interface CalculationBatch {
 
 export type LedgerEntryType =
   | 'base_salary'
-  | 'commission'
+  | 'variable_payout'
   | 'bonus'
   | 'spiff'
   | 'adjustment'

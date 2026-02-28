@@ -243,8 +243,12 @@ export function extractMetricConfig(component: {
 }
 
 /**
+ * @deprecated SHEET_COMPONENT_PATTERNS is a legacy pattern-matching table.
+ * OB-122 will replace this with input_bindings-driven metric resolution.
+ * Do NOT add new entries. Use convergence-service.ts for new bindings.
+ *
  * OB-24: Sheet-to-component matching patterns
- * Maps Spanish sheet name patterns to English component types
+ * Maps sheet name patterns to component types via regex.
  */
 export const SHEET_COMPONENT_PATTERNS: Array<{
   sheetPatterns: RegExp[];

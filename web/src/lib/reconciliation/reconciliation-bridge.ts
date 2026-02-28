@@ -1009,12 +1009,12 @@ export function parseLegacyCSV(csvContent: string): LegacyRecord[] {
 
     // Parse component columns
     const componentHeaders = [
-      'OPTICAL_BONUS',
-      'STORE_BONUS',
-      'CUSTOMER_BONUS',
-      'COLLECTION_BONUS',
-      'INSURANCE_BONUS',
-      'SERVICES_BONUS',
+      'COMP_A_BONUS',
+      'COMP_B_BONUS',
+      'COMP_C_BONUS',
+      'COMP_D_BONUS',
+      'COMP_E_BONUS',
+      'COMP_F_BONUS',
     ];
 
     record.components = {};
