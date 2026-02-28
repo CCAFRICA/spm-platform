@@ -36,6 +36,7 @@ const AMOUNT_PATTERNS = [
   /total/i,
   /income/i,
   /value/i,
+  /disbursement/i,
   /monto/i,
   /venta/i,
 ];
@@ -278,6 +279,27 @@ export const SHEET_COMPONENT_PATTERNS: Array<{
     // Extended warranty (Garantía Extendida)
     sheetPatterns: [/garantia.*extendida/i, /warranty/i, /garantia/i],
     componentPatterns: [/service/i, /warranty/i, /garantia/i],
+  },
+  // ── OB-116: MBC (banking/financial) patterns ──
+  {
+    // Mortgage origination / closings
+    sheetPatterns: [/mortgage/i, /closing/i, /hipoteca/i],
+    componentPatterns: [/mortgage/i, /hipoteca/i],
+  },
+  {
+    // Loan disbursements / consumer lending
+    sheetPatterns: [/loan.*disbursement/i, /disbursement/i, /desembolso/i, /prestamo/i],
+    componentPatterns: [/loan.*commission/i, /lending/i, /prestamo/i],
+  },
+  {
+    // Deposit growth / balances
+    sheetPatterns: [/deposit/i, /balance/i, /deposito/i],
+    componentPatterns: [/deposit/i, /deposito/i],
+  },
+  {
+    // Insurance referrals (banking)
+    sheetPatterns: [/referral/i, /referido/i],
+    componentPatterns: [/referral/i, /referido/i],
   },
 ];
 
