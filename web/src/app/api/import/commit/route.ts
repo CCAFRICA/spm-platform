@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import type { Json } from '@/lib/supabase/database.types';
 import * as XLSX from 'xlsx';
+import { getAIService } from '@/lib/ai';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 minutes max
@@ -153,6 +154,88 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Step 4.5: AI Field Mapping (OB-119: Three-tier resolution chain) ──
+    // Call AI to classify field types for each sheet. Inject results into
+    // sheet.mappings so downstream entity/period detection picks them up.
+    // Tier 1: AI classification (this step)
+    // Tier 2: Existing mapping targets (ENTITY_ID_TARGETS, PERIOD_TARGETS)
+    // Tier 3: Raw header name matching (existing auto-detect fallback)
+    const aiDetectedRosterSheets = new Set<string>();
+
+    for (const sheet of sheetData) {
+      const headers = Object.keys(sheet.rows[0] || {});
+      if (headers.length === 0) continue;
+
+      // If AI context from import UI already has field mappings, inject those
+      const aiCtxSheet = aiContext?.sheets?.find(s => s.sheetName === sheet.sheetName);
+      if (aiCtxSheet?.fieldMappings?.length) {
+        if (!sheet.mappings) sheet.mappings = {};
+        let injected = 0;
+        for (const fm of aiCtxSheet.fieldMappings) {
+          if (fm.confidence >= 70 && fm.semanticType) {
+            sheet.mappings[fm.sourceColumn] = fm.semanticType;
+            injected++;
+          }
+        }
+        if (aiCtxSheet.classification === 'roster') {
+          aiDetectedRosterSheets.add(sheet.sheetName);
+        }
+        console.log(`[ImportCommit] OB-119 AI context "${sheet.sheetName}": ${injected} mappings injected from UI`);
+        continue;
+      }
+
+      // No existing AI context — call AI field mapping service directly
+      try {
+        const aiService = getAIService();
+        const headersStr = headers.map((h, i) => `${i + 1}. "${h}"`).join('\n');
+        const sampleRows = sheet.rows.slice(0, 3);
+        const sampleDataStr = sampleRows.map((row, i) => {
+          const values = headers.map(h => `${h}: ${row[h] ?? 'null'}`).join(', ');
+          return `Row ${i + 1}: { ${values} }`;
+        }).join('\n');
+
+        const aiResponse = await aiService.suggestImportFieldMappings(
+          headersStr,
+          sampleDataStr,
+          `File: ${fileName}`,
+          { tenantId }
+        );
+
+        if (aiResponse.confidence > 0) {
+          const aiResult = aiResponse.result as {
+            mappings?: Array<{ sourceField: string; targetField: string | null; confidence: number }>;
+          };
+          const aiMappings = aiResult.mappings || [];
+
+          // Inject high-confidence AI mappings into sheet.mappings
+          if (!sheet.mappings) sheet.mappings = {};
+          let injected = 0;
+          for (const m of aiMappings) {
+            if (m.targetField && m.confidence >= 70) {
+              sheet.mappings[m.sourceField] = m.targetField;
+              injected++;
+            }
+          }
+
+          // Detect roster sheet: has role/status fields but no amount
+          const mappedTargets = new Set(
+            aiMappings.filter(m => m.confidence >= 70 && m.targetField).map(m => m.targetField)
+          );
+          if ((mappedTargets.has('role') || mappedTargets.has('status')) && !mappedTargets.has('amount')) {
+            aiDetectedRosterSheets.add(sheet.sheetName);
+          }
+
+          const entityCol = aiMappings.find(m => m.targetField === 'entity_id');
+          const dateCol = aiMappings.find(m => m.targetField === 'date');
+          console.log(`[ImportCommit] OB-119 AI "${sheet.sheetName}": ${injected} mappings (entity=${entityCol?.sourceField || 'none'}@${entityCol?.confidence || 0}%, date=${dateCol?.sourceField || 'none'}@${dateCol?.confidence || 0}%)`);
+        }
+      } catch (aiErr) {
+        console.warn(`[ImportCommit] OB-119 AI mapping failed for "${sheet.sheetName}" (Tier 2/3 fallback):`, aiErr instanceof Error ? aiErr.message : aiErr);
+      }
+    }
+
+    console.log(`[ImportCommit] OB-119 complete: ${aiDetectedRosterSheets.size} roster sheets detected`);
+
     // ── Step 5: Create import batch ──
     // OB-75: Include AI context in metadata if available
     const batchMetadata = aiContext ? {
@@ -222,7 +305,8 @@ export async function POST(request: NextRequest) {
 
       // OB-103: For roster sheets, extract name/role/licenses columns
       const isRosterSheet = sheet.sheetName === rosterSheetName ||
-        (aiContext?.sheets?.find(s => s.sheetName === sheet.sheetName)?.classification === 'roster');
+        (aiContext?.sheets?.find(s => s.sheetName === sheet.sheetName)?.classification === 'roster') ||
+        aiDetectedRosterSheets.has(sheet.sheetName);
 
       for (const row of sheet.rows) {
         for (const col of entityCols) {
@@ -350,8 +434,8 @@ export async function POST(request: NextRequest) {
       // OB-107: Skip roster/personnel sheets for period detection.
       // Roster dates (HireDate, StartDate) are entity attributes, not performance boundaries.
       const classification = sheetClassifications.get(sheet.sheetName);
-      if (classification === 'roster' || classification === 'unrelated') {
-        console.log(`[ImportCommit] Skipping period detection for ${classification} sheet: "${sheet.sheetName}"`);
+      if (classification === 'roster' || classification === 'unrelated' || aiDetectedRosterSheets.has(sheet.sheetName)) {
+        console.log(`[ImportCommit] Skipping period detection for ${classification || 'ai-detected-roster'} sheet: "${sheet.sheetName}"`);
         continue;
       }
 
