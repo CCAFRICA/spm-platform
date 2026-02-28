@@ -492,6 +492,7 @@ export function findMatchingSheet(
 
 /**
  * Get all metric names a component expects from its configuration.
+ * OB-121: Also extracts from calculationIntent for ratio and metric sources.
  */
 export function getExpectedMetricNames(component: PlanComponent): string[] {
   const names: string[] = [];
@@ -505,6 +506,30 @@ export function getExpectedMetricNames(component: PlanComponent): string[] {
       if (c.metric) names.push(c.metric);
     }
   }
+
+  // OB-121: Extract from calculationIntent (handles ratio sources, metric sources)
+  const intent = (component as unknown as Record<string, unknown>).calculationIntent as Record<string, unknown> | undefined;
+  if (intent) {
+    const input = intent.input as Record<string, unknown> | undefined;
+    const sourceSpec = input?.sourceSpec as Record<string, unknown> | undefined;
+    if (sourceSpec) {
+      // Direct metric field
+      if (sourceSpec.field) {
+        const field = String(sourceSpec.field).replace(/^metric:/, '');
+        if (!names.includes(field)) names.push(field);
+      }
+      // Ratio: numerator and denominator
+      if (sourceSpec.numerator) {
+        const num = String(sourceSpec.numerator).replace(/^metric:/, '');
+        if (!names.includes(num)) names.push(num);
+      }
+      if (sourceSpec.denominator) {
+        const den = String(sourceSpec.denominator).replace(/^metric:/, '');
+        if (!names.includes(den)) names.push(den);
+      }
+    }
+  }
+
   return names;
 }
 
