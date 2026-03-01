@@ -41,6 +41,7 @@ export const PAGE_ACCESS: Record<string, string[]> = {
   '/configure/users':              ['vl_admin', 'admin'],
   '/configure/personnel':          ['vl_admin', 'admin'],
   '/data/import/enhanced':         ['vl_admin', 'admin'],
+  '/operate/import':               ['vl_admin', 'admin'],
 };
 
 // Action-level permissions (checked inline via useCanPerform)

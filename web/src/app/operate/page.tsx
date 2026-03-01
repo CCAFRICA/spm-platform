@@ -126,7 +126,7 @@ function buildPipelineSteps(data: PipelineData): PipelineStep[] {
       detailEs: hasRoster
         ? `${data.entityCount.toLocaleString()} entidades`
         : 'No se ha importado plantilla',
-      action: hasRoster ? null : { label: 'Import Roster', labelEs: 'Importar Plantilla', href: '/data/import/enhanced' },
+      action: hasRoster ? null : { label: 'Import Roster', labelEs: 'Importar Plantilla', href: '/operate/import' },
     },
     {
       label: 'Data',
@@ -138,7 +138,7 @@ function buildPipelineSteps(data: PipelineData): PipelineStep[] {
       detailEs: hasData
         ? `${data.dataRowCount.toLocaleString()} registros en ${data.periods.length} periodo${data.periods.length !== 1 ? 's' : ''}`
         : 'No se han importado datos de transaccion',
-      action: hasData ? null : { label: 'Import Data', labelEs: 'Importar Datos', href: '/data/import/enhanced' },
+      action: hasData ? null : { label: 'Import Data', labelEs: 'Importar Datos', href: '/operate/import' },
     },
     {
       label: 'Calculate',
@@ -344,10 +344,10 @@ function getNextAction(data: PipelineData): QuickAction {
     return { label: 'Import Your First Plan', labelEs: 'Importar Su Primer Plan', href: '/admin/launch/plan-import', icon: 'FileUp' };
   }
   if (data.entityCount === 0) {
-    return { label: 'Import Roster', labelEs: 'Importar Plantilla', href: '/data/import/enhanced', icon: 'Users' };
+    return { label: 'Import Roster', labelEs: 'Importar Plantilla', href: '/operate/import', icon: 'Users' };
   }
   if (data.dataRowCount === 0) {
-    return { label: 'Import Transaction Data', labelEs: 'Importar Datos', href: '/data/import/enhanced', icon: 'Upload' };
+    return { label: 'Import Transaction Data', labelEs: 'Importar Datos', href: '/operate/import', icon: 'Upload' };
   }
   if (!data.latestBatch) {
     return { label: 'Run First Calculation', labelEs: 'Ejecutar Primer Calculo', href: '/operate/calculate', icon: 'Calculator' };
@@ -433,13 +433,13 @@ export default function OperateLandingPage() {
     // 4. ICM with data but no calculations → import page
     if (hasICM && pipelineData.dataRowCount > 0) {
       setRedirecting(true);
-      router.replace('/data/import/enhanced');
+      router.replace('/operate/import');
       return;
     }
 
     // 5. Empty or setup-needed tenant → import page
     setRedirecting(true);
-    router.replace('/data/import/enhanced');
+    router.replace('/operate/import');
   }, [tenantId, pipelineData, hasFinancial, hasICM, redirecting, router]);
 
   useEffect(() => {

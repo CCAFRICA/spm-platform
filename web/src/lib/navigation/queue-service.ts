@@ -112,7 +112,7 @@ async function getOnboardingItems(tenantId: string, role: UserRole): Promise<Que
         description: 'Import your Excel data package with employee performance metrics',
         descriptionEs: 'Importe su paquete de datos Excel con metricas de rendimiento',
         workspace: 'operate',
-        route: '/data/import/enhanced',
+        route: '/operate/import',
         timestamp: new Date().toISOString(),
         read: false,
       });

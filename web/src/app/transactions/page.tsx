@@ -518,7 +518,7 @@ export default function TransactionsPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        {committedRows.length > 0 && Object.keys(committedRows[0].row_data).slice(0, 8).map(key => (
+                        {committedRows.length > 0 && Object.keys(committedRows[0].row_data).filter(k => !k.startsWith('_')).slice(0, 8).map(key => (
                           <TableHead key={key} className="whitespace-nowrap">{key}</TableHead>
                         ))}
                         <TableHead>{isSpanish ? 'Importado' : 'Imported'}</TableHead>
@@ -527,7 +527,7 @@ export default function TransactionsPage() {
                     <TableBody>
                       {committedRows.map(row => (
                         <TableRow key={row.id}>
-                          {Object.entries(row.row_data).slice(0, 8).map(([key, val]) => (
+                          {Object.entries(row.row_data).filter(([k]) => !k.startsWith('_')).slice(0, 8).map(([key, val]) => (
                             <TableCell key={key} className="text-sm whitespace-nowrap max-w-[200px] truncate" title={String(val ?? '')}>
                               {String(val ?? '')}
                             </TableCell>

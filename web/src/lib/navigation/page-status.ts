@@ -15,6 +15,7 @@ export const PAGE_STATUS: Record<string, PageStatus> = {
   '/':                             'active',
   '/data/import/enhanced':         'active',
   '/data/import':                  'active',
+  '/operate/import':               'active',
   '/admin/launch/calculate':       'active',
   '/admin/launch/plan-import':     'active',
   '/admin/launch/reconciliation':  'active',
