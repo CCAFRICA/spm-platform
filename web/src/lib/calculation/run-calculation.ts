@@ -66,7 +66,7 @@ export interface CalculationRunResult {
  */
 export interface MetricDerivationRule {
   metric: string;          // Target metric name (from plan configuration)
-  operation: 'count' | 'sum' | 'delta';  // Derivation operation
+  operation: 'count' | 'sum' | 'delta' | 'ratio';  // Derivation operation
   source_pattern: string;  // Regex pattern to match data_type/sheet name
   filters: Array<{
     field: string;         // Field name in row_data (discovered at runtime)
@@ -74,6 +74,10 @@ export interface MetricDerivationRule {
     value: string | number | boolean;
   }>;
   source_field?: string;   // OB-119: Field to sum (for operation='sum' or 'delta')
+  // OB-128: Ratio operation — computes numerator/denominator from already-derived metrics
+  numerator_metric?: string;   // metric name to use as numerator (must be derived earlier)
+  denominator_metric?: string; // metric name to use as denominator (must be derived earlier)
+  scale_factor?: number;       // multiply ratio result (e.g., 100 for percentage)
 }
 
 /**
@@ -104,6 +108,14 @@ export function applyMetricDerivations(
       if (sourceRegex.test(sheetName)) {
         matchingRows = matchingRows.concat(rows);
       }
+    }
+
+    // OB-128: Ratio operation works on already-derived metrics, not raw rows
+    if (rule.operation === 'ratio') {
+      const num = derived[rule.numerator_metric || ''] ?? 0;
+      const den = derived[rule.denominator_metric || ''] ?? 0;
+      derived[rule.metric] = den !== 0 ? (num / den) * (rule.scale_factor ?? 1) : 0;
+      continue;
     }
 
     if (matchingRows.length === 0) continue;

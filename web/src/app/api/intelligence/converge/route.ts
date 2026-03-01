@@ -66,10 +66,18 @@ export async function POST(request: NextRequest) {
         const merged = [...existing];
 
         for (const d of result.derivations) {
-          // Only add if no existing derivation targets the same metric
-          if (!merged.some(e => e.metric === d.metric)) {
+          const existingIdx = merged.findIndex(e => e.metric === d.metric);
+          if (existingIdx === -1) {
+            // New metric — add it
+            merged.push(d as unknown as Record<string, unknown>);
+          } else if (d.operation === 'ratio') {
+            // OB-128: Ratio derivation replaces existing raw derivation.
+            // Rename existing to {metric}_actuals so the ratio can reference it.
+            const existingEntry = merged[existingIdx];
+            existingEntry.metric = `${d.metric}_actuals`;
             merged.push(d as unknown as Record<string, unknown>);
           }
+          // else: duplicate metric with same operation — skip (existing behavior)
         }
 
         await supabase

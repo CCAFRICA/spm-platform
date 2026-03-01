@@ -31,6 +31,10 @@ interface DataCapability {
   numericFields: Array<{ field: string; avg: number; nonNullCount: number }>;
   categoricalFields: Array<{ field: string; distinctValues: string[]; count: number }>;
   booleanFields: Array<{ field: string; trueValue: string; falseValue: string }>;
+  // OB-128: Semantic role awareness — discovered from committed_data metadata
+  semanticRoles: Record<string, string>;  // fieldName → semanticRole
+  hasTargetData: boolean;                 // true if any field has 'performance_target' role
+  targetField?: string;                   // field name with 'performance_target' role
 }
 
 interface BindingMatch {
@@ -129,6 +133,113 @@ export async function convergeBindings(
         semanticType: d.operation === 'sum' ? 'amount' : 'count',
         confidence: match.matchConfidence,
       });
+    }
+  }
+
+  // 5b. OB-128: Detect actuals-target pairs via semantic roles
+  // When target data (performance_target) exists for a component that already
+  // has an actuals derivation, generate target + ratio derivations.
+  const targetCapabilities = capabilities.filter(c => c.hasTargetData);
+  if (targetCapabilities.length > 0) {
+    for (const targetCap of targetCapabilities) {
+      // Find which component this target data matches (token overlap)
+      const targetTokens = tokenize(targetCap.dataType);
+      let bestCompMatch: { comp: PlanComponent; score: number } | null = null;
+
+      for (const comp of components) {
+        const compTokens = tokenize(comp.name);
+        const overlap = compTokens.filter(t => targetTokens.some(d => d.includes(t) || t.includes(d)));
+        const score = overlap.length / Math.max(compTokens.length, 1);
+        if (score > 0.2 && (!bestCompMatch || score > bestCompMatch.score)) {
+          bestCompMatch = { comp, score };
+        }
+      }
+
+      if (!bestCompMatch) continue;
+      const comp = bestCompMatch.comp;
+
+      // Check if this component already has an actuals derivation
+      const actualsDerivation = derivations.find(d =>
+        comp.expectedMetrics.includes(d.metric) && d.operation === 'sum'
+      );
+      if (!actualsDerivation || !targetCap.targetField) continue;
+
+      // OB-128: If the "actuals" derivation is from the target data_type itself
+      // (standard matching picked it due to high token overlap), find the REAL
+      // actuals source — a non-target data_type that matches this component
+      if (actualsDerivation.source_pattern === targetCap.dataType) {
+        const nonTargetCaps = capabilities.filter(c => !c.hasTargetData);
+        const compTokens = tokenize(comp.name);
+        let bestActualsDt = '';
+        let bestActualsScore = 0;
+
+        for (const nc of nonTargetCaps) {
+          const dtTokens = tokenize(nc.dataType);
+          const overlap = compTokens.filter(t => dtTokens.some(d => d.includes(t) || t.includes(d)));
+          const score = overlap.length / Math.max(compTokens.length, 1);
+          if (score > bestActualsScore && nc.numericFields.length > 0) {
+            bestActualsScore = score;
+            bestActualsDt = nc.dataType;
+          }
+        }
+
+        if (bestActualsDt) {
+          const actualsCap = nonTargetCaps.find(c => c.dataType === bestActualsDt);
+          if (actualsCap) {
+            const bestField = [...actualsCap.numericFields].sort((a, b) => b.avg - a.avg)[0];
+            if (bestField) {
+              actualsDerivation.source_pattern = bestActualsDt;
+              actualsDerivation.source_field = bestField.field;
+            }
+          }
+        }
+      }
+
+      const baseMetric = actualsDerivation.metric;
+
+      // Generate target derivation: sum of target field per entity
+      derivations.push({
+        metric: `${baseMetric}_target`,
+        operation: 'sum',
+        source_pattern: targetCap.dataType,
+        source_field: targetCap.targetField,
+        filters: [],
+      });
+
+      // Detect scale factor from component boundaries
+      // If boundaries use values > 1 (e.g., 60, 80, 100), scale ratio by 100
+      const scaleFactor = detectBoundaryScale(ruleSet.components, comp.index);
+
+      // Generate ratio derivation: actuals / target × scale
+      // This MUST run after the sum derivations (array order matters)
+      derivations.push({
+        metric: baseMetric,
+        operation: 'ratio',
+        source_pattern: '',   // ratio doesn't use source_pattern
+        filters: [],
+        numerator_metric: `${baseMetric}_actuals`,
+        denominator_metric: `${baseMetric}_target`,
+        scale_factor: scaleFactor,
+      });
+
+      // Rename the existing actuals derivation (so ratio can reference it)
+      actualsDerivation.metric = `${baseMetric}_actuals`;
+
+      matchReport.push({
+        component: comp.name,
+        dataType: targetCap.dataType,
+        confidence: bestCompMatch.score,
+        reason: `Semantic role: performance_target on field "${targetCap.targetField}"`,
+      });
+
+      signals.push({
+        domain: targetCap.dataType,
+        fieldName: targetCap.targetField,
+        semanticType: 'performance_target',
+        confidence: bestCompMatch.score,
+      });
+
+      console.log(`[Convergence] OB-128: Detected actuals-target pair for "${comp.name}" — generating ratio derivation (scale=${scaleFactor})`);
     }
   }
 
@@ -240,21 +351,45 @@ async function inventoryData(
 ): Promise<DataCapability[]> {
   const capabilities: DataCapability[] = [];
 
-  // Get distinct data_types with counts
+  // Get distinct data_types with counts — OB-128: also read metadata for semantic_roles
   const { data: rows } = await supabase
     .from('committed_data')
-    .select('data_type, row_data')
+    .select('data_type, row_data, metadata')
     .eq('tenant_id', tenantId)
     .not('data_type', 'is', null)
     .limit(500);
 
-  if (!rows?.length) return capabilities;
+  // OB-128: Separately fetch rows with semantic_roles (SCI-committed data)
+  // These may be beyond the 500-row limit of the main query
+  const { data: sciRows } = await supabase
+    .from('committed_data')
+    .select('data_type, row_data, metadata')
+    .eq('tenant_id', tenantId)
+    .not('data_type', 'is', null)
+    .not('metadata->semantic_roles', 'is', null)
+    .limit(50);
+
+  // Merge SCI rows into main result set (dedup by id not needed — we group by data_type)
+  const allRows = [...(rows || [])];
+  if (sciRows) {
+    for (const sr of sciRows) {
+      // Add if this data_type isn't already represented
+      const dt = sr.data_type as string;
+      if (!allRows.some(r => (r.data_type as string) === dt)) {
+        allRows.push(sr);
+      }
+    }
+  }
+
+  if (!allRows.length) return capabilities;
 
   // Group by data_type, keep first 30 rows per type for analysis
   const byType = new Map<string, Array<Record<string, unknown>>>();
   const countByType = new Map<string, number>();
+  // OB-128: Collect semantic_roles per data_type (first non-null wins)
+  const rolesByType = new Map<string, Record<string, string>>();
 
-  for (const row of rows) {
+  for (const row of allRows) {
     const dt = row.data_type as string;
     if (!byType.has(dt)) byType.set(dt, []);
     countByType.set(dt, (countByType.get(dt) || 0) + 1);
@@ -263,15 +398,41 @@ async function inventoryData(
       const rd = row.row_data as Record<string, unknown> | null;
       if (rd) samples.push(rd);
     }
+    // OB-128: Extract semantic_roles from metadata
+    // SCI stores roles as either { field: "role" } or { field: { role: "...", confidence, claimedBy } }
+    if (!rolesByType.has(dt)) {
+      const meta = row.metadata as Record<string, unknown> | null;
+      const rawRoles = meta?.semantic_roles as Record<string, unknown> | undefined;
+      if (rawRoles && Object.keys(rawRoles).length > 0) {
+        const normalized: Record<string, string> = {};
+        for (const [field, val] of Object.entries(rawRoles)) {
+          if (typeof val === 'string') {
+            normalized[field] = val;
+          } else if (val && typeof val === 'object' && 'role' in val) {
+            normalized[field] = String((val as Record<string, unknown>).role);
+          }
+        }
+        if (Object.keys(normalized).length > 0) {
+          rolesByType.set(dt, normalized);
+        }
+      }
+    }
   }
 
   for (const [dataType, samples] of Array.from(byType.entries())) {
+    // OB-128: Resolve semantic roles for this data_type
+    const roles = rolesByType.get(dataType) || {};
+    const targetFieldEntry = Object.entries(roles).find(([, role]) => role === 'performance_target');
+
     const cap: DataCapability = {
       dataType,
       rowCount: countByType.get(dataType) || 0,
       numericFields: [],
       categoricalFields: [],
       booleanFields: [],
+      semanticRoles: roles,
+      hasTargetData: !!targetFieldEntry,
+      targetField: targetFieldEntry?.[0],
     };
 
     if (samples.length === 0) {
@@ -511,6 +672,49 @@ function generateFilteredCountDerivations(
   }
 
   return rules;
+}
+
+// ──────────────────────────────────────────────
+// OB-128: Boundary Scale Detection
+// ──────────────────────────────────────────────
+
+/**
+ * Detect whether tier boundaries use percentage-scale (0-100+) or decimal-scale (0-1).
+ * If boundaries have values > 1, the ratio should be scaled by 100 to match.
+ * Returns 100 for percentage-scale boundaries, 1 for decimal-scale.
+ */
+function detectBoundaryScale(componentsJson: unknown, componentIndex: number): number {
+  const cj = componentsJson as Record<string, unknown> | null;
+  if (!cj) return 100; // Default: percentage scale
+
+  const variants = (cj.variants as Array<Record<string, unknown>>) ?? [];
+  const comps = (variants[0]?.components as Array<Record<string, unknown>>) ?? [];
+  const comp = comps[componentIndex];
+  if (!comp) return 100;
+
+  // Check tierConfig for boundary values
+  const tierConfig = comp.tierConfig as Record<string, unknown> | undefined;
+  const tiers = (tierConfig?.tiers as Array<Record<string, unknown>>) ?? [];
+  for (const tier of tiers) {
+    const min = tier.min as number | null;
+    const max = tier.max as number | null;
+    if ((min !== null && min > 1) || (max !== null && max > 1)) {
+      return 100; // Boundaries in percentage form
+    }
+  }
+
+  // Also check calculationIntent boundaries
+  const intent = comp.calculationIntent as Record<string, unknown> | undefined;
+  const boundaries = (intent?.boundaries as Array<Record<string, unknown>>) ?? [];
+  for (const b of boundaries) {
+    const min = b.min as number | null;
+    const max = b.max as number | null;
+    if ((min !== null && min > 1) || (max !== null && max > 1)) {
+      return 100;
+    }
+  }
+
+  return 1; // Boundaries in decimal form
 }
 
 // ──────────────────────────────────────────────
