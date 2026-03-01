@@ -324,7 +324,24 @@ export async function POST(request: NextRequest) {
     });
 
     // ── Step 5: Run convergence for all active plans ──
+    // HF-081: Validation gate — get actual data_types AFTER normalization completes
+    // This prevents the race condition where convergence writes source_patterns
+    // referencing pre-normalization data_types (e.g. component_data:CFG_...)
     console.log(`[Wire] Step 5: Running convergence for tenant ${tenantId}`);
+
+    const validDataTypes = new Set<string>();
+    const { data: dtRows } = await supabase
+      .from('committed_data')
+      .select('data_type')
+      .eq('tenant_id', tenantId)
+      .not('data_type', 'is', null)
+      .limit(5000);
+    if (dtRows) {
+      for (const r of dtRows) validDataTypes.add(r.data_type as string);
+    }
+    console.log(`[Wire]   Valid data_types: ${Array.from(validDataTypes).join(', ')}`);
+
+    let skippedDerivations = 0;
 
     if (activeRuleSets && activeRuleSets.length > 0) {
       for (const rs of activeRuleSets) {
@@ -343,9 +360,16 @@ export async function POST(request: NextRequest) {
 
           for (const d of result.derivations) {
             // Only add if no existing derivation targets the same metric
-            if (!merged.some(e => e.metric === d.metric)) {
-              merged.push(d as unknown as Record<string, unknown>);
+            if (merged.some(e => e.metric === d.metric)) continue;
+
+            // HF-081: Validate source_pattern references an actual data_type
+            if (d.source_pattern && !validDataTypes.has(d.source_pattern)) {
+              console.warn(`[Wire]   Skipping derivation "${d.metric}" — source_pattern "${d.source_pattern}" has no matching committed_data`);
+              skippedDerivations++;
+              continue;
             }
+
+            merged.push(d as unknown as Record<string, unknown>);
           }
 
           await supabase
@@ -357,6 +381,10 @@ export async function POST(request: NextRequest) {
           report.derivationsGenerated += newCount;
         }
       }
+    }
+
+    if (skippedDerivations > 0) {
+      console.warn(`[Wire]   ${skippedDerivations} derivation(s) skipped due to missing source_pattern`);
     }
     report.steps.push({
       step: 'run_convergence',
