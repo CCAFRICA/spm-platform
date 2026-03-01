@@ -3830,58 +3830,7 @@ function DataPackageImportPageInner() {
           {/* Approve Step - Phase 3 Enhanced */}
           {currentStep === 'approve' && analysis && (
             <div className="space-y-6">
-              {/* Progressive Node Visual - Approval Workflow */}
-              <div className="p-6 bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20 rounded-lg">
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <GitBranch className="h-5 w-5" />
-                  {isSpanish ? 'Flujo de Aprobación' : 'Approval Workflow'}
-                </h3>
-                <div className="flex items-center justify-between">
-                  {/* Node 1: Upload */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white">
-                      <CheckCircle className="h-6 w-6" />
-                    </div>
-                    <p className="text-xs mt-2 font-medium">{isSpanish ? 'Cargado' : 'Uploaded'}</p>
-                  </div>
-                  <div className="flex-1 h-1 bg-emerald-600 mx-2" />
-
-                  {/* Node 2: Analyzed */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white">
-                      <CheckCircle className="h-6 w-6" />
-                    </div>
-                    <p className="text-xs mt-2 font-medium">{isSpanish ? 'Analizado' : 'Analyzed'}</p>
-                  </div>
-                  <div className="flex-1 h-1 bg-emerald-600 mx-2" />
-
-                  {/* Node 3: Mapped */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white">
-                      <CheckCircle className="h-6 w-6" />
-                    </div>
-                    <p className="text-xs mt-2 font-medium">{isSpanish ? 'Mapeado' : 'Mapped'}</p>
-                  </div>
-                  <div className="flex-1 h-1 bg-emerald-600 mx-2" />
-
-                  {/* Node 4: Validated */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white">
-                      <CheckCircle className="h-6 w-6" />
-                    </div>
-                    <p className="text-xs mt-2 font-medium">{isSpanish ? 'Validado' : 'Validated'}</p>
-                  </div>
-                  <div className="flex-1 h-1 bg-primary/30 mx-2" />
-
-                  {/* Node 5: Pending Approval */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full bg-primary animate-pulse flex items-center justify-center text-white">
-                      <ClipboardCheck className="h-6 w-6" />
-                    </div>
-                    <p className="text-xs mt-2 font-medium text-primary">{isSpanish ? 'Aprobación' : 'Approval'}</p>
-                  </div>
-                </div>
-              </div>
+              {/* OB-125: Bloodwork — attention items only, no cosmetic workflow nodes */}
 
               {/* Validation Warnings Summary */}
               {validationResult && validationResult.sheetScores.some(s => s.issues.length > 0) && (
@@ -3971,20 +3920,24 @@ function DataPackageImportPageInner() {
                 </Card>
               )}
 
-              {/* Package Awareness - Complete Overview */}
+              {/* OB-125: Import Summary — clean Bloodwork, no duplicate views */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <FileSpreadsheet className="h-4 w-4" />
-                    {isSpanish ? 'Paquete de Datos Completo' : 'Complete Data Package'}
+                    {isSpanish ? 'Resumen de Importación' : 'Import Summary'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-4 md:grid-cols-4">
                     <div className="text-center p-4 bg-muted rounded-lg">
-                      <p className="text-3xl font-bold text-primary">{analysis.sheets.length}</p>
+                      <p className="text-3xl font-bold text-primary">
+                        {parsedFiles.length > 1 ? parsedFiles.length : analysis.sheets.length}
+                      </p>
                       <p className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Hojas' : 'Sheets'}
+                        {parsedFiles.length > 1
+                          ? (isSpanish ? 'Archivos' : 'Files')
+                          : (isSpanish ? 'Hojas' : 'Sheets')}
                       </p>
                     </div>
                     <div className="text-center p-4 bg-muted rounded-lg">
@@ -3997,73 +3950,19 @@ function DataPackageImportPageInner() {
                     </div>
                     <div className="text-center p-4 bg-muted rounded-lg">
                       <p className="text-3xl font-bold text-primary">
+                        {validationResult?.detectedPeriods?.periods.length || 0}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {isSpanish ? 'Períodos' : 'Periods'}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-muted rounded-lg">
+                      <p className="text-3xl font-bold text-primary">
                         {fieldMappings.reduce((sum, m) => sum + m.mappings.filter(f => f.targetField).length, 0)}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {isSpanish ? 'Campos Mapeados' : 'Mapped Fields'}
                       </p>
-                    </div>
-                    <div className="text-center p-4 bg-muted rounded-lg">
-                      <p className={cn(
-                        'text-3xl font-bold',
-                        analysisConfidence >= 80 ? 'text-emerald-400' :
-                        analysisConfidence >= 60 ? 'text-amber-400' : 'text-red-400'
-                      )}>
-                        {analysisConfidence}%
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {isSpanish ? 'Confianza AI' : 'AI Confidence'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Sheet Breakdown */}
-                  <div className="mt-4 pt-4 border-t">
-                    <p className="text-sm font-medium mb-3">
-                      {isSpanish ? 'Desglose por Hoja' : 'Sheet Breakdown'}
-                    </p>
-                    <div className="space-y-2">
-                      {analysis.sheets.filter(s => s.classification !== 'unrelated').map((sheet) => {
-                        const config = CLASSIFICATION_CONFIG[sheet.classification];
-                        const Icon = config.icon;
-                        const mapping = fieldMappings.find(m => m.sheetName === sheet.name);
-                        const mappedCount = mapping?.mappings.filter(m => m.targetField).length || 0;
-                        const totalColumns = mapping?.mappings.length || 0;
-                        const preservedCount = totalColumns - mappedCount;
-
-                        return (
-                          <div key={sheet.name} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                            <div className="flex items-center gap-3">
-                              <div className={cn('p-2 rounded-lg', config.color)}>
-                                <Icon className="h-4 w-4" />
-                              </div>
-                              <div>
-                                <p className="font-medium">{sheet.name}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {sheet.rowCount} {isSpanish ? 'filas' : 'rows'}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {mappedCount > 0 && (
-                                <Badge variant="outline" className="text-xs bg-emerald-900/30 text-emerald-300 border-emerald-700">
-                                  {mappedCount} {isSpanish ? 'mapeados' : 'mapped'}
-                                </Badge>
-                              )}
-                              {preservedCount > 0 && (
-                                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                  {preservedCount} {isSpanish ? 'preservados' : 'preserved'}
-                                </Badge>
-                              )}
-                              {sheet.matchedComponent && (
-                                <Badge variant="secondary" className="text-xs">
-                                  → {sheet.matchedComponent}
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
                     </div>
                   </div>
                 </CardContent>
@@ -4125,33 +4024,11 @@ function DataPackageImportPageInner() {
                 </Card>
               )}
 
-              {/* Approval Routing Notice */}
-              <Card className="border-primary/30 bg-primary/5">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <Info className="h-5 w-5 text-primary mt-0.5" />
-                    <div>
-                      <p className="font-medium text-primary">
-                        {isSpanish ? 'Enrutamiento de Aprobación' : 'Approval Routing'}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {isSpanish
-                          ? 'Esta importación será enrutada automáticamente a los aprobadores según las reglas de aprobación configuradas. Recibirá una notificación cuando se complete la aprobación.'
-                          : 'This import will be automatically routed to approvers based on configured approval rules. You will receive a notification when approval is complete.'}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Approval Actions */}
+              {/* Approval Actions — OB-125: Commit button prominent, no routing notice */}
               <div className="flex justify-center gap-4 pt-4">
                 <Button variant="outline" size="lg" onClick={() => setCurrentStep('validate')}>
                   <ArrowLeft className="h-4 w-4 mr-2" />
                   {isSpanish ? 'Revisar Validación' : 'Review Validation'}
-                </Button>
-                <Button variant="outline" size="lg" onClick={() => setCurrentStep('analyze')}>
-                  {isSpanish ? 'Revisar Análisis' : 'Review Analysis'}
                 </Button>
                 <Button
                   size="lg"

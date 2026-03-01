@@ -106,6 +106,24 @@ interface RuleSetStatus {
   draftPlans: Array<{ id: string; name: string }>;
 }
 
+// OB-125: Plan readiness — tells user what's ready and what's missing
+interface PlanReadiness {
+  planId: string;
+  planName: string;
+  entityCount: number;
+  hasBindings: boolean;
+  dataRowCount: number;
+  lastBatchDate: string | null;
+  lastTotal: number | null;
+}
+
+// OB-125: Inline error — replaces browser alert()
+interface PageError {
+  title: string;
+  message: string;
+  action?: string;
+}
+
 function CalculatePageInner() {
   const router = useRouter();
   const { user } = useAuth();
@@ -130,6 +148,8 @@ function CalculatePageInner() {
   const [wiringReady, setWiringReady] = useState<boolean | null>(null); // null = loading
   const [isWiring, setIsWiring] = useState(false);
   const [wiringReport, setWiringReport] = useState<Record<string, unknown> | null>(null);
+  const [planReadiness, setPlanReadiness] = useState<PlanReadiness[]>([]); // OB-125: F-47
+  const [pageError, setPageError] = useState<PageError | null>(null); // OB-125: F-44
 
   const { locale } = useAdminLocale();
   const t = labels[locale];
@@ -199,6 +219,19 @@ function CalculatePageInner() {
         } else {
           setWiringReady(true); // No plans = nothing to wire
         }
+
+        // OB-125: Fetch plan readiness for each active plan
+        if (activeRSList.length > 0) {
+          try {
+            const resp = await fetch(`/api/plan-readiness?tenantId=${currentTenant.id}`);
+            if (resp.ok) {
+              const readinessData = await resp.json();
+              setPlanReadiness(readinessData.plans || []);
+            }
+          } catch {
+            // Non-critical — readiness cards just won't show
+          }
+        }
       } catch (err) {
         console.warn('[Calculate] Failed to load data:', err);
       }
@@ -237,8 +270,20 @@ function CalculatePageInner() {
   }, [currentTenant, selectedPeriod]);
 
   // Lifecycle transition with full audit trail
+  // OB-125: F-48 — block advancement to OFFICIAL when total payout is $0
   const handleLifecycleTransition = async (targetState: CalculationState, details?: string) => {
     if (!activeBatch || !currentTenant || !user) return;
+
+    // F-48: Prevent marking Official on $0 results
+    if (targetState === 'OFFICIAL' && totalPayout === 0 && entityCount > 0) {
+      setPageError({
+        title: 'Cannot Mark Official',
+        message: `Total payout is ${formatCurrency(0)} across ${entityCount} entities. This typically means data fields are not mapped to plan components.`,
+        action: 'Review field mappings in the import page, or re-run the wire API to fix data bindings.',
+      });
+      return;
+    }
+
     try {
       const updatedCycle = await performLifecycleTransition(
         currentTenant.id,
@@ -249,16 +294,17 @@ function CalculatePageInner() {
       );
       if (updatedCycle) {
         setActiveCycle(updatedCycle);
+        setPageError(null);
         // Refresh batch and batches list
         const batch = await getActiveBatch(currentTenant.id, selectedPeriod);
         setActiveBatch(batch);
         const batches = await listCalculationBatches(currentTenant.id);
         setRecentBatches(batches.slice(0, 10));
       } else {
-        alert(`Invalid transition to ${targetState}`);
+        setPageError({ title: 'Transition Failed', message: `Cannot transition to ${targetState} from current state.` });
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : `Failed to transition to ${targetState}`);
+      setPageError({ title: 'Transition Error', message: e instanceof Error ? e.message : `Failed to transition to ${targetState}` });
     }
   };
 
@@ -297,7 +343,9 @@ function CalculatePageInner() {
       }
 
       if (errors.length > 0) {
-        alert(`Some calculations failed:\n${errors.join('\n')}`);
+        setPageError({ title: 'Calculation Errors', message: errors.join('; '), action: 'Check plan assignments and data bindings, then retry.' });
+      } else {
+        setPageError(null);
       }
 
       // Refresh batches and results
@@ -316,7 +364,7 @@ function CalculatePageInner() {
         setActiveCycle(cycle);
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Calculation failed');
+      setPageError({ title: 'Calculation Failed', message: err instanceof Error ? err.message : 'Calculation failed', action: 'Check server logs and retry.' });
     } finally {
       setIsCalculating(false);
     }
@@ -343,7 +391,7 @@ function CalculatePageInner() {
         draftPlans: ruleSets.filter(rs => rs.status === 'draft').map(rs => ({ id: rs.id, name: rs.name })),
       });
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to activate rule set');
+      setPageError({ title: 'Activation Failed', message: error instanceof Error ? error.message : 'Failed to activate rule set' });
     } finally {
       setIsActivating(false);
     }
@@ -403,6 +451,7 @@ function CalculatePageInner() {
       if (result.success) {
         setWiringReport(result.report);
         setWiringReady(true);
+        setPageError(null);
         // Refresh rule sets to pick up activated plans
         const ruleSets = await getRuleSets(currentTenant.id);
         const activeRSList = ruleSets.filter(rs => rs.status === 'active');
@@ -418,10 +467,10 @@ function CalculatePageInner() {
           draftPlans: ruleSets.filter(rs => rs.status === 'draft').map(rs => ({ id: rs.id, name: rs.name })),
         });
       } else {
-        alert(result.error || 'Wiring failed');
+        setPageError({ title: 'Wiring Failed', message: result.error || 'Failed to wire data pipeline', action: 'Check that plans and data are imported correctly.' });
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Wiring failed');
+      setPageError({ title: 'Wiring Error', message: err instanceof Error ? err.message : 'Wiring failed' });
     } finally {
       setIsWiring(false);
     }
@@ -884,15 +933,122 @@ function CalculatePageInner() {
         </>
       )}
 
-      {/* No results state */}
+      {/* OB-125: Inline error display — replaces browser alert() */}
+      {pageError && (
+        <div className="bg-red-900/20 border border-red-700 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-red-400 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-medium text-red-400">{pageError.title}</p>
+              <p className="text-sm text-red-300 mt-1">{pageError.message}</p>
+              {pageError.action && (
+                <p className="text-sm text-zinc-400 mt-2">{pageError.action}</p>
+              )}
+            </div>
+            <Button variant="ghost" size="sm" className="text-zinc-400 hover:text-zinc-200" onClick={() => setPageError(null)}>
+              ×
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* OB-125: Plan readiness cards — contextual empty state (F-41, F-47) */}
       {!activeBatch && selectedPeriod && (
-        <Card>
-          <CardContent className="py-12 text-center text-slate-400">
-            <Calculator className="h-12 w-12 mx-auto mb-4 text-slate-300" />
-            <p className="text-lg font-medium">No calculation batch for this period</p>
-            <p className="text-sm mt-1">Import data and run calculations to see results here.</p>
-          </CardContent>
-        </Card>
+        <>
+          {!planStatus.hasPlans ? (
+            <Card>
+              <CardContent className="py-12 text-center text-slate-400">
+                <Calculator className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+                <p className="text-lg font-medium">
+                  {locale === 'es-MX' ? 'Sin planes configurados' : 'No plans configured'}
+                </p>
+                <p className="text-sm mt-1">
+                  {locale === 'es-MX'
+                    ? 'Importe un documento de plan para comenzar.'
+                    : 'Import a plan document to get started.'}
+                </p>
+                <Link href="/admin/launch/plan-import">
+                  <Button variant="outline" size="sm" className="mt-4">
+                    {locale === 'es-MX' ? 'Importar Plan →' : 'Import Plan →'}
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          ) : planReadiness.length > 0 ? (
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
+                {locale === 'es-MX' ? 'Estado de Planes' : 'Plan Readiness'}
+              </h3>
+              {planReadiness.map(plan => {
+                const isReady = plan.entityCount > 0 && plan.hasBindings && plan.dataRowCount > 0;
+                return (
+                  <Card key={plan.planId} className={isReady ? 'border-emerald-700/50' : 'border-amber-700/50'}>
+                    <CardContent className="py-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {isReady ? (
+                            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                          ) : (
+                            <AlertTriangle className="h-5 w-5 text-amber-400" />
+                          )}
+                          <div>
+                            <p className="font-medium text-sm">{plan.planName}</p>
+                            <p className="text-xs text-slate-400">
+                              {plan.entityCount} {locale === 'es-MX' ? 'entidades' : 'entities'}
+                              {' · '}
+                              {plan.hasBindings
+                                ? (locale === 'es-MX' ? 'Vinculaciones completas' : 'Bindings complete')
+                                : (locale === 'es-MX' ? 'Sin vinculaciones' : 'No bindings')}
+                              {' · '}
+                              {plan.dataRowCount.toLocaleString()} {locale === 'es-MX' ? 'filas de datos' : 'data rows'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          {plan.lastBatchDate ? (
+                            <div className="text-xs text-slate-400">
+                              <p>{locale === 'es-MX' ? 'Último cálculo' : 'Last calculated'}: {new Date(plan.lastBatchDate).toLocaleDateString()}</p>
+                              {plan.lastTotal !== null && (
+                                <p className="font-medium text-emerald-400">{formatCurrency(plan.lastTotal)}</p>
+                              )}
+                            </div>
+                          ) : (
+                            <Badge variant="outline" className={isReady ? 'text-emerald-400 border-emerald-600' : 'text-amber-400 border-amber-600'}>
+                              {isReady
+                                ? (locale === 'es-MX' ? 'Listo' : 'Ready')
+                                : (locale === 'es-MX' ? 'Parcial' : 'Partial')}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      {!isReady && (
+                        <div className="mt-2 text-xs text-amber-400/70">
+                          {plan.entityCount === 0 && (locale === 'es-MX' ? 'Sin entidades asignadas. ' : 'No entities assigned. ')}
+                          {!plan.hasBindings && (locale === 'es-MX' ? 'Sin vinculaciones de datos. ' : 'No data bindings. ')}
+                          {plan.dataRowCount === 0 && (locale === 'es-MX' ? 'Sin datos importados.' : 'No data imported.')}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="py-12 text-center text-slate-400">
+                <Calculator className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+                <p className="text-lg font-medium">
+                  {locale === 'es-MX' ? 'Sin cálculos para este período' : 'No calculations for this period'}
+                </p>
+                <p className="text-sm mt-1">
+                  {locale === 'es-MX'
+                    ? 'Seleccione un período y ejecute el cálculo.'
+                    : 'Select a period and run calculation.'}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       {/* Recent Batches */}
