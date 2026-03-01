@@ -211,7 +211,7 @@ function buildModuleCards(
       actions: [
         { label: 'Operations Center', labelEs: 'Centro de Operaciones', href: '/operate/lifecycle' },
         { label: 'Import Data', labelEs: 'Importar Datos', href: '/operate/import/enhanced' },
-        { label: 'Calculate', labelEs: 'Calcular', href: '/admin/launch/calculate' },
+        { label: 'Calculate', labelEs: 'Calcular', href: '/operate/calculate' },
         { label: 'View Results', labelEs: 'Ver Resultados', href: '/operate/results' },
       ],
     });
@@ -426,7 +426,7 @@ export default function OperateLandingPage() {
     // 3. ICM with completed calculation → results page
     if (hasICM && pipelineData.latestBatch) {
       setRedirecting(true);
-      router.replace('/admin/launch/calculate');
+      router.replace('/operate/calculate');
       return;
     }
 

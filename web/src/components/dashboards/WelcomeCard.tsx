@@ -47,7 +47,7 @@ export function WelcomeCard({ hasPlans, hasData, hasResults }: WelcomeCardProps)
       number: 3,
       label: 'See Your Results',
       description: 'Run a calculation and view results',
-      href: '/admin/launch/calculate',
+      href: '/operate/calculate',
       done: hasResults,
       icon: BarChart3,
       locked: !hasPlans || !hasData,
