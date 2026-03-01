@@ -6,9 +6,8 @@
  * Converts underscore-separated internal strings to Title Case.
  *
  * Examples:
- *   "consumer_lending_commission" → "Consumer Lending Commission"
- *   "deposit_growth_targets_q1__growth_targets" → "Growth Targets"
- *   "loan_disbursements" → "Loan Disbursements"
+ *   "some_category_name" → "Some Category Name"
+ *   "file_prefix__tab_name" → "Tab Name"
  */
 export function humanizeDataType(dataType: string): string {
   if (!dataType) return '';
