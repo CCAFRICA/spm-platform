@@ -4,7 +4,7 @@
 // Zero domain vocabulary. Korean Test applies.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import type { Json } from '@/lib/supabase/database.types';
 import type {
@@ -12,14 +12,10 @@ import type {
   SCIExecutionResult,
   ContentUnitResult,
   ContentUnitExecution,
-  SemanticBinding,
 } from '@/lib/sci/sci-types';
 
-// Entity ID detection — same generic targets as import/commit (AP-5/AP-6)
-const ENTITY_ID_TARGETS = ['entityid', 'entity_id', 'employeeid', 'employee_id', 'external_id', 'externalid', 'repid', 'rep_id'];
-const NAME_TARGETS = ['name', 'entity_name', 'display_name', 'employee_name', 'nombre'];
+// Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 const ROLE_TARGETS = ['role', 'position', 'puesto', 'title', 'cargo'];
-const LICENSE_TARGETS = ['productlicenses', 'product_licenses', 'licenses', 'products', 'licencias'];
 
 // Normalize filename to semantic data_type (same logic as import/commit)
 function normalizeFileNameToDataType(fn: string): string {
@@ -97,7 +93,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function executeContentUnit(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution
@@ -119,7 +115,7 @@ async function executeContentUnit(
 // ============================================================
 
 async function executeTargetPipeline(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution
@@ -321,7 +317,7 @@ async function executeTargetPipeline(
 // ============================================================
 
 async function executeTransactionPipeline(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution
@@ -454,7 +450,7 @@ async function executeTransactionPipeline(
 // ============================================================
 
 async function executeEntityPipeline(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   tenantId: string,
   _proposalId: string,
   unit: ContentUnitExecution
