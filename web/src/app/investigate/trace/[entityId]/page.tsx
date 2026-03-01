@@ -21,7 +21,7 @@ import type { CalculationTrace } from '@/lib/forensics/types';
 const FROM_LABELS: Record<string, { label: string; route: string }> = {
   results: { label: 'Results', route: '/operate/results' },
   reconciliation: { label: 'Reconciliation', route: '/investigate/reconciliation' },
-  calculate: { label: 'Calculate', route: '/admin/launch/calculate' },
+  calculate: { label: 'Calculate', route: '/operate/calculate' },
   insights: { label: 'Insights', route: '/insights' },
 };
 

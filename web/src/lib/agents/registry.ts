@@ -75,7 +75,7 @@ const compensationAgent: AgentDefinition = {
         title: 'New data committed — calculation pending',
         description: 'Data has been committed but no calculation has been run yet. Consider running a calculation to ensure results are current.',
         severity: 'info',
-        actionUrl: '/admin/launch/calculate',
+        actionUrl: '/operate/calculate',
         actionLabel: 'Run Calculation',
         persona: 'admin',
       });
