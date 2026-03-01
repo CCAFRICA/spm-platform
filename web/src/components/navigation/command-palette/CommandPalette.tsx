@@ -360,7 +360,7 @@ export function CommandPalette() {
                 {(effectiveRole === 'admin' || effectiveRole === 'vl_admin') && (
                   <CommandUIItem
                     value="import data"
-                    onSelect={() => router.push('/operate/import/enhanced')}
+                    onSelect={() => router.push('/operate/import')}
                     className="flex items-center gap-3"
                   >
                     <Upload className="h-4 w-4 text-muted-foreground" />

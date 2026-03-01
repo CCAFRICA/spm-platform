@@ -779,7 +779,7 @@ function CalculatePageInner() {
                     : 'This typically means data fields are not mapped to plan components.'}
                 </p>
                 <Link
-                  href="/operate/import/enhanced"
+                  href="/operate/import"
                   className="text-sm text-amber-800 underline hover:text-amber-900 mt-1 inline-block"
                 >
                   {locale === 'es-MX' ? 'Revisar mapeo de campos →' : 'Review field mappings →'}
