@@ -4,6 +4,7 @@
 // OB-130 Phase 2 — Zero domain vocabulary. Korean Test applies.
 
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +15,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -184,6 +186,18 @@ export function PlanCard({
             </>
           )}
         </Button>
+
+        {/* Verify Results link */}
+        {plan.lastBatchDate && (
+          <Link
+            href={`/operate/reconciliation?planId=${plan.planId}`}
+            className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-violet-400 mt-2 transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ClipboardCheck className="w-3.5 h-3.5" />
+            Verify Results
+          </Link>
+        )}
 
         {/* Feedback */}
         {calcError && (

@@ -66,6 +66,13 @@ export interface ReconciliationPageData {
     created_at: string;
     period_label: string | null;
     canonical_key: string | null;
+    rule_set_id: string | null;
+    rule_set_name: string | null;
+  }>;
+  ruleSets: Array<{
+    id: string;
+    name: string;
+    components: Json | null;
   }>;
   ruleSetComponents: Json | null;
   ruleSetName: string | null;
@@ -422,24 +429,26 @@ export async function loadCalculatePageData(tenantId: string, periodKey?: string
 export async function loadReconciliationPageData(tenantId: string): Promise<ReconciliationPageData> {
   const supabase = createClient();
 
-  const [batchesRes, ruleSetRes] = await Promise.all([
+  const [batchesRes, ruleSetsRes] = await Promise.all([
     supabase
       .from('calculation_batches')
-      .select('id, lifecycle_state, entity_count, summary, created_at, period_id')
+      .select('id, lifecycle_state, entity_count, summary, created_at, period_id, rule_set_id')
       .eq('tenant_id', tenantId)
       .is('superseded_by', null)
       .order('created_at', { ascending: false })
-      .limit(10),
+      .limit(20),
     supabase
       .from('rule_sets')
       .select('id, name, components')
       .eq('tenant_id', tenantId)
-      .eq('status', 'active')
-      .limit(1)
-      .maybeSingle(),
+      .eq('status', 'active'),
   ]);
 
   const rawBatches = batchesRes.data ?? [];
+  const allRuleSets = ruleSetsRes.data ?? [];
+
+  // Build rule_set name lookup
+  const rsMap = new Map(allRuleSets.map(r => [r.id, r.name]));
 
   // Resolve period labels for batches
   const periodIds = Array.from(new Set(rawBatches.map(b => b.period_id).filter(Boolean)));
@@ -453,6 +462,9 @@ export async function loadReconciliationPageData(tenantId: string): Promise<Reco
     periodMap = new Map((periods ?? []).map(p => [p.id, { label: p.label || p.canonical_key, canonical_key: p.canonical_key }]));
   }
 
+  // Use first rule_set as default (backwards compatible)
+  const firstRuleSet = allRuleSets[0] ?? null;
+
   return {
     batches: rawBatches.map(b => ({
       id: b.id,
@@ -462,9 +474,12 @@ export async function loadReconciliationPageData(tenantId: string): Promise<Reco
       created_at: b.created_at,
       period_label: periodMap.get(b.period_id ?? '')?.label ?? null,
       canonical_key: periodMap.get(b.period_id ?? '')?.canonical_key ?? null,
+      rule_set_id: b.rule_set_id ?? null,
+      rule_set_name: (b.rule_set_id ? rsMap.get(b.rule_set_id) : undefined) ?? null,
     })),
-    ruleSetComponents: ruleSetRes.data?.components ?? null,
-    ruleSetName: ruleSetRes.data?.name ?? null,
+    ruleSets: allRuleSets.map(r => ({ id: r.id, name: r.name, components: r.components })),
+    ruleSetComponents: firstRuleSet?.components ?? null,
+    ruleSetName: firstRuleSet?.name ?? null,
   };
 }
 
