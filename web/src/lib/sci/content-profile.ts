@@ -51,6 +51,13 @@ function isBooleanValue(v: unknown): boolean {
   return ['true', 'false', 'yes', 'no', 'si', 'sí', '0', '1'].includes(s);
 }
 
+function isPercentageString(v: unknown): boolean {
+  if (v == null) return false;
+  const s = String(v).trim();
+  // "60%", "< 60%", "> 100%", "60.5%"
+  return /^[<>≤≥]?\s*\d+(\.\d+)?\s*%$/.test(s);
+}
+
 function detectFieldType(
   values: unknown[],
   headerName: string
@@ -58,10 +65,11 @@ function detectFieldType(
   const nonNull = values.filter(v => v != null && String(v).trim() !== '');
   if (nonNull.length === 0) return 'text';
 
-  let integers = 0, decimals = 0, dates = 0, booleans = 0, texts = 0;
+  let integers = 0, decimals = 0, dates = 0, booleans = 0, texts = 0, percentStrings = 0;
 
   for (const v of nonNull) {
     if (isBooleanValue(v)) { booleans++; continue; }
+    if (isPercentageString(v)) { percentStrings++; continue; }
     if (isDateValue(v)) { dates++; continue; }
     const n = Number(v);
     if (!isNaN(n) && String(v).trim() !== '') {
@@ -78,6 +86,7 @@ function detectFieldType(
   // Majority rules with 80% threshold
   if (booleans / total > 0.8) return 'boolean';
   if (dates / total > 0.8) return 'date';
+  if (percentStrings / total > 0.5) return 'percentage';
   if (texts / total > 0.8) return 'text';
 
   if (numericCount / total > 0.8) {
