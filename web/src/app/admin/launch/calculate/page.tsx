@@ -55,7 +55,7 @@ import {
 import {
   Calculator, Play, CheckCircle2, AlertTriangle,
   ChevronDown, ChevronRight, Clock, Users, DollarSign, TrendingUp,
-  ArrowLeft, ArrowRight, Search, Layers,
+  ArrowLeft, ArrowRight, Search, Layers, Lock,
 } from 'lucide-react';
 import { ExecutionTraceView } from '@/components/forensics/ExecutionTraceView';
 
@@ -792,7 +792,15 @@ function CalculatePageInner() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Entity Results</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  Entity Results
+                  {activeCycle && ['OFFICIAL', 'PENDING_APPROVAL', 'APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED'].includes(activeCycle.state) && (
+                    <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-600 gap-1">
+                      <Lock className="h-3 w-3" />
+                      {getStateLabel(activeCycle.state)}
+                    </Badge>
+                  )}
+                </CardTitle>
                 <div className="flex items-center gap-3">
                   <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
