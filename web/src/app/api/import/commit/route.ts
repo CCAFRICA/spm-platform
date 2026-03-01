@@ -769,11 +769,26 @@ export async function POST(request: NextRequest) {
       // Strips date suffixes and prefixes: "CFG_Loan_Disbursements_Jan2024" → "loan_disbursements"
       const normalized = normalizeFileNameToDataType(fileName);
       if (normalized && normalized.length > 2) {
+        // OB-124: For multi-tab workbooks, append normalized sheet name so each tab
+        // gets a DISTINCT data_type. Without this, all tabs collapse to the same
+        // data_type and convergence can't distinguish actuals from targets.
+        // Single-sheet files (CSV, single-tab XLSX) keep current behavior.
+        if (sheetData.length > 1) {
+          const isGenericSheet = sheetName === 'Sheet1' || sheetName === 'Hoja1';
+          if (!isGenericSheet) {
+            const normalizedSheet = sheetName.toLowerCase().replace(/[\s\-]+/g, '_');
+            return `${normalized}__${normalizedSheet}`;
+          }
+        }
         return normalized;
       }
       // Priority 4: If sheet name is generic "Sheet1" (CSV default), use filename stem instead
       if (sheetName === 'Sheet1' || sheetName === 'Hoja1') {
         return fileName.replace(/\.[^.]+$/, '');
+      }
+      // OB-124: For multi-tab, use sheetName as-is when normalized filename is too short
+      if (sheetData.length > 1) {
+        return sheetName.toLowerCase().replace(/[\s\-]+/g, '_');
       }
       return sheetName;
     };
