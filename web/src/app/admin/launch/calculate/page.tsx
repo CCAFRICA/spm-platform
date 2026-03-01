@@ -127,6 +127,9 @@ function CalculatePageInner() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [expandedEntityId, setExpandedEntityId] = useState<string | null>(null);
   const [dbPeriods, setDbPeriods] = useState<Array<{ id: string; canonical_key: string; label?: string }>>([]);
+  const [wiringReady, setWiringReady] = useState<boolean | null>(null); // null = loading
+  const [isWiring, setIsWiring] = useState(false);
+  const [wiringReport, setWiringReport] = useState<Record<string, unknown> | null>(null);
 
   const { locale } = useAdminLocale();
   const t = labels[locale];
@@ -178,6 +181,23 @@ function CalculatePageInner() {
           } else if (batches.length > 0) {
             setSelectedPeriod(batches[0].period_id);
           }
+        }
+
+        // OB-123: Check wiring readiness
+        // If there are already calculation batches, wiring was done previously
+        if (batches.length > 0) {
+          setWiringReady(true);
+        } else if (ruleSets.length > 0) {
+          // Plans exist but no calculations yet — check if assignments exist
+          try {
+            const resp = await fetch(`/api/rule-set-assignments?tenantId=${currentTenant.id}`);
+            const assignData = await resp.json();
+            setWiringReady((assignData.assignments || []).length > 0);
+          } catch {
+            setWiringReady(false);
+          }
+        } else {
+          setWiringReady(true); // No plans = nothing to wire
         }
       } catch (err) {
         console.warn('[Calculate] Failed to load data:', err);
@@ -368,6 +388,45 @@ function CalculatePageInner() {
     URL.revokeObjectURL(url);
   };
 
+  // OB-123: Prepare for calculation — wire the data intelligence pipeline
+  const handlePrepareForCalculation = async () => {
+    if (!currentTenant) return;
+    setIsWiring(true);
+    setWiringReport(null);
+    try {
+      const response = await fetch('/api/intelligence/wire', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: currentTenant.id }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setWiringReport(result.report);
+        setWiringReady(true);
+        // Refresh rule sets to pick up activated plans
+        const ruleSets = await getRuleSets(currentTenant.id);
+        const activeRSList = ruleSets.filter(rs => rs.status === 'active');
+        const firstActive = activeRSList[0] || null;
+        setPlanStatus({
+          hasPlans: ruleSets.length > 0,
+          hasActivePlan: activeRSList.length > 0,
+          activePlanName: activeRSList.length > 1
+            ? `${activeRSList.length} plans active`
+            : firstActive?.name || null,
+          activeRuleSetId: firstActive?.id || null,
+          activePlans: activeRSList.map(rs => ({ id: rs.id, name: rs.name })),
+          draftPlans: ruleSets.filter(rs => rs.status === 'draft').map(rs => ({ id: rs.id, name: rs.name })),
+        });
+      } else {
+        alert(result.error || 'Wiring failed');
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Wiring failed');
+    } finally {
+      setIsWiring(false);
+    }
+  };
+
   // Merge periods from DB and from batches
   const periodMap = new Map<string, string>();
   for (const p of dbPeriods) {
@@ -490,6 +549,52 @@ function CalculatePageInner() {
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* OB-123: Prepare for Calculation — wiring needed */}
+      {wiringReady === false && planStatus.hasPlans && (
+        <Card className="border-amber-500/50 bg-amber-950/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-400">
+              <AlertTriangle className="h-5 w-5" />
+              {locale === 'es-MX' ? 'Preparación Requerida' : 'Preparation Required'}
+            </CardTitle>
+            <CardDescription className="text-amber-300/70">
+              {locale === 'es-MX'
+                ? 'Los datos importados necesitan ser conectados a los planes antes de calcular.'
+                : 'Imported data needs to be wired to plans before calculation.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              onClick={handlePrepareForCalculation}
+              disabled={isWiring}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {isWiring ? (
+                <>
+                  <Clock className="h-4 w-4 mr-2 animate-spin" />
+                  {locale === 'es-MX' ? 'Preparando...' : 'Preparing...'}
+                </>
+              ) : (
+                <>
+                  <Layers className="h-4 w-4 mr-2" />
+                  {locale === 'es-MX' ? 'Preparar para Cálculo' : 'Prepare for Calculation'}
+                </>
+              )}
+            </Button>
+            {wiringReport && (
+              <div className="mt-3 p-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-sm text-emerald-300">
+                <p className="font-medium mb-1">Wiring Complete</p>
+                <ul className="space-y-0.5 text-xs text-emerald-400/80">
+                  {(wiringReport.steps as Array<{ step: string; detail: string }>)?.map((s, i) => (
+                    <li key={i}>{s.step}: {s.detail}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
