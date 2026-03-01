@@ -42,7 +42,6 @@ function CalculatePageInner() {
     plans,
     periods,
     selectedPeriodId,
-    selectedPeriod,
     selectPeriod,
     batches,
     refreshBatches,
