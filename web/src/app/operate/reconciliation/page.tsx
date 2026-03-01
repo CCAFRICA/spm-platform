@@ -34,6 +34,11 @@ import {
 // Types
 // ──────────────────────────────────────────────
 
+interface PlanOption {
+  id: string;
+  name: string;
+}
+
 interface BatchOption {
   id: string;
   label: string;
@@ -41,6 +46,8 @@ interface BatchOption {
   totalPayout: number;
   createdAt: string;
   lifecycleState: string;
+  ruleSetId: string | null;
+  ruleSetName: string | null;
 }
 
 interface ParsedFile {
@@ -186,6 +193,7 @@ export default function ReconciliationPage() {
   // State
   const [loading, setLoading] = useState(true);
   const [pageData, setPageData] = useState<ReconciliationPageData | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
   const [step, setStep] = useState<StepType>('select_batch');
@@ -218,7 +226,7 @@ export default function ReconciliationPage() {
   const [componentPage, setComponentPage] = useState<Record<string, number>>({});
 
   // Load page data
-  // OB-92: Load page data, prefer OperateContext batch > URL param > most recent
+  // OB-92/OB-131: Load page data, prefer URL planId > OperateContext batch > most recent
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
@@ -227,14 +235,35 @@ export default function ReconciliationPage() {
         const data = await loadReconciliationPageData(tenantId);
         if (cancelled) return;
         setPageData(data);
+        const urlPlanId = searchParams.get('planId');
         const urlBatchId = searchParams.get('batchId');
-        // Priority: URL param > OperateContext > first batch
-        if (urlBatchId && data.batches.some(b => b.id === urlBatchId)) {
+
+        // Plan pre-selection: URL planId > first plan with batches
+        if (urlPlanId && data.ruleSets.some(r => r.id === urlPlanId)) {
+          setSelectedPlanId(urlPlanId);
+          // Auto-select most recent batch for this plan
+          const planBatches = data.batches.filter(b => b.rule_set_id === urlPlanId);
+          if (planBatches.length > 0) setSelectedBatchId(planBatches[0].id);
+        } else if (urlBatchId && data.batches.some(b => b.id === urlBatchId)) {
+          // Batch URL param → find its plan
+          const batch = data.batches.find(b => b.id === urlBatchId);
+          if (batch?.rule_set_id) setSelectedPlanId(batch.rule_set_id);
           setSelectedBatchId(urlBatchId);
         } else if (contextBatchId && data.batches.some(b => b.id === contextBatchId)) {
+          const batch = data.batches.find(b => b.id === contextBatchId);
+          if (batch?.rule_set_id) setSelectedPlanId(batch.rule_set_id);
           setSelectedBatchId(contextBatchId);
-        } else if (data.batches.length > 0) {
-          setSelectedBatchId(data.batches[0].id);
+        } else {
+          // Default: select first plan, first batch
+          if (data.ruleSets.length > 0) {
+            const firstPlanId = data.ruleSets[0].id;
+            setSelectedPlanId(firstPlanId);
+            const planBatches = data.batches.filter(b => b.rule_set_id === firstPlanId);
+            if (planBatches.length > 0) setSelectedBatchId(planBatches[0].id);
+            else if (data.batches.length > 0) setSelectedBatchId(data.batches[0].id);
+          } else if (data.batches.length > 0) {
+            setSelectedBatchId(data.batches[0].id);
+          }
         }
       } catch (err) {
         console.error('[Reconciliation] Failed to load:', err);
@@ -247,18 +276,29 @@ export default function ReconciliationPage() {
     return () => { cancelled = true; };
   }, [tenantId, searchParams, contextBatchId]);
 
-  // Batch options
+  // Plan options
+  const planOptions: PlanOption[] = useMemo(() => {
+    if (!pageData) return [];
+    return pageData.ruleSets.map(r => ({ id: r.id, name: r.name }));
+  }, [pageData]);
+
+  // Batch options — filtered by selected plan
   const batchOptions: BatchOption[] = useMemo(() => {
     if (!pageData) return [];
-    return pageData.batches.map(b => ({
+    const filtered = selectedPlanId
+      ? pageData.batches.filter(b => b.rule_set_id === selectedPlanId)
+      : pageData.batches;
+    return filtered.map(b => ({
       id: b.id,
       label: `${b.period_label ?? b.canonical_key ?? 'Unknown'} — ${b.lifecycle_state} (${formatCurrency(b.total_payout)})`,
       entityCount: b.entity_count,
       totalPayout: b.total_payout,
       createdAt: b.created_at,
       lifecycleState: b.lifecycle_state,
+      ruleSetId: b.rule_set_id,
+      ruleSetName: b.rule_set_name,
     }));
-  }, [pageData, formatCurrency]);
+  }, [pageData, formatCurrency, selectedPlanId]);
 
   const selectedBatch = batchOptions.find(b => b.id === selectedBatchId);
 
@@ -556,7 +596,7 @@ export default function ReconciliationPage() {
             {isSpanish ? 'Estudio de Reconciliacion' : 'Reconciliation Studio'}
           </h1>
           <p className="text-sm text-zinc-400">
-            {pageData.ruleSetName ?? (isSpanish ? 'Plan activo' : 'Active plan')}
+            {planOptions.find(p => p.id === selectedPlanId)?.name ?? pageData.ruleSetName ?? (isSpanish ? 'Plan activo' : 'Active plan')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -591,20 +631,48 @@ export default function ReconciliationPage() {
         </div>
       </div>
 
-      {/* Step 1: Batch Selector */}
+      {/* Step 1: Plan + Batch Selector */}
       <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
         <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-3">
-          {isSpanish ? 'Seleccionar Calculo' : 'Select Calculation'}
+          {isSpanish ? 'Seleccionar Plan y Calculo' : 'Select Plan & Calculation'}
         </h4>
-        <select
-          value={selectedBatchId ?? ''}
-          onChange={(e) => { setSelectedBatchId(e.target.value); handleReset(); }}
-          className="w-full px-3 py-2 rounded-lg text-sm bg-zinc-900 text-zinc-200 border border-zinc-700 focus:border-violet-500 focus:outline-none"
-        >
-          {batchOptions.map(b => (
-            <option key={b.id} value={b.id}>{b.label}</option>
-          ))}
-        </select>
+        {planOptions.length > 1 && (
+          <div className="mb-3">
+            <label className="text-[11px] text-zinc-500 mb-1 block">{isSpanish ? 'Plan' : 'Plan'}</label>
+            <select
+              value={selectedPlanId ?? ''}
+              onChange={(e) => {
+                const planId = e.target.value || null;
+                setSelectedPlanId(planId);
+                handleReset();
+                // Auto-select first batch for this plan
+                if (planId && pageData) {
+                  const planBatches = pageData.batches.filter(b => b.rule_set_id === planId);
+                  if (planBatches.length > 0) setSelectedBatchId(planBatches[0].id);
+                }
+              }}
+              className="w-full px-3 py-2 rounded-lg text-sm bg-zinc-900 text-zinc-200 border border-zinc-700 focus:border-violet-500 focus:outline-none"
+            >
+              {planOptions.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div>
+          {planOptions.length > 1 && (
+            <label className="text-[11px] text-zinc-500 mb-1 block">{isSpanish ? 'Periodo' : 'Period'}</label>
+          )}
+          <select
+            value={selectedBatchId ?? ''}
+            onChange={(e) => { setSelectedBatchId(e.target.value); handleReset(); }}
+            className="w-full px-3 py-2 rounded-lg text-sm bg-zinc-900 text-zinc-200 border border-zinc-700 focus:border-violet-500 focus:outline-none"
+          >
+            {batchOptions.map(b => (
+              <option key={b.id} value={b.id}>{b.label}</option>
+            ))}
+          </select>
+        </div>
         {selectedBatch && (
           <p className="text-[11px] text-zinc-400 mt-2">
             {selectedBatch.entityCount} {isSpanish ? 'entidades' : 'entities'} · {selectedBatch.lifecycleState} · {new Date(selectedBatch.createdAt).toLocaleDateString(isSpanish ? 'es-MX' : 'en-US')}
