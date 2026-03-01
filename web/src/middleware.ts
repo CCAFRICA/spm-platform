@@ -21,7 +21,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 // Paths that don't require authentication
-const PUBLIC_PATHS = ['/login', '/signup', '/landing', '/auth/callback', '/api/auth', '/api/health', '/api/calculation/run', '/api/intelligence/wire', '/api/platform/flags', '/unauthorized'];
+const PUBLIC_PATHS = ['/login', '/signup', '/landing', '/auth/callback', '/api/auth', '/api/health', '/api/calculation/run', '/api/intelligence/wire', '/api/import/sci', '/api/platform/flags', '/unauthorized'];
 
 // OB-67: Workspace-level access (only restricted workspaces listed)
 // Paths not listed here are open to all authenticated users.
