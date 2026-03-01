@@ -203,34 +203,37 @@ function CalculatePageInner() {
           }
         }
 
-        // OB-123: Check wiring readiness
-        // If there are already calculation batches, wiring was done previously
-        if (batches.length > 0) {
-          setWiringReady(true);
-        } else if (ruleSets.length > 0) {
-          // Plans exist but no calculations yet — check if assignments exist
-          try {
-            const resp = await fetch(`/api/rule-set-assignments?tenantId=${currentTenant.id}`);
-            const assignData = await resp.json();
-            setWiringReady((assignData.assignments || []).length > 0);
-          } catch {
-            setWiringReady(false);
+        // OB-132: Batch wiring check + readiness fetch in parallel
+        const needsWiringCheck = batches.length === 0 && ruleSets.length > 0;
+        const needsReadiness = activeRSList.length > 0;
+
+        if (needsWiringCheck || needsReadiness) {
+          const [assignResp, readinessResp] = await Promise.all([
+            needsWiringCheck
+              ? fetch(`/api/rule-set-assignments?tenantId=${currentTenant.id}`).catch(() => null)
+              : Promise.resolve(null),
+            needsReadiness
+              ? fetch(`/api/plan-readiness?tenantId=${currentTenant.id}`).catch(() => null)
+              : Promise.resolve(null),
+          ]);
+
+          if (needsWiringCheck && assignResp) {
+            try {
+              const assignData = await assignResp.json();
+              setWiringReady((assignData.assignments || []).length > 0);
+            } catch { setWiringReady(false); }
+          } else if (!needsWiringCheck) {
+            setWiringReady(batches.length > 0 || ruleSets.length === 0);
+          }
+
+          if (readinessResp?.ok) {
+            try {
+              const readinessData = await readinessResp.json();
+              setPlanReadiness(readinessData.plans || []);
+            } catch { /* Non-critical */ }
           }
         } else {
           setWiringReady(true); // No plans = nothing to wire
-        }
-
-        // OB-125: Fetch plan readiness for each active plan
-        if (activeRSList.length > 0) {
-          try {
-            const resp = await fetch(`/api/plan-readiness?tenantId=${currentTenant.id}`);
-            if (resp.ok) {
-              const readinessData = await resp.json();
-              setPlanReadiness(readinessData.plans || []);
-            }
-          } catch {
-            // Non-critical — readiness cards just won't show
-          }
         }
       } catch (err) {
         console.warn('[Calculate] Failed to load data:', err);
@@ -295,10 +298,12 @@ function CalculatePageInner() {
       if (updatedCycle) {
         setActiveCycle(updatedCycle);
         setPageError(null);
-        // Refresh batch and batches list
-        const batch = await getActiveBatch(currentTenant.id, selectedPeriod);
+        // OB-132: Batch refresh queries in parallel
+        const [batch, batches] = await Promise.all([
+          getActiveBatch(currentTenant.id, selectedPeriod),
+          listCalculationBatches(currentTenant.id),
+        ]);
         setActiveBatch(batch);
-        const batches = await listCalculationBatches(currentTenant.id);
         setRecentBatches(batches.slice(0, 10));
       } else {
         setPageError({ title: 'Transition Failed', message: `Cannot transition to ${targetState} from current state.` });
