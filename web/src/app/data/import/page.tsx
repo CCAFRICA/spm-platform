@@ -7,5 +7,5 @@ import { redirect } from 'next/navigation';
  * CLT72-F27: Duplicate import paths (3 → should be 1).
  */
 export default function StandardImportPage() {
-  redirect('/data/import/enhanced');
+  redirect('/operate/import');
 }

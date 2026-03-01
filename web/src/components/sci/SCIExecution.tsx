@@ -79,7 +79,7 @@ export function SCIExecution({
       }))
   );
   const [executionDone, setExecutionDone] = useState(false);
-  const [overallResult, setOverallResult] = useState<SCIExecutionResult | null>(null);
+  const [, setOverallResult] = useState<SCIExecutionResult | null>(null);
   const [retrying, setRetrying] = useState(false);
 
   const executeUnits = useCallback(async (unitsToExecute: ExecutionUnit[]) => {
