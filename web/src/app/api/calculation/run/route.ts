@@ -211,7 +211,26 @@ export async function POST(request: NextRequest) {
     dataPage++;
   }
 
-  addLog(`Fetched ${committedData.length} committed_data rows (paginated)`);
+  // OB-128: Also fetch period-agnostic data (period_id IS NULL)
+  // Target data from SCI applies to all periods — not bound to a specific period
+  let nullPeriodPage = 0;
+  while (true) {
+    const from = nullPeriodPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page } = await supabase
+      .from('committed_data')
+      .select('entity_id, data_type, row_data')
+      .eq('tenant_id', tenantId)
+      .is('period_id', null)
+      .range(from, to);
+
+    if (!page || page.length === 0) break;
+    committedData.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    nullPeriodPage++;
+  }
+
+  addLog(`Fetched ${committedData.length} committed_data rows (paginated, incl. period-agnostic)`);
 
   // Group entity-level data by entity_id → data_type → rows
   const dataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
