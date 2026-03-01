@@ -241,11 +241,20 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Build license mapping: plan name → rule_set_id
-      const licenseMapping = new Map<string, string>();
-      for (const rs of activeRuleSets) {
-        licenseMapping.set(rs.name.toLowerCase().replace(/[\s_-]+/g, ''), rs.id);
-      }
+      // HF-082: Token overlap matching — replaces broken substring includes()
+      // Tokenizes both license name and plan name, removes noise words,
+      // matches if ALL license tokens appear in plan tokens.
+      const NOISE_WORDS = new Set(['plan', 'program', 'bonus', 'commission', 'incentive', 'cfg', '2024', '2025', '2026']);
+      const tokenizeForMatch = (s: string): string[] =>
+        s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(t => t.length > 2 && !NOISE_WORDS.has(t));
+
+      const matchLicenseToPlan = (license: string, planName: string): boolean => {
+        const licTokens = tokenizeForMatch(license);
+        const planTokens = tokenizeForMatch(planName);
+        if (licTokens.length === 0) return false;
+        const matched = licTokens.filter(lt => planTokens.some(pt => pt.includes(lt) || lt.includes(pt)));
+        return matched.length === licTokens.length;
+      };
 
       const newAssignments: Array<{
         tenant_id: string;
@@ -254,40 +263,44 @@ export async function POST(request: NextRequest) {
         effective_from: string;
       }> = [];
 
-      let usedLicenseMapping = false;
+      // HF-082: Check if ANY entity has license metadata — gates fallback decision
+      const entitiesWithLicenses = allEntities.filter(e => {
+        const meta = e.metadata as Record<string, unknown> | null;
+        const lic = meta?.product_licenses || meta?.licenses || meta?.ProductLicenses;
+        return lic && String(lic).trim().length > 0;
+      });
 
-      // Try license-based mapping first
-      for (const entity of allEntities) {
-        const meta = entity.metadata as Record<string, unknown> | null;
-        const licenses = meta?.product_licenses ? String(meta.product_licenses) : null;
-        if (!licenses) continue;
+      if (entitiesWithLicenses.length > 0) {
+        // License-based assignment — NO FALLBACK
+        // Entities without licenses get no assignments (correct — requires manual assignment)
+        for (const entity of allEntities) {
+          const meta = entity.metadata as Record<string, unknown> | null;
+          const licenseStr = String(meta?.product_licenses || meta?.licenses || meta?.ProductLicenses || '');
+          const licenseList = licenseStr.split(',').map(l => l.trim()).filter(l => l.length > 0);
+          if (licenseList.length === 0) continue;
 
-        usedLicenseMapping = true;
-        const licenseList = licenses.split(',').map(l => l.trim()).filter(Boolean);
-
-        for (const license of licenseList) {
-          const normalizedLicense = license.toLowerCase().replace(/[\s_-]+/g, '');
-          for (const [mappedName, ruleSetId] of Array.from(licenseMapping.entries())) {
-            if (mappedName.includes(normalizedLicense) || normalizedLicense.includes(mappedName)) {
-              const key = `${entity.id}:${ruleSetId}`;
-              if (!existingSet.has(key)) {
-                newAssignments.push({
-                  tenant_id: tenantId,
-                  entity_id: entity.id,
-                  rule_set_id: ruleSetId,
-                  effective_from: new Date().toISOString().split('T')[0],
-                });
-                existingSet.add(key);
+          for (const license of licenseList) {
+            for (const rs of activeRuleSets) {
+              if (matchLicenseToPlan(license, rs.name)) {
+                const key = `${entity.id}:${rs.id}`;
+                if (!existingSet.has(key)) {
+                  newAssignments.push({
+                    tenant_id: tenantId,
+                    entity_id: entity.id,
+                    rule_set_id: rs.id,
+                    effective_from: new Date().toISOString().split('T')[0],
+                  });
+                  existingSet.add(key);
+                }
+                break; // Each license matches at most one plan
               }
-              break;
             }
           }
         }
-      }
-
-      // Fallback: if no license-based assignments, assign ALL entities to ALL active plans
-      if (!usedLicenseMapping || newAssignments.length === 0) {
-        console.log(`[Wire]   No license mapping found — using full-coverage assignment`);
+        console.log(`[Wire]   License-based: ${newAssignments.length} assignments for ${allEntities.length} entities (${entitiesWithLicenses.length} with licenses)`);
+      } else {
+        // No license data available — full-coverage fallback is legitimate
+        console.log(`[Wire]   No license metadata found — using full-coverage assignment`);
         for (const entity of allEntities) {
           for (const rs of activeRuleSets) {
             const key = `${entity.id}:${rs.id}`;
