@@ -14,18 +14,18 @@ const LAB_TENANT = "a630404c-0777-4f6d-b760-b8a190ecd63c";
 const MBC_TENANT = "fa6a48c5-56dc-416d-9b7d-9c93d4882251";
 
 const MBC_RULE_SETS = [
-  { id: "9ab2c0d1-ced5-4dab-bda1-7de50dbbce94", name: "Consumer Lending Commission" },
-  { id: "af511146-604f-4400-ad18-836eb13aace8", name: "Mortgage Origination Bonus" },
-  { id: "ecc2507b-8012-49a7-ab3c-83b9ddeaeaec", name: "Deposit Growth Incentive" },
-  { id: "574faa83-6f14-4975-baca-36e7e3fd4937", name: "Insurance Referral Program" },
+  { id: "04cb665c-fc92-4634-9177-87520be5f217", name: "Consumer Lending Commission" },
+  { id: "d556a4b2-025e-414d-b5d7-ac6c53bf2713", name: "Mortgage Origination Bonus" },
+  { id: "354a93b1-59c6-4fbd-bf09-71fd7927bd07", name: "Deposit Growth Incentive" },
+  { id: "5a7947f5-d032-40fa-9b26-9ef6f1e44956", name: "Insurance Referral Program" },
 ];
 const MBC_PERIODS = [
-  { id: "251c00c3-0a1d-41c1-8add-d7eafa83a5e9", name: "Jan 2024" },
-  { id: "7c23fa1e-2a07-4ebd-bd85-e41c615bd695", name: "Feb 2024" },
-  { id: "59a6c2c1-5d94-404a-a355-8760677fcebc", name: "Mar 2024" },
+  { id: "3b23f5a4-9563-4293-a656-90fff044a87f", name: "Jan 2024" },
+  { id: "bd424c97-01c3-415b-9ca6-58bd86578ad6", name: "Feb 2024" },
+  { id: "cca258aa-5620-4b6b-884e-7573df635785", name: "Mar 2024" },
 ];
 
-const MBC_EXPECTED_GRAND_TOTAL = 3256677.69;
+const MBC_EXPECTED_GRAND_TOTAL = 3245212.64;
 
 interface ProofGate {
   id: string;

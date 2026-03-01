@@ -89,38 +89,38 @@ export async function POST(request: NextRequest) {
     });
 
     // ── Step 2: Normalize data_types ──
-    // Find committed_data rows with component_data: prefix and normalize them
+    // Get distinct prefixed data_types, then UPDATE directly by data_type (avoids row limit)
     console.log(`[Wire] Step 2: Normalizing data_types for tenant ${tenantId}`);
-    const { data: prefixedRows } = await supabase
+    const { data: distinctTypes } = await supabase
       .from('committed_data')
-      .select('id, data_type')
+      .select('data_type')
       .eq('tenant_id', tenantId)
-      .like('data_type', 'component_data:%');
+      .like('data_type', 'component_data:%')
+      .limit(500);
 
-    if (prefixedRows && prefixedRows.length > 0) {
-      // Group by data_type to batch updates
-      const typeMap = new Map<string, string[]>(); // oldDataType → [ids]
-      for (const row of prefixedRows) {
-        const dt = row.data_type as string;
-        if (!typeMap.has(dt)) typeMap.set(dt, []);
-        typeMap.get(dt)!.push(row.id);
-      }
+    if (distinctTypes && distinctTypes.length > 0) {
+      const uniqueTypes = Array.from(new Set(distinctTypes.map(r => r.data_type as string)));
 
-      for (const [oldType, ids] of Array.from(typeMap.entries())) {
+      for (const oldType of uniqueTypes) {
+        // Count rows first (for reporting)
+        const { count: rowCount } = await supabase
+          .from('committed_data')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+          .eq('data_type', oldType);
+
         const rawName = oldType.replace(/^component_data:/, '');
         const normalized = normalizeFileNameToDataType(rawName);
-        console.log(`[Wire]   ${oldType} → ${normalized} (${ids.length} rows)`);
+        console.log(`[Wire]   ${oldType} → ${normalized} (${rowCount || 0} rows)`);
 
-        // Batch update in chunks of 5000
-        const BATCH = 5000;
-        for (let i = 0; i < ids.length; i += BATCH) {
-          const slice = ids.slice(i, i + BATCH);
-          await supabase
-            .from('committed_data')
-            .update({ data_type: normalized })
-            .in('id', slice);
-        }
-        report.dataTypesNormalized += ids.length;
+        // Direct UPDATE by data_type — no row limit issue
+        await supabase
+          .from('committed_data')
+          .update({ data_type: normalized })
+          .eq('tenant_id', tenantId)
+          .eq('data_type', oldType);
+
+        report.dataTypesNormalized += rowCount || 0;
       }
     }
     report.steps.push({
