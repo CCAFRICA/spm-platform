@@ -5,7 +5,6 @@
 // Zero domain vocabulary. Korean Test applies.
 
 import { useEffect, useState, useCallback } from 'react';
-import { cn } from '@/lib/utils';
 import type {
   ContentUnitProposal,
   AgentType,
@@ -64,7 +63,6 @@ export function SCIExecution({
       }))
   );
   const [executionDone, setExecutionDone] = useState(false);
-  const [retrying, setRetrying] = useState(false);
 
   const executeUnits = useCallback(async (unitsToExecute: ExecutionUnit[]) => {
     // Build execution request with full row data
@@ -245,7 +243,6 @@ export function SCIExecution({
   const hasErrors = units.some(u => u.status === 'error');
 
   const handleRetryFailed = async () => {
-    setRetrying(true);
     const failedUnits = units.filter(u => u.status === 'error');
 
     // Reset failed units to pending
@@ -256,7 +253,6 @@ export function SCIExecution({
     setExecutionDone(false);
     await executeUnits(failedUnits);
     setExecutionDone(true);
-    setRetrying(false);
   };
 
   // OB-139: Render via ExecutionProgress
