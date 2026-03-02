@@ -1,0 +1,117 @@
+╔══════════════════════════════════════════════════════════════╗
+║  PLATFORM ARCHITECTURE TRACE                               ║
+║  Domain-Agnostic Infrastructure Proof                      ║
+╚══════════════════════════════════════════════════════════════╝
+Tenant: optica-luminar (Optica Luminar)
+Committed data: 238276 rows
+Timestamp: 2026-02-28T16:50:56.667Z
+
+━━━ LAYER 1: DATA INGESTION INFRASTRUCTURE ━━━
+Question: How did the platform resolve entities and periods?
+
+  [..]  Entity Resolution Method [PARTIAL] KR:FAIL
+     Resolved via column "unknown". Column name may be in hardcoded target list
+
+  [..]  Entity Linkage Coverage [PARTIAL] KR:OK
+     191946/238276 rows linked (80.6%)
+
+  [OK] Period Resolution Coverage [STRUCTURAL] KR:OK
+     238276/238276 rows period-linked (100.0%). 8 periods detected.
+
+  [OK] Semantic data_type Classification [STRUCTURAL] KR:OK
+     1 data_types: [Base_Clientes_Nuevos]. All semantic.
+
+
+━━━ LAYER 2: PLAN INTELLIGENCE INFRASTRUCTURE ━━━
+Question: Are plans interpreted as structural primitives, not domain-specific configs?
+
+  [XX] calculationIntent Coverage [NOT_FIRING] KR:OK
+     0/4 components have calculationIntent. Operations used: []. 1 legacy-only (no intent).
+
+  [OK] Structural Primitive Vocabulary [STRUCTURAL] KR:OK
+     Primitives used: []. Compound operations: NO. postProcessing present: NO.
+
+  [..]  Compound Operation Execution [PARTIAL] KR:OK
+     No compound operations detected.
+
+
+━━━ LAYER 3: CONVERGENCE INFRASTRUCTURE ━━━
+Question: Is convergence structurally matching semantic types, or pattern-matching on field names?
+
+  [XX] input_bindings Coverage [NOT_FIRING] KR:OK
+     0/1 plans have non-empty input_bindings. Methods: []
+
+  [XX] Metric Derivation Rules [NOT_FIRING] KR:OK
+     0 derivation rules. count+filter: 0, sum+field: 0. Rules use structural operations (count, sum) with data-driven parameters.
+
+  [OK] Classification Signal Capture [STRUCTURAL] KR:OK
+     140 signals captured. Types: [training:dashboard_assessment, training:assessment_generated, training:synaptic_density, training:plan_interpretation, training:workbook_analysis, training:field_mapping_second_pass, training:dual_path_concordance]
+
+
+━━━ LAYER 4: CALCULATION ENGINE INFRASTRUCTURE ━━━
+Question: Does the engine use structural primitives, or does it have domain-specific switch cases?
+
+  [OK] Result Coverage [STRUCTURAL] KR:OK
+     3607 results generated (expected max: 8000 = 1 plans x 8 periods x 1000 entities). Non-zero payouts: 2105/3607.
+
+  [..]  Payout Distribution Health [PARTIAL] KR:FAIL
+     Plan de Comisiones Optica Luminar 2026: 12/12 non-zero, total=$20662.00, range=[$349.00, $3348.00] | Imported Plan: 0/988 non-zero, total=$0.00, range=[$0.00, $0.00] SUSPICIOUS: Imported Plan: ALL ZERO
+
+
+━━━ LAYER 5: CODE STRUCTURAL INTEGRITY (Korean Test) ━━━
+Question: Does the foundational code contain domain-specific strings?
+
+  [OK] Calculation Engine Domain Vocab [STRUCTURAL] KR:OK
+     Zero domain vocabulary in calculation engine code (non-comment).
+
+  [OK] Convergence Engine Domain Vocab [STRUCTURAL] KR:OK
+     Zero domain vocabulary in convergence code (non-comment).
+
+  [OK] Hardcoded Field Names in lib/ [STRUCTURAL] KR:OK
+     Zero hardcoded field names in library code.
+
+  [..]  SHEET_COMPONENT_PATTERNS Usage [PARTIAL] KR:FAIL
+     15 references to SHEET_COMPONENT_PATTERNS. Still widely used — convergence should replace more.
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  ARCHITECTURE HEALTH SCORECARD                             ║
+╚══════════════════════════════════════════════════════════════╝
+
+  STRUCTURAL:   8/16 (platform infrastructure working)
+  PARTIAL:      5/16 (working but incomplete)
+  NOT FIRING:   3/16 (infrastructure not activated)
+  DOMAIN LEAK:  0/16 (domain-specific hardcoding detected)
+  KOREAN TEST:  13/16 pass
+
+  ---------------------------------------------------------------------------------
+  | Layer                | Probe                                | Result       | KR |
+  ---------------------------------------------------------------------------------
+  | Ingestion            | Entity Resolution Method             | PARTIAL      | NO |
+  | Ingestion            | Entity Linkage Coverage              | PARTIAL      | OK |
+  | Ingestion            | Period Resolution Coverage           | STRUCTURAL   | OK |
+  | Ingestion            | Semantic data_type Classification    | STRUCTURAL   | OK |
+  | Plan Intelligence    | calculationIntent Coverage           | NOT_FIRING   | OK |
+  | Plan Intelligence    | Structural Primitive Vocabulary      | STRUCTURAL   | OK |
+  | Plan Intelligence    | Compound Operation Execution         | PARTIAL      | OK |
+  | Convergence          | input_bindings Coverage              | NOT_FIRING   | OK |
+  | Convergence          | Metric Derivation Rules              | NOT_FIRING   | OK |
+  | Convergence          | Classification Signal Capture        | STRUCTURAL   | OK |
+  | Calculation          | Result Coverage                      | STRUCTURAL   | OK |
+  | Calculation          | Payout Distribution Health           | PARTIAL      | NO |
+  | Code Integrity       | Calculation Engine Domain Vocab      | STRUCTURAL   | OK |
+  | Code Integrity       | Convergence Engine Domain Vocab      | STRUCTURAL   | OK |
+  | Code Integrity       | Hardcoded Field Names in lib/        | STRUCTURAL   | OK |
+  | Code Integrity       | SHEET_COMPONENT_PATTERNS Usage       | PARTIAL      | NO |
+  ---------------------------------------------------------------------------------
+
+  CRITICAL FINDINGS:
+     Plan Intelligence > calculationIntent Coverage: NOT_FIRING
+       0/4 components have calculationIntent. Operations used: []. 1 legacy-only (no intent).
+     Convergence > input_bindings Coverage: NOT_FIRING
+       0/1 plans have non-empty input_bindings. Methods: []
+     Convergence > Metric Derivation Rules: NOT_FIRING
+       0 derivation rules. count+filter: 0, sum+field: 0. Rules use structural operations (count, sum) with data-driven parameters.
+
+  Grand total payout: $20,662.00
+

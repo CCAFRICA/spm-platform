@@ -1,0 +1,830 @@
+╔══════════════════════════════════════════════════════════════╗
+║  CALCULATION PIPELINE TRACE — FORENSIC EVIDENCE            ║
+╚══════════════════════════════════════════════════════════════╝
+Tenant: mexican-bank-co (Mexican Bank Co)
+Tenant ID: fa6a48c5-56dc-416d-9b7d-9c93d4882251
+Timestamp: 2026-02-28T15:20:47.064Z
+
+━━━ SECTION 1: ENTITY SELECTION ━━━
+Selected entity: Luis (1005)
+  ID: 75d2cfe2-0fad-44e8-98b7-5bb46b13250e
+  Committed data rows: 63
+  Metadata: {"role":"Loan Officer","product_licenses":"Consumer Lending, Insurance"}
+
+━━━ SECTION 2: PLAN ASSIGNMENTS ━━━
+Assigned to 3 plan(s) (of 4 active):
+  - Consumer Lending Commission Plan 2024 (04cb665c)
+    Components: 1
+    Derivation rules: 1
+  - Insurance Referral Program 2024 (5a7947f5)
+    Components: 5
+    Derivation rules: 5
+  - Deposit Growth Incentive — Q1 2024 (354a93b1)
+    Components: 1
+    Derivation rules: 3
+
+━━━ SECTION 3: PERIODS ━━━
+  2023-12 (December 2023): 2023-12-01 -> 2023-12-31  [8382c35d]
+  2024-01 (January 2024): 2024-01-01 -> 2024-01-31  [3b23f5a4]
+  2024-02 (February 2024): 2024-02-01 -> 2024-02-29  [bd424c97]
+  2024-03 (March 2024): 2024-03-01 -> 2024-03-31  [cca258aa]
+
+╔══════════════════════════════════════════════════════════════╗
+║  PLAN: Consumer Lending Commission Plan 2024
+║  ID: 04cb665c-fc92-4634-9177-87520be5f217
+╚══════════════════════════════════════════════════════════════╝
+
+  --- COMPONENT STRUCTURE ---
+  [0] "Loan Disbursement Commission"
+      type: tiered_lookup
+      enabled: UNDEFINED (treated as true)
+      tierConfig: NONE
+      calculationIntent: YES (bounded_lookup_1d)
+      intent: {"input":{"source":"metric","sourceSpec":{"field":"total_loan_disbursement"}},"outputs":[0.008,0.01,0.012],"operation":"bounded_lookup_1d","boundaries":[{"max":499999,"min":0,"maxInclusive":true,"minInclusive":true},{"max":999999,"min":500000,"maxInc
+
+  --- INPUT_BINDINGS ---
+  metric="total_loan_disbursement", op=sum, source="loan_disbursements", field=LoanAmount
+
+  --- PERIOD: 2023-12 (December 2023) ---
+  Committed data rows: 0
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Loan Disbursement Commission"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="bounded_lookup_1d"
+    Expected metric: "total_loan_disbursement"
+    Derivation FOUND for "total_loan_disbursement":
+      Source pattern "loan_disbursements" -> 0 candidate rows
+      SUM(LoanAmount) = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: bounded_lookup_1d
+      input: source("metric")
+      boundaries: [{"max":499999,"min":0,"maxInclusive":true,"minInclusive":true},{"max":999999,"min":500000,"maxInclusive":true,"minInclusive":true},{"max":null,"min":1000000,"maxInclusive":true,"minInclusive":true}]
+      outputs: [0.008,0.01,0.012]
+      isMarginal: UNDEFINED (treated as false)
+      -> returns output[tier] as-is
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.01
+    Loan Disbursement Commission: $0.01 (no type)
+      details: intentOperation=bounded_lookup_1d
+
+  --- PERIOD: 2024-01 (January 2024) ---
+  Committed data rows: 28
+    insurance_referrals: 4 rows
+      date: SUM=181210.67, COUNT=4
+      OfficerID: SUM=4020.00, COUNT=4
+      entity_id: SUM=4020.00, COUNT=4
+      ReferralDate: SUM=181210.67, COUNT=4
+    loan_disbursements: 24 rows
+      date: SUM=1087437.00, COUNT=24
+      OfficerID: SUM=24120.00, COUNT=24
+      entity_id: SUM=24120.00, COUNT=24
+      LoanAmount: SUM=3521981.32, COUNT=24
+      Term_Months: SUM=792.00, COUNT=24
+      InterestRate: SUM=468.30, COUNT=24
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Loan Disbursement Commission"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="bounded_lookup_1d"
+    Expected metric: "total_loan_disbursement"
+    Derivation FOUND for "total_loan_disbursement":
+      Source pattern "loan_disbursements" -> 24 candidate rows
+      SUM(LoanAmount) = 3521981.3200000003
+    -- INTENT EXECUTION TRACE --
+    Operation: bounded_lookup_1d
+      input: source("metric")
+      boundaries: [{"max":499999,"min":0,"maxInclusive":true,"minInclusive":true},{"max":999999,"min":500000,"maxInclusive":true,"minInclusive":true},{"max":null,"min":1000000,"maxInclusive":true,"minInclusive":true}]
+      outputs: [0.008,0.01,0.012]
+      isMarginal: UNDEFINED (treated as false)
+      -> returns output[tier] as-is
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.01
+    Loan Disbursement Commission: $0.01 (no type)
+      details: intentOperation=bounded_lookup_1d
+    metrics (non-zero): date=1268647.67, OfficerID=28140.00, _rowIndex=1843.00, entity_id=28140.00, LoanAmount=3521981.32, Term_Months=792.00, InterestRate=468.30, ReferralDate=181210.67, DisbursementDate=1087437.00
+
+  --- PERIOD: 2024-02 (February 2024) ---
+  Committed data rows: 27
+    insurance_referrals: 5 rows
+      date: SUM=226668.33, COUNT=5
+      OfficerID: SUM=5025.00, COUNT=5
+      entity_id: SUM=5025.00, COUNT=5
+      ReferralDate: SUM=226668.33, COUNT=5
+    loan_disbursements: 22 rows
+      date: SUM=997424.67, COUNT=22
+      OfficerID: SUM=22110.00, COUNT=22
+      entity_id: SUM=22110.00, COUNT=22
+      LoanAmount: SUM=2452796.41, COUNT=22
+      Term_Months: SUM=606.00, COUNT=22
+      InterestRate: SUM=420.80, COUNT=22
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Loan Disbursement Commission"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="bounded_lookup_1d"
+    Expected metric: "total_loan_disbursement"
+    Derivation FOUND for "total_loan_disbursement":
+      Source pattern "loan_disbursements" -> 22 candidate rows
+      SUM(LoanAmount) = 2452796.4099999997
+    -- INTENT EXECUTION TRACE --
+    Operation: bounded_lookup_1d
+      input: source("metric")
+      boundaries: [{"max":499999,"min":0,"maxInclusive":true,"minInclusive":true},{"max":999999,"min":500000,"maxInclusive":true,"minInclusive":true},{"max":null,"min":1000000,"maxInclusive":true,"minInclusive":true}]
+      outputs: [0.008,0.01,0.012]
+      isMarginal: UNDEFINED (treated as false)
+      -> returns output[tier] as-is
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.01
+    Loan Disbursement Commission: $0.01 (no type)
+      details: intentOperation=bounded_lookup_1d
+    metrics (non-zero): date=1224093.00, OfficerID=27135.00, _rowIndex=1923.00, entity_id=27135.00, LoanAmount=2452796.41, Term_Months=606.00, InterestRate=420.80, ReferralDate=226668.33, DisbursementDate=997424.67
+
+  --- PERIOD: 2024-03 (March 2024) ---
+  Committed data rows: 20
+    insurance_referrals: 7 rows
+      date: SUM=317523.79, COUNT=7
+      OfficerID: SUM=7035.00, COUNT=7
+      entity_id: SUM=7035.00, COUNT=7
+      ReferralDate: SUM=317523.79, COUNT=7
+    loan_disbursements: 13 rows
+      date: SUM=589745.00, COUNT=13
+      OfficerID: SUM=13065.00, COUNT=13
+      entity_id: SUM=13065.00, COUNT=13
+      LoanAmount: SUM=1637920.53, COUNT=13
+      Term_Months: SUM=312.00, COUNT=13
+      InterestRate: SUM=249.10, COUNT=13
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Loan Disbursement Commission"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="bounded_lookup_1d"
+    Expected metric: "total_loan_disbursement"
+    Derivation FOUND for "total_loan_disbursement":
+      Source pattern "loan_disbursements" -> 13 candidate rows
+      SUM(LoanAmount) = 1637920.53
+    -- INTENT EXECUTION TRACE --
+    Operation: bounded_lookup_1d
+      input: source("metric")
+      boundaries: [{"max":499999,"min":0,"maxInclusive":true,"minInclusive":true},{"max":999999,"min":500000,"maxInclusive":true,"minInclusive":true},{"max":null,"min":1000000,"maxInclusive":true,"minInclusive":true}]
+      outputs: [0.008,0.01,0.012]
+      isMarginal: UNDEFINED (treated as false)
+      -> returns output[tier] as-is
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.01
+    Loan Disbursement Commission: $0.01 (no type)
+      details: intentOperation=bounded_lookup_1d
+    metrics (non-zero): date=907268.79, OfficerID=20100.00, _rowIndex=1175.00, entity_id=20100.00, LoanAmount=1637920.53, Term_Months=312.00, InterestRate=249.10, ReferralDate=317523.79, DisbursementDate=589745.00
+
+╔══════════════════════════════════════════════════════════════╗
+║  PLAN: Insurance Referral Program 2024
+║  ID: 5a7947f5-d032-40fa-9b26-9ef6f1e44956
+╚══════════════════════════════════════════════════════════════╝
+
+  --- COMPONENT STRUCTURE ---
+  [0] "Term Life Insurance Referrals"
+      type: flat_percentage
+      enabled: UNDEFINED (treated as true)
+      tierConfig: NONE
+      calculationIntent: YES (scalar_multiply)
+      intent: {"rate":850,"input":{"source":"metric","sourceSpec":{"field":"qualified_term_life_referrals"}},"operation":"scalar_multiply"}
+
+  [1] "Auto Insurance Referrals"
+      type: flat_percentage
+      enabled: UNDEFINED (treated as true)
+      tierConfig: NONE
+      calculationIntent: YES (scalar_multiply)
+      intent: {"rate":450,"input":{"source":"metric","sourceSpec":{"field":"qualified_auto_referrals"}},"operation":"scalar_multiply"}
+
+  [2] "Home Insurance Referrals"
+      type: flat_percentage
+      enabled: UNDEFINED (treated as true)
+      tierConfig: NONE
+      calculationIntent: YES (scalar_multiply)
+      intent: {"rate":650,"input":{"source":"metric","sourceSpec":{"field":"qualified_home_referrals"}},"operation":"scalar_multiply"}
+
+  [3] "Health Insurance Referrals"
+      type: tiered_lookup
+      enabled: UNDEFINED (treated as true)
+      tierConfig: NONE
+      calculationIntent: YES (conditional_gate)
+      intent: {"onTrue":{"rate":1200,"input":{"source":"metric","sourceSpec":{"field":"qualified_health_referrals"}},"operation":"scalar_multiply"},"onFalse":{"value":18000,"operation":"constant"},"condition":{"left":{"source":"metric","sourceSpec":{"field":"quali
+
+  [4] "SME Business Insurance Referrals"
+      type: tiered_lookup
+      enabled: UNDEFINED (treated as true)
+      tierConfig: NONE
+      calculationIntent: YES (conditional_gate)
+      intent: {"onTrue":{"rate":1500,"input":{"source":"metric","sourceSpec":{"field":"qualified_sme_referrals"}},"operation":"scalar_multiply"},"onFalse":{"value":15000,"operation":"constant"},"condition":{"left":{"source":"metric","sourceSpec":{"field":"qualifie
+
+  --- INPUT_BINDINGS ---
+  metric="qualified_term_life_referrals", op=count, source="insurance_referrals", WHERE ProductNameeqTerm Life AND QualifiedeqYes
+  metric="qualified_auto_referrals", op=count, source="insurance_referrals", WHERE ProductNameeqAuto Bundle AND QualifiedeqYes
+  metric="qualified_home_referrals", op=count, source="insurance_referrals", WHERE ProductNameeqHome Insurance AND QualifiedeqYes
+  metric="qualified_health_referrals", op=count, source="insurance_referrals", WHERE ProductNameeqHealth Insurance AND QualifiedeqYes
+  metric="qualified_sme_referrals", op=count, source="insurance_referrals", WHERE ProductNameeqSME Business AND QualifiedeqYes
+
+  --- PERIOD: 2023-12 (December 2023) ---
+  Committed data rows: 0
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Term Life Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_term_life_referrals"
+    Derivation FOUND for "qualified_term_life_referrals":
+      Source pattern "insurance_referrals" -> 0 candidate rows
+      Filter ProductName=Term Life: 0 -> 0 rows
+      Filter Qualified=Yes: 0 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 850 (literal)
+      -> result = input * rate
+
+  Component [1]: "Auto Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_auto_referrals"
+    Derivation FOUND for "qualified_auto_referrals":
+      Source pattern "insurance_referrals" -> 0 candidate rows
+      Filter ProductName=Auto Bundle: 0 -> 0 rows
+      Filter Qualified=Yes: 0 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 450 (literal)
+      -> result = input * rate
+
+  Component [2]: "Home Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_home_referrals"
+    Derivation FOUND for "qualified_home_referrals":
+      Source pattern "insurance_referrals" -> 0 candidate rows
+      Filter ProductName=Home Insurance: 0 -> 0 rows
+      Filter Qualified=Yes: 0 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 650 (literal)
+      -> result = input * rate
+
+  Component [3]: "Health Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="conditional_gate"
+    Expected metric: "qualified_health_referrals"
+    Derivation FOUND for "qualified_health_referrals":
+      Source pattern "insurance_referrals" -> 0 candidate rows
+      Filter ProductName=Health Insurance: 0 -> 0 rows
+      Filter Qualified=Yes: 0 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: conditional_gate
+      condition: {"left":{"source":"metric","sourceSpec":{"field":"qualified_health_referrals"}},"right":{"value":15,"source":"constant"},"operator":"<="}
+      pass: UNDEFINED
+      fail: UNDEFINED
+
+  Component [4]: "SME Business Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="conditional_gate"
+    Expected metric: "qualified_sme_referrals"
+    Derivation FOUND for "qualified_sme_referrals":
+      Source pattern "insurance_referrals" -> 0 candidate rows
+      Filter ProductName=SME Business: 0 -> 0 rows
+      Filter Qualified=Yes: 0 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: conditional_gate
+      condition: {"left":{"source":"metric","sourceSpec":{"field":"qualified_sme_referrals"}},"right":{"value":10,"source":"constant"},"operator":"<="}
+      pass: UNDEFINED
+      fail: UNDEFINED
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.00
+    Term Life Insurance Referrals: $0.00 (no type)
+    Auto Insurance Referrals: $0.00 (no type)
+    Home Insurance Referrals: $0.00 (no type)
+    Health Insurance Referrals: $0.00 (no type)
+    SME Business Insurance Referrals: $0.00 (no type)
+
+  --- PERIOD: 2024-01 (January 2024) ---
+  Committed data rows: 28
+    insurance_referrals: 4 rows
+      date: SUM=181210.67, COUNT=4
+      OfficerID: SUM=4020.00, COUNT=4
+      entity_id: SUM=4020.00, COUNT=4
+      ReferralDate: SUM=181210.67, COUNT=4
+    loan_disbursements: 24 rows
+      date: SUM=1087437.00, COUNT=24
+      OfficerID: SUM=24120.00, COUNT=24
+      entity_id: SUM=24120.00, COUNT=24
+      LoanAmount: SUM=3521981.32, COUNT=24
+      Term_Months: SUM=792.00, COUNT=24
+      InterestRate: SUM=468.30, COUNT=24
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Term Life Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_term_life_referrals"
+    Derivation FOUND for "qualified_term_life_referrals":
+      Source pattern "insurance_referrals" -> 4 candidate rows
+      Filter ProductName=Term Life: 4 -> 1 rows
+      Filter Qualified=Yes: 1 -> 1 rows
+      COUNT = 1
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 850 (literal)
+      -> result = input * rate
+
+  Component [1]: "Auto Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_auto_referrals"
+    Derivation FOUND for "qualified_auto_referrals":
+      Source pattern "insurance_referrals" -> 4 candidate rows
+      Filter ProductName=Auto Bundle: 4 -> 1 rows
+      Filter Qualified=Yes: 1 -> 1 rows
+      COUNT = 1
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 450 (literal)
+      -> result = input * rate
+
+  Component [2]: "Home Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_home_referrals"
+    Derivation FOUND for "qualified_home_referrals":
+      Source pattern "insurance_referrals" -> 4 candidate rows
+      Filter ProductName=Home Insurance: 4 -> 0 rows
+      Filter Qualified=Yes: 0 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 650 (literal)
+      -> result = input * rate
+
+  Component [3]: "Health Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="conditional_gate"
+    Expected metric: "qualified_health_referrals"
+    Derivation FOUND for "qualified_health_referrals":
+      Source pattern "insurance_referrals" -> 4 candidate rows
+      Filter ProductName=Health Insurance: 4 -> 1 rows
+      Filter Qualified=Yes: 1 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: conditional_gate
+      condition: {"left":{"source":"metric","sourceSpec":{"field":"qualified_health_referrals"}},"right":{"value":15,"source":"constant"},"operator":"<="}
+      pass: UNDEFINED
+      fail: UNDEFINED
+
+  Component [4]: "SME Business Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="conditional_gate"
+    Expected metric: "qualified_sme_referrals"
+    Derivation FOUND for "qualified_sme_referrals":
+      Source pattern "insurance_referrals" -> 4 candidate rows
+      Filter ProductName=SME Business: 4 -> 1 rows
+      Filter Qualified=Yes: 1 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: conditional_gate
+      condition: {"left":{"source":"metric","sourceSpec":{"field":"qualified_sme_referrals"}},"right":{"value":10,"source":"constant"},"operator":"<="}
+      pass: UNDEFINED
+      fail: UNDEFINED
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.00
+    Term Life Insurance Referrals: $0.00 (no type)
+    Auto Insurance Referrals: $0.00 (no type)
+    Home Insurance Referrals: $0.00 (no type)
+    Health Insurance Referrals: $0.00 (no type)
+    SME Business Insurance Referrals: $0.00 (no type)
+    metrics (non-zero): date=1268647.67, OfficerID=28140.00, _rowIndex=1843.00, entity_id=28140.00, LoanAmount=3521981.32, Term_Months=792.00, InterestRate=468.30, ReferralDate=181210.67, DisbursementDate=1087437.00
+
+  --- PERIOD: 2024-02 (February 2024) ---
+  Committed data rows: 27
+    insurance_referrals: 5 rows
+      date: SUM=226668.33, COUNT=5
+      OfficerID: SUM=5025.00, COUNT=5
+      entity_id: SUM=5025.00, COUNT=5
+      ReferralDate: SUM=226668.33, COUNT=5
+    loan_disbursements: 22 rows
+      date: SUM=997424.67, COUNT=22
+      OfficerID: SUM=22110.00, COUNT=22
+      entity_id: SUM=22110.00, COUNT=22
+      LoanAmount: SUM=2452796.41, COUNT=22
+      Term_Months: SUM=606.00, COUNT=22
+      InterestRate: SUM=420.80, COUNT=22
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Term Life Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_term_life_referrals"
+    Derivation FOUND for "qualified_term_life_referrals":
+      Source pattern "insurance_referrals" -> 5 candidate rows
+      Filter ProductName=Term Life: 5 -> 2 rows
+      Filter Qualified=Yes: 2 -> 2 rows
+      COUNT = 2
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 850 (literal)
+      -> result = input * rate
+
+  Component [1]: "Auto Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_auto_referrals"
+    Derivation FOUND for "qualified_auto_referrals":
+      Source pattern "insurance_referrals" -> 5 candidate rows
+      Filter ProductName=Auto Bundle: 5 -> 1 rows
+      Filter Qualified=Yes: 1 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 450 (literal)
+      -> result = input * rate
+
+  Component [2]: "Home Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_home_referrals"
+    Derivation FOUND for "qualified_home_referrals":
+      Source pattern "insurance_referrals" -> 5 candidate rows
+      Filter ProductName=Home Insurance: 5 -> 1 rows
+      Filter Qualified=Yes: 1 -> 1 rows
+      COUNT = 1
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 650 (literal)
+      -> result = input * rate
+
+  Component [3]: "Health Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="conditional_gate"
+    Expected metric: "qualified_health_referrals"
+    Derivation FOUND for "qualified_health_referrals":
+      Source pattern "insurance_referrals" -> 5 candidate rows
+      Filter ProductName=Health Insurance: 5 -> 1 rows
+      Filter Qualified=Yes: 1 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: conditional_gate
+      condition: {"left":{"source":"metric","sourceSpec":{"field":"qualified_health_referrals"}},"right":{"value":15,"source":"constant"},"operator":"<="}
+      pass: UNDEFINED
+      fail: UNDEFINED
+
+  Component [4]: "SME Business Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="conditional_gate"
+    Expected metric: "qualified_sme_referrals"
+    Derivation FOUND for "qualified_sme_referrals":
+      Source pattern "insurance_referrals" -> 5 candidate rows
+      Filter ProductName=SME Business: 5 -> 0 rows
+      Filter Qualified=Yes: 0 -> 0 rows
+      COUNT = 0
+    -- INTENT EXECUTION TRACE --
+    Operation: conditional_gate
+      condition: {"left":{"source":"metric","sourceSpec":{"field":"qualified_sme_referrals"}},"right":{"value":10,"source":"constant"},"operator":"<="}
+      pass: UNDEFINED
+      fail: UNDEFINED
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.00
+    Term Life Insurance Referrals: $0.00 (no type)
+    Auto Insurance Referrals: $0.00 (no type)
+    Home Insurance Referrals: $0.00 (no type)
+    Health Insurance Referrals: $0.00 (no type)
+    SME Business Insurance Referrals: $0.00 (no type)
+    metrics (non-zero): date=1224093.00, OfficerID=27135.00, _rowIndex=1923.00, entity_id=27135.00, LoanAmount=2452796.41, Term_Months=606.00, InterestRate=420.80, ReferralDate=226668.33, DisbursementDate=997424.67
+
+  --- PERIOD: 2024-03 (March 2024) ---
+  Committed data rows: 20
+    insurance_referrals: 7 rows
+      date: SUM=317523.79, COUNT=7
+      OfficerID: SUM=7035.00, COUNT=7
+      entity_id: SUM=7035.00, COUNT=7
+      ReferralDate: SUM=317523.79, COUNT=7
+    loan_disbursements: 13 rows
+      date: SUM=589745.00, COUNT=13
+      OfficerID: SUM=13065.00, COUNT=13
+      entity_id: SUM=13065.00, COUNT=13
+      LoanAmount: SUM=1637920.53, COUNT=13
+      Term_Months: SUM=312.00, COUNT=13
+      InterestRate: SUM=249.10, COUNT=13
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Term Life Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_term_life_referrals"
+    Derivation FOUND for "qualified_term_life_referrals":
+      Source pattern "insurance_referrals" -> 7 candidate rows
+      Filter ProductName=Term Life: 7 -> 1 rows
+      Filter Qualified=Yes: 1 -> 1 rows
+      COUNT = 1
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 850 (literal)
+      -> result = input * rate
+
+  Component [1]: "Auto Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_auto_referrals"
+    Derivation FOUND for "qualified_auto_referrals":
+      Source pattern "insurance_referrals" -> 7 candidate rows
+      Filter ProductName=Auto Bundle: 7 -> 1 rows
+      Filter Qualified=Yes: 1 -> 1 rows
+      COUNT = 1
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 450 (literal)
+      -> result = input * rate
+
+  Component [2]: "Home Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "flat_percentage"
+    Intent path: operation="scalar_multiply"
+    Expected metric: "qualified_home_referrals"
+    Derivation FOUND for "qualified_home_referrals":
+      Source pattern "insurance_referrals" -> 7 candidate rows
+      Filter ProductName=Home Insurance: 7 -> 1 rows
+      Filter Qualified=Yes: 1 -> 1 rows
+      COUNT = 1
+    -- INTENT EXECUTION TRACE --
+    Operation: scalar_multiply
+      input: source("metric")
+      rate: 650 (literal)
+      -> result = input * rate
+
+  Component [3]: "Health Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="conditional_gate"
+    Expected metric: "qualified_health_referrals"
+    Derivation FOUND for "qualified_health_referrals":
+      Source pattern "insurance_referrals" -> 7 candidate rows
+      Filter ProductName=Health Insurance: 7 -> 1 rows
+      Filter Qualified=Yes: 1 -> 1 rows
+      COUNT = 1
+    -- INTENT EXECUTION TRACE --
+    Operation: conditional_gate
+      condition: {"left":{"source":"metric","sourceSpec":{"field":"qualified_health_referrals"}},"right":{"value":15,"source":"constant"},"operator":"<="}
+      pass: UNDEFINED
+      fail: UNDEFINED
+
+  Component [4]: "SME Business Insurance Referrals"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="conditional_gate"
+    Expected metric: "qualified_sme_referrals"
+    Derivation FOUND for "qualified_sme_referrals":
+      Source pattern "insurance_referrals" -> 7 candidate rows
+      Filter ProductName=SME Business: 7 -> 3 rows
+      Filter Qualified=Yes: 3 -> 2 rows
+      COUNT = 2
+    -- INTENT EXECUTION TRACE --
+    Operation: conditional_gate
+      condition: {"left":{"source":"metric","sourceSpec":{"field":"qualified_sme_referrals"}},"right":{"value":10,"source":"constant"},"operator":"<="}
+      pass: UNDEFINED
+      fail: UNDEFINED
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.00
+    Term Life Insurance Referrals: $0.00 (no type)
+    Auto Insurance Referrals: $0.00 (no type)
+    Home Insurance Referrals: $0.00 (no type)
+    Health Insurance Referrals: $0.00 (no type)
+    SME Business Insurance Referrals: $0.00 (no type)
+    metrics (non-zero): date=907268.79, OfficerID=20100.00, _rowIndex=1175.00, entity_id=20100.00, LoanAmount=1637920.53, Term_Months=312.00, InterestRate=249.10, ReferralDate=317523.79, DisbursementDate=589745.00
+
+╔══════════════════════════════════════════════════════════════╗
+║  PLAN: Deposit Growth Incentive — Q1 2024
+║  ID: 354a93b1-59c6-4fbd-bf09-71fd7927bd07
+╚══════════════════════════════════════════════════════════════╝
+
+  --- COMPONENT STRUCTURE ---
+  [0] "Deposit Growth Attainment Incentive"
+      type: tiered_lookup
+      enabled: UNDEFINED (treated as true)
+      tierConfig: NONE
+      calculationIntent: YES (bounded_lookup_1d)
+      intent: {"input":{"source":"ratio","sourceSpec":{"numerator":"actual_deposit_growth","denominator":"target_deposit_growth"}},"outputs":[0,5000,10000,18000],"operation":"bounded_lookup_1d","boundaries":[{"max":79.999,"min":0,"maxInclusive":true,"minInclusive"
+
+  --- INPUT_BINDINGS ---
+  metric="deposit_growth_attainment", op=sum, source="deposit_balances", field=TotalDepositBalance
+  metric="actual_deposit_growth", op=sum, source="deposit_balances", field=TotalDepositBalance
+  metric="target_deposit_growth", op=sum, source="deposit_balances", field=TotalDepositBalance
+
+  --- PERIOD: 2023-12 (December 2023) ---
+  Committed data rows: 0
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Deposit Growth Attainment Incentive"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="bounded_lookup_1d"
+    Expected metric: "UNKNOWN"
+    Derivation: NONE for "UNKNOWN"
+    Field "UNKNOWN" NOT found in any data_type
+    -- INTENT EXECUTION TRACE --
+    Operation: bounded_lookup_1d
+      input: source("ratio")
+      boundaries: [{"max":79.999,"min":0,"maxInclusive":true,"minInclusive":true},{"max":99.999,"min":80,"maxInclusive":true,"minInclusive":true},{"max":119.999,"min":100,"maxInclusive":true,"minInclusive":true},{"max":null,"min":120,"maxInclusive":true,"minInclusive":true}]
+      outputs: [0,5000,10000,18000]
+      isMarginal: UNDEFINED (treated as false)
+      -> returns output[tier] as-is
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.00
+    Deposit Growth Attainment Incentive: $0.00 (no type)
+
+  --- PERIOD: 2024-01 (January 2024) ---
+  Committed data rows: 28
+    insurance_referrals: 4 rows
+      date: SUM=181210.67, COUNT=4
+      OfficerID: SUM=4020.00, COUNT=4
+      entity_id: SUM=4020.00, COUNT=4
+      ReferralDate: SUM=181210.67, COUNT=4
+    loan_disbursements: 24 rows
+      date: SUM=1087437.00, COUNT=24
+      OfficerID: SUM=24120.00, COUNT=24
+      entity_id: SUM=24120.00, COUNT=24
+      LoanAmount: SUM=3521981.32, COUNT=24
+      Term_Months: SUM=792.00, COUNT=24
+      InterestRate: SUM=468.30, COUNT=24
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Deposit Growth Attainment Incentive"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="bounded_lookup_1d"
+    Expected metric: "UNKNOWN"
+    Derivation: NONE for "UNKNOWN"
+    Field "UNKNOWN" NOT found in any data_type
+    -- INTENT EXECUTION TRACE --
+    Operation: bounded_lookup_1d
+      input: source("ratio")
+      boundaries: [{"max":79.999,"min":0,"maxInclusive":true,"minInclusive":true},{"max":99.999,"min":80,"maxInclusive":true,"minInclusive":true},{"max":119.999,"min":100,"maxInclusive":true,"minInclusive":true},{"max":null,"min":120,"maxInclusive":true,"minInclusive":true}]
+      outputs: [0,5000,10000,18000]
+      isMarginal: UNDEFINED (treated as false)
+      -> returns output[tier] as-is
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.00
+    Deposit Growth Attainment Incentive: $0.00 (no type)
+    metrics (non-zero): date=1268647.67, OfficerID=28140.00, _rowIndex=1843.00, entity_id=28140.00, LoanAmount=3521981.32, Term_Months=792.00, InterestRate=468.30, ReferralDate=181210.67, DisbursementDate=1087437.00
+
+  --- PERIOD: 2024-02 (February 2024) ---
+  Committed data rows: 27
+    insurance_referrals: 5 rows
+      date: SUM=226668.33, COUNT=5
+      OfficerID: SUM=5025.00, COUNT=5
+      entity_id: SUM=5025.00, COUNT=5
+      ReferralDate: SUM=226668.33, COUNT=5
+    loan_disbursements: 22 rows
+      date: SUM=997424.67, COUNT=22
+      OfficerID: SUM=22110.00, COUNT=22
+      entity_id: SUM=22110.00, COUNT=22
+      LoanAmount: SUM=2452796.41, COUNT=22
+      Term_Months: SUM=606.00, COUNT=22
+      InterestRate: SUM=420.80, COUNT=22
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Deposit Growth Attainment Incentive"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="bounded_lookup_1d"
+    Expected metric: "UNKNOWN"
+    Derivation: NONE for "UNKNOWN"
+    Field "UNKNOWN" NOT found in any data_type
+    -- INTENT EXECUTION TRACE --
+    Operation: bounded_lookup_1d
+      input: source("ratio")
+      boundaries: [{"max":79.999,"min":0,"maxInclusive":true,"minInclusive":true},{"max":99.999,"min":80,"maxInclusive":true,"minInclusive":true},{"max":119.999,"min":100,"maxInclusive":true,"minInclusive":true},{"max":null,"min":120,"maxInclusive":true,"minInclusive":true}]
+      outputs: [0,5000,10000,18000]
+      isMarginal: UNDEFINED (treated as false)
+      -> returns output[tier] as-is
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.00
+    Deposit Growth Attainment Incentive: $0.00 (no type)
+    metrics (non-zero): date=1224093.00, OfficerID=27135.00, _rowIndex=1923.00, entity_id=27135.00, LoanAmount=2452796.41, Term_Months=606.00, InterestRate=420.80, ReferralDate=226668.33, DisbursementDate=997424.67
+
+  --- PERIOD: 2024-03 (March 2024) ---
+  Committed data rows: 20
+    insurance_referrals: 7 rows
+      date: SUM=317523.79, COUNT=7
+      OfficerID: SUM=7035.00, COUNT=7
+      entity_id: SUM=7035.00, COUNT=7
+      ReferralDate: SUM=317523.79, COUNT=7
+    loan_disbursements: 13 rows
+      date: SUM=589745.00, COUNT=13
+      OfficerID: SUM=13065.00, COUNT=13
+      entity_id: SUM=13065.00, COUNT=13
+      LoanAmount: SUM=1637920.53, COUNT=13
+      Term_Months: SUM=312.00, COUNT=13
+      InterestRate: SUM=249.10, COUNT=13
+
+  -- METRIC RESOLUTION --
+  Component [0]: "Deposit Growth Attainment Incentive"
+    Legacy path: tierConfig.metric=UNDEFINED -> evaluator returns $0
+    componentType: "tiered_lookup"
+    Intent path: operation="bounded_lookup_1d"
+    Expected metric: "UNKNOWN"
+    Derivation: NONE for "UNKNOWN"
+    Field "UNKNOWN" NOT found in any data_type
+    -- INTENT EXECUTION TRACE --
+    Operation: bounded_lookup_1d
+      input: source("ratio")
+      boundaries: [{"max":79.999,"min":0,"maxInclusive":true,"minInclusive":true},{"max":99.999,"min":80,"maxInclusive":true,"minInclusive":true},{"max":119.999,"min":100,"maxInclusive":true,"minInclusive":true},{"max":null,"min":120,"maxInclusive":true,"minInclusive":true}]
+      outputs: [0,5000,10000,18000]
+      isMarginal: UNDEFINED (treated as false)
+      -> returns output[tier] as-is
+
+  -- STORED CALCULATION RESULT --
+  total_payout: $0.00
+    Deposit Growth Attainment Incentive: $0.00 (no type)
+    metrics (non-zero): date=907268.79, OfficerID=20100.00, _rowIndex=1175.00, entity_id=20100.00, LoanAmount=1637920.53, Term_Months=312.00, InterestRate=249.10, ReferralDate=317523.79, DisbursementDate=589745.00
+
+━━━ SECTION 5: ENTITY SUMMARY ━━━
+  Deposit Growth Incentive — Q1 2024 | 2024-03 | $0.00
+  Consumer Lending Commission Plan 2024 | 2023-12 | $0.01
+  Consumer Lending Commission Plan 2024 | 2024-01 | $0.01
+  Consumer Lending Commission Plan 2024 | 2024-02 | $0.01
+  Consumer Lending Commission Plan 2024 | 2024-03 | $0.01
+  Insurance Referral Program 2024 | 2023-12 | $0.00
+  Deposit Growth Incentive — Q1 2024 | 2023-12 | $0.00
+  Insurance Referral Program 2024 | 2024-01 | $0.00
+  Insurance Referral Program 2024 | 2024-02 | $0.00
+  Insurance Referral Program 2024 | 2024-03 | $0.00
+  Deposit Growth Incentive — Q1 2024 | 2024-01 | $0.00
+  Deposit Growth Incentive — Q1 2024 | 2024-02 | $0.00
+  Deposit Growth Incentive — Q1 2024 | 2024-03 | $0.00
+  Consumer Lending Commission Plan 2024 | 2024-03 | $19655.05
+  Consumer Lending Commission Plan 2024 | 2024-03 | $19655.05
+  Insurance Referral Program 2024 | 2024-03 | $6150.00
+  Deposit Growth Incentive — Q1 2024 | 2024-03 | $0.00
+  Consumer Lending Commission Plan 2024 | 2024-03 | $19655.05
+  Consumer Lending Commission Plan 2024 | 2024-03 | $19655.05
+  Insurance Referral Program 2024 | 2024-03 | $6150.00
+  Deposit Growth Incentive — Q1 2024 | 2024-03 | $0.00
+  Consumer Lending Commission Plan 2024 | 2023-12 | $0.00
+  Consumer Lending Commission Plan 2024 | 2024-01 | $42263.78
+  Consumer Lending Commission Plan 2024 | 2024-02 | $29433.56
+  Consumer Lending Commission Plan 2024 | 2024-03 | $19655.05
+  Insurance Referral Program 2024 | 2023-12 | $0.00
+  Deposit Growth Incentive — Q1 2024 | 2024-02 | $0.00
+  Insurance Referral Program 2024 | 2024-01 | $1300.00
+  Insurance Referral Program 2024 | 2024-02 | $2350.00
+  Insurance Referral Program 2024 | 2024-03 | $6150.00
+  Deposit Growth Incentive — Q1 2024 | 2023-12 | $0.00
+  Deposit Growth Incentive — Q1 2024 | 2024-01 | $0.00
+  ENTITY TOTAL: $192072.63
+  GRAND TOTAL (all entities): $7750590.55
+  This entity = 2.5% of total
+
+╔══════════════════════════════════════════════════════════════╗
+║  TRACE COMPLETE                                            ║
+╚══════════════════════════════════════════════════════════════╝
