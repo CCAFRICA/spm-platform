@@ -22,6 +22,11 @@ import type {
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 const ROLE_TARGETS = ['role', 'position', 'puesto', 'title', 'cargo'];
 
+// Semantic roles that indicate date/period fields (Korean Test: no field name references)
+const DATE_SEMANTIC_ROLES = new Set([
+  'transaction_date', 'period_marker', 'event_timestamp',
+]);
+
 // Normalize filename to semantic data_type (same logic as import/commit)
 function normalizeFileNameToDataType(fn: string): string {
   let stem = fn.replace(/\.[^.]+$/, '');
@@ -325,6 +330,9 @@ async function executeTargetPipeline(
 
   console.log(`[SCI Execute] Target: ${totalInserted} rows committed, data_type=${dataType}`);
 
+  // Detect and create periods from date fields in the imported data
+  await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
+
   // Trigger convergence re-run for all active rule_sets
   const { data: ruleSets } = await supabase
     .from('rule_sets')
@@ -513,6 +521,9 @@ async function executeTransactionPipeline(
   }).eq('id', batchId);
 
   console.log(`[SCI Execute] Transaction: ${totalInserted} rows committed, data_type=${dataType}`);
+
+  // Detect and create periods from date fields in the imported data
+  await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
 
   // Trigger convergence re-run for all active rule_sets (same as target pipeline)
   const { data: ruleSets } = await supabase
@@ -848,4 +859,148 @@ async function executePlanPipeline(
     rowsProcessed: componentCount,
     pipeline: 'plan-interpretation',
   };
+}
+
+// ============================================================
+// PERIOD DETECTION — extract periods from imported data
+// Uses semantic roles (not field names) to find date columns.
+// Korean Test: zero hardcoded field names.
+// ============================================================
+
+async function detectAndCreatePeriods(
+  supabase: SupabaseClient,
+  tenantId: string,
+  unit: ContentUnitExecution,
+  importBatchId: string,
+): Promise<string[]> {
+  // Find date fields via semantic roles
+  const dateBindings = unit.confirmedBindings.filter(
+    b => DATE_SEMANTIC_ROLES.has(b.semanticRole)
+  );
+  if (dateBindings.length === 0) return [];
+
+  // Extract unique year-month combinations from the data
+  const periodMap = new Map<string, { year: number; month: number; count: number }>();
+
+  for (const row of unit.rawData) {
+    for (const binding of dateBindings) {
+      const val = row[binding.sourceField];
+      const parsed = parseDateValue(val);
+      if (parsed) {
+        const key = `${parsed.year}-${String(parsed.month).padStart(2, '0')}`;
+        const existing = periodMap.get(key);
+        if (existing) {
+          existing.count++;
+        } else {
+          periodMap.set(key, { year: parsed.year, month: parsed.month, count: 1 });
+        }
+      }
+    }
+  }
+
+  if (periodMap.size === 0) return [];
+
+  // Fetch existing periods for this tenant to avoid duplicates
+  const { data: existingPeriods } = await supabase
+    .from('periods')
+    .select('id, canonical_key')
+    .eq('tenant_id', tenantId);
+
+  const existingKeys = new Set((existingPeriods || []).map(p => p.canonical_key));
+  const createdPeriodIds: string[] = [];
+
+  // Create missing periods
+  const newPeriods: Array<{
+    id: string; tenant_id: string; label: string; period_type: string;
+    status: string; start_date: string; end_date: string; canonical_key: string;
+    metadata: Record<string, unknown>;
+  }> = [];
+
+  for (const [key, data] of Array.from(periodMap.entries())) {
+    if (existingKeys.has(key)) {
+      // Period already exists — find its ID
+      const existing = existingPeriods?.find(p => p.canonical_key === key);
+      if (existing) createdPeriodIds.push(existing.id);
+      continue;
+    }
+
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    const lastDay = new Date(data.year, data.month, 0).getDate();
+    const periodId = crypto.randomUUID();
+
+    newPeriods.push({
+      id: periodId,
+      tenant_id: tenantId,
+      label: `${monthNames[data.month - 1]} ${data.year}`,
+      period_type: 'monthly',
+      status: 'active',
+      start_date: `${data.year}-${String(data.month).padStart(2, '0')}-01`,
+      end_date: `${data.year}-${String(data.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+      canonical_key: key,
+      metadata: { source: 'sci', importBatchId, recordCount: data.count },
+    });
+
+    createdPeriodIds.push(periodId);
+  }
+
+  if (newPeriods.length > 0) {
+    const { error: periodErr } = await supabase
+      .from('periods')
+      .insert(newPeriods);
+
+    if (periodErr) {
+      console.error('[SCI Execute] Period creation failed:', periodErr);
+      return createdPeriodIds.filter(id =>
+        (existingPeriods || []).some(p => p.id === id)
+      );
+    }
+
+    console.log(`[SCI Execute] Created ${newPeriods.length} periods from data: ${newPeriods.map(p => p.canonical_key).join(', ')}`);
+  }
+
+  return createdPeriodIds;
+}
+
+/**
+ * Parse a date value from row data into year/month.
+ * Handles: Excel serial dates, ISO strings, Date objects, numeric year values.
+ * AP-22: Validates year is within reasonable range.
+ */
+function parseDateValue(value: unknown): { year: number; month: number } | null {
+  if (value == null) return null;
+
+  // Excel serial dates (25569 = Jan 1 1970 in Excel serial)
+  if (typeof value === 'number' && value > 25000 && value < 100000) {
+    const date = new Date((value - 25569) * 86400 * 1000);
+    if (!isNaN(date.getTime())) {
+      const y = date.getUTCFullYear();
+      // AP-22: Validate year range
+      if (y >= 2000 && y <= 2100) {
+        return { year: y, month: date.getUTCMonth() + 1 };
+      }
+    }
+    return null;
+  }
+
+  // Numeric year only
+  if (typeof value === 'number' && value >= 2000 && value <= 2100) {
+    return { year: value, month: 1 };
+  }
+
+  // String dates
+  const str = String(value).trim();
+  if (!str) return null;
+
+  const dateObj = new Date(str);
+  if (!isNaN(dateObj.getTime())) {
+    const y = dateObj.getFullYear();
+    if (y >= 2000 && y <= 2100) {
+      return { year: y, month: dateObj.getMonth() + 1 };
+    }
+  }
+
+  return null;
 }
