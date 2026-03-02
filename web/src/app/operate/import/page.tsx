@@ -188,6 +188,7 @@ export default function OperateImportPage() {
 
     const fetchEnrichment = async () => {
       try {
+        // Fetch plan readiness data (plan name, entity count)
         const res = await fetch(`/api/plan-readiness?tenantId=${tenantId}`);
         if (res.ok) {
           const data = await res.json();
