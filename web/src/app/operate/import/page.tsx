@@ -48,34 +48,60 @@ export default function OperateImportPage() {
     setErrorMessage(null);
 
     try {
-      // Build analysis payload — use sample rows for analysis, keep full data for execution
-      const analysisFiles = files.map(f => ({
-        fileName: f.parsedData.fileName,
-        sheets: f.parsedData.sheets.map(s => ({
-          sheetName: s.sheetName,
-          columns: s.columns,
-          rows: s.rows.slice(0, ANALYSIS_SAMPLE_SIZE), // Sample for analysis
-          totalRowCount: s.totalRowCount,
-        })),
-      }));
-
       // Store full data for execution
       if (files.length > 0) {
         rawDataRef.current = files[0].parsedData;
       }
 
-      const res = await fetch('/api/import/sci/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, files: analysisFiles }),
-      });
+      const firstFile = files[0];
+      const isDocument = !!firstFile?.parsedData.documentBase64;
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Analysis failed' }));
-        throw new Error(err.error || `Analysis failed (${res.status})`);
+      let proposal: SCIProposal;
+
+      if (isDocument) {
+        // OB-133: Document formats (PDF/PPTX/DOCX) → analyze-document API
+        const res = await fetch('/api/import/sci/analyze-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            fileName: firstFile.parsedData.fileName,
+            fileBase64: firstFile.parsedData.documentBase64,
+            mimeType: firstFile.parsedData.documentMimeType,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Document analysis failed' }));
+          throw new Error(err.error || `Document analysis failed (${res.status})`);
+        }
+
+        proposal = await res.json();
+      } else {
+        // Tabular formats (XLSX/CSV/TSV) → existing analyze API
+        const analysisFiles = files.map(f => ({
+          fileName: f.parsedData.fileName,
+          sheets: f.parsedData.sheets.map(s => ({
+            sheetName: s.sheetName,
+            columns: s.columns,
+            rows: s.rows.slice(0, ANALYSIS_SAMPLE_SIZE),
+            totalRowCount: s.totalRowCount,
+          })),
+        }));
+
+        const res = await fetch('/api/import/sci/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, files: analysisFiles }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Analysis failed' }));
+          throw new Error(err.error || `Analysis failed (${res.status})`);
+        }
+
+        proposal = await res.json();
       }
-
-      const proposal: SCIProposal = await res.json();
 
       setState({
         phase: 'proposal',

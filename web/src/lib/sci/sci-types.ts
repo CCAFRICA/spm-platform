@@ -160,6 +160,12 @@ export interface ContentUnitProposal {
   fieldBindings: SemanticBinding[];
   allScores: AgentScore[];            // scores from all 4 agents for transparency
   warnings: string[];
+  // OB-133: Document metadata for PPTX/PDF/DOCX plan proposals
+  documentMetadata?: {
+    fileBase64: string;
+    mimeType: string;
+    extractionSummary?: Record<string, unknown>;
+  };
 }
 
 // ============================================================
@@ -177,6 +183,12 @@ export interface ContentUnitExecution {
   confirmedClassification: AgentType; // may differ from proposal if user corrected
   confirmedBindings: SemanticBinding[];
   rawData: Record<string, unknown>[];  // the actual rows to process
+  // OB-133: Document metadata for plan interpretation pipeline
+  documentMetadata?: {
+    fileBase64: string;
+    mimeType: string;
+    extractionSummary?: Record<string, unknown>;
+  };
 }
 
 export interface SCIExecutionResult {

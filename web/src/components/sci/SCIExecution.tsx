@@ -99,6 +99,8 @@ export function SCIExecution({
         confirmedClassification: eu.classification,
         confirmedBindings: proposalUnit.fieldBindings,
         rawData: sheetData?.rows || [],
+        // OB-133: Pass document metadata for plan interpretation
+        ...(proposalUnit.documentMetadata ? { documentMetadata: proposalUnit.documentMetadata } : {}),
       };
     }).filter(Boolean);
 
@@ -231,7 +233,9 @@ export function SCIExecution({
     const rows = u.result?.rowsProcessed || 0;
     const label = CLASSIFICATION_LABELS[u.classification];
     if (u.classification === 'plan') {
-      return `${label} interpreted`;
+      return rows > 0
+        ? `${label} interpreted — ${rows} component${rows !== 1 ? 's' : ''} extracted`
+        : `${label} interpreted`;
     }
     return `${rows} ${label.toLowerCase()} records committed`;
   });

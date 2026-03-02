@@ -15,6 +15,9 @@ export interface ParsedFileData {
     rows: Record<string, unknown>[];
     totalRowCount: number;
   }>;
+  // OB-133: Document formats (PPTX/PDF/DOCX) carry base64 for server-side analysis
+  documentBase64?: string;
+  documentMimeType?: string;
 }
 
 export interface FileInfo {
@@ -32,7 +35,7 @@ interface SCIUploadProps {
   fileName?: string;
 }
 
-const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv', '.tsv', '.pdf'];
+const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv', '.tsv', '.pdf', '.pptx', '.docx'];
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 function formatFileSize(bytes: number): string {
@@ -49,6 +52,30 @@ function isAcceptedFile(name: string): boolean {
   return ACCEPTED_EXTENSIONS.includes(getFileExtension(name));
 }
 
+const DOCUMENT_EXTENSIONS = ['.pdf', '.pptx', '.docx'];
+
+const MIME_TYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+
+function isDocumentFormat(name: string): boolean {
+  return DOCUMENT_EXTENSIONS.includes(getFileExtension(name));
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(',')[1]); // Strip data:... prefix
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 async function parseFile(file: File): Promise<ParsedFileData> {
   const ext = getFileExtension(file.name);
 
@@ -60,8 +87,9 @@ async function parseFile(file: File): Promise<ParsedFileData> {
     return parseExcelFile(file);
   }
 
-  if (ext === '.pdf') {
-    // PDF files don't get parsed client-side — send as-is
+  // Document formats (PDF/PPTX/DOCX) — convert to base64 for server-side analysis
+  if (DOCUMENT_EXTENSIONS.includes(ext)) {
+    const base64 = await fileToBase64(file);
     return {
       fileName: file.name,
       sheets: [{
@@ -70,6 +98,8 @@ async function parseFile(file: File): Promise<ParsedFileData> {
         rows: [],
         totalRowCount: 0,
       }],
+      documentBase64: base64,
+      documentMimeType: MIME_TYPES[ext] || file.type,
     };
   }
 
@@ -156,7 +186,7 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
     // Validate
     for (const file of files) {
       if (!isAcceptedFile(file.name)) {
-        onError(`"${file.name}" is not a supported format. Try XLSX, CSV, or PDF.`);
+        onError(`"${file.name}" is not a supported format. Try XLSX, CSV, TSV, PDF, PPTX, or DOCX.`);
         return;
       }
       if (file.size > MAX_FILE_SIZE) {
@@ -250,7 +280,9 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
             </div>
             <div className="flex items-center gap-2">
               <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
-              <span className="text-xs text-amber-400">Understanding your data...</span>
+              <span className="text-xs text-amber-400">
+                {isDocumentFormat(file.name) ? 'Analyzing document...' : 'Understanding your data...'}
+              </span>
             </div>
           </div>
         ))}
@@ -274,7 +306,7 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
       <div className="space-y-3">
         {selectedFiles.map((file, i) => (
           <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
-            {getFileExtension(file.name) === '.pdf' ? (
+            {isDocumentFormat(file.name) ? (
               <FileText className="w-5 h-5 text-rose-400" />
             ) : (
               <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
@@ -339,7 +371,7 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
       </p>
 
       <p className="text-xs text-zinc-600">
-        Supports XLSX, XLS, CSV, TSV, and PDF
+        Supports XLSX, CSV, TSV, PDF, PPTX, and DOCX
       </p>
     </div>
   );
