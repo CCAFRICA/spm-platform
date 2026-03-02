@@ -1,42 +1,79 @@
 'use client';
 
-// SCI Import Page — Replaces old DPI stepper (OB-129)
-// State machine: upload → analyzing → proposal → executing → complete
+// SCI Import Page — Full import experience
+// OB-129 (foundation), OB-138 (proposal intelligence), OB-139 (post-confirm).
+// State machine: upload → analyzing → proposal → executing → complete → error
 // Zero domain vocabulary. Korean Test applies.
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
 import { RequireRole } from '@/components/auth/RequireRole';
 import { SCIUpload, type FileInfo, type ParsedFileData } from '@/components/sci/SCIUpload';
 import { SCIProposalView } from '@/components/sci/SCIProposal';
 import { SCIExecution } from '@/components/sci/SCIExecution';
+import { ImportReadyState } from '@/components/sci/ImportReadyState';
 import { AlertCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { SCIProposal, ContentUnitProposal, SCIExecutionResult } from '@/lib/sci/sci-types';
+import type {
+  SCIProposal,
+  ContentUnitProposal,
+  SCIExecutionResult,
+  ContentUnitResult,
+} from '@/lib/sci/sci-types';
+
+// ============================================================
+// STATE MACHINE
+// ============================================================
 
 type ImportState =
   | { phase: 'upload' }
   | { phase: 'analyzing'; files: FileInfo[] }
   | { phase: 'proposal'; proposal: SCIProposal; rawData: ParsedFileData; fileName: string }
   | { phase: 'executing'; proposal: SCIProposal; confirmedUnits: ContentUnitProposal[]; rawData: ParsedFileData }
-  | { phase: 'complete'; result: SCIExecutionResult }
+  | { phase: 'complete'; executionResult: SCIExecutionResult }
   | { phase: 'error'; error: string; canRetry: boolean };
+
+interface PostImportData {
+  totalRowsCommitted: number;
+  results: ContentUnitResult[];
+  entityCount?: number;
+  planName?: string;
+  detectedPeriods?: string[];
+  componentCount?: number;
+}
 
 const ANALYSIS_SAMPLE_SIZE = 50;
 
+const PHASE_SUBTITLES: Record<string, string> = {
+  upload: 'Upload your data and the platform will handle the rest.',
+  analyzing: 'Understanding your data...',
+  proposal: 'Review what was found.',
+  executing: '',  // ExecutionProgress shows its own header
+  complete: '',   // ImportReadyState shows its own header
+  error: 'Something went wrong.',
+};
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
+
 export default function OperateImportPage() {
   const { currentTenant } = useTenant();
+  const router = useRouter();
   const [state, setState] = useState<ImportState>({ phase: 'upload' });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const rawDataRef = useRef<ParsedFileData | null>(null);
+  const [postImportData, setPostImportData] = useState<PostImportData | null>(null);
 
   const tenantId = currentTenant?.id || '';
 
   const handleError = useCallback((message: string) => {
     setErrorMessage(message);
-    // Auto-dismiss after 8 seconds
     setTimeout(() => setErrorMessage(null), 8000);
   }, []);
+
+  // ── Upload → Analyzing → Proposal ──
 
   const handleAnalysisStart = useCallback(async (files: FileInfo[]) => {
     if (!tenantId) {
@@ -48,7 +85,6 @@ export default function OperateImportPage() {
     setErrorMessage(null);
 
     try {
-      // Store full data for execution
       if (files.length > 0) {
         rawDataRef.current = files[0].parsedData;
       }
@@ -59,7 +95,6 @@ export default function OperateImportPage() {
       let proposal: SCIProposal;
 
       if (isDocument) {
-        // OB-133: Document formats (PDF/PPTX/DOCX) → analyze-document API
         const res = await fetch('/api/import/sci/analyze-document', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -78,7 +113,6 @@ export default function OperateImportPage() {
 
         proposal = await res.json();
       } else {
-        // Tabular formats (XLSX/CSV/TSV) → existing analyze API
         const analysisFiles = files.map(f => ({
           fileName: f.parsedData.fileName,
           sheets: f.parsedData.sheets.map(s => ({
@@ -118,6 +152,8 @@ export default function OperateImportPage() {
     }
   }, [tenantId, handleError]);
 
+  // ── Proposal → Executing ──
+
   const handleConfirmAll = useCallback((confirmedUnits: ContentUnitProposal[]) => {
     if (state.phase !== 'proposal') return;
 
@@ -129,42 +165,100 @@ export default function OperateImportPage() {
     });
   }, [state]);
 
-  const handleCancel = useCallback(() => {
-    rawDataRef.current = null;
-    setState({ phase: 'upload' });
+  // ── Executing → Complete ──
+
+  const handleExecutionComplete = useCallback((result: SCIExecutionResult) => {
+    const successResults = result.results.filter(r => r.success);
+    const totalRows = successResults.reduce((s, r) => s + r.rowsProcessed, 0);
+
+    setPostImportData({
+      totalRowsCommitted: totalRows,
+      results: result.results,
+    });
+
+    setState({ phase: 'complete', executionResult: result });
   }, []);
 
-  const handleExecutionComplete = useCallback((_: SCIExecutionResult) => {
-    // SCIExecution handles display — state tracking for future use
-    void _;
+  // ── Fetch post-import enrichment data ──
+
+  useEffect(() => {
+    if (state.phase !== 'complete' || !tenantId || !postImportData) return;
+    // Already enriched
+    if (postImportData.entityCount != null) return;
+
+    const fetchEnrichment = async () => {
+      try {
+        const res = await fetch(`/api/plan-readiness?tenantId=${tenantId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const plans = data.plans as Array<{
+            planId: string;
+            planName: string;
+            entityCount: number;
+            hasBindings: boolean;
+            dataRowCount: number;
+            lastBatchDate: string | null;
+            lastTotal: number | null;
+          }> | undefined;
+
+          if (plans && plans.length > 0) {
+            const latestPlan = plans[0];
+            setPostImportData(prev => prev ? {
+              ...prev,
+              planName: latestPlan.planName,
+              entityCount: latestPlan.entityCount,
+            } : prev);
+          }
+        }
+      } catch {
+        // Enrichment failure is not critical — ImportReadyState degrades gracefully
+      }
+    };
+
+    fetchEnrichment();
+  }, [state.phase, tenantId, postImportData]);
+
+  // ── Resets ──
+
+  const handleCancel = useCallback(() => {
+    rawDataRef.current = null;
+    setPostImportData(null);
+    setState({ phase: 'upload' });
   }, []);
 
   const handleUploadMore = useCallback(() => {
     rawDataRef.current = null;
+    setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
 
   const handleRetry = useCallback(() => {
     rawDataRef.current = null;
+    setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
+
+  const handleNavigateToCalculate = useCallback(() => {
+    router.push('/operate/calculate');
+  }, [router]);
+
+  // ── Render ──
+
+  const subtitle = PHASE_SUBTITLES[state.phase] || '';
 
   return (
     <RequireRole roles={['vl_admin', 'admin']}>
       <div className="min-h-screen bg-zinc-950 p-6 md:p-8">
         <div className="max-w-3xl mx-auto">
-          {/* Page header */}
-          <div className="mb-8">
-            <h1 className="text-xl font-semibold text-zinc-100">Import</h1>
-            <p className="text-sm text-zinc-500 mt-1">
-              {state.phase === 'upload' && 'Upload your data and the platform will handle the rest.'}
-              {state.phase === 'analyzing' && 'Understanding your data...'}
-              {state.phase === 'proposal' && 'Review what was found.'}
-              {state.phase === 'executing' && 'Processing your data...'}
-              {state.phase === 'complete' && 'Import complete.'}
-              {state.phase === 'error' && 'Something went wrong.'}
-            </p>
-          </div>
+          {/* Page header — hidden during executing + complete (components show their own) */}
+          {state.phase !== 'executing' && state.phase !== 'complete' && (
+            <div className="mb-8">
+              <h1 className="text-xl font-semibold text-zinc-100">Import</h1>
+              {subtitle && (
+                <p className="text-sm text-zinc-500 mt-1">{subtitle}</p>
+              )}
+            </div>
+          )}
 
           {/* Error banner */}
           {errorMessage && (
@@ -180,7 +274,7 @@ export default function OperateImportPage() {
             </div>
           )}
 
-          {/* Upload area — visible in upload and analyzing states, collapsed in proposal */}
+          {/* ─── UPLOAD STATE ─── */}
           {(state.phase === 'upload' || state.phase === 'analyzing') && (
             <SCIUpload
               onAnalysisStart={handleAnalysisStart}
@@ -189,29 +283,30 @@ export default function OperateImportPage() {
             />
           )}
 
-          {/* Collapsed upload indicator during proposal/execution */}
-          {(state.phase === 'proposal' || state.phase === 'executing') && (
-            <div className="mb-6">
-              <SCIUpload
-                onAnalysisStart={handleAnalysisStart}
-                onError={handleError}
-                collapsed
-                fileName={state.phase === 'proposal' ? state.fileName : undefined}
-              />
-            </div>
-          )}
-
-          {/* Proposal */}
+          {/* ─── PROPOSAL STATE ─── */}
+          {/* Collapsed file indicator — ONLY during proposal, NOT during executing/complete */}
           {state.phase === 'proposal' && (
-            <SCIProposalView
-              proposal={state.proposal}
-              fileName={state.fileName}
-              onConfirmAll={handleConfirmAll}
-              onCancel={handleCancel}
-            />
+            <>
+              <div className="mb-6">
+                <SCIUpload
+                  onAnalysisStart={handleAnalysisStart}
+                  onError={handleError}
+                  collapsed
+                  fileName={state.fileName}
+                />
+              </div>
+
+              <SCIProposalView
+                proposal={state.proposal}
+                fileName={state.fileName}
+                onConfirmAll={handleConfirmAll}
+                onCancel={handleCancel}
+              />
+            </>
           )}
 
-          {/* Execution */}
+          {/* ─── EXECUTING STATE ─── */}
+          {/* OB-139: NO upload dropzone during execution */}
           {state.phase === 'executing' && (
             <SCIExecution
               proposal={state.proposal}
@@ -223,7 +318,22 @@ export default function OperateImportPage() {
             />
           )}
 
-          {/* Error state */}
+          {/* ─── COMPLETE STATE ─── */}
+          {/* OB-139: ImportReadyState with summary + Calculate bridge */}
+          {state.phase === 'complete' && postImportData && (
+            <ImportReadyState
+              results={postImportData.results}
+              totalRowsCommitted={postImportData.totalRowsCommitted}
+              entityCount={postImportData.entityCount}
+              planName={postImportData.planName}
+              detectedPeriods={postImportData.detectedPeriods}
+              componentCount={postImportData.componentCount}
+              onNavigateToCalculate={handleNavigateToCalculate}
+              onImportMore={handleUploadMore}
+            />
+          )}
+
+          {/* ─── ERROR STATE ─── */}
           {state.phase === 'error' && (
             <div className="rounded-xl bg-zinc-800/40 border border-zinc-700/50 p-8 text-center">
               <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-4" />
