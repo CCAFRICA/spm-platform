@@ -55,7 +55,7 @@ import {
 import {
   Calculator, Play, CheckCircle2, AlertTriangle,
   ChevronDown, ChevronRight, Clock, Users, DollarSign, TrendingUp,
-  ArrowLeft, ArrowRight, Search, Layers,
+  ArrowLeft, ArrowRight, Search, Layers, Lock,
 } from 'lucide-react';
 import { ExecutionTraceView } from '@/components/forensics/ExecutionTraceView';
 
@@ -203,34 +203,37 @@ function CalculatePageInner() {
           }
         }
 
-        // OB-123: Check wiring readiness
-        // If there are already calculation batches, wiring was done previously
-        if (batches.length > 0) {
-          setWiringReady(true);
-        } else if (ruleSets.length > 0) {
-          // Plans exist but no calculations yet — check if assignments exist
-          try {
-            const resp = await fetch(`/api/rule-set-assignments?tenantId=${currentTenant.id}`);
-            const assignData = await resp.json();
-            setWiringReady((assignData.assignments || []).length > 0);
-          } catch {
-            setWiringReady(false);
+        // OB-132: Batch wiring check + readiness fetch in parallel
+        const needsWiringCheck = batches.length === 0 && ruleSets.length > 0;
+        const needsReadiness = activeRSList.length > 0;
+
+        if (needsWiringCheck || needsReadiness) {
+          const [assignResp, readinessResp] = await Promise.all([
+            needsWiringCheck
+              ? fetch(`/api/rule-set-assignments?tenantId=${currentTenant.id}`).catch(() => null)
+              : Promise.resolve(null),
+            needsReadiness
+              ? fetch(`/api/plan-readiness?tenantId=${currentTenant.id}`).catch(() => null)
+              : Promise.resolve(null),
+          ]);
+
+          if (needsWiringCheck && assignResp) {
+            try {
+              const assignData = await assignResp.json();
+              setWiringReady((assignData.assignments || []).length > 0);
+            } catch { setWiringReady(false); }
+          } else if (!needsWiringCheck) {
+            setWiringReady(batches.length > 0 || ruleSets.length === 0);
+          }
+
+          if (readinessResp?.ok) {
+            try {
+              const readinessData = await readinessResp.json();
+              setPlanReadiness(readinessData.plans || []);
+            } catch { /* Non-critical */ }
           }
         } else {
           setWiringReady(true); // No plans = nothing to wire
-        }
-
-        // OB-125: Fetch plan readiness for each active plan
-        if (activeRSList.length > 0) {
-          try {
-            const resp = await fetch(`/api/plan-readiness?tenantId=${currentTenant.id}`);
-            if (resp.ok) {
-              const readinessData = await resp.json();
-              setPlanReadiness(readinessData.plans || []);
-            }
-          } catch {
-            // Non-critical — readiness cards just won't show
-          }
         }
       } catch (err) {
         console.warn('[Calculate] Failed to load data:', err);
@@ -295,10 +298,12 @@ function CalculatePageInner() {
       if (updatedCycle) {
         setActiveCycle(updatedCycle);
         setPageError(null);
-        // Refresh batch and batches list
-        const batch = await getActiveBatch(currentTenant.id, selectedPeriod);
+        // OB-132: Batch refresh queries in parallel
+        const [batch, batches] = await Promise.all([
+          getActiveBatch(currentTenant.id, selectedPeriod),
+          listCalculationBatches(currentTenant.id),
+        ]);
         setActiveBatch(batch);
-        const batches = await listCalculationBatches(currentTenant.id);
         setRecentBatches(batches.slice(0, 10));
       } else {
         setPageError({ title: 'Transition Failed', message: `Cannot transition to ${targetState} from current state.` });
@@ -779,7 +784,7 @@ function CalculatePageInner() {
                     : 'This typically means data fields are not mapped to plan components.'}
                 </p>
                 <Link
-                  href="/operate/import/enhanced"
+                  href="/operate/import"
                   className="text-sm text-amber-800 underline hover:text-amber-900 mt-1 inline-block"
                 >
                   {locale === 'es-MX' ? 'Revisar mapeo de campos →' : 'Review field mappings →'}
@@ -792,7 +797,15 @@ function CalculatePageInner() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Entity Results</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  Entity Results
+                  {activeCycle && ['OFFICIAL', 'PENDING_APPROVAL', 'APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED'].includes(activeCycle.state) && (
+                    <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-600 gap-1">
+                      <Lock className="h-3 w-3" />
+                      {getStateLabel(activeCycle.state)}
+                    </Badge>
+                  )}
+                </CardTitle>
                 <div className="flex items-center gap-3">
                   <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />

@@ -29,6 +29,13 @@ import {
   type ReconciliationReport,
   type ComparisonResultInput,
 } from '@/lib/reconciliation/report-engine';
+import {
+  getStateLabel,
+  getStateColor,
+} from '@/lib/calculation/lifecycle-utils';
+import {
+  performLifecycleTransition,
+} from '@/lib/calculation/calculation-lifecycle-service';
 
 // ──────────────────────────────────────────────
 // Types
@@ -224,6 +231,10 @@ export default function ReconciliationPage() {
   const [report, setReport] = useState<ReconciliationReport | null>(null);
   const [expandedComponent, setExpandedComponent] = useState<string | null>(null);
   const [componentPage, setComponentPage] = useState<Record<string, number>>({});
+
+  // OB-132: Lifecycle transition state
+  const [isAdvancing, setIsAdvancing] = useState(false);
+  const [advanceSuccess, setAdvanceSuccess] = useState(false);
 
   // Load page data
   // OB-92/OB-131: Load page data, prefer URL planId > OperateContext batch > most recent
@@ -523,8 +534,33 @@ export default function ReconciliationPage() {
     setReport(null);
     setExpandedComponent(null);
     setComponentPage({});
+    setAdvanceSuccess(false);
     setStep('select_batch');
   };
+
+  // OB-132: Advance lifecycle to OFFICIAL after successful reconciliation
+  const handleMarkOfficial = useCallback(async () => {
+    if (!selectedBatchId || !tenantId || !user) return;
+    setIsAdvancing(true);
+    try {
+      const updated = await performLifecycleTransition(
+        tenantId,
+        selectedBatchId,
+        'OFFICIAL',
+        { profileId: user.id, name: user.name },
+      );
+      if (updated) {
+        setAdvanceSuccess(true);
+        // Refresh page data to update lifecycle state badge
+        const data = await loadReconciliationPageData(tenantId);
+        setPageData(data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to advance lifecycle state');
+    } finally {
+      setIsAdvancing(false);
+    }
+  }, [selectedBatchId, tenantId, user]);
 
   const flagIcon = (flag: MatchFlag) => {
     switch (flag) {
@@ -674,9 +710,14 @@ export default function ReconciliationPage() {
           </select>
         </div>
         {selectedBatch && (
-          <p className="text-[11px] text-zinc-400 mt-2">
-            {selectedBatch.entityCount} {isSpanish ? 'entidades' : 'entities'} · {selectedBatch.lifecycleState} · {new Date(selectedBatch.createdAt).toLocaleDateString(isSpanish ? 'es-MX' : 'en-US')}
-          </p>
+          <div className="flex items-center gap-2 mt-2">
+            <p className="text-[11px] text-zinc-400">
+              {selectedBatch.entityCount} {isSpanish ? 'entidades' : 'entities'} · {new Date(selectedBatch.createdAt).toLocaleDateString(isSpanish ? 'es-MX' : 'en-US')}
+            </p>
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${getStateColor(selectedBatch.lifecycleState)}`}>
+              {getStateLabel(selectedBatch.lifecycleState)}
+            </span>
+          </div>
         )}
       </div>
 
@@ -996,6 +1037,31 @@ export default function ReconciliationPage() {
                   </p>
                 </div>
               </div>
+
+              {/* OB-132: Lifecycle action — Mark Official after successful reconciliation */}
+              {selectedBatch && report.summary.overallMatchPercent >= 99 && (
+                <div className="mt-4 pt-4 border-t border-zinc-800">
+                  {selectedBatch.lifecycleState === 'PREVIEW' && !advanceSuccess ? (
+                    <button
+                      onClick={handleMarkOfficial}
+                      disabled={isAdvancing}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
+                      style={{ backgroundColor: isAdvancing ? '#374151' : '#059669' }}
+                    >
+                      {isAdvancing ? (
+                        <>{isSpanish ? 'Avanzando...' : 'Advancing...'}</>
+                      ) : (
+                        <>{isSpanish ? 'Marcar como Oficial' : 'Mark Official'} — {report.summary.overallMatchPercent.toFixed(1)}% {isSpanish ? 'verificado' : 'verified'}</>
+                      )}
+                    </button>
+                  ) : ['OFFICIAL', 'PENDING_APPROVAL', 'APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED'].includes(selectedBatch.lifecycleState) || advanceSuccess ? (
+                    <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-emerald-400" style={{ backgroundColor: 'rgba(5, 150, 105, 0.1)', border: '1px solid rgba(5, 150, 105, 0.2)' }}>
+                      <span>✓</span>
+                      <span>{isSpanish ? 'Resultados Oficiales' : 'Results Official'} — {getStateLabel(advanceSuccess ? 'OFFICIAL' : selectedBatch.lifecycleState)}</span>
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
           )}
 

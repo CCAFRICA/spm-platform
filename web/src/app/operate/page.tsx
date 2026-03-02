@@ -210,8 +210,9 @@ function buildModuleCards(
       ],
       actions: [
         { label: 'Operations Center', labelEs: 'Centro de Operaciones', href: '/operate/lifecycle' },
-        { label: 'Import Data', labelEs: 'Importar Datos', href: '/operate/import/enhanced' },
+        { label: 'Import Data', labelEs: 'Importar Datos', href: '/operate/import' },
         { label: 'Calculate', labelEs: 'Calcular', href: '/operate/calculate' },
+        { label: 'Reconcile', labelEs: 'Reconciliar', href: '/operate/reconciliation' },
         { label: 'View Results', labelEs: 'Ver Resultados', href: '/operate/results' },
       ],
     });
@@ -241,7 +242,7 @@ function buildModuleCards(
       ],
       actions: [
         { label: 'Network Pulse', labelEs: 'Pulso de Red', href: '/financial' },
-        { label: 'Import POS Data', labelEs: 'Importar Datos POS', href: '/operate/import/enhanced' },
+        { label: 'Import POS Data', labelEs: 'Importar Datos POS', href: '/operate/import' },
       ],
     });
   }
