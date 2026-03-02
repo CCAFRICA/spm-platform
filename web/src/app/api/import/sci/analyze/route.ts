@@ -1,12 +1,12 @@
 // SCI Analyze API — POST /api/import/sci/analyze
-// Decision 77 — OB-127
+// Decision 77 — OB-127, OB-134 Round 2 Negotiation
 // Accepts parsed file data, returns agent-classified proposal.
 // Zero domain vocabulary. Korean Test applies.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateContentProfile } from '@/lib/sci/content-profile';
-import { scoreContentUnit, resolveClaimsPhase1, requiresHumanReview } from '@/lib/sci/agents';
+import { negotiateRound2, requiresHumanReview } from '@/lib/sci/negotiation';
 import type { SCIProposal, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
 
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -76,12 +76,9 @@ export async function POST(req: NextRequest) {
           sheet.rows
         );
 
-        // Score with all 4 agents
-        const scores = scoreContentUnit(profile);
-
-        // Resolve claim
-        const claim = resolveClaimsPhase1(profile, scores);
-        const winner = scores[0];
+        // OB-134: Round 2 negotiation (replaces Phase 1 scoring)
+        const negotiation = negotiateRound2(profile);
+        const scores = negotiation.round2Scores;
         const needsReview = requiresHumanReview(scores);
 
         // Build warnings
@@ -99,18 +96,66 @@ export async function POST(req: NextRequest) {
           warnings.push('Auto-generated headers detected (__EMPTY pattern) — content may be rule definitions');
         }
 
-        contentUnits.push({
-          contentUnitId: profile.contentUnitId,
-          sourceFile: file.fileName,
-          tabName: sheet.sheetName,
-          classification: winner.agent,
-          confidence: winner.confidence,
-          reasoning: winner.reasoning,
-          action: ACTION_DESCRIPTIONS[winner.agent],
-          fieldBindings: claim.semanticBindings,
-          allScores: scores,
-          warnings,
-        });
+        if (negotiation.isSplit && negotiation.claims.length === 2) {
+          // OB-134: PARTIAL claims — generate two content units from one tab
+          const primaryClaim = negotiation.claims[0];
+          const secondaryClaim = negotiation.claims[1];
+          const primaryId = profile.contentUnitId;
+          const secondaryId = `${profile.contentUnitId}::split`;
+
+          contentUnits.push({
+            contentUnitId: primaryId,
+            sourceFile: file.fileName,
+            tabName: sheet.sheetName,
+            classification: primaryClaim.agent,
+            confidence: primaryClaim.confidence,
+            reasoning: primaryClaim.reasoning,
+            action: ACTION_DESCRIPTIONS[primaryClaim.agent],
+            fieldBindings: primaryClaim.semanticBindings,
+            allScores: scores,
+            warnings: [...warnings],
+            claimType: 'PARTIAL',
+            ownedFields: primaryClaim.fields,
+            sharedFields: primaryClaim.sharedFields,
+            partnerContentUnitId: secondaryId,
+            negotiationLog: negotiation.log,
+          });
+
+          contentUnits.push({
+            contentUnitId: secondaryId,
+            sourceFile: file.fileName,
+            tabName: sheet.sheetName,
+            classification: secondaryClaim.agent,
+            confidence: secondaryClaim.confidence,
+            reasoning: secondaryClaim.reasoning,
+            action: ACTION_DESCRIPTIONS[secondaryClaim.agent],
+            fieldBindings: secondaryClaim.semanticBindings,
+            allScores: scores,
+            warnings: [...warnings],
+            claimType: 'PARTIAL',
+            ownedFields: secondaryClaim.fields,
+            sharedFields: secondaryClaim.sharedFields,
+            partnerContentUnitId: primaryId,
+            negotiationLog: negotiation.log,
+          });
+        } else {
+          // FULL claim — single agent wins
+          const claim = negotiation.claims[0];
+          contentUnits.push({
+            contentUnitId: profile.contentUnitId,
+            sourceFile: file.fileName,
+            tabName: sheet.sheetName,
+            classification: claim.agent,
+            confidence: claim.confidence,
+            reasoning: claim.reasoning,
+            action: ACTION_DESCRIPTIONS[claim.agent],
+            fieldBindings: claim.semanticBindings,
+            allScores: scores,
+            warnings,
+            claimType: 'FULL',
+            negotiationLog: negotiation.log,
+          });
+        }
       }
     }
 
