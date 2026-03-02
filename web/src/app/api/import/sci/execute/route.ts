@@ -101,16 +101,51 @@ async function executeContentUnit(
   proposalId: string,
   unit: ContentUnitExecution
 ): Promise<ContentUnitResult> {
-  switch (unit.confirmedClassification) {
+  // OB-134: For PARTIAL claims, filter rawData to only include owned + shared fields
+  const effectiveUnit = filterFieldsForPartialClaim(unit);
+
+  switch (effectiveUnit.confirmedClassification) {
     case 'target':
-      return executeTargetPipeline(supabase, tenantId, proposalId, unit);
+      return executeTargetPipeline(supabase, tenantId, proposalId, effectiveUnit);
     case 'transaction':
-      return executeTransactionPipeline(supabase, tenantId, proposalId, unit);
+      return executeTransactionPipeline(supabase, tenantId, proposalId, effectiveUnit);
     case 'entity':
-      return executeEntityPipeline(supabase, tenantId, proposalId, unit);
+      return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit);
     case 'plan':
-      return executePlanPipeline(supabase, tenantId, unit);
+      return executePlanPipeline(supabase, tenantId, effectiveUnit);
   }
+}
+
+// OB-134: Field filtering for PARTIAL claims
+function filterFieldsForPartialClaim(unit: ContentUnitExecution): ContentUnitExecution {
+  if (unit.claimType !== 'PARTIAL' || !unit.ownedFields || !unit.sharedFields) {
+    return unit; // FULL claim — no filtering
+  }
+
+  const allowedFields = new Set([...unit.ownedFields, ...unit.sharedFields]);
+
+  // Filter rawData rows to only include allowed fields
+  const filteredRows = unit.rawData.map(row => {
+    const filtered: Record<string, unknown> = {};
+    for (const key of Object.keys(row)) {
+      if (allowedFields.has(key) || key.startsWith('_')) {
+        // Keep allowed fields + internal metadata keys (_sheetName, _rowIndex)
+        filtered[key] = row[key];
+      }
+    }
+    return filtered;
+  });
+
+  // Filter bindings to only allowed fields
+  const filteredBindings = unit.confirmedBindings.filter(
+    b => allowedFields.has(b.sourceField)
+  );
+
+  return {
+    ...unit,
+    rawData: filteredRows,
+    confirmedBindings: filteredBindings,
+  };
 }
 
 // ============================================================

@@ -223,6 +223,10 @@ export interface ContentUnitExecution {
     mimeType: string;
     extractionSummary?: Record<string, unknown>;
   };
+  // OB-134: PARTIAL claim field filtering
+  claimType?: ClaimType;
+  ownedFields?: string[];             // fields this agent owns
+  sharedFields?: string[];            // join key fields shared with partner
 }
 
 export interface SCIExecutionResult {
