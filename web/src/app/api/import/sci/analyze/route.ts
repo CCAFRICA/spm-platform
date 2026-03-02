@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateContentProfile } from '@/lib/sci/content-profile';
 import { negotiateRound2, requiresHumanReview } from '@/lib/sci/negotiation';
+import { generateProposalIntelligence } from '@/lib/sci/proposal-intelligence';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { SCIProposal, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
@@ -98,12 +99,21 @@ export async function POST(req: NextRequest) {
           warnings.push('Auto-generated headers detected (__EMPTY pattern) — content may be rule definitions');
         }
 
+        // OB-138: Generate structured intelligence from scoring data
+        const primaryIntel = generateProposalIntelligence(
+          profile, scores, negotiation, negotiation.claims[0].agent,
+        );
+
         if (negotiation.isSplit && negotiation.claims.length === 2) {
           // OB-134: PARTIAL claims — generate two content units from one tab
           const primaryClaim = negotiation.claims[0];
           const secondaryClaim = negotiation.claims[1];
           const primaryId = profile.contentUnitId;
           const secondaryId = `${profile.contentUnitId}::split`;
+
+          const secondaryIntel = generateProposalIntelligence(
+            profile, scores, negotiation, secondaryClaim.agent,
+          );
 
           contentUnits.push({
             contentUnitId: primaryId,
@@ -116,6 +126,9 @@ export async function POST(req: NextRequest) {
             fieldBindings: primaryClaim.semanticBindings,
             allScores: scores,
             warnings: [...warnings],
+            observations: primaryIntel.observations,
+            verdictSummary: primaryIntel.verdictSummary,
+            whatChangesMyMind: primaryIntel.whatChangesMyMind,
             claimType: 'PARTIAL',
             ownedFields: primaryClaim.fields,
             sharedFields: primaryClaim.sharedFields,
@@ -134,6 +147,9 @@ export async function POST(req: NextRequest) {
             fieldBindings: secondaryClaim.semanticBindings,
             allScores: scores,
             warnings: [...warnings],
+            observations: secondaryIntel.observations,
+            verdictSummary: secondaryIntel.verdictSummary,
+            whatChangesMyMind: secondaryIntel.whatChangesMyMind,
             claimType: 'PARTIAL',
             ownedFields: secondaryClaim.fields,
             sharedFields: secondaryClaim.sharedFields,
@@ -154,6 +170,9 @@ export async function POST(req: NextRequest) {
             fieldBindings: claim.semanticBindings,
             allScores: scores,
             warnings,
+            observations: primaryIntel.observations,
+            verdictSummary: primaryIntel.verdictSummary,
+            whatChangesMyMind: primaryIntel.whatChangesMyMind,
             claimType: 'FULL',
             negotiationLog: negotiation.log,
           });

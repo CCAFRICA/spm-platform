@@ -288,6 +288,21 @@ export async function POST(req: NextRequest) {
       warnings: normalizedConfidence < 0.60
         ? ['Low confidence — manual classification review recommended']
         : [],
+      // OB-138: Document intelligence
+      observations: [
+        `Document format: ${mimeType.split('/').pop() || 'unknown'}`,
+        ...(analysis.componentCount > 0
+          ? [`${analysis.componentCount} component${analysis.componentCount !== 1 ? 's' : ''} identified`]
+          : []),
+        ...(analysis.hasVariants ? ['Multiple variants detected'] : []),
+        ...(analysis.language && analysis.language !== 'en'
+          ? [`Content language: ${analysis.language}`]
+          : []),
+      ],
+      verdictSummary: analysis.summary || `Identified as ${classification} document.`,
+      whatChangesMyMind: normalizedConfidence < 0.80
+        ? ['If the document structure differs from what was analyzed, classification may change']
+        : [],
       documentMetadata: {
         fileBase64,
         mimeType,

@@ -188,6 +188,10 @@ export interface ContentUnitProposal {
   fieldBindings: SemanticBinding[];
   allScores: AgentScore[];            // scores from all 4 agents for transparency
   warnings: string[];
+  // OB-138: Structured intelligence — surfaces agent reasoning in the UI
+  observations: string[];             // what the agent noticed (structural facts)
+  verdictSummary: string;             // one-line explanation of the classification decision
+  whatChangesMyMind: string[];        // falsifiable conditions that would flip classification
   // OB-133: Document metadata for PPTX/PDF/DOCX plan proposals
   documentMetadata?: {
     fileBase64: string;
