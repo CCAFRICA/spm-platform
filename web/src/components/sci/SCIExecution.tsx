@@ -134,22 +134,62 @@ export function SCIExecution({
           throw new Error('Could not find execution data for this content');
         }
 
-        const res = await fetch('/api/import/sci/execute', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            proposalId: proposal.proposalId,
-            tenantId,
-            contentUnits: [execUnit],
-          }),
-        });
+        // Chunk large content units to avoid HTTP 413 (Vercel 4.5MB limit)
+        const MAX_ROWS_PER_CHUNK = 5000;
+        const rawRows = execUnit.rawData || [];
+        const needsChunking = rawRows.length > MAX_ROWS_PER_CHUNK;
+        let unitResult: ContentUnitResult | undefined;
 
-        if (!res.ok) {
-          throw new Error(`Processing failed (${res.status})`);
+        if (needsChunking) {
+          // Split into chunks and send sequentially
+          let totalProcessed = 0;
+          for (let ci = 0; ci < rawRows.length; ci += MAX_ROWS_PER_CHUNK) {
+            const chunk = rawRows.slice(ci, ci + MAX_ROWS_PER_CHUNK);
+            const chunkUnit = { ...execUnit, rawData: chunk };
+
+            const chunkRes = await fetch('/api/import/sci/execute', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                proposalId: proposal.proposalId,
+                tenantId,
+                contentUnits: [chunkUnit],
+              }),
+            });
+
+            if (!chunkRes.ok) {
+              throw new Error(`Processing failed (${chunkRes.status}) on chunk ${Math.floor(ci / MAX_ROWS_PER_CHUNK) + 1}`);
+            }
+
+            const chunkResult: SCIExecutionResult = await chunkRes.json();
+            const cr = chunkResult.results[0];
+            if (cr) {
+              totalProcessed += cr.rowsProcessed;
+              if (!cr.success) {
+                unitResult = cr;
+                break;
+              }
+              unitResult = { ...cr, rowsProcessed: totalProcessed };
+            }
+          }
+        } else {
+          const res = await fetch('/api/import/sci/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              proposalId: proposal.proposalId,
+              tenantId,
+              contentUnits: [execUnit],
+            }),
+          });
+
+          if (!res.ok) {
+            throw new Error(`Processing failed (${res.status})`);
+          }
+
+          const result: SCIExecutionResult = await res.json();
+          unitResult = result.results[0];
         }
-
-        const result: SCIExecutionResult = await res.json();
-        const unitResult = result.results[0];
 
         if (unitResult && unitResult.success) {
           setUnits(prev => prev.map(u =>
