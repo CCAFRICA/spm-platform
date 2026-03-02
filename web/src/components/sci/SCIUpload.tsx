@@ -156,7 +156,7 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
     // Validate
     for (const file of files) {
       if (!isAcceptedFile(file.name)) {
-        onError(`"${file.name}" is not a supported format. Try XLSX, CSV, or PDF.`);
+        onError(`"${file.name}" is not a supported format. Try XLSX, CSV, TSV, PDF, PPTX, or DOCX.`);
         return;
       }
       if (file.size > MAX_FILE_SIZE) {
