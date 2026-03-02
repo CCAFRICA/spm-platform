@@ -809,7 +809,9 @@ async function executePlanPipeline(
 
   // 2. Save as rule_set (same logic as POST /api/plan/import)
   const ruleSetId = crypto.randomUUID();
-  const planName = (interpretation.ruleSetName as string) || 'Imported Plan';
+  // Use AI-extracted name, fall back to filename without extension
+  const filenameFallback = unit.contentUnitId.split('::')[0]?.replace(/\.[^.]+$/, '') || '';
+  const planName = (interpretation.ruleSetName as string) || filenameFallback || 'Untitled Plan';
   const components = interpretation.components || [];
 
   const { error: upsertError } = await supabase
