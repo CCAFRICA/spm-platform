@@ -1,0 +1,369 @@
+================================================================================
+OB-140 ARCHITECTURE TRACE — DATABASE STATE INVENTORY
+================================================================================
+Timestamp: 2026-03-02T19:00:26.490Z
+
+
+============================================================
+1A: TENANT IDENTIFICATION
+============================================================
+
+=== ALL TENANTS ===
+┌─────────┬────────────────────────────────────────┬──────────────────────────────┬──────────────────────────────┬──────────┬─────────┬────────────────────────────────────┐
+│ (index) │ id                                     │ name                         │ slug                         │ currency │ locale  │ created_at                         │
+├─────────┼────────────────────────────────────────┼──────────────────────────────┼──────────────────────────────┼──────────┼─────────┼────────────────────────────────────┤
+│ 0       │ 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' │ 'Optica Luminar'             │ 'optica-luminar'             │ 'MXN'    │ 'es-MX' │ '2026-02-15T21:58:43.664922+00:00' │
+│ 1       │ 'a630404c-0777-4f6d-b760-b8a190ecd63c' │ 'Latin American Bank'        │ 'latin-american-bank'        │ 'MXN'    │ 'es-MX' │ '2026-02-28T20:18:26.076763+00:00' │
+│ 2       │ '9b2bb4e3-6828-4451-b3fb-dc384509494f' │ 'Retail Conglomerate Mexico' │ 'retail-conglomerate-mexico' │ 'MXN'    │ 'es-MX' │ '2026-02-17T20:40:20.295148+00:00' │
+│ 3       │ 'c11ca8de-8aca-4b81-9608-8bb4c71dcb29' │ 'RetailCDMX'                 │ 'retailcdmx'                 │ 'MXN'    │ 'es-MX' │ '2026-02-19T13:14:15.468121+00:00' │
+│ 4       │ '2bf12ad3-e0d4-4095-a0ee-0316b23147c4' │ 'RetailPLGMX'                │ 'retailplgmx-j2rf'           │ 'USD'    │ 'en'    │ '2026-02-19T00:40:52.17808+00:00'  │
+│ 5       │ 'b2c3d4e5-f6a7-8901-bcde-f12345678901' │ 'Velocidad Deportiva'        │ 'velocidad-deportiva'        │ 'MXN'    │ 'es-MX' │ '2026-02-16T05:51:11.121632+00:00' │
+│ 6       │ 'f0f0f0f0-aaaa-bbbb-cccc-dddddddddddd' │ 'Pipeline Test Co'           │ 'pipeline-test'              │ 'MXN'    │ 'es-MX' │ '2026-02-21T23:46:04.522935+00:00' │
+│ 7       │ 'dfc1041e-7c39-4657-81e5-40b1cea5680c' │ 'Pipeline Proof Co'          │ 'pipeline-proof'             │ 'MXN'    │ 'es-MX' │ '2026-02-24T13:31:48.992703+00:00' │
+│ 8       │ '10000000-0001-0000-0000-000000000001' │ 'Sabor Grupo Gastronomico'   │ 'sabor-grupo'                │ 'MXN'    │ 'es-MX' │ '2026-02-25T00:12:17.762822+00:00' │
+│ 9       │ 'fa6a48c5-56dc-416d-9b7d-9c93d4882251' │ 'Mexican Bank Co'            │ 'mexican-bank-co'            │ 'MXN'    │ 'es-MX' │ '2026-02-26T05:01:41.589576+00:00' │
+└─────────┴────────────────────────────────────────┴──────────────────────────────┴──────────────────────────────┴──────────┴─────────┴────────────────────────────────────┘
+  optica-luminar (a1b2c3d4-e5f6-7890-abcd-ef1234567890): 420297 committed_data rows
+  latin-american-bank (a630404c-0777-4f6d-b760-b8a190ecd63c): 1625 committed_data rows
+  retail-conglomerate-mexico (9b2bb4e3-6828-4451-b3fb-dc384509494f): 119129 committed_data rows
+  retailcdmx (c11ca8de-8aca-4b81-9608-8bb4c71dcb29): 119134 committed_data rows
+  retailplgmx-j2rf (2bf12ad3-e0d4-4095-a0ee-0316b23147c4): 0 committed_data rows
+  velocidad-deportiva (b2c3d4e5-f6a7-8901-bcde-f12345678901): 156 committed_data rows
+  pipeline-test (f0f0f0f0-aaaa-bbbb-cccc-dddddddddddd): 119129 committed_data rows
+  pipeline-proof (dfc1041e-7c39-4657-81e5-40b1cea5680c): 119129 committed_data rows
+  sabor-grupo (10000000-0001-0000-0000-000000000001): 47051 committed_data rows
+  mexican-bank-co (fa6a48c5-56dc-416d-9b7d-9c93d4882251): 1588 committed_data rows
+
+TARGET TENANT: Optica Luminar (a1b2c3d4-e5f6-7890-abcd-ef1234567890)
+
+============================================================
+1B: ENTITY COUNT AND DUPLICATION ANALYSIS
+============================================================
+
+Total entities: 22237
+Fetched 22237 entity records
+Unique external_ids: 22237
+Duplication factor: 22237/22237 = 1.0x
+
+Top 10 duplicated external_ids:
+┌─────────┐
+│ (index) │
+├─────────┤
+└─────────┘
+
+Singletons (1 record): 22237
+Duplicated (>1 record): 0
+
+============================================================
+1C: ENTITY CREATION SOURCE ANALYSIS
+============================================================
+
+Entity creation by date:
+┌─────────┬──────────────┬───────┐
+│ (index) │ date         │ count │
+├─────────┼──────────────┼───────┤
+│ 0       │ '2026-02-15' │ 22    │
+│ 1       │ '2026-02-23' │ 22215 │
+└─────────┴──────────────┴───────┘
+
+Entity creation by hour:
+┌─────────┬─────────────────┬───────┐
+│ (index) │ hour            │ count │
+├─────────┼─────────────────┼───────┤
+│ 0       │ '2026-02-15T21' │ 22    │
+│ 1       │ '2026-02-23T13' │ 22215 │
+└─────────┴─────────────────┴───────┘
+
+============================================================
+1D: RULE SETS INVENTORY
+============================================================
+
+=== RULE SETS ===
+┌─────────┬────────────────────────────────────────┬──────────────────────────────────────────┬────────────┬─────────┬────────────────────────────────────┬────────────────────────────────────┐
+│ (index) │ id                                     │ name                                     │ status     │ version │ created_at                         │ updated_at                         │
+├─────────┼────────────────────────────────────────┼──────────────────────────────────────────┼────────────┼─────────┼────────────────────────────────────┼────────────────────────────────────┤
+│ 0       │ 'b1b2c3d4-e5f6-7890-abcd-ef1234567890' │ 'Plan de Comisiones Optica Luminar 2026' │ 'archived' │ 1       │ '2026-02-15T21:58:49.903779+00:00' │ '2026-02-23T13:46:26.264751+00:00' │
+│ 1       │ '7657fc95-6dcf-4340-8745-d0ba71ffe88e' │ 'Imported Plan'                          │ 'active'   │ 1       │ '2026-02-23T13:46:26.179071+00:00' │ '2026-02-23T13:46:26.330872+00:00' │
+└─────────┴────────────────────────────────────────┴──────────────────────────────────────────┴────────────┴─────────┴────────────────────────────────────┴────────────────────────────────────┘
+
+Rule set "Plan de Comisiones Optica Luminar 2026" (b1b2c3d4-e5f6-7890-abcd-ef1234567890):
+  Components (6): Venta Optica, Venta Tienda, Clientes Nuevos, Cobranza, Club de Proteccion, Garantia Extendida
+  input_bindings keys: 2
+  input_bindings empty: false
+  Status: archived, Version: 1
+
+  Component: Venta Optica
+    type: matrix_lookup
+    metric_source: unknown
+    evaluator: unknown
+
+  Component: Venta Tienda
+    type: tier_lookup
+    metric_source: unknown
+    evaluator: unknown
+
+  Component: Clientes Nuevos
+    type: tier_lookup
+    metric_source: unknown
+    evaluator: unknown
+
+  Component: Cobranza
+    type: tier_lookup
+    metric_source: unknown
+    evaluator: unknown
+
+  Component: Club de Proteccion
+    type: percentage_with_gate
+    metric_source: unknown
+    evaluator: unknown
+
+  Component: Garantia Extendida
+    type: flat_percentage
+    metric_source: unknown
+    evaluator: unknown
+
+Rule set "Imported Plan" (7657fc95-6dcf-4340-8745-d0ba71ffe88e):
+  Components (2): type, variants
+  input_bindings keys: 0
+  input_bindings empty: true
+  Status: active, Version: 1
+
+  Component: unnamed
+    type: unknown
+    metric_source: unknown
+    evaluator: unknown
+
+  Component: unnamed
+    type: unknown
+    metric_source: unknown
+    evaluator: unknown
+
+============================================================
+1E: RULE SET ASSIGNMENTS
+============================================================
+
+Total assignments: 22227
+Assignments per rule_set:
+┌─────────┬────────────────────────────────────────┬───────┐
+│ (index) │ rule_set_id                            │ count │
+├─────────┼────────────────────────────────────────┼───────┤
+│ 0       │ '7657fc95-6dcf-4340-8745-d0ba71ffe88e' │ 1000  │
+└─────────┴────────────────────────────────────────┴───────┘
+Entities with >1 assignment: 0
+
+============================================================
+1F: PERIODS INVENTORY
+============================================================
+
+=== PERIODS ===
+┌─────────┬────────────────────────────────────────┬───────────────┬─────────────────┬──────────────┬──────────────┬────────┬─────────────┬────────────────────────────────────┐
+│ (index) │ id                                     │ canonical_key │ label           │ start_date   │ end_date     │ status │ period_type │ created_at                         │
+├─────────┼────────────────────────────────────────┼───────────────┼─────────────────┼──────────────┼──────────────┼────────┼─────────────┼────────────────────────────────────┤
+│ 0       │ '76f31af2-5d64-4d19-b4fd-e15ded420d14' │ '2024-01'     │ 'January 2024'  │ '2024-01-01' │ '2024-01-31' │ 'open' │ 'monthly'   │ '2026-02-23T13:59:38.267708+00:00' │
+│ 1       │ 'ad4d0399-5c3f-4bce-867a-16e33193414b' │ '2024-02'     │ 'February 2024' │ '2024-02-01' │ '2024-02-29' │ 'open' │ 'monthly'   │ '2026-02-23T13:59:38.267708+00:00' │
+│ 2       │ '16d124d1-f86d-441f-8928-e12846fcab5a' │ '2024-03'     │ 'March 2024'    │ '2024-03-01' │ '2024-03-31' │ 'open' │ 'monthly'   │ '2026-02-23T13:59:38.267708+00:00' │
+│ 3       │ '4f6a54ee-2222-4229-8e47-ef5b52d369da' │ '2024-04'     │ 'April 2024'    │ '2024-04-01' │ '2024-04-30' │ 'open' │ 'monthly'   │ '2026-02-23T13:59:38.267708+00:00' │
+│ 4       │ '59ecd095-b8b7-4e6f-aecc-8eb3528cbd31' │ '2024-05'     │ 'May 2024'      │ '2024-05-01' │ '2024-05-31' │ 'open' │ 'monthly'   │ '2026-02-23T13:59:38.267708+00:00' │
+│ 5       │ 'c7ab8d34-8c46-44a7-8434-9b942f59a5d4' │ '2024-06'     │ 'June 2024'     │ '2024-06-01' │ '2024-06-30' │ 'open' │ 'monthly'   │ '2026-02-23T13:59:38.267708+00:00' │
+│ 6       │ '6e629744-d454-4da1-91ee-4d6c348e398e' │ '2024-07'     │ 'July 2024'     │ '2024-07-01' │ '2024-07-31' │ 'open' │ 'monthly'   │ '2026-02-23T13:59:38.267708+00:00' │
+│ 7       │ 'c1b2c3d4-e5f6-7890-abcd-ef1234567890' │ '2026-02'     │ 'Febrero 2026'  │ '2026-02-01' │ '2026-02-28' │ 'open' │ 'monthly'   │ '2026-02-15T21:58:51.268442+00:00' │
+└─────────┴────────────────────────────────────────┴───────────────┴─────────────────┴──────────────┴──────────────┴────────┴─────────────┴────────────────────────────────────┘
+
+No duplicate canonical_keys. Total periods: 8
+
+============================================================
+1G: COMMITTED DATA INVENTORY
+============================================================
+
+Total committed_data rows: 420297
+
+Committed data by data_type:
+┌─────────┬─────────────────────────────────────────────────────────────────────┬────────┐
+│ (index) │ data_type                                                           │ count  │
+├─────────┼─────────────────────────────────────────────────────────────────────┼────────┤
+│ 0       │ 'Base_Club_Proteccion'                                              │ 112474 │
+│ 1       │ 'backttest_optometrista_mar2025_proveedores'                        │ 109852 │
+│ 2       │ 'Base_Garantia_Extendida'                                           │ 69904  │
+│ 3       │ 'backttest_optometrista_mar2025_proveedores__base_club_proteccion'  │ 56237  │
+│ 4       │ 'Base_Venta_Tienda'                                                 │ 24892  │
+│ 5       │ 'Base_Cobranza'                                                     │ 10742  │
+│ 6       │ 'backttest_optometrista_mar2025_proveedores__base_clientes_nuevos'  │ 10696  │
+│ 7       │ 'Base_Clientes_Nuevos'                                              │ 10696  │
+│ 8       │ 'backttest_optometrista_mar2025_proveedores__base_venta_individual' │ 5236   │
+│ 9       │ 'Base_Venta_Individual'                                             │ 5236   │
+│ 10      │ 'Datos Colaborador'                                                 │ 4314   │
+│ 11      │ 'individual_metrics'                                                │ 12     │
+│ 12      │ 'store_metrics'                                                     │ 6      │
+└─────────┴─────────────────────────────────────────────────────────────────────┴────────┘
+
+Committed data by import_batch_id:
+┌─────────┬────────────────────────────────────────┬────────┐
+│ (index) │ import_batch_id                        │ count  │
+├─────────┼────────────────────────────────────────┼────────┤
+│ 0       │ '05c3de88-647b-4767-a752-9b8b62df8440' │ 125591 │
+│ 1       │ '61a38222-7882-4ac9-bf4b-e9265174b32e' │ 44952  │
+│ 2       │ '46837ff1-04a6-4387-bf8d-1d9595ce5691' │ 43684  │
+│ 3       │ '6476eab1-3d31-4963-9a76-cfc2b08b16e3' │ 17872  │
+│ 4       │ '1ae6e4d6-796b-4c08-88df-d388dc286127' │ 9000   │
+│ 5       │ '6f0ccd8c-034f-4748-8aae-a81b4d439772' │ 8522   │
+│ 6       │ 'e8724c13-b9cb-4d13-9739-edad400aaf12' │ 8493   │
+│ 7       │ 'c56e02c5-35a7-4d12-9d22-e50f26022aec' │ 8454   │
+│ 8       │ '95fb6fa1-02c8-4022-a369-7f4fdcc1ba68' │ 8109   │
+│ 9       │ 'b8f297b9-9352-45db-9e11-736f3adcb743' │ 8019   │
+│ 10      │ '40e4e1b1-5eab-49c7-960e-f2c946d6d053' │ 8000   │
+│ 11      │ '7ab9970e-e04b-4e27-9260-eac180655b0f' │ 8000   │
+│ 12      │ '8b1121ec-712b-4777-aff8-5e0196a83f1f' │ 8000   │
+│ 13      │ 'd2a1bef8-f74a-4d31-91fe-f25bcd418f8f' │ 7141   │
+│ 14      │ '8f0931de-9712-41db-b947-8f4cee751386' │ 7125   │
+│ 15      │ 'a2b6d1f8-aa01-43b5-827c-e2d50d8bf9f2' │ 7000   │
+│ 16      │ '5fe8a299-90be-4362-8fde-f7f6c7ff4c03' │ 7000   │
+│ 17      │ '9d5df569-c734-40b7-b745-184fddecbacf' │ 6786   │
+│ 18      │ '523f32be-3c9d-4133-8a7d-d802c5b864de' │ 6371   │
+│ 19      │ '307262d4-727a-45ef-90a4-36ace298a06e' │ 6235   │
+│ 20      │ 'a8e6fc32-831e-4a73-8782-4c16b4518b18' │ 6000   │
+│ 21      │ '66599cc8-cddf-4b2c-b11b-368c656cec1f' │ 6000   │
+│ 22      │ 'aad31c58-d5da-46cd-8a7a-07d5e45537ab' │ 6000   │
+│ 23      │ '1937e994-c9e2-4cc3-9eee-57c208b50b91' │ 5952   │
+│ 24      │ '15e46f42-d587-43b7-be47-66c80f72538e' │ 5507   │
+│ 25      │ '96e81b2a-f5a0-4585-873f-9b7222346456' │ 5486   │
+│ 26      │ '8f82cfc9-2101-4da5-90e1-c8049bc21099' │ 5405   │
+│ 27      │ '64d2a945-4bee-4a04-9b53-136fe359eaf9' │ 5000   │
+│ 28      │ 'de89307e-80a6-49e8-a223-f886933f7106' │ 5000   │
+│ 29      │ '756a61b4-4543-4a4a-a8a5-7dd2851d78f7' │ 3565   │
+│ 30      │ '0221df52-1cbd-4cc3-ae9f-e0387275be31' │ 3446   │
+│ 31      │ '100beff7-9090-4e31-ae3c-96158ecb59ca' │ 2979   │
+│ 32      │ '272360f2-7122-4c10-9361-e4b3a4cd511f' │ 2451   │
+│ 33      │ '763c7ca1-7324-443d-8550-fe2480d388f3' │ 2157   │
+│ 34      │ '1c8d3906-92d7-4d2f-a1d2-23fb1af879c2' │ 647    │
+│ 35      │ 'c95a0bb7-85b9-4880-ab22-6c3440282bd1' │ 348    │
+└─────────┴────────────────────────────────────────┴────────┘
+
+Rows with NULL entity_id (store-level): 167782
+
+--- Sample row per data_type ---
+
+  data_type: backttest_optometrista_mar2025_proveedores
+  entity_id: 32a3fe9e-6cb1-4886-9df6-26f58d5a6504
+  period_id: null
+  import_batch_id: 100beff7-9090-4e31-ae3c-96158ecb59ca
+  fields (5): No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  sample values: {"No_Tienda":6618,"_rowIndex":1206,"_sheetName":"Datos Colaborador","Fecha Corte":45351,"num_empleado":96765933}
+
+  data_type: backttest_optometrista_mar2025_proveedores__base_clientes_nuevos
+  entity_id: ecadd0a7-267b-4bbf-b2e2-8989ac786a62
+  period_id: null
+  import_batch_id: 8f0931de-9712-41db-b947-8f4cee751386
+  fields (6): No_Tienda, _rowIndex, _sheetName, Fecha Corte, Clientes_Meta, Clientes_Actuales
+  sample values: {"No_Tienda":1,"_rowIndex":0,"_sheetName":"Base_Clientes_Nuevos","Fecha Corte":45322,"Clientes_Meta":293,"Clientes_Actuales":217}
+
+  data_type: backttest_optometrista_mar2025_proveedores__base_club_proteccion
+  entity_id: 2a7c9bbe-db52-48b9-97a4-98973742df37
+  period_id: null
+  import_batch_id: c56e02c5-35a7-4d12-9d22-e50f26022aec
+  fields (8): Mes, Año, _rowIndex, _sheetName, num_empleado,  Monto Club Protection , No Meta Club Protection, No Actual Club Protection
+  sample values: {"Mes":1,"Año":2024,"_rowIndex":3564,"_sheetName":"Base_Club_Proteccion","num_empleado":90353764," Monto Club Protection ":0,"No Meta Club Protection":0,"No Actual Club Protection":0}
+
+  data_type: backttest_optometrista_mar2025_proveedores__base_venta_individual
+  entity_id: ecadd0a7-267b-4bbf-b2e2-8989ac786a62
+  period_id: null
+  import_batch_id: 8f82cfc9-2101-4da5-90e1-c8049bc21099
+  fields (14): Mes, Año, Llave2, _rowIndex, _sheetName, num_puesto, num_tienda, Cumplimiento, num_empleado, Meta_Individual, Rango de Tienda, Venta_Individual, suma nivel tienda, LLave Tamaño de Tienda
+  sample values: {"Mes":1,"Año":2024,"Llave2":"1-96568046","_rowIndex":0,"_sheetName":"Base_Venta_Individual","num_puesto":169,"num_tienda":1,"Cumplimiento":1.35143125923935,"num_empleado":96568046,"Meta_Individual":74410,"Rango de Tienda":"","Venta_Individual":100560,"suma nivel tienda":74410,"LLave Tamaño de Tienda":"1-1"}
+
+  data_type: Base_Clientes_Nuevos
+  entity_id: null
+  period_id: 76f31af2-5d64-4d19-b4fd-e15ded420d14
+  import_batch_id: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields (10): date, goal, storeId, quantity, No_Tienda, _rowIndex, _sheetName, Fecha Corte, Clientes_Meta, Clientes_Actuales
+  sample values: {"date":45322,"goal":293,"storeId":1,"quantity":217,"No_Tienda":1,"_rowIndex":0,"_sheetName":"Base_Clientes_Nuevos","Fecha Corte":45322,"Clientes_Meta":293,"Clientes_Actuales":217}
+
+  data_type: Base_Club_Proteccion
+  entity_id: f93fdc94-466d-473e-8e44-da1db7453a93
+  period_id: 76f31af2-5d64-4d19-b4fd-e15ded420d14
+  import_batch_id: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields (13): Mes, Año, goal, amount, period, entityId, quantity, _rowIndex, _sheetName, num_empleado,  Monto Club Protection , No Meta Club Protection, No Actual Club Protection
+  sample values: {"Mes":1,"Año":2024,"goal":5,"amount":84,"period":1,"entityId":96568046,"quantity":4,"_rowIndex":0,"_sheetName":"Base_Club_Proteccion","num_empleado":96568046," Monto Club Protection ":84,"No Meta Club Protection":5,"No Actual Club Protection":4}
+
+  data_type: Base_Cobranza
+  entity_id: null
+  period_id: 76f31af2-5d64-4d19-b4fd-e15ded420d14
+  import_batch_id: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields (12): date, goal, amount, storeId, No_Tienda, _rowIndex, _sheetName, attainment, Fecha Corte, Monto Acotado, Monto_Recuperado_Meta, Monto_Recuperado_Actual
+  sample values: {"date":45322,"goal":11364868.9,"amount":13944986,"storeId":1,"No_Tienda":1,"_rowIndex":0,"_sheetName":"Base_Cobranza","attainment":11310207,"Fecha Corte":45322,"Monto Acotado":11310207,"Monto_Recuperado_Meta":11364868.9,"Monto_Recuperado_Actual":13944986}
+
+  data_type: Base_Garantia_Extendida
+  entity_id: f93fdc94-466d-473e-8e44-da1db7453a93
+  period_id: 76f31af2-5d64-4d19-b4fd-e15ded420d14
+  import_batch_id: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields (8): date, Monto, amount, Vendedor, entityId, _rowIndex, FechaCorte, _sheetName
+  sample values: {"date":45322,"Monto":600.93,"amount":600.93,"Vendedor":96568046,"entityId":96568046,"_rowIndex":0,"FechaCorte":45322,"_sheetName":"Base_Garantia_Extendida"}
+
+  data_type: Base_Venta_Individual
+  entity_id: f93fdc94-466d-473e-8e44-da1db7453a93
+  period_id: 76f31af2-5d64-4d19-b4fd-e15ded420d14
+  import_batch_id: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields (22): Mes, Año, goal, role, Llave2, amount, period, storeId, entityId, _rowIndex, _sheetName, attainment, num_puesto, num_tienda, storeRange, Cumplimiento, num_empleado, Meta_Individual, Rango de Tienda, Venta_Individual, suma nivel tienda, LLave Tamaño de Tienda
+  sample values: {"Mes":1,"Año":2024,"goal":74410,"role":169,"Llave2":"1-96568046","amount":74410,"period":1,"storeId":1,"entityId":96568046,"_rowIndex":0,"_sheetName":"Base_Venta_Individual","attainment":1.35143125923935,"num_puesto":169,"num_tienda":1,"storeRange":null,"Cumplimiento":1.35143125923935,"num_empleado":96568046,"Meta_Individual":74410,"Rango de Tienda":null,"Venta_Individual":100560,"suma nivel tien
+
+  data_type: Base_Venta_Tienda
+  entity_id: null
+  period_id: 4f6a54ee-2222-4229-8e47-ef5b52d369da
+  import_batch_id: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields (10): date, goal, Tienda, amount, storeId, _rowIndex, _sheetName, Fecha Corte, Meta_Venta_Tienda, Real_Venta_Tienda
+  sample values: {"date":45412,"goal":0,"Tienda":null,"amount":0,"storeId":null,"_rowIndex":5347,"_sheetName":"Base_Venta_Tienda","Fecha Corte":45412,"Meta_Venta_Tienda":0,"Real_Venta_Tienda":0}
+
+  data_type: Datos Colaborador
+  entity_id: f93fdc94-466d-473e-8e44-da1db7453a93
+  period_id: 76f31af2-5d64-4d19-b4fd-e15ded420d14
+  import_batch_id: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields (13): Mes, Año, date, role, Puesto, period, storeId, entityId, No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  sample values: {"Mes":1,"Año":2024,"date":45322,"role":"OPTOMETRISTA CERTIFICADO","Puesto":"OPTOMETRISTA CERTIFICADO","period":2024,"storeId":1,"entityId":96568046,"No_Tienda":1,"_rowIndex":0,"_sheetName":"Datos Colaborador","Fecha Corte":45322,"num_empleado":96568046}
+
+  data_type: individual_metrics
+  entity_id: 01000000-0004-0000-0000-000000000001
+  period_id: c1b2c3d4-e5f6-7890-abcd-ef1234567890
+  import_batch_id: d1b2c3d4-e5f6-7890-abcd-ef1234567890
+  fields (2): warranty_sales, insurance_sales
+  sample values: {"warranty_sales":5200,"insurance_sales":2800}
+
+  data_type: store_metrics
+  entity_id: 01000000-0003-0000-0000-000000000001
+  period_id: c1b2c3d4-e5f6-7890-abcd-ef1234567890
+  import_batch_id: d1b2c3d4-e5f6-7890-abcd-ef1234567890
+  fields (7): target, volume_tier, optical_sales, attainment_percent, insurance_attainment_percent, collections_attainment_percent, new_customers_attainment_percent
+  sample values: {"target":500000,"volume_tier":"Alto","optical_sales":625000,"attainment_percent":125,"insurance_attainment_percent":105,"collections_attainment_percent":108,"new_customers_attainment_percent":115}
+
+============================================================
+1H: CALCULATION STATE
+============================================================
+
+=== CALCULATION BATCHES ===
+  aa6efcec-126b-4c45-a212-c7ee48fe68b4 | period=January 2024 | rule_set=7657fc95-6dcf-4340-8745-d0ba71ffe88e | 719 entities | payout=524500 | PREVIEW | 2026-03-02T18:40:53.893479+00:00
+  582041b6-0945-4452-a73f-752f8627120a | period=Febrero 2026 | rule_set=7657fc95-6dcf-4340-8745-d0ba71ffe88e | 22215 entities | payout=0 | PREVIEW | 2026-03-02T18:39:28.895923+00:00
+  e733a98b-2127-4da4-98cc-85763124f80b | period=February 2024 | rule_set=7657fc95-6dcf-4340-8745-d0ba71ffe88e | 719 entities | payout=525000 | DRAFT | 2026-02-24T12:43:30.787822+00:00
+  ab0a7141-6a00-46db-90f8-2cb2627ad086 | period=February 2024 | rule_set=7657fc95-6dcf-4340-8745-d0ba71ffe88e | 719 entities | payout=525000 | DRAFT | 2026-02-24T02:17:54.584795+00:00
+  6e9f15ce-1a78-4576-820b-957512a5be29 | period=February 2024 | rule_set=7657fc95-6dcf-4340-8745-d0ba71ffe88e | 719 entities | payout=4191451846.959996 | DRAFT | 2026-02-23T23:27:39.429299+00:00
+  ea514d43-4a01-4b0a-84ac-c07589f1a1a7 | period=February 2024 | rule_set=7657fc95-6dcf-4340-8745-d0ba71ffe88e | 719 entities | payout=0 | DRAFT | 2026-02-23T20:51:28.835633+00:00
+  1d4baeb1-587e-4c4a-948a-19c34db866db | period=January 2024 | rule_set=7657fc95-6dcf-4340-8745-d0ba71ffe88e | 719 entities | payout=0 | PREVIEW | 2026-02-23T18:40:48.673683+00:00
+  e1b2c3d4-e5f6-7890-abcd-ef1234567890 | period=Febrero 2026 | rule_set=b1b2c3d4-e5f6-7890-abcd-ef1234567890 | 12 entities | payout=42850 | PUBLISHED | 2026-02-15T21:58:53.371321+00:00
+
+Latest batch details:
+  Batch: aa6efcec-126b-4c45-a212-c7ee48fe68b4
+  Results: 719, non-zero: 687, zero: 32
+  Total payout: MX$524,500
+  Expected: 719 results, MX$1,253,832
+
+============================================================
+1I: CONVERGENCE / METRIC STATE
+============================================================
+
+metric_derivations: Could not find the table 'public.metric_derivations' in the schema cache
+
+sci_signals: Could not find the table 'public.sci_signals' in the schema cache
+
+=== IMPORT BATCHES ===
+null
+
+================================================================================
+ARCHITECTURE TRACE COMPLETE
+================================================================================
