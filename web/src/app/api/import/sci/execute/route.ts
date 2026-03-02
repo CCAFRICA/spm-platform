@@ -3,6 +3,9 @@
 // Processes confirmed proposals through classification-specific pipelines.
 // Zero domain vocabulary. Korean Test applies.
 
+// OB-133: Extended timeout for plan interpretation (AI takes 20-30s)
+export const maxDuration = 120;
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
@@ -106,7 +109,7 @@ async function executeContentUnit(
     case 'entity':
       return executeEntityPipeline(supabase, tenantId, proposalId, unit);
     case 'plan':
-      return executePlanStub(unit);
+      return executePlanPipeline(supabase, tenantId, unit);
   }
 }
 
@@ -583,18 +586,151 @@ async function executeEntityPipeline(
 }
 
 // ============================================================
-// PLAN PIPELINE — stub (routes to existing plan interpretation)
+// PLAN PIPELINE — routes to existing plan interpretation
+// OB-133: Wired from stub to real AI interpretation + rule_set save
 // ============================================================
 
-function executePlanStub(unit: ContentUnitExecution): ContentUnitResult {
-  // Plan interpretation is currently only available through the Configure UI
-  // This stub acknowledges the classification but defers execution
-  console.log(`[SCI Execute] Plan content unit ${unit.contentUnitId} — route to plan interpretation (deferred)`);
+async function executePlanPipeline(
+  supabase: SupabaseClient,
+  tenantId: string,
+  unit: ContentUnitExecution
+): Promise<ContentUnitResult> {
+  const docMeta = unit.documentMetadata;
+
+  if (!docMeta?.fileBase64) {
+    // No document data — fallback for tabular plan classification
+    console.log(`[SCI Execute] Plan content unit ${unit.contentUnitId} — no document data, deferred`);
+    return {
+      contentUnitId: unit.contentUnitId,
+      classification: 'plan',
+      success: true,
+      rowsProcessed: 0,
+      pipeline: 'plan-deferred',
+    };
+  }
+
+  console.log(`[SCI Execute] Plan interpretation starting for ${unit.contentUnitId}`);
+
+  // 1. Call plan interpretation API (same service as Configure → Plan Import)
+  const { getAIService } = await import('@/lib/ai');
+  const aiService = getAIService();
+
+  const isPdf = docMeta.mimeType === 'application/pdf';
+  let documentContent = '';
+  let pdfBase64: string | undefined;
+  let pdfMediaType: string | undefined;
+
+  if (isPdf) {
+    pdfBase64 = docMeta.fileBase64;
+    pdfMediaType = 'application/pdf';
+    documentContent = `[PDF document: ${docMeta.fileBase64.length} bytes base64]`;
+  } else {
+    // For PPTX/DOCX, extract text server-side
+    const JSZip = (await import('jszip')).default;
+    const buffer = Buffer.from(docMeta.fileBase64, 'base64');
+    const zip = await JSZip.loadAsync(buffer);
+
+    if (docMeta.mimeType.includes('presentationml') || unit.contentUnitId.endsWith('.pptx')) {
+      // PPTX text extraction
+      const slideFiles = Object.keys(zip.files)
+        .filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+        .sort((a, b) => {
+          const numA = parseInt(a.match(/slide(\d+)/)?.[1] || '0');
+          const numB = parseInt(b.match(/slide(\d+)/)?.[1] || '0');
+          return numA - numB;
+        });
+      const texts: string[] = [];
+      for (const sf of slideFiles) {
+        const content = await zip.file(sf)?.async('string');
+        if (!content) continue;
+        const matches = Array.from(content.matchAll(/<a:t>([^<]*)<\/a:t>/g));
+        for (const m of matches) {
+          const t = m[1].trim();
+          if (t) texts.push(t);
+        }
+      }
+      documentContent = texts.join('\n');
+    } else {
+      // DOCX text extraction
+      const docXml = await zip.file('word/document.xml')?.async('string');
+      if (docXml) {
+        const matches = Array.from(docXml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g));
+        documentContent = matches.map(m => m[1].trim()).filter(Boolean).join(' ');
+      }
+    }
+  }
+
+  const response = await aiService.interpretPlan(
+    documentContent,
+    isPdf ? 'pdf' : 'text',
+    { tenantId },
+    pdfBase64,
+    pdfMediaType
+  );
+
+  const interpretation = response.result;
+
+  if (interpretation.fallback || interpretation.error) {
+    return {
+      contentUnitId: unit.contentUnitId,
+      classification: 'plan',
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'plan-interpretation',
+      error: String(interpretation.error || 'AI interpretation returned no results'),
+    };
+  }
+
+  // 2. Save as rule_set (same logic as POST /api/plan/import)
+  const ruleSetId = crypto.randomUUID();
+  const planName = (interpretation.ruleSetName as string) || 'Imported Plan';
+  const components = interpretation.components || [];
+
+  const { error: upsertError } = await supabase
+    .from('rule_sets')
+    .upsert({
+      id: ruleSetId,
+      tenant_id: tenantId,
+      name: planName,
+      description: (interpretation.description as string) || '',
+      status: 'active' as const,
+      version: 1,
+      population_config: {
+        eligible_roles: [],
+      },
+      input_bindings: {},
+      components: { components } as unknown as Json,
+      cadence_config: {},
+      outcome_config: {},
+      metadata: {
+        plan_type: 'additive_lookup',
+        source: 'sci',
+        contentUnitId: unit.contentUnitId,
+        aiConfidence: response.confidence,
+      } as unknown as Json,
+      created_by: 'sci-execute',
+    });
+
+  if (upsertError) {
+    console.error('[SCI Execute] Plan save failed:', upsertError);
+    return {
+      contentUnitId: unit.contentUnitId,
+      classification: 'plan',
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'plan-interpretation',
+      error: upsertError.message,
+    };
+  }
+
+  const componentCount = Array.isArray(components) ? components.length : 0;
+  console.log(`[SCI Execute] Plan saved: ${planName} (${ruleSetId}), ${componentCount} components`);
+
   return {
     contentUnitId: unit.contentUnitId,
     classification: 'plan',
     success: true,
-    rowsProcessed: 0,
-    pipeline: 'plan-deferred',
+    rowsProcessed: componentCount,
+    pipeline: 'plan-interpretation',
   };
 }

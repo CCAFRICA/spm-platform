@@ -99,6 +99,8 @@ export function SCIExecution({
         confirmedClassification: eu.classification,
         confirmedBindings: proposalUnit.fieldBindings,
         rawData: sheetData?.rows || [],
+        // OB-133: Pass document metadata for plan interpretation
+        ...(proposalUnit.documentMetadata ? { documentMetadata: proposalUnit.documentMetadata } : {}),
       };
     }).filter(Boolean);
 
