@@ -135,6 +135,34 @@ export interface SemanticBinding {
 }
 
 // ============================================================
+// LAYER 4: NEGOTIATION (OB-134)
+// ============================================================
+
+export interface FieldAffinity {
+  fieldName: string;
+  affinities: Record<AgentType, number>;  // 0-1 per agent
+  winner: AgentType;
+  isShared: boolean;                       // needed by multiple agents as join key
+}
+
+export interface NegotiationResult {
+  contentUnitId: string;
+  round1Scores: AgentScore[];
+  round2Scores: AgentScore[];
+  fieldAffinities: FieldAffinity[];
+  claims: ContentClaim[];                  // 1 for FULL, 2 for PARTIAL
+  isSplit: boolean;                        // true when PARTIAL claims generated
+  log: NegotiationLogEntry[];
+}
+
+export interface NegotiationLogEntry {
+  stage: 'round1' | 'absence_boost' | 'field_analysis' | 'split_decision' | 'round2';
+  agent?: AgentType;
+  message: string;
+  data?: Record<string, unknown>;
+}
+
+// ============================================================
 // PROPOSAL (API Response)
 // ============================================================
 
@@ -166,6 +194,12 @@ export interface ContentUnitProposal {
     mimeType: string;
     extractionSummary?: Record<string, unknown>;
   };
+  // OB-134: Negotiation metadata for PARTIAL claims
+  claimType?: ClaimType;              // FULL (default) or PARTIAL
+  ownedFields?: string[];             // field names this agent owns (PARTIAL only)
+  sharedFields?: string[];            // join key fields shared with partner (PARTIAL only)
+  partnerContentUnitId?: string;      // the other half of a PARTIAL split
+  negotiationLog?: NegotiationLogEntry[];
 }
 
 // ============================================================
@@ -189,6 +223,10 @@ export interface ContentUnitExecution {
     mimeType: string;
     extractionSummary?: Record<string, unknown>;
   };
+  // OB-134: PARTIAL claim field filtering
+  claimType?: ClaimType;
+  ownedFields?: string[];             // fields this agent owns
+  sharedFields?: string[];            // join key fields shared with partner
 }
 
 export interface SCIExecutionResult {

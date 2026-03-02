@@ -89,9 +89,11 @@ export function SCIExecution({
       if (!proposalUnit) return null;
 
       // Find matching sheet data from parsed file
+      // OB-134: Strip ::split suffix for PARTIAL claims (both halves use same sheet data)
+      const baseContentUnitId = eu.contentUnitId.replace(/::split$/, '');
       const sheetData = rawData.sheets.find(s => {
         const expectedId = `${rawData.fileName}::${s.sheetName}::${rawData.sheets.indexOf(s)}`;
-        return expectedId === eu.contentUnitId;
+        return expectedId === baseContentUnitId;
       }) || rawData.sheets.find(s => s.sheetName === eu.tabName);
 
       return {
@@ -101,6 +103,10 @@ export function SCIExecution({
         rawData: sheetData?.rows || [],
         // OB-133: Pass document metadata for plan interpretation
         ...(proposalUnit.documentMetadata ? { documentMetadata: proposalUnit.documentMetadata } : {}),
+        // OB-134: Pass PARTIAL claim field info for field filtering
+        ...(proposalUnit.claimType ? { claimType: proposalUnit.claimType } : {}),
+        ...(proposalUnit.ownedFields ? { ownedFields: proposalUnit.ownedFields } : {}),
+        ...(proposalUnit.sharedFields ? { sharedFields: proposalUnit.sharedFields } : {}),
       };
     }).filter(Boolean);
 
