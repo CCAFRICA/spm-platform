@@ -16,10 +16,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
   }
 
-  // Fetch active rule sets
+  // Fetch active rule sets (include input_bindings JSONB for binding check)
   const { data: ruleSets } = await supabase
     .from('rule_sets')
-    .select('id, name')
+    .select('id, name, input_bindings')
     .eq('tenant_id', tenantId)
     .eq('status', 'active');
 
@@ -38,17 +38,20 @@ export async function GET(request: NextRequest) {
     assignCountByPlan.set(a.rule_set_id, (assignCountByPlan.get(a.rule_set_id) || 0) + 1);
   }
 
-  // Fetch input bindings (check if any derivations exist per plan)
-  const { data: bindings } = await supabase
-    .from('input_bindings')
-    .select('rule_set_id, derivations')
-    .eq('tenant_id', tenantId);
-
+  // Check bindings from rule_sets.input_bindings JSONB column
+  // The engine can auto-resolve metrics via buildMetricsForComponent() when
+  // committed_data exists, even without explicit metric_derivations.
   const bindingsByPlan = new Map<string, boolean>();
-  for (const b of bindings || []) {
-    const derivations = b.derivations as unknown[];
-    if (Array.isArray(derivations) && derivations.length > 0) {
-      bindingsByPlan.set(b.rule_set_id, true);
+  for (const rs of ruleSets) {
+    const bindings = rs.input_bindings as Record<string, unknown> | null;
+    if (bindings && Object.keys(bindings).length > 0) {
+      const md = bindings.metric_derivations;
+      if (Array.isArray(md) && md.length > 0) {
+        bindingsByPlan.set(rs.id, true);
+      } else if (Object.keys(bindings).length > 0) {
+        // Non-empty bindings in alternative format (named keys)
+        bindingsByPlan.set(rs.id, true);
+      }
     }
   }
 
@@ -58,19 +61,31 @@ export async function GET(request: NextRequest) {
     .select('*', { count: 'exact', head: true })
     .eq('tenant_id', tenantId);
 
-  // Fetch most recent batch per plan
+  // When committed_data exists, the engine can auto-resolve metrics for any plan
+  // without explicit input_bindings (via buildMetricsForComponent token matching).
+  const hasDataForAutoResolve = (dataRowCount || 0) > 0;
+  if (hasDataForAutoResolve) {
+    for (const rs of ruleSets) {
+      if (!bindingsByPlan.has(rs.id)) {
+        bindingsByPlan.set(rs.id, true);
+      }
+    }
+  }
+
+  // Fetch most recent batch per plan (summary JSONB, not top-level total_payout)
   const { data: batches } = await supabase
     .from('calculation_batches')
-    .select('rule_set_id, created_at, total_payout')
+    .select('rule_set_id, created_at, summary')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false });
 
   const latestBatchByPlan = new Map<string, { date: string; total: number }>();
   for (const b of batches || []) {
     if (!latestBatchByPlan.has(b.rule_set_id)) {
+      const summary = b.summary as Record<string, unknown> | null;
       latestBatchByPlan.set(b.rule_set_id, {
         date: b.created_at,
-        total: b.total_payout || 0,
+        total: (summary?.totalPayout as number) || (summary?.total_payout as number) || 0,
       });
     }
   }
