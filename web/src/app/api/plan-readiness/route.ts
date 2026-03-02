@@ -27,15 +27,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ plans: [] });
   }
 
-  // Fetch assignments per plan
-  const { data: assignments } = await supabase
-    .from('rule_set_assignments')
-    .select('rule_set_id')
-    .eq('tenant_id', tenantId);
-
+  // Fetch assignment counts per plan using exact count (avoids max_rows truncation)
   const assignCountByPlan = new Map<string, number>();
-  for (const a of assignments || []) {
-    assignCountByPlan.set(a.rule_set_id, (assignCountByPlan.get(a.rule_set_id) || 0) + 1);
+  for (const rs of ruleSets) {
+    const { count } = await supabase
+      .from('rule_set_assignments')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', rs.id);
+    assignCountByPlan.set(rs.id, count || 0);
   }
 
   // Check bindings from rule_sets.input_bindings JSONB column
