@@ -14,6 +14,8 @@ import {
   Pencil,
   Info,
   ArrowRight,
+  Split,
+  Link2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -153,12 +155,16 @@ interface ContentUnitCardProps {
 function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }: ContentUnitCardProps) {
   const [showClassificationMenu, setShowClassificationMenu] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showNegotiationLog, setShowNegotiationLog] = useState(false);
 
   const isLowConfidence = unit.confidence < 0.60;
   const isMediumConfidence = unit.confidence >= 0.60 && unit.confidence < 0.80;
 
   // OB-133: Detect document-sourced plan proposals
   const isDocumentPlan = unit.classification === 'plan' && !!unit.documentMetadata;
+
+  // OB-134: Detect PARTIAL claims
+  const isPartial = unit.claimType === 'PARTIAL';
 
   // Get meaningful field bindings (skip unknown with no context)
   const displayBindings = unit.fieldBindings.filter(
@@ -184,6 +190,8 @@ function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }:
         <div className="flex items-start gap-3 mb-4">
           {isDocumentPlan ? (
             <FileText className="w-5 h-5 text-rose-400 mt-0.5 flex-shrink-0" />
+          ) : isPartial ? (
+            <Split className="w-5 h-5 text-violet-400 mt-0.5 flex-shrink-0" />
           ) : (
             <FileSpreadsheet className="w-5 h-5 text-zinc-400 mt-0.5 flex-shrink-0" />
           )}
@@ -191,6 +199,8 @@ function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }:
             <p className="text-sm font-medium text-zinc-200">
               {isDocumentPlan ? (
                 <>Document: &ldquo;{unit.sourceFile}&rdquo;</>
+              ) : isPartial ? (
+                <>Sheet: &ldquo;{unit.tabName}&rdquo; <span className="text-violet-400 text-xs font-normal">(split &mdash; {CLASSIFICATION_LABELS[unit.classification]})</span></>
               ) : (
                 <>Sheet: &ldquo;{unit.tabName}&rdquo;</>
               )}
@@ -201,7 +211,9 @@ function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }:
             )}>
               {isDocumentPlan
                 ? `I identified this as a plan document.`
-                : getConfidenceLanguage(unit.confidence, unit.classification)}
+                : isPartial
+                  ? `This sheet has mixed content. I'll process the ${CLASSIFICATION_LABELS[unit.classification].toLowerCase()} fields.`
+                  : getConfidenceLanguage(unit.confidence, unit.classification)}
             </p>
           </div>
           {confirmed && (
@@ -243,8 +255,47 @@ function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }:
           </div>
         )}
 
+        {/* OB-134: PARTIAL claim — owned + shared fields */}
+        {isPartial && unit.ownedFields && unit.ownedFields.length > 0 && (
+          <div className="mb-4 pl-8">
+            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">My fields</p>
+            <div className="space-y-1.5">
+              {unit.ownedFields.map((fieldName, i) => {
+                const binding = unit.fieldBindings.find(b => b.sourceField === fieldName);
+                return (
+                  <div key={i} className="flex items-baseline gap-2 text-sm">
+                    <span className="font-medium text-zinc-200">{fieldName}</span>
+                    {binding && (
+                      <>
+                        <span className="text-zinc-600">&mdash;</span>
+                        <span className="text-zinc-400">{getFieldDescription(binding)}</span>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {unit.sharedFields && unit.sharedFields.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                  <Link2 className="w-3 h-3" />
+                  Shared with partner
+                </p>
+                <div className="space-y-1">
+                  {unit.sharedFields.map((fieldName, i) => (
+                    <div key={i} className="flex items-baseline gap-2 text-sm">
+                      <span className="text-zinc-400">{fieldName}</span>
+                      <span className="text-xs text-zinc-600">(join key)</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Field Bindings — for tabular data proposals */}
-        {!isDocumentPlan && displayBindings.length > 0 && (
+        {!isDocumentPlan && !isPartial && displayBindings.length > 0 && (
           <div className="mb-4 pl-8">
             <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">What I found</p>
             <div className="space-y-1.5">
@@ -295,6 +346,29 @@ function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }:
                 <span>{w}</span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* OB-134: Negotiation log */}
+        {unit.negotiationLog && unit.negotiationLog.length > 0 && (
+          <div className="mb-4 pl-8">
+            <button
+              onClick={() => setShowNegotiationLog(!showNegotiationLog)}
+              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors flex items-center gap-1"
+            >
+              <ChevronDown className={cn('w-3 h-3 transition-transform', showNegotiationLog && 'rotate-180')} />
+              How did I decide?
+            </button>
+            {showNegotiationLog && (
+              <div className="mt-2 space-y-1 text-xs text-zinc-500 font-mono bg-zinc-900/50 rounded-md p-3">
+                {unit.negotiationLog.map((entry, i) => (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-zinc-600 w-20 flex-shrink-0">[{entry.stage}]</span>
+                    <span>{entry.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -434,7 +508,13 @@ export function SCIProposalView({ proposal, fileName, onConfirmAll, onCancel }: 
         <div className="flex items-center gap-2 text-xs text-zinc-500 mb-3">
           <span>{fileName}</span>
           <span>&middot;</span>
-          <span>{effectiveUnits.length} {effectiveUnits.length === 1 ? 'sheet' : 'sheets'} detected</span>
+          <span>{effectiveUnits.length} {effectiveUnits.length === 1 ? 'item' : 'items'} detected</span>
+          {effectiveUnits.some(u => u.claimType === 'PARTIAL') && (
+            <>
+              <span>&middot;</span>
+              <span className="text-violet-400">Mixed content detected</span>
+            </>
+          )}
           <span>&middot;</span>
           <span className="text-emerald-400">Ready to process</span>
         </div>
