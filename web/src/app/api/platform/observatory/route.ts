@@ -26,6 +26,8 @@ import {
   computeFlywheelTrend,
   computeOverallHealth,
 } from '@/lib/intelligence/ai-metrics-service';
+import { computeSCIAccuracy, computeSCIFlywheelTrend, computeSCICostCurve } from '@/lib/sci/signal-capture-service';
+import { computeWeightEvolution } from '@/lib/sci/weight-evolution';
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceRoleClient>>;
 
@@ -418,11 +420,20 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
   const tenantNameMap = new Map((tenantRows ?? []).map(t => [t.id, t.name]));
 
   // OB-86: Compute enhanced metrics in parallel
-  const [accuracy, calibration, flywheel, health] = await Promise.all([
+  // OB-135: Add SCI-specific metrics (per-tenant, pick first tenant with SCI signals)
+  const sciTenantId = tenantIds.find(tid =>
+    safeSignals.some(s => s.tenant_id === tid && s.signal_type.startsWith('sci:'))
+  ) || tenantIds[0] || '';
+
+  const [accuracy, calibration, flywheel, health, sciAccuracy, sciFlywheel, sciCostCurve, sciWeightEvo] = await Promise.all([
     computeAccuracyMetrics().catch(() => null),
     computeCalibrationMetrics().catch(() => null),
     computeFlywheelTrend().catch(() => null),
     computeOverallHealth().catch(() => null),
+    sciTenantId ? computeSCIAccuracy(sciTenantId).catch(() => null) : Promise.resolve(null),
+    sciTenantId ? computeSCIFlywheelTrend(sciTenantId).catch(() => null) : Promise.resolve(null),
+    sciTenantId ? computeSCICostCurve(sciTenantId).catch(() => null) : Promise.resolve(null),
+    sciTenantId ? computeWeightEvolution(sciTenantId).catch(() => null) : Promise.resolve(null),
   ]);
 
   return {
@@ -452,6 +463,25 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
       calibrationError: health.calibrationError,
       trendDirection: health.trendDirection,
     } : undefined,
+    // OB-135: SCI metrics
+    sciAccuracy: sciAccuracy ?? null,
+    sciFlywheel: sciFlywheel ?? null,
+    sciCostCurve: sciCostCurve ?? null,
+    sciWeightEvolution: sciWeightEvo ? {
+      proposedAdjustments: sciWeightEvo.proposedAdjustments.slice(0, 20).map(a => ({
+        agent: a.agent,
+        signal: a.signal,
+        currentWeight: a.currentWeight,
+        proposedWeight: a.proposedWeight,
+        delta: a.delta,
+        direction: a.direction,
+        basis: a.basis,
+      })),
+      sampleSize: sciWeightEvo.sampleSize,
+      overrideCount: sciWeightEvo.overrideCount,
+      confidence: sciWeightEvo.confidence,
+      hasEnoughData: sciWeightEvo.hasEnoughData,
+    } : null,
   };
 }
 

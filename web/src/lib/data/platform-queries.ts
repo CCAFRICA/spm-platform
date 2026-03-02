@@ -68,6 +68,17 @@ export interface AIIntelligenceData {
   calibration?: { range: string; statedConfidence: number; actualAccuracy: number; count: number; calibrationError: number }[];
   flywheel?: { period: string; signalCount: number; acceptanceRate: number; avgConfidence: number }[];
   healthSummary?: { totalSignals: number; overallAccuracy: number; avgConfidence: number; calibrationError: number; trendDirection: 'improving' | 'stable' | 'declining' };
+  // OB-135: SCI signal metrics
+  sciAccuracy?: { total: number; correct: number; accuracy: number; overrideRate: number } | null;
+  sciFlywheel?: Array<{ week: string; avgConfidence: number; signalCount: number; accuracy: number }> | null;
+  sciCostCurve?: Array<{ week: string; totalCostUSD: number; apiCalls: number; avgTokens: number }> | null;
+  sciWeightEvolution?: {
+    proposedAdjustments: Array<{ agent: string; signal: string; currentWeight: number; proposedWeight: number; delta: number; direction: string; basis: string }>;
+    sampleSize: number;
+    overrideCount: number;
+    confidence: number;
+    hasEnoughData: boolean;
+  } | null;
 }
 
 export interface TenantBillingData {
