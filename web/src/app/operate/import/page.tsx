@@ -300,6 +300,7 @@ export default function OperateImportPage() {
               <SCIProposalView
                 proposal={state.proposal}
                 fileName={state.fileName}
+                rawData={state.rawData}
                 onConfirmAll={handleConfirmAll}
                 onCancel={handleCancel}
               />
