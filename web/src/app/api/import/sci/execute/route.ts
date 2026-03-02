@@ -821,7 +821,7 @@ async function executePlanPipeline(
       tenant_id: tenantId,
       name: planName,
       description: (interpretation.description as string) || '',
-      status: 'active' as const,
+      status: 'draft' as const,
       version: 1,
       population_config: {
         eligible_roles: [],
