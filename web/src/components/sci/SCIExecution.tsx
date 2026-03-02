@@ -107,6 +107,9 @@ export function SCIExecution({
         ...(proposalUnit.claimType ? { claimType: proposalUnit.claimType } : {}),
         ...(proposalUnit.ownedFields ? { ownedFields: proposalUnit.ownedFields } : {}),
         ...(proposalUnit.sharedFields ? { sharedFields: proposalUnit.sharedFields } : {}),
+        // OB-135: Original prediction for signal outcome recording
+        originalClassification: proposalUnit.classification,
+        originalConfidence: proposalUnit.confidence,
       };
     }).filter(Boolean);
 
