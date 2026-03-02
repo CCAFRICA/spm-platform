@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateContentProfile } from '@/lib/sci/content-profile';
 import { negotiateRound2, requiresHumanReview } from '@/lib/sci/negotiation';
+import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
+import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { SCIProposal, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
 
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -186,6 +188,61 @@ export async function POST(req: NextRequest) {
       requiresHumanReview: anyNeedsReview,
       timestamp: new Date().toISOString(),
     };
+
+    // OB-135: Capture classification signals (fire-and-forget)
+    try {
+      const signalCaptures: SCISignalCapture[] = [];
+
+      for (const unit of proposal.contentUnits) {
+        // One content_classification signal per content unit
+        signalCaptures.push({
+          tenantId,
+          signal: {
+            signalType: 'content_classification',
+            contentUnitId: unit.contentUnitId,
+            sourceFile: unit.sourceFile,
+            tabName: unit.tabName,
+            agentScores: unit.allScores.map(s => ({
+              agent: s.agent,
+              confidence: s.confidence,
+              topSignals: s.signals
+                .filter(sig => sig.weight > 0)
+                .slice(0, 3)
+                .map(sig => sig.signal),
+            })),
+            winningAgent: unit.classification,
+            winningConfidence: unit.confidence,
+            claimType: unit.claimType || 'FULL',
+            requiresHumanReview: anyNeedsReview,
+            round: 2, // OB-134 negotiation is active
+          },
+        });
+
+        // One grouped field_binding signal per content unit
+        signalCaptures.push({
+          tenantId,
+          signal: {
+            signalType: 'field_binding',
+            contentUnitId: unit.contentUnitId,
+            fieldCount: unit.fieldBindings.length,
+            bindingSummary: unit.fieldBindings.slice(0, 10).map(b => ({
+              sourceField: b.sourceField,
+              semanticRole: b.semanticRole,
+              confidence: b.confidence,
+              claimedBy: b.claimedBy,
+            })),
+            avgConfidence: unit.fieldBindings.length > 0
+              ? unit.fieldBindings.reduce((s, b) => s + b.confidence, 0) / unit.fieldBindings.length
+              : 0,
+          },
+        });
+      }
+
+      // Fire-and-forget — do not await
+      captureSCISignalBatch(signalCaptures).catch(() => {});
+    } catch {
+      // Signal capture failure must NEVER block import
+    }
 
     return NextResponse.json(proposal);
 

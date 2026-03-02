@@ -22,6 +22,7 @@ import {
 } from './types';
 import { AnthropicAdapter } from './providers/anthropic-adapter';
 import { getTrainingSignalService } from './training-signal-service';
+import { captureSCISignal } from '@/lib/sci/signal-capture-service';
 
 export class AIService {
   private config: AIServiceConfig;
@@ -112,6 +113,25 @@ export class AIService {
       } catch (error) {
         console.warn('Failed to capture training signal:', error);
       }
+    }
+
+    // OB-135: Capture cost event signal (fire-and-forget)
+    if (signalContext?.tenantId && signalContext.tenantId !== 'unknown') {
+      const inputTokens = response.tokenUsage?.input || 0;
+      const outputTokens = response.tokenUsage?.output || 0;
+      captureSCISignal({
+        tenantId: signalContext.tenantId,
+        signal: {
+          signalType: 'cost_event',
+          eventType: 'ai_api_call',
+          provider: response.provider || 'anthropic',
+          model: response.model || 'unknown',
+          purpose: request.task,
+          inputTokens,
+          outputTokens,
+          estimatedCostUSD: computeEstimatedCost(inputTokens, outputTokens),
+        },
+      }).catch(() => {});
     }
 
     return response;
@@ -387,4 +407,14 @@ export function getAIService(config?: Partial<AIServiceConfig>): AIService {
 
 export function resetAIService(): void {
   _instance = null;
+}
+
+// OB-135: Approximate cost computation for trend analysis (not billing)
+function computeEstimatedCost(inputTokens: number, outputTokens: number): number {
+  // Approximate pricing — used for trend analysis, NOT billing
+  const INPUT_COST_PER_1K = 0.003;
+  const OUTPUT_COST_PER_1K = 0.015;
+  const inputCost = (inputTokens / 1000) * INPUT_COST_PER_1K;
+  const outputCost = (outputTokens / 1000) * OUTPUT_COST_PER_1K;
+  return Math.round((inputCost + outputCost) * 10000) / 10000;
 }

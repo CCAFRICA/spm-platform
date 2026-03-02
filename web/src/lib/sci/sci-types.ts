@@ -227,6 +227,9 @@ export interface ContentUnitExecution {
   claimType?: ClaimType;
   ownedFields?: string[];             // fields this agent owns
   sharedFields?: string[];            // join key fields shared with partner
+  // OB-135: Original prediction for signal outcome recording
+  originalClassification?: AgentType; // what the agent proposed (before user override)
+  originalConfidence?: number;        // agent's original confidence
 }
 
 export interface SCIExecutionResult {

@@ -9,6 +9,8 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
+import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
+import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { Json } from '@/lib/supabase/database.types';
 import type {
   SCIExecutionRequest,
@@ -83,6 +85,33 @@ export async function POST(req: NextRequest) {
       results,
       overallSuccess: results.every(r => r.success),
     };
+
+    // OB-135: Capture outcome signals (fire-and-forget)
+    try {
+      const outcomeCaptures: SCISignalCapture[] = [];
+
+      for (const unit of contentUnits) {
+        const originalClassification = unit.originalClassification || unit.confirmedClassification;
+        const originalConfidence = unit.originalConfidence || 0;
+        const wasOverridden = originalClassification !== unit.confirmedClassification;
+
+        outcomeCaptures.push({
+          tenantId,
+          signal: {
+            signalType: 'content_classification_outcome',
+            contentUnitId: unit.contentUnitId,
+            predictedClassification: originalClassification,
+            confirmedClassification: unit.confirmedClassification,
+            wasOverridden,
+            predictionConfidence: originalConfidence,
+          },
+        });
+      }
+
+      captureSCISignalBatch(outcomeCaptures).catch(() => {});
+    } catch {
+      // Signal capture failure must NEVER block import
+    }
 
     return NextResponse.json(response);
 

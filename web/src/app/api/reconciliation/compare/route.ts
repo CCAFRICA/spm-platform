@@ -20,6 +20,7 @@ import type { ColumnMapping } from '@/lib/reconciliation/ai-column-mapper';
 import type { ColumnMappingInfo, PeriodValue } from '@/lib/reconciliation/benchmark-intelligence';
 import type { CalculationResult } from '@/types/compensation-plan';
 import { persistSignal } from '@/lib/ai/signal-persistence';
+import { captureSCISignal } from '@/lib/sci/signal-capture-service';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -153,6 +154,34 @@ export async function POST(request: NextRequest) {
       source: userOverrides.length > 0 ? 'user_corrected' : 'ai_prediction',
       context: { trigger: 'reconciliation_compare' },
     }).catch(err => console.warn('[ReconciliationCompare] Signal persist failed:', err));
+
+    // OB-135: Capture convergence outcome signal (plan interpretation feedback loop)
+    try {
+      const { data: batchInfo } = await supabase
+        .from('calculation_batches')
+        .select('rule_set_id, period_id')
+        .eq('id', batchId)
+        .single();
+
+      const matchRate = comparisonResult.summary.totalEmployees > 0
+        ? (comparisonResult.summary.exactMatches + comparisonResult.summary.toleranceMatches) / comparisonResult.summary.totalEmployees
+        : 0;
+
+      captureSCISignal({
+        tenantId,
+        signal: {
+          signalType: 'convergence_outcome',
+          planId: batchInfo?.rule_set_id || batchId,
+          periodId: batchInfo?.period_id || 'unknown',
+          entityCount: comparisonResult.summary.matched,
+          matchRate,
+          totalDelta: comparisonResult.summary.totalDelta,
+          isExactMatch: matchRate === 1 && comparisonResult.summary.totalDelta === 0,
+        },
+      }).catch(() => {});
+    } catch {
+      // Signal capture failure must NEVER block reconciliation
+    }
 
     return NextResponse.json({
       success: true,

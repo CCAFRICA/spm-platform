@@ -14,6 +14,7 @@ import { loadDensity } from '@/lib/calculation/synaptic-density';
 import { createSynapticSurface } from '@/lib/calculation/synaptic-surface';
 import { reconcile, type BenchmarkRecord, type CalculatedResult } from '@/lib/agents/reconciliation-agent';
 import { persistSignal } from '@/lib/ai/signal-persistence';
+import { captureSCISignal } from '@/lib/sci/signal-capture-service';
 import type { ExecutionTrace } from '@/lib/calculation/intent-types';
 import type { Json } from '@/lib/supabase/database.types';
 // OB-81: Agent memory for three-flywheel priors
@@ -141,6 +142,34 @@ export async function POST(request: NextRequest) {
     source: 'ai_prediction',
     context: { trigger: 'reconciliation_run' },
   }).catch(err => console.warn('[ReconciliationAPI] Signal persist failed:', err));
+
+  // OB-135: Capture convergence outcome signal (plan interpretation feedback loop)
+  try {
+    const { data: batchInfo } = await supabase
+      .from('calculation_batches')
+      .select('rule_set_id, period_id')
+      .eq('id', batchId)
+      .single();
+
+    const matchRate = report.entityCount.calculated > 0
+      ? report.entityCount.matched / report.entityCount.calculated
+      : 0;
+
+    captureSCISignal({
+      tenantId,
+      signal: {
+        signalType: 'convergence_outcome',
+        planId: batchInfo?.rule_set_id || batchId,
+        periodId: batchInfo?.period_id || 'unknown',
+        entityCount: report.entityCount.calculated,
+        matchRate,
+        totalDelta: 0, // agent-based reconciliation doesn't compute monetary delta
+        isExactMatch: report.entityCount.unmatched === 0,
+      },
+    }).catch(() => {});
+  } catch {
+    // Signal capture failure must NEVER block reconciliation
+  }
 
   return NextResponse.json({
     success: true,
