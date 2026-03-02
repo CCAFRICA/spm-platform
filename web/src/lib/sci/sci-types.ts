@@ -240,6 +240,12 @@ export interface SCIExecutionResult {
   proposalId: string;
   results: ContentUnitResult[];
   overallSuccess: boolean;
+  // OB-139: Post-execution summary for ImportReadyState
+  summary?: {
+    totalRowsCommitted: number;
+    detectedPeriods?: string[];
+    planName?: string;
+  };
 }
 
 export interface ContentUnitResult {
