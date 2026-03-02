@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   FileSpreadsheet,
+  FileText,
   ChevronDown,
   Check,
   Pencil,
@@ -156,12 +157,21 @@ function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }:
   const isLowConfidence = unit.confidence < 0.60;
   const isMediumConfidence = unit.confidence >= 0.60 && unit.confidence < 0.80;
 
+  // OB-133: Detect document-sourced plan proposals
+  const isDocumentPlan = unit.classification === 'plan' && !!unit.documentMetadata;
+
   // Get meaningful field bindings (skip unknown with no context)
   const displayBindings = unit.fieldBindings.filter(
     b => b.semanticRole !== 'unknown' || b.displayContext
   );
 
   const entityMatch = getEntityMatchSummary(unit.fieldBindings);
+
+  // OB-133: Extract component summary from document metadata
+  const extractionSummary = unit.documentMetadata?.extractionSummary;
+  const componentCount = (extractionSummary?.componentCount as number) || 0;
+  const hasVariants = (extractionSummary?.hasVariants as boolean) || false;
+  const components = (extractionSummary?.components as Array<{ name: string }>) || [];
 
   return (
     <Card className={cn(
@@ -172,16 +182,26 @@ function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }:
       <CardContent className="p-5">
         {/* Header */}
         <div className="flex items-start gap-3 mb-4">
-          <FileSpreadsheet className="w-5 h-5 text-zinc-400 mt-0.5 flex-shrink-0" />
+          {isDocumentPlan ? (
+            <FileText className="w-5 h-5 text-rose-400 mt-0.5 flex-shrink-0" />
+          ) : (
+            <FileSpreadsheet className="w-5 h-5 text-zinc-400 mt-0.5 flex-shrink-0" />
+          )}
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-zinc-200">
-              Sheet: &ldquo;{unit.tabName}&rdquo;
+              {isDocumentPlan ? (
+                <>Document: &ldquo;{unit.sourceFile}&rdquo;</>
+              ) : (
+                <>Sheet: &ldquo;{unit.tabName}&rdquo;</>
+              )}
             </p>
             <p className={cn(
               'text-sm mt-1',
               isLowConfidence ? 'text-amber-400' : isMediumConfidence ? 'text-zinc-300' : 'text-zinc-300'
             )}>
-              {getConfidenceLanguage(unit.confidence, unit.classification)}
+              {isDocumentPlan
+                ? `I identified this as a plan document.`
+                : getConfidenceLanguage(unit.confidence, unit.classification)}
             </p>
           </div>
           {confirmed && (
@@ -192,8 +212,39 @@ function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }:
           )}
         </div>
 
-        {/* Field Bindings */}
-        {displayBindings.length > 0 && (
+        {/* OB-133: Document plan — component summary */}
+        {isDocumentPlan && componentCount > 0 && (
+          <div className="mb-4 pl-8">
+            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">What I found</p>
+            <div className="space-y-1.5">
+              <div className="text-sm text-zinc-300">
+                {componentCount} component{componentCount !== 1 ? 's' : ''} with rate tables
+              </div>
+              {hasVariants && (
+                <div className="text-sm text-zinc-400">
+                  Multiple variants detected
+                </div>
+              )}
+              {components.slice(0, showAdvanced ? undefined : 4).map((comp, i) => (
+                <div key={i} className="flex items-baseline gap-2 text-sm">
+                  <span className="text-zinc-600">&bull;</span>
+                  <span className="text-zinc-300">{comp.name}</span>
+                </div>
+              ))}
+              {!showAdvanced && components.length > 4 && (
+                <button
+                  onClick={() => setShowAdvanced(true)}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  + {components.length - 4} more components
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Field Bindings — for tabular data proposals */}
+        {!isDocumentPlan && displayBindings.length > 0 && (
           <div className="mb-4 pl-8">
             <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">What I found</p>
             <div className="space-y-1.5">

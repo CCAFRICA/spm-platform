@@ -160,6 +160,12 @@ export interface ContentUnitProposal {
   fieldBindings: SemanticBinding[];
   allScores: AgentScore[];            // scores from all 4 agents for transparency
   warnings: string[];
+  // OB-133: Document metadata for PPTX/PDF/DOCX plan proposals
+  documentMetadata?: {
+    fileBase64: string;
+    mimeType: string;
+    extractionSummary?: Record<string, unknown>;
+  };
 }
 
 // ============================================================
