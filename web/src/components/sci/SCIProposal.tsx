@@ -1,580 +1,368 @@
 'use client';
 
-// SCI Proposal — Intelligence-first content cards
-// OB-138 — DS-006 v2: 3-layer progressive disclosure of agent reasoning.
-// OB-129 foundation + OB-133 docs + OB-134 negotiation + OB-138 intelligence.
+// SCI Proposal — DS-006 v2 implementation
+// Collapsed card rows with expand, bulk confirm, honest uncertainty.
 // Zero domain vocabulary. Korean Test applies.
 
 import { useState, useMemo } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import {
-  FileSpreadsheet,
-  FileText,
-  ChevronDown,
-  ChevronRight,
-  Check,
-  Pencil,
-  ArrowRight,
-  Split,
-  Link2,
-  Eye,
-  Lightbulb,
-  AlertTriangle,
-  BarChart3,
-} from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
   SCIProposal as SCIProposalType,
   ContentUnitProposal,
   AgentType,
-  SemanticBinding,
 } from '@/lib/sci/sci-types';
+import type { ParsedFileData } from '@/components/sci/SCIUpload';
 
 // ============================================================
-// CONSTANTS
+// VERDICT BADGE — classification type indicator
 // ============================================================
 
-const CLASSIFICATION_OPTIONS: Array<{
-  value: AgentType;
-  label: string;
-  description: string;
-}> = [
-  { value: 'plan', label: 'Plan Rules', description: 'This describes how performance is measured and rewarded' },
-  { value: 'entity', label: 'Team Roster', description: 'This lists the people in my organization' },
-  { value: 'target', label: 'Performance Targets', description: 'This sets goals for each team member' },
-  { value: 'transaction', label: 'Operational Data', description: 'This contains transactions, events, or activity records' },
-];
-
-const PROCESSING_ORDER: Record<AgentType, number> = {
-  plan: 0, entity: 1, target: 2, transaction: 3,
+const BADGE_STYLES: Record<string, string> = {
+  entity: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+  transaction: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  target: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+  plan: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
 };
 
-const CLASSIFICATION_LABELS: Record<AgentType, string> = {
-  plan: 'Plan Rules',
-  entity: 'Team Roster',
-  target: 'Performance Targets',
-  transaction: 'Operational Data',
-};
-
-const CONFIDENCE_COLORS: Record<string, string> = {
-  high: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
-  medium: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
-  low: 'bg-red-500/15 text-red-400 border-red-500/20',
-};
-
-// ============================================================
-// HELPERS
-// ============================================================
-
-function getConfidenceLevel(c: number): 'high' | 'medium' | 'low' {
-  if (c >= 0.80) return 'high';
-  if (c >= 0.60) return 'medium';
-  return 'low';
-}
-
-function getOverallSummary(units: ContentUnitProposal[]): string {
-  const types = new Map<AgentType, number>();
-  for (const u of units) {
-    types.set(u.classification, (types.get(u.classification) || 0) + 1);
-  }
-
-  const typeNames: Record<AgentType, string> = {
-    plan: 'plan rules',
-    entity: 'team roster data',
-    target: 'performance targets',
-    transaction: 'operational data',
-  };
-
-  const sorted = Array.from(types.entries()).sort(
-    (a, b) => PROCESSING_ORDER[a[0]] - PROCESSING_ORDER[b[0]]
+function VerdictBadge({ classification }: { classification: AgentType }) {
+  return (
+    <span className={cn(
+      'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border',
+      BADGE_STYLES[classification] || 'bg-red-500/15 text-red-400 border-red-500/30'
+    )}>
+      {classification}
+    </span>
   );
-
-  const parts = sorted.map(([type]) => typeNames[type]);
-  if (parts.length === 0) return 'No recognizable content found.';
-  if (parts.length === 1) return `I found ${parts[0]}.`;
-  if (parts.length === 2) return `I found ${parts[0]} and ${parts[1]}.`;
-  return `I found ${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}.`;
-}
-
-function getFieldDescription(binding: SemanticBinding): string {
-  if (binding.displayContext) return binding.displayContext;
-  const roleDescriptions: Record<string, string> = {
-    entity_identifier: 'identifies each team member',
-    entity_name: 'display name',
-    performance_target: 'individual goal or target',
-    baseline_value: 'starting value for growth measurement',
-    transaction_amount: 'event value',
-    transaction_date: 'event date',
-    transaction_count: 'event count',
-    entity_attribute: 'team member attribute',
-    entity_license: 'access or permission level',
-    category_code: 'category or grouping',
-    rate_value: 'rate or percentage',
-    tier_boundary: 'threshold value',
-    payout_amount: 'reward amount',
-    period_marker: 'time period reference',
-    descriptive_label: 'label or description',
-    unknown: 'purpose not determined',
-  };
-  return roleDescriptions[binding.semanticRole] || '';
 }
 
 // ============================================================
-// CONFIDENCE BAR (visual score comparison)
+// CONFIDENCE BAR — visual confidence indicator
 // ============================================================
 
-function ScoreBar({ agent, confidence, isWinner }: {
-  agent: AgentType;
-  confidence: number;
-  isWinner: boolean;
-}) {
+function ConfidenceBar({ confidence }: { confidence: number }) {
   const pct = Math.round(confidence * 100);
+  const color = pct >= 75 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-red-500';
   return (
     <div className="flex items-center gap-2">
-      <span className={cn(
-        'text-xs w-28 truncate',
-        isWinner ? 'text-zinc-200 font-medium' : 'text-zinc-500'
-      )}>
-        {CLASSIFICATION_LABELS[agent]}
-      </span>
-      <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-        <div
-          className={cn(
-            'h-full rounded-full transition-all duration-500',
-            isWinner ? 'bg-indigo-500' : 'bg-zinc-600'
-          )}
-          style={{ width: `${Math.max(pct, 2)}%` }}
-        />
+      <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+        <div className={cn('h-full rounded-full', color)} style={{ width: `${pct}%` }} />
       </div>
-      <span className={cn(
-        'text-xs w-8 text-right tabular-nums',
-        isWinner ? 'text-zinc-200' : 'text-zinc-600'
-      )}>
-        {pct}%
-      </span>
+      <span className="text-xs text-zinc-500 w-8 tabular-nums">{pct}%</span>
     </div>
   );
 }
 
 // ============================================================
-// CONTENT UNIT CARD — 3-Layer Intelligence Display
+// CONTENT UNIT CARD — collapsed + expanded states
 // ============================================================
 
 interface ContentUnitCardProps {
   unit: ContentUnitProposal;
-  confirmed: boolean;
-  onConfirm: () => void;
+  rowCount: number;
+  isConfirmed: boolean;
+  onToggleConfirm: () => void;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
   onChangeClassification: (newType: AgentType) => void;
 }
 
-function ContentUnitCard({ unit, confirmed, onConfirm, onChangeClassification }: ContentUnitCardProps) {
-  const [showClassificationMenu, setShowClassificationMenu] = useState(false);
-  const [expandedLayer, setExpandedLayer] = useState<2 | 3 | null>(null);
+function ContentUnitCard({
+  unit, rowCount, isConfirmed, onToggleConfirm, isExpanded, onToggleExpand,
+  onChangeClassification,
+}: ContentUnitCardProps) {
+  const [showClassMenu, setShowClassMenu] = useState(false);
 
-  const isDocumentPlan = unit.classification === 'plan' && !!unit.documentMetadata;
-  const isPartial = unit.claimType === 'PARTIAL';
-  const confidenceLevel = getConfidenceLevel(unit.confidence);
-  const confidencePct = Math.round(unit.confidence * 100);
-
-  // Meaningful field bindings
-  const displayBindings = unit.fieldBindings.filter(
-    b => b.semanticRole !== 'unknown' || b.displayContext
+  const hasCloseScores = unit.allScores?.some(s =>
+    s.agent !== unit.classification && s.confidence > unit.confidence - 0.15
   );
+  const isSplit = unit.claimType === 'PARTIAL';
+  const needsReview = unit.confidence < 0.6 || (unit.warnings?.length || 0) > 0;
 
-  // Document extraction summary
-  const extractionSummary = unit.documentMetadata?.extractionSummary;
-  const componentCount = (extractionSummary?.componentCount as number) || 0;
-  const components = (extractionSummary?.components as Array<{ name: string }>) || [];
+  const displayBindings = unit.fieldBindings?.filter(
+    b => b.semanticRole !== 'unknown' || b.displayContext
+  ) || [];
 
-  const toggleLayer = (layer: 2 | 3) => {
-    setExpandedLayer(prev => prev === layer ? null : layer);
-  };
+  const isDocPlan = unit.classification === 'plan' && !!unit.documentMetadata;
 
   return (
-    <Card className={cn(
-      'relative transition-all duration-200',
-      confidenceLevel === 'low' && !confirmed && 'ring-1 ring-amber-500/30',
-      confirmed && 'ring-1 ring-emerald-500/30'
+    <div className={cn(
+      'border rounded-lg transition-colors',
+      needsReview && !isConfirmed ? 'border-amber-500/30 bg-amber-500/5' :
+      isConfirmed ? 'border-emerald-500/30 bg-emerald-500/5' :
+      'border-zinc-700/50'
     )}>
-      <CardContent className="p-5">
-        {/* ─── LAYER 1: Verdict (always visible) ─── */}
-        <div className="flex items-start gap-3">
-          {/* Icon */}
-          {isDocumentPlan ? (
-            <FileText className="w-5 h-5 text-rose-400 mt-0.5 flex-shrink-0" />
-          ) : isPartial ? (
-            <Split className="w-5 h-5 text-violet-400 mt-0.5 flex-shrink-0" />
-          ) : (
-            <FileSpreadsheet className="w-5 h-5 text-zinc-400 mt-0.5 flex-shrink-0" />
-          )}
+      {/* ---- COLLAPSED ROW (always visible) ---- */}
+      <div
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+        onClick={onToggleExpand}
+      >
+        {/* Checkbox */}
+        <input
+          type="checkbox"
+          checked={isConfirmed}
+          onChange={(e) => { e.stopPropagation(); onToggleConfirm(); }}
+          className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 flex-shrink-0"
+        />
 
-          <div className="flex-1 min-w-0">
-            {/* Sheet/doc name + classification badge */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-medium text-zinc-200">
-                {isDocumentPlan
-                  ? unit.sourceFile
-                  : unit.tabName}
-              </span>
-              {isPartial && (
-                <span className="text-xs text-violet-400">(split)</span>
-              )}
-              <span className={cn(
-                'inline-flex items-center px-2 py-0.5 rounded-full text-xs border',
-                CONFIDENCE_COLORS[confidenceLevel]
-              )}>
-                {CLASSIFICATION_LABELS[unit.classification]} {confidencePct}%
-              </span>
-            </div>
+        {/* Tab name */}
+        <span className="text-sm font-medium text-zinc-200 min-w-[140px] truncate">
+          {isDocPlan ? unit.sourceFile : unit.tabName}
+        </span>
 
-            {/* Verdict summary — the key intelligence line */}
-            <p className="text-sm text-zinc-400 mt-1.5">
-              {unit.verdictSummary || unit.reasoning}
-            </p>
+        {/* Verdict badge */}
+        <VerdictBadge classification={unit.classification} />
 
-            {/* Warnings inline */}
-            {unit.warnings.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {unit.warnings.map((w, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-xs text-amber-400/80">
-                    <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-                    <span>{w}</span>
+        {/* Verdict text */}
+        <span className="text-xs text-zinc-500 flex-1 truncate">
+          {unit.verdictSummary || unit.reasoning}
+        </span>
+
+        {/* Row count */}
+        {rowCount > 0 && (
+          <span className="text-xs text-zinc-600 whitespace-nowrap">
+            {rowCount.toLocaleString()} rows
+          </span>
+        )}
+
+        {/* Confidence bar */}
+        <ConfidenceBar confidence={unit.confidence} />
+
+        {/* Expand chevron */}
+        <ChevronDown className={cn(
+          'w-4 h-4 text-zinc-500 transition-transform flex-shrink-0',
+          isExpanded && 'rotate-180'
+        )} />
+      </div>
+
+      {/* ---- EXPANDED SECTION ---- */}
+      {isExpanded && (
+        <div className="px-4 pb-4 pt-1 border-t border-zinc-800/50 space-y-4">
+
+          {/* Content profile headline */}
+          <p className="text-xs text-zinc-500">
+            {rowCount > 0 ? `${rowCount.toLocaleString()} rows` : 'Rows unknown'}
+            {displayBindings.length > 0 && ` x ${displayBindings.length} columns`}
+            {displayBindings.length > 0 && ` — ${displayBindings.slice(0, 3).map(b => b.sourceField).join(', ')}...`}
+          </p>
+
+          {/* SECTION: What I observe */}
+          {((unit.observations?.length || 0) > 0 || displayBindings.length > 0) && (
+            <div>
+              <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+                What I observe
+              </h4>
+              <div className="space-y-1.5">
+                {(unit.observations || []).map((obs, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm text-zinc-400">
+                    <span className="text-zinc-600 mt-0.5">&bull;</span>
+                    <span>{obs}</span>
                   </div>
                 ))}
-              </div>
-            )}
-          </div>
-
-          {/* Confirmed badge */}
-          {confirmed && (
-            <div className="flex items-center gap-1 text-emerald-400 text-xs flex-shrink-0">
-              <Check className="w-3.5 h-3.5" />
-              <span>Confirmed</span>
-            </div>
-          )}
-        </div>
-
-        {/* ─── Layer expanders ─── */}
-        <div className="flex items-center gap-1 mt-4 pl-8">
-          <button
-            onClick={() => toggleLayer(2)}
-            className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors',
-              expandedLayer === 2
-                ? 'bg-zinc-700/50 text-zinc-200'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
-            )}
-          >
-            <Eye className="w-3 h-3" />
-            Observations
-            {expandedLayer === 2 ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          </button>
-          <button
-            onClick={() => toggleLayer(3)}
-            className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors',
-              expandedLayer === 3
-                ? 'bg-zinc-700/50 text-zinc-200'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
-            )}
-          >
-            <Lightbulb className="w-3 h-3" />
-            Deep Dive
-            {expandedLayer === 3 ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          </button>
-        </div>
-
-        {/* ─── LAYER 2: Observations + Field Bindings ─── */}
-        {expandedLayer === 2 && (
-          <div className="mt-3 pl-8 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
-            {/* Observations */}
-            {unit.observations && unit.observations.length > 0 && (
-              <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">What I noticed</p>
-                <div className="space-y-1.5">
-                  {unit.observations.map((obs, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm text-zinc-400">
-                      <span className="text-zinc-600 mt-0.5">&bull;</span>
-                      <span>{obs}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Document plan — component summary */}
-            {isDocumentPlan && componentCount > 0 && (
-              <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Components extracted</p>
-                <div className="space-y-1.5">
-                  <div className="text-sm text-zinc-300">
-                    {componentCount} component{componentCount !== 1 ? 's' : ''} with rate tables
+                {/* Field bindings as observations */}
+                {displayBindings.slice(0, 6).map((b, i) => (
+                  <div key={`fb-${i}`} className="flex items-center gap-2 text-sm text-zinc-400">
+                    <span className="text-indigo-400/50">&bull;</span>
+                    <code className="text-xs bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">{b.sourceField}</code>
+                    <span className="text-zinc-600">&rarr;</span>
+                    <span className="text-zinc-400">{b.displayLabel || b.semanticRole}</span>
+                    <span className="text-xs text-zinc-600">({Math.round(b.confidence * 100)}%)</span>
                   </div>
-                  {components.slice(0, 6).map((comp, i) => (
-                    <div key={i} className="flex items-baseline gap-2 text-sm">
-                      <span className="text-zinc-600">&bull;</span>
-                      <span className="text-zinc-300">{comp.name}</span>
-                    </div>
-                  ))}
-                  {components.length > 6 && (
-                    <p className="text-xs text-zinc-500">+ {components.length - 6} more</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* PARTIAL claim — owned + shared fields */}
-            {isPartial && unit.ownedFields && unit.ownedFields.length > 0 && (
-              <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">My fields</p>
-                <div className="space-y-1.5">
-                  {unit.ownedFields.map((fieldName, i) => {
-                    const binding = unit.fieldBindings.find(b => b.sourceField === fieldName);
-                    return (
-                      <div key={i} className="flex items-baseline gap-2 text-sm">
-                        <span className="font-medium text-zinc-200">{fieldName}</span>
-                        {binding && (
-                          <>
-                            <span className="text-zinc-600">&mdash;</span>
-                            <span className="text-zinc-400">{getFieldDescription(binding)}</span>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {unit.sharedFields && unit.sharedFields.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                      <Link2 className="w-3 h-3" />
-                      Shared with partner
-                    </p>
-                    <div className="space-y-1">
-                      {unit.sharedFields.map((fieldName, i) => (
-                        <div key={i} className="flex items-baseline gap-2 text-sm">
-                          <span className="text-zinc-400">{fieldName}</span>
-                          <span className="text-xs text-zinc-600">(join key)</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                ))}
+                {displayBindings.length > 6 && (
+                  <p className="text-xs text-zinc-600 pl-4">+ {displayBindings.length - 6} more fields</p>
                 )}
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Field bindings — tabular data */}
-            {!isDocumentPlan && !isPartial && displayBindings.length > 0 && (
-              <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Field mapping</p>
-                <div className="space-y-1.5">
-                  {displayBindings.slice(0, 8).map((binding, i) => (
-                    <div key={i} className="flex items-baseline gap-2 text-sm">
-                      <span className="font-medium text-zinc-200">{binding.sourceField}</span>
-                      <span className="text-zinc-600">&mdash;</span>
-                      <span className="text-zinc-400">{getFieldDescription(binding)}</span>
-                    </div>
-                  ))}
-                  {displayBindings.length > 8 && (
-                    <p className="text-xs text-zinc-500">+ {displayBindings.length - 8} more fields</p>
-                  )}
-                </div>
-              </div>
-            )}
+          {/* SECTION: Why I chose this classification */}
+          <div>
+            <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+              Why I chose this classification
+            </h4>
+            <p className="text-sm text-zinc-400">
+              {unit.verdictSummary || unit.reasoning || 'Not available'}
+            </p>
+          </div>
 
-            {/* Action preview */}
-            <div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1.5">What happens next</p>
-              <div className="flex items-center gap-2 text-sm text-zinc-400">
-                <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>{unit.action}</span>
-              </div>
+          {/* SECTION: What would change my mind */}
+          <div>
+            <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+              What would change my mind
+            </h4>
+            <div className="space-y-1">
+              {(unit.whatChangesMyMind || []).map((w, i) => (
+                <p key={i} className="text-sm text-zinc-500">{w}</p>
+              ))}
+              {(!unit.whatChangesMyMind || unit.whatChangesMyMind.length === 0) && (
+                <p className="text-sm text-zinc-600 italic">Not available</p>
+              )}
             </div>
           </div>
-        )}
 
-        {/* ─── LAYER 3: Deep Dive — Falsifiability + Scores + Log ─── */}
-        {expandedLayer === 3 && (
-          <div className="mt-3 pl-8 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
-            {/* What changes my mind */}
-            {unit.whatChangesMyMind && unit.whatChangesMyMind.length > 0 && (
-              <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">What would change my mind</p>
-                <div className="space-y-1.5">
-                  {unit.whatChangesMyMind.map((condition, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm text-zinc-400">
-                      <Lightbulb className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-zinc-600" />
-                      <span>{condition}</span>
-                    </div>
+          {/* CLOSE SCORES WARNING (amber box when alt within 15%) */}
+          {hasCloseScores && (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-md p-3">
+              <p className="text-sm text-amber-400 font-medium">Close classification scores</p>
+              <div className="mt-1 space-y-1">
+                {unit.allScores
+                  .filter(s => s.agent !== unit.classification)
+                  .sort((a, b) => b.confidence - a.confidence)
+                  .slice(0, 2)
+                  .map((s, i) => (
+                    <p key={i} className="text-xs text-amber-400/70">
+                      {s.agent}: {Math.round(s.confidence * 100)}% — {s.reasoning}
+                    </p>
                   ))}
-                </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* All agent scores */}
-            {unit.allScores.length > 0 && (
-              <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <BarChart3 className="w-3 h-3" />
-                  All scores
+          {/* SPLIT INFO (violet box) */}
+          {isSplit && (
+            <div className="bg-violet-500/10 border border-violet-500/20 rounded-md p-3">
+              <p className="text-sm text-violet-400 font-medium">
+                This sheet has been split
+              </p>
+              {unit.ownedFields && unit.ownedFields.length > 0 && (
+                <p className="text-xs text-violet-400/70 mt-1">
+                  Fields owned: {unit.ownedFields.join(', ')}
                 </p>
-                <div className="space-y-1.5">
-                  {unit.allScores
-                    .sort((a, b) => b.confidence - a.confidence)
-                    .map(score => (
-                      <ScoreBar
-                        key={score.agent}
-                        agent={score.agent}
-                        confidence={score.confidence}
-                        isWinner={score.agent === unit.classification}
-                      />
-                    ))}
-                </div>
-              </div>
-            )}
+              )}
+              {unit.sharedFields && unit.sharedFields.length > 0 && (
+                <p className="text-xs text-violet-400/70">
+                  Shared join keys: {unit.sharedFields.join(', ')}
+                </p>
+              )}
+            </div>
+          )}
 
-            {/* Negotiation log */}
-            {unit.negotiationLog && unit.negotiationLog.length > 0 && (
-              <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Decision log</p>
-                <div className="space-y-1 text-xs text-zinc-500 font-mono bg-zinc-900/50 rounded-md p-3">
-                  {unit.negotiationLog.map((entry, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-zinc-600 w-20 flex-shrink-0">[{entry.stage}]</span>
-                      <span>{entry.message}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+          {/* Warnings */}
+          {(unit.warnings?.length || 0) > 0 && (
+            <div className="space-y-1">
+              {unit.warnings.map((w, i) => (
+                <p key={i} className="text-xs text-amber-400/70">{w}</p>
+              ))}
+            </div>
+          )}
 
-        {/* ─── Actions ─── */}
-        {!confirmed && (
-          <div className="flex items-center gap-3 pl-8 mt-4 pt-3 border-t border-zinc-800">
-            <Button
-              onClick={onConfirm}
-              size="sm"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white"
-            >
-              <Check className="w-3.5 h-3.5" />
-              Confirm
-            </Button>
-
-            <div className="relative">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowClassificationMenu(!showClassificationMenu)}
-                className="text-zinc-400 hover:text-zinc-200"
+          {/* Change classification */}
+          <div className="pt-2 border-t border-zinc-800/30">
+            <div className="relative inline-block">
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowClassMenu(!showClassMenu); }}
+                className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
               >
-                <Pencil className="w-3.5 h-3.5" />
-                Change
-                <ChevronDown className="w-3 h-3" />
-              </Button>
-
-              {showClassificationMenu && (
-                <div className="absolute left-0 top-full mt-1 z-50 w-80 rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
-                  {CLASSIFICATION_OPTIONS.map(opt => (
+                Change classification
+              </button>
+              {showClassMenu && (
+                <div className="absolute left-0 bottom-full mb-1 z-50 w-56 rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
+                  {(['plan', 'entity', 'target', 'transaction'] as AgentType[]).map(t => (
                     <button
-                      key={opt.value}
-                      onClick={() => {
-                        onChangeClassification(opt.value);
-                        setShowClassificationMenu(false);
+                      key={t}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onChangeClassification(t);
+                        setShowClassMenu(false);
                       }}
                       className={cn(
-                        'w-full text-left px-4 py-3 hover:bg-zinc-700/50 transition-colors first:rounded-t-lg last:rounded-b-lg',
-                        opt.value === unit.classification && 'bg-zinc-700/30'
+                        'w-full text-left px-3 py-2 text-sm hover:bg-zinc-700/50 transition-colors first:rounded-t-lg last:rounded-b-lg',
+                        t === unit.classification && 'bg-zinc-700/30 text-zinc-200'
                       )}
                     >
-                      <p className="text-sm font-medium text-zinc-200">{opt.label}</p>
-                      <p className="text-xs text-zinc-500 mt-0.5">{opt.description}</p>
+                      <VerdictBadge classification={t} />
                     </button>
                   ))}
                 </div>
               )}
             </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ============================================================
-// PROPOSAL SUMMARY BAR
-// ============================================================
-
-function ProposalSummaryBar({
-  fileName,
-  units,
-  overallConfidence,
-}: {
-  fileName: string;
-  units: ContentUnitProposal[];
-  overallConfidence: number;
-}) {
-  const overallLevel = getConfidenceLevel(overallConfidence);
-  const summary = getOverallSummary(units);
-
-  const hasPartial = units.some(u => u.claimType === 'PARTIAL');
-  const lowConfCount = units.filter(u => u.confidence < 0.60).length;
-
-  return (
-    <div className="rounded-xl bg-zinc-800/40 border border-zinc-700/50 p-6">
-      {/* File info row */}
-      <div className="flex items-center gap-2 text-xs text-zinc-500 mb-3 flex-wrap">
-        <span className="font-medium text-zinc-400">{fileName}</span>
-        <span>&middot;</span>
-        <span>{units.length} {units.length === 1 ? 'item' : 'items'}</span>
-        {hasPartial && (
-          <>
-            <span>&middot;</span>
-            <span className="text-violet-400">Mixed content detected</span>
-          </>
-        )}
-        <span>&middot;</span>
-        <span className={cn(
-          overallLevel === 'high' ? 'text-emerald-400' :
-          overallLevel === 'medium' ? 'text-amber-400' : 'text-red-400'
-        )}>
-          {overallLevel === 'high' ? 'Ready to process' :
-           overallLevel === 'medium' ? 'Review recommended' : 'Needs review'}
-        </span>
-      </div>
-
-      {/* Summary */}
-      <p className="text-base text-zinc-200">
-        {summary}
-        {units.length > 1 && " Here's what I'll do with each."}
-      </p>
-
-      {/* Confidence note */}
-      {lowConfCount > 0 && (
-        <p className="text-sm text-amber-400/80 mt-2">
-          {lowConfCount === 1
-            ? '1 item needs a closer look.'
-            : `${lowConfCount} items need your review.`}
-        </p>
+        </div>
       )}
     </div>
   );
 }
 
 // ============================================================
-// MAIN SCIProposal COMPONENT
+// SUMMARY BAR
+// ============================================================
+
+function SummaryBar({ units, confirmedCount, totalRows }: {
+  units: ContentUnitProposal[];
+  confirmedCount: number;
+  totalRows: number;
+}) {
+  const confident = units.filter(u => u.confidence >= 0.75).length;
+  const needsReview = units.filter(u => u.confidence < 0.6 || (u.warnings?.length || 0) > 0).length;
+
+  return (
+    <div className="flex items-center justify-between px-4 py-3 rounded-lg bg-zinc-800/40 border border-zinc-700/50 mb-4">
+      <div className="flex items-center gap-3 text-xs">
+        <span className="text-emerald-400 font-medium">{confident} confident</span>
+        {needsReview > 0 && (
+          <>
+            <span className="text-zinc-700">|</span>
+            <span className="text-amber-400 font-medium">{needsReview} need review</span>
+          </>
+        )}
+        <span className="text-zinc-700">|</span>
+        <span className="text-zinc-500">{totalRows.toLocaleString()} total rows</span>
+      </div>
+      <span className="text-xs text-zinc-600">
+        {confirmedCount} of {units.length} confirmed
+      </span>
+    </div>
+  );
+}
+
+// ============================================================
+// MAIN COMPONENT — SCIProposalView
 // ============================================================
 
 interface SCIProposalProps {
   proposal: SCIProposalType;
   fileName: string;
+  rawData?: ParsedFileData;
   onConfirmAll: (confirmedUnits: ContentUnitProposal[]) => void;
   onCancel: () => void;
 }
 
-export function SCIProposalView({ proposal, fileName, onConfirmAll, onCancel }: SCIProposalProps) {
+export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onCancel }: SCIProposalProps) {
+  // Build row count map from rawData sheets
+  const rowCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!rawData?.sheets) return map;
+    for (const sheet of rawData.sheets) {
+      map.set(sheet.sheetName, sheet.totalRowCount || sheet.rows?.length || 0);
+    }
+    return map;
+  }, [rawData]);
+
+  function getRowCount(unit: ContentUnitProposal): number {
+    // contentUnitId format: fileName::tabName::tabIndex
+    const parts = unit.contentUnitId.split('::');
+    const tabName = parts[1] || unit.tabName;
+    return rowCountMap.get(tabName) || 0;
+  }
+
+  const totalRows = useMemo(() => {
+    return proposal.contentUnits.reduce((sum, u) => sum + getRowCount(u), 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposal.contentUnits, rowCountMap]);
+
+  // State
   const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    // Auto-expand needs-review items
+    const auto = new Set<string>();
+    proposal.contentUnits.forEach(u => {
+      if (u.confidence < 0.6 || (u.warnings?.length || 0) > 0) {
+        auto.add(u.contentUnitId);
+      }
+    });
+    return auto;
+  });
   const [classificationOverrides, setClassificationOverrides] = useState<Map<string, AgentType>>(new Map());
 
   const effectiveUnits = useMemo(() => {
@@ -587,30 +375,24 @@ export function SCIProposalView({ proposal, fileName, onConfirmAll, onCancel }: 
 
   const allConfirmed = confirmedIds.size === effectiveUnits.length;
 
-  const orderedUnits = useMemo(() => {
-    return [...effectiveUnits].sort(
-      (a, b) => PROCESSING_ORDER[a.classification] - PROCESSING_ORDER[b.classification]
-    );
-  }, [effectiveUnits]);
-
-  const processingOrderLabels = useMemo(() => {
-    const seen = new Set<AgentType>();
-    const labels: string[] = [];
-    for (const u of orderedUnits) {
-      if (!seen.has(u.classification)) {
-        seen.add(u.classification);
-        labels.push(CLASSIFICATION_LABELS[u.classification]);
-      }
-    }
-    return labels;
-  }, [orderedUnits]);
-
-  const handleConfirmUnit = (id: string) => {
+  const toggleConfirm = (id: string) => {
     setConfirmedIds(prev => {
       const next = new Set(prev);
-      next.add(id);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
+  };
+
+  const confirmAll = () => {
+    setConfirmedIds(new Set(effectiveUnits.map(u => u.contentUnitId)));
   };
 
   const handleChangeClassification = (id: string, newType: AgentType) => {
@@ -619,6 +401,7 @@ export function SCIProposalView({ proposal, fileName, onConfirmAll, onCancel }: 
       next.set(id, newType);
       return next;
     });
+    // Unconfirm on reclassification
     setConfirmedIds(prev => {
       const next = new Set(prev);
       next.delete(id);
@@ -626,97 +409,72 @@ export function SCIProposalView({ proposal, fileName, onConfirmAll, onCancel }: 
     });
   };
 
-  const handleConfirmAll = () => {
+  const handleImport = () => {
     onConfirmAll(effectiveUnits);
   };
 
-  // Fast path: all high confidence
-  const allHighConfidence = effectiveUnits.every(u => u.confidence >= 0.80);
-  const [showDetails, setShowDetails] = useState(!allHighConfidence);
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* File header */}
+      <div>
+        <h2 className="text-base font-semibold text-zinc-100">{fileName}</h2>
+        <p className="text-xs text-zinc-500 mt-1">
+          {effectiveUnits.length} content unit{effectiveUnits.length !== 1 ? 's' : ''} detected
+        </p>
+      </div>
+
       {/* Summary bar */}
-      <ProposalSummaryBar
-        fileName={fileName}
+      <SummaryBar
         units={effectiveUnits}
-        overallConfidence={proposal.overallConfidence}
+        confirmedCount={confirmedIds.size}
+        totalRows={totalRows}
       />
 
-      {/* Fast path: all high confidence */}
-      {allHighConfidence && !showDetails && (
-        <div className="rounded-xl bg-zinc-800/40 border border-zinc-700/50 p-6 text-center">
-          <p className="text-sm text-zinc-300 mb-4">
-            Everything looks clear. Confirm to proceed.
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            <Button
-              onClick={handleConfirmAll}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white"
-            >
-              <Check className="w-4 h-4" />
-              Confirm All &amp; Go
-            </Button>
-            <button
-              onClick={() => setShowDetails(true)}
-              className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              Show Details
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Content unit cards */}
-      {(showDetails || !allHighConfidence) && (
-        <>
-          <div className="space-y-4">
-            {orderedUnits.map(unit => (
-              <ContentUnitCard
-                key={unit.contentUnitId}
-                unit={unit}
-                confirmed={confirmedIds.has(unit.contentUnitId)}
-                onConfirm={() => handleConfirmUnit(unit.contentUnitId)}
-                onChangeClassification={(newType) =>
-                  handleChangeClassification(unit.contentUnitId, newType)
-                }
-              />
-            ))}
-          </div>
+      <div className="space-y-2">
+        {effectiveUnits.map(unit => (
+          <ContentUnitCard
+            key={unit.contentUnitId}
+            unit={unit}
+            rowCount={getRowCount(unit)}
+            isConfirmed={confirmedIds.has(unit.contentUnitId)}
+            onToggleConfirm={() => toggleConfirm(unit.contentUnitId)}
+            isExpanded={expandedIds.has(unit.contentUnitId)}
+            onToggleExpand={() => toggleExpand(unit.contentUnitId)}
+            onChangeClassification={(newType) => handleChangeClassification(unit.contentUnitId, newType)}
+          />
+        ))}
+      </div>
 
-          {/* Footer */}
-          <div className="rounded-xl bg-zinc-800/40 border border-zinc-700/50 p-5">
-            {processingOrderLabels.length > 1 && (
-              <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
-                <span>Processing order:</span>
-                {processingOrderLabels.map((label, i) => (
-                  <span key={label} className="flex items-center gap-2">
-                    {i > 0 && <ArrowRight className="w-3 h-3 text-zinc-600" />}
-                    <span className="text-zinc-400">{label}</span>
-                  </span>
-                ))}
-              </div>
+      {/* Footer */}
+      <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-800">
+        <button
+          onClick={confirmAll}
+          className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors underline underline-offset-2"
+        >
+          Confirm all
+        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onCancel}
+            className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={!allConfirmed}
+            className={cn(
+              'px-5 py-2 rounded-lg font-medium text-sm transition-colors',
+              allConfirmed
+                ? 'bg-indigo-600 text-white hover:bg-indigo-500'
+                : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
             )}
-
-            <div className="flex items-center gap-3">
-              <Button
-                onClick={handleConfirmAll}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white"
-              >
-                <Check className="w-4 h-4" />
-                {allConfirmed ? 'Go' : 'Confirm All & Go'}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={onCancel}
-                className="text-zinc-400 hover:text-zinc-200"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
+          >
+            Import {totalRows > 0 ? `${totalRows.toLocaleString()} rows` : 'data'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

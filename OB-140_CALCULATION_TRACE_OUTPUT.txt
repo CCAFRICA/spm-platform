@@ -1,0 +1,871 @@
+================================================================================
+OB-140 CALCULATION TRACE — SINGLE ENTITY FORENSIC
+================================================================================
+Timestamp: 2026-03-02T19:06:47.755Z
+
+
+============================================================
+3A: CALCULATION BATCHES — FULL HISTORY
+============================================================
+
+=== ALL CALCULATION BATCHES ===
+  aa6efcec-126b-4c45-a212-c7ee48fe68b4 | January 2024 | IMPORTED-2comp | 719 entities | MX$524,500 | PREVIEW | 2026-03-02T18:40:53.893479+00:00
+  582041b6-0945-4452-a73f-752f8627120a | Febrero 2026 | IMPORTED-2comp | 22215 entities | MX$0 | PREVIEW | 2026-03-02T18:39:28.895923+00:00
+  e733a98b-2127-4da4-98cc-85763124f80b | February 2024 | IMPORTED-2comp | 719 entities | MX$525,000 | DRAFT | 2026-02-24T12:43:30.787822+00:00
+  ab0a7141-6a00-46db-90f8-2cb2627ad086 | February 2024 | IMPORTED-2comp | 719 entities | MX$525,000 | DRAFT | 2026-02-24T02:17:54.584795+00:00
+  6e9f15ce-1a78-4576-820b-957512a5be29 | February 2024 | IMPORTED-2comp | 719 entities | MX$4,191,451,846.96 | DRAFT | 2026-02-23T23:27:39.429299+00:00
+  ea514d43-4a01-4b0a-84ac-c07589f1a1a7 | February 2024 | IMPORTED-2comp | 719 entities | MX$0 | DRAFT | 2026-02-23T20:51:28.835633+00:00
+  1d4baeb1-587e-4c4a-948a-19c34db866db | January 2024 | IMPORTED-2comp | 719 entities | MX$0 | PREVIEW | 2026-02-23T18:40:48.673683+00:00
+  e1b2c3d4-e5f6-7890-abcd-ef1234567890 | Febrero 2026 | ORIGINAL-6comp | 12 entities | MX$42,850 | PUBLISHED | 2026-02-15T21:58:53.371321+00:00
+
+Batches using ORIGINAL rule set (6 components): 1
+Batches using IMPORTED rule set (2 components): 7
+
+LATEST batch: aa6efcec-126b-4c45-a212-c7ee48fe68b4 (719 entities, MX$524500)
+BENCHMARK batch: e1b2c3d4-e5f6-7890-abcd-ef1234567890 (12 entities, MX$42850)
+
+============================================================
+3B: IMPORTED PLAN RULE SET — FULL COMPONENT DUMP
+============================================================
+
+Name: Imported Plan
+Status: active
+Version: 1
+Created: 2026-02-23T13:46:26.179071+00:00
+
+Full components JSON:
+{
+  "type": "additive_lookup",
+  "variants": [
+    {
+      "variantId": "default",
+      "components": [
+        {
+          "id": "comp-1771854367335-0",
+          "name": "Performance Matrix",
+          "order": 1,
+          "enabled": true,
+          "description": "Detected matrix pattern with attainment columns and payout values",
+          "matrixConfig": {
+            "values": [
+              [
+                0,
+                0
+              ],
+              [
+                500,
+                750
+              ],
+              [
+                1000,
+                1500
+              ]
+            ],
+            "currency": "USD",
+            "rowBands": [
+              {
+                "max": 79.99,
+                "min": 0,
+                "label": "< 80%"
+              },
+              {
+                "max": 99.99,
+                "min": 80,
+                "label": "80-100%"
+              },
+              {
+                "max": null,
+                "min": 100,
+                "label": "100%+"
+              }
+            ],
+            "rowMetric": "attainment",
+            "columnBands": [
+              {
+                "max": 99999,
+                "min": 0,
+                "label": "< $100K"
+              },
+              {
+                "max": null,
+                "min": 100000,
+                "label": "$100K+"
+              }
+            ],
+            "columnMetric": "volume",
+            "rowMetricLabel": "attainment",
+            "columnMetricLabel": "Volume"
+          },
+          "componentType": "matrix_lookup",
+          "measurementLevel": "individual"
+        },
+        {
+          "id": "comp-1771854367335-1",
+          "name": "Tiered Bonus",
+          "order": 2,
+          "enabled": true,
+          "tierConfig": {
+            "tiers": [
+              {
+                "max": 79.99,
+                "min": 0,
+                "label": "< 80%",
+                "value": 0
+              },
+              {
+                "max": 99.99,
+                "min": 80,
+                "label": "80-100%",
+                "value": 500
+              },
+              {
+                "max": null,
+                "min": 100,
+                "label": "100%+",
+                "value": 1000
+              }
+            ],
+            "metric": "performance",
+            "currency": "USD",
+            "metricLabel": "performance"
+          },
+          "description": "Detected tier structure with min/max thresholds",
+          "componentType": "tier_lookup",
+          "measurementLevel": "individual"
+        },
+        {
+          "id": "comp-1771854367335-2",
+          "name": "Percentage Commission",
+          "order": 3,
+          "enabled": true,
+          "description": "Detected percentage/rate column indicating commission",
+          "componentType": "percentage",
+          "measurementLevel": "individual",
+          "percentageConfig": {
+            "rate": 0.05,
+            "appliedTo": "sales",
+            "appliedToLabel": "sales"
+          }
+        },
+        {
+          "id": "comp-1771854367335-3",
+          "name": "Conditional Percentage",
+          "order": 4,
+          "enabled": true,
+          "description": "Detected conditional rules based on metrics",
+          "componentType": "conditional_percentage",
+          "measurementLevel": "individual",
+          "conditionalConfig": {
+            "appliedTo": "sales",
+            "conditions": [
+              {
+                "max": 100,
+                "min": 0,
+                "rate": 0.03,
+                "label": "< 100%",
+                "metric": "attainment",
+                "metricLabel": "Attainment"
+              },
+              {
+                "max": null,
+                "min": 100,
+                "rate": 0.05,
+                "label": "100%+",
+                "metric": "attainment",
+                "metricLabel": "Attainment"
+              }
+            ],
+            "appliedToLabel": "sales"
+          }
+        }
+      ],
+      "description": "Default variant from heuristic detection",
+      "variantName": "Default"
+    }
+  ]
+}
+
+Full input_bindings JSON:
+{}
+
+Full metadata JSON:
+{
+  "plan_type": "additive_lookup",
+  "updated_by": "497b8d67-7c81-40cd-b14a-41ca90497c0b",
+  "approved_at": null,
+  "previous_version_id": null
+}
+
+============================================================
+3C: ORIGINAL RULE SET — FULL COMPONENT DUMP
+============================================================
+
+Name: Plan de Comisiones Optica Luminar 2026
+Status: archived
+Version: 1
+Created: 2026-02-15T21:58:49.903779+00:00
+
+Full components JSON:
+[
+  {
+    "id": "venta_optica",
+    "name": "Venta Optica",
+    "order": 1,
+    "config": {
+      "row_metric": "store_attainment_percent",
+      "column_metric": "store_volume_tier",
+      "variant_matrices": {
+        "certificado": {
+          "values": [
+            [
+              500,
+              600,
+              750
+            ],
+            [
+              800,
+              1000,
+              1200
+            ],
+            [
+              1200,
+              1500,
+              1800
+            ],
+            [
+              1500,
+              1800,
+              2200
+            ]
+          ]
+        },
+        "no_certificado": {
+          "values": [
+            [
+              250,
+              300,
+              375
+            ],
+            [
+              400,
+              500,
+              600
+            ],
+            [
+              600,
+              750,
+              900
+            ],
+            [
+              750,
+              900,
+              1100
+            ]
+          ]
+        }
+      }
+    },
+    "enabled": true,
+    "component_type": "matrix_lookup",
+    "measurement_level": "individual"
+  },
+  {
+    "id": "venta_tienda",
+    "name": "Venta Tienda",
+    "order": 2,
+    "config": {
+      "tiers": [
+        {
+          "max": 79,
+          "min": 0,
+          "value": 0
+        },
+        {
+          "max": 99,
+          "min": 80,
+          "value": 150
+        },
+        {
+          "max": 119,
+          "min": 100,
+          "value": 300
+        },
+        {
+          "max": 999,
+          "min": 120,
+          "value": 500
+        }
+      ],
+      "metric": "store_attainment_percent"
+    },
+    "enabled": true,
+    "component_type": "tier_lookup",
+    "measurement_level": "store"
+  },
+  {
+    "id": "clientes_nuevos",
+    "name": "Clientes Nuevos",
+    "order": 3,
+    "config": {
+      "tiers": [
+        {
+          "max": 79,
+          "min": 0,
+          "value": 0
+        },
+        {
+          "max": 99,
+          "min": 80,
+          "value": 75
+        },
+        {
+          "max": 119,
+          "min": 100,
+          "value": 150
+        },
+        {
+          "max": 999,
+          "min": 120,
+          "value": 250
+        }
+      ],
+      "metric": "new_customers_attainment_percent"
+    },
+    "enabled": true,
+    "component_type": "tier_lookup",
+    "measurement_level": "store"
+  },
+  {
+    "id": "cobranza",
+    "name": "Cobranza",
+    "order": 4,
+    "config": {
+      "tiers": [
+        {
+          "max": 79,
+          "min": 0,
+          "value": 0
+        },
+        {
+          "max": 99,
+          "min": 80,
+          "value": 75
+        },
+        {
+          "max": 119,
+          "min": 100,
+          "value": 150
+        },
+        {
+          "max": 999,
+          "min": 120,
+          "value": 250
+        }
+      ],
+      "metric": "collections_attainment_percent"
+    },
+    "enabled": true,
+    "component_type": "tier_lookup",
+    "measurement_level": "store"
+  },
+  {
+    "id": "club_proteccion",
+    "name": "Club de Proteccion",
+    "order": 5,
+    "config": {
+      "rates": [
+        {
+          "rate": 0.03,
+          "gate_max": 99,
+          "gate_min": 0
+        },
+        {
+          "rate": 0.05,
+          "gate_max": 999,
+          "gate_min": 100
+        }
+      ],
+      "metric": "individual_insurance_sales",
+      "gate_metric": "store_insurance_attainment_percent"
+    },
+    "enabled": true,
+    "component_type": "percentage_with_gate",
+    "measurement_level": "individual"
+  },
+  {
+    "id": "garantia_extendida",
+    "name": "Garantia Extendida",
+    "order": 6,
+    "config": {
+      "rate": 0.04,
+      "metric": "individual_warranty_sales"
+    },
+    "enabled": true,
+    "component_type": "flat_percentage",
+    "measurement_level": "individual"
+  }
+]
+
+Full input_bindings JSON:
+{
+  "individual_sales": {
+    "source": "committed_data",
+    "data_type": "individual_metrics",
+    "aggregation": "sum"
+  },
+  "store_attainment": {
+    "source": "committed_data",
+    "data_type": "store_metrics",
+    "aggregation": "latest"
+  }
+}
+
+============================================================
+3D: TRACE ENTITY SELECTION
+============================================================
+
+Top 5 results in latest batch:
+  018f99c8-89f7-4970-8346-c57a89d83530 | 98154061 | 98154061 | MX$1,000
+  79206148-a266-4d49-827f-aa3d82108dbd | 90319253 | 90319253 | MX$1,000
+  00610c09-9911-4bfb-9f80-9b4904299064 | 90317404 | 90317404 | MX$1,000
+  00104fd2-e9cb-4dfb-bde1-f596f1ef508b | 90370213 | 90370213 | MX$1,000
+  02e07af8-a2e9-472b-bcf2-831dcf9ed49c | 97655759 | 97655759 | MX$1,000
+
+TRACE ENTITY: 98154061 (98154061)
+  UUID: 018f99c8-89f7-4970-8346-c57a89d83530
+  Type: individual
+  Created: 2026-02-23T13:59:34.437069+00:00
+  Metadata: {}
+
+============================================================
+3E: LATEST CALCULATION — TRACE ENTITY
+============================================================
+
+Total payout: MX$1000
+Rule set: 7657fc95-6dcf-4340-8745-d0ba71ffe88e
+Period: January 2024 (2024-01)
+
+Components:
+[
+  {
+    "payout": 1000,
+    "details": {
+      "colBand": "< $100K",
+      "rowBand": "100%+",
+      "colValue": 0,
+      "rowValue": 104.13351210929645,
+      "colMetric": "volume",
+      "rowMetric": "attainment",
+      "matrixPayout": 1000
+    },
+    "componentId": "comp-1771854367335-0",
+    "componentName": "Performance Matrix",
+    "componentType": "matrix_lookup"
+  },
+  {
+    "payout": 0,
+    "details": {
+      "metric": "performance",
+      "tierMax": 79.99,
+      "tierMin": 0,
+      "tierPayout": 0,
+      "matchedTier": "< 80%",
+      "metricValue": 0,
+      "rateDetected": false
+    },
+    "componentId": "comp-1771854367335-1",
+    "componentName": "Tiered Bonus",
+    "componentType": "tier_lookup"
+  },
+  {
+    "payout": 0,
+    "details": {
+      "rate": 0.05,
+      "appliedTo": "sales",
+      "baseAmount": 0,
+      "calculatedPayout": 0
+    },
+    "componentId": "comp-1771854367335-2",
+    "componentName": "Percentage Commission",
+    "componentType": "percentage"
+  },
+  {
+    "payout": 0,
+    "details": {
+      "rate": 0.05,
+      "appliedTo": "sales",
+      "baseAmount": 0,
+      "conditionValue": 104.13351210929645,
+      "conditionMetric": "attainment",
+      "calculatedPayout": 0,
+      "matchedCondition": "Attainment"
+    },
+    "componentId": "comp-1771854367335-3",
+    "componentName": "Conditional Percentage",
+    "componentType": "conditional_percentage"
+  }
+]
+
+Metrics:
+{
+  "Mes": 4,
+  "Año": 8096,
+  "date": 90644,
+  "goal": 219336,
+  "role": 338,
+  "amount": 219336,
+  "period": 4050,
+  "storeId": 5020,
+  "entityId": 392616244,
+  "No_Tienda": 10040,
+  "_rowIndex": 6192,
+  "attainment": 2.23545610387716,
+  "num_puesto": 338,
+  "num_tienda": 2510,
+  "Fecha Corte": 362754,
+  "Cumplimiento": 2.23545610387716,
+  "num_empleado": 981540610,
+  "Meta_Individual": 219336,
+  "Venta_Individual": 245158,
+  "suma nivel tienda": 219336
+}
+
+============================================================
+3F: BENCHMARK CALCULATION — TRACE ENTITY
+============================================================
+Benchmark batch has 12 results
+
+No benchmark entity found for external_id=98154061
+The benchmark batch may have used different entity UUIDs.
+
+============================================================
+3G: COMMITTED DATA — TRACE ENTITY
+============================================================
+
+Total committed_data rows for trace entity: 18
+By data_type:
+┌─────────┬──────────────────────────────────────────────┬───────┐
+│ (index) │ data_type                                    │ count │
+├─────────┼──────────────────────────────────────────────┼───────┤
+│ 0       │ 'backttest_optometrista_mar2025_proveedores' │ 6     │
+│ 1       │ 'Base_Venta_Individual'                      │ 6     │
+│ 2       │ 'Datos Colaborador'                          │ 6     │
+└─────────┴──────────────────────────────────────────────┴───────┘
+
+  data_type: backttest_optometrista_mar2025_proveedores
+  period: NULL
+  import_batch: 100beff7-9090-4e31-ae3c-96158ecb59ca
+  fields: No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"No_Tienda":1255,"_rowIndex":1563,"_sheetName":"Datos Colaborador","Fecha Corte":45382,"num_empleado":98154061}
+
+  data_type: backttest_optometrista_mar2025_proveedores
+  period: NULL
+  import_batch: 763c7ca1-7324-443d-8550-fe2480d388f3
+  fields: No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"No_Tienda":1255,"_rowIndex":1563,"_sheetName":"Datos Colaborador","Fecha Corte":45382,"num_empleado":98154061}
+
+  data_type: backttest_optometrista_mar2025_proveedores
+  period: NULL
+  import_batch: 763c7ca1-7324-443d-8550-fe2480d388f3
+  fields: No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"No_Tienda":1255,"_rowIndex":844,"_sheetName":"Datos Colaborador","Fecha Corte":45351,"num_empleado":98154061}
+
+  data_type: backttest_optometrista_mar2025_proveedores
+  period: NULL
+  import_batch: 763c7ca1-7324-443d-8550-fe2480d388f3
+  fields: No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"No_Tienda":1255,"_rowIndex":125,"_sheetName":"Datos Colaborador","Fecha Corte":45322,"num_empleado":98154061}
+
+  data_type: backttest_optometrista_mar2025_proveedores
+  period: NULL
+  import_batch: 100beff7-9090-4e31-ae3c-96158ecb59ca
+  fields: No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"No_Tienda":1255,"_rowIndex":125,"_sheetName":"Datos Colaborador","Fecha Corte":45322,"num_empleado":98154061}
+
+  data_type: backttest_optometrista_mar2025_proveedores
+  period: NULL
+  import_batch: 100beff7-9090-4e31-ae3c-96158ecb59ca
+  fields: No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"No_Tienda":1255,"_rowIndex":844,"_sheetName":"Datos Colaborador","Fecha Corte":45351,"num_empleado":98154061}
+
+  data_type: Base_Venta_Individual
+  period: January 2024
+  import_batch: 05c3de88-647b-4767-a752-9b8b62df8440
+  fields: Mes, Año, goal, role, Llave2, amount, period, storeId, entityId, _rowIndex, _sheetName, attainment, num_puesto, num_tienda, storeRange, Cumplimiento, num_empleado, Meta_Individual, Rango de Tienda, Venta_Individual, suma nivel tienda, LLave Tamaño de Tienda
+  values: {"Mes":1,"Año":2024,"goal":109668,"role":169,"Llave2":"1-98154061","amount":109668,"period":1,"storeId":1255,"entityId":98154061,"_rowIndex":439,"_sheetName":"Base_Venta_Individual","attainment":1.11772805193858,"num_puesto":169,"num_tienda":1255,"storeRange":null,"Cumplimiento":1.11772805193858,"num_empleado":98154061,"Meta_Individual":109668,"Rango de Tienda":null,"Venta_Individual":122579,"suma nivel tienda":109668,"LLave Tamaño de Tienda":"1255-1"}
+
+  data_type: Base_Venta_Individual
+  period: January 2024
+  import_batch: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields: Mes, Año, goal, role, Llave2, amount, period, storeId, entityId, _rowIndex, _sheetName, attainment, num_puesto, num_tienda, storeRange, Cumplimiento, num_empleado, Meta_Individual, Rango de Tienda, Venta_Individual, suma nivel tienda, LLave Tamaño de Tienda
+  values: {"Mes":1,"Año":2024,"goal":109668,"role":169,"Llave2":"1-98154061","amount":109668,"period":1,"storeId":1255,"entityId":98154061,"_rowIndex":439,"_sheetName":"Base_Venta_Individual","attainment":1.11772805193858,"num_puesto":169,"num_tienda":1255,"storeRange":null,"Cumplimiento":1.11772805193858,"num_empleado":98154061,"Meta_Individual":109668,"Rango de Tienda":null,"Venta_Individual":122579,"suma nivel tienda":109668,"LLave Tamaño de Tienda":"1255-1"}
+
+  data_type: Base_Venta_Individual
+  period: February 2024
+  import_batch: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields: Mes, Año, goal, role, Llave2, amount, period, storeId, entityId, _rowIndex, _sheetName, attainment, num_puesto, num_tienda, storeRange, Cumplimiento, num_empleado, Meta_Individual, Rango de Tienda, Venta_Individual, suma nivel tienda, LLave Tamaño de Tienda
+  values: {"Mes":2,"Año":2024,"goal":146808,"role":169,"Llave2":"2-98154061","amount":146808,"period":2,"storeId":1255,"entityId":98154061,"_rowIndex":1092,"_sheetName":"Base_Venta_Individual","attainment":1.05199989101411,"num_puesto":169,"num_tienda":1255,"storeRange":null,"Cumplimiento":1.05199989101411,"num_empleado":98154061,"Meta_Individual":146808,"Rango de Tienda":null,"Venta_Individual":154442,"suma nivel tienda":146808,"LLave Tamaño de Tienda":"1255-2"}
+
+  data_type: Base_Venta_Individual
+  period: March 2024
+  import_batch: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields: Mes, Año, goal, role, Llave2, amount, period, storeId, entityId, _rowIndex, _sheetName, attainment, num_puesto, num_tienda, storeRange, Cumplimiento, num_empleado, Meta_Individual, Rango de Tienda, Venta_Individual, suma nivel tienda, LLave Tamaño de Tienda
+  values: {"Mes":3,"Año":2024,"goal":100608,"role":169,"Llave2":"3-98154061","amount":100608,"period":3,"storeId":1255,"entityId":98154061,"_rowIndex":1738,"_sheetName":"Base_Venta_Individual","attainment":0.948344068066158,"num_puesto":169,"num_tienda":1255,"storeRange":null,"Cumplimiento":0.948344068066158,"num_empleado":98154061,"Meta_Individual":100608,"Rango de Tienda":null,"Venta_Individual":95411,"suma nivel tienda":100608,"LLave Tamaño de Tienda":"1255-3"}
+
+  data_type: Base_Venta_Individual
+  period: February 2024
+  import_batch: 05c3de88-647b-4767-a752-9b8b62df8440
+  fields: Mes, Año, goal, role, Llave2, amount, period, storeId, entityId, _rowIndex, _sheetName, attainment, num_puesto, num_tienda, storeRange, Cumplimiento, num_empleado, Meta_Individual, Rango de Tienda, Venta_Individual, suma nivel tienda, LLave Tamaño de Tienda
+  values: {"Mes":2,"Año":2024,"goal":146808,"role":169,"Llave2":"2-98154061","amount":146808,"period":2,"storeId":1255,"entityId":98154061,"_rowIndex":1092,"_sheetName":"Base_Venta_Individual","attainment":1.05199989101411,"num_puesto":169,"num_tienda":1255,"storeRange":null,"Cumplimiento":1.05199989101411,"num_empleado":98154061,"Meta_Individual":146808,"Rango de Tienda":null,"Venta_Individual":154442,"suma nivel tienda":146808,"LLave Tamaño de Tienda":"1255-2"}
+
+  data_type: Base_Venta_Individual
+  period: March 2024
+  import_batch: 05c3de88-647b-4767-a752-9b8b62df8440
+  fields: Mes, Año, goal, role, Llave2, amount, period, storeId, entityId, _rowIndex, _sheetName, attainment, num_puesto, num_tienda, storeRange, Cumplimiento, num_empleado, Meta_Individual, Rango de Tienda, Venta_Individual, suma nivel tienda, LLave Tamaño de Tienda
+  values: {"Mes":3,"Año":2024,"goal":100608,"role":169,"Llave2":"3-98154061","amount":100608,"period":3,"storeId":1255,"entityId":98154061,"_rowIndex":1738,"_sheetName":"Base_Venta_Individual","attainment":0.948344068066158,"num_puesto":169,"num_tienda":1255,"storeRange":null,"Cumplimiento":0.948344068066158,"num_empleado":98154061,"Meta_Individual":100608,"Rango de Tienda":null,"Venta_Individual":95411,"suma nivel tienda":100608,"LLave Tamaño de Tienda":"1255-3"}
+
+  data_type: Datos Colaborador
+  period: January 2024
+  import_batch: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields: Mes, Año, date, role, Puesto, period, storeId, entityId, No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"Mes":1,"Año":2024,"date":45322,"role":"OPTOMETRISTA CERTIFICADO","Puesto":"OPTOMETRISTA CERTIFICADO","period":2024,"storeId":1255,"entityId":98154061,"No_Tienda":1255,"_rowIndex":125,"_sheetName":"Datos Colaborador","Fecha Corte":45322,"num_empleado":98154061}
+
+  data_type: Datos Colaborador
+  period: March 2024
+  import_batch: 05c3de88-647b-4767-a752-9b8b62df8440
+  fields: Mes, Año, date, role, Puesto, period, storeId, entityId, No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"Mes":3,"Año":2024,"date":45382,"role":"OPTOMETRISTA CERTIFICADO","Puesto":"OPTOMETRISTA CERTIFICADO","period":2024,"storeId":1255,"entityId":98154061,"No_Tienda":1255,"_rowIndex":1563,"_sheetName":"Datos Colaborador","Fecha Corte":45382,"num_empleado":98154061}
+
+  data_type: Datos Colaborador
+  period: February 2024
+  import_batch: 05c3de88-647b-4767-a752-9b8b62df8440
+  fields: Mes, Año, date, role, Puesto, period, storeId, entityId, No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"Mes":2,"Año":2024,"date":45351,"role":"OPTOMETRISTA CERTIFICADO","Puesto":"OPTOMETRISTA CERTIFICADO","period":2024,"storeId":1255,"entityId":98154061,"No_Tienda":1255,"_rowIndex":844,"_sheetName":"Datos Colaborador","Fecha Corte":45351,"num_empleado":98154061}
+
+  data_type: Datos Colaborador
+  period: January 2024
+  import_batch: 05c3de88-647b-4767-a752-9b8b62df8440
+  fields: Mes, Año, date, role, Puesto, period, storeId, entityId, No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"Mes":1,"Año":2024,"date":45322,"role":"OPTOMETRISTA CERTIFICADO","Puesto":"OPTOMETRISTA CERTIFICADO","period":2024,"storeId":1255,"entityId":98154061,"No_Tienda":1255,"_rowIndex":125,"_sheetName":"Datos Colaborador","Fecha Corte":45322,"num_empleado":98154061}
+
+  data_type: Datos Colaborador
+  period: March 2024
+  import_batch: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields: Mes, Año, date, role, Puesto, period, storeId, entityId, No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"Mes":3,"Año":2024,"date":45382,"role":"OPTOMETRISTA CERTIFICADO","Puesto":"OPTOMETRISTA CERTIFICADO","period":2024,"storeId":1255,"entityId":98154061,"No_Tienda":1255,"_rowIndex":1563,"_sheetName":"Datos Colaborador","Fecha Corte":45382,"num_empleado":98154061}
+
+  data_type: Datos Colaborador
+  period: February 2024
+  import_batch: 46837ff1-04a6-4387-bf8d-1d9595ce5691
+  fields: Mes, Año, date, role, Puesto, period, storeId, entityId, No_Tienda, _rowIndex, _sheetName, Fecha Corte, num_empleado
+  values: {"Mes":2,"Año":2024,"date":45351,"role":"OPTOMETRISTA CERTIFICADO","Puesto":"OPTOMETRISTA CERTIFICADO","period":2024,"storeId":1255,"entityId":98154061,"No_Tienda":1255,"_rowIndex":844,"_sheetName":"Datos Colaborador","Fecha Corte":45351,"num_empleado":98154061}
+
+============================================================
+3H: STORE-LEVEL DATA — TRACE ENTITY'S STORE
+============================================================
+
+Trace entity's store: 1255
+Store-level rows for store 1255: 0
+By data_type:
+┌─────────┐
+│ (index) │
+├─────────┤
+└─────────┘
+
+============================================================
+3I: AGGREGATE COMPARISON — ALL BATCHES
+============================================================
+
+--- Batch: aa6efcec-126b-4c45-a212-c7ee48fe68b4 ---
+Period: January 2024, Rule set: IMPORTED-2comp, Entities: 719
+Total payout: MX$524,500
+Lifecycle: PREVIEW, Created: 2026-03-02T18:40:53.893479+00:00
+  Results: 719, non-zero: 687, zero: 32, sum: MX$524,500
+  Component totals:
+    0: MX$524,500
+    1: MX$0
+    2: MX$0
+    3: MX$0
+
+--- Batch: 582041b6-0945-4452-a73f-752f8627120a ---
+Period: Febrero 2026, Rule set: IMPORTED-2comp, Entities: 22215
+Total payout: MX$0
+Lifecycle: PREVIEW, Created: 2026-03-02T18:39:28.895923+00:00
+  Results: 1000, non-zero: 0, zero: 1000, sum: MX$0
+  Component totals:
+    0: MX$0
+    1: MX$0
+    2: MX$0
+    3: MX$0
+
+--- Batch: e733a98b-2127-4da4-98cc-85763124f80b ---
+Period: February 2024, Rule set: IMPORTED-2comp, Entities: 719
+Total payout: MX$525,000
+Lifecycle: DRAFT, Created: 2026-02-24T12:43:30.787822+00:00
+  Results: 719, non-zero: 687, zero: 32, sum: MX$525,000
+  Component totals:
+    0: MX$525,000
+    1: MX$0
+    2: MX$0
+    3: MX$0
+
+--- Batch: ab0a7141-6a00-46db-90f8-2cb2627ad086 ---
+Period: February 2024, Rule set: IMPORTED-2comp, Entities: 719
+Total payout: MX$525,000
+Lifecycle: DRAFT, Created: 2026-02-24T02:17:54.584795+00:00
+  Results: 0, non-zero: 0, zero: 0, sum: MX$0
+
+--- Batch: 6e9f15ce-1a78-4576-820b-957512a5be29 ---
+Period: February 2024, Rule set: IMPORTED-2comp, Entities: 719
+Total payout: MX$4,191,451,846.96
+Lifecycle: DRAFT, Created: 2026-02-23T23:27:39.429299+00:00
+  Results: 0, non-zero: 0, zero: 0, sum: MX$0
+
+--- Batch: ea514d43-4a01-4b0a-84ac-c07589f1a1a7 ---
+Period: February 2024, Rule set: IMPORTED-2comp, Entities: 719
+Total payout: MX$0
+Lifecycle: DRAFT, Created: 2026-02-23T20:51:28.835633+00:00
+  Results: 0, non-zero: 0, zero: 0, sum: MX$0
+
+--- Batch: 1d4baeb1-587e-4c4a-948a-19c34db866db ---
+Period: January 2024, Rule set: IMPORTED-2comp, Entities: 719
+Total payout: MX$0
+Lifecycle: PREVIEW, Created: 2026-02-23T18:40:48.673683+00:00
+  Results: 0, non-zero: 0, zero: 0, sum: MX$0
+
+--- Batch: e1b2c3d4-e5f6-7890-abcd-ef1234567890 ---
+Period: Febrero 2026, Rule set: ORIGINAL-6comp, Entities: 12
+Total payout: MX$42,850
+Lifecycle: PUBLISHED, Created: 2026-02-15T21:58:53.371321+00:00
+  Results: 12, non-zero: 12, zero: 0, sum: MX$20,662
+  Component totals:
+    0: MX$0
+    1: MX$0
+    2: MX$0
+    3: MX$0
+    4: MX$0
+    5: MX$0
+
+============================================================
+3J: EXPECTED ALPHA BENCHMARK (from Feb 24 proof)
+============================================================
+
+Expected totals (proven Feb 24, 2026):
+  Total: MX$1,253,832 across ALL entities ALL periods
+  Optical Sales (Venta Optica): MX$748,600
+  Store Sales (Venta Tienda): MX$116,250
+  New Customers (Clientes Nuevos): MX$39,100
+  Collections (Cobranza): MX$283,000
+  Insurance (Club de Proteccion): MX$10
+  Warranty (Garantia Extendida): MX$66,872
+  Entity count per period: 719
+  Periods calculated: 3 (Enero, Febrero, Marzo 2024)
+
+============================================================
+3K: ENTITY COUNT ANALYSIS — 22,237 vs 719
+============================================================
+
+Entity type distribution:
+┌─────────┬────────────────┬───────┐
+│ (index) │ entity_type    │ count │
+├─────────┼────────────────┼───────┤
+│ 0       │ 'individual'   │ 22227 │
+│ 1       │ 'location'     │ 6     │
+│ 2       │ 'organization' │ 4     │
+└─────────┴────────────────┴───────┘
+
+Sample of Feb 23 bulk-created entities (first 20):
+  96568046 | 96568046 | individual | meta={}
+  97998478 | 97998478 | individual | meta={}
+  90319253 | 90319253 | individual | meta={}
+  90195508 | 90195508 | individual | meta={}
+  90203306 | 90203306 | individual | meta={}
+  90174414 | 90174414 | individual | meta={}
+  90235057 | 90235057 | individual | meta={}
+  90262856 | 90262856 | individual | meta={}
+  90198149 | 90198149 | individual | meta={}
+  90291787 | 90291787 | individual | meta={}
+  90065872 | 90065872 | individual | meta={}
+  96077034 | 96077034 | individual | meta={}
+  98872222 | 98872222 | individual | meta={}
+  90045562 | 90045562 | individual | meta={}
+  98299212 | 98299212 | individual | meta={}
+  90129411 | 90129411 | individual | meta={}
+  98663631 | 98663631 | individual | meta={}
+  90276144 | 90276144 | individual | meta={}
+  90063447 | 90063447 | individual | meta={}
+  90118514 | 90118514 | individual | meta={}
+
+============================================================
+3L: RULE SET ASSIGNMENT ANALYSIS
+============================================================
+
+Total assignments: 1000
+
+Assigned entities by creation date:
+┌─────────┬──────────────┬───────┐
+│ (index) │ date         │ count │
+├─────────┼──────────────┼───────┤
+│ 0       │ '2026-02-23' │ 988   │
+│ 1       │ '2026-02-15' │ 12    │
+└─────────┴──────────────┴───────┘
+
+Assignment creation dates:
+┌─────────┬──────────────┬───────┐
+│ (index) │ date         │ count │
+├─────────┼──────────────┼───────┤
+│ 0       │ '2026-02-15' │ 12    │
+│ 1       │ '2026-02-23' │ 988   │
+└─────────┴──────────────┴───────┘
+
+============================================================
+3M: LATEST BATCH ENTITY SELECTION — HOW 719?
+============================================================
+
+Entities in latest batch results: 719
+Calculated entities by creation date:
+┌─────────┬──────────────┬───────┐
+│ (index) │ date         │ count │
+├─────────┼──────────────┼───────┤
+│ 0       │ '2026-02-23' │ 719   │
+└─────────┴──────────────┴───────┘
+Calculated entities by type:
+┌─────────┬──────────────┬───────┐
+│ (index) │ entity_type  │ count │
+├─────────┼──────────────┼───────┤
+│ 0       │ 'individual' │ 719   │
+└─────────┴──────────────┴───────┘
+
+Unique external_ids in calculation: 719
+
+============================================================
+3N: PAYOUT DISTRIBUTION — LATEST BATCH
+============================================================
+
+Payout distribution:
+┌─────────┬─────────────────┬───────┐
+│ (index) │ range           │ count │
+├─────────┼─────────────────┼───────┤
+│ 0       │ '$0-$100'       │ 32    │
+│ 1       │ '$100-$500'     │ 0     │
+│ 2       │ '$500-$1000'    │ 325   │
+│ 3       │ '$1000-$2000'   │ 362   │
+│ 4       │ '$2000-$5000'   │ 0     │
+│ 5       │ '$5000-$10000'  │ 0     │
+│ 6       │ '$10000-$50000' │ 0     │
+│ 7       │ '$50000-$∞'     │ 0     │
+└─────────┴─────────────────┴───────┘
+
+Component presence in results:
+┌─────────┬───────────┬─────────────────────────┐
+│ (index) │ component │ entities_with_component │
+├─────────┼───────────┼─────────────────────────┤
+│ 0       │ '0'       │ 719                     │
+│ 1       │ '1'       │ 719                     │
+│ 2       │ '2'       │ 719                     │
+│ 3       │ '3'       │ 719                     │
+└─────────┴───────────┴─────────────────────────┘
+
+================================================================================
+CALCULATION TRACE COMPLETE
+================================================================================
