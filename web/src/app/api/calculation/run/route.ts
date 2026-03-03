@@ -9,6 +9,10 @@
  * Body: { tenantId, periodId, ruleSetId }
  */
 
+// OB-150: Production timeout fix (processes all entities × components)
+export const runtime = 'nodejs';
+export const maxDuration = 300; // Vercel Pro max
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import {

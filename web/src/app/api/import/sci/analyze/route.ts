@@ -3,6 +3,10 @@
 // Accepts parsed file data, returns agent-classified proposal.
 // Zero domain vocabulary. Korean Test applies.
 
+// OB-150: Production timeout fix
+export const runtime = 'nodejs';
+export const maxDuration = 300; // Vercel Pro max
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateContentProfile } from '@/lib/sci/content-profile';
