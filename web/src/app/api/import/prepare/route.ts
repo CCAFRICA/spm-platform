@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60; // OB-150: lightweight but set explicitly
 
 // Ensure the imports bucket exists (idempotent)
 async function ensureBucket(supabase: Awaited<ReturnType<typeof createServiceRoleClient>>) {

@@ -12,8 +12,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// HF-064: Extend timeout for AI interpretation (PDF takes 20-30s)
-export const maxDuration = 60;
+// HF-064/OB-150: Extend timeout for AI interpretation
+export const runtime = 'nodejs';
+export const maxDuration = 300; // Vercel Pro max
 
 export async function POST(request: NextRequest) {
   console.log('\n========== API ROUTE: /api/interpret-plan ==========');

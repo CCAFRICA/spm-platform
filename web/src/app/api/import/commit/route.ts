@@ -15,7 +15,7 @@ import type { Json } from '@/lib/supabase/database.types';
 import * as XLSX from 'xlsx';
 import { getAIService } from '@/lib/ai';
 export const runtime = 'nodejs';
-export const maxDuration = 120; // 2 minutes max
+export const maxDuration = 300; // OB-150: Vercel Pro max
 
 interface SheetData {
   sheetName: string;

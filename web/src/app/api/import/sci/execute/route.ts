@@ -3,8 +3,9 @@
 // Processes confirmed proposals through classification-specific pipelines.
 // Zero domain vocabulary. Korean Test applies.
 
-// OB-133: Extended timeout for plan interpretation (AI takes 20-30s)
-export const maxDuration = 120;
+// OB-133/OB-150: Extended timeout for plan interpretation (AI takes 20-60s on production)
+export const runtime = 'nodejs';
+export const maxDuration = 300; // Vercel Pro max
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';

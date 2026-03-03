@@ -3,6 +3,10 @@
 // Handles PDF (native), PPTX (text extraction), DOCX (text extraction)
 // Zero domain vocabulary. Korean Test applies.
 
+// OB-150: Production timeout fix (Anthropic API calls)
+export const runtime = 'nodejs';
+export const maxDuration = 300; // Vercel Pro max
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import JSZip from 'jszip';
