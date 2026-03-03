@@ -80,10 +80,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Parse components from JSONB
-  const componentsJson = ruleSet.components as Record<string, unknown>;
-  const variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
-  const defaultComponents: PlanComponent[] = (variants[0]?.components as PlanComponent[]) ?? [];
+  // Parse components from JSONB — handle both flat array and nested { variants: [...] } formats
+  const rawComponents = ruleSet.components;
+  let defaultComponents: PlanComponent[];
+  let variants: Array<Record<string, unknown>> = [];
+  if (Array.isArray(rawComponents)) {
+    // Flat array: [{id, name, config, ...}, ...]
+    defaultComponents = rawComponents as unknown as PlanComponent[];
+  } else {
+    // Legacy nested format: { variants: [{ components: [...] }] }
+    const componentsJson = rawComponents as Record<string, unknown>;
+    variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
+    defaultComponents = (variants[0]?.components as PlanComponent[]) ?? [];
+  }
 
   if (defaultComponents.length === 0) {
     return NextResponse.json(
@@ -92,7 +101,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  addLog(`Rule set "${ruleSet.name}" has ${defaultComponents.length} components, ${variants.length} variants`);
+  addLog(`Rule set "${ruleSet.name}" has ${defaultComponents.length} components`);
 
   // ── OB-118: Parse metric derivation rules from input_bindings ──
   const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
