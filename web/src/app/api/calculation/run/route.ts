@@ -418,17 +418,51 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
-  // The roster sheet (e.g., "Datos Colaborador") defines which employees are active
-  // for this period. Entities that only appear in transaction sheets (warranty, insurance)
-  // but not on the roster should NOT be calculated.
-  const rosterEntityIds = new Set<string>();
-  const rosterSheetNames = ['Datos Colaborador', 'Roster', 'Employee', 'Empleados'];
-
-  for (const [entityId, sheetMap] of Array.from(dataByEntity.entries())) {
+  // OB-147: Enhanced roster identification — three-tier detection:
+  //   1. AI context: sheet classified as 'roster' or 'entity_data'
+  //   2. Parent sheet heuristic: sheet whose name is a prefix of others (via __ separator)
+  //   3. Keyword fallback: sheet name contains known roster terms
+  const allSheetNames = new Set<string>();
+  for (const [, sheetMap] of Array.from(dataByEntity.entries())) {
     for (const sheetName of Array.from(sheetMap.keys())) {
-      if (rosterSheetNames.some(r => sheetName.toLowerCase().includes(r.toLowerCase()))) {
-        rosterEntityIds.add(entityId);
+      allSheetNames.add(sheetName);
+    }
+  }
+
+  let rosterSheetName: string | null = null;
+
+  // Tier 2: Parent sheet heuristic — a sheet is a "parent" if other sheets
+  // start with its name + "__". This is the import convention for multi-tab files.
+  if (!rosterSheetName && allSheetNames.size > 1) {
+    for (const candidate of Array.from(allSheetNames)) {
+      const prefix = candidate + '__';
+      const isParent = Array.from(allSheetNames).some(s => s.startsWith(prefix));
+      if (isParent) {
+        rosterSheetName = candidate;
+        addLog(`Roster detected via parent-sheet heuristic: "${rosterSheetName}"`);
         break;
+      }
+    }
+  }
+
+  // Tier 3: Keyword fallback
+  if (!rosterSheetName) {
+    const rosterKeywords = ['datos colaborador', 'roster', 'employee', 'empleados'];
+    for (const sheetName of Array.from(allSheetNames)) {
+      if (rosterKeywords.some(r => sheetName.toLowerCase().includes(r))) {
+        rosterSheetName = sheetName;
+        addLog(`Roster detected via keyword match: "${rosterSheetName}"`);
+        break;
+      }
+    }
+  }
+
+  // Build roster entity set from the identified roster sheet
+  const rosterEntityIds = new Set<string>();
+  if (rosterSheetName) {
+    for (const [entityId, sheetMap] of Array.from(dataByEntity.entries())) {
+      if (sheetMap.has(rosterSheetName)) {
+        rosterEntityIds.add(entityId);
       }
     }
   }
@@ -437,7 +471,7 @@ export async function POST(request: NextRequest) {
   let calculationEntityIds = entityIds;
   if (rosterEntityIds.size > 0) {
     calculationEntityIds = entityIds.filter(id => rosterEntityIds.has(id));
-    addLog(`Population filter: ${rosterEntityIds.size} entities on roster, ${calculationEntityIds.length} assigned+rostered (filtered from ${entityIds.length})`);
+    addLog(`Population filter: ${entityIds.length} total → ${calculationEntityIds.length} roster entities (sheet: "${rosterSheetName}")`);
   } else {
     addLog(`No roster sheet detected — calculating all ${entityIds.length} assigned entities`);
   }
