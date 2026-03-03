@@ -50,9 +50,6 @@ export function ResultsHero({
   planName,
   formatCurrency,
 }: ResultsHeroProps) {
-  const entitiesWithPayout = componentTotals.length > 0
-    ? componentTotals.reduce((max, c) => Math.max(max, c.entityCount), 0)
-    : 0;
   const avgPerEntity = resultCount > 0 ? totalPayout / resultCount : 0;
   const activeComponents = componentTotals.filter(c => c.total > 0).length;
 

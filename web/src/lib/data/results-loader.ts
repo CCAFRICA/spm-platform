@@ -232,7 +232,7 @@ export async function loadResultsPageData(
     }
 
     // Build per-component payouts
-    const componentPayouts: ComponentPayout[] = comps.map((c: Record<string, unknown>) => {
+    const componentPayouts: ComponentPayout[] = (comps as Array<Record<string, unknown>>).map((c) => {
       const details = (c.details ?? {}) as Record<string, unknown>;
       const compId = String(c.componentId ?? '');
       const compName = String(c.componentName ?? '');
