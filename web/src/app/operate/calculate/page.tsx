@@ -1,10 +1,10 @@
 'use client';
 
-// Calculate — Plan-centric calculation experience
-// OB-130 Phase 4 — Zero domain vocabulary. Korean Test applies.
+// Calculate — Plan-centric calculation + DS-007 results experience
+// OB-145 Phase 6 — Five Layers of Proof results page
 //
-// Plan cards grid + results panel. Each plan shows readiness + single-plan calculate.
-// Resolves CLT-126 F-126-08 (no single-plan recalculation) and F-126-09 (no plan filter).
+// Plan cards grid at top. When a plan is selected AND has results,
+// shows DS-007: Hero + Heatmap + PopulationHealth + EntityTable + NarrativeSpine.
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -15,9 +15,7 @@ import { isVLAdmin } from '@/types/auth';
 import { RequireRole } from '@/components/auth/RequireRole';
 import { OperateSelector } from '@/components/operate/OperateSelector';
 import { PlanCard, type PlanReadiness } from '@/components/calculate/PlanCard';
-import { PlanResults } from '@/components/calculate/PlanResults';
-import { getCalculationResults } from '@/lib/supabase/calculation-service';
-import type { Database } from '@/lib/supabase/database.types';
+import { loadResultsPageData, type ResultsPageData } from '@/lib/data/results-loader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,9 +27,15 @@ import {
   AlertTriangle,
   Loader2,
   Play,
+  Download,
+  BarChart3,
 } from 'lucide-react';
 
-type CalcResultRow = Database['public']['Tables']['calculation_results']['Row'];
+// DS-007 result components
+import { ResultsHero } from '@/components/results/ResultsHero';
+import { StoreHeatmap } from '@/components/results/StoreHeatmap';
+import { PopulationHealth } from '@/components/results/PopulationHealth';
+import { EntityTable } from '@/components/results/EntityTable';
 
 function CalculatePageInner() {
   const router = useRouter();
@@ -51,10 +55,11 @@ function CalculatePageInner() {
   const [planReadiness, setPlanReadiness] = useState<PlanReadiness[]>([]);
   const [readinessLoading, setReadinessLoading] = useState(true);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [planResults, setPlanResults] = useState<CalcResultRow[]>([]);
+  const [resultsData, setResultsData] = useState<ResultsPageData | null>(null);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [isCalculatingAll, setIsCalculatingAll] = useState(false);
   const [calcAllError, setCalcAllError] = useState<string | null>(null);
+  const [storeFilter, setStoreFilter] = useState<string | null>(null);
 
   const hasAccess = user && (isVLAdmin(user) || user.role === 'admin');
   const tenantId = currentTenant?.id || '';
@@ -89,41 +94,34 @@ function CalculatePageInner() {
     return () => { cancelled = true; };
   }, [tenantId]);
 
-  // Load results when a plan is selected
+  // Load DS-007 results when a plan is selected
   useEffect(() => {
     if (!selectedPlanId || !tenantId || !selectedPeriodId) {
-      setPlanResults([]);
+      setResultsData(null);
       return;
     }
 
     let cancelled = false;
 
-    const loadResults = async () => {
+    const load = async () => {
       setResultsLoading(true);
       try {
-        // Find the batch for this plan + period
-        const planBatch = batches.find(b => b.ruleSetId === selectedPlanId);
-        if (planBatch) {
-          const results = await getCalculationResults(tenantId, planBatch.id);
-          if (!cancelled) setPlanResults(results);
-        } else {
-          if (!cancelled) setPlanResults([]);
-        }
+        const data = await loadResultsPageData(tenantId, selectedPeriodId, selectedPlanId);
+        if (!cancelled) setResultsData(data);
       } catch {
-        if (!cancelled) setPlanResults([]);
+        if (!cancelled) setResultsData(null);
       } finally {
         if (!cancelled) setResultsLoading(false);
       }
     };
 
-    loadResults();
+    load();
     return () => { cancelled = true; };
   }, [selectedPlanId, tenantId, selectedPeriodId, batches]);
 
   // Refresh readiness after calculation
   const handleCalculateComplete = useCallback(async () => {
     await refreshBatches();
-    // Refresh readiness
     try {
       const resp = await fetch(`/api/plan-readiness?tenantId=${tenantId}`);
       if (resp.ok) {
@@ -171,8 +169,37 @@ function CalculatePageInner() {
     setIsCalculatingAll(false);
   }, [tenantId, selectedPeriodId, activePlans, handleCalculateComplete]);
 
-  // Get the selected plan's batch info
-  const selectedPlanBatch = batches.find(b => b.ruleSetId === selectedPlanId);
+  // Export CSV
+  const handleExportCSV = useCallback(() => {
+    if (!resultsData) return;
+
+    const compNames = resultsData.componentDefinitions.map(cd => cd.name);
+    const headers = ['External ID', 'Name', 'Store', 'Attainment', ...compNames, 'Total Payout'];
+
+    const rows = resultsData.entities.map(e => {
+      const compAmounts = resultsData.componentDefinitions.map(cd => {
+        const cp = e.componentPayouts.find(c => c.componentId === cd.id || c.componentName === cd.name);
+        return cp ? cp.payout.toFixed(2) : '0.00';
+      });
+      return [
+        e.externalId,
+        e.displayName,
+        e.store,
+        e.attainment !== null ? e.attainment.toFixed(1) : '',
+        ...compAmounts,
+        e.totalPayout.toFixed(2),
+      ];
+    });
+
+    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `results_${resultsData.periodLabel.replace(/\s+/g, '_')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [resultsData]);
 
   if (!hasAccess) {
     return (
@@ -191,7 +218,7 @@ function CalculatePageInner() {
     <div>
       <OperateSelector />
 
-      <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      <div className="p-6 space-y-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
@@ -206,7 +233,7 @@ function CalculatePageInner() {
         {/* Period selector (inline) */}
         <div className="flex items-center gap-3">
           <span className="text-sm text-zinc-400">Period:</span>
-          <Select value={selectedPeriodId || ''} onValueChange={selectPeriod}>
+          <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); }}>
             <SelectTrigger className="w-56">
               <SelectValue placeholder="Select period" />
             </SelectTrigger>
@@ -274,7 +301,6 @@ function CalculatePageInner() {
         {!contextLoading && !readinessLoading && activePlans.length > 0 && (
           <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
             {activePlans.map(plan => {
-              // Match readiness data or build minimal fallback
               const readiness = planReadiness.find(r => r.planId === plan.id) || {
                 planId: plan.id,
                 planName: plan.name,
@@ -301,25 +327,166 @@ function CalculatePageInner() {
           </div>
         )}
 
-        {/* Results panel for selected plan */}
+        {/* ═══════════════════════════════════════════════ */}
+        {/* DS-007 RESULTS VIEW */}
+        {/* ═══════════════════════════════════════════════ */}
         {selectedPlanId && (
-          <div className="mt-2">
+          <div className="space-y-5">
             {resultsLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-5 h-5 text-zinc-400 animate-spin" />
-              </div>
+              <ResultsSkeleton />
+            ) : resultsData ? (
+              <>
+                {/* Action bar */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
+                      {resultsData.periodLabel}
+                    </span>
+                    <span className="text-[10px] text-zinc-700">&middot;</span>
+                    <span className="text-[10px] text-zinc-600 font-mono">
+                      {resultsData.lifecycleState}
+                    </span>
+                    <span className="text-[10px] text-zinc-700">&middot;</span>
+                    <span className="text-[10px] text-zinc-600">
+                      {new Date(resultsData.batchDate).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={handleExportCSV}
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1" />
+                      Export CSV
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => router.push('/operate/reconciliation')}
+                    >
+                      Reconcile
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-zinc-400"
+                      onClick={() => { setSelectedPlanId(null); setStoreFilter(null); }}
+                    >
+                      Close
+                    </Button>
+                  </div>
+                </div>
+
+                {/* L5: Hero */}
+                <ResultsHero
+                  totalPayout={resultsData.totalPayout}
+                  resultCount={resultsData.resultCount}
+                  componentTotals={resultsData.componentTotals}
+                  componentDefinitions={resultsData.componentDefinitions}
+                  planName={resultsData.planName}
+                  formatCurrency={formatCurrency}
+                />
+
+                {/* L4: Heatmap */}
+                <StoreHeatmap
+                  storeComponentMatrix={resultsData.storeComponentMatrix}
+                  stores={resultsData.stores}
+                  componentDefinitions={resultsData.componentDefinitions}
+                  entities={resultsData.entities}
+                  formatCurrency={formatCurrency}
+                  onStoreFilter={setStoreFilter}
+                />
+
+                {/* L4: Population health */}
+                <PopulationHealth entities={resultsData.entities} />
+
+                {/* L4: Entity table with L3 NarrativeSpine expansion */}
+                <EntityTable
+                  entities={resultsData.entities}
+                  componentDefinitions={resultsData.componentDefinitions}
+                  formatCurrency={formatCurrency}
+                  storeFilter={storeFilter}
+                  onStoreFilter={setStoreFilter}
+                />
+
+                {/* Footer */}
+                <div className="text-center py-4">
+                  <p className="text-[10px] text-zinc-700">
+                    Batch {resultsData.batchId.substring(0, 8)} &middot; {resultsData.resultCount.toLocaleString()} results &middot; {resultsData.componentDefinitions.length} components
+                  </p>
+                </div>
+              </>
             ) : (
-              <PlanResults
-                planName={activePlans.find(p => p.id === selectedPlanId)?.name || 'Plan'}
-                results={planResults}
-                formatCurrency={formatCurrency}
-                lifecycleState={selectedPlanBatch?.lifecycleState}
-                batchDate={selectedPlanBatch?.createdAt}
-                onClose={() => setSelectedPlanId(null)}
-              />
+              /* Empty state — no results */
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <BarChart3 className="h-10 w-10 mx-auto mb-3 text-zinc-500" />
+                  <p className="text-sm text-zinc-400">No results for this plan and period.</p>
+                  <p className="text-xs text-zinc-600 mt-1">Run a calculation to see results.</p>
+                </CardContent>
+              </Card>
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Skeleton loading state
+// ──────────────────────────────────────────────
+
+function ResultsSkeleton() {
+  return (
+    <div className="space-y-5 animate-pulse">
+      {/* Hero skeleton */}
+      <div className="rounded-2xl border border-zinc-800/60 p-8">
+        <div className="grid grid-cols-2 gap-8">
+          <div className="space-y-4">
+            <div className="h-3 w-20 bg-zinc-800 rounded" />
+            <div className="h-12 w-48 bg-zinc-800 rounded" />
+            <div className="h-4 w-32 bg-zinc-800/50 rounded" />
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              <div className="h-16 bg-zinc-800/30 rounded-lg" />
+              <div className="h-16 bg-zinc-800/30 rounded-lg" />
+              <div className="h-16 bg-zinc-800/30 rounded-lg" />
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="h-3 w-32 bg-zinc-800 rounded" />
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-6 bg-zinc-800/30 rounded" />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Heatmap skeleton */}
+      <div className="rounded-xl border border-zinc-800/60 p-6">
+        <div className="h-3 w-40 bg-zinc-800 rounded mb-4" />
+        <div className="grid grid-cols-8 gap-1">
+          {Array.from({ length: 48 }).map((_, i) => (
+            <div key={i} className="h-7 bg-zinc-800/20 rounded" />
+          ))}
+        </div>
+      </div>
+
+      {/* Health strip skeleton */}
+      <div className="rounded-xl border border-zinc-800/60 p-4">
+        <div className="h-3 bg-zinc-800 rounded-full" />
+      </div>
+
+      {/* Table skeleton */}
+      <div className="rounded-xl border border-zinc-800/60">
+        <div className="p-4 space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-8 bg-zinc-800/20 rounded" />
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -6,6 +6,11 @@
   .text-balance {
     text-wrap: balance;
   }
+  /* DS-007: Data display utilities */
+  .font-data {
+    font-family: var(--font-dm-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 @layer base {
