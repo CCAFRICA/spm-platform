@@ -9,6 +9,7 @@ export const maxDuration = 300; // Vercel Pro max
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
@@ -42,6 +43,13 @@ function normalizeFileNameToDataType(fn: string): string {
 
 export async function POST(req: NextRequest) {
   try {
+    // HF-084: Get authenticated user ID for created_by fields
+    const authClient = await createServerSupabaseClient();
+    const { data: { user: authUser } } = await authClient.auth.getUser();
+    if (!authUser) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -72,7 +80,7 @@ export async function POST(req: NextRequest) {
 
     for (const unit of contentUnits) {
       try {
-        const result = await executeContentUnit(supabase, tenantId, proposalId, unit);
+        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, authUser.id);
         results.push(result);
       } catch (err) {
         results.push({
@@ -134,7 +142,8 @@ async function executeContentUnit(
   supabase: SupabaseClient,
   tenantId: string,
   proposalId: string,
-  unit: ContentUnitExecution
+  unit: ContentUnitExecution,
+  userId: string
 ): Promise<ContentUnitResult> {
   // OB-134: For PARTIAL claims, filter rawData to only include owned + shared fields
   const effectiveUnit = filterFieldsForPartialClaim(unit);
@@ -147,7 +156,7 @@ async function executeContentUnit(
     case 'entity':
       return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit);
     case 'plan':
-      return executePlanPipeline(supabase, tenantId, effectiveUnit);
+      return executePlanPipeline(supabase, tenantId, effectiveUnit, userId);
   }
 }
 
@@ -726,7 +735,8 @@ async function executeEntityPipeline(
 async function executePlanPipeline(
   supabase: SupabaseClient,
   tenantId: string,
-  unit: ContentUnitExecution
+  unit: ContentUnitExecution,
+  userId: string
 ): Promise<ContentUnitResult> {
   const docMeta = unit.documentMetadata;
 
@@ -843,7 +853,7 @@ async function executePlanPipeline(
         contentUnitId: unit.contentUnitId,
         aiConfidence: response.confidence,
       } as unknown as Json,
-      created_by: 'sci-execute',
+      created_by: userId,
     });
 
   if (upsertError) {
