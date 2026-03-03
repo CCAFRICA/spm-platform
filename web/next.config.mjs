@@ -14,8 +14,13 @@ if (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && !process.env.NEXT_PUBLIC_SUPABA
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // HF-047: Removed 100mb bodySizeLimit — import now uses file-based pipeline
-  // (file uploaded to Supabase Storage, API receives metadata only < 50KB)
+  // HF-047: Large data files use file-based pipeline (Supabase Storage)
+  // OB-150: Server Actions body limit increased for plan documents (PPTX/PDF via base64)
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '20mb',
+    },
+  },
   async redirects() {
     return [
       // Redirect old data/transactions to new transactions page
