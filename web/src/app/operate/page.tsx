@@ -424,17 +424,15 @@ export default function OperateLandingPage() {
       // If both have data, ICM logic below picks the right ICM page
     }
 
-    // 3. ICM with completed calculation → results page
+    // 3. ICM with completed calculation → stay on operate overview (cockpit)
     if (hasICM && pipelineData.latestBatch) {
-      setRedirecting(true);
-      router.replace('/operate/calculate');
+      // Don't redirect — show the Operate overview cockpit
       return;
     }
 
-    // 4. ICM with data but no calculations → import page
+    // 4. ICM with data but no calculations → stay on operate overview
     if (hasICM && pipelineData.dataRowCount > 0) {
-      setRedirecting(true);
-      router.replace('/operate/import');
+      // Don't redirect — show the Operate overview cockpit
       return;
     }
 
