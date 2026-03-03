@@ -1204,6 +1204,12 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       for (const [sheetName, rows] of Array.from(entityStoreData.entries())) {
         if (!derivationInput.has(sheetName)) {
           derivationInput.set(sheetName, rows);
+        } else {
+          // OB-148: Append store rows even when entity has same sheet name.
+          // Store data may have fields (e.g., Real_Venta_Tienda, Meta_Venta_Tienda)
+          // not present in entity rows. The derivation sum/ratio operations
+          // only aggregate fields that exist, so mixing is safe.
+          derivationInput.set(sheetName, [...derivationInput.get(sheetName)!, ...rows]);
         }
       }
     }
