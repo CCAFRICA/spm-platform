@@ -40,6 +40,40 @@ interface PersonaContextValue {
 const PersonaContext = createContext<PersonaContextValue | undefined>(undefined);
 
 // ──────────────────────────────────────────────
+// OB-150: Scope cache — persona scope rarely changes during a session
+// ──────────────────────────────────────────────
+
+interface ScopeCache {
+  key: string; // `${userId}:${tenantId}:${persona}`
+  scope: PersonaScope;
+  profileId: string | null;
+  entityId: string | null;
+  timestamp: number;
+}
+
+const SCOPE_CACHE_TTL = 300_000; // 5 minutes
+let scopeCache: ScopeCache | null = null;
+
+function getCachedScope(userId: string, tenantId: string, persona: PersonaKey): ScopeCache | null {
+  if (!scopeCache) return null;
+  const key = `${userId}:${tenantId}:${persona}`;
+  if (scopeCache.key === key && Date.now() - scopeCache.timestamp < SCOPE_CACHE_TTL) {
+    return scopeCache;
+  }
+  return null;
+}
+
+function setCachedScope(userId: string, tenantId: string, persona: PersonaKey, scope: PersonaScope, profileId: string | null, entityId: string | null) {
+  scopeCache = {
+    key: `${userId}:${tenantId}:${persona}`,
+    scope,
+    profileId,
+    entityId,
+    timestamp: Date.now(),
+  };
+}
+
+// ──────────────────────────────────────────────
 // Persona derivation
 // ──────────────────────────────────────────────
 
@@ -113,6 +147,15 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     const effectivePersona = override ?? derivePersona(user, capabilities);
 
     async function fetchScope() {
+      // OB-150: Check scope cache before any DB queries
+      const cached = getCachedScope(user!.id, currentTenant!.id, effectivePersona);
+      if (cached) {
+        setScope(cached.scope);
+        setProfileId(cached.profileId);
+        setEntityId(cached.entityId);
+        return;
+      }
+
       try {
         const supabase = createClient();
 
@@ -142,8 +185,10 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
 
         // Admin persona sees all — no need to query profile_scope
         if (effectivePersona === 'admin') {
+          const adminScope = { entityIds: [] as string[], canSeeAll: true };
           setEntityId(linkedEntityId);
-          setScope({ entityIds: [], canSeeAll: true });
+          setScope(adminScope);
+          setCachedScope(user!.id, currentTenant!.id, effectivePersona, adminScope, profile?.id ?? null, linkedEntityId);
           return;
         }
 
@@ -158,11 +203,10 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
               .maybeSingle();
             const meta = (linkedEnt?.metadata || {}) as Record<string, unknown>;
             const storeId = String(meta.store_id || meta.location_id || '');
+            const repScope = { entityIds: storeId ? [storeId] : [linkedEntityId!], canSeeAll: false };
             setEntityId(linkedEntityId);
-            setScope({
-              entityIds: storeId ? [storeId] : [linkedEntityId],
-              canSeeAll: false,
-            });
+            setScope(repScope);
+            setCachedScope(user!.id, currentTenant!.id, effectivePersona, repScope, profile?.id ?? null, linkedEntityId);
             return;
           }
 
@@ -178,14 +222,15 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
           if (sampleIndividual) {
             const meta = (sampleIndividual.metadata || {}) as Record<string, unknown>;
             const storeId = String(meta.store_id || meta.location_id || '');
+            const sampleScope = { entityIds: storeId ? [storeId] : [] as string[], canSeeAll: false };
             setEntityId(sampleIndividual.id);
-            setScope({
-              entityIds: storeId ? [storeId] : [],
-              canSeeAll: false,
-            });
+            setScope(sampleScope);
+            setCachedScope(user!.id, currentTenant!.id, effectivePersona, sampleScope, profile?.id ?? null, sampleIndividual.id);
           } else {
+            const emptyScope = { entityIds: [] as string[], canSeeAll: false };
             setEntityId(null);
-            setScope({ entityIds: [], canSeeAll: false });
+            setScope(emptyScope);
+            setCachedScope(user!.id, currentTenant!.id, effectivePersona, emptyScope, profile?.id ?? null, null);
           }
           return;
         }
@@ -212,11 +257,10 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
           // Check profile_scope first
           const scopeData = scopeResult.data as { visible_entity_ids?: string[] } | null;
           if (scopeData?.visible_entity_ids?.length) {
+            const mgrScope = { entityIds: scopeData.visible_entity_ids, canSeeAll: false };
             setEntityId(linkedEntityId);
-            setScope({
-              entityIds: scopeData.visible_entity_ids,
-              canSeeAll: false,
-            });
+            setScope(mgrScope);
+            setCachedScope(user!.id, currentTenant!.id, effectivePersona, mgrScope, profile?.id ?? null, linkedEntityId);
             return;
           }
 
@@ -234,18 +278,19 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
                 e.entity_type === 'location' &&
                 String((e.metadata as Record<string, unknown>)?.brand_id || '') === firstBrand.id
               );
+              const brandScope = { entityIds: brandLocations.map(l => l.id), canSeeAll: false };
               setEntityId(linkedEntityId);
-              setScope({
-                entityIds: brandLocations.map(l => l.id),
-                canSeeAll: false,
-              });
+              setScope(brandScope);
+              setCachedScope(user!.id, currentTenant!.id, effectivePersona, brandScope, profile?.id ?? null, linkedEntityId);
               return;
             }
           }
 
           // Fallback: manager with no brand data sees all
+          const mgrFallbackScope = { entityIds: [] as string[], canSeeAll: true };
           setEntityId(linkedEntityId);
-          setScope({ entityIds: [], canSeeAll: true });
+          setScope(mgrFallbackScope);
+          setCachedScope(user!.id, currentTenant!.id, effectivePersona, mgrFallbackScope, profile?.id ?? null, linkedEntityId);
           return;
         }
 
@@ -259,15 +304,13 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
             .maybeSingle();
 
           if (scopeData?.visible_entity_ids) {
-            setScope({
-              entityIds: scopeData.visible_entity_ids,
-              canSeeAll: false,
-            });
+            const fbScope = { entityIds: scopeData.visible_entity_ids, canSeeAll: false };
+            setScope(fbScope);
+            setCachedScope(user!.id, currentTenant!.id, effectivePersona, fbScope, profile?.id ?? null, linkedEntityId);
           } else {
-            setScope({
-              entityIds: linkedEntityId ? [linkedEntityId] : [],
-              canSeeAll: false,
-            });
+            const fbScope = { entityIds: linkedEntityId ? [linkedEntityId] : [] as string[], canSeeAll: false };
+            setScope(fbScope);
+            setCachedScope(user!.id, currentTenant!.id, effectivePersona, fbScope, profile?.id ?? null, linkedEntityId);
           }
         }
       } catch (err) {
