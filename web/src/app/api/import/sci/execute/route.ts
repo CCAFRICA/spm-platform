@@ -1167,6 +1167,105 @@ async function postCommitConstruction(
     }
   }
 
+  // OB-146 Step 1b: Populate entity store metadata from import data.
+  // After entities are created and entity_id is bound, scan the same batch
+  // for store identifiers (storeId/num_tienda/No_Tienda) and volume tier info.
+  // This bridges entity→store association so the calculation engine can
+  // resolve store-level data for each entity.
+  if (entityIdField) {
+    const STORE_FIELDS = ['storeId', 'num_tienda', 'No_Tienda', 'Tienda'];
+    const TIER_FIELDS = ['store_volume_tier', 'Rango_Tienda', 'Rango de Tienda'];
+    const VOLUME_KEY_FIELDS = ['LLave Tamaño de Tienda'];
+
+    // Build employee→store mapping from imported data
+    const empToStore = new Map<string, string>();
+    const empToTier = new Map<string, string>();
+    const empToVolumeKey = new Map<string, string>();
+
+    for (const row of unit.rawData) {
+      const empId = String(row[entityIdField] ?? '').trim();
+      if (!empId) continue;
+
+      if (!empToStore.has(empId)) {
+        for (const f of STORE_FIELDS) {
+          const val = row[f];
+          if (val != null && String(val).trim()) {
+            empToStore.set(empId, String(val).trim());
+            break;
+          }
+        }
+      }
+
+      if (!empToTier.has(empId)) {
+        for (const f of TIER_FIELDS) {
+          const val = row[f];
+          if (val != null && String(val).trim()) {
+            empToTier.set(empId, String(val).trim());
+            break;
+          }
+        }
+      }
+
+      if (!empToVolumeKey.has(empId)) {
+        for (const f of VOLUME_KEY_FIELDS) {
+          const val = row[f];
+          if (val != null && String(val).trim()) {
+            empToVolumeKey.set(empId, String(val).trim());
+            break;
+          }
+        }
+      }
+    }
+
+    if (empToStore.size > 0) {
+      // Fetch entities that need store metadata
+      const allEmpIds = Array.from(empToStore.keys());
+      let storeUpdated = 0;
+
+      for (let i = 0; i < allEmpIds.length; i += BATCH) {
+        const slice = allEmpIds.slice(i, i + BATCH);
+        const { data: ents } = await supabase
+          .from('entities')
+          .select('id, external_id, metadata')
+          .eq('tenant_id', tenantId)
+          .in('external_id', slice);
+
+        if (!ents) continue;
+
+        for (const ent of ents) {
+          const extId = ent.external_id ?? '';
+          const store = empToStore.get(extId);
+          if (!store) continue;
+
+          const existingMeta = (ent.metadata ?? {}) as Record<string, unknown>;
+          if (existingMeta.store_id === store) continue;
+
+          const newMeta: Record<string, unknown> = {
+            ...existingMeta,
+            store_id: store,
+          };
+
+          const tier = empToTier.get(extId);
+          if (tier) newMeta.volume_tier = tier;
+
+          const volKey = empToVolumeKey.get(extId);
+          if (volKey) newMeta.volume_key = volKey;
+
+          await supabase
+            .from('entities')
+            .update({ metadata: newMeta })
+            .eq('id', ent.id)
+            .eq('tenant_id', tenantId);
+          storeUpdated++;
+        }
+      }
+
+      if (storeUpdated > 0) {
+        console.log(`[SCI Execute] OB-146: Updated store metadata for ${storeUpdated} entities (${empToStore.size} mapped)`);
+      }
+    }
+  }
+
   // Step 2: Bind period_id on committed_data rows using detected periods
   // Find date fields from semantic bindings
   const dateBindings = unit.confirmedBindings.filter(

@@ -20,6 +20,7 @@ import {
   type AIContextSheet,
   type MetricDerivationRule,
 } from '@/lib/calculation/run-calculation';
+import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
 import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
 import type { ComponentIntent } from '@/lib/calculation/intent-types';
@@ -417,17 +418,51 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
-  // The roster sheet (e.g., "Datos Colaborador") defines which employees are active
-  // for this period. Entities that only appear in transaction sheets (warranty, insurance)
-  // but not on the roster should NOT be calculated.
-  const rosterEntityIds = new Set<string>();
-  const rosterSheetNames = ['Datos Colaborador', 'Roster', 'Employee', 'Empleados'];
-
-  for (const [entityId, sheetMap] of Array.from(dataByEntity.entries())) {
+  // OB-147: Enhanced roster identification — three-tier detection:
+  //   1. AI context: sheet classified as 'roster' or 'entity_data'
+  //   2. Parent sheet heuristic: sheet whose name is a prefix of others (via __ separator)
+  //   3. Keyword fallback: sheet name contains known roster terms
+  const allSheetNames = new Set<string>();
+  for (const [, sheetMap] of Array.from(dataByEntity.entries())) {
     for (const sheetName of Array.from(sheetMap.keys())) {
-      if (rosterSheetNames.some(r => sheetName.toLowerCase().includes(r.toLowerCase()))) {
-        rosterEntityIds.add(entityId);
+      allSheetNames.add(sheetName);
+    }
+  }
+
+  let rosterSheetName: string | null = null;
+
+  // Tier 2: Parent sheet heuristic — a sheet is a "parent" if other sheets
+  // start with its name + "__". This is the import convention for multi-tab files.
+  if (!rosterSheetName && allSheetNames.size > 1) {
+    for (const candidate of Array.from(allSheetNames)) {
+      const prefix = candidate + '__';
+      const isParent = Array.from(allSheetNames).some(s => s.startsWith(prefix));
+      if (isParent) {
+        rosterSheetName = candidate;
+        addLog(`Roster detected via parent-sheet heuristic: "${rosterSheetName}"`);
         break;
+      }
+    }
+  }
+
+  // Tier 3: Keyword fallback
+  if (!rosterSheetName) {
+    const rosterKeywords = ['datos colaborador', 'roster', 'employee', 'empleados'];
+    for (const sheetName of Array.from(allSheetNames)) {
+      if (rosterKeywords.some(r => sheetName.toLowerCase().includes(r))) {
+        rosterSheetName = sheetName;
+        addLog(`Roster detected via keyword match: "${rosterSheetName}"`);
+        break;
+      }
+    }
+  }
+
+  // Build roster entity set from the identified roster sheet
+  const rosterEntityIds = new Set<string>();
+  if (rosterSheetName) {
+    for (const [entityId, sheetMap] of Array.from(dataByEntity.entries())) {
+      if (sheetMap.has(rosterSheetName)) {
+        rosterEntityIds.add(entityId);
       }
     }
   }
@@ -436,7 +471,7 @@ export async function POST(request: NextRequest) {
   let calculationEntityIds = entityIds;
   if (rosterEntityIds.size > 0) {
     calculationEntityIds = entityIds.filter(id => rosterEntityIds.has(id));
-    addLog(`Population filter: ${rosterEntityIds.size} entities on roster, ${calculationEntityIds.length} assigned+rostered (filtered from ${entityIds.length})`);
+    addLog(`Population filter: ${entityIds.length} total → ${calculationEntityIds.length} roster entities (sheet: "${rosterSheetName}")`);
   } else {
     addLog(`No roster sheet detected — calculating all ${entityIds.length} assigned entities`);
   }
@@ -699,9 +734,22 @@ export async function POST(request: NextRequest) {
 
     // ── OB-118: Derive metrics once per entity from loaded data ──
     // OB-121: Pass prior period data for delta derivations
+    // OB-146: Merge entity + store data for derivation so store-level metrics
+    // (e.g., new_customers from clientes_nuevos, collections from cobranza)
+    // can be derived. Store data has entity_id IS NULL but derivation rules
+    // match by sheet name pattern, which is source-agnostic.
     const entityPriorData = priorDataByEntity.get(entityId);
+    let derivationInput = entitySheetData;
+    if (entityStoreData && entityStoreData.size > 0) {
+      derivationInput = new Map(entitySheetData);
+      for (const [sheetName, rows] of Array.from(entityStoreData.entries())) {
+        if (!derivationInput.has(sheetName)) {
+          derivationInput.set(sheetName, rows);
+        }
+      }
+    }
     const derivedMetrics = metricDerivations.length > 0
-      ? applyMetricDerivations(entitySheetData, metricDerivations, entityPriorData)
+      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
       : {};
 
     // ── CURRENT ENGINE PATH ──
@@ -725,6 +773,14 @@ export async function POST(request: NextRequest) {
       // Derived metrics take precedence (they're specifically configured)
       for (const [key, value] of Object.entries(derivedMetrics)) {
         metrics[key] = value;
+      }
+      // OB-146: Normalize derived attainment metrics from decimal to percentage.
+      // buildMetricsForComponent normalizes but the derivation override can
+      // re-introduce decimal values (e.g., Cumplimiento = 1.165 → should be 116.5).
+      for (const [key, value] of Object.entries(metrics)) {
+        if (inferSemanticType(key) === 'attainment' && value > 0 && value < 10) {
+          metrics[key] = value * 100;
+        }
       }
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
