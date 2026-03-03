@@ -1154,9 +1154,22 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
     // OB-118: Derive metrics once per entity from loaded data
     // OB-121: Pass prior period data for delta derivations
+    // OB-146: Merge entity + store data for derivation so store-level metrics
+    // (e.g., new_customers from clientes_nuevos, collections from cobranza)
+    // can be derived. Store data has entity_id IS NULL but derivation rules
+    // match by sheet name pattern, which is source-agnostic.
     const entityPriorData = priorDataByEntity.get(entityId);
+    let derivationInput = entitySheetData;
+    if (entityStoreData && entityStoreData.size > 0) {
+      derivationInput = new Map(entitySheetData);
+      for (const [sheetName, rows] of Array.from(entityStoreData.entries())) {
+        if (!derivationInput.has(sheetName)) {
+          derivationInput.set(sheetName, rows);
+        }
+      }
+    }
     const derivedMetrics = metricDerivations.length > 0
-      ? applyMetricDerivations(entitySheetData, metricDerivations, entityPriorData)
+      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
       : {};
 
     // Evaluate each component with sheet-aware metrics
@@ -1173,6 +1186,15 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       // OB-118: Merge derived metrics
       for (const [key, value] of Object.entries(derivedMetrics)) {
         metrics[key] = value;
+      }
+      // OB-146: Normalize derived attainment metrics from decimal to percentage.
+      // buildMetricsForComponent normalizes but the derivation override can
+      // re-introduce decimal values (e.g., Cumplimiento = 1.165 → should be 116.5).
+      // Apply the same heuristic: values < 10 are decimal ratios, multiply by 100.
+      for (const [key, value] of Object.entries(metrics)) {
+        if (inferSemanticType(key) === 'attainment' && value > 0 && value < 10) {
+          metrics[key] = value * 100;
+        }
       }
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
