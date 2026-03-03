@@ -333,6 +333,9 @@ async function executeTargetPipeline(
   // Detect and create periods from date fields in the imported data
   await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
 
+  // OB-144: Post-commit construction — create missing entities, bind entity_id + period_id, create assignments
+  await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit);
+
   // Trigger convergence re-run for all active rule_sets
   const { data: ruleSets } = await supabase
     .from('rule_sets')
@@ -524,6 +527,9 @@ async function executeTransactionPipeline(
 
   // Detect and create periods from date fields in the imported data
   await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
+
+  // OB-144: Post-commit construction — create missing entities, bind entity_id + period_id, create assignments
+  await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit);
 
   // Trigger convergence re-run for all active rule_sets (same as target pipeline)
   const { data: ruleSets } = await supabase
@@ -1005,4 +1011,224 @@ function parseDateValue(value: unknown): { year: number; month: number } | null 
   }
 
   return null;
+}
+
+// ──────────────────────────────────────────────
+// OB-144: Post-Commit Construction
+// Creates missing entities, binds entity_id + period_id, creates assignments.
+// Korean Test: entity field name comes from semantic role, not hardcoded.
+// ──────────────────────────────────────────────
+
+async function postCommitConstruction(
+  supabase: SupabaseClient,
+  tenantId: string,
+  importBatchId: string,
+  entityIdField: string | undefined,
+  unit: ContentUnitExecution,
+): Promise<void> {
+  const BATCH = 200;
+
+  // Step 1: Create missing entities from entity_identifier field
+  if (entityIdField) {
+    // Collect unique identifiers from the imported data
+    const allIdentifiers = new Set<string>();
+    for (const row of unit.rawData) {
+      const val = row[entityIdField];
+      if (val != null && String(val).trim()) {
+        allIdentifiers.add(String(val).trim());
+      }
+    }
+
+    if (allIdentifiers.size > 0) {
+      // Find which already exist
+      const existing = new Set<string>();
+      const allIds = Array.from(allIdentifiers);
+      for (let i = 0; i < allIds.length; i += BATCH) {
+        const slice = allIds.slice(i, i + BATCH);
+        const { data } = await supabase
+          .from('entities')
+          .select('external_id')
+          .eq('tenant_id', tenantId)
+          .in('external_id', slice);
+        if (data) {
+          for (const e of data) {
+            if (e.external_id) existing.add(e.external_id);
+          }
+        }
+      }
+
+      // Create missing entities
+      const missing = allIds.filter(id => !existing.has(id));
+      if (missing.length > 0) {
+        for (let i = 0; i < missing.length; i += BATCH) {
+          const slice = missing.slice(i, i + BATCH);
+          const entities = slice.map(extId => ({
+            tenant_id: tenantId,
+            external_id: extId,
+            display_name: extId,
+            entity_type: 'individual',
+            status: 'active',
+          }));
+          await supabase.from('entities').insert(entities);
+        }
+        console.log(`[SCI Execute] Created ${missing.length} new entities`);
+
+        // Create rule_set_assignments for new entities
+        const { data: ruleSets } = await supabase
+          .from('rule_sets')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'active');
+
+        if (ruleSets && ruleSets.length > 0) {
+          // Fetch new entity IDs
+          const newEntityIds: string[] = [];
+          for (let i = 0; i < missing.length; i += BATCH) {
+            const slice = missing.slice(i, i + BATCH);
+            const { data } = await supabase
+              .from('entities')
+              .select('id')
+              .eq('tenant_id', tenantId)
+              .in('external_id', slice);
+            if (data) newEntityIds.push(...data.map(e => e.id));
+          }
+
+          for (const rs of ruleSets) {
+            for (let i = 0; i < newEntityIds.length; i += BATCH) {
+              const slice = newEntityIds.slice(i, i + BATCH);
+              const assignments = slice.map(entityId => ({
+                tenant_id: tenantId,
+                rule_set_id: rs.id,
+                entity_id: entityId,
+              }));
+              await supabase.from('rule_set_assignments').insert(assignments);
+            }
+          }
+          console.log(`[SCI Execute] Created assignments for ${newEntityIds.length} entities × ${ruleSets.length} rule sets`);
+        }
+      }
+
+      // Bind entity_id on committed_data rows for this import batch
+      // Build entity_id map (including newly created entities)
+      const entityIdMap = new Map<string, string>();
+      for (let i = 0; i < allIds.length; i += BATCH) {
+        const slice = allIds.slice(i, i + BATCH);
+        const { data } = await supabase
+          .from('entities')
+          .select('id, external_id')
+          .eq('tenant_id', tenantId)
+          .in('external_id', slice);
+        if (data) {
+          for (const e of data) {
+            if (e.external_id) entityIdMap.set(e.external_id, e.id);
+          }
+        }
+      }
+
+      // Update committed_data rows that have NULL entity_id
+      let entityBound = 0;
+      let page = 0;
+      while (true) {
+        const { data: rows } = await supabase
+          .from('committed_data')
+          .select('id, row_data')
+          .eq('tenant_id', tenantId)
+          .eq('import_batch_id', importBatchId)
+          .is('entity_id', null)
+          .limit(500);
+
+        if (!rows || rows.length === 0) break;
+
+        const groups = new Map<string, string[]>();
+        for (const r of rows) {
+          const rd = r.row_data as Record<string, unknown>;
+          const extId = String(rd[entityIdField] ?? '').trim();
+          const eid = entityIdMap.get(extId);
+          if (eid) {
+            if (!groups.has(eid)) groups.set(eid, []);
+            groups.get(eid)!.push(r.id);
+          }
+        }
+
+        for (const [entityId, ids] of Array.from(groups.entries())) {
+          for (let i = 0; i < ids.length; i += BATCH) {
+            const slice = ids.slice(i, i + BATCH);
+            await supabase.from('committed_data').update({ entity_id: entityId }).in('id', slice);
+            entityBound += slice.length;
+          }
+        }
+
+        page++;
+        if (rows.length < 500 || page > 200) break;
+      }
+      if (entityBound > 0) {
+        console.log(`[SCI Execute] Bound entity_id on ${entityBound} committed_data rows`);
+      }
+    }
+  }
+
+  // Step 2: Bind period_id on committed_data rows using detected periods
+  // Find date fields from semantic bindings
+  const dateBindings = unit.confirmedBindings.filter(
+    b => DATE_SEMANTIC_ROLES.has(b.semanticRole)
+  );
+
+  if (dateBindings.length > 0) {
+    // Fetch all periods for this tenant
+    const { data: periods } = await supabase
+      .from('periods')
+      .select('id, canonical_key, start_date, end_date')
+      .eq('tenant_id', tenantId);
+
+    if (periods && periods.length > 0) {
+      let periodBound = 0;
+      let page = 0;
+
+      while (true) {
+        const { data: rows } = await supabase
+          .from('committed_data')
+          .select('id, row_data')
+          .eq('tenant_id', tenantId)
+          .eq('import_batch_id', importBatchId)
+          .is('period_id', null)
+          .limit(500);
+
+        if (!rows || rows.length === 0) break;
+
+        const groups = new Map<string, string[]>();
+        for (const r of rows) {
+          const rd = r.row_data as Record<string, unknown>;
+
+          // Try each date binding field
+          for (const binding of dateBindings) {
+            const val = rd[binding.sourceField];
+            const parsed = parseDateValue(val);
+            if (parsed) {
+              const key = `${parsed.year}-${String(parsed.month).padStart(2, '0')}`;
+              const period = periods.find(p => p.canonical_key === key);
+              if (period) {
+                if (!groups.has(period.id)) groups.set(period.id, []);
+                groups.get(period.id)!.push(r.id);
+                break;
+              }
+            }
+          }
+        }
+
+        for (const [periodId, ids] of Array.from(groups.entries())) {
+          for (let i = 0; i < ids.length; i += BATCH) {
+            const slice = ids.slice(i, i + BATCH);
+            await supabase.from('committed_data').update({ period_id: periodId }).in('id', slice);
+            periodBound += slice.length;
+          }
+        }
+
+        page++;
+        if (rows.length < 500 || page > 200) break;
+      }
+      if (periodBound > 0) {
+        console.log(`[SCI Execute] Bound period_id on ${periodBound} committed_data rows`);
+      }
+    }
+  }
 }
