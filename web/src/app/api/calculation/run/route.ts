@@ -20,6 +20,7 @@ import {
   type AIContextSheet,
   type MetricDerivationRule,
 } from '@/lib/calculation/run-calculation';
+import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
 import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
 import type { ComponentIntent } from '@/lib/calculation/intent-types';
@@ -699,9 +700,22 @@ export async function POST(request: NextRequest) {
 
     // ── OB-118: Derive metrics once per entity from loaded data ──
     // OB-121: Pass prior period data for delta derivations
+    // OB-146: Merge entity + store data for derivation so store-level metrics
+    // (e.g., new_customers from clientes_nuevos, collections from cobranza)
+    // can be derived. Store data has entity_id IS NULL but derivation rules
+    // match by sheet name pattern, which is source-agnostic.
     const entityPriorData = priorDataByEntity.get(entityId);
+    let derivationInput = entitySheetData;
+    if (entityStoreData && entityStoreData.size > 0) {
+      derivationInput = new Map(entitySheetData);
+      for (const [sheetName, rows] of Array.from(entityStoreData.entries())) {
+        if (!derivationInput.has(sheetName)) {
+          derivationInput.set(sheetName, rows);
+        }
+      }
+    }
     const derivedMetrics = metricDerivations.length > 0
-      ? applyMetricDerivations(entitySheetData, metricDerivations, entityPriorData)
+      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
       : {};
 
     // ── CURRENT ENGINE PATH ──
@@ -725,6 +739,14 @@ export async function POST(request: NextRequest) {
       // Derived metrics take precedence (they're specifically configured)
       for (const [key, value] of Object.entries(derivedMetrics)) {
         metrics[key] = value;
+      }
+      // OB-146: Normalize derived attainment metrics from decimal to percentage.
+      // buildMetricsForComponent normalizes but the derivation override can
+      // re-introduce decimal values (e.g., Cumplimiento = 1.165 → should be 116.5).
+      for (const [key, value] of Object.entries(metrics)) {
+        if (inferSemanticType(key) === 'attainment' && value > 0 && value < 10) {
+          metrics[key] = value * 100;
+        }
       }
       const result = evaluateComponent(component, metrics);
       componentResults.push(result);
