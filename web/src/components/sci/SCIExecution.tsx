@@ -2,9 +2,10 @@
 
 // SCI Execution — Orchestrates pipeline execution + renders progress
 // OB-129 Phase 4, OB-136 chunking, OB-139 ExecutionProgress integration.
+// HF-087: 300s fetch timeout, recovery check, elapsed timer, duplicate guard.
 // Zero domain vocabulary. Korean Test applies.
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import type {
   ContentUnitProposal,
   AgentType,
@@ -20,6 +21,9 @@ const PROCESSING_ORDER: Record<AgentType, number> = {
   target: 2,
   transaction: 3,
 };
+
+// HF-087: Match server maxDuration (300s) — prevents browser from giving up before server
+const FETCH_TIMEOUT_MS = 300_000;
 
 type UnitStatus = 'pending' | 'processing' | 'complete' | 'error';
 
@@ -44,6 +48,45 @@ interface SCIExecutionProps {
   onUploadMore: () => void;
 }
 
+/**
+ * HF-087: Fetch with explicit 300s timeout via AbortController.
+ * Prevents browser/proxy from silently dropping long-running requests.
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * HF-087: Check if a plan was actually created despite fetch failure.
+ * The server may have succeeded even though the client lost the connection.
+ */
+async function checkPlanCreatedRecovery(tenantId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/plan-readiness?tenantId=${encodeURIComponent(tenantId)}`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    // If any plans exist, the server likely succeeded
+    return Array.isArray(data.plans) && data.plans.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function SCIExecution({
   proposal,
   confirmedUnits,
@@ -63,6 +106,23 @@ export function SCIExecution({
       }))
   );
   const [executionDone, setExecutionDone] = useState(false);
+  // HF-087: Track elapsed time for active processing
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  // HF-087: Guard against duplicate execution
+  const executingRef = useRef(false);
+
+  // HF-087: Elapsed timer — ticks every second while processing
+  useEffect(() => {
+    if (executionDone) return;
+    const hasActive = units.some(u => u.status === 'processing');
+    if (!hasActive) return;
+
+    const interval = setInterval(() => {
+      setElapsedSeconds(prev => prev + 1);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [executionDone, units]);
 
   const executeUnits = useCallback(async (unitsToExecute: ExecutionUnit[]) => {
     // Build execution request with full row data
@@ -99,7 +159,8 @@ export function SCIExecution({
     for (let i = 0; i < unitsToExecute.length; i++) {
       const unit = unitsToExecute[i];
 
-      // Mark as processing
+      // Mark as processing + reset elapsed timer
+      setElapsedSeconds(0);
       setUnits(prev => prev.map(u =>
         u.contentUnitId === unit.contentUnitId
           ? { ...u, status: 'processing' as const }
@@ -129,7 +190,8 @@ export function SCIExecution({
             const chunk = rawRows.slice(ci, ci + MAX_ROWS_PER_CHUNK);
             const chunkUnit = { ...execUnit, rawData: chunk };
 
-            const chunkRes = await fetch('/api/import/sci/execute', {
+            // HF-087: Use fetchWithTimeout (300s)
+            const chunkRes = await fetchWithTimeout('/api/import/sci/execute', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -155,7 +217,8 @@ export function SCIExecution({
             }
           }
         } else {
-          const res = await fetch('/api/import/sci/execute', {
+          // HF-087: Use fetchWithTimeout (300s)
+          const res = await fetchWithTimeout('/api/import/sci/execute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -192,12 +255,44 @@ export function SCIExecution({
           ));
         }
       } catch (err) {
+        const isAbort = err instanceof DOMException && err.name === 'AbortError';
+        const isNetworkError = err instanceof TypeError && (err.message === 'Failed to fetch' || err.message.includes('network'));
+        const errorMsg = isAbort
+          ? 'Request timed out — the server may still be processing'
+          : err instanceof Error ? err.message : 'Processing failed';
+
+        // HF-087: Recovery check — if the fetch failed due to timeout/network,
+        // the server may have actually succeeded. Check for plan creation.
+        if ((isAbort || isNetworkError) && unit.classification === 'plan') {
+          // Wait 3 seconds then check if plan was actually created
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          const recovered = await checkPlanCreatedRecovery(tenantId);
+          if (recovered) {
+            setUnits(prev => prev.map(u =>
+              u.contentUnitId === unit.contentUnitId
+                ? {
+                    ...u,
+                    status: 'complete' as const,
+                    result: {
+                      contentUnitId: unit.contentUnitId,
+                      classification: unit.classification,
+                      success: true,
+                      rowsProcessed: 0,
+                      pipeline: 'plan-interpretation',
+                    },
+                  }
+                : u
+            ));
+            continue; // Skip the error state — plan was actually saved
+          }
+        }
+
         setUnits(prev => prev.map(u =>
           u.contentUnitId === unit.contentUnitId
             ? {
                 ...u,
                 status: 'error' as const,
-                error: err instanceof Error ? err.message : 'Processing failed',
+                error: errorMsg,
               }
             : u
         ));
@@ -205,9 +300,10 @@ export function SCIExecution({
     }
   }, [confirmedUnits, rawData, proposal.proposalId, tenantId]);
 
-  // Start execution on mount
+  // Start execution on mount — HF-087: guard against double execution
   useEffect(() => {
-    if (executionDone) return;
+    if (executionDone || executingRef.current) return;
+    executingRef.current = true;
 
     const run = async () => {
       await executeUnits(units);
@@ -241,8 +337,13 @@ export function SCIExecution({
   }, [executionDone, units, proposal.proposalId, onComplete]);
 
   const hasErrors = units.some(u => u.status === 'error');
+  // HF-087: Track if retry is in progress to prevent duplicate clicks
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const handleRetryFailed = async () => {
+    if (isRetrying) return; // Prevent duplicate retry
+    setIsRetrying(true);
+
     const failedUnits = units.filter(u => u.status === 'error');
 
     // Reset failed units to pending
@@ -253,9 +354,11 @@ export function SCIExecution({
     setExecutionDone(false);
     await executeUnits(failedUnits);
     setExecutionDone(true);
+    setIsRetrying(false);
   };
 
   // OB-139: Render via ExecutionProgress
+  // HF-087: Pass elapsed time for long operations
   return (
     <ExecutionProgress
       items={toProgressItems(units)}
@@ -263,6 +366,8 @@ export function SCIExecution({
       hasErrors={hasErrors}
       onRetryFailed={handleRetryFailed}
       onContinue={onUploadMore}
+      elapsedSeconds={elapsedSeconds}
+      isRetrying={isRetrying}
     />
   );
 }
