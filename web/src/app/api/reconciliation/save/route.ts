@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveProfileId } from '@/lib/auth/resolve-profile';
 import type { Json } from '@/lib/supabase/database.types';
 
 export async function POST(request: NextRequest) {
@@ -58,15 +59,8 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createServiceRoleClient();
 
-    // HF-085: Resolve profile ID — reconciliation_sessions.created_by FK → profiles.id
-    const { data: callerProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('auth_user_id', userId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    const resolvedProfileId = callerProfile?.id ?? userId;
+    // HF-086: Resolve profile ID — auto-creates VL Admin profile if needed
+    const resolvedProfileId = await resolveProfileId(supabase, { id: userId }, tenantId);
 
     const { data, error } = await supabase
       .from('reconciliation_sessions')

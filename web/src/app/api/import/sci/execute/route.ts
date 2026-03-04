@@ -10,6 +10,7 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { resolveProfileId } from '@/lib/auth/resolve-profile';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
@@ -65,15 +66,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // HF-085: Resolve profile ID from auth session — rule_sets.created_by FK → profiles.id
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('auth_user_id', authUser.id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    const profileId = profile?.id ?? authUser.id; // fallback for non-seed accounts where profile.id = auth.users.id
+    // HF-086: Resolve profile ID — auto-creates VL Admin profile if needed
+    const profileId = await resolveProfileId(supabase, authUser, tenantId);
 
     // Verify tenant exists
     const { data: tenant } = await supabase
