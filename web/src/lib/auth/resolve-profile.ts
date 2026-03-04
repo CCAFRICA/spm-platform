@@ -1,11 +1,17 @@
 /**
- * HF-086: Resolve profile ID for FK-constrained columns.
+ * OB-151: Resolve profile ID for FK-constrained columns.
  *
  * All write operations that set created_by, uploaded_by, filed_by etc.
  * must use a profiles.id value (not auth.users.id). This helper:
  *   1. Looks up existing profile by auth_user_id + tenant_id
- *   2. If not found and caller is a platform admin, auto-creates a profile
+ *   2. If not found and caller is a platform admin, uses the tenant's
+ *      own admin profile (does NOT auto-create — that breaks platform auth)
  *   3. Returns the profile.id for use in FK-constrained columns
+ *
+ * HF-086 originally auto-created profiles for VL Admin in each tenant.
+ * OB-151 rewrites to Option B: borrow tenant admin's profile for created_by.
+ * This avoids creating extra profiles that break .maybeSingle() queries
+ * in the observatory API and auth context.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -15,13 +21,6 @@ interface AuthUser {
   email?: string;
 }
 
-/**
- * Resolve a profile ID for the given auth user within a tenant.
- *
- * For regular tenant users, their profile already exists.
- * For VL Platform Admins operating inside a tenant, a profile is
- * auto-created on first write operation.
- */
 export async function resolveProfileId(
   supabase: SupabaseClient,
   authUser: AuthUser,
@@ -50,42 +49,43 @@ export async function resolveProfileId(
     || authUser.email?.endsWith('@vialuce.ai');
 
   if (!isPlatformAdmin) {
-    // Not a platform admin and no profile in tenant — should not happen in normal flow
-    // Return auth user ID as last resort (may fail FK if constraint is strict)
+    // Not a platform admin and no profile in tenant — should not happen
     console.warn(`[resolveProfileId] No profile for user ${authUser.id} in tenant ${tenantId}`);
     return authUser.id;
   }
 
-  // 3. Auto-create profile for platform admin in this tenant
-  const { data: newProfile, error } = await supabase
+  // 3. OB-151 Option B: Use tenant's own admin profile for created_by.
+  // Do NOT auto-create a profile — that breaks VL Admin's platform auth
+  // (.maybeSingle() in observatory API fails with multiple profiles).
+  const { data: tenantAdmin } = await supabase
     .from('profiles')
-    .insert({
-      tenant_id: tenantId,
-      email: authUser.email || 'platform@vialuce.com',
-      display_name: 'VL Platform Admin',
-      role: 'admin',
-      auth_user_id: authUser.id,
-      capabilities: ['manage_team', 'approve_outcomes'],
-    })
     .select('id')
-    .single();
+    .eq('tenant_id', tenantId)
+    .eq('role', 'admin')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
 
-  if (error) {
-    // Profile creation failed — might be a race condition (another request created it)
-    // Try one more lookup
-    const { data: retryProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('auth_user_id', authUser.id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    if (retryProfile) return retryProfile.id;
-
-    console.error(`[resolveProfileId] Failed to create platform admin profile:`, error);
-    throw new Error(`Failed to create platform admin profile in tenant: ${error.message}`);
+  if (tenantAdmin) {
+    console.log(`[resolveProfileId] VL Admin using tenant admin profile ${tenantAdmin.id} in tenant ${tenantId}`);
+    return tenantAdmin.id;
   }
 
-  console.log(`[resolveProfileId] Auto-created VL Admin profile ${newProfile.id} in tenant ${tenantId}`);
-  return newProfile.id;
+  // 4. Last resort: no admin profile in tenant either. Use any profile in tenant.
+  const { data: anyProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (anyProfile) {
+    console.log(`[resolveProfileId] VL Admin using fallback profile ${anyProfile.id} in tenant ${tenantId}`);
+    return anyProfile.id;
+  }
+
+  // No profiles at all in tenant — this tenant has no users. Should not happen.
+  console.error(`[resolveProfileId] No profiles exist in tenant ${tenantId}`);
+  throw new Error(`No profiles exist in tenant ${tenantId} — cannot resolve created_by`);
 }

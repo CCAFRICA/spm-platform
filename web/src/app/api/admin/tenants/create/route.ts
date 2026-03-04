@@ -18,13 +18,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const { data: profile } = await authClient
+    // OB-151: Use array query + find — .maybeSingle() fails when VL Admin
+    // has profiles in multiple tenants.
+    const { data: profiles } = await authClient
       .from('profiles')
       .select('role')
       .eq('auth_user_id', user.id)
-      .maybeSingle();
+      .limit(10);
 
-    if (!profile || profile.role !== 'vl_admin') {
+    const hasVLAdmin = profiles?.some(p => p.role === 'vl_admin');
+    if (!hasVLAdmin) {
       return NextResponse.json({ error: 'Forbidden — VL Admin required' }, { status: 403 });
     }
 
