@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveProfileId } from '@/lib/auth/resolve-profile';
 import type { RuleSetStatus, Json } from '@/lib/supabase/database.types';
 import { emitEvent } from '@/lib/events/emitter';
 
@@ -61,15 +62,8 @@ export async function POST(request: NextRequest) {
     // 3. Service role client (bypasses RLS)
     const supabase = await createServiceRoleClient();
 
-    // HF-085: Resolve profile ID — rule_sets.created_by FK → profiles.id
-    const { data: callerProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('auth_user_id', user.id)
-      .eq('tenant_id', planConfig.tenantId)
-      .maybeSingle();
-
-    const resolvedProfileId = callerProfile?.id ?? user.id;
+    // HF-086: Resolve profile ID — auto-creates VL Admin profile if needed
+    const resolvedProfileId = await resolveProfileId(supabase, user, planConfig.tenantId);
 
     // 4. Build insert row (same decomposition as planConfigToRuleSetInsert)
     const row = {
