@@ -833,10 +833,10 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   const entityMap = new Map(entities.map(e => [e.id, e]));
 
-  // ── 3. Fetch period info ──
+  // ── 3. Fetch period info (OB-152: include end_date for source_date hybrid) ──
   const { data: period } = await supabase
     .from('periods')
-    .select('id, canonical_key, start_date')
+    .select('id, canonical_key, start_date, end_date')
     .eq('id', periodId)
     .single();
 
@@ -860,23 +860,55 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     console.log(`[RunCalculation] Prior period for delta: ${priorPeriodId ?? 'none (first period)'}`);
   }
 
-  // ── 4. Fetch committed data (OB-75: paginated, no 1000-row cap) ──
+  // ── 4. Fetch committed data (OB-152: hybrid — source_date primary, period_id fallback) ──
   const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
-  let dataPage = 0;
-  while (true) {
-    const from = dataPage * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    const { data: page } = await supabase
-      .from('committed_data')
-      .select('entity_id, data_type, row_data')
-      .eq('tenant_id', tenantId)
-      .eq('period_id', periodId)
-      .range(from, to);
 
-    if (!page || page.length === 0) break;
-    committedData.push(...page);
-    if (page.length < PAGE_SIZE) break;
-    dataPage++;
+  // OB-152: Try source_date range first (new imports), fall back to period_id (LAB/legacy)
+  let usedSourceDate = false;
+  if (period.start_date && period.end_date) {
+    let sdPage = 0;
+    while (true) {
+      const from = sdPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data: page } = await supabase
+        .from('committed_data')
+        .select('entity_id, data_type, row_data')
+        .eq('tenant_id', tenantId)
+        .not('source_date', 'is', null)
+        .gte('source_date', period.start_date)
+        .lte('source_date', period.end_date)
+        .range(from, to);
+
+      if (!page || page.length === 0) break;
+      committedData.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      sdPage++;
+    }
+    if (committedData.length > 0) {
+      usedSourceDate = true;
+      console.log(`[RunCalculation] OB-152 source_date path: ${committedData.length} rows`);
+    }
+  }
+
+  // Fallback: period_id (LAB/legacy data)
+  if (!usedSourceDate) {
+    let dataPage = 0;
+    while (true) {
+      const from = dataPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data: page } = await supabase
+        .from('committed_data')
+        .select('entity_id, data_type, row_data')
+        .eq('tenant_id', tenantId)
+        .eq('period_id', periodId)
+        .range(from, to);
+
+      if (!page || page.length === 0) break;
+      committedData.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      dataPage++;
+    }
+    console.log(`[RunCalculation] OB-152 period_id fallback: ${committedData.length} rows`);
   }
 
   // Group entity-level data by entity_id → data_type → rows
@@ -921,25 +953,60 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData.length} data rows (paginated fetch)`);
 
-  // ── 4b. OB-121: Fetch prior period data (only if delta derivations exist) ──
+  // ── 4b. OB-121: Fetch prior period data (OB-152: hybrid path) ──
   const priorDataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
   if (priorPeriodId) {
-    const priorCommittedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
-    let priorPage = 0;
-    while (true) {
-      const from = priorPage * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-      const { data: page } = await supabase
-        .from('committed_data')
-        .select('entity_id, data_type, row_data')
-        .eq('tenant_id', tenantId)
-        .eq('period_id', priorPeriodId)
-        .range(from, to);
+    // Fetch prior period dates for source_date hybrid
+    const { data: priorPeriodInfo } = await supabase
+      .from('periods')
+      .select('start_date, end_date')
+      .eq('id', priorPeriodId)
+      .single();
 
-      if (!page || page.length === 0) break;
-      priorCommittedData.push(...page);
-      if (page.length < PAGE_SIZE) break;
-      priorPage++;
+    const priorCommittedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+
+    // OB-152: Try source_date first for prior period
+    let priorUsedSourceDate = false;
+    if (priorPeriodInfo?.start_date && priorPeriodInfo?.end_date) {
+      let sdPage = 0;
+      while (true) {
+        const from = sdPage * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data: page } = await supabase
+          .from('committed_data')
+          .select('entity_id, data_type, row_data')
+          .eq('tenant_id', tenantId)
+          .not('source_date', 'is', null)
+          .gte('source_date', priorPeriodInfo.start_date)
+          .lte('source_date', priorPeriodInfo.end_date)
+          .range(from, to);
+
+        if (!page || page.length === 0) break;
+        priorCommittedData.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        sdPage++;
+      }
+      if (priorCommittedData.length > 0) priorUsedSourceDate = true;
+    }
+
+    // Fallback: period_id
+    if (!priorUsedSourceDate) {
+      let priorPage = 0;
+      while (true) {
+        const from = priorPage * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data: page } = await supabase
+          .from('committed_data')
+          .select('entity_id, data_type, row_data')
+          .eq('tenant_id', tenantId)
+          .eq('period_id', priorPeriodId)
+          .range(from, to);
+
+        if (!page || page.length === 0) break;
+        priorCommittedData.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        priorPage++;
+      }
     }
 
     // Group by entity_id → data_type → rows (same structure as dataByEntity)
