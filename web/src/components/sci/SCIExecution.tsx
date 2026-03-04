@@ -3,6 +3,7 @@
 // SCI Execution — Orchestrates pipeline execution + renders progress
 // OB-129 Phase 4, OB-136 chunking, OB-139 ExecutionProgress integration.
 // HF-087: 300s fetch timeout, recovery check, elapsed timer, duplicate guard.
+// OB-151: Module-level dedup guard, polling recovery, server idempotency.
 // Zero domain vocabulary. Korean Test applies.
 
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -24,6 +25,11 @@ const PROCESSING_ORDER: Record<AgentType, number> = {
 
 // HF-087: Match server maxDuration (300s) — prevents browser from giving up before server
 const FETCH_TIMEOUT_MS = 300_000;
+
+// OB-151: Module-level guard against duplicate execution.
+// useRef resets on component remount (new instance = new ref).
+// A module-level Set survives remounts within the same page session.
+const executedProposals = new Set<string>();
 
 type UnitStatus = 'pending' | 'processing' | 'complete' | 'error';
 
@@ -72,19 +78,35 @@ async function fetchWithTimeout(
 }
 
 /**
- * HF-087: Check if a plan was actually created despite fetch failure.
- * The server may have succeeded even though the client lost the connection.
+ * OB-151: Polling recovery check — the server may still be processing when
+ * the client connection drops. Poll up to maxWaitMs with increasing intervals.
  */
-async function checkPlanCreatedRecovery(tenantId: string): Promise<boolean> {
-  try {
-    const res = await fetch(`/api/plan-readiness?tenantId=${encodeURIComponent(tenantId)}`);
-    if (!res.ok) return false;
-    const data = await res.json();
-    // If any plans exist, the server likely succeeded
-    return Array.isArray(data.plans) && data.plans.length > 0;
-  } catch {
-    return false;
+async function pollPlanRecovery(
+  tenantId: string,
+  maxWaitMs: number = 90_000,
+): Promise<boolean> {
+  const startTime = Date.now();
+  // Poll intervals: 5s, 10s, 15s, 15s, 15s, ...
+  const intervals = [5000, 10000, 15000, 15000, 15000, 15000, 15000];
+  let attempt = 0;
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const waitMs = intervals[Math.min(attempt, intervals.length - 1)];
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+    attempt++;
+
+    try {
+      const res = await fetch(`/api/plan-readiness?tenantId=${encodeURIComponent(tenantId)}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (Array.isArray(data.plans) && data.plans.length > 0) {
+        return true;
+      }
+    } catch {
+      // Network error — keep polling
+    }
   }
+  return false;
 }
 
 export function SCIExecution({
@@ -108,7 +130,7 @@ export function SCIExecution({
   const [executionDone, setExecutionDone] = useState(false);
   // HF-087: Track elapsed time for active processing
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  // HF-087: Guard against duplicate execution
+  // OB-151: useRef as secondary guard (works for strict mode double-invocation)
   const executingRef = useRef(false);
 
   // HF-087: Elapsed timer — ticks every second while processing
@@ -261,18 +283,24 @@ export function SCIExecution({
           ? 'Request timed out — the server may still be processing'
           : err instanceof Error ? err.message : 'Processing failed';
 
-        // HF-087: Recovery check — if the fetch failed due to timeout/network,
-        // the server may have actually succeeded. Check for plan creation.
+        // OB-151: Polling recovery — if the fetch failed due to timeout/network
+        // for a plan unit, poll for up to 90s to see if server actually succeeded.
         if ((isAbort || isNetworkError) && unit.classification === 'plan') {
-          // Wait 3 seconds then check if plan was actually created
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          const recovered = await checkPlanCreatedRecovery(tenantId);
+          // Update UI to show we're waiting for server
+          setUnits(prev => prev.map(u =>
+            u.contentUnitId === unit.contentUnitId
+              ? { ...u, error: 'Connection lost — checking if server completed...' }
+              : u
+          ));
+
+          const recovered = await pollPlanRecovery(tenantId);
           if (recovered) {
             setUnits(prev => prev.map(u =>
               u.contentUnitId === unit.contentUnitId
                 ? {
                     ...u,
                     status: 'complete' as const,
+                    error: undefined,
                     result: {
                       contentUnitId: unit.contentUnitId,
                       classification: unit.classification,
@@ -300,9 +328,14 @@ export function SCIExecution({
     }
   }, [confirmedUnits, rawData, proposal.proposalId, tenantId]);
 
-  // Start execution on mount — HF-087: guard against double execution
+  // Start execution on mount — OB-151: dual guard (module-level Set + useRef)
   useEffect(() => {
+    // Primary guard: module-level Set survives component remount
+    if (executedProposals.has(proposal.proposalId)) return;
+    // Secondary guard: useRef survives strict mode double-invocation
     if (executionDone || executingRef.current) return;
+
+    executedProposals.add(proposal.proposalId);
     executingRef.current = true;
 
     const run = async () => {
@@ -350,6 +383,9 @@ export function SCIExecution({
     setUnits(prev => prev.map(u =>
       u.status === 'error' ? { ...u, status: 'pending' as const, error: undefined } : u
     ));
+
+    // OB-151: Allow retry to execute (clear module-level guard for this proposal)
+    executedProposals.delete(proposal.proposalId);
 
     setExecutionDone(false);
     await executeUnits(failedUnits);
