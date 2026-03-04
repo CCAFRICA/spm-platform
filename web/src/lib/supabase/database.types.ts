@@ -515,6 +515,7 @@ export interface Database {
           import_batch_id: string | null;
           entity_id: string | null;
           period_id: string | null;
+          source_date: string | null;
           data_type: string;
           row_data: Json;
           metadata: Json;
@@ -526,6 +527,7 @@ export interface Database {
           import_batch_id?: string | null;
           entity_id?: string | null;
           period_id?: string | null;
+          source_date?: string | null;
           data_type: string;
           row_data?: Json;
           metadata?: Json;
@@ -535,6 +537,7 @@ export interface Database {
           row_data?: Json;
           metadata?: Json;
           data_type?: string;
+          source_date?: string | null;
         };
         Relationships: [];
       };
@@ -1087,6 +1090,137 @@ export interface Database {
         };
         Relationships: [];
       };
+
+      // ──────────────────────────────────────────────
+      // TABLE: reference_data (Decision 92 — OB-152)
+      // ──────────────────────────────────────────────
+      reference_data: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          reference_type: string;
+          name: string;
+          version: number;
+          status: string;
+          key_field: string | null;
+          schema_definition: Json;
+          import_batch_id: string | null;
+          metadata: Json;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          reference_type: string;
+          name: string;
+          version?: number;
+          status?: string;
+          key_field?: string | null;
+          schema_definition?: Json;
+          import_batch_id?: string | null;
+          metadata?: Json;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          reference_type?: string;
+          name?: string;
+          version?: number;
+          status?: string;
+          key_field?: string | null;
+          schema_definition?: Json;
+          metadata?: Json;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE: reference_items (Decision 92 — OB-152)
+      // ──────────────────────────────────────────────
+      reference_items: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          reference_data_id: string;
+          external_key: string;
+          display_name: string | null;
+          category: string | null;
+          attributes: Json;
+          status: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          reference_data_id: string;
+          external_key: string;
+          display_name?: string | null;
+          category?: string | null;
+          attributes?: Json;
+          status?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          external_key?: string;
+          display_name?: string | null;
+          category?: string | null;
+          attributes?: Json;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+
+      // ──────────────────────────────────────────────
+      // TABLE: alias_registry (Decision 92 — OB-152)
+      // ──────────────────────────────────────────────
+      alias_registry: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          reference_item_id: string;
+          alias_text: string;
+          alias_normalized: string;
+          confidence: number;
+          confirmation_count: number;
+          source: string;
+          scope: string | null;
+          metadata: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          reference_item_id: string;
+          alias_text: string;
+          alias_normalized: string;
+          confidence?: number;
+          confirmation_count?: number;
+          source?: string;
+          scope?: string | null;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          alias_text?: string;
+          alias_normalized?: string;
+          confidence?: number;
+          confirmation_count?: number;
+          source?: string;
+          scope?: string | null;
+          metadata?: Json;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -1138,3 +1272,6 @@ export type PeriodEntityState = Tables<'period_entity_state'>;
 export type ProfileScope = Tables<'profile_scope'>;
 export type EntityPeriodOutcome = Tables<'entity_period_outcomes'>;
 export type PlatformSetting = Tables<'platform_settings'>;
+export type ReferenceData = Tables<'reference_data'>;
+export type ReferenceItem = Tables<'reference_items'>;
+export type AliasRegistry = Tables<'alias_registry'>;

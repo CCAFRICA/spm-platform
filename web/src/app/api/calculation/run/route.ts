@@ -174,10 +174,10 @@ export async function POST(request: NextRequest) {
 
   const entityMap = new Map(entities.map(e => [e.id, e]));
 
-  // ── 3. Fetch period ──
+  // ── 3. Fetch period (OB-152: include end_date for source_date hybrid path) ──
   const { data: period } = await supabase
     .from('periods')
-    .select('id, canonical_key, start_date')
+    .select('id, canonical_key, start_date, end_date')
     .eq('id', periodId)
     .single();
 
@@ -206,26 +206,58 @@ export async function POST(request: NextRequest) {
     addLog(`Prior period for delta: ${priorPeriodId ?? 'none (first period)'}`);
   }
 
-  // ── 4. Fetch committed data (OB-75: paginated, no 1000-row cap) ──
+  // ── 4. Fetch committed data (OB-152: hybrid — source_date primary, period_id fallback) ──
   const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
-  let dataPage = 0;
-  while (true) {
-    const from = dataPage * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    const { data: page } = await supabase
-      .from('committed_data')
-      .select('entity_id, data_type, row_data')
-      .eq('tenant_id', tenantId)
-      .eq('period_id', periodId)
-      .range(from, to);
 
-    if (!page || page.length === 0) break;
-    committedData.push(...page);
-    if (page.length < PAGE_SIZE) break;
-    dataPage++;
+  // OB-152 Strategy: Try source_date range first (new imports), fall back to period_id (LAB/legacy)
+  let usedSourceDate = false;
+  if (period.start_date && period.end_date) {
+    let sdPage = 0;
+    while (true) {
+      const from = sdPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data: page } = await supabase
+        .from('committed_data')
+        .select('entity_id, data_type, row_data')
+        .eq('tenant_id', tenantId)
+        .not('source_date', 'is', null)
+        .gte('source_date', period.start_date)
+        .lte('source_date', period.end_date)
+        .range(from, to);
+
+      if (!page || page.length === 0) break;
+      committedData.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      sdPage++;
+    }
+    if (committedData.length > 0) {
+      usedSourceDate = true;
+      addLog(`OB-152 source_date path: ${committedData.length} rows for ${period.start_date}..${period.end_date}`);
+    }
   }
 
-  // OB-128: Also fetch period-agnostic data (period_id IS NULL)
+  // Fallback: period_id path (LAB/legacy data without source_date)
+  if (!usedSourceDate) {
+    let dataPage = 0;
+    while (true) {
+      const from = dataPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data: page } = await supabase
+        .from('committed_data')
+        .select('entity_id, data_type, row_data')
+        .eq('tenant_id', tenantId)
+        .eq('period_id', periodId)
+        .range(from, to);
+
+      if (!page || page.length === 0) break;
+      committedData.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      dataPage++;
+    }
+    addLog(`OB-152 period_id fallback: ${committedData.length} rows`);
+  }
+
+  // OB-128: Also fetch period-agnostic data (period_id IS NULL, source_date IS NULL)
   // Target data from SCI applies to all periods — not bound to a specific period
   let nullPeriodPage = 0;
   while (true) {
@@ -236,6 +268,7 @@ export async function POST(request: NextRequest) {
       .select('entity_id, data_type, row_data')
       .eq('tenant_id', tenantId)
       .is('period_id', null)
+      .is('source_date', null)
       .range(from, to);
 
     if (!page || page.length === 0) break;
@@ -244,7 +277,7 @@ export async function POST(request: NextRequest) {
     nullPeriodPage++;
   }
 
-  addLog(`Fetched ${committedData.length} committed_data rows (paginated, incl. period-agnostic)`);
+  addLog(`Fetched ${committedData.length} committed_data rows (hybrid, incl. period-agnostic)`);
 
   // Group entity-level data by entity_id → data_type → rows
   const dataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
@@ -295,25 +328,60 @@ export async function POST(request: NextRequest) {
   addLog(`${committedData.length} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
   addLog(`Store data: ${storeData.size} unique stores`);
 
-  // ── 4b. OB-121: Fetch prior period data (only if delta derivations exist) ──
+  // ── 4b. OB-121: Fetch prior period data (OB-152: hybrid path) ──
   const priorDataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
   if (priorPeriodId) {
-    const priorCommittedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
-    let priorPage = 0;
-    while (true) {
-      const from = priorPage * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-      const { data: page } = await supabase
-        .from('committed_data')
-        .select('entity_id, data_type, row_data')
-        .eq('tenant_id', tenantId)
-        .eq('period_id', priorPeriodId)
-        .range(from, to);
+    // Fetch prior period dates for source_date hybrid
+    const { data: priorPeriod } = await supabase
+      .from('periods')
+      .select('start_date, end_date')
+      .eq('id', priorPeriodId)
+      .single();
 
-      if (!page || page.length === 0) break;
-      priorCommittedData.push(...page);
-      if (page.length < PAGE_SIZE) break;
-      priorPage++;
+    const priorCommittedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+
+    // OB-152: Try source_date first for prior period
+    let priorUsedSourceDate = false;
+    if (priorPeriod?.start_date && priorPeriod?.end_date) {
+      let sdPage = 0;
+      while (true) {
+        const from = sdPage * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data: page } = await supabase
+          .from('committed_data')
+          .select('entity_id, data_type, row_data')
+          .eq('tenant_id', tenantId)
+          .not('source_date', 'is', null)
+          .gte('source_date', priorPeriod.start_date)
+          .lte('source_date', priorPeriod.end_date)
+          .range(from, to);
+
+        if (!page || page.length === 0) break;
+        priorCommittedData.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        sdPage++;
+      }
+      if (priorCommittedData.length > 0) priorUsedSourceDate = true;
+    }
+
+    // Fallback: period_id
+    if (!priorUsedSourceDate) {
+      let priorPage = 0;
+      while (true) {
+        const from = priorPage * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data: page } = await supabase
+          .from('committed_data')
+          .select('entity_id, data_type, row_data')
+          .eq('tenant_id', tenantId)
+          .eq('period_id', priorPeriodId)
+          .range(from, to);
+
+        if (!page || page.length === 0) break;
+        priorCommittedData.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        priorPage++;
+      }
     }
 
     for (const row of priorCommittedData) {

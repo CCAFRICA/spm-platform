@@ -21,6 +21,11 @@ import type {
   ContentUnitResult,
   ContentUnitExecution,
 } from '@/lib/sci/sci-types';
+import {
+  extractSourceDate,
+  findDateColumnFromBindings,
+  buildSemanticRolesMap,
+} from '@/lib/sci/source-date-extraction';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 const ROLE_TARGETS = ['role', 'position', 'puesto', 'title', 'cargo'];
@@ -161,6 +166,8 @@ async function executeContentUnit(
       return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit);
     case 'plan':
       return executePlanPipeline(supabase, tenantId, effectiveUnit, userId);
+    case 'reference':
+      return executeReferencePipeline(supabase, tenantId, proposalId, effectiveUnit, userId);
   }
 }
 
@@ -285,11 +292,27 @@ async function executeTargetPipeline(
     }
   }
 
-  // Build committed_data rows
+  // OB-152: Extract source_date using structural heuristics (Korean Test: zero field names)
+  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
+  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+
+  // Build committed_data rows with source_date (OB-152)
+  let earliestDate: string | null = null;
+  let latestDate: string | null = null;
+  let dateCount = 0;
+
   const insertRows = rows.map((row, i) => {
     let entityId: string | null = null;
     if (entityIdField && row[entityIdField] != null) {
       entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
+    }
+
+    // OB-152: Extract source_date per row
+    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap);
+    if (sourceDate) {
+      dateCount++;
+      if (!earliestDate || sourceDate < earliestDate) earliestDate = sourceDate;
+      if (!latestDate || sourceDate > latestDate) latestDate = sourceDate;
     }
 
     return {
@@ -297,6 +320,7 @@ async function executeTargetPipeline(
       import_batch_id: batchId,
       entity_id: entityId,
       period_id: null,
+      source_date: sourceDate,
       data_type: dataType,
       row_data: { ...row, _sheetName: tabName, _rowIndex: i },
       metadata: {
@@ -342,9 +366,9 @@ async function executeTargetPipeline(
     row_count: totalInserted,
   }).eq('id', batchId);
 
-  console.log(`[SCI Execute] Target: ${totalInserted} rows committed, data_type=${dataType}`);
+  console.log(`[SCI Execute] Target: ${totalInserted} rows committed, data_type=${dataType}, source_dates=${dateCount}/${rows.length} (${earliestDate}..${latestDate})`);
 
-  // Detect and create periods from date fields in the imported data
+  // OB-152: Period detection still runs for backward compat — but source_date is the primary temporal binding
   await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
 
   // OB-144: Post-commit construction — create missing entities, bind entity_id + period_id, create assignments
@@ -487,11 +511,27 @@ async function executeTransactionPipeline(
     };
   }
 
-  // Build insert rows
+  // OB-152: Extract source_date using structural heuristics
+  const txnDateHint = findDateColumnFromBindings(unit.confirmedBindings);
+  const txnSemanticMap = buildSemanticRolesMap(unit.confirmedBindings);
+
+  let txnEarliest: string | null = null;
+  let txnLatest: string | null = null;
+  let txnDateCount = 0;
+
+  // Build insert rows with source_date (OB-152)
   const insertRows = rows.map((row, i) => {
     let entityId: string | null = null;
     if (entityIdField && row[entityIdField] != null) {
       entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
+    }
+
+    // OB-152: Extract source_date per row
+    const sourceDate = extractSourceDate(row, txnDateHint, txnSemanticMap);
+    if (sourceDate) {
+      txnDateCount++;
+      if (!txnEarliest || sourceDate < txnEarliest) txnEarliest = sourceDate;
+      if (!txnLatest || sourceDate > txnLatest) txnLatest = sourceDate;
     }
 
     return {
@@ -499,6 +539,7 @@ async function executeTransactionPipeline(
       import_batch_id: batchId,
       entity_id: entityId,
       period_id: null,
+      source_date: sourceDate,
       data_type: dataType,
       row_data: { ...row, _sheetName: tabName, _rowIndex: i },
       metadata: {
@@ -537,9 +578,9 @@ async function executeTransactionPipeline(
     row_count: totalInserted,
   }).eq('id', batchId);
 
-  console.log(`[SCI Execute] Transaction: ${totalInserted} rows committed, data_type=${dataType}`);
+  console.log(`[SCI Execute] Transaction: ${totalInserted} rows committed, data_type=${dataType}, source_dates=${txnDateCount}/${rows.length} (${txnEarliest}..${txnLatest})`);
 
-  // Detect and create periods from date fields in the imported data
+  // OB-152: Period detection still runs for backward compat
   await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
 
   // OB-144: Post-commit construction — create missing entities, bind entity_id + period_id, create assignments
@@ -728,6 +769,156 @@ async function executeEntityPipeline(
     success: true,
     rowsProcessed: rows.length,
     pipeline: 'entity',
+  };
+}
+
+// ============================================================
+// REFERENCE PIPELINE — OB-152: catalog/lookup data → reference_data + reference_items
+// ============================================================
+
+async function executeReferencePipeline(
+  supabase: SupabaseClient,
+  tenantId: string,
+  proposalId: string,
+  unit: ContentUnitExecution,
+  userId: string,
+): Promise<ContentUnitResult> {
+  const rows = unit.rawData;
+  if (!rows || rows.length === 0) {
+    return {
+      contentUnitId: unit.contentUnitId,
+      classification: 'reference',
+      success: true,
+      rowsProcessed: 0,
+      pipeline: 'reference',
+    };
+  }
+
+  // Create import batch
+  const batchId = crypto.randomUUID();
+  await supabase.from('import_batches').insert({
+    id: batchId,
+    tenant_id: tenantId,
+    file_name: `sci-execute-${proposalId}`,
+    file_type: 'sci',
+    status: 'processing',
+    row_count: rows.length,
+    metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
+  });
+
+  // Determine reference name from contentUnitId
+  const parts = unit.contentUnitId.split('::');
+  const fileName = parts[0] || 'unknown';
+  const tabName = parts[1] || 'Sheet1';
+  const referenceName = tabName !== 'Sheet1' && tabName !== 'Hoja1'
+    ? tabName
+    : fileName.replace(/\.[^.]+$/, '');
+
+  // Find the key field (highest distinct count relative to row count)
+  const keyBinding = unit.confirmedBindings.find(b =>
+    b.semanticRole === 'entity_identifier'
+  );
+  const keyFieldName = keyBinding?.sourceField || null;
+
+  // Build schema definition from bindings
+  const schemaDefinition: Record<string, string> = {};
+  for (const b of unit.confirmedBindings) {
+    schemaDefinition[b.sourceField] = b.semanticRole;
+  }
+
+  // Create reference_data record
+  const refDataId = crypto.randomUUID();
+  const { error: refDataErr } = await supabase.from('reference_data').insert({
+    id: refDataId,
+    tenant_id: tenantId,
+    reference_type: 'catalog',
+    name: referenceName,
+    version: 1,
+    status: 'active',
+    key_field: keyFieldName,
+    schema_definition: schemaDefinition as unknown as Json,
+    import_batch_id: batchId,
+    metadata: { proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
+    created_by: userId,
+  });
+
+  if (refDataErr) {
+    console.error('[SCI Execute] Reference data insert failed:', refDataErr);
+    return {
+      contentUnitId: unit.contentUnitId,
+      classification: 'reference',
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'reference',
+      error: refDataErr.message,
+    };
+  }
+
+  // Create reference_items from rows
+  const items = rows.map(row => {
+    const externalKey = keyFieldName && row[keyFieldName] != null
+      ? String(row[keyFieldName]).trim()
+      : crypto.randomUUID();
+
+    // Find display name from a 'descriptive_label' or 'entity_name' binding
+    const nameBinding = unit.confirmedBindings.find(b =>
+      b.semanticRole === 'descriptive_label' || b.semanticRole === 'entity_name'
+    );
+    const displayName = nameBinding && row[nameBinding.sourceField] != null
+      ? String(row[nameBinding.sourceField]).trim()
+      : externalKey;
+
+    // Find category from a 'category_code' binding
+    const catBinding = unit.confirmedBindings.find(b => b.semanticRole === 'category_code');
+    const category = catBinding && row[catBinding.sourceField] != null
+      ? String(row[catBinding.sourceField]).trim()
+      : null;
+
+    return {
+      tenant_id: tenantId,
+      reference_data_id: refDataId,
+      external_key: externalKey,
+      display_name: displayName,
+      category,
+      attributes: row as unknown as Json,
+      status: 'active',
+    };
+  });
+
+  // Bulk insert in 5000-row chunks
+  const CHUNK = 5000;
+  let totalInserted = 0;
+  for (let i = 0; i < items.length; i += CHUNK) {
+    const slice = items.slice(i, i + CHUNK);
+    const { error: itemErr } = await supabase.from('reference_items').insert(slice);
+    if (itemErr) {
+      console.error('[SCI Execute] Reference items insert failed:', itemErr);
+      return {
+        contentUnitId: unit.contentUnitId,
+        classification: 'reference',
+        success: false,
+        rowsProcessed: totalInserted,
+        pipeline: 'reference',
+        error: itemErr.message,
+      };
+    }
+    totalInserted += slice.length;
+  }
+
+  // Update batch status
+  await supabase.from('import_batches').update({
+    status: 'completed',
+    row_count: totalInserted,
+  }).eq('id', batchId);
+
+  console.log(`[SCI Execute] Reference: ${totalInserted} items in "${referenceName}" (ref_data=${refDataId})`);
+
+  return {
+    contentUnitId: unit.contentUnitId,
+    classification: 'reference',
+    success: true,
+    rowsProcessed: totalInserted,
+    pipeline: 'reference',
   };
 }
 

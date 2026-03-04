@@ -21,6 +21,7 @@ const PROCESSING_ORDER: Record<AgentType, number> = {
   entity: 1,
   target: 2,
   transaction: 3,
+  reference: 4,
 };
 
 // HF-087: Match server maxDuration (300s) — prevents browser from giving up before server
