@@ -123,6 +123,13 @@ export async function POST(request: NextRequest) {
     addLog(`OB-118 Metric derivations: ${metricDerivations.length} rules from input_bindings`);
   }
 
+  // OB-153: Parse metric_mappings from input_bindings
+  // Maps semantic metric names (in components) to raw field names (in row_data)
+  const metricMappings = inputBindings?.metric_mappings as Record<string, string> | undefined;
+  if (metricMappings) {
+    addLog(`OB-153 Metric mappings: ${Object.keys(metricMappings).length} mappings from input_bindings`);
+  }
+
   // ── OB-76: Transform components to intents (once, before entity loop) ──
   const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
   addLog(`OB-76 Intent layer: ${componentIntents.length} components transformed to intents`);
@@ -603,12 +610,11 @@ export async function POST(request: NextRequest) {
   // Korean Test: PASSES — AI determined sheet→component mapping at import time
   const aiContextSheets: AIContextSheet[] = [];
   try {
-    // Get distinct batch IDs from committed_data for this period
+    // Get distinct batch IDs from committed_data (OB-153: also check period-agnostic data)
     const { data: batchRows } = await supabase
       .from('committed_data')
       .select('import_batch_id')
       .eq('tenant_id', tenantId)
-      .eq('period_id', periodId)
       .not('import_batch_id', 'is', null)
       .limit(100);
 
@@ -852,7 +858,8 @@ export async function POST(request: NextRequest) {
         entitySheetData,
         entityStoreData,
         aiContextSheets,
-        entityStoreAgg
+        entityStoreAgg,
+        metricMappings
       );
       // OB-118: Merge derived metrics into component metrics
       // Derived metrics take precedence (they're specifically configured)

@@ -511,6 +511,12 @@ export function findMatchingSheet(
     }
   }
 
+  // OB-153: Fallback 2 — if only one sheet exists, use it
+  // When there's no AI context and names don't match, a single sheet is unambiguous
+  if (availableSheets.length === 1) {
+    return availableSheets[0];
+  }
+
   return null;
 }
 
@@ -534,6 +540,7 @@ export function getExpectedMetricNames(component: PlanComponent): string[] {
   // OB-121: Extract from calculationIntent (handles ratio sources, metric sources)
   const intent = (component as unknown as Record<string, unknown>).calculationIntent as Record<string, unknown> | undefined;
   if (intent) {
+    // Handle singular input (e.g., tiered_lookup with single metric)
     const input = intent.input as Record<string, unknown> | undefined;
     const sourceSpec = input?.sourceSpec as Record<string, unknown> | undefined;
     if (sourceSpec) {
@@ -550,6 +557,31 @@ export function getExpectedMetricNames(component: PlanComponent): string[] {
       if (sourceSpec.denominator) {
         const den = String(sourceSpec.denominator).replace(/^metric:/, '');
         if (!names.includes(den)) names.push(den);
+      }
+    }
+
+    // OB-153: Handle plural inputs (e.g., matrix_lookup with row/column)
+    const inputs = intent.inputs as Record<string, Record<string, unknown>> | undefined;
+    if (inputs) {
+      for (const val of Object.values(inputs)) {
+        if (val?.source === 'metric') {
+          const spec = val.sourceSpec as Record<string, unknown> | undefined;
+          if (spec?.field) {
+            const field = String(spec.field).replace(/^metric:/, '');
+            if (!names.includes(field)) names.push(field);
+          }
+        }
+        if (val?.source === 'ratio') {
+          const spec = val.sourceSpec as Record<string, unknown> | undefined;
+          if (spec?.numerator) {
+            const num = String(spec.numerator).replace(/^metric:/, '');
+            if (!names.includes(num)) names.push(num);
+          }
+          if (spec?.denominator) {
+            const den = String(spec.denominator).replace(/^metric:/, '');
+            if (!names.includes(den)) names.push(den);
+          }
+        }
       }
     }
   }
@@ -590,7 +622,8 @@ export function buildMetricsForComponent(
   entityRowsBySheet: Map<string, Array<{ row_data: Json }>>,
   storeDataBySheet?: Map<string, Array<{ row_data: Json }>>,
   aiContextSheets?: AIContextSheet[],
-  entitySheetStoreAggregates?: Map<string, Record<string, number>>
+  entitySheetStoreAggregates?: Map<string, Record<string, number>>,
+  metricMappings?: Record<string, string>
 ): Record<string, number> {
   // Step 1: Match entity-level sheet for this component
   const entitySheets = Array.from(entityRowsBySheet.keys());
@@ -738,6 +771,41 @@ export function buildMetricsForComponent(
   for (const [k, v] of Object.entries(entityMetrics)) {
     if (resolvedMetrics[k] === undefined) {
       resolvedMetrics[k] = v;
+    }
+  }
+
+  // OB-153: Apply metric_mappings from input_bindings (HIGHEST PRIORITY)
+  // Maps semantic metric names (used by components) to raw field names (in row_data).
+  // These override semantic resolution because the mappings are explicit configuration.
+  // Uses FIRST-VALUE extraction (not sum) to handle duplicate rows correctly.
+  if (metricMappings) {
+    // Build first-value pool: scan ALL entity + store rows for field values
+    const firstValues: Record<string, number> = {};
+    for (const [, rows] of Array.from(entityRowsBySheet.entries())) {
+      for (const row of rows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        for (const [k, v] of Object.entries(rd)) {
+          if (typeof v === 'number' && firstValues[k] === undefined) {
+            firstValues[k] = v;
+          }
+        }
+      }
+    }
+    // Also scan store data
+    for (const [, sheetMetrics] of Array.from(perSheetStoreMetrics.entries())) {
+      for (const [k, v] of Object.entries(sheetMetrics)) {
+        if (firstValues[k] === undefined) firstValues[k] = v;
+      }
+    }
+    for (const [metricName, fieldName] of Object.entries(metricMappings)) {
+      if (firstValues[fieldName] !== undefined) {
+        resolvedMetrics[metricName] = firstValues[fieldName];
+      } else {
+        // If mapped field doesn't exist in entity data, zero it out.
+        // Prevents semantic fallback from resolving to unrelated fields.
+        resolvedMetrics[metricName] = 0;
+      }
     }
   }
 
