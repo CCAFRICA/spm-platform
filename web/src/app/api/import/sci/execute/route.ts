@@ -30,11 +30,6 @@ import {
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 const ROLE_TARGETS = ['role', 'position', 'puesto', 'title', 'cargo'];
 
-// Semantic roles that indicate date/period fields (Korean Test: no field name references)
-const DATE_SEMANTIC_ROLES = new Set([
-  'transaction_date', 'period_marker', 'event_timestamp',
-]);
-
 // Normalize filename to semantic data_type (same logic as import/commit)
 function normalizeFileNameToDataType(fn: string): string {
   let stem = fn.replace(/\.[^.]+$/, '');
@@ -368,10 +363,8 @@ async function executeTargetPipeline(
 
   console.log(`[SCI Execute] Target: ${totalInserted} rows committed, data_type=${dataType}, source_dates=${dateCount}/${rows.length} (${earliestDate}..${latestDate})`);
 
-  // OB-152: Period detection still runs for backward compat — but source_date is the primary temporal binding
-  await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
-
-  // OB-144: Post-commit construction — create missing entities, bind entity_id + period_id, create assignments
+  // OB-153: Period creation removed from import (Decision 92 — periods created at calculate time)
+  // OB-144: Post-commit construction — create missing entities, bind entity_id, create assignments
   await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit);
 
   // Trigger convergence re-run for all active rule_sets
@@ -580,10 +573,8 @@ async function executeTransactionPipeline(
 
   console.log(`[SCI Execute] Transaction: ${totalInserted} rows committed, data_type=${dataType}, source_dates=${txnDateCount}/${rows.length} (${txnEarliest}..${txnLatest})`);
 
-  // OB-152: Period detection still runs for backward compat
-  await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
-
-  // OB-144: Post-commit construction — create missing entities, bind entity_id + period_id, create assignments
+  // OB-153: Period creation removed from import (Decision 92 — periods created at calculate time)
+  // OB-144: Post-commit construction — create missing entities, bind entity_id, create assignments
   await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit);
 
   // Trigger convergence re-run for all active rule_sets (same as target pipeline)
@@ -1098,153 +1089,14 @@ async function executePlanPipeline(
   };
 }
 
-// ============================================================
-// PERIOD DETECTION — extract periods from imported data
-// Uses semantic roles (not field names) to find date columns.
-// Korean Test: zero hardcoded field names.
-// ============================================================
-
-async function detectAndCreatePeriods(
-  supabase: SupabaseClient,
-  tenantId: string,
-  unit: ContentUnitExecution,
-  importBatchId: string,
-): Promise<string[]> {
-  // Find date fields via semantic roles
-  const dateBindings = unit.confirmedBindings.filter(
-    b => DATE_SEMANTIC_ROLES.has(b.semanticRole)
-  );
-  if (dateBindings.length === 0) return [];
-
-  // Extract unique year-month combinations from the data
-  const periodMap = new Map<string, { year: number; month: number; count: number }>();
-
-  for (const row of unit.rawData) {
-    for (const binding of dateBindings) {
-      const val = row[binding.sourceField];
-      const parsed = parseDateValue(val);
-      if (parsed) {
-        const key = `${parsed.year}-${String(parsed.month).padStart(2, '0')}`;
-        const existing = periodMap.get(key);
-        if (existing) {
-          existing.count++;
-        } else {
-          periodMap.set(key, { year: parsed.year, month: parsed.month, count: 1 });
-        }
-      }
-    }
-  }
-
-  if (periodMap.size === 0) return [];
-
-  // Fetch existing periods for this tenant to avoid duplicates
-  const { data: existingPeriods } = await supabase
-    .from('periods')
-    .select('id, canonical_key')
-    .eq('tenant_id', tenantId);
-
-  const existingKeys = new Set((existingPeriods || []).map(p => p.canonical_key));
-  const createdPeriodIds: string[] = [];
-
-  // Create missing periods
-  const newPeriods: Array<{
-    id: string; tenant_id: string; label: string; period_type: string;
-    status: string; start_date: string; end_date: string; canonical_key: string;
-    metadata: Record<string, unknown>;
-  }> = [];
-
-  for (const [key, data] of Array.from(periodMap.entries())) {
-    if (existingKeys.has(key)) {
-      // Period already exists — find its ID
-      const existing = existingPeriods?.find(p => p.canonical_key === key);
-      if (existing) createdPeriodIds.push(existing.id);
-      continue;
-    }
-
-    const monthNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-    const lastDay = new Date(data.year, data.month, 0).getDate();
-    const periodId = crypto.randomUUID();
-
-    newPeriods.push({
-      id: periodId,
-      tenant_id: tenantId,
-      label: `${monthNames[data.month - 1]} ${data.year}`,
-      period_type: 'monthly',
-      status: 'active',
-      start_date: `${data.year}-${String(data.month).padStart(2, '0')}-01`,
-      end_date: `${data.year}-${String(data.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
-      canonical_key: key,
-      metadata: { source: 'sci', importBatchId, recordCount: data.count },
-    });
-
-    createdPeriodIds.push(periodId);
-  }
-
-  if (newPeriods.length > 0) {
-    const { error: periodErr } = await supabase
-      .from('periods')
-      .insert(newPeriods);
-
-    if (periodErr) {
-      console.error('[SCI Execute] Period creation failed:', periodErr);
-      return createdPeriodIds.filter(id =>
-        (existingPeriods || []).some(p => p.id === id)
-      );
-    }
-
-    console.log(`[SCI Execute] Created ${newPeriods.length} periods from data: ${newPeriods.map(p => p.canonical_key).join(', ')}`);
-  }
-
-  return createdPeriodIds;
-}
-
-/**
- * Parse a date value from row data into year/month.
- * Handles: Excel serial dates, ISO strings, Date objects, numeric year values.
- * AP-22: Validates year is within reasonable range.
- */
-function parseDateValue(value: unknown): { year: number; month: number } | null {
-  if (value == null) return null;
-
-  // Excel serial dates (25569 = Jan 1 1970 in Excel serial)
-  if (typeof value === 'number' && value > 25000 && value < 100000) {
-    const date = new Date((value - 25569) * 86400 * 1000);
-    if (!isNaN(date.getTime())) {
-      const y = date.getUTCFullYear();
-      // AP-22: Validate year range
-      if (y >= 2000 && y <= 2100) {
-        return { year: y, month: date.getUTCMonth() + 1 };
-      }
-    }
-    return null;
-  }
-
-  // Numeric year only
-  if (typeof value === 'number' && value >= 2000 && value <= 2100) {
-    return { year: value, month: 1 };
-  }
-
-  // String dates
-  const str = String(value).trim();
-  if (!str) return null;
-
-  const dateObj = new Date(str);
-  if (!isNaN(dateObj.getTime())) {
-    const y = dateObj.getFullYear();
-    if (y >= 2000 && y <= 2100) {
-      return { year: y, month: dateObj.getMonth() + 1 };
-    }
-  }
-
-  return null;
-}
+// ──────────────────────────────────────────────
+// OB-153: detectAndCreatePeriods + parseDateValue REMOVED
+// Decision 92: Periods created at calculate time, not import time.
+// ──────────────────────────────────────────────
 
 // ──────────────────────────────────────────────
-// OB-144: Post-Commit Construction
-// Creates missing entities, binds entity_id + period_id, creates assignments.
+// OB-144: Post-Commit Construction (OB-153: period binding removed)
+// Creates missing entities, binds entity_id, creates assignments.
 // Korean Test: entity field name comes from semantic role, not hardcoded.
 // ──────────────────────────────────────────────
 
@@ -1301,30 +1153,48 @@ async function postCommitConstruction(
           await supabase.from('entities').insert(entities);
         }
         console.log(`[SCI Execute] Created ${missing.length} new entities`);
+      }
 
-        // Create rule_set_assignments for new entities
-        const { data: ruleSets } = await supabase
-          .from('rule_sets')
-          .select('id')
-          .eq('tenant_id', tenantId)
-          .eq('status', 'active');
+      // OB-153: Create rule_set_assignments for ALL entities that lack them
+      // (not just newly created — existing entities may also need assignments)
+      const { data: ruleSets } = await supabase
+        .from('rule_sets')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .in('status', ['active', 'draft']);
 
-        if (ruleSets && ruleSets.length > 0) {
-          // Fetch new entity IDs
-          const newEntityIds: string[] = [];
-          for (let i = 0; i < missing.length; i += BATCH) {
-            const slice = missing.slice(i, i + BATCH);
-            const { data } = await supabase
-              .from('entities')
-              .select('id')
-              .eq('tenant_id', tenantId)
-              .in('external_id', slice);
-            if (data) newEntityIds.push(...data.map(e => e.id));
+      if (ruleSets && ruleSets.length > 0) {
+        // Fetch ALL entity IDs for these identifiers
+        const allEntityIds: string[] = [];
+        for (let i = 0; i < allIds.length; i += BATCH) {
+          const slice = allIds.slice(i, i + BATCH);
+          const { data } = await supabase
+            .from('entities')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .in('external_id', slice);
+          if (data) allEntityIds.push(...data.map(e => e.id));
+        }
+
+        // Check which entities already have assignments
+        const assignedEntityIds = new Set<string>();
+        for (let i = 0; i < allEntityIds.length; i += BATCH) {
+          const slice = allEntityIds.slice(i, i + BATCH);
+          const { data } = await supabase
+            .from('rule_set_assignments')
+            .select('entity_id')
+            .eq('tenant_id', tenantId)
+            .in('entity_id', slice);
+          if (data) {
+            for (const a of data) assignedEntityIds.add(a.entity_id);
           }
+        }
 
+        const unassigned = allEntityIds.filter(id => !assignedEntityIds.has(id));
+        if (unassigned.length > 0) {
           for (const rs of ruleSets) {
-            for (let i = 0; i < newEntityIds.length; i += BATCH) {
-              const slice = newEntityIds.slice(i, i + BATCH);
+            for (let i = 0; i < unassigned.length; i += BATCH) {
+              const slice = unassigned.slice(i, i + BATCH);
               const assignments = slice.map(entityId => ({
                 tenant_id: tenantId,
                 rule_set_id: rs.id,
@@ -1333,7 +1203,7 @@ async function postCommitConstruction(
               await supabase.from('rule_set_assignments').insert(assignments);
             }
           }
-          console.log(`[SCI Execute] Created assignments for ${newEntityIds.length} entities × ${ruleSets.length} rule sets`);
+          console.log(`[SCI Execute] Created assignments for ${unassigned.length} unassigned entities × ${ruleSets.length} rule sets`);
         }
       }
 
@@ -1495,68 +1365,6 @@ async function postCommitConstruction(
     }
   }
 
-  // Step 2: Bind period_id on committed_data rows using detected periods
-  // Find date fields from semantic bindings
-  const dateBindings = unit.confirmedBindings.filter(
-    b => DATE_SEMANTIC_ROLES.has(b.semanticRole)
-  );
-
-  if (dateBindings.length > 0) {
-    // Fetch all periods for this tenant
-    const { data: periods } = await supabase
-      .from('periods')
-      .select('id, canonical_key, start_date, end_date')
-      .eq('tenant_id', tenantId);
-
-    if (periods && periods.length > 0) {
-      let periodBound = 0;
-      let page = 0;
-
-      while (true) {
-        const { data: rows } = await supabase
-          .from('committed_data')
-          .select('id, row_data')
-          .eq('tenant_id', tenantId)
-          .eq('import_batch_id', importBatchId)
-          .is('period_id', null)
-          .limit(500);
-
-        if (!rows || rows.length === 0) break;
-
-        const groups = new Map<string, string[]>();
-        for (const r of rows) {
-          const rd = r.row_data as Record<string, unknown>;
-
-          // Try each date binding field
-          for (const binding of dateBindings) {
-            const val = rd[binding.sourceField];
-            const parsed = parseDateValue(val);
-            if (parsed) {
-              const key = `${parsed.year}-${String(parsed.month).padStart(2, '0')}`;
-              const period = periods.find(p => p.canonical_key === key);
-              if (period) {
-                if (!groups.has(period.id)) groups.set(period.id, []);
-                groups.get(period.id)!.push(r.id);
-                break;
-              }
-            }
-          }
-        }
-
-        for (const [periodId, ids] of Array.from(groups.entries())) {
-          for (let i = 0; i < ids.length; i += BATCH) {
-            const slice = ids.slice(i, i + BATCH);
-            await supabase.from('committed_data').update({ period_id: periodId }).in('id', slice);
-            periodBound += slice.length;
-          }
-        }
-
-        page++;
-        if (rows.length < 500 || page > 200) break;
-      }
-      if (periodBound > 0) {
-        console.log(`[SCI Execute] Bound period_id on ${periodBound} committed_data rows`);
-      }
-    }
-  }
+  // OB-153: Period binding removed from import (Decision 92)
+  // Engine uses source_date range at calculation time, not period_id FK
 }

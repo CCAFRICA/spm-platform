@@ -39,8 +39,8 @@ interface PostImportData {
   results: ContentUnitResult[];
   entityCount?: number;
   planName?: string;
-  detectedPeriods?: string[];
   componentCount?: number;
+  sourceDateRange?: { min: string; max: string } | null;
 }
 
 const ANALYSIS_SAMPLE_SIZE = 50;
@@ -328,8 +328,8 @@ export default function OperateImportPage() {
               totalRowsCommitted={postImportData.totalRowsCommitted}
               entityCount={postImportData.entityCount}
               planName={postImportData.planName}
-              detectedPeriods={postImportData.detectedPeriods}
               componentCount={postImportData.componentCount}
+              sourceDateRange={postImportData.sourceDateRange}
               onNavigateToCalculate={handleNavigateToCalculate}
               onImportMore={handleUploadMore}
             />

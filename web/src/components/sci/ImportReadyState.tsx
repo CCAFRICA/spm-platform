@@ -21,8 +21,8 @@ interface ImportReadyStateProps {
   totalRowsCommitted: number;
   entityCount?: number;
   planName?: string;
-  detectedPeriods?: string[];
   componentCount?: number;
+  sourceDateRange?: { min: string; max: string } | null;
   onNavigateToCalculate: () => void;
   onImportMore: () => void;
   onRetryFailed?: () => void;
@@ -33,8 +33,8 @@ export function ImportReadyState({
   totalRowsCommitted,
   entityCount,
   planName,
-  detectedPeriods,
   componentCount,
+  sourceDateRange,
   onNavigateToCalculate,
   onImportMore,
   onRetryFailed,
@@ -42,10 +42,6 @@ export function ImportReadyState({
   const successResults = results.filter(r => r.success);
   const failedResults = results.filter(r => !r.success);
   const hasFailed = failedResults.length > 0;
-  const periodLabel = detectedPeriods && detectedPeriods.length > 0
-    ? detectedPeriods[0]
-    : null;
-
   // Title: honest about partial success
   const title = hasFailed
     ? `Import partially complete — ${successResults.length} of ${results.length} succeeded`
@@ -57,9 +53,7 @@ export function ImportReadyState({
   const hasData = totalRowsCommitted > 0;
   const calculateReady = hasPlan && hasEntities && hasData;
 
-  const calculateLabel = periodLabel
-    ? `Calculate ${periodLabel}`
-    : 'Go to Calculate';
+  const calculateLabel = 'Go to Calculate';
 
   return (
     <div className="space-y-6">
@@ -106,10 +100,12 @@ export function ImportReadyState({
               {planName || 'No active plan'}
             </span>
           </div>
-          {periodLabel && (
+          {sourceDateRange && (
             <div className="flex items-baseline justify-between">
-              <span className="text-xs text-zinc-500">Period detected</span>
-              <span className="text-sm text-zinc-200">{periodLabel}</span>
+              <span className="text-xs text-zinc-500">Source dates</span>
+              <span className="text-sm text-zinc-200">
+                {sourceDateRange.min} through {sourceDateRange.max}
+              </span>
             </div>
           )}
         </div>

@@ -49,6 +49,7 @@ function CalculatePageInner() {
     selectPeriod,
     batches,
     refreshBatches,
+    refreshPeriods,
     isLoading: contextLoading,
   } = useOperate();
 
@@ -60,6 +61,8 @@ function CalculatePageInner() {
   const [isCalculatingAll, setIsCalculatingAll] = useState(false);
   const [calcAllError, setCalcAllError] = useState<string | null>(null);
   const [storeFilter, setStoreFilter] = useState<string | null>(null);
+  const [isCreatingPeriods, setIsCreatingPeriods] = useState(false);
+  const [periodCreateError, setPeriodCreateError] = useState<string | null>(null);
 
   const hasAccess = user && (isVLAdmin(user) || user.role === 'admin');
   const tenantId = currentTenant?.id || '';
@@ -201,6 +204,30 @@ function CalculatePageInner() {
     URL.revokeObjectURL(url);
   }, [resultsData]);
 
+  // OB-153: Create periods from committed_data source dates
+  const handleCreatePeriods = useCallback(async () => {
+    if (!tenantId) return;
+    setIsCreatingPeriods(true);
+    setPeriodCreateError(null);
+    try {
+      const res = await fetch('/api/periods/create-from-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPeriodCreateError(data.error || 'Failed to create periods');
+      } else {
+        await refreshPeriods();
+      }
+    } catch (err) {
+      setPeriodCreateError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setIsCreatingPeriods(false);
+    }
+  }, [tenantId, refreshPeriods]);
+
   if (!hasAccess) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -233,16 +260,34 @@ function CalculatePageInner() {
         {/* Period selector (inline) */}
         <div className="flex items-center gap-3">
           <span className="text-sm text-zinc-400">Period:</span>
-          <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); }}>
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Select period" />
-            </SelectTrigger>
-            <SelectContent>
-              {periods.map(p => (
-                <SelectItem key={p.id} value={p.id}>{p.label || p.canonicalKey}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {periods.length > 0 ? (
+            <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); }}>
+              <SelectTrigger className="w-56">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent>
+                {periods.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.label || p.canonicalKey}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Button
+              onClick={handleCreatePeriods}
+              disabled={isCreatingPeriods}
+              variant="outline"
+              size="sm"
+            >
+              {isCreatingPeriods ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                  Detecting periods...
+                </>
+              ) : (
+                'Create periods from data'
+              )}
+            </Button>
+          )}
 
           {activePlans.length > 1 && selectedPeriodId && (
             <Button
@@ -264,6 +309,12 @@ function CalculatePageInner() {
             </Button>
           )}
         </div>
+
+        {periodCreateError && (
+          <div className="bg-red-900/20 border border-red-700 rounded-lg p-3 text-sm text-red-400">
+            {periodCreateError}
+          </div>
+        )}
 
         {calcAllError && (
           <div className="bg-red-900/20 border border-red-700 rounded-lg p-3 text-sm text-red-400">

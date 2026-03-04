@@ -65,6 +65,7 @@ interface OperateContextValue {
   selectPeriod: (periodId: string) => void;
   selectBatch: (batchId: string) => void;
   refreshBatches: () => Promise<void>;
+  refreshPeriods: () => Promise<void>;
 
   // Loading
   isLoading: boolean;
@@ -185,6 +186,33 @@ export function OperateProvider({ children }: { children: ReactNode }) {
   }, [tenantId]);
 
   // ── Load batches when plan or period changes ──
+  // OB-153: refreshPeriods — reload periods from database
+  const loadPeriods = useCallback(async () => {
+    if (!tenantId) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('periods')
+      .select('id, label, canonical_key, start_date, end_date, status')
+      .eq('tenant_id', tenantId)
+      .order('start_date', { ascending: false });
+
+    const loaded: PeriodOption[] = (data ?? []).map(p => ({
+      id: p.id,
+      label: p.label ?? p.canonical_key ?? 'Unknown',
+      canonicalKey: p.canonical_key ?? '',
+      startDate: p.start_date ?? '',
+      endDate: p.end_date ?? '',
+      status: p.status ?? 'open',
+    }));
+    setPeriods(loaded);
+
+    // Auto-select first if none selected
+    if (loaded.length > 0 && !selectedPeriodId) {
+      setSelectedPeriodId(loaded[0].id);
+      ssSet(SK_PERIOD, loaded[0].id);
+    }
+  }, [tenantId, selectedPeriodId]);
+
   const loadBatches = useCallback(async () => {
     if (!tenantId || !selectedPeriodId) {
       setBatches([]);
@@ -306,6 +334,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
     selectPeriod,
     selectBatch,
     refreshBatches: loadBatches,
+    refreshPeriods: loadPeriods,
     isLoading,
   }), [
     plans, periods, batches,
@@ -313,7 +342,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
     selectedPeriodId, selectedPeriod,
     selectedBatchId, selectedBatch,
     selectPlan, selectPeriod, selectBatch,
-    loadBatches, isLoading,
+    loadBatches, loadPeriods, isLoading,
   ]);
 
   return (

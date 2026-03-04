@@ -85,18 +85,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Parse components from JSONB — handle both flat array and nested { variants: [...] } formats
+  // Parse components from JSONB — handle 3 formats:
+  // 1. Flat array: [{id, name, ...}, ...]
+  // 2. Wrapped object: { components: [{id, name, ...}, ...] }
+  // 3. Legacy nested: { variants: [{ components: [...] }] }
   const rawComponents = ruleSet.components;
   let defaultComponents: PlanComponent[];
   let variants: Array<Record<string, unknown>> = [];
   if (Array.isArray(rawComponents)) {
-    // Flat array: [{id, name, config, ...}, ...]
     defaultComponents = rawComponents as unknown as PlanComponent[];
   } else {
-    // Legacy nested format: { variants: [{ components: [...] }] }
     const componentsJson = rawComponents as Record<string, unknown>;
-    variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
-    defaultComponents = (variants[0]?.components as PlanComponent[]) ?? [];
+    if (Array.isArray(componentsJson?.components)) {
+      // OB-153: Wrapped object format { components: [...] }
+      defaultComponents = componentsJson.components as unknown as PlanComponent[];
+    } else {
+      // Legacy nested format: { variants: [{ components: [...] }] }
+      variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
+      defaultComponents = (variants[0]?.components as PlanComponent[]) ?? [];
+    }
   }
 
   if (defaultComponents.length === 0) {
@@ -114,6 +121,13 @@ export async function POST(request: NextRequest) {
     (inputBindings?.metric_derivations as MetricDerivationRule[] | undefined) ?? [];
   if (metricDerivations.length > 0) {
     addLog(`OB-118 Metric derivations: ${metricDerivations.length} rules from input_bindings`);
+  }
+
+  // OB-153: Parse metric_mappings from input_bindings
+  // Maps semantic metric names (in components) to raw field names (in row_data)
+  const metricMappings = inputBindings?.metric_mappings as Record<string, string> | undefined;
+  if (metricMappings) {
+    addLog(`OB-153 Metric mappings: ${Object.keys(metricMappings).length} mappings from input_bindings`);
   }
 
   // ── OB-76: Transform components to intents (once, before entity loop) ──
@@ -596,12 +610,11 @@ export async function POST(request: NextRequest) {
   // Korean Test: PASSES — AI determined sheet→component mapping at import time
   const aiContextSheets: AIContextSheet[] = [];
   try {
-    // Get distinct batch IDs from committed_data for this period
+    // Get distinct batch IDs from committed_data (OB-153: also check period-agnostic data)
     const { data: batchRows } = await supabase
       .from('committed_data')
       .select('import_batch_id')
       .eq('tenant_id', tenantId)
-      .eq('period_id', periodId)
       .not('import_batch_id', 'is', null)
       .limit(100);
 
@@ -845,7 +858,8 @@ export async function POST(request: NextRequest) {
         entitySheetData,
         entityStoreData,
         aiContextSheets,
-        entityStoreAgg
+        entityStoreAgg,
+        metricMappings
       );
       // OB-118: Merge derived metrics into component metrics
       // Derived metrics take precedence (they're specifically configured)

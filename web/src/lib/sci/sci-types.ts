@@ -243,7 +243,7 @@ export interface SCIExecutionResult {
   // OB-139: Post-execution summary for ImportReadyState
   summary?: {
     totalRowsCommitted: number;
-    detectedPeriods?: string[];
+    sourceDateRange?: { min: string; max: string } | null;
     planName?: string;
   };
 }
