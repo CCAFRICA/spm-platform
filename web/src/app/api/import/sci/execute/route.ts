@@ -1153,30 +1153,48 @@ async function postCommitConstruction(
           await supabase.from('entities').insert(entities);
         }
         console.log(`[SCI Execute] Created ${missing.length} new entities`);
+      }
 
-        // Create rule_set_assignments for new entities
-        const { data: ruleSets } = await supabase
-          .from('rule_sets')
-          .select('id')
-          .eq('tenant_id', tenantId)
-          .eq('status', 'active');
+      // OB-153: Create rule_set_assignments for ALL entities that lack them
+      // (not just newly created — existing entities may also need assignments)
+      const { data: ruleSets } = await supabase
+        .from('rule_sets')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .in('status', ['active', 'draft']);
 
-        if (ruleSets && ruleSets.length > 0) {
-          // Fetch new entity IDs
-          const newEntityIds: string[] = [];
-          for (let i = 0; i < missing.length; i += BATCH) {
-            const slice = missing.slice(i, i + BATCH);
-            const { data } = await supabase
-              .from('entities')
-              .select('id')
-              .eq('tenant_id', tenantId)
-              .in('external_id', slice);
-            if (data) newEntityIds.push(...data.map(e => e.id));
+      if (ruleSets && ruleSets.length > 0) {
+        // Fetch ALL entity IDs for these identifiers
+        const allEntityIds: string[] = [];
+        for (let i = 0; i < allIds.length; i += BATCH) {
+          const slice = allIds.slice(i, i + BATCH);
+          const { data } = await supabase
+            .from('entities')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .in('external_id', slice);
+          if (data) allEntityIds.push(...data.map(e => e.id));
+        }
+
+        // Check which entities already have assignments
+        const assignedEntityIds = new Set<string>();
+        for (let i = 0; i < allEntityIds.length; i += BATCH) {
+          const slice = allEntityIds.slice(i, i + BATCH);
+          const { data } = await supabase
+            .from('rule_set_assignments')
+            .select('entity_id')
+            .eq('tenant_id', tenantId)
+            .in('entity_id', slice);
+          if (data) {
+            for (const a of data) assignedEntityIds.add(a.entity_id);
           }
+        }
 
+        const unassigned = allEntityIds.filter(id => !assignedEntityIds.has(id));
+        if (unassigned.length > 0) {
           for (const rs of ruleSets) {
-            for (let i = 0; i < newEntityIds.length; i += BATCH) {
-              const slice = newEntityIds.slice(i, i + BATCH);
+            for (let i = 0; i < unassigned.length; i += BATCH) {
+              const slice = unassigned.slice(i, i + BATCH);
               const assignments = slice.map(entityId => ({
                 tenant_id: tenantId,
                 rule_set_id: rs.id,
@@ -1185,7 +1203,7 @@ async function postCommitConstruction(
               await supabase.from('rule_set_assignments').insert(assignments);
             }
           }
-          console.log(`[SCI Execute] Created assignments for ${newEntityIds.length} entities × ${ruleSets.length} rule sets`);
+          console.log(`[SCI Execute] Created assignments for ${unassigned.length} unassigned entities × ${ruleSets.length} rule sets`);
         }
       }
 
