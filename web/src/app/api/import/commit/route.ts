@@ -108,6 +108,20 @@ export async function POST(request: NextRequest) {
       supabase = authClient;
     }
 
+    // HF-085: Resolve profile ID — import_batches.uploaded_by FK → profiles.id
+    let resolvedUserId = userId;
+    if (userId && userId !== 'system') {
+      const { data: callerProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('auth_user_id', userId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (callerProfile?.id) {
+        resolvedUserId = callerProfile.id;
+      }
+    }
+
     // ── Step 3: Download file from Supabase Storage ──
     console.log(`[ImportCommit] Downloading file from storage: ${storagePath}`);
     const { data: fileBlob, error: downloadError } = await supabase.storage
@@ -301,7 +315,7 @@ export async function POST(request: NextRequest) {
         tenant_id: tenantId,
         file_name: fileName,
         file_type: fileName.split('.').pop() || 'xlsx',
-        uploaded_by: userId || null,
+        uploaded_by: resolvedUserId || null,
         status: 'processing',
         row_count: 0,
         metadata: batchMetadata as unknown as Json,

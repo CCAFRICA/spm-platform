@@ -61,6 +61,16 @@ export async function POST(request: NextRequest) {
     // 3. Service role client (bypasses RLS)
     const supabase = await createServiceRoleClient();
 
+    // HF-085: Resolve profile ID — rule_sets.created_by FK → profiles.id
+    const { data: callerProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .eq('tenant_id', planConfig.tenantId)
+      .maybeSingle();
+
+    const resolvedProfileId = callerProfile?.id ?? user.id;
+
     // 4. Build insert row (same decomposition as planConfigToRuleSetInsert)
     const row = {
       id: planConfig.id,
@@ -87,7 +97,7 @@ export async function POST(request: NextRequest) {
         updated_by: planConfig.updatedBy || user.id,
         approved_at: planConfig.approvedAt || null,
       } as unknown as Json,
-      created_by: planConfig.createdBy || user.id,
+      created_by: planConfig.createdBy || resolvedProfileId,
     };
 
     // 5. Upsert rule set

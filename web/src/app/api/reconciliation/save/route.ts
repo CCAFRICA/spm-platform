@@ -58,6 +58,16 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createServiceRoleClient();
 
+    // HF-085: Resolve profile ID — reconciliation_sessions.created_by FK → profiles.id
+    const { data: callerProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('auth_user_id', userId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    const resolvedProfileId = callerProfile?.id ?? userId;
+
     const { data, error } = await supabase
       .from('reconciliation_sessions')
       .insert({
@@ -68,7 +78,7 @@ export async function POST(request: NextRequest) {
         config: config as unknown as Json,
         results: (results ?? {}) as unknown as Json,
         summary: summary as unknown as Json,
-        created_by: userId,
+        created_by: resolvedProfileId,
         completed_at: new Date().toISOString(),
       })
       .select('id')
