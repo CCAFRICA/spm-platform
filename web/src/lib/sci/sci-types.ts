@@ -67,7 +67,7 @@ export interface FieldProfile {
 // LAYER 2: AGENTS
 // ============================================================
 
-export type AgentType = 'plan' | 'entity' | 'target' | 'transaction';
+export type AgentType = 'plan' | 'entity' | 'target' | 'transaction' | 'reference';
 
 export interface AgentScore {
   agent: AgentType;

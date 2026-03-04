@@ -31,42 +31,42 @@ const FIELD_AFFINITY_RULES: FieldAffinityRule[] = [
   // Entity identifier — entity owns it, but target + transaction need it as join key
   {
     test: f => f.nameSignals.containsId,
-    affinities: { entity: 0.90, target: 0.70, transaction: 0.70, plan: 0.10 },
+    affinities: { entity: 0.90, target: 0.70, transaction: 0.70, plan: 0.10, reference: 0.30 },
   },
   // Name fields → entity
   {
     test: f => f.nameSignals.containsName,
-    affinities: { entity: 0.90, target: 0.20, transaction: 0.10, plan: 0.10 },
+    affinities: { entity: 0.90, target: 0.20, transaction: 0.10, plan: 0.10, reference: 0.50 },
   },
   // Date fields → transaction
   {
     test: f => f.nameSignals.containsDate || f.dataType === 'date',
-    affinities: { transaction: 0.90, entity: 0.10, target: 0.20, plan: 0.10 },
+    affinities: { transaction: 0.90, entity: 0.10, target: 0.20, plan: 0.10, reference: 0.05 },
   },
   // Amount/currency fields → transaction, then target
   {
     test: f => f.nameSignals.containsAmount || f.dataType === 'currency',
-    affinities: { transaction: 0.80, target: 0.60, entity: 0.10, plan: 0.30 },
+    affinities: { transaction: 0.80, target: 0.60, entity: 0.10, plan: 0.30, reference: 0.10 },
   },
   // Target fields → target
   {
     test: f => f.nameSignals.containsTarget,
-    affinities: { target: 0.90, entity: 0.20, transaction: 0.20, plan: 0.10 },
+    affinities: { target: 0.90, entity: 0.20, transaction: 0.20, plan: 0.10, reference: 0.10 },
   },
   // Rate/percentage → plan, then target
   {
     test: f => f.nameSignals.containsRate || f.dataType === 'percentage',
-    affinities: { plan: 0.80, target: 0.50, transaction: 0.20, entity: 0.10 },
+    affinities: { plan: 0.80, target: 0.50, transaction: 0.20, entity: 0.10, reference: 0.10 },
   },
   // Low-cardinality text (categorical) → entity attribute or category code
   {
     test: f => f.dataType === 'text' && f.distinctCount > 0 && f.distinctCount < 20,
-    affinities: { entity: 0.60, transaction: 0.40, target: 0.30, plan: 0.20 },
+    affinities: { entity: 0.60, transaction: 0.40, target: 0.30, plan: 0.20, reference: 0.40 },
   },
   // Sequential integers → likely IDs
   {
     test: f => f.dataType === 'integer' && !!f.distribution.isSequential,
-    affinities: { entity: 0.70, target: 0.40, transaction: 0.40, plan: 0.10 },
+    affinities: { entity: 0.70, target: 0.40, transaction: 0.40, plan: 0.10, reference: 0.30 },
   },
 ];
 
@@ -75,12 +75,12 @@ const FIELD_AFFINITY_RULES: FieldAffinityRule[] = [
 // ============================================================
 
 function scoreFieldAffinity(field: FieldProfile): Record<AgentType, number> {
-  const affinities: Record<AgentType, number> = { plan: 0, entity: 0, target: 0, transaction: 0 };
+  const affinities: Record<AgentType, number> = { plan: 0, entity: 0, target: 0, transaction: 0, reference: 0 };
   let matchCount = 0;
 
   for (const rule of FIELD_AFFINITY_RULES) {
     if (rule.test(field)) {
-      for (const agent of ['plan', 'entity', 'target', 'transaction'] as AgentType[]) {
+      for (const agent of ['plan', 'entity', 'target', 'transaction', 'reference'] as AgentType[]) {
         affinities[agent] = Math.max(affinities[agent], rule.affinities[agent]);
       }
       matchCount++;
@@ -89,10 +89,11 @@ function scoreFieldAffinity(field: FieldProfile): Record<AgentType, number> {
 
   // If no rules matched, assign neutral affinities
   if (matchCount === 0) {
-    affinities.plan = 0.25;
-    affinities.entity = 0.25;
-    affinities.target = 0.25;
-    affinities.transaction = 0.25;
+    affinities.plan = 0.20;
+    affinities.entity = 0.20;
+    affinities.target = 0.20;
+    affinities.transaction = 0.20;
+    affinities.reference = 0.20;
   }
 
   return affinities;
@@ -345,6 +346,12 @@ function inferRoleForAgent(
       if (field.dataType === 'currency' || field.nameSignals.containsAmount) return { role: 'payout_amount', context: `${field.fieldName} — reward amount`, confidence: 0.75 };
       if (field.dataType === 'text') return { role: 'descriptive_label', context: `${field.fieldName} — rule text`, confidence: 0.65 };
       return { role: 'tier_boundary', context: `${field.fieldName} — threshold`, confidence: 0.50 };
+
+    case 'reference':
+      if (field.nameSignals.containsName) return { role: 'descriptive_label', context: `${field.fieldName} — display label`, confidence: 0.85 };
+      if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20) return { role: 'category_code', context: `${field.fieldName} — category`, confidence: 0.75 };
+      if (field.dataType === 'text') return { role: 'descriptive_label', context: `${field.fieldName} — descriptive text`, confidence: 0.65 };
+      return { role: 'unknown', context: `${field.fieldName} — unclassified reference field`, confidence: 0.30 };
   }
 }
 

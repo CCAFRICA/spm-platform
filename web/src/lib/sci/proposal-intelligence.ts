@@ -29,6 +29,7 @@ const AGENT_LABELS: Record<AgentType, string> = {
   entity: 'team roster',
   target: 'performance targets',
   transaction: 'operational data',
+  reference: 'reference data',
 };
 
 // ============================================================

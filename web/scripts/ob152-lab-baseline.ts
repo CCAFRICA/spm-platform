@@ -6,7 +6,7 @@ const sb = createClient(
 );
 
 async function run() {
-  const { data: t } = await sb.from('tenants').select('id').eq('slug', 'caribe-financial').single();
+  const { data: t } = await sb.from('tenants').select('id').eq('slug', 'latin-american-bank').single();
   if (!t) { console.log('LAB not found'); return; }
 
   const { data: r } = await sb.from('calculation_results').select('total_payout').eq('tenant_id', t.id);

@@ -21,6 +21,7 @@ const PROCESSING_ORDER: Record<AgentType, number> = {
   entity: 1,
   target: 2,
   transaction: 3,
+  reference: 4,
 };
 
 const ACTION_DESCRIPTIONS: Record<AgentType, string> = {
@@ -28,6 +29,7 @@ const ACTION_DESCRIPTIONS: Record<AgentType, string> = {
   entity: 'Create or update entity records from roster data',
   target: 'Commit performance targets and wire through convergence',
   transaction: 'Commit event data for calculation processing',
+  reference: 'Store as reference/catalog data for lookup resolution',
 };
 
 export async function POST(req: NextRequest) {

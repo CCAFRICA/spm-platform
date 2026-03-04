@@ -14,6 +14,7 @@ const CLASSIFICATION_LABELS: Record<AgentType, string> = {
   entity: 'Team Roster',
   target: 'Perf. Targets',
   transaction: 'Operational',
+  reference: 'Reference',
 };
 
 export type ItemStatus = 'pending' | 'active' | 'done' | 'failed';

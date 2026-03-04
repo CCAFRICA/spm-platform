@@ -70,11 +70,33 @@ const TRANSACTION_WEIGHTS: WeightRule[] = [
   { signal: 'high_sparsity', weight: -0.10, test: p => p.structure.sparsity > 0.30, evidence: p => `sparsity ${(p.structure.sparsity * 100).toFixed(0)}% > 30%` },
 ];
 
+// OB-152: Reference Agent — identifies catalog/lookup data
+const REFERENCE_WEIGHTS: WeightRule[] = [
+  { signal: 'high_key_uniqueness', weight: 0.25, test: p => {
+    // At least one field with high distinct count relative to row count (> 80% unique)
+    return p.fields.some(f => f.distinctCount > 0 && f.distinctCount / Math.max(1, p.structure.rowCount) > 0.80);
+  }, evidence: p => {
+    const f = p.fields.find(f => f.distinctCount > 0 && f.distinctCount / Math.max(1, p.structure.rowCount) > 0.80);
+    return f ? `${f.fieldName}: ${f.distinctCount}/${p.structure.rowCount} unique (${(f.distinctCount / Math.max(1, p.structure.rowCount) * 100).toFixed(0)}%)` : 'high key uniqueness';
+  }},
+  { signal: 'descriptive_columns', weight: 0.20, test: p => p.patterns.hasDescriptiveLabels, evidence: () => 'descriptive text columns present' },
+  { signal: 'low_row_count', weight: 0.15, test: p => p.patterns.rowCountCategory === 'reference', evidence: p => `${p.structure.rowCount} rows (reference)` },
+  { signal: 'no_date_column', weight: 0.10, test: p => !p.patterns.hasDateColumn, evidence: () => 'no date column' },
+  { signal: 'no_entity_identifier', weight: 0.10, test: p => !p.patterns.hasEntityIdentifier, evidence: () => 'no entity identifier' },
+  { signal: 'clean_headers', weight: 0.05, test: p => p.structure.headerQuality === 'clean', evidence: () => 'clean headers' },
+  { signal: 'has_date_column', weight: -0.20, test: p => p.patterns.hasDateColumn, evidence: () => 'date column present' },
+  { signal: 'transactional_rows', weight: -0.20, test: p => p.patterns.rowCountCategory === 'transactional', evidence: p => `${p.structure.rowCount} rows (transactional)` },
+  { signal: 'has_entity_identifier', weight: -0.10, test: p => p.patterns.hasEntityIdentifier, evidence: () => 'entity identifier present' },
+  { signal: 'high_sparsity', weight: -0.10, test: p => p.structure.sparsity > 0.30, evidence: p => `sparsity ${(p.structure.sparsity * 100).toFixed(0)}% > 30%` },
+  { signal: 'auto_generated_headers', weight: -0.15, test: p => p.structure.headerQuality === 'auto_generated', evidence: () => 'auto-generated headers' },
+];
+
 const AGENT_WEIGHTS: Record<AgentType, WeightRule[]> = {
   plan: PLAN_WEIGHTS,
   entity: ENTITY_WEIGHTS,
   target: TARGET_WEIGHTS,
   transaction: TRANSACTION_WEIGHTS,
+  reference: REFERENCE_WEIGHTS,
 };
 
 // ============================================================
@@ -113,7 +135,7 @@ function scoreAgent(agent: AgentType, profile: ContentProfile): AgentScore {
 }
 
 export function scoreContentUnit(profile: ContentProfile): AgentScore[] {
-  const agents: AgentType[] = ['plan', 'entity', 'target', 'transaction'];
+  const agents: AgentType[] = ['plan', 'entity', 'target', 'transaction', 'reference'];
   return agents
     .map(agent => scoreAgent(agent, profile))
     .sort((a, b) => b.confidence - a.confidence);
@@ -181,6 +203,8 @@ function assignSemanticRole(
       return assignTargetRole(field);
     case 'transaction':
       return assignTransactionRole(field);
+    case 'reference':
+      return assignReferenceRole(field);
   }
 }
 
@@ -239,4 +263,20 @@ function assignTransactionRole(field: ContentProfile['fields'][0]): { role: Sema
   if (field.dataType === 'text')
     return { role: 'category_code', context: `${field.fieldName} — classification`, confidence: 0.50 };
   return { role: 'unknown', context: `${field.fieldName} — unclassified event field`, confidence: 0.30 };
+}
+
+// OB-152: Reference Agent semantic role assignment
+function assignReferenceRole(field: ContentProfile['fields'][0]): { role: SemanticRole; context: string; confidence: number } {
+  // High uniqueness field → likely the key
+  if (field.distinctCount > 0 && field.distinctCount / Math.max(1, field.distinctCount + 1) > 0.80 && field.nameSignals.containsId)
+    return { role: 'entity_identifier', context: `${field.fieldName} — reference key`, confidence: 0.90 };
+  if (field.nameSignals.containsName)
+    return { role: 'descriptive_label', context: `${field.fieldName} — display label`, confidence: 0.85 };
+  if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
+    return { role: 'category_code', context: `${field.fieldName} — category grouping`, confidence: 0.75 };
+  if (field.dataType === 'text')
+    return { role: 'descriptive_label', context: `${field.fieldName} — descriptive text`, confidence: 0.65 };
+  if (field.dataType === 'integer' || field.dataType === 'decimal')
+    return { role: 'baseline_value', context: `${field.fieldName} — reference value`, confidence: 0.55 };
+  return { role: 'unknown', context: `${field.fieldName} — unclassified reference field`, confidence: 0.30 };
 }

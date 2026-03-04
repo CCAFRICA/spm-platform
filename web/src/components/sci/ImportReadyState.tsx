@@ -13,6 +13,7 @@ const CLASSIFICATION_LABELS: Record<AgentType, string> = {
   entity: 'Team Roster',
   target: 'Perf. Targets',
   transaction: 'Operational',
+  reference: 'Reference',
 };
 
 interface ImportReadyStateProps {

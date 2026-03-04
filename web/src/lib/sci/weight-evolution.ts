@@ -50,6 +50,19 @@ export interface WeightAdjustment {
 // If agents.ts weights change, update this map.
 
 const CURRENT_WEIGHTS: Record<AgentType, Record<string, number>> = {
+  reference: {
+    high_key_uniqueness: 0.25,
+    descriptive_columns: 0.20,
+    low_row_count: 0.15,
+    no_date_column: 0.10,
+    no_entity_identifier: 0.10,
+    clean_headers: 0.05,
+    has_date_column: -0.20,
+    transactional_rows: -0.20,
+    has_entity_identifier: -0.10,
+    high_sparsity: -0.10,
+    auto_generated_headers: -0.15,
+  },
   plan: {
     auto_generated_headers: 0.25,
     high_sparsity: 0.20,
@@ -280,10 +293,10 @@ export async function computeWeightEvolution(
 
 function formatCurrentWeights(): Record<AgentType, Array<{ signal: string; weight: number }>> {
   const result: Record<AgentType, Array<{ signal: string; weight: number }>> = {
-    plan: [], entity: [], target: [], transaction: [],
+    plan: [], entity: [], target: [], transaction: [], reference: [],
   };
 
-  for (const agent of ['plan', 'entity', 'target', 'transaction'] as AgentType[]) {
+  for (const agent of ['plan', 'entity', 'target', 'transaction', 'reference'] as AgentType[]) {
     const weights = CURRENT_WEIGHTS[agent];
     result[agent] = Object.entries(weights)
       .map(([signal, weight]) => ({ signal, weight }))
