@@ -143,6 +143,13 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 | AP-21 | Summary card total differs from sum of detail rows | Single data source for both summary and detail (calculation_results) | CLT-72 F-56 |
 | AP-22 | Period detector interprets month values (1,2,3) as years (2001,2002,2003) | Validate detected year is within reasonable range (current year ± 5) | CLT-72 F-48 |
 
+### Temporal & Reference (NEW — OB-152)
+| # | Anti-Pattern | Correct Pattern | Source |
+|---|---|---|---|
+| AP-23 | FK-bind data to period at import time (period_id only) | Extract source_date structurally at import; engine applies period windowing at calc time | OB-152 |
+| AP-24 | Field-name matching for date extraction ("date", "fecha", "날짜") | Structural detection: Content Profile hints → semantic role bindings → value-type scanning | OB-152 |
+| AP-25 | Discard catalog/lookup data or force into entity/transaction classification | Reference Agent classifies lookup data → reference_data + reference_items tables | OB-152 |
+
 ---
 
 ## SECTION D: CC OPERATIONAL RULES

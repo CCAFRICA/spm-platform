@@ -79,11 +79,13 @@
 | entity_id | uuid FK → entities.id |
 | period_id | uuid FK → periods.id |
 | data_type | text |
+| source_date | date |
 | row_data | jsonb |
 | metadata | jsonb |
 | created_at | timestamptz |
 
 **NOTE: NO `period_key` column. Uses `period_id` FK.**
+**NOTE: `source_date` (OB-152) is the business date extracted at import time. Engine uses source_date range first, falls back to period_id.**
 
 ## rule_sets
 | Column | Type |
@@ -270,6 +272,52 @@
 | created_at | timestamptz |
 
 **NOTE: `profile_id` NOT `actor_id`. `resource_type`/`resource_id` NOT `entity_type`/`entity_id`. `changes` (single JSONB) NOT `before_state`/`after_state`.**
+
+---
+
+## reference_data
+| Column | Type |
+|--------|------|
+| id | uuid PK |
+| tenant_id | uuid FK → tenants.id |
+| reference_type | text NOT NULL |
+| name | text NOT NULL |
+| description | text |
+| source_file | text |
+| import_batch_id | uuid FK → import_batches.id |
+| metadata | jsonb DEFAULT '{}' |
+| created_at | timestamptz |
+| updated_at | timestamptz |
+
+**NOTE: Created by OB-152 migration 018. Stores catalog/lookup dataset headers.**
+
+## reference_items
+| Column | Type |
+|--------|------|
+| id | uuid PK |
+| tenant_id | uuid FK → tenants.id |
+| reference_data_id | uuid FK → reference_data.id |
+| item_key | text NOT NULL |
+| item_data | jsonb NOT NULL DEFAULT '{}' |
+| sort_order | integer DEFAULT 0 |
+| is_active | boolean DEFAULT true |
+| created_at | timestamptz |
+
+**NOTE: Created by OB-152 migration 018. Individual rows within a reference dataset. Unique on (reference_data_id, item_key).**
+
+## alias_registry
+| Column | Type |
+|--------|------|
+| id | uuid PK |
+| tenant_id | uuid FK → tenants.id |
+| canonical_value | text NOT NULL |
+| alias_value | text NOT NULL |
+| domain | text NOT NULL |
+| confidence | numeric DEFAULT 1.0 |
+| source | text DEFAULT 'manual' |
+| created_at | timestamptz |
+
+**NOTE: Created by OB-152 migration 018. Maps alias values to canonical values within a domain. Unique on (tenant_id, domain, alias_value).**
 
 ---
 
