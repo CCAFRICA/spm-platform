@@ -21,6 +21,11 @@ import type {
   ContentUnitResult,
   ContentUnitExecution,
 } from '@/lib/sci/sci-types';
+import {
+  extractSourceDate,
+  findDateColumnFromBindings,
+  buildSemanticRolesMap,
+} from '@/lib/sci/source-date-extraction';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 const ROLE_TARGETS = ['role', 'position', 'puesto', 'title', 'cargo'];
@@ -285,11 +290,27 @@ async function executeTargetPipeline(
     }
   }
 
-  // Build committed_data rows
+  // OB-152: Extract source_date using structural heuristics (Korean Test: zero field names)
+  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
+  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+
+  // Build committed_data rows with source_date (OB-152)
+  let earliestDate: string | null = null;
+  let latestDate: string | null = null;
+  let dateCount = 0;
+
   const insertRows = rows.map((row, i) => {
     let entityId: string | null = null;
     if (entityIdField && row[entityIdField] != null) {
       entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
+    }
+
+    // OB-152: Extract source_date per row
+    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap);
+    if (sourceDate) {
+      dateCount++;
+      if (!earliestDate || sourceDate < earliestDate) earliestDate = sourceDate;
+      if (!latestDate || sourceDate > latestDate) latestDate = sourceDate;
     }
 
     return {
@@ -297,6 +318,7 @@ async function executeTargetPipeline(
       import_batch_id: batchId,
       entity_id: entityId,
       period_id: null,
+      source_date: sourceDate,
       data_type: dataType,
       row_data: { ...row, _sheetName: tabName, _rowIndex: i },
       metadata: {
@@ -342,9 +364,9 @@ async function executeTargetPipeline(
     row_count: totalInserted,
   }).eq('id', batchId);
 
-  console.log(`[SCI Execute] Target: ${totalInserted} rows committed, data_type=${dataType}`);
+  console.log(`[SCI Execute] Target: ${totalInserted} rows committed, data_type=${dataType}, source_dates=${dateCount}/${rows.length} (${earliestDate}..${latestDate})`);
 
-  // Detect and create periods from date fields in the imported data
+  // OB-152: Period detection still runs for backward compat — but source_date is the primary temporal binding
   await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
 
   // OB-144: Post-commit construction — create missing entities, bind entity_id + period_id, create assignments
@@ -487,11 +509,27 @@ async function executeTransactionPipeline(
     };
   }
 
-  // Build insert rows
+  // OB-152: Extract source_date using structural heuristics
+  const txnDateHint = findDateColumnFromBindings(unit.confirmedBindings);
+  const txnSemanticMap = buildSemanticRolesMap(unit.confirmedBindings);
+
+  let txnEarliest: string | null = null;
+  let txnLatest: string | null = null;
+  let txnDateCount = 0;
+
+  // Build insert rows with source_date (OB-152)
   const insertRows = rows.map((row, i) => {
     let entityId: string | null = null;
     if (entityIdField && row[entityIdField] != null) {
       entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
+    }
+
+    // OB-152: Extract source_date per row
+    const sourceDate = extractSourceDate(row, txnDateHint, txnSemanticMap);
+    if (sourceDate) {
+      txnDateCount++;
+      if (!txnEarliest || sourceDate < txnEarliest) txnEarliest = sourceDate;
+      if (!txnLatest || sourceDate > txnLatest) txnLatest = sourceDate;
     }
 
     return {
@@ -499,6 +537,7 @@ async function executeTransactionPipeline(
       import_batch_id: batchId,
       entity_id: entityId,
       period_id: null,
+      source_date: sourceDate,
       data_type: dataType,
       row_data: { ...row, _sheetName: tabName, _rowIndex: i },
       metadata: {
@@ -537,9 +576,9 @@ async function executeTransactionPipeline(
     row_count: totalInserted,
   }).eq('id', batchId);
 
-  console.log(`[SCI Execute] Transaction: ${totalInserted} rows committed, data_type=${dataType}`);
+  console.log(`[SCI Execute] Transaction: ${totalInserted} rows committed, data_type=${dataType}, source_dates=${txnDateCount}/${rows.length} (${txnEarliest}..${txnLatest})`);
 
-  // Detect and create periods from date fields in the imported data
+  // OB-152: Period detection still runs for backward compat
   await detectAndCreatePeriods(supabase, tenantId, unit, batchId);
 
   // OB-144: Post-commit construction — create missing entities, bind entity_id + period_id, create assignments
