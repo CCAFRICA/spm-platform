@@ -33,6 +33,10 @@ interface ExecutionProgressProps {
   hasErrors: boolean;
   onRetryFailed?: () => void;
   onContinue?: () => void;
+  /** HF-087: Elapsed seconds for the currently processing item */
+  elapsedSeconds?: number;
+  /** HF-087: Whether retry is in progress (disables button) */
+  isRetrying?: boolean;
 }
 
 export function ExecutionProgress({
@@ -41,9 +45,12 @@ export function ExecutionProgress({
   hasErrors,
   onRetryFailed,
   onContinue,
+  elapsedSeconds = 0,
+  isRetrying = false,
 }: ExecutionProgressProps) {
   const doneCount = items.filter(i => i.status === 'done').length;
   const failedCount = items.filter(i => i.status === 'failed').length;
+  const hasActive = items.some(i => i.status === 'active');
   const totalCount = items.length;
   const totalRows = items
     .filter(i => i.status === 'done')
@@ -86,6 +93,20 @@ export function ExecutionProgress({
             <span> &middot; {totalRows.toLocaleString()} rows committed</span>
           )}
         </p>
+
+        {/* HF-087: Elapsed time + reassurance for long operations */}
+        {!allDone && hasActive && elapsedSeconds > 5 && (
+          <div className="mt-3 space-y-1">
+            <p className="text-xs text-indigo-400 tabular-nums">
+              Processing... {elapsedSeconds}s elapsed
+            </p>
+            {elapsedSeconds > 15 && (
+              <p className="text-xs text-zinc-600">
+                Plan interpretation may take up to 2 minutes. Please do not close this page.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Per-item list */}
@@ -173,10 +194,11 @@ export function ExecutionProgress({
               <Button
                 onClick={onRetryFailed}
                 size="sm"
-                className="bg-amber-600 hover:bg-amber-500 text-white"
+                disabled={isRetrying}
+                className="bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Retry failed
+                <RefreshCw className={cn('w-3.5 h-3.5', isRetrying && 'animate-spin')} />
+                {isRetrying ? 'Retrying...' : 'Retry failed'}
               </Button>
             )}
             {onContinue && doneCount > 0 && (
