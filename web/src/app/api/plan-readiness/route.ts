@@ -16,12 +16,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
   }
 
-  // Fetch active rule sets (include input_bindings JSONB for binding check)
+  // HF-089: Include draft AND active rule sets. SCI execute saves plans as
+  // 'draft'. OB-151's pollPlanRecovery checks this endpoint to detect if the
+  // server saved a plan despite the client connection dropping. Filtering only
+  // 'active' caused recovery to never trigger (plans are draft on first save).
   const { data: ruleSets } = await supabase
     .from('rule_sets')
-    .select('id, name, input_bindings')
+    .select('id, name, input_bindings, status')
     .eq('tenant_id', tenantId)
-    .eq('status', 'active');
+    .in('status', ['active', 'draft']);
 
   if (!ruleSets || ruleSets.length === 0) {
     return NextResponse.json({ plans: [] });
@@ -96,6 +99,7 @@ export async function GET(request: NextRequest) {
     return {
       planId: rs.id,
       planName: rs.name,
+      status: rs.status, // HF-089: Include status so callers can distinguish draft vs active
       entityCount: assignCountByPlan.get(rs.id) || 0,
       hasBindings: bindingsByPlan.get(rs.id) || false,
       dataRowCount: dataRowCount || 0,
