@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     const insertPayload: any = {
       tenant_id,
       batch_id: batch_id || null,
-      uploaded_by: profile.id,
+      uploaded_by: user.id,
       uploaded_by_email: profile.email || user.email || 'unknown',
       uploaded_by_role: profile.role,
       file_name,

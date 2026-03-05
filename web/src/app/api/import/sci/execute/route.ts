@@ -10,7 +10,6 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { resolveProfileId } from '@/lib/auth/resolve-profile';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
@@ -67,8 +66,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // HF-089: Resolve profile ID — falls back to VL Admin platform profile
-    const profileId = await resolveProfileId(supabase, authUser, tenantId);
+    // HF-090: Use auth.uid() directly for created_by attribution (JWT-verified identity)
+    const profileId = authUser.id;
 
     // Verify tenant exists
     const { data: tenant } = await supabase

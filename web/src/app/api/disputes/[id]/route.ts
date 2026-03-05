@@ -80,7 +80,7 @@ export async function PATCH(
 
     // If resolving, set resolved_by and resolved_at
     if (status === 'resolved' || status === 'rejected') {
-      updateData.resolved_by = profile.id;
+      updateData.resolved_by = user.id;
       updateData.resolved_at = new Date().toISOString();
     }
 

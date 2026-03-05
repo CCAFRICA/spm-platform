@@ -8,7 +8,6 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { resolveProfileId } from '@/lib/auth/resolve-profile';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import type { Json } from '@/lib/supabase/database.types';
 import type {
@@ -92,7 +91,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const profileId = await resolveProfileId(supabase, authUser, tenantId);
+    // HF-090: Use auth.uid() directly for created_by attribution
+    const profileId = authUser.id;
 
     // Verify tenant
     const { data: tenant } = await supabase

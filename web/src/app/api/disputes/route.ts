@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       status: 'open',
       description,
       amount_disputed: amount_disputed || null,
-      filed_by: profile.id,
+      filed_by: user.id,
     };
 
     const { data: dispute, error: insertError } = await supabase
