@@ -139,8 +139,8 @@ const techCorpTransaction = {
   contractLength: '12 months',
 };
 
-// RetailCo transaction demo data
-const retailCoTransactions: Record<string, {
+// Static retail transaction demo data
+const retailTransactions: Record<string, {
   id: string;
   date: string;
   type: string;
@@ -212,7 +212,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
   useEffect(() => {
     if (isRetail && currentTenant?.id) {
       // Get appropriate metrics based on transaction
-      const txn = retailCoTransactions[id];
+      const txn = retailTransactions[id];
       if (txn) {
         const metrics = txn.repId === 'maria-rodriguez' ? getMariaMetrics() : getJamesMetrics();
         calculateIncentive(metrics, currentTenant.id).then((result) => {
@@ -268,9 +268,9 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
     router.push(`/transactions/${id}/dispute`);
   };
 
-  // RetailCo view
+  // Retail view
   if (isRetail) {
-    const transaction = retailCoTransactions[id];
+    const transaction = retailTransactions[id];
     const isAdmin = user?.role === 'admin' || user?.role === 'vl_admin';
     const currentUserId = user?.id || 'maria-rodriguez';
 
