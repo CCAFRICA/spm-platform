@@ -628,7 +628,40 @@ export function buildMetricsForComponent(
   // Step 1: Match entity-level sheet for this component
   const entitySheets = Array.from(entityRowsBySheet.keys());
   const entityMatch = findMatchingSheet(component.name, entitySheets, aiContextSheets);
-  const entityRows = entityMatch ? (entityRowsBySheet.get(entityMatch) || []) : [];
+  let entityRows = entityMatch ? (entityRowsBySheet.get(entityMatch) || []) : [];
+
+  // OB-157: Semantic metric matching fallback — when name matching fails,
+  // find the sheet whose data columns best overlap the component's expected metrics.
+  // Korean Test: uses inferSemanticType (pattern-based), not field names.
+  if (entityRows.length === 0 && entitySheets.length > 0) {
+    const expectedTypes = getExpectedMetricNames(component)
+      .map(n => inferSemanticType(n))
+      .filter(t => t !== 'unknown');
+    if (expectedTypes.length > 0) {
+      let bestSheet: string | null = null;
+      let bestOverlap = 0;
+      for (const sheetName of entitySheets) {
+        const rows = entityRowsBySheet.get(sheetName) || [];
+        if (rows.length === 0) continue;
+        const rd = (rows[0].row_data && typeof rows[0].row_data === 'object' && !Array.isArray(rows[0].row_data))
+          ? rows[0].row_data as Record<string, unknown> : {};
+        const sheetTypes = new Set(
+          Object.keys(rd)
+            .filter(k => !k.startsWith('_'))
+            .map(k => inferSemanticType(k))
+            .filter(t => t !== 'unknown')
+        );
+        const overlap = expectedTypes.filter(t => sheetTypes.has(t)).length;
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          bestSheet = sheetName;
+        }
+      }
+      if (bestSheet) {
+        entityRows = entityRowsBySheet.get(bestSheet) || [];
+      }
+    }
+  }
 
   // Step 2: Match store-level sheet for this component
   let storeMatchRows: Array<{ row_data: Json }> = [];
@@ -636,6 +669,37 @@ export function buildMetricsForComponent(
     const storeSheets = Array.from(storeDataBySheet.keys());
     const storeMatch = findMatchingSheet(component.name, storeSheets, aiContextSheets);
     storeMatchRows = storeMatch ? (storeDataBySheet.get(storeMatch) || []) : [];
+
+    // OB-157: Same semantic fallback for store data
+    if (storeMatchRows.length === 0 && storeSheets.length > 0) {
+      const expectedTypes = getExpectedMetricNames(component)
+        .map(n => inferSemanticType(n))
+        .filter(t => t !== 'unknown');
+      if (expectedTypes.length > 0) {
+        let bestSheet: string | null = null;
+        let bestOverlap = 0;
+        for (const sheetName of storeSheets) {
+          const rows = storeDataBySheet.get(sheetName) || [];
+          if (rows.length === 0) continue;
+          const rd = (rows[0].row_data && typeof rows[0].row_data === 'object' && !Array.isArray(rows[0].row_data))
+            ? rows[0].row_data as Record<string, unknown> : {};
+          const sheetTypes = new Set(
+            Object.keys(rd)
+              .filter(k => !k.startsWith('_'))
+              .map(k => inferSemanticType(k))
+              .filter(t => t !== 'unknown')
+          );
+          const overlap = expectedTypes.filter(t => sheetTypes.has(t)).length;
+          if (overlap > bestOverlap) {
+            bestOverlap = overlap;
+            bestSheet = sheetName;
+          }
+        }
+        if (bestSheet) {
+          storeMatchRows = storeDataBySheet.get(bestSheet) || [];
+        }
+      }
+    }
   }
 
   // Step 3: Build per-sheet store metrics (NOT aggregated across sheets).
