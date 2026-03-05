@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // HF-086: Resolve profile ID — auto-creates VL Admin profile if needed
+    // HF-089: Resolve profile ID — falls back to VL Admin platform profile
     const profileId = await resolveProfileId(supabase, authUser, tenantId);
 
     // Verify tenant exists

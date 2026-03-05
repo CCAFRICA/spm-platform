@@ -1,17 +1,14 @@
 /**
- * OB-151: Resolve profile ID for FK-constrained columns.
+ * OB-151 / HF-089: Resolve profile ID for FK-constrained columns.
  *
  * All write operations that set created_by, uploaded_by, filed_by etc.
- * must use a profiles.id value (not auth.users.id). This helper:
- *   1. Looks up existing profile by auth_user_id + tenant_id
- *   2. If not found and caller is a platform admin, uses the tenant's
- *      own admin profile (does NOT auto-create — that breaks platform auth)
- *   3. Returns the profile.id for use in FK-constrained columns
+ * must use a profiles.id value (not auth.users.id). Resolution order:
+ *   1. Profile by auth_user_id + tenant_id (user has a tenant-scoped profile)
+ *   2. Platform profile (tenant_id IS NULL) for VL Admin (Decision 89)
+ *   3. Tenant admin profile (borrow for created_by attribution)
+ *   4. Any profile in tenant (last resort)
  *
- * HF-086 originally auto-created profiles for VL Admin in each tenant.
- * OB-151 rewrites to Option B: borrow tenant admin's profile for created_by.
- * This avoids creating extra profiles that break .maybeSingle() queries
- * in the observatory API and auth context.
+ * Does NOT auto-create profiles (Decision 90).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -36,7 +33,22 @@ export async function resolveProfileId(
 
   if (existing) return existing.id;
 
-  // 2. Check if caller is a platform admin (has vl_admin profile in ANY tenant)
+  // 2. HF-089: Fall back to VL Admin platform profile (tenant_id IS NULL).
+  // VL Admin operates inside tenants via Decision 89 but has no tenant-scoped
+  // profile (Decision 90). Use their platform profile for created_by.
+  const { data: platformProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('auth_user_id', authUser.id)
+    .is('tenant_id', null)
+    .maybeSingle();
+
+  if (platformProfile) {
+    console.log(`[resolveProfileId] Using platform profile ${platformProfile.id} for user ${authUser.id} in tenant ${tenantId}`);
+    return platformProfile.id;
+  }
+
+  // 3. Check if caller is a platform admin (has vl_admin profile in ANY tenant)
   const { data: adminProfiles } = await supabase
     .from('profiles')
     .select('id, role')
@@ -49,19 +61,16 @@ export async function resolveProfileId(
     || authUser.email?.endsWith('@vialuce.ai');
 
   if (!isPlatformAdmin) {
-    // Not a platform admin and no profile in tenant — should not happen
     console.warn(`[resolveProfileId] No profile for user ${authUser.id} in tenant ${tenantId}`);
     return authUser.id;
   }
 
-  // 3. OB-151 Option B: Use tenant's own admin profile for created_by.
-  // Do NOT auto-create a profile — that breaks VL Admin's platform auth
-  // (.maybeSingle() in observatory API fails with multiple profiles).
+  // 4. Use tenant's own admin profile for created_by.
   const { data: tenantAdmin } = await supabase
     .from('profiles')
     .select('id')
     .eq('tenant_id', tenantId)
-    .eq('role', 'admin')
+    .in('role', ['admin', 'tenant_admin'])
     .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -71,7 +80,7 @@ export async function resolveProfileId(
     return tenantAdmin.id;
   }
 
-  // 4. Last resort: no admin profile in tenant either. Use any profile in tenant.
+  // 5. Last resort: any profile in tenant.
   const { data: anyProfile } = await supabase
     .from('profiles')
     .select('id')
@@ -85,7 +94,6 @@ export async function resolveProfileId(
     return anyProfile.id;
   }
 
-  // No profiles at all in tenant — this tenant has no users. Should not happen.
   console.error(`[resolveProfileId] No profiles exist in tenant ${tenantId}`);
   throw new Error(`No profiles exist in tenant ${tenantId} — cannot resolve created_by`);
 }
