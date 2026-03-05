@@ -38,6 +38,10 @@ function detectPersonNameColumn(values: unknown[], distinctCount: number): boole
   const numericLooking = nonNull.filter(v => !isNaN(Number(v.replace(/[\s,]/g, '')))).length;
   if (numericLooking / nonNull.length > 0.20) return false;
 
+  // Person names don't contain digits ("Hub CDMX 1" is a location, not a person)
+  const containsDigits = nonNull.filter(v => /\d/.test(v)).length;
+  if (containsDigits / nonNull.length > 0.20) return false;
+
   return true;
 }
 
