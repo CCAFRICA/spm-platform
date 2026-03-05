@@ -40,7 +40,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   // ────────────────────────────────────────────────────────
   // ENTITY: "One row per unique individual with categorical attributes"
   // ────────────────────────────────────────────────────────
-  const hasLowRepeat = structure.identifierRepeatRatio > 0 && structure.identifierRepeatRatio <= 1.3;
+  const hasLowRepeat = structure.identifierRepeatRatio > 0 && structure.identifierRepeatRatio <= 1.5;
   const isCategoricalHeavy = structure.categoricalFieldRatio > 0.25;
   const hasId = patterns.hasEntityIdentifier;
   const hasName = patterns.hasStructuralNameColumn;

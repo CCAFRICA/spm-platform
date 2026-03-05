@@ -19,28 +19,43 @@ const RATE_SIGNALS = ['rate', '%', 'percentage', 'tasa', '비율', 'percent', 'r
 
 // OB-158: Structural person name detection (from values, not headers)
 // Korean Test: identifies person-name-like columns by value structure alone
-function detectPersonNameColumn(values: unknown[], distinctCount: number): boolean {
+function detectPersonNameColumn(values: unknown[], distinctCount: number, tabName?: string, colName?: string): boolean {
   const nonNull = values.filter(v => v != null && String(v).trim() !== '').map(v => String(v).trim());
   if (nonNull.length < 5) return false;
 
   // At least 50% of values contain a space (multi-word names)
   const multiWord = nonNull.filter(v => v.includes(' ')).length;
-  if (multiWord / nonNull.length < 0.50) return false;
+  const multiWordRatio = multiWord / nonNull.length;
+  if (multiWordRatio < 0.50) return false;
 
   // At least 3 distinct values (eliminates constants, but allows transaction-style repeats)
   if (distinctCount < 3) return false;
 
   // Average word count >= 1.8 (person names are typically 2-3 words)
   const totalWords = nonNull.reduce((sum, v) => sum + v.split(/\s+/).length, 0);
-  if (totalWords / nonNull.length < 1.8) return false;
+  const avgWordCount = totalWords / nonNull.length;
+  if (avgWordCount < 1.8) return false;
 
   // Not numeric-looking
   const numericLooking = nonNull.filter(v => !isNaN(Number(v.replace(/[\s,]/g, '')))).length;
-  if (numericLooking / nonNull.length > 0.20) return false;
+  const numericRatio = numericLooking / nonNull.length;
+  if (numericRatio > 0.20) return false;
 
   // Person names don't contain digits ("Hub CDMX 1" is a location, not a person)
   const containsDigits = nonNull.filter(v => /\d/.test(v)).length;
-  if (containsDigits / nonNull.length > 0.20) return false;
+  const digitRatio = containsDigits / nonNull.length;
+
+  console.log('[SCI PersonName]', tabName, colName, {
+    sampleValues: nonNull.slice(0, 5),
+    count: nonNull.length,
+    multiWordRatio: multiWordRatio.toFixed(2),
+    avgWordCount: avgWordCount.toFixed(2),
+    numericRatio: numericRatio.toFixed(2),
+    digitRatio: digitRatio.toFixed(2),
+    willPass: digitRatio <= 0.20,
+  });
+
+  if (digitRatio > 0.20) return false;
 
   return true;
 }
@@ -244,7 +259,7 @@ export function generateContentProfile(
     // OB-158: Structural person name detection
     const isPersonName = dataType === 'text'
       && !headerContains(col, ID_SIGNALS)
-      && detectPersonNameColumn(values, distinctCount);
+      && detectPersonNameColumn(values, distinctCount, tabName, col);
 
     return {
       fieldName: col,
@@ -274,6 +289,13 @@ export function generateContentProfile(
   );
 
   // HF-091: Detect period marker columns (year + month integers) as temporal data
+  for (const f of fields) {
+    const isYearCandidate = f.dataType === 'integer' && f.distribution.min != null && f.distribution.min >= 2000 && f.distribution.max != null && f.distribution.max <= 2040;
+    const isMonthCandidate = f.dataType === 'integer' && f.distribution.min != null && f.distribution.min >= 1 && f.distribution.max != null && f.distribution.max <= 12 && f.distinctCount <= 12;
+    if (isYearCandidate || isMonthCandidate || f.fieldName.toLowerCase().includes('mes') || f.fieldName.toLowerCase().includes('año') || f.fieldName.toLowerCase().includes('ano') || f.fieldName.toLowerCase().includes('year') || f.fieldName.toLowerCase().includes('month')) {
+      console.log('[SCI PeriodCheck]', tabName, f.fieldName, { dataType: f.dataType, min: f.distribution.min, max: f.distribution.max, distinctCount: f.distinctCount, isYearCandidate, isMonthCandidate });
+    }
+  }
   const hasYearColumn = fields.some(f =>
     f.dataType === 'integer' && f.distribution.min != null &&
     f.distribution.min >= 2000 && f.distribution.max != null && f.distribution.max <= 2040
@@ -284,6 +306,7 @@ export function generateContentProfile(
     f.distinctCount <= 12
   );
   const hasPeriodMarkers = hasYearColumn && hasMonthColumn;
+  console.log('[SCI PeriodResult]', tabName, { hasYearColumn, hasMonthColumn, hasPeriodMarkers });
 
   const hasDateColumn = fields.some(f => f.dataType === 'date' || f.nameSignals.containsDate) || hasPeriodMarkers;
   const hasCurrencyColumns = fields.filter(f => f.dataType === 'currency' || (f.nameSignals.containsAmount && ['decimal', 'integer', 'currency'].includes(f.dataType))).length;
