@@ -34,14 +34,20 @@ const PLAN_WEIGHTS: WeightRule[] = [
 
 const ENTITY_WEIGHTS: WeightRule[] = [
   { signal: 'has_entity_id', weight: 0.25, test: p => p.patterns.hasEntityIdentifier, evidence: () => 'entity identifier column present' },
-  { signal: 'has_name_field', weight: 0.20, test: p => p.fields.some(f => f.nameSignals.containsName), evidence: () => 'name field detected' },
+  { signal: 'has_name_field', weight: 0.20, test: p => p.fields.some(f => f.nameSignals.containsName || f.nameSignals.looksLikePersonName), evidence: () => 'name field detected' },
   { signal: 'moderate_rows', weight: 0.15, test: p => p.patterns.rowCountCategory === 'moderate', evidence: p => `${p.structure.rowCount} rows (moderate)` },
   { signal: 'categorical_attributes', weight: 0.10, test: p => p.fields.filter(f => f.dataType === 'text' && f.distinctCount > 0 && f.distinctCount < 20).length >= 2, evidence: () => '2+ categorical text fields' },
   { signal: 'has_license_field', weight: 0.10, test: p => p.fields.some(f => { const l = f.fieldName.toLowerCase(); return l.includes('license') || l.includes('licencia') || l.includes('product'); }), evidence: () => 'license/product field detected' },
   { signal: 'no_date', weight: 0.05, test: p => !p.patterns.hasDateColumn, evidence: () => 'no date column' },
+  // OB-158: Low repeat ratio — each ID appears ~once (roster pattern)
+  { signal: 'low_identifier_repeat', weight: 0.15, test: p => p.patterns.identifierRepeatRatio > 0 && p.patterns.identifierRepeatRatio <= 1.5, evidence: p => `ID repeat ratio ${p.patterns.identifierRepeatRatio.toFixed(1)} (one row per entity)` },
   { signal: 'high_currency', weight: -0.10, test: p => p.patterns.hasCurrencyColumns > 2, evidence: p => `${p.patterns.hasCurrencyColumns} currency columns (>2)` },
   { signal: 'transactional_rows', weight: -0.15, test: p => p.patterns.rowCountCategory === 'transactional', evidence: p => `${p.structure.rowCount} rows (transactional)` },
   { signal: 'auto_generated_headers', weight: -0.20, test: p => p.structure.headerQuality === 'auto_generated', evidence: () => 'auto-generated headers' },
+  // OB-158: High repeat ratio — same IDs repeat many times (NOT a roster)
+  { signal: 'high_identifier_repeat', weight: -0.20, test: p => p.patterns.identifierRepeatRatio > 3.0, evidence: p => `ID repeat ratio ${p.patterns.identifierRepeatRatio.toFixed(1)} (repeating IDs — not a roster)` },
+  // OB-158: High numeric ratio — mostly numeric columns (transaction/target pattern, not entity)
+  { signal: 'high_numeric_ratio', weight: -0.10, test: p => p.patterns.numericFieldRatio > 0.50, evidence: p => `${(p.patterns.numericFieldRatio * 100).toFixed(0)}% numeric fields (>50%)` },
 ];
 
 const TARGET_WEIGHTS: WeightRule[] = [
@@ -64,6 +70,10 @@ const TRANSACTION_WEIGHTS: WeightRule[] = [
   { signal: 'transactional_rows', weight: 0.20, test: p => p.patterns.rowCountCategory === 'transactional', evidence: p => `${p.structure.rowCount} rows (transactional)` },
   { signal: 'moderate_rows', weight: 0.05, test: p => p.patterns.rowCountCategory === 'moderate', evidence: p => `${p.structure.rowCount} rows (moderate)` },
   { signal: 'clean_headers', weight: 0.05, test: p => p.structure.headerQuality === 'clean', evidence: () => 'clean headers' },
+  // OB-158: High repeat ratio — same entity IDs repeat (transactional pattern)
+  { signal: 'high_identifier_repeat', weight: 0.20, test: p => p.patterns.identifierRepeatRatio > 3.0, evidence: p => `ID repeat ratio ${p.patterns.identifierRepeatRatio.toFixed(1)} (repeating IDs)` },
+  // OB-158: High numeric ratio — mostly numeric columns (amounts, rates, counts)
+  { signal: 'high_numeric_ratio', weight: 0.15, test: p => p.patterns.numericFieldRatio > 0.50, evidence: p => `${(p.patterns.numericFieldRatio * 100).toFixed(0)}% numeric fields (>50%)` },
   { signal: 'no_date', weight: -0.25, test: p => !p.patterns.hasDateColumn, evidence: () => 'no date column' },
   { signal: 'reference_rows', weight: -0.10, test: p => p.patterns.rowCountCategory === 'reference', evidence: p => `${p.structure.rowCount} rows (reference)` },
   { signal: 'auto_generated_headers', weight: -0.15, test: p => p.structure.headerQuality === 'auto_generated', evidence: () => 'auto-generated headers' },
@@ -225,6 +235,9 @@ function assignEntityRole(field: ContentProfile['fields'][0]): { role: SemanticR
     return { role: 'entity_identifier', context: `${field.fieldName} — unique identifier`, confidence: 0.90 };
   if (field.nameSignals.containsName)
     return { role: 'entity_name', context: `${field.fieldName} — display name`, confidence: 0.85 };
+  // OB-158: Structural name detection — multi-word text column with person-name-like values
+  if (field.nameSignals.looksLikePersonName)
+    return { role: 'entity_name', context: `${field.fieldName} — display name (structural)`, confidence: 0.80 };
   const lower = field.fieldName.toLowerCase();
   if (lower.includes('license') || lower.includes('licencia') || lower.includes('product'))
     return { role: 'entity_license', context: `${field.fieldName} — access permission`, confidence: 0.80 };

@@ -33,9 +33,9 @@ const FIELD_AFFINITY_RULES: FieldAffinityRule[] = [
     test: f => f.nameSignals.containsId,
     affinities: { entity: 0.90, target: 0.70, transaction: 0.70, plan: 0.10, reference: 0.30 },
   },
-  // Name fields → entity
+  // Name fields → entity (header-based or structural)
   {
-    test: f => f.nameSignals.containsName,
+    test: f => f.nameSignals.containsName || f.nameSignals.looksLikePersonName,
     affinities: { entity: 0.90, target: 0.20, transaction: 0.10, plan: 0.10, reference: 0.50 },
   },
   // Date fields → transaction
@@ -325,6 +325,8 @@ function inferRoleForAgent(
   switch (agent) {
     case 'entity':
       if (field.nameSignals.containsName) return { role: 'entity_name', context: `${field.fieldName} — display name`, confidence: 0.85 };
+      // OB-158: Structural name detection
+      if (field.nameSignals.looksLikePersonName) return { role: 'entity_name', context: `${field.fieldName} — display name (structural)`, confidence: 0.80 };
       if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20) return { role: 'entity_attribute', context: `${field.fieldName} — categorical property`, confidence: 0.70 };
       return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };
 

@@ -91,6 +91,26 @@ function buildObservations(
     obs.push('Percentage values detected — may indicate rates or thresholds');
   }
 
+  // OB-158: Identifier repeat ratio
+  if (patterns.identifierRepeatRatio > 3.0) {
+    obs.push(`Entity IDs repeat ~${patterns.identifierRepeatRatio.toFixed(1)}x — same entities appear in multiple rows`);
+  } else if (patterns.identifierRepeatRatio > 0 && patterns.identifierRepeatRatio <= 1.5) {
+    obs.push(`Entity IDs are ~unique (repeat ratio ${patterns.identifierRepeatRatio.toFixed(1)}) — one row per entity`);
+  }
+
+  // OB-158: Numeric field ratio
+  if (patterns.numericFieldRatio > 0.50) {
+    obs.push(`${(patterns.numericFieldRatio * 100).toFixed(0)}% of fields are numeric — data-heavy layout`);
+  }
+
+  // OB-158: Structural name column
+  if (patterns.hasStructuralNameColumn) {
+    const nameField = fields.find(f => f.nameSignals.looksLikePersonName);
+    if (nameField) {
+      obs.push(`"${nameField.fieldName}" contains person names (structural detection)`);
+    }
+  }
+
   // Sparsity
   if (structure.sparsity > 0.30) {
     obs.push(`${(structure.sparsity * 100).toFixed(0)}% of cells are empty — sparse layout typical of rule definitions`);

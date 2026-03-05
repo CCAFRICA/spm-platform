@@ -16,9 +16,44 @@ const DATE_SIGNALS = ['date', 'period', 'month', 'year', 'fecha', '날짜', 'tim
 const AMOUNT_SIGNALS = ['amount', 'total', 'balance', 'monto', 'sum', '금액', 'value', 'price'];
 const RATE_SIGNALS = ['rate', '%', 'percentage', 'tasa', '비율', 'percent', 'ratio'];
 
+// OB-158: Structural person name detection (from values, not headers)
+// Korean Test: identifies person-name-like columns by value structure alone
+function detectPersonNameColumn(values: unknown[], distinctCount: number): boolean {
+  const nonNull = values.filter(v => v != null && String(v).trim() !== '').map(v => String(v).trim());
+  if (nonNull.length < 5) return false;
+
+  // At least 50% of values contain a space (multi-word names)
+  const multiWord = nonNull.filter(v => v.includes(' ')).length;
+  if (multiWord / nonNull.length < 0.50) return false;
+
+  // At least 3 distinct values (eliminates constants, but allows transaction-style repeats)
+  if (distinctCount < 3) return false;
+
+  // Average word count >= 1.8 (person names are typically 2-3 words)
+  const totalWords = nonNull.reduce((sum, v) => sum + v.split(/\s+/).length, 0);
+  if (totalWords / nonNull.length < 1.8) return false;
+
+  // Not numeric-looking
+  const numericLooking = nonNull.filter(v => !isNaN(Number(v.replace(/[\s,]/g, '')))).length;
+  if (numericLooking / nonNull.length > 0.20) return false;
+
+  return true;
+}
+
 function headerContains(header: string, signals: string[]): boolean {
   const lower = header.toLowerCase();
-  return signals.some(s => lower.includes(s));
+  return signals.some(s => {
+    const idx = lower.indexOf(s);
+    if (idx === -1) return false;
+    // OB-158: Short signals (≤3 chars) require word boundaries to avoid false positives
+    // e.g. 'no' in ID_SIGNALS must not match 'nombre' (name in Spanish)
+    if (s.length <= 3) {
+      const before = idx === 0 || /[^a-z0-9]/.test(lower[idx - 1]);
+      const after = idx + s.length >= lower.length || /[^a-z0-9]/.test(lower[idx + s.length]);
+      return before && after;
+    }
+    return true;
+  });
 }
 
 // ============================================================
@@ -30,8 +65,10 @@ const US_DATE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const EU_DATE_RE = /^\d{1,2}\.\d{1,2}\.\d{2,4}$/;
 
 // Additional date patterns: "Jan 2024", "January 2024", "2024-Q1", "Mar-24"
-const MONTH_YEAR_RE = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*[\s\-/]?\d{2,4}$/i;
-const YEAR_MONTH_RE = /^\d{4}[\s\-/](Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*$/i;
+// OB-158: Added Spanish month prefixes (Ene, Abr) for multilingual date detection
+const MONTH_PREFIXES = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Ene|Abr';
+const MONTH_YEAR_RE = new RegExp(`^(${MONTH_PREFIXES})\\w*[\\s\\-/]?\\d{2,4}$`, 'i');
+const YEAR_MONTH_RE = new RegExp(`^\\d{4}[\\s\\-/](${MONTH_PREFIXES})\\w*$`, 'i');
 const YEAR_QUARTER_RE = /^\d{4}[\s\-]?Q[1-4]$/i;
 
 function isDateValue(v: unknown): boolean {
@@ -182,6 +219,11 @@ export function generateContentProfile(
       distribution.categoricalValues = Array.from(distinctValues).slice(0, 20);
     }
 
+    // OB-158: Structural person name detection
+    const isPersonName = dataType === 'text'
+      && !headerContains(col, ID_SIGNALS)
+      && detectPersonNameColumn(values, distinctCount);
+
     return {
       fieldName: col,
       fieldIndex,
@@ -196,6 +238,7 @@ export function generateContentProfile(
         containsDate: headerContains(col, DATE_SIGNALS),
         containsAmount: headerContains(col, AMOUNT_SIGNALS),
         containsRate: headerContains(col, RATE_SIGNALS),
+        looksLikePersonName: isPersonName,
       },
     };
   });
@@ -216,6 +259,26 @@ export function generateContentProfile(
     rowCount <= 500 ? 'moderate' :
     'transactional';
 
+  // OB-158: Numeric field ratio — fraction of non-ID fields with numeric types
+  const nonIdFields = fields.filter(f => !f.nameSignals.containsId);
+  const numericTypes = ['integer', 'decimal', 'currency', 'percentage'] as const;
+  const numericFieldCount = nonIdFields.filter(f =>
+    (numericTypes as readonly string[]).includes(f.dataType)
+  ).length;
+  const numericFieldRatio = nonIdFields.length > 0
+    ? numericFieldCount / nonIdFields.length
+    : 0;
+
+  // OB-158: Identifier repeat ratio — rowCount / distinctCount of ID field
+  // 1.0 = each ID appears once (roster). >3.0 = IDs repeat (transactional).
+  const idField = fields.find(f => f.nameSignals.containsId);
+  const identifierRepeatRatio = idField && idField.distinctCount > 0
+    ? rowCount / idField.distinctCount
+    : 0;
+
+  // OB-158: Structural name column — any field with person-name-like values
+  const hasStructuralNameColumn = fields.some(f => f.nameSignals.looksLikePersonName);
+
   return {
     contentUnitId,
     sourceFile,
@@ -230,6 +293,9 @@ export function generateContentProfile(
       hasPercentageValues,
       hasDescriptiveLabels,
       rowCountCategory,
+      numericFieldRatio,
+      identifierRepeatRatio,
+      hasStructuralNameColumn,
     },
   };
 }
