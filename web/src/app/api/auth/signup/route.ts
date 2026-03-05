@@ -136,10 +136,7 @@ export async function POST(request: NextRequest) {
         email: email.toLowerCase(),
         role: 'tenant_admin',
         capabilities: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments', 'import_data'],
-        scope_level: 'tenant',
         locale: 'en',
-        status: 'active',
-        settings: {},
       });
 
     if (profileError) {

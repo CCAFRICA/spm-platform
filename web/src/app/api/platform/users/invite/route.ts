@@ -149,9 +149,6 @@ export async function POST(request: NextRequest) {
         email,
         role: template.role,
         capabilities: template.capabilities,
-        scope_level: template.scope,
-        status: 'active',
-        settings: {},
       });
 
     if (profileError) {

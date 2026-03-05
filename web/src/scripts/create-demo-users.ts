@@ -21,13 +21,13 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 
 const DEMO_USERS = [
   // Sabor Grupo Gastronomico
-  { email: 'admin@saborgrupo.mx', password: 'demo-password-VL1', displayName: 'Carlos Mendoza', role: 'admin', scopeLevel: 'tenant', tenantMatch: 'sabor', label: 'Admin', icon: 'shield' },
-  { email: 'gerente@saborgrupo.mx', password: 'demo-password-VL1', displayName: 'Ana Martinez', role: 'manager', scopeLevel: 'division', tenantMatch: 'sabor', label: 'Gerente', icon: 'users' },
-  { email: 'mesero@saborgrupo.mx', password: 'demo-password-VL1', displayName: 'Diego Ramirez', role: 'sales_rep', scopeLevel: 'individual', tenantMatch: 'sabor', label: 'Mesero', icon: 'user' },
+  { email: 'admin@saborgrupo.mx', password: 'demo-password-VL1', displayName: 'Carlos Mendoza', role: 'admin', tenantMatch: 'sabor', label: 'Admin', icon: 'shield' },
+  { email: 'gerente@saborgrupo.mx', password: 'demo-password-VL1', displayName: 'Ana Martinez', role: 'manager', tenantMatch: 'sabor', label: 'Gerente', icon: 'users' },
+  { email: 'mesero@saborgrupo.mx', password: 'demo-password-VL1', displayName: 'Diego Ramirez', role: 'sales_rep', tenantMatch: 'sabor', label: 'Mesero', icon: 'user' },
   // Caribe Financial Group
-  { email: 'admin@caribefinancial.mx', password: 'demo-password-VL1', displayName: 'Roberto Vega', role: 'admin', scopeLevel: 'tenant', tenantMatch: 'caribe', label: 'Admin', icon: 'shield' },
-  { email: 'director@caribefinancial.mx', password: 'demo-password-VL1', displayName: 'Patricia Navarro', role: 'manager', scopeLevel: 'division', tenantMatch: 'caribe', label: 'Director', icon: 'users' },
-  { email: 'oficial@caribefinancial.mx', password: 'demo-password-VL1', displayName: 'Miguel Torres', role: 'sales_rep', scopeLevel: 'individual', tenantMatch: 'caribe', label: 'Oficial', icon: 'user' },
+  { email: 'admin@caribefinancial.mx', password: 'demo-password-VL1', displayName: 'Roberto Vega', role: 'admin', tenantMatch: 'caribe', label: 'Admin', icon: 'shield' },
+  { email: 'director@caribefinancial.mx', password: 'demo-password-VL1', displayName: 'Patricia Navarro', role: 'manager', tenantMatch: 'caribe', label: 'Director', icon: 'users' },
+  { email: 'oficial@caribefinancial.mx', password: 'demo-password-VL1', displayName: 'Miguel Torres', role: 'sales_rep', tenantMatch: 'caribe', label: 'Oficial', icon: 'user' },
 ];
 
 async function main() {
@@ -79,19 +79,10 @@ async function main() {
     if (!existingProfile) {
       const { error } = await supabase.from('profiles').insert({
         auth_user_id: authUserId, tenant_id: tenant.id, email: user.email,
-        display_name: user.displayName, role: user.role, scope_level: user.scopeLevel,
+        display_name: user.displayName, role: user.role,
       });
-      if (error) {
-        // Retry without scope_level (column may not exist)
-        const { error: retry } = await supabase.from('profiles').insert({
-          auth_user_id: authUserId, tenant_id: tenant.id, email: user.email,
-          display_name: user.displayName, role: user.role,
-        });
-        if (retry) console.error(`  FAIL Profile: ${retry.message}`);
-        else console.log(`  OK Profile created (no scope_level)`);
-      } else {
-        console.log(`  OK Profile -> ${tenant.name} (${user.role})`);
-      }
+      if (error) console.error(`  FAIL Profile: ${error.message}`);
+      else console.log(`  OK Profile -> ${tenant.name} (${user.role})`);
     } else {
       console.log(`  Profile exists`);
     }

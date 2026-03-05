@@ -149,10 +149,7 @@ export async function POST(request: NextRequest) {
               email: adminEmail,
               role: 'tenant_admin',
               capabilities: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments'],
-              scope_level: 'tenant',
               locale: locale || 'en',
-              status: 'active',
-              settings: {},
             });
 
           if (profileError) {
