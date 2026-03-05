@@ -15,6 +15,7 @@ import { SCIExecution } from '@/components/sci/SCIExecution';
 import { ImportReadyState } from '@/components/sci/ImportReadyState';
 import { AlertCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { createClient } from '@/lib/supabase/client';
 import type {
   SCIProposal,
   ContentUnitProposal,
@@ -30,7 +31,7 @@ type ImportState =
   | { phase: 'upload' }
   | { phase: 'analyzing'; files: FileInfo[] }
   | { phase: 'proposal'; proposal: SCIProposal; rawData: ParsedFileData; fileName: string }
-  | { phase: 'executing'; proposal: SCIProposal; confirmedUnits: ContentUnitProposal[]; rawData: ParsedFileData }
+  | { phase: 'executing'; proposal: SCIProposal; confirmedUnits: ContentUnitProposal[]; rawData: ParsedFileData; storagePath?: string }
   | { phase: 'complete'; executionResult: SCIExecutionResult }
   | { phase: 'error'; error: string; canRetry: boolean };
 
@@ -67,6 +68,9 @@ export default function OperateImportPage() {
   const [postImportData, setPostImportData] = useState<PostImportData | null>(null);
 
   const tenantId = currentTenant?.id || '';
+  // OB-156: Track storage upload (runs in parallel with analysis)
+  const storagePathRef = useRef<string | null>(null);
+  const storageUploadPromiseRef = useRef<Promise<string | null> | null>(null);
 
   const handleError = useCallback((message: string) => {
     setErrorMessage(message);
@@ -89,7 +93,34 @@ export default function OperateImportPage() {
         rawDataRef.current = files[0].parsedData;
       }
 
+      // OB-156: Upload raw file to Supabase Storage in parallel with analysis.
+      // This eliminates AP-1 (row data in HTTP bodies) by having the server
+      // download the file directly from Storage during execution.
       const firstFile = files[0];
+      const isSpreadsheet = firstFile && !firstFile.parsedData.documentBase64;
+      if (isSpreadsheet && firstFile.rawFile) {
+        storageUploadPromiseRef.current = (async () => {
+          try {
+            const supabase = createClient();
+            const timestamp = Date.now();
+            const sanitized = firstFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const path = `${tenantId}/${timestamp}_${sanitized}`;
+            const { error: uploadErr } = await supabase.storage
+              .from('ingestion-raw')
+              .upload(path, firstFile.rawFile, { cacheControl: '3600', upsert: false });
+            if (uploadErr) {
+              console.error('[OB-156] Storage upload failed:', uploadErr.message);
+              return null;
+            }
+            storagePathRef.current = path;
+            console.log(`[OB-156] File uploaded to Storage: ${path}`);
+            return path;
+          } catch (err) {
+            console.error('[OB-156] Storage upload error:', err);
+            return null;
+          }
+        })();
+      }
       const isDocument = !!firstFile?.parsedData.documentBase64;
 
       let proposal: SCIProposal;
@@ -154,14 +185,22 @@ export default function OperateImportPage() {
 
   // ── Proposal → Executing ──
 
-  const handleConfirmAll = useCallback((confirmedUnits: ContentUnitProposal[]) => {
+  const handleConfirmAll = useCallback(async (confirmedUnits: ContentUnitProposal[]) => {
     if (state.phase !== 'proposal') return;
+
+    // OB-156: Wait for storage upload to complete (should already be done by now)
+    let storagePath: string | undefined;
+    if (storageUploadPromiseRef.current) {
+      const result = await storageUploadPromiseRef.current;
+      storagePath = result || undefined;
+    }
 
     setState({
       phase: 'executing',
       proposal: state.proposal,
       confirmedUnits,
       rawData: state.rawData,
+      storagePath,
     });
   }, [state]);
 
@@ -223,18 +262,24 @@ export default function OperateImportPage() {
 
   const handleCancel = useCallback(() => {
     rawDataRef.current = null;
+    storagePathRef.current = null;
+    storageUploadPromiseRef.current = null;
     setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
 
   const handleUploadMore = useCallback(() => {
     rawDataRef.current = null;
+    storagePathRef.current = null;
+    storageUploadPromiseRef.current = null;
     setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
 
   const handleRetry = useCallback(() => {
     rawDataRef.current = null;
+    storagePathRef.current = null;
+    storageUploadPromiseRef.current = null;
     setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
@@ -315,6 +360,7 @@ export default function OperateImportPage() {
               confirmedUnits={state.confirmedUnits}
               tenantId={tenantId}
               rawData={state.rawData}
+              storagePath={state.storagePath}
               onComplete={handleExecutionComplete}
               onUploadMore={handleUploadMore}
             />
