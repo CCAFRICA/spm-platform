@@ -163,10 +163,12 @@ export function generateContentProfile(
   tabIndex: number,
   sourceFile: string,
   columns: string[],
-  rows: Record<string, unknown>[]
+  rows: Record<string, unknown>[],
+  // HF-091: totalRowCount from sheet metadata — use for patterns that depend on full data size
+  totalRowCount?: number,
 ): ContentProfile {
   const contentUnitId = `${sourceFile}::${tabName}::${tabIndex}`;
-  const rowCount = rows.length;
+  const rowCount = totalRowCount || rows.length;
   const columnCount = columns.length;
 
   // Sparsity: percentage of null/empty cells
@@ -247,7 +249,20 @@ export function generateContentProfile(
   const hasEntityIdentifier = fields.some(f =>
     f.nameSignals.containsId || (f.dataType === 'integer' && f.distribution.isSequential)
   );
-  const hasDateColumn = fields.some(f => f.dataType === 'date' || f.nameSignals.containsDate);
+  // HF-091: Detect period marker columns (year + month integers) as temporal data
+  // Korean Test: purely structural — detects integers in year range [2000-2030] and month range [1-12]
+  const hasYearColumn = fields.some(f =>
+    f.dataType === 'integer' && f.distribution.min != null &&
+    f.distribution.min >= 2000 && f.distribution.max != null && f.distribution.max <= 2040
+  );
+  const hasMonthColumn = fields.some(f =>
+    f.dataType === 'integer' && f.distribution.min != null &&
+    f.distribution.min >= 1 && f.distribution.max != null && f.distribution.max <= 12 &&
+    f.distinctCount <= 12
+  );
+  const hasPeriodMarkers = hasYearColumn && hasMonthColumn;
+
+  const hasDateColumn = fields.some(f => f.dataType === 'date' || f.nameSignals.containsDate) || hasPeriodMarkers;
   const hasCurrencyColumns = fields.filter(f => f.dataType === 'currency' || (f.nameSignals.containsAmount && ['decimal', 'integer', 'currency'].includes(f.dataType))).length;
   const hasPercentageValues = fields.some(f => f.dataType === 'percentage' || f.nameSignals.containsRate);
   const hasDescriptiveLabels = fields.some(f =>
