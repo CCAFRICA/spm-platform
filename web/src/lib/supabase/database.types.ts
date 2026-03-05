@@ -150,10 +150,6 @@ export interface Database {
           capabilities: Capability[];
           locale: string | null;
           avatar_url: string | null;
-          scope_override: string | null;
-          scope_level: string | null;
-          settings: Json;
-          status: string;
           created_at: string;
           updated_at: string;
         };
@@ -167,10 +163,6 @@ export interface Database {
           capabilities?: Capability[];
           locale?: string | null;
           avatar_url?: string | null;
-          scope_override?: string | null;
-          scope_level?: string | null;
-          settings?: Json;
-          status?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -181,10 +173,6 @@ export interface Database {
           capabilities?: Capability[];
           locale?: string | null;
           avatar_url?: string | null;
-          scope_override?: string | null;
-          scope_level?: string | null;
-          settings?: Json;
-          status?: string;
           updated_at?: string;
         };
         Relationships: [];

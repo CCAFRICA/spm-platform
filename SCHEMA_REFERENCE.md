@@ -104,10 +104,12 @@
 | cadence_config | jsonb |
 | outcome_config | jsonb |
 | metadata | jsonb |
-| created_by | uuid FK → profiles.id |
-| approved_by | uuid FK → profiles.id |
+| created_by | uuid (auth user ID — no FK) |
+| approved_by | uuid (auth user ID — no FK) |
 | created_at | timestamptz |
 | updated_at | timestamptz |
+
+**NOTE (HF-090): `created_by` and `approved_by` store auth.uid() directly (JWT-verified). FK constraints dropped — these are NOT profile IDs.**
 
 ## rule_set_assignments
 | Column | Type |
@@ -139,7 +141,7 @@
 | config | jsonb |
 | started_at | timestamptz |
 | completed_at | timestamptz |
-| created_by | uuid FK → profiles.id |
+| created_by | uuid (auth user ID — no FK) |
 | created_at | timestamptz |
 | updated_at | timestamptz |
 
@@ -171,7 +173,7 @@
 | row_count | integer |
 | status | text |
 | error_summary | jsonb |
-| uploaded_by | uuid FK → profiles.id |
+| uploaded_by | uuid (auth user ID — no FK) |
 | created_at | timestamptz |
 | completed_at | timestamptz |
 
@@ -230,8 +232,8 @@
 | resolution | text |
 | amount_disputed | numeric(15,2) |
 | amount_resolved | numeric(15,2) |
-| filed_by | uuid FK → profiles.id |
-| resolved_by | uuid FK → profiles.id |
+| filed_by | uuid (auth user ID — no FK) |
+| resolved_by | uuid (auth user ID — no FK) |
 | created_at | timestamptz |
 | updated_at | timestamptz |
 | resolved_at | timestamptz |
@@ -247,8 +249,8 @@
 | period_id | uuid FK → periods.id |
 | request_type | text NOT NULL DEFAULT 'calculation_approval' |
 | status | text (CHECK: pending, approved, rejected, recalled) |
-| requested_by | uuid FK → profiles.id |
-| decided_by | uuid FK → profiles.id |
+| requested_by | uuid (auth user ID — no FK) |
+| decided_by | uuid (auth user ID — no FK) |
 | decision_notes | text |
 | requested_at | timestamptz |
 | decided_at | timestamptz |
@@ -262,7 +264,7 @@
 |--------|------|
 | id | uuid PK |
 | tenant_id | uuid FK → tenants.id |
-| profile_id | uuid FK → profiles.id |
+| profile_id | uuid (auth user ID — no FK) |
 | action | text NOT NULL |
 | resource_type | text NOT NULL |
 | resource_id | uuid |

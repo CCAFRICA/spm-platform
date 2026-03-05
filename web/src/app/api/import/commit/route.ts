@@ -11,7 +11,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { resolveProfileId } from '@/lib/auth/resolve-profile';
 import type { Json } from '@/lib/supabase/database.types';
 import * as XLSX from 'xlsx';
 import { getAIService } from '@/lib/ai';
@@ -109,11 +108,8 @@ export async function POST(request: NextRequest) {
       supabase = authClient;
     }
 
-    // HF-086: Resolve profile ID — auto-creates VL Admin profile if needed
-    let resolvedUserId = userId;
-    if (userId && userId !== 'system') {
-      resolvedUserId = await resolveProfileId(supabase, { id: userId, email: user.email || undefined }, tenantId);
-    }
+    // HF-090: Use auth.uid() directly for uploaded_by attribution
+    const resolvedUserId = userId;
 
     // ── Step 3: Download file from Supabase Storage ──
     console.log(`[ImportCommit] Downloading file from storage: ${storagePath}`);
