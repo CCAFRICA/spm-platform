@@ -696,6 +696,10 @@ async function postCommitConstruction(
 
   if (!entityIdField) return;
 
+  // OB-157: Entity creation removed from postCommitConstruction.
+  // Only entity-classified content units create entities (via processEntityUnit).
+  // Target/transaction units bind to existing entities only.
+
   // Collect unique identifiers
   const allIdentifiers = new Set<string>();
   for (const row of rows) {
@@ -707,39 +711,7 @@ async function postCommitConstruction(
 
   if (allIdentifiers.size === 0) return;
 
-  // Find existing entities
-  const existing = new Set<string>();
   const allIds = Array.from(allIdentifiers);
-  for (let i = 0; i < allIds.length; i += BATCH) {
-    const slice = allIds.slice(i, i + BATCH);
-    const { data } = await supabase
-      .from('entities')
-      .select('external_id')
-      .eq('tenant_id', tenantId)
-      .in('external_id', slice);
-    if (data) {
-      for (const e of data) {
-        if (e.external_id) existing.add(e.external_id);
-      }
-    }
-  }
-
-  // Create missing entities
-  const missing = allIds.filter(id => !existing.has(id));
-  if (missing.length > 0) {
-    for (let i = 0; i < missing.length; i += BATCH) {
-      const slice = missing.slice(i, i + BATCH);
-      const entities = slice.map(extId => ({
-        tenant_id: tenantId,
-        external_id: extId,
-        display_name: extId,
-        entity_type: 'individual',
-        status: 'active',
-      }));
-      await supabase.from('entities').insert(entities);
-    }
-    console.log(`[SCI Bulk] Created ${missing.length} new entities (post-commit)`);
-  }
 
   // Create rule_set_assignments for unassigned entities
   const { data: ruleSets } = await supabase
