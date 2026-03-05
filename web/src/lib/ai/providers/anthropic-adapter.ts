@@ -589,27 +589,50 @@ export class AnthropicAdapter implements AIProviderAdapter {
       messageContent = this.buildUserPrompt(request);
     }
 
-    const response = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': ANTHROPIC_VERSION,
-        'anthropic-beta': 'pdfs-2024-09-25',
-      },
-      body: JSON.stringify({
-        model: this.config.model || 'claude-sonnet-4-20250514',
-        max_tokens: request.options?.maxTokens || 8192,
-        temperature: request.options?.temperature ?? 0.1,
-        system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: messageContent,
-          },
-        ],
-      }),
+    // OB-155: Retry with backoff — fetch() can fail transiently in Next.js dev server
+    const MAX_RETRIES = 3;
+    const requestBody = JSON.stringify({
+      model: this.config.model || 'claude-sonnet-4-20250514',
+      max_tokens: request.options?.maxTokens || 8192,
+      temperature: request.options?.temperature ?? 0.1,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: messageContent,
+        },
+      ],
     });
+    const requestHeaders = {
+      'Content-Type': 'application/json',
+      'x-api-key': this.apiKey,
+      'anthropic-version': ANTHROPIC_VERSION,
+      'anthropic-beta': 'pdfs-2024-09-25',
+    };
+
+    let response: Response | undefined;
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        response = await fetch(ANTHROPIC_API_URL, {
+          method: 'POST',
+          headers: requestHeaders,
+          body: requestBody,
+        });
+        break; // Success — exit retry loop
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        console.warn(`[Anthropic] Fetch attempt ${attempt}/${MAX_RETRIES} failed: ${lastError.message}`);
+        if (attempt < MAX_RETRIES) {
+          const delay = attempt * 2000; // 2s, 4s backoff
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    if (!response) {
+      throw new Error(`Anthropic API fetch failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

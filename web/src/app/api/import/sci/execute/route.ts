@@ -1033,12 +1033,18 @@ async function executePlanPipeline(
     };
   }
 
-  // 2. Save as rule_set (same logic as POST /api/plan/import)
+  // 2. OB-155: Bridge AI output to engine-compatible format
+  // The AI produces calculationType/calculationIntent; the engine needs componentType/tierConfig/matrixConfig etc.
+  const { bridgeAIToEngineFormat } = await import('@/lib/compensation/ai-plan-interpreter');
+  const engineFormat = bridgeAIToEngineFormat(
+    interpretation as Record<string, unknown>,
+    tenantId,
+    userId,
+  );
+
   const ruleSetId = crypto.randomUUID();
-  // Use AI-extracted name, fall back to filename without extension
   const filenameFallback = unit.contentUnitId.split('::')[0]?.replace(/\.[^.]+$/, '') || '';
-  const planName = (interpretation.ruleSetName as string) || filenameFallback || 'Untitled Plan';
-  const components = interpretation.components || [];
+  const planName = engineFormat.name || filenameFallback || 'Untitled Plan';
 
   const { error: upsertError } = await supabase
     .from('rule_sets')
@@ -1046,14 +1052,14 @@ async function executePlanPipeline(
       id: ruleSetId,
       tenant_id: tenantId,
       name: planName,
-      description: (interpretation.description as string) || '',
+      description: engineFormat.description || '',
       status: 'draft' as const,
       version: 1,
       population_config: {
         eligible_roles: [],
       },
-      input_bindings: {},
-      components: { components } as unknown as Json,
+      input_bindings: engineFormat.inputBindings as unknown as Json,
+      components: engineFormat.components as unknown as Json,
       cadence_config: {},
       outcome_config: {},
       metadata: {
@@ -1077,8 +1083,9 @@ async function executePlanPipeline(
     };
   }
 
-  const componentCount = Array.isArray(components) ? components.length : 0;
-  console.log(`[SCI Execute] Plan saved: ${planName} (${ruleSetId}), ${componentCount} components`);
+  const variants = engineFormat.components.variants || [];
+  const componentCount = variants.reduce((sum: number, v: { components?: unknown[] }) => sum + (v.components?.length || 0), 0);
+  console.log(`[SCI Execute] Plan saved: ${planName} (${ruleSetId}), ${variants.length} variants, ${componentCount} components`);
 
   return {
     contentUnitId: unit.contentUnitId,

@@ -199,6 +199,13 @@ export class AIPlainInterpreter {
   }
 
   /**
+   * Public wrapper for validateAndNormalize (used by bridgeAIToEngineFormat)
+   */
+  public validateAndNormalizePublic(parsed: Record<string, unknown>): PlanInterpretation {
+    return this.validateAndNormalize(parsed);
+  }
+
+  /**
    * Validate and normalize the AI response
    */
   private validateAndNormalize(parsed: Record<string, unknown>): PlanInterpretation {
@@ -640,6 +647,45 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
         },
       };
   }
+}
+
+// ============================================
+// OB-155: PUBLIC BRIDGE — raw AI response → engine-compatible format
+// ============================================
+
+/**
+ * Convert raw AI interpretation response to engine-compatible components format.
+ * Used by SCI execute route to bridge the gap between AI output and engine input.
+ *
+ * @param rawResult - The raw `response.result` from `aiService.interpretPlan()`
+ * @param tenantId - Tenant ID for the rule set
+ * @param userId - User ID for created_by
+ * @returns Object with `components` (variants format) and `ruleSetConfig` for the engine
+ */
+export function bridgeAIToEngineFormat(
+  rawResult: Record<string, unknown>,
+  tenantId: string,
+  userId: string,
+): {
+  name: string;
+  description: string;
+  components: { variants: Array<{ variantId: string; variantName: string; description?: string; components: PlanComponent[] }> };
+  inputBindings: Record<string, unknown>;
+} {
+  // Step 1: Normalize the raw AI output through the same pipeline as the plan import page
+  const interpreter = new AIPlainInterpreter();
+  const normalized = interpreter.validateAndNormalizePublic(rawResult);
+
+  // Step 2: Convert to engine format via interpretationToPlanConfig
+  const config = interpretationToPlanConfig(normalized, tenantId, userId);
+  const additiveLookup = config.configuration as AdditiveLookupConfig;
+
+  return {
+    name: normalized.ruleSetName,
+    description: normalized.description,
+    components: { variants: additiveLookup.variants },
+    inputBindings: {},
+  };
 }
 
 // ============================================
