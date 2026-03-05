@@ -17,9 +17,11 @@ export interface ContentProfile {
     columnCount: number;
     sparsity: number;               // 0-1, percentage of null/empty cells
     headerQuality: 'clean' | 'auto_generated' | 'missing';
-    // clean = human-readable headers
-    // auto_generated = __EMPTY pattern (SheetJS default)
-    // missing = no discernible header row
+    // OB-159: Structural ratios computed at profile time
+    numericFieldRatio: number;        // fraction of non-ID fields with numeric types (0-1)
+    categoricalFieldRatio: number;    // fraction of columns that are low-cardinality text (<20 distinct)
+    categoricalFieldCount: number;    // count of categorical text columns
+    identifierRepeatRatio: number;    // totalRowCount / uniqueIdentifierValues (1.0 = roster, >3.0 = transactional)
   };
 
   fields: FieldProfile[];
@@ -27,17 +29,18 @@ export interface ContentProfile {
   patterns: {
     hasEntityIdentifier: boolean;
     hasDateColumn: boolean;
+    hasPeriodMarkers: boolean;        // HF-091: integer year + month columns
     hasCurrencyColumns: number;       // count
     hasPercentageValues: boolean;
     hasDescriptiveLabels: boolean;
+    hasStructuralNameColumn: boolean; // OB-158: text with multi-word values, high cardinality
     rowCountCategory: 'reference' | 'moderate' | 'transactional';
-    // reference: < 50 rows
-    // moderate: 50-500 rows
-    // transactional: 500+ rows
-    // OB-158: Structural heuristics for transaction vs entity disambiguation
-    numericFieldRatio: number;        // fraction of non-ID fields with numeric types (0-1)
-    identifierRepeatRatio: number;    // rowCount / distinctCount of ID field (1.0 = roster, >3.0 = transactional)
-    hasStructuralNameColumn: boolean; // text column with person-name-like values (multi-word, high distinct)
+    // OB-159: Volume pattern based on rows-per-entity
+    volumePattern: 'single' | 'few' | 'many' | 'unknown';
+    // single: ≤ 1.3 rows per entity (roster, one-time reference)
+    // few: 1.3 - 3.0 rows per entity (targets per period, quarterly data)
+    // many: > 3.0 rows per entity (monthly transactions, daily events)
+    // unknown: no identifier field detected
   };
 }
 

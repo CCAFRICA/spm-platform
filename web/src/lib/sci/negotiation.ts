@@ -1,6 +1,6 @@
-// Synaptic Content Ingestion — Round 2 Negotiation Engine
+// Synaptic Content Ingestion — Negotiation Engine
 // OB-134 — Spatial intelligence + field-level claims
-// Agents see each other's scores. Mixed-content tabs split by field.
+// OB-159 — Adapted for unified scoring (signatures + round 2 in agents.ts)
 // Zero domain vocabulary. Korean Test applies.
 
 import type {
@@ -19,8 +19,6 @@ import { scoreContentUnit, resolveClaimsPhase1, requiresHumanReview } from './ag
 // ============================================================
 // FIELD AFFINITY WEIGHTS
 // ============================================================
-// How strongly each signal type attracts each agent.
-// Higher = stronger affinity. Range: 0.0 - 1.0.
 
 interface FieldAffinityRule {
   test: (f: FieldProfile) => boolean;
@@ -87,7 +85,6 @@ function scoreFieldAffinity(field: FieldProfile): Record<AgentType, number> {
     }
   }
 
-  // If no rules matched, assign neutral affinities
   if (matchCount === 0) {
     affinities.plan = 0.20;
     affinities.entity = 0.20;
@@ -103,12 +100,9 @@ function computeFieldAffinities(profile: ContentProfile): FieldAffinity[] {
   return profile.fields.map(field => {
     const affinities = scoreFieldAffinity(field);
 
-    // Winner = agent with highest affinity
     const entries = Object.entries(affinities) as [AgentType, number][];
     entries.sort((a, b) => b[1] - a[1]);
     const winner = entries[0][0];
-
-    // Shared = entity_identifier fields (needed as join keys by multiple agents)
     const isShared = field.nameSignals.containsId;
 
     return {
@@ -121,45 +115,10 @@ function computeFieldAffinities(profile: ContentProfile): FieldAffinity[] {
 }
 
 // ============================================================
-// ABSENCE BOOST
-// ============================================================
-// When competing agents are weak (< 0.20), top agent gets confidence boost.
-
-const ABSENCE_BOOST = 0.10;
-const ABSENCE_THRESHOLD = 0.20;
-
-function applyAbsenceBoost(scores: AgentScore[], log: NegotiationLogEntry[]): AgentScore[] {
-  if (scores.length < 2) return scores;
-
-  const top = scores[0];
-  const others = scores.slice(1);
-  const weakCount = others.filter(s => s.confidence < ABSENCE_THRESHOLD).length;
-
-  if (weakCount >= 2) {
-    // Two or more competitors are very weak — boost top agent
-    const boosted = Math.min(1.0, top.confidence + ABSENCE_BOOST);
-    log.push({
-      stage: 'absence_boost',
-      agent: top.agent,
-      message: `${top.agent} boosted ${(top.confidence * 100).toFixed(0)}% → ${(boosted * 100).toFixed(0)}% (${weakCount} weak competitors)`,
-      data: { original: top.confidence, boosted, weakCount },
-    });
-
-    return [
-      { ...top, confidence: boosted, reasoning: top.reasoning + ` (+boost: ${weakCount} weak competitors)` },
-      ...others,
-    ];
-  }
-
-  return scores;
-}
-
-// ============================================================
 // SPLIT DETECTION
 // ============================================================
-// Determines if a tab should be split into PARTIAL claims.
 
-const SPLIT_THRESHOLD = 0.30; // Minimum field percentage for secondary agent to trigger split
+const SPLIT_THRESHOLD = 0.30;
 
 interface SplitAnalysis {
   shouldSplit: boolean;
@@ -192,7 +151,6 @@ function analyzeSplit(
   const runnerUp = round2Scores[1];
   const gap = top.confidence - runnerUp.confidence;
 
-  // Don't split if clear winner (gap > 0.25)
   if (gap > 0.25) {
     log.push({
       stage: 'split_decision',
@@ -210,36 +168,26 @@ function analyzeSplit(
     };
   }
 
-  // Count fields by winning agent
   const fieldsByAgent = new Map<AgentType, string[]>();
   const sharedFields: string[] = [];
 
   for (const fa of fieldAffinities) {
-    if (fa.isShared) {
-      sharedFields.push(fa.fieldName);
-    }
-    if (!fieldsByAgent.has(fa.winner)) {
-      fieldsByAgent.set(fa.winner, []);
-    }
+    if (fa.isShared) sharedFields.push(fa.fieldName);
+    if (!fieldsByAgent.has(fa.winner)) fieldsByAgent.set(fa.winner, []);
     fieldsByAgent.get(fa.winner)!.push(fa.fieldName);
   }
 
   const totalFields = fieldAffinities.length;
-
-  // Check if runner-up agent owns enough fields to justify a split
   const runnerUpFields = fieldsByAgent.get(runnerUp.agent) || [];
   const runnerUpRatio = runnerUpFields.length / totalFields;
 
   if (runnerUpRatio >= SPLIT_THRESHOLD) {
-    // Real mixed content — split it
     const primaryFields = fieldsByAgent.get(top.agent) || [];
-    // Secondary gets its fields + any remaining fields not claimed by primary
     const secondaryFields: string[] = [];
     for (const fa of fieldAffinities) {
       if (fa.winner === runnerUp.agent) {
         secondaryFields.push(fa.fieldName);
       } else if (fa.winner !== top.agent && !fa.isShared) {
-        // Unclaimed by primary — give to secondary
         secondaryFields.push(fa.fieldName);
       }
     }
@@ -317,7 +265,6 @@ function inferRoleForAgent(
   field: FieldProfile,
   agent: AgentType
 ): { role: SemanticBinding['semanticRole']; context: string; confidence: number } {
-  // Entity identifier is always entity_identifier regardless of agent
   if (field.nameSignals.containsId) {
     return { role: 'entity_identifier', context: `${field.fieldName} — links to entity`, confidence: 0.90 };
   }
@@ -325,7 +272,6 @@ function inferRoleForAgent(
   switch (agent) {
     case 'entity':
       if (field.nameSignals.containsName) return { role: 'entity_name', context: `${field.fieldName} — display name`, confidence: 0.85 };
-      // OB-158: Structural name detection
       if (field.nameSignals.looksLikePersonName) return { role: 'entity_name', context: `${field.fieldName} — display name (structural)`, confidence: 0.80 };
       if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20) return { role: 'entity_attribute', context: `${field.fieldName} — categorical property`, confidence: 0.70 };
       return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };
@@ -364,21 +310,17 @@ function inferRoleForAgent(
 export function negotiateRound2(profile: ContentProfile): NegotiationResult {
   const log: NegotiationLogEntry[] = [];
 
-  // Stage 1: Round 1 scores (existing)
+  // OB-159: scoreContentUnit now includes signatures + round 2 negotiation
   const round1Scores = scoreContentUnit(profile);
   log.push({
     stage: 'round1',
-    message: `Round 1: ${round1Scores.map(s => `${s.agent}=${(s.confidence * 100).toFixed(0)}%`).join(', ')}`,
+    message: `Scores: ${round1Scores.map(s => `${s.agent}=${(s.confidence * 100).toFixed(0)}%`).join(', ')}`,
     data: Object.fromEntries(round1Scores.map(s => [s.agent, s.confidence])),
   });
 
-  // Stage 2: Absence boost
-  const boostedScores = applyAbsenceBoost(round1Scores, log);
-
-  // Stage 3: Field affinity analysis
+  // Field affinity analysis
   const fieldAffinities = computeFieldAffinities(profile);
 
-  // Log field analysis
   const fieldsByWinner = new Map<AgentType, number>();
   for (const fa of fieldAffinities) {
     fieldsByWinner.set(fa.winner, (fieldsByWinner.get(fa.winner) || 0) + 1);
@@ -389,15 +331,14 @@ export function negotiateRound2(profile: ContentProfile): NegotiationResult {
     data: Object.fromEntries(fieldsByWinner),
   });
 
-  // Stage 4: Split decision
-  const splitAnalysis = analyzeSplit(fieldAffinities, boostedScores, log);
+  // Split decision
+  const splitAnalysis = analyzeSplit(fieldAffinities, round1Scores, log);
 
-  // Stage 5: Build claims
+  // Build claims
   const claims: ContentClaim[] = [];
-  let round2Scores = boostedScores;
+  const round2Scores = round1Scores;
 
   if (splitAnalysis.shouldSplit && splitAnalysis.secondaryAgent) {
-    // PARTIAL claims — two agents share the tab
     const primaryBindings = generatePartialBindings(
       profile, splitAnalysis.primaryAgent,
       splitAnalysis.primaryFields, splitAnalysis.sharedFields
@@ -407,9 +348,8 @@ export function negotiateRound2(profile: ContentProfile): NegotiationResult {
       splitAnalysis.secondaryFields, splitAnalysis.sharedFields
     );
 
-    // Find confidence for each agent from scores
-    const primaryScore = boostedScores.find(s => s.agent === splitAnalysis.primaryAgent);
-    const secondaryScore = boostedScores.find(s => s.agent === splitAnalysis.secondaryAgent);
+    const primaryScore = round1Scores.find(s => s.agent === splitAnalysis.primaryAgent);
+    const secondaryScore = round1Scores.find(s => s.agent === splitAnalysis.secondaryAgent);
 
     claims.push({
       contentUnitId: profile.contentUnitId,
@@ -438,8 +378,7 @@ export function negotiateRound2(profile: ContentProfile): NegotiationResult {
       message: `PARTIAL: ${splitAnalysis.primaryAgent} (${splitAnalysis.primaryFields.length} fields) + ${splitAnalysis.secondaryAgent} (${splitAnalysis.secondaryFields.length} fields), shared: [${splitAnalysis.sharedFields.join(', ')}]`,
     });
   } else {
-    // FULL claim — single agent wins
-    const fullClaim = resolveClaimsPhase1(profile, boostedScores);
+    const fullClaim = resolveClaimsPhase1(profile, round1Scores);
     claims.push(fullClaim);
 
     log.push({
@@ -447,18 +386,6 @@ export function negotiateRound2(profile: ContentProfile): NegotiationResult {
       message: `FULL: ${fullClaim.agent} wins at ${(fullClaim.confidence * 100).toFixed(0)}%`,
     });
   }
-
-  // Round 2 scores = boosted scores (with absence adjustment + field-awareness context)
-  round2Scores = boostedScores.map(s => {
-    const fieldCount = fieldsByWinner.get(s.agent) || 0;
-    const totalFields = fieldAffinities.length;
-    const fieldRatio = totalFields > 0 ? fieldCount / totalFields : 0;
-
-    return {
-      ...s,
-      reasoning: s.reasoning + (fieldRatio > 0 ? ` | ${fieldCount}/${totalFields} fields (${(fieldRatio * 100).toFixed(0)}%)` : ''),
-    };
-  });
 
   return {
     contentUnitId: profile.contentUnitId,
