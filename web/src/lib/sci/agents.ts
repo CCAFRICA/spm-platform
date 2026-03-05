@@ -1,15 +1,18 @@
 // Synaptic Content Ingestion — Agent Scoring Models
-// Decision 77 — OB-127
-// Four specialist agents with structural heuristic scoring.
-// Zero domain vocabulary. Korean Test applies.
+// Decision 77 — OB-127, OB-159 Unified Scoring Overhaul
+// Five specialist agents with structural heuristic scoring.
+// Korean Test: scoring uses structural properties only. Zero field-name matching.
 
 import type {
   ContentProfile, AgentType, AgentScore, AgentSignal,
   ContentClaim, SemanticBinding, SemanticRole,
 } from './sci-types';
+import { detectSignatures } from './signatures';
 
 // ============================================================
 // AGENT WEIGHT DEFINITIONS
+// OB-159: All scoring uses structural properties from ContentProfile.
+// nameSignals are used ONLY in semantic binding (observation text).
 // ============================================================
 
 interface WeightRule {
@@ -34,60 +37,55 @@ const PLAN_WEIGHTS: WeightRule[] = [
 
 const ENTITY_WEIGHTS: WeightRule[] = [
   { signal: 'has_entity_id', weight: 0.25, test: p => p.patterns.hasEntityIdentifier, evidence: () => 'entity identifier column present' },
-  { signal: 'has_name_field', weight: 0.20, test: p => p.fields.some(f => f.nameSignals.containsName || f.nameSignals.looksLikePersonName), evidence: () => 'name field detected' },
-  { signal: 'moderate_rows', weight: 0.15, test: p => p.patterns.rowCountCategory === 'moderate', evidence: p => `${p.structure.rowCount} rows (moderate)` },
-  { signal: 'categorical_attributes', weight: 0.10, test: p => p.fields.filter(f => f.dataType === 'text' && f.distinctCount > 0 && f.distinctCount < 20).length >= 2, evidence: () => '2+ categorical text fields' },
-  { signal: 'has_license_field', weight: 0.10, test: p => p.fields.some(f => { const l = f.fieldName.toLowerCase(); return l.includes('license') || l.includes('licencia') || l.includes('product'); }), evidence: () => 'license/product field detected' },
+  // OB-159: Structural name detection (Korean Test compliant — from values, not headers)
+  { signal: 'has_structural_name', weight: 0.20, test: p => p.patterns.hasStructuralNameColumn || p.fields.some(f => f.nameSignals.looksLikePersonName), evidence: () => 'structural name column detected (multi-word text values)' },
+  // OB-159: Volume pattern replaces absolute row count
+  { signal: 'single_per_entity', weight: 0.15, test: p => p.patterns.volumePattern === 'single', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (single — roster pattern)` },
+  { signal: 'categorical_attributes', weight: 0.10, test: p => p.structure.categoricalFieldCount >= 2, evidence: p => `${p.structure.categoricalFieldCount} categorical text fields` },
   { signal: 'no_date', weight: 0.05, test: p => !p.patterns.hasDateColumn, evidence: () => 'no date column' },
-  // OB-158: Low repeat ratio — each ID appears ~once (roster pattern)
-  { signal: 'low_identifier_repeat', weight: 0.15, test: p => p.patterns.identifierRepeatRatio > 0 && p.patterns.identifierRepeatRatio <= 1.5, evidence: p => `ID repeat ratio ${p.patterns.identifierRepeatRatio.toFixed(1)} (one row per entity)` },
   { signal: 'high_currency', weight: -0.10, test: p => p.patterns.hasCurrencyColumns > 2, evidence: p => `${p.patterns.hasCurrencyColumns} currency columns (>2)` },
-  { signal: 'transactional_rows', weight: -0.15, test: p => p.patterns.rowCountCategory === 'transactional', evidence: p => `${p.structure.rowCount} rows (transactional)` },
+  { signal: 'many_per_entity', weight: -0.15, test: p => p.patterns.volumePattern === 'many', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (many — not a roster)` },
   { signal: 'auto_generated_headers', weight: -0.20, test: p => p.structure.headerQuality === 'auto_generated', evidence: () => 'auto-generated headers' },
-  // OB-158: High repeat ratio — same IDs repeat many times (NOT a roster)
-  { signal: 'high_identifier_repeat', weight: -0.20, test: p => p.patterns.identifierRepeatRatio > 3.0, evidence: p => `ID repeat ratio ${p.patterns.identifierRepeatRatio.toFixed(1)} (repeating IDs — not a roster)` },
-  // OB-158: High numeric ratio — mostly numeric columns (transaction/target pattern, not entity)
-  { signal: 'high_numeric_ratio', weight: -0.10, test: p => p.patterns.numericFieldRatio > 0.50, evidence: p => `${(p.patterns.numericFieldRatio * 100).toFixed(0)}% numeric fields (>50%)` },
+  { signal: 'high_numeric_ratio', weight: -0.10, test: p => p.structure.numericFieldRatio > 0.50, evidence: p => `${(p.structure.numericFieldRatio * 100).toFixed(0)}% numeric fields (>50%)` },
 ];
 
 const TARGET_WEIGHTS: WeightRule[] = [
   { signal: 'has_entity_id', weight: 0.20, test: p => p.patterns.hasEntityIdentifier, evidence: () => 'entity identifier column present' },
-  { signal: 'has_target_field', weight: 0.25, test: p => p.fields.some(f => f.nameSignals.containsTarget), evidence: () => 'target/goal field detected' },
-  { signal: 'reference_rows', weight: 0.15, test: p => p.patterns.rowCountCategory === 'reference', evidence: p => `${p.structure.rowCount} rows (reference)` },
-  { signal: 'has_currency', weight: 0.10, test: p => p.patterns.hasCurrencyColumns > 0 && p.patterns.hasCurrencyColumns <= 3, evidence: p => `${p.patterns.hasCurrencyColumns} currency columns (1-3)` },
+  // OB-159: REMOVED containsTarget (+0.25) — Korean Test violation.
+  // Target agent now relies on structural signals: numeric fields + low repeat + no temporal.
+  { signal: 'has_numeric_fields', weight: 0.15, test: p => p.structure.numericFieldRatio > 0.30, evidence: p => `${(p.structure.numericFieldRatio * 100).toFixed(0)}% numeric fields (>30%)` },
+  { signal: 'single_or_few_per_entity', weight: 0.15, test: p => p.patterns.volumePattern === 'single' || p.patterns.volumePattern === 'few', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (${p.patterns.volumePattern})` },
   { signal: 'no_date', weight: 0.10, test: p => !p.patterns.hasDateColumn, evidence: () => 'no date column' },
+  { signal: 'has_currency', weight: 0.10, test: p => p.patterns.hasCurrencyColumns > 0 && p.patterns.hasCurrencyColumns <= 3, evidence: p => `${p.patterns.hasCurrencyColumns} currency columns (1-3)` },
   { signal: 'clean_headers', weight: 0.05, test: p => p.structure.headerQuality === 'clean', evidence: () => 'clean headers' },
   { signal: 'no_entity_id', weight: -0.25, test: p => !p.patterns.hasEntityIdentifier, evidence: () => 'no entity identifier' },
-  { signal: 'transactional_rows', weight: -0.15, test: p => p.patterns.rowCountCategory === 'transactional', evidence: p => `${p.structure.rowCount} rows (transactional)` },
+  { signal: 'many_per_entity', weight: -0.20, test: p => p.patterns.volumePattern === 'many', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (many — not targets)` },
   { signal: 'auto_generated_headers', weight: -0.15, test: p => p.structure.headerQuality === 'auto_generated', evidence: () => 'auto-generated headers' },
   { signal: 'high_sparsity', weight: -0.10, test: p => p.structure.sparsity > 0.30, evidence: p => `sparsity ${(p.structure.sparsity * 100).toFixed(0)}% > 30%` },
+  { signal: 'has_temporal', weight: -0.15, test: p => p.patterns.hasDateColumn || p.patterns.hasPeriodMarkers, evidence: () => 'temporal dimension present — data varies over time' },
 ];
 
 const TRANSACTION_WEIGHTS: WeightRule[] = [
   { signal: 'has_date', weight: 0.25, test: p => p.patterns.hasDateColumn, evidence: () => 'date column present' },
   { signal: 'has_entity_id', weight: 0.15, test: p => p.patterns.hasEntityIdentifier, evidence: () => 'entity identifier present' },
   { signal: 'has_currency', weight: 0.15, test: p => p.patterns.hasCurrencyColumns > 0, evidence: p => `${p.patterns.hasCurrencyColumns} currency columns` },
-  { signal: 'transactional_rows', weight: 0.20, test: p => p.patterns.rowCountCategory === 'transactional', evidence: p => `${p.structure.rowCount} rows (transactional)` },
-  { signal: 'moderate_rows', weight: 0.05, test: p => p.patterns.rowCountCategory === 'moderate', evidence: p => `${p.structure.rowCount} rows (moderate)` },
+  // OB-159: Volume pattern replaces absolute row count
+  { signal: 'many_per_entity', weight: 0.20, test: p => p.patterns.volumePattern === 'many', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (many — repeating events)` },
+  { signal: 'few_per_entity', weight: 0.05, test: p => p.patterns.volumePattern === 'few', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (few)` },
   { signal: 'clean_headers', weight: 0.05, test: p => p.structure.headerQuality === 'clean', evidence: () => 'clean headers' },
-  // OB-158: High repeat ratio — same entity IDs repeat (transactional pattern)
-  { signal: 'high_identifier_repeat', weight: 0.20, test: p => p.patterns.identifierRepeatRatio > 3.0, evidence: p => `ID repeat ratio ${p.patterns.identifierRepeatRatio.toFixed(1)} (repeating IDs)` },
-  // OB-158: High numeric ratio — mostly numeric columns (amounts, rates, counts)
-  { signal: 'high_numeric_ratio', weight: 0.15, test: p => p.patterns.numericFieldRatio > 0.50, evidence: p => `${(p.patterns.numericFieldRatio * 100).toFixed(0)}% numeric fields (>50%)` },
+  { signal: 'high_numeric_ratio', weight: 0.15, test: p => p.structure.numericFieldRatio > 0.50, evidence: p => `${(p.structure.numericFieldRatio * 100).toFixed(0)}% numeric fields (>50%)` },
   { signal: 'no_date', weight: -0.25, test: p => !p.patterns.hasDateColumn, evidence: () => 'no date column' },
-  { signal: 'reference_rows', weight: -0.10, test: p => p.patterns.rowCountCategory === 'reference', evidence: p => `${p.structure.rowCount} rows (reference)` },
+  { signal: 'single_per_entity', weight: -0.10, test: p => p.patterns.volumePattern === 'single', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (single — not events)` },
   { signal: 'auto_generated_headers', weight: -0.15, test: p => p.structure.headerQuality === 'auto_generated', evidence: () => 'auto-generated headers' },
   { signal: 'high_sparsity', weight: -0.10, test: p => p.structure.sparsity > 0.30, evidence: p => `sparsity ${(p.structure.sparsity * 100).toFixed(0)}% > 30%` },
 ];
 
-// OB-152: Reference Agent — identifies catalog/lookup data
 const REFERENCE_WEIGHTS: WeightRule[] = [
   { signal: 'high_key_uniqueness', weight: 0.25, test: p => {
-    // At least one field with high distinct count relative to row count (> 80% unique)
     return p.fields.some(f => f.distinctCount > 0 && f.distinctCount / Math.max(1, p.structure.rowCount) > 0.80);
   }, evidence: p => {
     const f = p.fields.find(f => f.distinctCount > 0 && f.distinctCount / Math.max(1, p.structure.rowCount) > 0.80);
-    return f ? `${f.fieldName}: ${f.distinctCount}/${p.structure.rowCount} unique (${(f.distinctCount / Math.max(1, p.structure.rowCount) * 100).toFixed(0)}%)` : 'high key uniqueness';
+    return f ? `${f.distinctCount}/${p.structure.rowCount} unique (${(f.distinctCount / Math.max(1, p.structure.rowCount) * 100).toFixed(0)}%)` : 'high key uniqueness';
   }},
   { signal: 'descriptive_columns', weight: 0.20, test: p => p.patterns.hasDescriptiveLabels, evidence: () => 'descriptive text columns present' },
   { signal: 'low_row_count', weight: 0.15, test: p => p.patterns.rowCountCategory === 'reference', evidence: p => `${p.structure.rowCount} rows (reference)` },
@@ -110,7 +108,7 @@ const AGENT_WEIGHTS: Record<AgentType, WeightRule[]> = {
 };
 
 // ============================================================
-// SCORING
+// SCORING — Signatures + Additive Weights + Round 2
 // ============================================================
 
 function scoreAgent(agent: AgentType, profile: ContentProfile): AgentScore {
@@ -129,10 +127,8 @@ function scoreAgent(agent: AgentType, profile: ContentProfile): AgentScore {
     }
   }
 
-  // Clamp to 0.0 - 1.0
   const confidence = Math.max(0, Math.min(1, raw));
 
-  // Generate reasoning from top 3 contributing signals
   const topSignals = signals
     .filter(s => s.weight > 0)
     .sort((a, b) => b.weight - a.weight)
@@ -146,13 +142,115 @@ function scoreAgent(agent: AgentType, profile: ContentProfile): AgentScore {
 
 export function scoreContentUnit(profile: ContentProfile): AgentScore[] {
   const agents: AgentType[] = ['plan', 'entity', 'target', 'transaction', 'reference'];
-  return agents
-    .map(agent => scoreAgent(agent, profile))
-    .sort((a, b) => b.confidence - a.confidence);
+
+  // STEP 1: Detect composite signatures
+  const signatures = detectSignatures(profile);
+
+  // STEP 2: Compute additive scores (Round 1)
+  const scores = agents.map(agent => scoreAgent(agent, profile));
+
+  // STEP 3: Apply signature confidence floors
+  for (const sig of signatures) {
+    const agentScore = scores.find(s => s.agent === sig.agent);
+    if (agentScore && agentScore.confidence < sig.confidence) {
+      agentScore.confidence = sig.confidence;
+      agentScore.signals.unshift({
+        signal: `signature:${sig.signatureName}`,
+        weight: sig.confidence,
+        evidence: sig.matchedConditions.join('; '),
+      });
+      agentScore.reasoning = `Composite signature "${sig.signatureName}": ${sig.matchedConditions.join(', ')}. ${agentScore.reasoning}`;
+    }
+  }
+
+  // STEP 4: Round 2 Negotiation — agents adjust based on each other's structural claims
+  negotiateRound2(scores, profile);
+
+  // STEP 5: Sort by confidence descending
+  return scores.sort((a, b) => b.confidence - a.confidence);
 }
 
 // ============================================================
-// CLAIM RESOLUTION (Phase 1 — no negotiation)
+// ROUND 2 NEGOTIATION — Spatial Intelligence
+// OB-159: Agents see each other's scores and adjust.
+// All adjustments reference structural properties.
+// ============================================================
+
+function negotiateRound2(scores: AgentScore[], profile: ContentProfile): void {
+  const scoreMap = new Map(scores.map(s => [s.agent, s]));
+
+  const transaction = scoreMap.get('transaction');
+  const target = scoreMap.get('target');
+  const entity = scoreMap.get('entity');
+
+  const repeatRatio = profile.structure.identifierRepeatRatio;
+  const hasTemporal = profile.patterns.hasDateColumn || profile.patterns.hasPeriodMarkers;
+
+  // Transaction vs Target: targets don't repeat 4x per entity
+  if (transaction && target && target.confidence > 0.30 && repeatRatio > 2.0) {
+    const penalty = Math.min(0.25, (repeatRatio - 1.0) * 0.08);
+    target.confidence = Math.max(0, target.confidence - penalty);
+    target.signals.push({
+      signal: 'r2_repeat_inconsistency',
+      weight: -penalty,
+      evidence: `Repeat ratio ${repeatRatio.toFixed(1)} contradicts target pattern (targets set once per entity)`,
+    });
+  }
+
+  // Transaction boost: temporal + high repeat = transactional
+  if (transaction && target && hasTemporal && repeatRatio > 1.5) {
+    const boost = 0.10;
+    transaction.confidence = Math.min(1, transaction.confidence + boost);
+    transaction.signals.push({
+      signal: 'r2_temporal_repeat_conviction',
+      weight: boost,
+      evidence: `Temporal markers + repeat ratio ${repeatRatio.toFixed(1)} confirm transactional pattern`,
+    });
+  }
+
+  // Entity vs Transaction: rosters don't repeat
+  if (entity && transaction && entity.confidence > 0.30 && repeatRatio > 2.0) {
+    const penalty = Math.min(0.20, (repeatRatio - 1.0) * 0.07);
+    entity.confidence = Math.max(0, entity.confidence - penalty);
+    entity.signals.push({
+      signal: 'r2_repeat_not_roster',
+      weight: -penalty,
+      evidence: `Repeat ratio ${repeatRatio.toFixed(1)} — rosters have ~1.0`,
+    });
+  }
+
+  // Entity vs Target: high numeric ratio favors target over entity
+  if (entity && target && Math.abs(entity.confidence - target.confidence) < 0.15) {
+    const numericRatio = profile.structure.numericFieldRatio;
+    if (numericRatio > 0.50) {
+      const shift = 0.08;
+      entity.confidence = Math.max(0, entity.confidence - shift);
+      target.confidence = Math.min(1, target.confidence + shift);
+    }
+  }
+
+  // Absence boost: clear winner gets small boost
+  const sorted = scores.slice().sort((a, b) => b.confidence - a.confidence);
+  if (sorted.length >= 2) {
+    const gap = sorted[0].confidence - sorted[1].confidence;
+    if (gap > 0.25) {
+      sorted[0].confidence = Math.min(0.98, sorted[0].confidence + 0.05);
+      sorted[0].signals.push({
+        signal: 'r2_absence_clarity',
+        weight: 0.05,
+        evidence: `Gap of ${(gap * 100).toFixed(0)}% to next agent — high classification clarity`,
+      });
+    }
+  }
+
+  // Clamp all
+  for (const s of scores) {
+    s.confidence = Math.max(0, Math.min(1, s.confidence));
+  }
+}
+
+// ============================================================
+// CLAIM RESOLUTION (Phase 1)
 // ============================================================
 
 export function resolveClaimsPhase1(
@@ -183,6 +281,7 @@ export function requiresHumanReview(scores: AgentScore[]): boolean {
 
 // ============================================================
 // SEMANTIC BINDING GENERATION
+// nameSignals are used here for OBSERVATION/BINDING text — not scoring.
 // ============================================================
 
 function generateSemanticBindings(profile: ContentProfile, agent: AgentType): SemanticBinding[] {
@@ -205,16 +304,11 @@ function assignSemanticRole(
   agent: AgentType
 ): { role: SemanticRole; context: string; confidence: number } {
   switch (agent) {
-    case 'plan':
-      return assignPlanRole(field);
-    case 'entity':
-      return assignEntityRole(field);
-    case 'target':
-      return assignTargetRole(field);
-    case 'transaction':
-      return assignTransactionRole(field);
-    case 'reference':
-      return assignReferenceRole(field);
+    case 'plan': return assignPlanRole(field);
+    case 'entity': return assignEntityRole(field);
+    case 'target': return assignTargetRole(field);
+    case 'transaction': return assignTransactionRole(field);
+    case 'reference': return assignReferenceRole(field);
   }
 }
 
@@ -235,14 +329,8 @@ function assignEntityRole(field: ContentProfile['fields'][0]): { role: SemanticR
     return { role: 'entity_identifier', context: `${field.fieldName} — unique identifier`, confidence: 0.90 };
   if (field.nameSignals.containsName)
     return { role: 'entity_name', context: `${field.fieldName} — display name`, confidence: 0.85 };
-  // OB-158: Structural name detection — multi-word text column with person-name-like values
   if (field.nameSignals.looksLikePersonName)
     return { role: 'entity_name', context: `${field.fieldName} — display name (structural)`, confidence: 0.80 };
-  const lower = field.fieldName.toLowerCase();
-  if (lower.includes('license') || lower.includes('licencia') || lower.includes('product'))
-    return { role: 'entity_license', context: `${field.fieldName} — access permission`, confidence: 0.80 };
-  if (lower.includes('manager') || lower.includes('parent') || lower.includes('reports'))
-    return { role: 'entity_relationship', context: `${field.fieldName} — hierarchical link`, confidence: 0.75 };
   if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
     return { role: 'entity_attribute', context: `${field.fieldName} — categorical property`, confidence: 0.70 };
   return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };
@@ -253,7 +341,7 @@ function assignTargetRole(field: ContentProfile['fields'][0]): { role: SemanticR
     return { role: 'entity_identifier', context: `${field.fieldName} — links target to entity`, confidence: 0.90 };
   if (field.nameSignals.containsTarget)
     return { role: 'performance_target', context: `${field.fieldName} — goal/benchmark value`, confidence: 0.90 };
-  if ((field.dataType === 'currency' || field.nameSignals.containsAmount) && !field.nameSignals.containsTarget)
+  if (field.dataType === 'currency' || field.nameSignals.containsAmount)
     return { role: 'baseline_value', context: `${field.fieldName} — baseline for comparison`, confidence: 0.70 };
   if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
     return { role: 'category_code', context: `${field.fieldName} — grouping category`, confidence: 0.65 };
@@ -278,9 +366,7 @@ function assignTransactionRole(field: ContentProfile['fields'][0]): { role: Sema
   return { role: 'unknown', context: `${field.fieldName} — unclassified event field`, confidence: 0.30 };
 }
 
-// OB-152: Reference Agent semantic role assignment
 function assignReferenceRole(field: ContentProfile['fields'][0]): { role: SemanticRole; context: string; confidence: number } {
-  // High uniqueness field → likely the key
   if (field.distinctCount > 0 && field.distinctCount / Math.max(1, field.distinctCount + 1) > 0.80 && field.nameSignals.containsId)
     return { role: 'entity_identifier', context: `${field.fieldName} — reference key`, confidence: 0.90 };
   if (field.nameSignals.containsName)

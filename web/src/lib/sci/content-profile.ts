@@ -1,5 +1,5 @@
 // Synaptic Content Ingestion — Content Profile Generator
-// Decision 77 — OB-127
+// Decision 77 — OB-127, OB-159 Unified Scoring Overhaul
 // Purely structural observation — no interpretation, no AI.
 // Zero domain vocabulary. Korean Test applies.
 
@@ -7,6 +7,7 @@ import type { ContentProfile, FieldProfile } from './sci-types';
 
 // ============================================================
 // NAME SIGNAL PATTERNS (multilingual, case-insensitive)
+// Used for OBSERVATION TEXT and SEMANTIC BINDING only — NOT for scoring.
 // ============================================================
 
 const ID_SIGNALS = ['id', 'no', 'number', 'code', 'código', 'codigo', '번호', 'num', 'identifier'];
@@ -37,6 +38,10 @@ function detectPersonNameColumn(values: unknown[], distinctCount: number): boole
   const numericLooking = nonNull.filter(v => !isNaN(Number(v.replace(/[\s,]/g, '')))).length;
   if (numericLooking / nonNull.length > 0.20) return false;
 
+  // Person names don't contain digits ("Hub CDMX 1" is a location, not a person)
+  const containsDigits = nonNull.filter(v => /\d/.test(v)).length;
+  if (containsDigits / nonNull.length > 0.20) return false;
+
   return true;
 }
 
@@ -46,7 +51,6 @@ function headerContains(header: string, signals: string[]): boolean {
     const idx = lower.indexOf(s);
     if (idx === -1) return false;
     // OB-158: Short signals (≤3 chars) require word boundaries to avoid false positives
-    // e.g. 'no' in ID_SIGNALS must not match 'nombre' (name in Spanish)
     if (s.length <= 3) {
       const before = idx === 0 || /[^a-z0-9]/.test(lower[idx - 1]);
       const after = idx + s.length >= lower.length || /[^a-z0-9]/.test(lower[idx + s.length]);
@@ -54,6 +58,28 @@ function headerContains(header: string, signals: string[]): boolean {
     }
     return true;
   });
+}
+
+// ============================================================
+// STRUCTURAL IDENTIFIER DETECTION (Korean Test compliant)
+// ============================================================
+// Detects identifier columns by VALUE PATTERNS, not field names.
+// A column is an identifier if it has high uniqueness and short, code-like values.
+
+function detectStructuralIdentifier(field: FieldProfile, rowCount: number): boolean {
+  if (field.distinctCount === 0 || rowCount === 0) return false;
+  const uniquenessRatio = field.distinctCount / rowCount;
+  // High uniqueness (>70% distinct values relative to row count)
+  if (uniquenessRatio < 0.70) return false;
+  // Must not be a date or boolean
+  if (field.dataType === 'date' || field.dataType === 'boolean') return false;
+  // Sequential integers or text codes with short values
+  if (field.dataType === 'integer' && field.distribution.isSequential) return true;
+  // Non-text numeric with high uniqueness
+  if (field.dataType === 'integer' && uniquenessRatio > 0.90) return true;
+  // Text codes: high uniqueness + not person names
+  if (field.dataType === 'text' && uniquenessRatio > 0.70 && !field.nameSignals.looksLikePersonName) return true;
+  return false;
 }
 
 // ============================================================
@@ -76,7 +102,6 @@ function isDateValue(v: unknown): boolean {
   if (v instanceof Date) return true;
   const s = String(v).trim();
   if (!s) return false;
-  // Explicit date patterns only — Date.parse is too lenient
   if (ISO_DATE_RE.test(s) || US_DATE_RE.test(s) || EU_DATE_RE.test(s)) return true;
   if (MONTH_YEAR_RE.test(s) || YEAR_MONTH_RE.test(s) || YEAR_QUARTER_RE.test(s)) return true;
   return false;
@@ -91,7 +116,6 @@ function isBooleanValue(v: unknown): boolean {
 function isPercentageString(v: unknown): boolean {
   if (v == null) return false;
   const s = String(v).trim();
-  // "60%", "< 60%", "> 100%", "60.5%"
   return /^[<>≤≥]?\s*\d+(\.\d+)?\s*%$/.test(s);
 }
 
@@ -120,14 +144,12 @@ function detectFieldType(
   const total = nonNull.length;
   const numericCount = integers + decimals;
 
-  // Majority rules with 80% threshold
   if (booleans / total > 0.8) return 'boolean';
   if (dates / total > 0.8) return 'date';
   if (percentStrings / total > 0.5) return 'percentage';
   if (texts / total > 0.8) return 'text';
 
   if (numericCount / total > 0.8) {
-    // Distinguish currency, percentage, integer, decimal
     if (headerContains(headerName, RATE_SIGNALS)) return 'percentage';
 
     const numVals = nonNull.map(v => Number(v)).filter(n => !isNaN(n));
@@ -135,7 +157,6 @@ function detectFieldType(
     if (allPercentRange && numVals.length > 1) return 'percentage';
 
     if (decimals > 0) {
-      // Check for 2 decimal places → currency heuristic
       const twoDecimal = nonNull.filter(v => {
         const s = String(v);
         const dot = s.indexOf('.');
@@ -164,7 +185,7 @@ export function generateContentProfile(
   sourceFile: string,
   columns: string[],
   rows: Record<string, unknown>[],
-  // HF-091: totalRowCount from sheet metadata — use for patterns that depend on full data size
+  // HF-091: totalRowCount from sheet metadata
   totalRowCount?: number,
 ): ContentProfile {
   const contentUnitId = `${sourceFile}::${tabName}::${tabIndex}`;
@@ -207,7 +228,6 @@ export function generateContentProfile(
         distribution.min = Math.min(...nums);
         distribution.max = Math.max(...nums);
         distribution.mean = nums.reduce((s, n) => s + n, 0) / nums.length;
-        // Sequential check: sorted unique integers with no gaps
         if (dataType === 'integer') {
           const sorted = Array.from(new Set(nums)).sort((a, b) => a - b);
           distribution.isSequential = sorted.length > 1 &&
@@ -245,12 +265,15 @@ export function generateContentProfile(
     };
   });
 
-  // Pattern detection
+  // ── Structural Pattern Detection ──
+
+  // Entity identifier: structural detection first, fallback to nameSignals for observation text
   const hasEntityIdentifier = fields.some(f =>
-    f.nameSignals.containsId || (f.dataType === 'integer' && f.distribution.isSequential)
+    detectStructuralIdentifier(f, rowCount) || f.nameSignals.containsId ||
+    (f.dataType === 'integer' && f.distribution.isSequential)
   );
+
   // HF-091: Detect period marker columns (year + month integers) as temporal data
-  // Korean Test: purely structural — detects integers in year range [2000-2030] and month range [1-12]
   const hasYearColumn = fields.some(f =>
     f.dataType === 'integer' && f.distribution.min != null &&
     f.distribution.min >= 2000 && f.distribution.max != null && f.distribution.max <= 2040
@@ -274,8 +297,17 @@ export function generateContentProfile(
     rowCount <= 500 ? 'moderate' :
     'transactional';
 
-  // OB-158: Numeric field ratio — fraction of non-ID fields with numeric types
-  const nonIdFields = fields.filter(f => !f.nameSignals.containsId);
+  // OB-159: Structural ratios (moved to structure)
+  // Identifier field: prefer structural detection, fallback to nameSignals
+  const idField = fields.find(f => detectStructuralIdentifier(f, rowCount)) ||
+    fields.find(f => f.nameSignals.containsId);
+
+  const identifierRepeatRatio = idField && idField.distinctCount > 0
+    ? rowCount / idField.distinctCount
+    : 0;
+
+  // Numeric field ratio: fraction of non-ID fields with numeric types
+  const nonIdFields = fields.filter(f => f !== idField);
   const numericTypes = ['integer', 'decimal', 'currency', 'percentage'] as const;
   const numericFieldCount = nonIdFields.filter(f =>
     (numericTypes as readonly string[]).includes(f.dataType)
@@ -284,33 +316,51 @@ export function generateContentProfile(
     ? numericFieldCount / nonIdFields.length
     : 0;
 
-  // OB-158: Identifier repeat ratio — rowCount / distinctCount of ID field
-  // 1.0 = each ID appears once (roster). >3.0 = IDs repeat (transactional).
-  const idField = fields.find(f => f.nameSignals.containsId);
-  const identifierRepeatRatio = idField && idField.distinctCount > 0
-    ? rowCount / idField.distinctCount
+  // Categorical field ratio: fraction of columns that are low-cardinality text
+  const categoricalFields = fields.filter(f =>
+    f.dataType === 'text' && f.distinctCount > 0 && f.distinctCount < 20
+  );
+  const categoricalFieldCount = categoricalFields.length;
+  const categoricalFieldRatio = columnCount > 0
+    ? categoricalFieldCount / columnCount
     : 0;
 
-  // OB-158: Structural name column — any field with person-name-like values
+  // OB-158: Structural name column
   const hasStructuralNameColumn = fields.some(f => f.nameSignals.looksLikePersonName);
+
+  // OB-159: Volume pattern based on rows-per-entity
+  const volumePattern: ContentProfile['patterns']['volumePattern'] =
+    identifierRepeatRatio === 0 ? 'unknown' :
+    identifierRepeatRatio <= 1.3 ? 'single' :
+    identifierRepeatRatio <= 3.0 ? 'few' :
+    'many';
 
   return {
     contentUnitId,
     sourceFile,
     tabName,
     tabIndex,
-    structure: { rowCount, columnCount, sparsity, headerQuality },
+    structure: {
+      rowCount,
+      columnCount,
+      sparsity,
+      headerQuality,
+      numericFieldRatio,
+      categoricalFieldRatio,
+      categoricalFieldCount,
+      identifierRepeatRatio,
+    },
     fields,
     patterns: {
       hasEntityIdentifier,
       hasDateColumn,
+      hasPeriodMarkers,
       hasCurrencyColumns,
       hasPercentageValues,
       hasDescriptiveLabels,
-      rowCountCategory,
-      numericFieldRatio,
-      identifierRepeatRatio,
       hasStructuralNameColumn,
+      rowCountCategory,
+      volumePattern,
     },
   };
 }

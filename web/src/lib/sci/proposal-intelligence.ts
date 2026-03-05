@@ -91,16 +91,23 @@ function buildObservations(
     obs.push('Percentage values detected — may indicate rates or thresholds');
   }
 
-  // OB-158: Identifier repeat ratio
-  if (patterns.identifierRepeatRatio > 3.0) {
-    obs.push(`Entity IDs repeat ~${patterns.identifierRepeatRatio.toFixed(1)}x — same entities appear in multiple rows`);
-  } else if (patterns.identifierRepeatRatio > 0 && patterns.identifierRepeatRatio <= 1.5) {
-    obs.push(`Entity IDs are ~unique (repeat ratio ${patterns.identifierRepeatRatio.toFixed(1)}) — one row per entity`);
+  // OB-159: Identifier repeat ratio (now in structure)
+  if (structure.identifierRepeatRatio > 3.0) {
+    obs.push(`Entity IDs repeat ~${structure.identifierRepeatRatio.toFixed(1)}x — same entities appear in multiple rows`);
+  } else if (structure.identifierRepeatRatio > 0 && structure.identifierRepeatRatio <= 1.5) {
+    obs.push(`Entity IDs are ~unique (repeat ratio ${structure.identifierRepeatRatio.toFixed(1)}) — one row per entity`);
   }
 
-  // OB-158: Numeric field ratio
-  if (patterns.numericFieldRatio > 0.50) {
-    obs.push(`${(patterns.numericFieldRatio * 100).toFixed(0)}% of fields are numeric — data-heavy layout`);
+  // OB-159: Volume pattern
+  if (patterns.volumePattern === 'many') {
+    obs.push(`Volume pattern: many rows per entity — typical of event/transaction data`);
+  } else if (patterns.volumePattern === 'single') {
+    obs.push(`Volume pattern: one row per entity — typical of roster or reference data`);
+  }
+
+  // OB-159: Numeric field ratio (now in structure)
+  if (structure.numericFieldRatio > 0.50) {
+    obs.push(`${(structure.numericFieldRatio * 100).toFixed(0)}% of fields are numeric — data-heavy layout`);
   }
 
   // OB-158: Structural name column
@@ -200,7 +207,14 @@ function humanizeEvidence(signal: string, evidence: string): string {
     case 'moderate_rows': return 'moderate row count';
     case 'has_entity_id': return 'has an identifier column';
     case 'has_name_field': return 'has a name column';
+    case 'has_structural_name': return 'has a name column (structural detection)';
     case 'has_target_field': return 'has goal/target values';
+    case 'has_numeric_fields': return 'has numeric measurement columns';
+    case 'single_per_entity': return 'one row per entity (roster pattern)';
+    case 'few_per_entity': return 'few rows per entity';
+    case 'many_per_entity': return 'many rows per entity (event pattern)';
+    case 'single_or_few_per_entity': return 'low rows per entity (target pattern)';
+    case 'high_numeric_ratio': return 'high proportion of numeric columns';
     case 'has_currency': return 'contains monetary values';
     case 'auto_generated_headers': return 'headers suggest unstructured layout';
     case 'high_sparsity': return 'sparse layout typical of rule tables';
@@ -213,7 +227,12 @@ function humanizeEvidence(signal: string, evidence: string): string {
     case 'has_license_field': return 'has a license/product field';
     case 'no_date': return 'no date column';
     case 'no_entity_id': return 'no identifier column';
-    default: return evidence;
+    case 'has_temporal': return 'has temporal dimension';
+    case 'r2_temporal_repeat_conviction': return 'temporal markers + repeating entities confirm events';
+    case 'r2_absence_clarity': return 'clear classification with no close competitor';
+    default:
+      if (signal.startsWith('signature:')) return `composite signature: ${evidence}`;
+      return evidence;
   }
 }
 
