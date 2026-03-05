@@ -25,6 +25,7 @@ import {
   extractSourceDate,
   findDateColumnFromBindings,
   buildSemanticRolesMap,
+  detectPeriodMarkerColumns,
 } from '@/lib/sci/source-date-extraction';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
@@ -290,6 +291,8 @@ async function executeTargetPipeline(
   // OB-152: Extract source_date using structural heuristics (Korean Test: zero field names)
   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+  // OB-157: Detect period marker columns (year + month) for composition
+  const periodMarkerHint = detectPeriodMarkerColumns(rows);
 
   // Build committed_data rows with source_date (OB-152)
   let earliestDate: string | null = null;
@@ -302,8 +305,8 @@ async function executeTargetPipeline(
       entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
     }
 
-    // OB-152: Extract source_date per row
-    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap);
+    // OB-152/OB-157: Extract source_date per row (with period marker composition)
+    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
     if (sourceDate) {
       dateCount++;
       if (!earliestDate || sourceDate < earliestDate) earliestDate = sourceDate;
@@ -507,6 +510,8 @@ async function executeTransactionPipeline(
   // OB-152: Extract source_date using structural heuristics
   const txnDateHint = findDateColumnFromBindings(unit.confirmedBindings);
   const txnSemanticMap = buildSemanticRolesMap(unit.confirmedBindings);
+  // OB-157: Detect period marker columns (year + month) for composition
+  const txnPeriodHint = detectPeriodMarkerColumns(rows);
 
   let txnEarliest: string | null = null;
   let txnLatest: string | null = null;
@@ -519,8 +524,8 @@ async function executeTransactionPipeline(
       entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
     }
 
-    // OB-152: Extract source_date per row
-    const sourceDate = extractSourceDate(row, txnDateHint, txnSemanticMap);
+    // OB-152/OB-157: Extract source_date per row (with period marker composition)
+    const sourceDate = extractSourceDate(row, txnDateHint, txnSemanticMap, txnPeriodHint);
     if (sourceDate) {
       txnDateCount++;
       if (!txnEarliest || sourceDate < txnEarliest) txnEarliest = sourceDate;
@@ -1116,7 +1121,9 @@ async function postCommitConstruction(
 ): Promise<void> {
   const BATCH = 200;
 
-  // Step 1: Create missing entities from entity_identifier field
+  // OB-157: Entity creation removed from postCommitConstruction.
+  // Only entity-classified content units create entities (via executeEntityPipeline).
+  // Target/transaction units bind to existing entities only.
   if (entityIdField) {
     // Collect unique identifiers from the imported data
     const allIdentifiers = new Set<string>();
@@ -1128,39 +1135,7 @@ async function postCommitConstruction(
     }
 
     if (allIdentifiers.size > 0) {
-      // Find which already exist
-      const existing = new Set<string>();
       const allIds = Array.from(allIdentifiers);
-      for (let i = 0; i < allIds.length; i += BATCH) {
-        const slice = allIds.slice(i, i + BATCH);
-        const { data } = await supabase
-          .from('entities')
-          .select('external_id')
-          .eq('tenant_id', tenantId)
-          .in('external_id', slice);
-        if (data) {
-          for (const e of data) {
-            if (e.external_id) existing.add(e.external_id);
-          }
-        }
-      }
-
-      // Create missing entities
-      const missing = allIds.filter(id => !existing.has(id));
-      if (missing.length > 0) {
-        for (let i = 0; i < missing.length; i += BATCH) {
-          const slice = missing.slice(i, i + BATCH);
-          const entities = slice.map(extId => ({
-            tenant_id: tenantId,
-            external_id: extId,
-            display_name: extId,
-            entity_type: 'individual',
-            status: 'active',
-          }));
-          await supabase.from('entities').insert(entities);
-        }
-        console.log(`[SCI Execute] Created ${missing.length} new entities`);
-      }
 
       // OB-153: Create rule_set_assignments for ALL entities that lack them
       // (not just newly created — existing entities may also need assignments)
