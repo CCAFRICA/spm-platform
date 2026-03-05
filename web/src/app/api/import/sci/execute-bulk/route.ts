@@ -21,6 +21,7 @@ import {
   extractSourceDate,
   findDateColumnFromBindings,
   buildSemanticRolesMap,
+  detectPeriodMarkerColumns,
 } from '@/lib/sci/source-date-extraction';
 
 // Processing order: plan first, then entity, then data
@@ -462,9 +463,10 @@ async function processDataUnit(
     }
   }
 
-  // OB-152: Source date extraction
+  // OB-152/OB-157: Source date extraction with period marker composition
   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+  const periodMarkerHint = detectPeriodMarkerColumns(rows);
 
   // Build committed_data rows
   const insertRows = rows.map((row, i) => {
@@ -473,7 +475,7 @@ async function processDataUnit(
       entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
     }
 
-    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap);
+    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
 
     return {
       tenant_id: tenantId,

@@ -25,6 +25,7 @@ import {
   extractSourceDate,
   findDateColumnFromBindings,
   buildSemanticRolesMap,
+  detectPeriodMarkerColumns,
 } from '@/lib/sci/source-date-extraction';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
@@ -290,6 +291,8 @@ async function executeTargetPipeline(
   // OB-152: Extract source_date using structural heuristics (Korean Test: zero field names)
   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+  // OB-157: Detect period marker columns (year + month) for composition
+  const periodMarkerHint = detectPeriodMarkerColumns(rows);
 
   // Build committed_data rows with source_date (OB-152)
   let earliestDate: string | null = null;
@@ -302,8 +305,8 @@ async function executeTargetPipeline(
       entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
     }
 
-    // OB-152: Extract source_date per row
-    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap);
+    // OB-152/OB-157: Extract source_date per row (with period marker composition)
+    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
     if (sourceDate) {
       dateCount++;
       if (!earliestDate || sourceDate < earliestDate) earliestDate = sourceDate;
@@ -507,6 +510,8 @@ async function executeTransactionPipeline(
   // OB-152: Extract source_date using structural heuristics
   const txnDateHint = findDateColumnFromBindings(unit.confirmedBindings);
   const txnSemanticMap = buildSemanticRolesMap(unit.confirmedBindings);
+  // OB-157: Detect period marker columns (year + month) for composition
+  const txnPeriodHint = detectPeriodMarkerColumns(rows);
 
   let txnEarliest: string | null = null;
   let txnLatest: string | null = null;
@@ -519,8 +524,8 @@ async function executeTransactionPipeline(
       entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
     }
 
-    // OB-152: Extract source_date per row
-    const sourceDate = extractSourceDate(row, txnDateHint, txnSemanticMap);
+    // OB-152/OB-157: Extract source_date per row (with period marker composition)
+    const sourceDate = extractSourceDate(row, txnDateHint, txnSemanticMap, txnPeriodHint);
     if (sourceDate) {
       txnDateCount++;
       if (!txnEarliest || sourceDate < txnEarliest) txnEarliest = sourceDate;
