@@ -142,12 +142,15 @@ function scoreAgent(agent: AgentType, profile: ContentProfile): AgentScore {
 
 export function scoreContentUnit(profile: ContentProfile): AgentScore[] {
   const agents: AgentType[] = ['plan', 'entity', 'target', 'transaction', 'reference'];
+  const tab = profile.tabName;
 
   // STEP 1: Detect composite signatures
   const signatures = detectSignatures(profile);
+  console.log('[SCI Signatures]', tab, JSON.stringify(signatures.map(s => ({ agent: s.agent, sig: s.signatureName, conf: s.confidence }))));
 
   // STEP 2: Compute additive scores (Round 1)
   const scores = agents.map(agent => scoreAgent(agent, profile));
+  console.log('[SCI Round1]', tab, JSON.stringify(scores.map(s => ({ agent: s.agent, confidence: s.confidence }))));
 
   // STEP 3: Apply signature confidence floors
   for (const sig of signatures) {
@@ -162,9 +165,11 @@ export function scoreContentUnit(profile: ContentProfile): AgentScore[] {
       agentScore.reasoning = `Composite signature "${sig.signatureName}": ${sig.matchedConditions.join(', ')}. ${agentScore.reasoning}`;
     }
   }
+  console.log('[SCI Floor]', tab, JSON.stringify(scores.map(s => ({ agent: s.agent, confidence: s.confidence }))));
 
   // STEP 4: Round 2 Negotiation — agents adjust based on each other's structural claims
   negotiateRound2(scores, profile);
+  console.log('[SCI Round2]', tab, JSON.stringify(scores.map(s => ({ agent: s.agent, confidence: s.confidence }))));
 
   // STEP 5: Sort by confidence descending
   return scores.sort((a, b) => b.confidence - a.confidence);

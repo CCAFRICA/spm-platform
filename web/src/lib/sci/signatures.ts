@@ -23,6 +23,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   const hasTemporalDimension = patterns.hasDateColumn || patterns.hasPeriodMarkers;
   const isDataHeavy = structure.numericFieldRatio > 0.40;
 
+  console.log('[SCI SigCheck]', profile.tabName, 'repeated_entities_over_time', { hasHighRepeat, repeatRatio: structure.identifierRepeatRatio, hasTemporalDimension, hasDate: patterns.hasDateColumn, hasPeriodMarkers: patterns.hasPeriodMarkers, isDataHeavy, numericFieldRatio: structure.numericFieldRatio, matched: hasHighRepeat && hasTemporalDimension && isDataHeavy });
   if (hasHighRepeat && hasTemporalDimension && isDataHeavy) {
     matches.push({
       agent: 'transaction',
@@ -44,6 +45,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   const hasId = patterns.hasEntityIdentifier;
   const hasName = patterns.hasStructuralNameColumn;
 
+  console.log('[SCI SigCheck]', profile.tabName, 'one_per_entity_with_attributes', { hasLowRepeat, repeatRatio: structure.identifierRepeatRatio, isCategoricalHeavy, catRatio: structure.categoricalFieldRatio, hasId, hasName, matched: hasLowRepeat && isCategoricalHeavy && hasId && hasName });
   if (hasLowRepeat && isCategoricalHeavy && hasId && hasName) {
     matches.push({
       agent: 'entity',
@@ -65,6 +67,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   const hasModerateNumeric = structure.numericFieldRatio > 0.30;
   const targetNoTemporal = !hasTemporalDimension;
 
+  console.log('[SCI SigCheck]', profile.tabName, 'per_entity_benchmarks_static', { targetLowRepeat, repeatRatio: structure.identifierRepeatRatio, hasModerateNumeric, numericRatio: structure.numericFieldRatio, hasId, targetNoTemporal, matched: targetLowRepeat && hasModerateNumeric && hasId && targetNoTemporal });
   if (targetLowRepeat && hasModerateNumeric && hasId && targetNoTemporal) {
     matches.push({
       agent: 'target',
@@ -86,6 +89,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   const isLowRowCount = structure.rowCount < 50;
   const noIdOrVeryLow = !hasId || structure.rowCount < 20;
 
+  console.log('[SCI SigCheck]', profile.tabName, 'sparse_rule_structure', { isSparseOrAutoHeaders, sparsity: structure.sparsity, headerQuality: structure.headerQuality, isLowRowCount, rowCount: structure.rowCount, noIdOrVeryLow, matched: isSparseOrAutoHeaders && isLowRowCount && noIdOrVeryLow });
   if (isSparseOrAutoHeaders && isLowRowCount && noIdOrVeryLow) {
     matches.push({
       agent: 'plan',
@@ -106,6 +110,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   const notPersonLevel = !hasId || structure.identifierRepeatRatio <= 1.0;
   const hasCategoricalKey = structure.categoricalFieldCount >= 1;
 
+  console.log('[SCI SigCheck]', profile.tabName, 'lookup_table', { isSmall, rowCount: structure.rowCount, notPersonLevel, hasId, repeatRatio: structure.identifierRepeatRatio, hasCategoricalKey, catCount: structure.categoricalFieldCount, notSparse: !isSparseOrAutoHeaders, matched: isSmall && notPersonLevel && hasCategoricalKey && !isSparseOrAutoHeaders });
   if (isSmall && notPersonLevel && hasCategoricalKey && !isSparseOrAutoHeaders) {
     matches.push({
       agent: 'reference',
