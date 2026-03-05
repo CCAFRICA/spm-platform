@@ -34,6 +34,10 @@ export interface ContentProfile {
     // reference: < 50 rows
     // moderate: 50-500 rows
     // transactional: 500+ rows
+    // OB-158: Structural heuristics for transaction vs entity disambiguation
+    numericFieldRatio: number;        // fraction of non-ID fields with numeric types (0-1)
+    identifierRepeatRatio: number;    // rowCount / distinctCount of ID field (1.0 = roster, >3.0 = transactional)
+    hasStructuralNameColumn: boolean; // text column with person-name-like values (multi-word, high distinct)
   };
 }
 
@@ -60,6 +64,8 @@ export interface FieldProfile {
     containsDate: boolean;
     containsAmount: boolean;
     containsRate: boolean;
+    // OB-158: Structural name detection (from values, not headers)
+    looksLikePersonName: boolean;
   };
 }
 
