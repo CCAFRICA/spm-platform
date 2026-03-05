@@ -50,17 +50,16 @@ const mockTechCorpTransactions = [
   { id: 'TXN-008', date: '2024-12-08', customer: 'CloudFirst Inc', product: 'Cloud Platform', amount: 78000, commission: 5460, status: 'pending', rep: 'David Kim' },
 ];
 
-// RetailCo demo transactions (Maria's transactions from my-compensation)
-// User IDs match auth-context.tsx: rc-rep-001 (Maria), rc-rep-002 (James), rc-manager-001 (Carlos), rc-admin-001 (Sofia)
-const mockRetailCoTransactions = [
-  { id: 'TXN-2025-0162', date: '2025-01-20', customer: 'Williams Family', product: 'Progressive Lenses + Designer Frame', type: 'Optical', amount: 1450, incentive: 72.50, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
-  { id: 'TXN-2025-0158', date: '2025-01-18', customer: 'Chen Family', product: 'Vision Protection Plan', type: 'Insurance', amount: 680, incentive: 34.00, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
-  { id: 'TXN-2025-0147', date: '2025-01-15', customer: 'Johnson Family', product: 'Premium Protection Plan', type: 'Insurance', amount: 850, incentive: 0, status: 'disputed', rep: 'James Wilson', repId: 'rc-rep-002', notes: 'Split credit issue - Maria assisted but not credited', involvedReps: ['rc-rep-001', 'rc-rep-002'] },
-  { id: 'TXN-2025-0142', date: '2025-01-12', customer: 'Mitchell Family', product: 'Bifocal Lenses + Frame', type: 'Optical', amount: 980, incentive: 49.00, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
-  { id: 'TXN-2025-0135', date: '2025-01-10', customer: 'Garcia Family', product: 'Eye Exam + Fitting', type: 'Services', amount: 320, incentive: 16.00, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
-  { id: 'TXN-2025-0128', date: '2025-01-08', customer: 'Thompson Corp', product: 'Corporate Vision Plan', type: 'Insurance', amount: 2400, incentive: 168.00, status: 'credited', rep: 'James Wilson', repId: 'rc-rep-002' },
-  { id: 'TXN-2025-0121', date: '2025-01-05', customer: 'Davis Family', product: 'Designer Sunglasses', type: 'Optical', amount: 890, incentive: 44.50, status: 'credited', rep: 'Carlos Mendez', repId: 'rc-manager-001' },
-  { id: 'TXN-2025-0115', date: '2025-01-03', customer: 'Brown Family', product: 'Contact Lens Fitting', type: 'Services', amount: 275, incentive: 13.75, status: 'credited', rep: 'Maria Rodriguez', repId: 'rc-rep-001' },
+// Static retail demo transactions
+const mockRetailTransactions = [
+  { id: 'TXN-2025-0162', date: '2025-01-20', customer: 'Customer A', product: 'Product Bundle A', type: 'Sales', amount: 1450, incentive: 72.50, status: 'credited', rep: 'Rep 1', repId: 'rep-001' },
+  { id: 'TXN-2025-0158', date: '2025-01-18', customer: 'Customer B', product: 'Service Plan', type: 'Services', amount: 680, incentive: 34.00, status: 'credited', rep: 'Rep 1', repId: 'rep-001' },
+  { id: 'TXN-2025-0147', date: '2025-01-15', customer: 'Customer C', product: 'Premium Plan', type: 'Services', amount: 850, incentive: 0, status: 'disputed', rep: 'Rep 2', repId: 'rep-002' },
+  { id: 'TXN-2025-0142', date: '2025-01-12', customer: 'Customer D', product: 'Product Bundle B', type: 'Sales', amount: 980, incentive: 49.00, status: 'credited', rep: 'Rep 1', repId: 'rep-001' },
+  { id: 'TXN-2025-0135', date: '2025-01-10', customer: 'Customer E', product: 'Consultation', type: 'Services', amount: 320, incentive: 16.00, status: 'credited', rep: 'Rep 1', repId: 'rep-001' },
+  { id: 'TXN-2025-0128', date: '2025-01-08', customer: 'Customer F', product: 'Enterprise Plan', type: 'Services', amount: 2400, incentive: 168.00, status: 'credited', rep: 'Rep 2', repId: 'rep-002' },
+  { id: 'TXN-2025-0121', date: '2025-01-05', customer: 'Customer G', product: 'Premium Product', type: 'Sales', amount: 890, incentive: 44.50, status: 'credited', rep: 'Manager 1', repId: 'manager-001' },
+  { id: 'TXN-2025-0115', date: '2025-01-03', customer: 'Customer H', product: 'Standard Service', type: 'Services', amount: 275, incentive: 13.75, status: 'credited', rep: 'Rep 1', repId: 'rep-001' },
 ];
 
 export default function TransactionsPage() {
@@ -173,10 +172,10 @@ export default function TransactionsPage() {
   const accessFilteredRetailTransactions = useMemo(() => {
     if (!user) return [];
 
-    // Filter by access level for RetailCo
+    // Filter by access level for retail tenants
     return accessControl.filterByAccess(
       user,
-      mockRetailCoTransactions,
+      mockRetailTransactions,
       (t) => t.repId,
       undefined // No team filtering for transactions
     );
@@ -465,7 +464,7 @@ export default function TransactionsPage() {
                 </TableBody>
               </Table>
             ) : isRetail ? (
-              // RetailCo table (Optical Sales)
+              // Retail table
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -481,7 +480,7 @@ export default function TransactionsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(filteredTransactions as typeof mockRetailCoTransactions).map((t) => (
+                  {(filteredTransactions as typeof mockRetailTransactions).map((t) => (
                     <TableRow key={t.id} className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="font-mono font-medium">
                         <Link href={`/transactions/${t.id}`} className="text-primary hover:underline">

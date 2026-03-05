@@ -2,8 +2,8 @@
  * Rule Set Types - ViaLuce SPM Platform
  *
  * Supports two rule set types:
- * 1. additive_lookup - RetailCo style (matrix + tier lookups)
- * 2. weighted_kpi - TechCorp style (KPI weights + multiplier curves)
+ * 1. additive_lookup - matrix + tier lookups
+ * 2. weighted_kpi - KPI weights + multiplier curves
  */
 
 // ============================================
@@ -35,7 +35,7 @@ export interface RuleSetConfig {
 }
 
 // ============================================
-// ADDITIVE LOOKUP CONFIGURATION (RetailCo)
+// ADDITIVE LOOKUP CONFIGURATION
 // ============================================
 
 export interface AdditiveLookupConfig {
@@ -136,7 +136,7 @@ export interface ConditionalRate {
 }
 
 // ============================================
-// WEIGHTED KPI CONFIGURATION (TechCorp)
+// WEIGHTED KPI CONFIGURATION
 // ============================================
 
 export interface WeightedKPIConfig {

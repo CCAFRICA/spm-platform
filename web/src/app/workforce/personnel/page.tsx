@@ -80,14 +80,14 @@ const mockPersonnel: Personnel[] = [
   { id: '8', userId: 'U008', name: 'Fernando Díaz', email: 'fernando.d@restaurantmx.com', role: 'Mesero', channel: 'Delivery', location: 'Puebla Centro', territory: 'Puebla', status: 'active', hireDate: '2024-01-08' },
 ];
 
-// RetailCo personnel - IDs match auth-context.tsx
-const retailCoPersonnel: Personnel[] = [
-  { id: 'R1', userId: 'rc-rep-001', name: 'Maria Rodriguez', email: 'maria.rodriguez@retailco.com', role: 'Associate', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2023-03-15' },
-  { id: 'R2', userId: 'rc-rep-002', name: 'James Wilson', email: 'james.wilson@retailco.com', role: 'Associate', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2022-06-10' },
-  { id: 'R3', userId: 'rc-manager-001', name: 'Carlos Mendez', email: 'carlos.mendez@retailco.com', role: 'Store Manager', channel: 'Optical', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2019-08-01' },
-  { id: 'R4', userId: 'rc-rep-003', name: 'Emily Johnson', email: 'emily.johnson@retailco.com', role: 'Associate', channel: 'Optical', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2023-09-01' },
-  { id: 'R5', userId: 'rc-rep-004', name: 'Michael Brown', email: 'michael.brown@retailco.com', role: 'Associate', channel: 'Optical', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2022-11-15' },
-  { id: 'R6', userId: 'rc-admin-001', name: 'Sofia Chen', email: 'sofia.chen@retailco.com', role: 'Regional Manager', channel: 'Optical', location: 'Regional HQ', territory: 'West Region', status: 'active', hireDate: '2018-01-15' },
+// Static retail personnel demo data
+const retailPersonnel: Personnel[] = [
+  { id: 'R1', userId: 'rep-001', name: 'Rep One', email: 'rep1@example.com', role: 'Associate', channel: 'Sales', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2023-03-15' },
+  { id: 'R2', userId: 'rep-002', name: 'Rep Two', email: 'rep2@example.com', role: 'Associate', channel: 'Sales', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2022-06-10' },
+  { id: 'R3', userId: 'manager-001', name: 'Manager One', email: 'manager1@example.com', role: 'Store Manager', channel: 'Sales', location: 'Store #142', territory: 'West Region', status: 'active', hireDate: '2019-08-01' },
+  { id: 'R4', userId: 'rep-003', name: 'Rep Three', email: 'rep3@example.com', role: 'Associate', channel: 'Sales', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2023-09-01' },
+  { id: 'R5', userId: 'rep-004', name: 'Rep Four', email: 'rep4@example.com', role: 'Associate', channel: 'Sales', location: 'Store #143', territory: 'West Region', status: 'active', hireDate: '2022-11-15' },
+  { id: 'R6', userId: 'admin-001', name: 'Admin One', email: 'admin1@example.com', role: 'Regional Manager', channel: 'Sales', location: 'Regional HQ', territory: 'West Region', status: 'active', hireDate: '2018-01-15' },
 ];
 
 const roles = ['Mesero', 'Supervisor', 'Gerente de Franquicia', 'Gerente Regional', 'Director'];
@@ -112,7 +112,7 @@ export default function PersonnelPage() {
   const isManagerOrAbove = accessControl.isManagerOrAbove(user);
 
   // Get base personnel data based on tenant
-  const basePersonnel = isRetail ? retailCoPersonnel : mockPersonnel;
+  const basePersonnel = isRetail ? retailPersonnel : mockPersonnel;
 
   // Filter personnel based on user's access level
   const accessFilteredPersonnel = useMemo(() => {

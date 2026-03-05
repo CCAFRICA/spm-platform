@@ -16,6 +16,3 @@ export * from './plan-interpreter';
 // AI Plan Interpreter (direct access)
 export * from './ai-plan-interpreter';
 
-// RetailCGMX Plan
-export * from './retailcgmx-plan';
-export * from './retailcgmx-validation';

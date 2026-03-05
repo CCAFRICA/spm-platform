@@ -228,7 +228,7 @@ export class PlanInterpreter {
   }
 
   /**
-   * Execute additive lookup plan (RetailCo style)
+   * Execute additive lookup plan
    */
   private executeAdditiveLookup(config: AdditiveLookupConfig): CalculationResult {
     // Find matching variant
@@ -258,7 +258,7 @@ export class PlanInterpreter {
   }
 
   /**
-   * Execute weighted KPI plan (TechCorp style)
+   * Execute weighted KPI plan
    */
   private executeWeightedKPI(config: WeightedKPIConfig): CalculationResult {
     // Calculate weighted attainment

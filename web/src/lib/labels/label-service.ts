@@ -60,7 +60,7 @@ export interface TenantLabelConfig {
 
 /**
  * Get the label for an entity type.
- * e.g., 'individual' -> 'Asociado' (for RetailCo MX) or 'Entity' (default)
+ * e.g., 'individual' -> 'Asociado' (tenant-configured) or 'Entity' (default)
  */
 export function getEntityTypeLabel(
   type: string,
@@ -92,7 +92,7 @@ export function getEntityTypeLabelPlural(
 
 /**
  * Get the label for a hierarchy level.
- * e.g., level 1 -> 'Region' (for RetailCo MX) or 'Division' (default)
+ * e.g., level 1 -> 'Region' (tenant-configured) or 'Division' (default)
  */
 export function getHierarchyLabel(
   level: number,

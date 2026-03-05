@@ -110,7 +110,7 @@ const DEMO_BATCHES: PayoutBatch[] = [
     employees: DEMO_EMPLOYEES,
     totalAmount: DEMO_EMPLOYEES.reduce((sum, e) => sum + e.total, 0),
     entityCount: DEMO_EMPLOYEES.length,
-    notes: 'Monthly incentive payout for RetailCo Optical Sales team. Note: 1 pending dispute for Maria Rodriguez (TXN-2025-0147).',
+    notes: 'Monthly incentive payout. Note: 1 pending dispute (TXN-2025-0147).',
   },
   {
     id: 'PAYOUT-2024-12',
