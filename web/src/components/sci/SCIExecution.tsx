@@ -51,6 +51,7 @@ interface SCIExecutionProps {
   confirmedUnits: ContentUnitProposal[];
   tenantId: string;
   rawData: ParsedFileData;
+  storagePath?: string; // OB-156: File storage path for bulk server-side processing
   onComplete: (result: SCIExecutionResult) => void;
   onUploadMore: () => void;
 }
@@ -115,6 +116,7 @@ export function SCIExecution({
   confirmedUnits,
   tenantId,
   rawData,
+  storagePath,
   onComplete,
   onUploadMore,
 }: SCIExecutionProps) {
@@ -147,42 +149,129 @@ export function SCIExecution({
     return () => clearInterval(interval);
   }, [executionDone, units]);
 
-  const executeUnits = useCallback(async (unitsToExecute: ExecutionUnit[]) => {
-    // Build execution request with full row data
-    const executionUnits = unitsToExecute.map(eu => {
+  // OB-156: Bulk execution — sends storagePath to server, no row data in HTTP body
+  const executeBulk = useCallback(async (dataUnits: ExecutionUnit[]) => {
+    // Mark all data units as processing
+    setElapsedSeconds(0);
+    setUnits(prev => prev.map(u =>
+      dataUnits.some(du => du.contentUnitId === u.contentUnitId)
+        ? { ...u, status: 'processing' as const }
+        : u
+    ));
+
+    // Build content unit metadata (no rawData — server reads from Storage)
+    const bulkUnits = dataUnits.map(eu => {
       const proposalUnit = confirmedUnits.find(u => u.contentUnitId === eu.contentUnitId);
       if (!proposalUnit) return null;
-
-      // Find matching sheet data from parsed file
-      // OB-134: Strip ::split suffix for PARTIAL claims (both halves use same sheet data)
-      const baseContentUnitId = eu.contentUnitId.replace(/::split$/, '');
-      const sheetData = rawData.sheets.find(s => {
-        const expectedId = `${rawData.fileName}::${s.sheetName}::${rawData.sheets.indexOf(s)}`;
-        return expectedId === baseContentUnitId;
-      }) || rawData.sheets.find(s => s.sheetName === eu.tabName);
-
       return {
         contentUnitId: eu.contentUnitId,
         confirmedClassification: eu.classification,
         confirmedBindings: proposalUnit.fieldBindings,
-        rawData: sheetData?.rows || [],
-        // OB-133: Pass document metadata for plan interpretation
-        ...(proposalUnit.documentMetadata ? { documentMetadata: proposalUnit.documentMetadata } : {}),
-        // OB-134: Pass PARTIAL claim field info for field filtering
         ...(proposalUnit.claimType ? { claimType: proposalUnit.claimType } : {}),
         ...(proposalUnit.ownedFields ? { ownedFields: proposalUnit.ownedFields } : {}),
         ...(proposalUnit.sharedFields ? { sharedFields: proposalUnit.sharedFields } : {}),
-        // OB-135: Original prediction for signal outcome recording
         originalClassification: proposalUnit.classification,
         originalConfidence: proposalUnit.confidence,
       };
     }).filter(Boolean);
 
-    // Process one at a time to show sequential progress
-    for (let i = 0; i < unitsToExecute.length; i++) {
-      const unit = unitsToExecute[i];
+    try {
+      const res = await fetchWithTimeout('/api/import/sci/execute-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proposalId: proposal.proposalId,
+          tenantId,
+          storagePath,
+          contentUnits: bulkUnits,
+        }),
+      });
 
-      // Mark as processing + reset elapsed timer
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => 'Unknown error');
+        throw new Error(`Bulk processing failed (${res.status}): ${errBody.substring(0, 200)}`);
+      }
+
+      const bulkResult: SCIExecutionResult = await res.json();
+
+      // Map results back to individual units
+      for (const result of bulkResult.results) {
+        setUnits(prev => prev.map(u =>
+          u.contentUnitId === result.contentUnitId
+            ? {
+                ...u,
+                status: result.success ? 'complete' as const : 'error' as const,
+                result,
+                error: result.success ? undefined : result.error,
+              }
+            : u
+        ));
+      }
+    } catch (err) {
+      const errorMsg = err instanceof DOMException && err.name === 'AbortError'
+        ? 'Request timed out — the server may still be processing'
+        : err instanceof Error ? err.message : 'Bulk processing failed';
+
+      // Mark all data units as error
+      for (const du of dataUnits) {
+        setUnits(prev => prev.map(u =>
+          u.contentUnitId === du.contentUnitId
+            ? { ...u, status: 'error' as const, error: errorMsg }
+            : u
+        ));
+      }
+    }
+  }, [confirmedUnits, proposal.proposalId, tenantId, storagePath]);
+
+  // Legacy execution — used for plan units (document-based) and fallback when no storagePath
+  const executeLegacyUnit = useCallback(async (unit: ExecutionUnit) => {
+    const proposalUnit = confirmedUnits.find(u => u.contentUnitId === unit.contentUnitId);
+    if (!proposalUnit) throw new Error('Could not find execution data for this content');
+
+    const baseContentUnitId = unit.contentUnitId.replace(/::split$/, '');
+    const sheetData = rawData.sheets.find(s => {
+      const expectedId = `${rawData.fileName}::${s.sheetName}::${rawData.sheets.indexOf(s)}`;
+      return expectedId === baseContentUnitId;
+    }) || rawData.sheets.find(s => s.sheetName === unit.tabName);
+
+    const execUnit = {
+      contentUnitId: unit.contentUnitId,
+      confirmedClassification: unit.classification,
+      confirmedBindings: proposalUnit.fieldBindings,
+      rawData: sheetData?.rows || [],
+      ...(proposalUnit.documentMetadata ? { documentMetadata: proposalUnit.documentMetadata } : {}),
+      ...(proposalUnit.claimType ? { claimType: proposalUnit.claimType } : {}),
+      ...(proposalUnit.ownedFields ? { ownedFields: proposalUnit.ownedFields } : {}),
+      ...(proposalUnit.sharedFields ? { sharedFields: proposalUnit.sharedFields } : {}),
+      originalClassification: proposalUnit.classification,
+      originalConfidence: proposalUnit.confidence,
+    };
+
+    const res = await fetchWithTimeout('/api/import/sci/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        proposalId: proposal.proposalId,
+        tenantId,
+        contentUnits: [execUnit],
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Processing failed (${res.status})`);
+    }
+
+    const result: SCIExecutionResult = await res.json();
+    return result.results[0];
+  }, [confirmedUnits, rawData, proposal.proposalId, tenantId]);
+
+  const executeUnits = useCallback(async (unitsToExecute: ExecutionUnit[]) => {
+    // OB-156: Split units into plan (legacy) and data (bulk) groups
+    const planUnits = unitsToExecute.filter(u => u.classification === 'plan');
+    const dataUnits = unitsToExecute.filter(u => u.classification !== 'plan');
+
+    // Execute plan units first (legacy path — document-based, no row data)
+    for (const unit of planUnits) {
       setElapsedSeconds(0);
       setUnits(prev => prev.map(u =>
         u.contentUnitId === unit.contentUnitId
@@ -191,73 +280,7 @@ export function SCIExecution({
       ));
 
       try {
-        // Execute this unit
-        const execUnit = executionUnits.find(
-          eu => eu && eu.contentUnitId === unit.contentUnitId
-        );
-
-        if (!execUnit) {
-          throw new Error('Could not find execution data for this content');
-        }
-
-        // Chunk large content units to avoid HTTP 413 (Vercel 4.5MB limit)
-        const MAX_ROWS_PER_CHUNK = 5000;
-        const rawRows = execUnit.rawData || [];
-        const needsChunking = rawRows.length > MAX_ROWS_PER_CHUNK;
-        let unitResult: ContentUnitResult | undefined;
-
-        if (needsChunking) {
-          // Split into chunks and send sequentially
-          let totalProcessed = 0;
-          for (let ci = 0; ci < rawRows.length; ci += MAX_ROWS_PER_CHUNK) {
-            const chunk = rawRows.slice(ci, ci + MAX_ROWS_PER_CHUNK);
-            const chunkUnit = { ...execUnit, rawData: chunk };
-
-            // HF-087: Use fetchWithTimeout (300s)
-            const chunkRes = await fetchWithTimeout('/api/import/sci/execute', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                proposalId: proposal.proposalId,
-                tenantId,
-                contentUnits: [chunkUnit],
-              }),
-            });
-
-            if (!chunkRes.ok) {
-              throw new Error(`Processing failed (${chunkRes.status}) on chunk ${Math.floor(ci / MAX_ROWS_PER_CHUNK) + 1}`);
-            }
-
-            const chunkResult: SCIExecutionResult = await chunkRes.json();
-            const cr = chunkResult.results[0];
-            if (cr) {
-              totalProcessed += cr.rowsProcessed;
-              if (!cr.success) {
-                unitResult = cr;
-                break;
-              }
-              unitResult = { ...cr, rowsProcessed: totalProcessed };
-            }
-          }
-        } else {
-          // HF-087: Use fetchWithTimeout (300s)
-          const res = await fetchWithTimeout('/api/import/sci/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              proposalId: proposal.proposalId,
-              tenantId,
-              contentUnits: [execUnit],
-            }),
-          });
-
-          if (!res.ok) {
-            throw new Error(`Processing failed (${res.status})`);
-          }
-
-          const result: SCIExecutionResult = await res.json();
-          unitResult = result.results[0];
-        }
+        const unitResult = await executeLegacyUnit(unit);
 
         if (unitResult && unitResult.success) {
           setUnits(prev => prev.map(u =>
@@ -284,10 +307,7 @@ export function SCIExecution({
           ? 'Request timed out — the server may still be processing'
           : err instanceof Error ? err.message : 'Processing failed';
 
-        // OB-151: Polling recovery — if the fetch failed due to timeout/network
-        // for a plan unit, poll for up to 90s to see if server actually succeeded.
-        if ((isAbort || isNetworkError) && unit.classification === 'plan') {
-          // Update UI to show we're waiting for server
+        if ((isAbort || isNetworkError)) {
           setUnits(prev => prev.map(u =>
             u.contentUnitId === unit.contentUnitId
               ? { ...u, error: 'Connection lost — checking if server completed...' }
@@ -312,22 +332,56 @@ export function SCIExecution({
                   }
                 : u
             ));
-            continue; // Skip the error state — plan was actually saved
+            continue;
           }
         }
 
         setUnits(prev => prev.map(u =>
           u.contentUnitId === unit.contentUnitId
-            ? {
-                ...u,
-                status: 'error' as const,
-                error: errorMsg,
-              }
+            ? { ...u, status: 'error' as const, error: errorMsg }
             : u
         ));
       }
     }
-  }, [confirmedUnits, rawData, proposal.proposalId, tenantId]);
+
+    // OB-156: Execute data units via bulk server-side processing
+    if (dataUnits.length > 0 && storagePath) {
+      await executeBulk(dataUnits);
+    } else if (dataUnits.length > 0) {
+      // Fallback: no storagePath — use legacy execution for each data unit
+      for (const unit of dataUnits) {
+        setElapsedSeconds(0);
+        setUnits(prev => prev.map(u =>
+          u.contentUnitId === unit.contentUnitId
+            ? { ...u, status: 'processing' as const }
+            : u
+        ));
+
+        try {
+          const unitResult = await executeLegacyUnit(unit);
+          if (unitResult && unitResult.success) {
+            setUnits(prev => prev.map(u =>
+              u.contentUnitId === unit.contentUnitId
+                ? { ...u, status: 'complete' as const, result: unitResult }
+                : u
+            ));
+          } else {
+            setUnits(prev => prev.map(u =>
+              u.contentUnitId === unit.contentUnitId
+                ? { ...u, status: 'error' as const, error: unitResult?.error || 'Unknown error', result: unitResult }
+                : u
+            ));
+          }
+        } catch (err) {
+          setUnits(prev => prev.map(u =>
+            u.contentUnitId === unit.contentUnitId
+              ? { ...u, status: 'error' as const, error: err instanceof Error ? err.message : 'Processing failed' }
+              : u
+          ));
+        }
+      }
+    }
+  }, [confirmedUnits, rawData, proposal.proposalId, tenantId, storagePath, executeBulk, executeLegacyUnit]);
 
   // Start execution on mount — OB-151: dual guard (module-level Set + useRef)
   useEffect(() => {

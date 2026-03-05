@@ -25,6 +25,7 @@ export interface FileInfo {
   size: number;
   sheetCount: number;
   parsedData: ParsedFileData;
+  rawFile: File; // OB-156: Keep raw file for Storage upload (no row data in HTTP bodies)
 }
 
 interface SCIUploadProps {
@@ -138,6 +139,10 @@ async function parseCsvFile(file: File, delimiter: string): Promise<ParsedFileDa
   };
 }
 
+// OB-156: Maximum rows to parse client-side (sample for AI analysis only).
+// Full data is parsed server-side from the Storage-uploaded file.
+const SAMPLE_ROWS = 50;
+
 async function parseExcelFile(file: File): Promise<ParsedFileData> {
   // Dynamic import to avoid SSR issues
   const XLSX = await import('xlsx');
@@ -150,20 +155,39 @@ async function parseExcelFile(file: File): Promise<ParsedFileData> {
     const ws = workbook.Sheets[sheetName];
     if (!ws) continue;
 
-    const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-    const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
+    // OB-156: Get total row count from sheet range without parsing all rows
+    const ref = ws['!ref'];
+    let totalRowCount = 0;
+    if (ref) {
+      const range = XLSX.utils.decode_range(ref);
+      totalRowCount = Math.max(0, range.e.r - range.s.r); // rows minus header
+    }
+
+    // OB-156: Parse only sample rows for AI analysis (server parses full file)
+    const sampleData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+      defval: '',
+      range: 0, // start from first row
+    });
+
+    // Use actual count if small enough, otherwise trust range calculation
+    if (sampleData.length <= SAMPLE_ROWS) {
+      totalRowCount = sampleData.length;
+    }
+
+    const sampleRows = sampleData.slice(0, SAMPLE_ROWS);
+    const columns = sampleRows.length > 0 ? Object.keys(sampleRows[0]) : [];
 
     // Filter out auto-generated __EMPTY columns that are fully empty
     const meaningfulColumns = columns.filter(col => {
       if (!col.startsWith('__EMPTY')) return true;
-      return jsonData.some(row => row[col] !== '' && row[col] != null);
+      return sampleRows.some(row => row[col] !== '' && row[col] != null);
     });
 
     sheets.push({
       sheetName,
       columns: meaningfulColumns,
-      rows: jsonData,
-      totalRowCount: jsonData.length,
+      rows: sampleRows,
+      totalRowCount,
     });
   }
 
@@ -209,6 +233,7 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
           size: file.size,
           sheetCount: parsed.sheets.length,
           parsedData: parsed,
+          rawFile: file, // OB-156: Keep raw file for Storage upload
         });
       }
       setSelectedFiles(parsedFiles);
