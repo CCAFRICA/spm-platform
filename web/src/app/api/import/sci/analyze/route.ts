@@ -77,12 +77,14 @@ export async function POST(req: NextRequest) {
         const sheet = file.sheets[tabIndex];
 
         // Generate Content Profile
+        // HF-091: Pass totalRowCount so patterns use full sheet size, not sample size
         const profile = generateContentProfile(
           sheet.sheetName,
           tabIndex,
           file.fileName,
           sheet.columns,
-          sheet.rows
+          sheet.rows,
+          sheet.totalRowCount,
         );
 
         // OB-134: Round 2 negotiation (replaces Phase 1 scoring)

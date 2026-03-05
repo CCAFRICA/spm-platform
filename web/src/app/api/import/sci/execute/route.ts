@@ -809,11 +809,12 @@ async function executeReferencePipeline(
     ? tabName
     : fileName.replace(/\.[^.]+$/, '');
 
-  // Find the key field (highest distinct count relative to row count)
+  // Find the key field (entity_identifier binding, or fall back to first column)
   const keyBinding = unit.confirmedBindings.find(b =>
     b.semanticRole === 'entity_identifier'
   );
-  const keyFieldName = keyBinding?.sourceField || null;
+  const firstColumn = unit.confirmedBindings[0]?.sourceField || Object.keys(rows[0] || {})[0] || 'id';
+  const keyFieldName = keyBinding?.sourceField || firstColumn;
 
   // Build schema definition from bindings
   const schemaDefinition: Record<string, string> = {};

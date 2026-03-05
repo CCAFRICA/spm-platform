@@ -23,6 +23,7 @@ const BADGE_STYLES: Record<string, string> = {
   transaction: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   target: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
   plan: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  reference: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
 };
 
 function VerdictBadge({ classification }: { classification: AgentType }) {
@@ -59,6 +60,7 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
 
 interface ContentUnitCardProps {
   unit: ContentUnitProposal;
+  originalClassification?: AgentType;
   rowCount: number;
   isConfirmed: boolean;
   onToggleConfirm: () => void;
@@ -68,9 +70,10 @@ interface ContentUnitCardProps {
 }
 
 function ContentUnitCard({
-  unit, rowCount, isConfirmed, onToggleConfirm, isExpanded, onToggleExpand,
+  unit, originalClassification, rowCount, isConfirmed, onToggleConfirm, isExpanded, onToggleExpand,
   onChangeClassification,
 }: ContentUnitCardProps) {
+  const isOverridden = originalClassification != null && originalClassification !== unit.classification;
   const [showClassMenu, setShowClassMenu] = useState(false);
 
   const hasCloseScores = unit.allScores?.some(s =>
@@ -112,6 +115,11 @@ function ContentUnitCard({
 
         {/* Verdict badge */}
         <VerdictBadge classification={unit.classification} />
+        {isOverridden && (
+          <span className="text-[10px] text-amber-400/70 font-medium">
+            (was {originalClassification})
+          </span>
+        )}
 
         {/* Verdict text */}
         <span className="text-xs text-zinc-500 flex-1 truncate">
@@ -258,7 +266,7 @@ function ContentUnitCard({
               </button>
               {showClassMenu && (
                 <div className="absolute left-0 bottom-full mb-1 z-50 w-56 rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
-                  {(['plan', 'entity', 'target', 'transaction'] as AgentType[]).map(t => (
+                  {(['plan', 'entity', 'target', 'transaction', 'reference'] as AgentType[]).map(t => (
                     <button
                       key={t}
                       onClick={(e) => {
@@ -432,18 +440,22 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
 
       {/* Content unit cards */}
       <div className="space-y-2">
-        {effectiveUnits.map(unit => (
-          <ContentUnitCard
-            key={unit.contentUnitId}
-            unit={unit}
-            rowCount={getRowCount(unit)}
-            isConfirmed={confirmedIds.has(unit.contentUnitId)}
-            onToggleConfirm={() => toggleConfirm(unit.contentUnitId)}
-            isExpanded={expandedIds.has(unit.contentUnitId)}
-            onToggleExpand={() => toggleExpand(unit.contentUnitId)}
-            onChangeClassification={(newType) => handleChangeClassification(unit.contentUnitId, newType)}
-          />
-        ))}
+        {effectiveUnits.map(unit => {
+          const original = proposal.contentUnits.find(u => u.contentUnitId === unit.contentUnitId);
+          return (
+            <ContentUnitCard
+              key={unit.contentUnitId}
+              unit={unit}
+              originalClassification={original?.classification}
+              rowCount={getRowCount(unit)}
+              isConfirmed={confirmedIds.has(unit.contentUnitId)}
+              onToggleConfirm={() => toggleConfirm(unit.contentUnitId)}
+              isExpanded={expandedIds.has(unit.contentUnitId)}
+              onToggleExpand={() => toggleExpand(unit.contentUnitId)}
+              onChangeClassification={(newType) => handleChangeClassification(unit.contentUnitId, newType)}
+            />
+          );
+        })}
       </div>
 
       {/* Footer */}
