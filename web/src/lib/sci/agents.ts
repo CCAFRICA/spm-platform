@@ -62,7 +62,7 @@ const TARGET_WEIGHTS: WeightRule[] = [
   { signal: 'many_per_entity', weight: -0.20, test: p => p.patterns.volumePattern === 'many', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (many — not targets)` },
   { signal: 'auto_generated_headers', weight: -0.15, test: p => p.structure.headerQuality === 'auto_generated', evidence: () => 'auto-generated headers' },
   { signal: 'high_sparsity', weight: -0.10, test: p => p.structure.sparsity > 0.30, evidence: p => `sparsity ${(p.structure.sparsity * 100).toFixed(0)}% > 30%` },
-  { signal: 'has_temporal', weight: -0.15, test: p => p.patterns.hasDateColumn || p.patterns.hasPeriodMarkers, evidence: () => 'temporal dimension present — data varies over time' },
+  { signal: 'has_temporal', weight: -0.15, test: p => p.patterns.hasDateColumn || p.patterns.hasTemporalColumns, evidence: () => 'temporal dimension present — data varies over time' },
 ];
 
 const TRANSACTION_WEIGHTS: WeightRule[] = [
@@ -189,7 +189,7 @@ function negotiateRound2(scores: AgentScore[], profile: ContentProfile): void {
   const entity = scoreMap.get('entity');
 
   const repeatRatio = profile.structure.identifierRepeatRatio;
-  const hasTemporal = profile.patterns.hasDateColumn || profile.patterns.hasPeriodMarkers;
+  const hasTemporal = profile.patterns.hasDateColumn || profile.patterns.hasTemporalColumns;
 
   // Transaction vs Target: targets don't repeat 4x per entity
   if (transaction && target && target.confidence > 0.30 && repeatRatio > 2.0) {

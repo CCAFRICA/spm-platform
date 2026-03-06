@@ -20,10 +20,10 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   // TRANSACTION: "Repeated entities over time with numeric measurements"
   // ────────────────────────────────────────────────────────
   const hasHighRepeat = structure.identifierRepeatRatio > 1.5;
-  const hasTemporalDimension = patterns.hasDateColumn || patterns.hasPeriodMarkers;
+  const hasTemporalDimension = patterns.hasDateColumn || patterns.hasTemporalColumns;
   const isDataHeavy = structure.numericFieldRatio > 0.40;
 
-  console.log('[SCI SigCheck]', profile.tabName, 'repeated_entities_over_time', { hasHighRepeat, repeatRatio: structure.identifierRepeatRatio, hasTemporalDimension, hasDate: patterns.hasDateColumn, hasPeriodMarkers: patterns.hasPeriodMarkers, isDataHeavy, numericFieldRatio: structure.numericFieldRatio, matched: hasHighRepeat && hasTemporalDimension && isDataHeavy });
+  console.log('[SCI SigCheck]', profile.tabName, 'repeated_entities_over_time', { hasHighRepeat, repeatRatio: structure.identifierRepeatRatio, hasTemporalDimension, hasDate: patterns.hasDateColumn, hasTemporalColumns: patterns.hasTemporalColumns, isDataHeavy, numericFieldRatio: structure.numericFieldRatio, matched: hasHighRepeat && hasTemporalDimension && isDataHeavy });
   if (hasHighRepeat && hasTemporalDimension && isDataHeavy) {
     matches.push({
       agent: 'transaction',
@@ -31,7 +31,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
       signatureName: 'repeated_entities_over_time',
       matchedConditions: [
         `identifierRepeatRatio: ${structure.identifierRepeatRatio.toFixed(1)} (>1.5)`,
-        `temporal: ${patterns.hasPeriodMarkers ? 'period markers' : 'date column'}`,
+        `temporal: ${patterns.hasTemporalColumns ? 'period markers' : 'date column'}`,
         `numericFieldRatio: ${(structure.numericFieldRatio * 100).toFixed(0)}% (>40%)`,
       ],
     });
@@ -52,7 +52,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
       confidence: 0.85,
       signatureName: 'one_per_entity_with_attributes',
       matchedConditions: [
-        `identifierRepeatRatio: ${structure.identifierRepeatRatio.toFixed(1)} (<=1.3)`,
+        `identifierRepeatRatio: ${structure.identifierRepeatRatio.toFixed(1)} (<=1.5)`,
         `categoricalFieldRatio: ${(structure.categoricalFieldRatio * 100).toFixed(0)}% (>25%)`,
         `hasEntityIdentifier: true`,
         `hasStructuralNameColumn: true`,

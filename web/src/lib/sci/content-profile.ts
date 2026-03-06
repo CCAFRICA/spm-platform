@@ -1,9 +1,12 @@
 // Synaptic Content Ingestion — Content Profile Generator
-// Decision 77 — OB-127, OB-159 Unified Scoring Overhaul
+// Decision 77 — OB-127, OB-159, OB-160A
 // Purely structural observation — no interpretation, no AI.
 // Zero domain vocabulary. Korean Test applies.
+// Decision 103: Probabilistic type scoring (simultaneous plausibility)
+// Decision 104: Temporal detection is type-agnostic (raw values)
+// Decision 105: Cardinality relative to identifier column
 
-import type { ContentProfile, FieldProfile } from './sci-types';
+import type { ContentProfile, FieldProfile, ProfileObservation } from './sci-types';
 
 // ============================================================
 // NAME SIGNAL PATTERNS (multilingual, case-insensitive)
@@ -17,55 +20,11 @@ const DATE_SIGNALS = ['date', 'period', 'month', 'year', 'fecha', '날짜', 'tim
 const AMOUNT_SIGNALS = ['amount', 'total', 'balance', 'monto', 'sum', '금액', 'value', 'price'];
 const RATE_SIGNALS = ['rate', '%', 'percentage', 'tasa', '비율', 'percent', 'ratio'];
 
-// OB-158: Structural person name detection (from values, not headers)
-// Korean Test: identifies person-name-like columns by value structure alone
-function detectPersonNameColumn(values: unknown[], distinctCount: number, tabName?: string, colName?: string): boolean {
-  const nonNull = values.filter(v => v != null && String(v).trim() !== '').map(v => String(v).trim());
-  if (nonNull.length < 5) return false;
-
-  // At least 50% of values contain a space (multi-word names)
-  const multiWord = nonNull.filter(v => v.includes(' ')).length;
-  const multiWordRatio = multiWord / nonNull.length;
-  if (multiWordRatio < 0.50) return false;
-
-  // At least 3 distinct values (eliminates constants, but allows transaction-style repeats)
-  if (distinctCount < 3) return false;
-
-  // Average word count >= 1.8 (person names are typically 2-3 words)
-  const totalWords = nonNull.reduce((sum, v) => sum + v.split(/\s+/).length, 0);
-  const avgWordCount = totalWords / nonNull.length;
-  if (avgWordCount < 1.8) return false;
-
-  // Not numeric-looking
-  const numericLooking = nonNull.filter(v => !isNaN(Number(v.replace(/[\s,]/g, '')))).length;
-  const numericRatio = numericLooking / nonNull.length;
-  if (numericRatio > 0.20) return false;
-
-  // Person names don't contain digits ("Hub CDMX 1" is a location, not a person)
-  const containsDigits = nonNull.filter(v => /\d/.test(v)).length;
-  const digitRatio = containsDigits / nonNull.length;
-
-  console.log('[SCI PersonName]', tabName, colName, {
-    sampleValues: nonNull.slice(0, 5),
-    count: nonNull.length,
-    multiWordRatio: multiWordRatio.toFixed(2),
-    avgWordCount: avgWordCount.toFixed(2),
-    numericRatio: numericRatio.toFixed(2),
-    digitRatio: digitRatio.toFixed(2),
-    willPass: digitRatio <= 0.20,
-  });
-
-  if (digitRatio > 0.20) return false;
-
-  return true;
-}
-
 function headerContains(header: string, signals: string[]): boolean {
   const lower = header.toLowerCase();
   return signals.some(s => {
     const idx = lower.indexOf(s);
     if (idx === -1) return false;
-    // OB-158: Short signals (≤3 chars) require word boundaries to avoid false positives
     if (s.length <= 3) {
       const before = idx === 0 || /[^a-z0-9]/.test(lower[idx - 1]);
       const after = idx + s.length >= lower.length || /[^a-z0-9]/.test(lower[idx + s.length]);
@@ -76,37 +35,139 @@ function headerContains(header: string, signals: string[]): boolean {
 }
 
 // ============================================================
-// STRUCTURAL IDENTIFIER DETECTION (Korean Test compliant)
+// PROBABILISTIC TYPE SCORING (Decision 103)
+// All types scored simultaneously. No waterfall ordering bias.
 // ============================================================
-// Detects identifier columns by VALUE PATTERNS, not field names.
-// A column is an identifier if it has high uniqueness and short, code-like values.
 
-function detectStructuralIdentifier(field: FieldProfile, rowCount: number): boolean {
-  if (field.distinctCount === 0 || rowCount === 0) return false;
-  const uniquenessRatio = field.distinctCount / rowCount;
-  // High uniqueness (>70% distinct values relative to row count)
-  if (uniquenessRatio < 0.70) return false;
-  // Must not be a date or boolean
-  if (field.dataType === 'date' || field.dataType === 'boolean') return false;
-  // Sequential integers or text codes with short values
-  if (field.dataType === 'integer' && field.distribution.isSequential) return true;
-  // Non-text numeric with high uniqueness
-  if (field.dataType === 'integer' && uniquenessRatio > 0.90) return true;
-  // Text codes: high uniqueness + not person names
-  if (field.dataType === 'text' && uniquenessRatio > 0.70 && !field.nameSignals.looksLikePersonName) return true;
-  return false;
+interface TypeClassification {
+  dataType: FieldProfile['dataType'];
+  confidence: number;
+  allScores: Record<string, number>;
 }
 
-// ============================================================
-// FIELD TYPE DETECTION
-// ============================================================
+function classifyColumnType(
+  values: unknown[],
+  headerName: string,
+): TypeClassification {
+  const nonNull = values.filter(v => v !== null && v !== undefined && String(v).trim() !== '');
+  if (nonNull.length === 0) return { dataType: 'text', confidence: 1.0, allScores: { text: 1.0 } };
+
+  const scores: Record<string, number> = {
+    boolean: scoreBooleanPlausibility(nonNull),
+    integer: scoreIntegerPlausibility(nonNull),
+    decimal: scoreDecimalPlausibility(nonNull),
+    percentage: scorePercentagePlausibility(nonNull, headerName),
+    currency: scoreCurrencyPlausibility(nonNull, headerName),
+    date: scoreDatePlausibility(nonNull),
+    text: scoreTextPlausibility(nonNull),
+  };
+
+  const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  return {
+    dataType: sorted[0][0] as FieldProfile['dataType'],
+    confidence: sorted[0][1],
+    allScores: scores,
+  };
+}
+
+const BOOLEAN_TRUE = new Set(['1', 'true', 'yes', 'si', 'sí']);
+const BOOLEAN_FALSE = new Set(['0', 'false', 'no']);
+const BOOLEAN_ALL = new Set(Array.from(BOOLEAN_TRUE).concat(Array.from(BOOLEAN_FALSE)));
+
+function scoreBooleanPlausibility(nonNull: unknown[]): number {
+  const strings = nonNull.map(v => String(v).toLowerCase().trim());
+  const allBoolean = strings.every(s => BOOLEAN_ALL.has(s));
+  if (!allBoolean) return 0;
+
+  const hasTrueLike = strings.some(s => BOOLEAN_TRUE.has(s));
+  const hasFalseLike = strings.some(s => BOOLEAN_FALSE.has(s));
+
+  // CRITICAL: Must have BOTH true-like AND false-like values for high confidence
+  if (hasTrueLike && hasFalseLike) return 0.95;
+  // Only one side present (all 1s, all 0s): low score — probably constant integer
+  return 0.20;
+}
+
+function scoreIntegerPlausibility(nonNull: unknown[]): number {
+  let intCount = 0;
+  for (const v of nonNull) {
+    const n = Number(v);
+    if (!isNaN(n) && String(v).trim() !== '' && Number.isInteger(n)) intCount++;
+  }
+  const ratio = intCount / nonNull.length;
+  if (ratio < 0.80) return 0;
+
+  let score = 0.80;
+  // Boost if range > 1 (not just 0-1 binary)
+  const nums = nonNull.map(v => Number(v)).filter(n => !isNaN(n) && Number.isInteger(n));
+  if (nums.length > 0) {
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    if (max - min > 1) score += 0.10;
+  }
+  // Boost if distinctCount > 2 (not binary)
+  const distinct = new Set(nums).size;
+  if (distinct > 2) score += 0.05;
+
+  return Math.min(1.0, score);
+}
+
+function scoreDecimalPlausibility(nonNull: unknown[]): number {
+  let numCount = 0;
+  let hasDecimal = false;
+  for (const v of nonNull) {
+    const n = Number(v);
+    if (!isNaN(n) && String(v).trim() !== '') {
+      numCount++;
+      if (!Number.isInteger(n)) hasDecimal = true;
+    }
+  }
+  if (numCount / nonNull.length < 0.80 || !hasDecimal) return 0;
+  return 0.85;
+}
+
+function scorePercentagePlausibility(nonNull: unknown[], headerName: string): number {
+  // Values with % sign
+  const percentStrings = nonNull.filter(v => /^[<>≤≥]?\s*\d+(\.\d+)?\s*%$/.test(String(v).trim()));
+  if (percentStrings.length / nonNull.length > 0.50) return 0.95;
+
+  // Header contains rate signal
+  if (headerContains(headerName, RATE_SIGNALS)) {
+    const nums = nonNull.map(v => Number(v)).filter(n => !isNaN(n));
+    if (nums.length / nonNull.length > 0.80) return 0.80;
+  }
+
+  // Values in [0, 1] range with decimals
+  const nums = nonNull.map(v => Number(v)).filter(n => !isNaN(n));
+  if (nums.length > 1 && nums.every(n => n >= 0 && n <= 1)) {
+    const hasDecimal = nums.some(n => !Number.isInteger(n));
+    if (hasDecimal) return 0.70;
+  }
+
+  return 0;
+}
+
+function scoreCurrencyPlausibility(nonNull: unknown[], headerName: string): number {
+  const nums = nonNull.map(v => Number(v)).filter(n => !isNaN(n));
+  if (nums.length / nonNull.length < 0.80) return 0;
+  const hasDecimal = nums.some(n => !Number.isInteger(n));
+  if (!hasDecimal) return 0;
+
+  const twoDecimal = nonNull.filter(v => {
+    const s = String(v);
+    const dot = s.indexOf('.');
+    return dot >= 0 && s.length - dot - 1 === 2;
+  }).length;
+  const magnitude = Math.max(...nums.map(Math.abs));
+
+  if (headerContains(headerName, AMOUNT_SIGNALS)) return 0.85;
+  if (twoDecimal / nums.length > 0.5 && magnitude > 100) return 0.80;
+  return 0;
+}
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/;
 const US_DATE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 const EU_DATE_RE = /^\d{1,2}\.\d{1,2}\.\d{2,4}$/;
-
-// Additional date patterns: "Jan 2024", "January 2024", "2024-Q1", "Mar-24"
-// OB-158: Added Spanish month prefixes (Ene, Abr) for multilingual date detection
 const MONTH_PREFIXES = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Ene|Abr';
 const MONTH_YEAR_RE = new RegExp(`^(${MONTH_PREFIXES})\\w*[\\s\\-/]?\\d{2,4}$`, 'i');
 const YEAR_MONTH_RE = new RegExp(`^\\d{4}[\\s\\-/](${MONTH_PREFIXES})\\w*$`, 'i');
@@ -122,72 +183,164 @@ function isDateValue(v: unknown): boolean {
   return false;
 }
 
-function isBooleanValue(v: unknown): boolean {
-  if (v == null) return false;
-  const s = String(v).toLowerCase().trim();
-  return ['true', 'false', 'yes', 'no', 'si', 'sí', '0', '1'].includes(s);
-}
-
-function isPercentageString(v: unknown): boolean {
-  if (v == null) return false;
-  const s = String(v).trim();
-  return /^[<>≤≥]?\s*\d+(\.\d+)?\s*%$/.test(s);
-}
-
-function detectFieldType(
-  values: unknown[],
-  headerName: string
-): FieldProfile['dataType'] {
-  const nonNull = values.filter(v => v != null && String(v).trim() !== '');
-  if (nonNull.length === 0) return 'text';
-
-  let integers = 0, decimals = 0, dates = 0, booleans = 0, texts = 0, percentStrings = 0;
-
+function scoreDatePlausibility(nonNull: unknown[]): number {
+  let dateCount = 0;
   for (const v of nonNull) {
-    if (isBooleanValue(v)) { booleans++; continue; }
-    if (isPercentageString(v)) { percentStrings++; continue; }
-    if (isDateValue(v)) { dates++; continue; }
-    const n = Number(v);
-    if (!isNaN(n) && String(v).trim() !== '') {
-      if (Number.isInteger(n)) integers++;
-      else decimals++;
+    if (v instanceof Date || isDateValue(v)) dateCount++;
+  }
+  const ratio = dateCount / nonNull.length;
+  if (ratio > 0.80) return 0.95;
+  if (ratio > 0.50) return 0.60;
+  return 0;
+}
+
+function scoreTextPlausibility(nonNull: unknown[]): number {
+  let textCount = 0;
+  for (const v of nonNull) {
+    const s = String(v).trim();
+    if (s === '') continue;
+    if (isNaN(Number(s))) textCount++;
+  }
+  if (textCount / nonNull.length > 0.50) return 0.70;
+  return 0.10; // baseline fallback
+}
+
+// ============================================================
+// STRUCTURAL IDENTIFIER DETECTION (Korean Test compliant)
+// ============================================================
+
+function detectStructuralIdentifier(field: FieldProfile, rowCount: number): boolean {
+  if (field.distinctCount === 0 || rowCount === 0) return false;
+  const uniquenessRatio = field.distinctCount / rowCount;
+  if (uniquenessRatio < 0.70) return false;
+  if (field.dataType === 'date' || field.dataType === 'boolean') return false;
+  if (field.dataType === 'integer' && field.distribution.isSequential) return true;
+  if (field.dataType === 'integer' && uniquenessRatio > 0.90) return true;
+  if (field.dataType === 'text' && uniquenessRatio > 0.70 && !field.nameSignals.looksLikePersonName) return true;
+  return false;
+}
+
+// ============================================================
+// TEMPORAL COLUMN DETECTION (Decision 104)
+// Type-agnostic: checks RAW NUMERIC VALUES regardless of dataType
+// ============================================================
+
+function detectTemporalColumns(
+  fields: FieldProfile[],
+  sampleRows: Record<string, unknown>[],
+): { hasTemporalColumns: boolean; temporalColumnIndices: number[] } {
+  const temporalIndices: number[] = [];
+  let hasDateTypedColumn = false;
+  let hasYearValues = false;
+  let hasSmallRangeIntegers = false;
+
+  for (const field of fields) {
+    // Check 1: Column classified as date type
+    if (field.dataType === 'date') {
+      temporalIndices.push(field.fieldIndex);
+      hasDateTypedColumn = true;
       continue;
     }
-    texts++;
-  }
 
-  const total = nonNull.length;
-  const numericCount = integers + decimals;
+    // Check 2: RAW NUMERIC VALUES regardless of dataType
+    const rawValues = sampleRows
+      .map(row => row[field.fieldName])
+      .filter(v => v !== null && v !== undefined)
+      .map(v => Number(v))
+      .filter(v => !isNaN(v) && Number.isInteger(v));
 
-  if (booleans / total > 0.8) return 'boolean';
-  if (dates / total > 0.8) return 'date';
-  if (percentStrings / total > 0.5) return 'percentage';
-  if (texts / total > 0.8) return 'text';
+    if (rawValues.length < sampleRows.length * 0.5) continue;
 
-  if (numericCount / total > 0.8) {
-    if (headerContains(headerName, RATE_SIGNALS)) return 'percentage';
+    const min = Math.min(...rawValues);
+    const max = Math.max(...rawValues);
+    const distinct = new Set(rawValues).size;
 
-    const numVals = nonNull.map(v => Number(v)).filter(n => !isNaN(n));
-    const allPercentRange = numVals.every(n => n >= 0 && n <= 1);
-    if (allPercentRange && numVals.length > 1) return 'percentage';
-
-    if (decimals > 0) {
-      const twoDecimal = nonNull.filter(v => {
-        const s = String(v);
-        const dot = s.indexOf('.');
-        return dot >= 0 && s.length - dot - 1 === 2;
-      }).length;
-      const magnitude = Math.max(...numVals.map(Math.abs));
-      if ((twoDecimal / numericCount > 0.5 && magnitude > 100) || headerContains(headerName, AMOUNT_SIGNALS)) {
-        return 'currency';
-      }
-      return 'decimal';
+    // Year-range values: integers in [2000, 2040]
+    if (min >= 2000 && max <= 2040 && distinct <= 10) {
+      temporalIndices.push(field.fieldIndex);
+      hasYearValues = true;
     }
 
-    return 'integer';
+    // Small-range integers: months (1-12) or quarters (1-4)
+    if (min >= 1 && max <= 12 && distinct <= 12) {
+      temporalIndices.push(field.fieldIndex);
+      hasSmallRangeIntegers = true;
+    }
   }
 
-  return 'mixed';
+  return {
+    hasTemporalColumns: hasDateTypedColumn || (hasYearValues && hasSmallRangeIntegers),
+    temporalColumnIndices: Array.from(new Set(temporalIndices)),
+  };
+}
+
+// ============================================================
+// IDENTIFIER-RELATIVE CARDINALITY (Decision 105)
+// ============================================================
+
+function computeIdentifierRelativeCardinality(
+  columnDistinctCount: number,
+  identifierDistinctCount: number,
+): number {
+  if (identifierDistinctCount === 0) return 0;
+  return columnDistinctCount / identifierDistinctCount;
+}
+
+// Detects structural name columns using identifier-relative cardinality
+function detectStructuralNameColumn(
+  fields: FieldProfile[],
+  sampleRows: Record<string, unknown>[],
+  identifierField: FieldProfile | null,
+): string | null {
+  if (!identifierField) return null;
+  const idDistinct = identifierField.distinctCount;
+  if (idDistinct === 0) return null;
+
+  let bestCandidate: string | null = null;
+  let bestScore = 0;
+
+  for (const field of fields) {
+    if (field === identifierField) continue;
+    if (field.dataType !== 'text' && field.dataType !== 'mixed') continue;
+
+    const values = sampleRows
+      .map(r => String(r[field.fieldName] || ''))
+      .filter(v => v.length > 0);
+    if (values.length < 5) continue;
+
+    // Cardinality relative to identifier
+    const nameCardinality = computeIdentifierRelativeCardinality(field.distinctCount, idDistinct);
+    if (nameCardinality < 0.50) continue; // fewer than half the entities → categorical
+
+    let score = 0;
+
+    // Non-numeric (names are not numbers)
+    const nonNumericRatio = values.filter(v => isNaN(Number(v))).length / values.length;
+    if (nonNumericRatio > 0.90) score += 3;
+    else continue;
+
+    // Multi-word (names have spaces)
+    const spaceRatio = values.filter(v => v.includes(' ')).length / values.length;
+    if (spaceRatio > 0.50) score += 3;
+
+    // Average word count >= 1.8
+    const avgWords = values.reduce((sum, v) => sum + v.split(/\s+/).length, 0) / values.length;
+    if (avgWords >= 1.8) score += 2;
+
+    // High cardinality relative to identifier (near 1:1)
+    if (nameCardinality > 0.80) score += 2;
+
+    // No digits in values (person names don't contain digits)
+    const digitRatio = values.filter(v => /\d/.test(v)).length / values.length;
+    if (digitRatio > 0.20) continue; // disqualify
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestCandidate = field.fieldName;
+    }
+  }
+
+  return bestScore >= 5 ? bestCandidate : null;
 }
 
 // ============================================================
@@ -200,14 +353,14 @@ export function generateContentProfile(
   sourceFile: string,
   columns: string[],
   rows: Record<string, unknown>[],
-  // HF-091: totalRowCount from sheet metadata
   totalRowCount?: number,
 ): ContentProfile {
   const contentUnitId = `${sourceFile}::${tabName}::${tabIndex}`;
   const rowCount = totalRowCount || rows.length;
   const columnCount = columns.length;
+  const observations: ProfileObservation[] = [];
 
-  // Sparsity: percentage of null/empty cells
+  // Sparsity
   let nullCells = 0;
   const totalCells = rowCount * columnCount;
   for (const row of rows) {
@@ -226,14 +379,27 @@ export function generateContentProfile(
     allNumericHeaders ? 'missing' :
     'clean';
 
-  // Build field profiles
+  // Build field profiles with probabilistic type scoring
   const fields: FieldProfile[] = columns.map((col, fieldIndex) => {
     const values = rows.map(r => r[col]);
     const nonNull = values.filter(v => v != null && String(v).trim() !== '');
-    const dataType = detectFieldType(values, col);
+    const classification = classifyColumnType(values, col);
+    const dataType = classification.dataType;
     const nullRate = rows.length > 0 ? (rows.length - nonNull.length) / rows.length : 0;
     const distinctValues = new Set(nonNull.map(v => String(v)));
     const distinctCount = distinctValues.size;
+
+    // Emit type classification observation
+    const altInterp = { ...classification.allScores };
+    delete altInterp[dataType];
+    observations.push({
+      columnName: col,
+      observationType: 'type_classification',
+      observedValue: dataType,
+      confidence: classification.confidence,
+      alternativeInterpretations: altInterp,
+      structuralEvidence: `Winning type: ${dataType} at ${(classification.confidence * 100).toFixed(0)}%`,
+    });
 
     // Distribution for numeric fields
     const distribution: FieldProfile['distribution'] = {};
@@ -251,15 +417,21 @@ export function generateContentProfile(
       }
     }
 
+    // Also compute distribution for columns that are numerically parseable but typed differently
+    // (needed for temporal detection on boolean-typed columns)
+    if (!distribution.min && !distribution.max) {
+      const nums = nonNull.map(v => Number(v)).filter(n => !isNaN(n) && Number.isInteger(n));
+      if (nums.length > 0 && nums.length / nonNull.length > 0.80) {
+        distribution.min = Math.min(...nums);
+        distribution.max = Math.max(...nums);
+        distribution.mean = nums.reduce((s, n) => s + n, 0) / nums.length;
+      }
+    }
+
     // Categorical values for low-cardinality text
     if (dataType === 'text' && distinctCount <= 20 && distinctCount > 0) {
       distribution.categoricalValues = Array.from(distinctValues).slice(0, 20);
     }
-
-    // OB-158: Structural person name detection
-    const isPersonName = dataType === 'text'
-      && !headerContains(col, ID_SIGNALS)
-      && detectPersonNameColumn(values, distinctCount, tabName, col);
 
     return {
       fieldName: col,
@@ -275,40 +447,40 @@ export function generateContentProfile(
         containsDate: headerContains(col, DATE_SIGNALS),
         containsAmount: headerContains(col, AMOUNT_SIGNALS),
         containsRate: headerContains(col, RATE_SIGNALS),
-        looksLikePersonName: isPersonName,
+        looksLikePersonName: false, // set below after identifier detection
       },
     };
   });
 
   // ── Structural Pattern Detection ──
 
-  // Entity identifier: structural detection first, fallback to nameSignals for observation text
+  // Entity identifier
   const hasEntityIdentifier = fields.some(f =>
     detectStructuralIdentifier(f, rowCount) || f.nameSignals.containsId ||
     (f.dataType === 'integer' && f.distribution.isSequential)
   );
 
-  // HF-091: Detect period marker columns (year + month integers) as temporal data
-  for (const f of fields) {
-    const isYearCandidate = f.dataType === 'integer' && f.distribution.min != null && f.distribution.min >= 2000 && f.distribution.max != null && f.distribution.max <= 2040;
-    const isMonthCandidate = f.dataType === 'integer' && f.distribution.min != null && f.distribution.min >= 1 && f.distribution.max != null && f.distribution.max <= 12 && f.distinctCount <= 12;
-    if (isYearCandidate || isMonthCandidate || f.fieldName.toLowerCase().includes('mes') || f.fieldName.toLowerCase().includes('año') || f.fieldName.toLowerCase().includes('ano') || f.fieldName.toLowerCase().includes('year') || f.fieldName.toLowerCase().includes('month')) {
-      console.log('[SCI PeriodCheck]', tabName, f.fieldName, { dataType: f.dataType, min: f.distribution.min, max: f.distribution.max, distinctCount: f.distinctCount, isYearCandidate, isMonthCandidate });
-    }
-  }
-  const hasYearColumn = fields.some(f =>
-    f.dataType === 'integer' && f.distribution.min != null &&
-    f.distribution.min >= 2000 && f.distribution.max != null && f.distribution.max <= 2040
-  );
-  const hasMonthColumn = fields.some(f =>
-    f.dataType === 'integer' && f.distribution.min != null &&
-    f.distribution.min >= 1 && f.distribution.max != null && f.distribution.max <= 12 &&
-    f.distinctCount <= 12
-  );
-  const hasPeriodMarkers = hasYearColumn && hasMonthColumn;
-  console.log('[SCI PeriodResult]', tabName, { hasYearColumn, hasMonthColumn, hasPeriodMarkers });
+  // Identifier field for cardinality computations
+  const idField = fields.find(f => detectStructuralIdentifier(f, rowCount)) ||
+    fields.find(f => f.nameSignals.containsId);
+  const idDistinct = idField?.distinctCount ?? 0;
 
-  const hasDateColumn = fields.some(f => f.dataType === 'date' || f.nameSignals.containsDate) || hasPeriodMarkers;
+  // Temporal detection (Decision 104: type-agnostic)
+  const temporal = detectTemporalColumns(fields, rows);
+
+  // Emit temporal observation
+  if (temporal.hasTemporalColumns) {
+    observations.push({
+      columnName: null,
+      observationType: 'temporal_detection',
+      observedValue: true,
+      confidence: 0.80,
+      alternativeInterpretations: {},
+      structuralEvidence: `Temporal columns at indices: ${temporal.temporalColumnIndices.join(', ')}`,
+    });
+  }
+
+  const hasDateColumn = fields.some(f => f.dataType === 'date' || f.nameSignals.containsDate) || temporal.hasTemporalColumns;
   const hasCurrencyColumns = fields.filter(f => f.dataType === 'currency' || (f.nameSignals.containsAmount && ['decimal', 'integer', 'currency'].includes(f.dataType))).length;
   const hasPercentageValues = fields.some(f => f.dataType === 'percentage' || f.nameSignals.containsRate);
   const hasDescriptiveLabels = fields.some(f =>
@@ -320,16 +492,11 @@ export function generateContentProfile(
     rowCount <= 500 ? 'moderate' :
     'transactional';
 
-  // OB-159: Structural ratios (moved to structure)
-  // Identifier field: prefer structural detection, fallback to nameSignals
-  const idField = fields.find(f => detectStructuralIdentifier(f, rowCount)) ||
-    fields.find(f => f.nameSignals.containsId);
-
   const identifierRepeatRatio = idField && idField.distinctCount > 0
     ? rowCount / idField.distinctCount
     : 0;
 
-  // Numeric field ratio: fraction of non-ID fields with numeric types
+  // Numeric field ratio
   const nonIdFields = fields.filter(f => f !== idField);
   const numericTypes = ['integer', 'decimal', 'currency', 'percentage'] as const;
   const numericFieldCount = nonIdFields.filter(f =>
@@ -339,22 +506,46 @@ export function generateContentProfile(
     ? numericFieldCount / nonIdFields.length
     : 0;
 
-  // Categorical field ratio: fraction of columns that are low-cardinality text
-  const categoricalFields = fields.filter(f =>
-    f.dataType === 'text' && f.distinctCount > 0 && f.distinctCount < 20
-  );
+  // Categorical field ratio (Decision 105: identifier-relative cardinality)
+  const categoricalFields = idDistinct > 0
+    ? fields.filter(f => {
+        if (f === idField) return false;
+        if (f.dataType !== 'text' && f.dataType !== 'mixed') return false;
+        const relCard = computeIdentifierRelativeCardinality(f.distinctCount, idDistinct);
+        return relCard < 0.50;
+      })
+    : fields.filter(f =>
+        f.dataType === 'text' && f.distinctCount > 0 && f.distinctCount < 20
+      );
   const categoricalFieldCount = categoricalFields.length;
   const categoricalFieldRatio = columnCount > 0
     ? categoricalFieldCount / columnCount
     : 0;
 
-  // OB-158: Structural name column
-  const hasStructuralNameColumn = fields.some(f => f.nameSignals.looksLikePersonName);
+  // Structural name column (Decision 105: identifier-relative cardinality)
+  const structuralNameField = detectStructuralNameColumn(fields, rows, idField ?? null);
+  const hasStructuralNameColumn = structuralNameField !== null;
 
-  // OB-159: Volume pattern based on rows-per-entity
+  // Update looksLikePersonName on the matching field
+  if (structuralNameField) {
+    const nameField = fields.find(f => f.fieldName === structuralNameField);
+    if (nameField) {
+      nameField.nameSignals.looksLikePersonName = true;
+    }
+    observations.push({
+      columnName: structuralNameField,
+      observationType: 'name_detection',
+      observedValue: true,
+      confidence: 0.85,
+      alternativeInterpretations: {},
+      structuralEvidence: `nameCardinality: ${idDistinct > 0 ? (fields.find(f => f.fieldName === structuralNameField)!.distinctCount / idDistinct).toFixed(2) : 'N/A'}, multi-word text, non-numeric`,
+    });
+  }
+
+  // Volume pattern
   const volumePattern: ContentProfile['patterns']['volumePattern'] =
     identifierRepeatRatio === 0 ? 'unknown' :
-    identifierRepeatRatio <= 1.3 ? 'single' :
+    identifierRepeatRatio <= 1.5 ? 'single' :
     identifierRepeatRatio <= 3.0 ? 'few' :
     'many';
 
@@ -377,7 +568,7 @@ export function generateContentProfile(
     patterns: {
       hasEntityIdentifier,
       hasDateColumn,
-      hasPeriodMarkers,
+      hasTemporalColumns: temporal.hasTemporalColumns,
       hasCurrencyColumns,
       hasPercentageValues,
       hasDescriptiveLabels,
@@ -385,5 +576,6 @@ export function generateContentProfile(
       rowCountCategory,
       volumePattern,
     },
+    observations,
   };
 }
