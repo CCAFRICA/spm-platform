@@ -349,6 +349,18 @@ export interface SCIExecutionResult {
     sourceDateRange?: { min: string; max: string } | null;
     planName?: string;
   };
+  // OB-160G: Convergence report — matches + gaps for each rule_set
+  convergence?: {
+    ruleSetsProcessed: number;
+    totalDerivations: number;
+    reports: Array<{
+      ruleSetId: string;
+      ruleSetName: string;
+      derivations: number;
+      matches: Array<{ component: string; dataType: string; confidence: number; reason: string }>;
+      gaps: Array<{ component: string; reason: string; resolution: string; referenceDataAvailable?: boolean }>;
+    }>;
+  };
 }
 
 export interface ContentUnitResult {

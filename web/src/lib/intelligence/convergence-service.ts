@@ -51,6 +51,7 @@ export interface ConvergenceGap {
   calculationOp: string;
   reason: string;
   resolution: string;
+  referenceDataAvailable?: boolean;  // OB-160G: true if reference_data could fill this gap
 }
 
 export interface ConvergenceResult {
@@ -244,6 +245,14 @@ export async function convergeBindings(
   }
 
   // 6. Detect convergence gaps — components with no matching data
+  // OB-160G: Check reference_data for potential gap fillers
+  const { data: refData } = await supabase
+    .from('reference_data')
+    .select('name, reference_type')
+    .eq('tenant_id', tenantId)
+    .limit(20);
+  const refNames = (refData || []).map(r => r.name as string);
+
   const matchedComponentIndices = new Set(matches.map(m => m.component.index));
   for (const comp of components) {
     if (matchedComponentIndices.has(comp.index)) {
@@ -264,7 +273,14 @@ export async function convergeBindings(
         });
       }
     } else {
-      // No matching data type at all
+      // No matching data type — check if reference_data could help
+      const compTokens = tokenize(comp.name);
+      const refMatch = refNames.find(rn => {
+        const refTokens = tokenize(rn);
+        const overlap = compTokens.filter(t => refTokens.some(r => r.includes(t) || t.includes(r)));
+        return overlap.length > 0;
+      });
+
       const opHint = comp.calculationOp === 'ratio' || comp.calculationOp === 'bounded_lookup_1d'
         ? 'ratio/lookup-based calculation requires structured data with numerator and denominator fields'
         : `${comp.calculationOp} calculation requires matching data`;
@@ -274,9 +290,12 @@ export async function convergeBindings(
         requiredMetrics: comp.expectedMetrics,
         calculationOp: comp.calculationOp,
         reason: `No matching data type found — ${opHint}`,
-        resolution: comp.expectedMetrics.length > 0
-          ? `Import data for metrics: ${comp.expectedMetrics.join(', ')}`
-          : `Import data with a data_type matching component "${comp.name}"`,
+        resolution: refMatch
+          ? `Reference data "${refMatch}" may contain relevant data — check if it can be linked to this component`
+          : comp.expectedMetrics.length > 0
+            ? `Import data for metrics: ${comp.expectedMetrics.join(', ')}`
+            : `Import data with a data_type matching component "${comp.name}"`,
+        referenceDataAvailable: !!refMatch,
       });
     }
   }
