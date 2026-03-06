@@ -12,7 +12,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
-import { writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import { writeClassificationSignal, aggregateToFoundational } from '@/lib/sci/classification-signal-service';
 import type { StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
@@ -242,6 +242,16 @@ export async function POST(req: NextRequest) {
 
         writeClassificationSignal(
           payload,
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        ).catch(() => {});
+
+        // OB-160I: Aggregate anonymized structural pattern to foundational scope (fire-and-forget)
+        // Privacy: only structural fingerprint + classification + confidence cross the tenant boundary
+        aggregateToFoundational(
+          unit.structuralFingerprint as unknown as StructuralFingerprint,
+          unit.confirmedClassification,
+          wasOverridden ? 1.0 : (unit.originalConfidence || 0),
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
         ).catch(() => {});
