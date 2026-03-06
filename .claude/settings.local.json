@@ -259,7 +259,11 @@
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next 2>/dev/null; npm run build 2>&1 | tail -15)",
       "Bash(gh pr close 177 --comment \"Superseded by HF-090 — auth.uid\\(\\) direct attribution replaces the profile resolution fallback chain.\")",
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" 2>/dev/null; rm -rf .next && npm run build 2>&1 | tail -15)",
-      "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" 2>/dev/null; sleep 1; rm -rf .next && npm run build 2>&1 | tail -15)"
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" 2>/dev/null; sleep 1; rm -rf .next && npm run build 2>&1 | tail -15)",
+      "Bash(set -a && source .env.local && set +a && curl -s -X POST \"https://bayqxeiltnpjrvflksfa.supabase.co/rest/v1/rpc/exec_sql\" \\\\\n  -H \"apikey: ${SUPABASE_SERVICE_ROLE_KEY}\" \\\\\n  -H \"Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"query\": \"SELECT 1 as test\"}' 2>&1 | head -5)",
+      "Bash(set -a && source .env.local && set +a && echo \"DB_PASSWORD: ${SUPABASE_DB_PASSWORD:+exists}\" && echo \"PG_PASSWORD: ${PG_PASSWORD:+exists}\" && env | grep -i supabase | grep -iv key | head -10)",
+      "Bash(set -a && source .env.local && set +a && env | grep -i \"database\\\\|postgres\\\\|db_\" | head -10)",
+      "Bash(npm list pg 2>/dev/null || echo \"pg not installed\")"
     ]
   }
 }

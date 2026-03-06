@@ -1,5 +1,6 @@
 // SCI Trace API — GET /api/import/sci/trace
-// OB-160E — Returns classification signals with full traces for a tenant
+// OB-160E + HF-092 — Returns classification signals with full traces for a tenant
+// HF-092: Queries dedicated columns, not signal_value JSONB blob
 // Supports verification scripts and browser-based debugging
 // Zero domain vocabulary. Korean Test applies.
 
@@ -24,14 +25,20 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from('classification_signals')
-      .select('id, tenant_id, signal_type, signal_value, confidence, source, context, created_at')
+      .select(`
+        id, source_file_name, sheet_name,
+        classification, confidence, decision_source,
+        structural_fingerprint, classification_trace,
+        vocabulary_bindings, agent_scores,
+        human_correction_from, scope, created_at
+      `)
       .eq('tenant_id', tenantId)
-      .eq('signal_type', 'sci:classification_outcome_v2')
+      .eq('scope', 'tenant')
       .order('created_at', { ascending: false })
       .limit(limit);
 
     if (sourceFile) {
-      query = query.filter('signal_value->>source_file_name', 'eq', sourceFile);
+      query = query.eq('source_file_name', sourceFile);
     }
 
     const { data, error } = await query;
@@ -40,24 +47,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Query failed', details: error.message }, { status: 500 });
     }
 
-    const signals = (data || []).map(row => {
-      const sv = row.signal_value as Record<string, unknown>;
-      return {
-        id: row.id,
-        sheet_name: sv.sheet_name,
-        source_file_name: sv.source_file_name,
-        classification: sv.classification,
-        confidence: row.confidence,
-        decision_source: sv.decision_source,
-        structural_fingerprint: sv.structural_fingerprint,
-        classification_trace: sv.classification_trace,
-        vocabulary_bindings: sv.vocabulary_bindings,
-        agent_scores: sv.agent_scores,
-        human_correction_from: sv.human_correction_from,
-        scope: sv.scope,
-        created_at: row.created_at,
-      };
-    });
+    const signals = (data || []).map(row => ({
+      id: row.id,
+      sheet_name: row.sheet_name,
+      source_file_name: row.source_file_name,
+      classification: row.classification,
+      confidence: row.confidence,
+      decision_source: row.decision_source,
+      structural_fingerprint: row.structural_fingerprint,
+      classification_trace: row.classification_trace,
+      vocabulary_bindings: row.vocabulary_bindings,
+      agent_scores: row.agent_scores,
+      human_correction_from: row.human_correction_from,
+      scope: row.scope,
+      created_at: row.created_at,
+    }));
 
     return NextResponse.json({
       signals,
