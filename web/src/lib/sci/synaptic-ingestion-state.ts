@@ -260,6 +260,31 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
       }));
     }
 
+    // STEP 3.75: Prior signal boost (Phase E — flywheel data)
+    const unitPriors = state.priorSignals.get(unitId) ?? [];
+    if (unitPriors.length > 0) {
+      // Use the most recent, highest-confidence prior signal
+      const bestPrior = unitPriors.reduce((best, s) =>
+        s.confidence > best.confidence ? s : best
+      );
+      const matchingAgent = scores.find(s => s.agent === bestPrior.classification);
+      if (matchingAgent) {
+        // Human override priors get stronger boost (+0.15) vs heuristic/signature (+0.10)
+        const boost = bestPrior.source === 'human_override' || bestPrior.source === 'user_corrected' ? 0.15 : 0.10;
+        matchingAgent.confidence = Math.max(0, Math.min(1, matchingAgent.confidence + boost));
+        matchingAgent.signals.push({
+          signal: 'prior_signal_match',
+          weight: boost,
+          evidence: `Prior import classified similar content as ${bestPrior.classification} at ${Math.round(bestPrior.confidence * 100)}% (${bestPrior.source})`,
+        });
+      }
+      trace.priorSignals = unitPriors.map(s => ({
+        classification: s.classification,
+        confidence: s.confidence,
+        source: s.source,
+      }));
+    }
+
     // STEP 4: Round 2 negotiation through shared state
     applyRound2Negotiation(scores, profile, trace);
 
@@ -313,8 +338,7 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
     trace.finalConfidence = resolution.confidence;
     trace.decisionSource = resolution.decisionSource;
     trace.requiresHumanReview = resolution.requiresHumanReview;
-    // tenantContextApplied is populated in Step 3.5 (or stays empty from initializeTrace if no tenant context)
-    trace.priorSignals = [];
+    // tenantContextApplied is populated in Step 3.5, priorSignals in Step 3.75 (or stay empty from initializeTrace)
 
     state.traces.set(unitId, trace);
   }
@@ -486,6 +510,7 @@ function determineDecisionSource(
   winner: AgentScore,
 ): ContentUnitResolution['decisionSource'] {
   if (signatures.some(s => s.agent === winner.agent)) return 'signature';
+  if (winner.signals.some(s => s.signal === 'prior_signal_match')) return 'prior_signal';
   return 'heuristic';
 }
 

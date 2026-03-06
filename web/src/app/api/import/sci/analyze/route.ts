@@ -14,6 +14,7 @@ import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, classifyContentUnits, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { requiresHumanReview } from '@/lib/sci/agents';
 import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
+import { computeStructuralFingerprint, lookupPriorSignals } from '@/lib/sci/classification-signal-service';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { SCIProposal, ContentProfile, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
@@ -109,6 +110,7 @@ export async function POST(req: NextRequest) {
       state.tenantContext = tenantContext;
 
       // Compute entity ID overlap per content unit (Phase D)
+      // + Compute structural fingerprint and lookup prior signals (Phase E)
       for (let tabIndex = 0; tabIndex < file.sheets.length; tabIndex++) {
         const sheet = file.sheets[tabIndex];
         const profile = profileMap.get(sheet.sheetName);
@@ -119,6 +121,18 @@ export async function POST(req: NextRequest) {
             tenantContext.existingEntityExternalIds,
           );
           state.entityIdOverlaps.set(profile.contentUnitId, overlap);
+
+          // Phase E: Prior signal consultation
+          const fingerprint = computeStructuralFingerprint(profile);
+          const priors = await lookupPriorSignals(
+            tenantId,
+            fingerprint,
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          );
+          if (priors.length > 0) {
+            state.priorSignals.set(profile.contentUnitId, priors);
+          }
         }
       }
 
