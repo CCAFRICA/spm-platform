@@ -12,7 +12,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
-import { writeClassificationSignal, aggregateToFoundational } from '@/lib/sci/classification-signal-service';
+import { writeClassificationSignal, aggregateToFoundational, aggregateToDomain } from '@/lib/sci/classification-signal-service';
 import type { StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
@@ -72,16 +72,17 @@ export async function POST(req: NextRequest) {
     // HF-090: Use auth.uid() directly for created_by attribution (JWT-verified identity)
     const profileId = authUser.id;
 
-    // Verify tenant exists
+    // Verify tenant exists + read industry for domain flywheel (OB-160J)
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('id')
+      .select('id, industry')
       .eq('id', tenantId)
       .single();
 
     if (!tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
     }
+    const tenantDomainId = ((tenant as Record<string, unknown>).industry as string) || '';
 
     const results: ContentUnitResult[] = [];
 
@@ -248,10 +249,21 @@ export async function POST(req: NextRequest) {
 
         // OB-160I: Aggregate anonymized structural pattern to foundational scope (fire-and-forget)
         // Privacy: only structural fingerprint + classification + confidence cross the tenant boundary
+        const aggConfidence = wasOverridden ? 1.0 : (unit.originalConfidence || 0);
         aggregateToFoundational(
           unit.structuralFingerprint as unknown as StructuralFingerprint,
           unit.confirmedClassification,
-          wasOverridden ? 1.0 : (unit.originalConfidence || 0),
+          aggConfidence,
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        ).catch(() => {});
+
+        // OB-160J: Aggregate to domain scope (fire-and-forget)
+        aggregateToDomain(
+          unit.structuralFingerprint as unknown as StructuralFingerprint,
+          unit.confirmedClassification,
+          aggConfidence,
+          tenantDomainId,
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
         ).catch(() => {});

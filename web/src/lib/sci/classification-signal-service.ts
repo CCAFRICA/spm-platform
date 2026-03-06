@@ -137,6 +137,7 @@ export async function lookupPriorSignals(
   fingerprint: StructuralFingerprint,
   supabaseUrl: string,
   supabaseServiceKey: string,
+  domainId?: string,
 ): Promise<PriorSignal[]> {
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -171,8 +172,14 @@ export async function lookupPriorSignals(
       return tenantPriors;
     }
 
+    // OB-160J: Domain fallback — industry-specific structural patterns
+    if (domainId) {
+      const domainPriors = await lookupDomainPriors(fingerprint, domainId, supabaseUrl, supabaseServiceKey);
+      if (domainPriors.length > 0) return domainPriors;
+    }
+
     // OB-160I: Foundational fallback — cross-tenant structural patterns
-    // Only queried when no tenant-specific priors exist (cold start)
+    // Only queried when no tenant or domain priors exist (cold start)
     return await lookupFoundationalPriors(fingerprint, supabaseUrl, supabaseServiceKey);
   } catch (err) {
     console.error('[SCI Signal] Prior lookup exception:', err);
@@ -223,6 +230,57 @@ async function lookupFoundationalPriors(
       classification: topClassification,
       confidence: row.confidence_mean * accuracy,
       source: 'foundational',
+      fingerprintMatch: true,
+      signalId: row.id,
+    }];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * OB-160J: Query domain_patterns for industry-specific structural priors.
+ * Returns PriorSignal[] with source='domain' for medium boost (+0.07).
+ * Sharper than foundational because domain-specific patterns have higher signal.
+ */
+async function lookupDomainPriors(
+  fingerprint: StructuralFingerprint,
+  domainId: string,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<PriorSignal[]> {
+  try {
+    const sig = fingerprintToSignature(fingerprint);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data, error } = await supabase
+      .from('domain_patterns')
+      .select('id, pattern_signature, confidence_mean, total_executions, learned_behaviors')
+      .eq('pattern_signature', sig)
+      .eq('domain_id', domainId)
+      .maybeSingle();
+
+    if (error || !data) return [];
+
+    const row = data as { id: string; confidence_mean: number; total_executions: number; learned_behaviors: Record<string, unknown> | null };
+    if (row.total_executions < 3) return [];
+
+    const behaviors = row.learned_behaviors ?? {};
+    const dist = (behaviors.classification_distribution as Record<string, number>) ?? {};
+    const entries = Object.entries(dist);
+    if (entries.length === 0) return [];
+
+    entries.sort((a, b) => b[1] - a[1]);
+    const [topClassification, topCount] = entries[0];
+    const total = entries.reduce((sum, [, c]) => sum + c, 0);
+    const accuracy = topCount / total;
+
+    if (accuracy < 0.60) return [];
+
+    return [{
+      classification: topClassification,
+      confidence: row.confidence_mean * accuracy,
+      source: 'domain',
       fingerprintMatch: true,
       signalId: row.id,
     }];
