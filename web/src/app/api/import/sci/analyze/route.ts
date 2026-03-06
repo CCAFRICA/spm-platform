@@ -1,5 +1,5 @@
 // SCI Analyze API — POST /api/import/sci/analyze
-// Decision 77 — OB-127, OB-134 Round 2 Negotiation, OB-160B Header Comprehension
+// Decision 77 — OB-127, OB-160C Consolidated Scoring Pipeline
 // Accepts parsed file data, returns agent-classified proposal.
 // Zero domain vocabulary. Korean Test applies.
 
@@ -11,8 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateContentProfile } from '@/lib/sci/content-profile';
 import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
-import { negotiateRound2, requiresHumanReview } from '@/lib/sci/negotiation';
-import { generateProposalIntelligence } from '@/lib/sci/proposal-intelligence';
+import { createIngestionState, classifyContentUnits, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
+import { requiresHumanReview } from '@/lib/sci/agents';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { SCIProposal, ContentProfile, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
@@ -23,14 +23,6 @@ const PROCESSING_ORDER: Record<AgentType, number> = {
   target: 2,
   transaction: 3,
   reference: 4,
-};
-
-const ACTION_DESCRIPTIONS: Record<AgentType, string> = {
-  plan: 'Interpret as rule definitions and create/update plan configuration',
-  entity: 'Create or update entity records from roster data',
-  target: 'Commit performance targets and wire through convergence',
-  transaction: 'Commit event data for calculation processing',
-  reference: 'Store as reference/catalog data for lookup resolution',
 };
 
 export async function POST(req: NextRequest) {
@@ -74,9 +66,9 @@ export async function POST(req: NextRequest) {
     const contentUnits: ContentUnitProposal[] = [];
 
     for (const file of files) {
-      // Phase 1: Generate Content Profiles for all sheets
+      // Phase A: Generate Content Profiles for all sheets
       const profileMap = new Map<string, ContentProfile>();
-      const profileList: Array<{ profile: ContentProfile; sheet: typeof file.sheets[0] }> = [];
+      const fileSheets: Array<{ sourceFile: string; sheetName: string }> = [];
 
       for (let tabIndex = 0; tabIndex < file.sheets.length; tabIndex++) {
         const sheet = file.sheets[tabIndex];
@@ -89,7 +81,7 @@ export async function POST(req: NextRequest) {
           sheet.totalRowCount,
         );
         profileMap.set(sheet.sheetName, profile);
-        profileList.push({ profile, sheet });
+        fileSheets.push({ sourceFile: file.fileName, sheetName: sheet.sheetName });
       }
 
       // Phase B: Enhance with header comprehension (one LLM call for all sheets)
@@ -104,107 +96,13 @@ export async function POST(req: NextRequest) {
         tenantId,
       );
 
-      // Phase 2: Score each enhanced profile
-      for (const { profile, sheet } of profileList) {
-        // OB-134: Round 2 negotiation (replaces Phase 1 scoring)
-        const negotiation = negotiateRound2(profile);
-        const scores = negotiation.round2Scores;
-        const needsReview = requiresHumanReview(scores);
+      // Phase C: Create Synaptic Ingestion State and classify through consolidated pipeline
+      const state = createIngestionState(tenantId, file.fileName, profileMap);
+      classifyContentUnits(state);
 
-        // Build warnings
-        const warnings: string[] = [];
-        if (needsReview) {
-          const gap = scores[0].confidence - (scores[1]?.confidence || 0);
-          if (scores[0].confidence < 0.50) {
-            warnings.push(`Low confidence (${(scores[0].confidence * 100).toFixed(0)}%) — manual review recommended`);
-          }
-          if (gap < 0.10) {
-            warnings.push(`Close scores: ${scores[0].agent} (${(scores[0].confidence * 100).toFixed(0)}%) vs ${scores[1].agent} (${(scores[1].confidence * 100).toFixed(0)}%)`);
-          }
-        }
-        if (profile.structure.headerQuality === 'auto_generated') {
-          warnings.push('Auto-generated headers detected (__EMPTY pattern) — content may be rule definitions');
-        }
-
-        // OB-138: Generate structured intelligence from scoring data
-        const primaryIntel = generateProposalIntelligence(
-          profile, scores, negotiation, negotiation.claims[0].agent,
-        );
-
-        if (negotiation.isSplit && negotiation.claims.length === 2) {
-          // OB-134: PARTIAL claims — generate two content units from one tab
-          const primaryClaim = negotiation.claims[0];
-          const secondaryClaim = negotiation.claims[1];
-          const primaryId = profile.contentUnitId;
-          const secondaryId = `${profile.contentUnitId}::split`;
-
-          const secondaryIntel = generateProposalIntelligence(
-            profile, scores, negotiation, secondaryClaim.agent,
-          );
-
-          contentUnits.push({
-            contentUnitId: primaryId,
-            sourceFile: file.fileName,
-            tabName: sheet.sheetName,
-            classification: primaryClaim.agent,
-            confidence: primaryClaim.confidence,
-            reasoning: primaryClaim.reasoning,
-            action: ACTION_DESCRIPTIONS[primaryClaim.agent],
-            fieldBindings: primaryClaim.semanticBindings,
-            allScores: scores,
-            warnings: [...warnings],
-            observations: primaryIntel.observations,
-            verdictSummary: primaryIntel.verdictSummary,
-            whatChangesMyMind: primaryIntel.whatChangesMyMind,
-            claimType: 'PARTIAL',
-            ownedFields: primaryClaim.fields,
-            sharedFields: primaryClaim.sharedFields,
-            partnerContentUnitId: secondaryId,
-            negotiationLog: negotiation.log,
-          });
-
-          contentUnits.push({
-            contentUnitId: secondaryId,
-            sourceFile: file.fileName,
-            tabName: sheet.sheetName,
-            classification: secondaryClaim.agent,
-            confidence: secondaryClaim.confidence,
-            reasoning: secondaryClaim.reasoning,
-            action: ACTION_DESCRIPTIONS[secondaryClaim.agent],
-            fieldBindings: secondaryClaim.semanticBindings,
-            allScores: scores,
-            warnings: [...warnings],
-            observations: secondaryIntel.observations,
-            verdictSummary: secondaryIntel.verdictSummary,
-            whatChangesMyMind: secondaryIntel.whatChangesMyMind,
-            claimType: 'PARTIAL',
-            ownedFields: secondaryClaim.fields,
-            sharedFields: secondaryClaim.sharedFields,
-            partnerContentUnitId: primaryId,
-            negotiationLog: negotiation.log,
-          });
-        } else {
-          // FULL claim — single agent wins
-          const claim = negotiation.claims[0];
-          contentUnits.push({
-            contentUnitId: profile.contentUnitId,
-            sourceFile: file.fileName,
-            tabName: sheet.sheetName,
-            classification: claim.agent,
-            confidence: claim.confidence,
-            reasoning: claim.reasoning,
-            action: ACTION_DESCRIPTIONS[claim.agent],
-            fieldBindings: claim.semanticBindings,
-            allScores: scores,
-            warnings,
-            observations: primaryIntel.observations,
-            verdictSummary: primaryIntel.verdictSummary,
-            whatChangesMyMind: primaryIntel.whatChangesMyMind,
-            claimType: 'FULL',
-            negotiationLog: negotiation.log,
-          });
-        }
-      }
+      // Build proposal from state (same format as before — proposal cards render correctly)
+      const fileContentUnits = buildProposalFromState(state, fileSheets);
+      contentUnits.push(...fileContentUnits);
     }
 
     // Determine processing order based on classification
@@ -260,7 +158,7 @@ export async function POST(req: NextRequest) {
             winningConfidence: unit.confidence,
             claimType: unit.claimType || 'FULL',
             requiresHumanReview: anyNeedsReview,
-            round: 2, // OB-134 negotiation is active
+            round: 2,
           },
         });
 

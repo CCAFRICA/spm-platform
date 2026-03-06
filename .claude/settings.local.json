@@ -257,7 +257,9 @@
       "Bash(gh pr create --base main --head dev --title \"HF-088: Remove all RetailCGMX references from codebase\" --body \"$\\(cat <<'EOF'\n## Summary\n- **Delete** 5 dead files: `retailcgmx-plan.ts`, `retailcgmx-validation.ts`, `ob-15-calculation-test-cases.ts`, `ob-15-proof-gate/page.tsx`, `reconciliation-test/page.tsx`\n- **Clean** mock data in transactions and personnel pages — replaced branded names with generic placeholders\n- **Clean** comments in `compensation-plan.ts`, `plan-interpreter.ts`, `label-service.ts`, `payout-service.ts`\n- **Net: -1,811 lines** — all removed code was superseded by SCI pipeline and DB-driven rule sets\n\n## Proof Gates\n- [x] `grep -rn \"RetailCGMX|RetailCorp|RetailCo|retail_conglomerate\"` → zero hits\n- [x] `npm run build` → exit 0\n- [x] No import errors — all consumers of deleted files were also deleted\n- [x] 13 files changed, 37 insertions, 1848 deletions\n\n## Test plan\n- [ ] Verify `/transactions` page renders with generic mock data\n- [ ] Verify `/workforce/personnel` page renders with generic mock data\n- [ ] Verify `/admin` page has no broken links to deleted test pages\n- [ ] Full build passes in Vercel preview\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\nEOF\n\\)\")",
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" 2>/dev/null; rm -rf .next && npm run build 2>&1 | tail -10)",
       "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next 2>/dev/null; npm run build 2>&1 | tail -15)",
-      "Bash(gh pr close 177 --comment \"Superseded by HF-090 — auth.uid\\(\\) direct attribution replaces the profile resolution fallback chain.\")"
+      "Bash(gh pr close 177 --comment \"Superseded by HF-090 — auth.uid\\(\\) direct attribution replaces the profile resolution fallback chain.\")",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" 2>/dev/null; rm -rf .next && npm run build 2>&1 | tail -15)",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" 2>/dev/null; sleep 1; rm -rf .next && npm run build 2>&1 | tail -15)"
     ]
   }
 }
