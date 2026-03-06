@@ -398,7 +398,7 @@ export async function computeClassificationDensity(
  * Hash a structural fingerprint into a deterministic pattern_signature string.
  * Used as the key in foundational_patterns and domain_patterns tables.
  */
-function fingerprintToSignature(fp: StructuralFingerprint): string {
+export function fingerprintToSignature(fp: StructuralFingerprint): string {
   return `sci:${fp.columnCount}:${fp.numericFieldRatioBucket}:${fp.categoricalFieldRatioBucket}:${fp.identifierRepeatBucket}:${fp.hasTemporalColumns ? 1 : 0}:${fp.hasIdentifier ? 1 : 0}:${fp.hasStructuralName ? 1 : 0}:${fp.rowCountBucket}`;
 }
 
