@@ -18,6 +18,8 @@ import { computeAdditiveScores, applyHeaderComprehensionSignals, resolveClaimsPh
 import { computeFieldAffinities, analyzeSplit, generatePartialBindings } from './negotiation';
 import { generateProposalIntelligence } from './proposal-intelligence';
 import { computeTenantContextAdjustments } from './tenant-context';
+import { computeStructuralFingerprint } from './classification-signal-service';
+import type { PriorSignal } from './classification-signal-service';
 
 // ============================================================
 // SYNAPTIC INGESTION STATE
@@ -45,6 +47,9 @@ export interface SynapticIngestionState {
 
   // Entity ID overlaps per content unit (populated by Phase D before scoring)
   entityIdOverlaps: Map<string, EntityIdOverlap | null>;
+
+  // Prior signals from flywheel (populated by Phase E before scoring)
+  priorSignals: Map<string, PriorSignal[]>;
 
   // Classification traces (one per content unit — THE FLYWHEEL'S RAW MATERIAL)
   traces: Map<string, ClassificationTrace>;
@@ -189,6 +194,7 @@ export function createIngestionState(
     round2Scores: new Map(),
     resolutions: new Map(),
     entityIdOverlaps: new Map(),
+    priorSignals: new Map(),
     traces: new Map(),
   };
 }
@@ -255,6 +261,31 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
       }));
     }
 
+    // STEP 3.75: Prior signal boost (Phase E — flywheel data)
+    const unitPriors = state.priorSignals.get(unitId) ?? [];
+    if (unitPriors.length > 0) {
+      // Use the most recent, highest-confidence prior signal
+      const bestPrior = unitPriors.reduce((best, s) =>
+        s.confidence > best.confidence ? s : best
+      );
+      const matchingAgent = scores.find(s => s.agent === bestPrior.classification);
+      if (matchingAgent) {
+        // Human override priors get stronger boost (+0.15) vs heuristic/signature (+0.10)
+        const boost = bestPrior.source === 'human_override' || bestPrior.source === 'user_corrected' ? 0.15 : 0.10;
+        matchingAgent.confidence = Math.max(0, Math.min(1, matchingAgent.confidence + boost));
+        matchingAgent.signals.push({
+          signal: 'prior_signal_match',
+          weight: boost,
+          evidence: `Prior import classified similar content as ${bestPrior.classification} at ${Math.round(bestPrior.confidence * 100)}% (${bestPrior.source})`,
+        });
+      }
+      trace.priorSignals = unitPriors.map(s => ({
+        classification: s.classification,
+        confidence: s.confidence,
+        source: s.source,
+      }));
+    }
+
     // STEP 4: Round 2 negotiation through shared state
     applyRound2Negotiation(scores, profile, trace);
 
@@ -308,8 +339,7 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
     trace.finalConfidence = resolution.confidence;
     trace.decisionSource = resolution.decisionSource;
     trace.requiresHumanReview = resolution.requiresHumanReview;
-    // tenantContextApplied is populated in Step 3.5 (or stays empty from initializeTrace if no tenant context)
-    trace.priorSignals = [];
+    // tenantContextApplied is populated in Step 3.5, priorSignals in Step 3.75 (or stay empty from initializeTrace)
 
     state.traces.set(unitId, trace);
   }
@@ -481,6 +511,7 @@ function determineDecisionSource(
   winner: AgentScore,
 ): ContentUnitResolution['decisionSource'] {
   if (signatures.some(s => s.agent === winner.agent)) return 'signature';
+  if (winner.signals.some(s => s.signal === 'prior_signal_match')) return 'prior_signal';
   return 'heuristic';
 }
 
@@ -537,6 +568,11 @@ export function buildProposalFromState(
       warnings.push('Auto-generated headers detected (__EMPTY pattern) — content may be rule definitions');
     }
 
+    // Phase E: Compute flywheel data for signal write at execute time
+    const fingerprint = computeStructuralFingerprint(profile);
+    const trace = state.traces.get(unitId);
+    const vocabBindings = extractVocabularyBindings(profile);
+
     if (splitAnalysis.shouldSplit && splitAnalysis.secondaryAgent) {
       // PARTIAL claims — two content units from one tab
       const primaryAgent = splitAnalysis.primaryAgent;
@@ -572,6 +608,9 @@ export function buildProposalFromState(
         sharedFields: splitAnalysis.sharedFields,
         partnerContentUnitId: secondaryId,
         negotiationLog: log,
+        structuralFingerprint: fingerprint as unknown as Record<string, unknown>,
+        classificationTrace: trace as unknown as Record<string, unknown>,
+        vocabularyBindings: vocabBindings,
       });
 
       contentUnits.push({
@@ -593,6 +632,9 @@ export function buildProposalFromState(
         sharedFields: splitAnalysis.sharedFields,
         partnerContentUnitId: primaryId,
         negotiationLog: log,
+        structuralFingerprint: fingerprint as unknown as Record<string, unknown>,
+        classificationTrace: trace as unknown as Record<string, unknown>,
+        vocabularyBindings: vocabBindings,
       });
     } else {
       // FULL claim — single agent wins
@@ -615,9 +657,29 @@ export function buildProposalFromState(
         whatChangesMyMind: intel.whatChangesMyMind,
         claimType: 'FULL',
         negotiationLog: log,
+        structuralFingerprint: fingerprint as unknown as Record<string, unknown>,
+        classificationTrace: trace as unknown as Record<string, unknown>,
+        vocabularyBindings: vocabBindings,
       });
     }
   }
 
   return contentUnits;
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function extractVocabularyBindings(
+  profile: ContentProfile,
+): Record<string, string> | undefined {
+  if (!profile.headerComprehension?.interpretations) return undefined;
+  const bindings: Record<string, string> = {};
+  for (const [col, interp] of Array.from(profile.headerComprehension.interpretations.entries())) {
+    if (interp?.semanticMeaning) {
+      bindings[col] = interp.semanticMeaning;
+    }
+  }
+  return Object.keys(bindings).length > 0 ? bindings : undefined;
 }
