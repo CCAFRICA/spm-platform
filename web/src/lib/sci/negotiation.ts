@@ -96,7 +96,7 @@ function scoreFieldAffinity(field: FieldProfile): Record<AgentType, number> {
   return affinities;
 }
 
-function computeFieldAffinities(profile: ContentProfile): FieldAffinity[] {
+export function computeFieldAffinities(profile: ContentProfile): FieldAffinity[] {
   return profile.fields.map(field => {
     const affinities = scoreFieldAffinity(field);
 
@@ -120,7 +120,7 @@ function computeFieldAffinities(profile: ContentProfile): FieldAffinity[] {
 
 const SPLIT_THRESHOLD = 0.30;
 
-interface SplitAnalysis {
+export interface SplitAnalysis {
   shouldSplit: boolean;
   primaryAgent: AgentType;
   secondaryAgent: AgentType | null;
@@ -130,7 +130,7 @@ interface SplitAnalysis {
   reasoning: string;
 }
 
-function analyzeSplit(
+export function analyzeSplit(
   fieldAffinities: FieldAffinity[],
   round2Scores: AgentScore[],
   log: NegotiationLogEntry[]
@@ -234,7 +234,7 @@ function analyzeSplit(
 // SEMANTIC BINDING FOR PARTIAL CLAIMS
 // ============================================================
 
-function generatePartialBindings(
+export function generatePartialBindings(
   profile: ContentProfile,
   agent: AgentType,
   ownedFields: string[],

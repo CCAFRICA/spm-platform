@@ -140,7 +140,11 @@ function scoreAgent(agent: AgentType, profile: ContentProfile): AgentScore {
   return { agent, confidence, signals, reasoning };
 }
 
-export function scoreContentUnit(profile: ContentProfile): AgentScore[] {
+/**
+ * Compute additive scores with signature floors but WITHOUT Round 2 negotiation.
+ * Used by classifyContentUnits in synaptic-ingestion-state.ts (Phase C consolidated pipeline).
+ */
+export function computeAdditiveScores(profile: ContentProfile): AgentScore[] {
   const agents: AgentType[] = ['plan', 'entity', 'target', 'transaction', 'reference'];
 
   // STEP 1: Detect composite signatures
@@ -163,10 +167,21 @@ export function scoreContentUnit(profile: ContentProfile): AgentScore[] {
     }
   }
 
-  // STEP 4: Round 2 Negotiation — agents adjust based on each other's structural claims
+  return scores;
+}
+
+/**
+ * Full scoring pipeline: additive + signature floors + Round 2 negotiation.
+ * Used by negotiation.ts for backward compatibility.
+ * New code should use classifyContentUnits from synaptic-ingestion-state.ts.
+ */
+export function scoreContentUnit(profile: ContentProfile): AgentScore[] {
+  const scores = computeAdditiveScores(profile);
+
+  // Round 2 Negotiation — agents adjust based on each other's structural claims
   negotiateRound2(scores, profile);
 
-  // STEP 5: Sort by confidence descending
+  // Sort by confidence descending
   return scores.sort((a, b) => b.confidence - a.confidence);
 }
 
