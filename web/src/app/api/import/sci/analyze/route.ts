@@ -14,7 +14,8 @@ import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, classifyContentUnits, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { requiresHumanReview } from '@/lib/sci/agents';
 import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
-import { computeStructuralFingerprint, lookupPriorSignals } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity } from '@/lib/sci/classification-signal-service';
+import type { ClassificationDensity } from '@/lib/sci/classification-signal-service';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { SCIProposal, ContentProfile, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
@@ -74,6 +75,7 @@ export async function POST(req: NextRequest) {
 
     const proposalId = crypto.randomUUID();
     const contentUnits: ContentUnitProposal[] = [];
+    const densityMap = new Map<string, ClassificationDensity>(); // OB-160K
 
     for (const file of files) {
       // Phase A: Generate Content Profiles for all sheets
@@ -135,6 +137,15 @@ export async function POST(req: NextRequest) {
           if (priors.length > 0) {
             state.priorSignals.set(profile.contentUnitId, priors);
           }
+
+          // OB-160K: Compute classification density per content unit
+          const density = await computeClassificationDensity(
+            tenantId,
+            fingerprint,
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          );
+          densityMap.set(profile.contentUnitId, density);
         }
       }
 
@@ -162,6 +173,17 @@ export async function POST(req: NextRequest) {
       return requiresHumanReview(scores);
     });
 
+    // OB-160K: Build density summary for response
+    const densitySummary: Record<string, { confidence: number; totalClassifications: number; overrideRate: number; executionMode: 'full_analysis' | 'light_analysis' | 'confident' }> = {};
+    for (const [unitId, d] of Array.from(densityMap.entries())) {
+      densitySummary[unitId] = {
+        confidence: d.confidence,
+        totalClassifications: d.totalClassifications,
+        overrideRate: d.lastOverrideRate,
+        executionMode: d.executionMode,
+      };
+    }
+
     const proposal: SCIProposal = {
       proposalId,
       tenantId,
@@ -171,6 +193,7 @@ export async function POST(req: NextRequest) {
       overallConfidence,
       requiresHumanReview: anyNeedsReview,
       timestamp: new Date().toISOString(),
+      density: Object.keys(densitySummary).length > 0 ? densitySummary : undefined,
     };
 
     // OB-135: Capture classification signals (fire-and-forget)

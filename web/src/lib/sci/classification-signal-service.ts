@@ -304,6 +304,92 @@ function matchesFingerprint(
 }
 
 // ============================================================
+// CLASSIFICATION DENSITY — Adaptive execution for SCI
+// OB-160K: "The system does less work as it gets smarter"
+// ============================================================
+
+export type SCIExecutionMode = 'full_analysis' | 'light_analysis' | 'confident';
+
+export interface ClassificationDensity {
+  fingerprint: StructuralFingerprint;
+  confidence: number;
+  totalClassifications: number;
+  lastOverrideRate: number;
+  executionMode: SCIExecutionMode;
+}
+
+/**
+ * OB-160K: Compute classification density for a structural fingerprint.
+ * Queries recent classification_signals for this tenant + fingerprint.
+ * Returns density with execution mode determination.
+ *
+ * Thresholds:
+ * - full_analysis:  confidence < 0.70 OR totalClassifications < 5 OR overrideRate > 0.20
+ * - light_analysis: confidence 0.70-0.90 AND totalClassifications >= 5 AND overrideRate <= 0.20
+ * - confident:      confidence > 0.90 AND totalClassifications >= 10 AND overrideRate <= 0.05
+ */
+export async function computeClassificationDensity(
+  tenantId: string,
+  fingerprint: StructuralFingerprint,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<ClassificationDensity> {
+  const defaultDensity: ClassificationDensity = {
+    fingerprint,
+    confidence: 0,
+    totalClassifications: 0,
+    lastOverrideRate: 0,
+    executionMode: 'full_analysis',
+  };
+
+  try {
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data, error } = await supabase
+      .from('classification_signals')
+      .select('id, classification, confidence, decision_source, structural_fingerprint')
+      .eq('tenant_id', tenantId)
+      .eq('scope', 'tenant')
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error || !data) return defaultDensity;
+
+    // Filter to matching fingerprints
+    const matching = data.filter(row => {
+      const stored = row.structural_fingerprint as StructuralFingerprint | null;
+      return stored && matchesFingerprint(stored, fingerprint);
+    });
+
+    if (matching.length === 0) return defaultDensity;
+
+    // Compute metrics
+    const totalClassifications = matching.length;
+    const avgConfidence = matching.reduce((sum, r) => sum + ((r.confidence as number) ?? 0), 0) / totalClassifications;
+    const overrides = matching.filter(r => r.decision_source === 'human_override').length;
+    const overrideRate = overrides / totalClassifications;
+
+    // Determine execution mode
+    let executionMode: SCIExecutionMode = 'full_analysis';
+    if (avgConfidence > 0.90 && totalClassifications >= 10 && overrideRate <= 0.05) {
+      executionMode = 'confident';
+    } else if (avgConfidence >= 0.70 && totalClassifications >= 5 && overrideRate <= 0.20) {
+      executionMode = 'light_analysis';
+    }
+
+    return {
+      fingerprint,
+      confidence: avgConfidence,
+      totalClassifications,
+      lastOverrideRate: overrideRate,
+      executionMode,
+    };
+  } catch {
+    return defaultDensity;
+  }
+}
+
+// ============================================================
 // FOUNDATIONAL AGGREGATION — Cross-tenant anonymized patterns
 // OB-160I: Wire SCI classification signals to flywheel
 // ============================================================

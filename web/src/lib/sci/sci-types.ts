@@ -268,6 +268,13 @@ export interface SCIProposal {
   overallConfidence: number;
   requiresHumanReview: boolean;
   timestamp: string;
+  // OB-160K: Classification density per content unit — execution mode visibility
+  density?: Record<string, {
+    confidence: number;
+    totalClassifications: number;
+    overrideRate: number;
+    executionMode: 'full_analysis' | 'light_analysis' | 'confident';
+  }>;
 }
 
 export interface ContentUnitProposal {
