@@ -1,6 +1,6 @@
 // Classification Signal Service — SCI Spec Layer 6
-// OB-160E — Signal capture, storage, and retrieval for the tenant flywheel
-// Two-phase: prediction at analyze time → outcome written at confirm/execute time
+// HF-092 — Corrected to use dedicated columns (not signal_value JSONB blob)
+// Dev Plan v2 specification: indexed, queryable columns for scale.
 // Structural fingerprints use bucketed values (Korean Test: no field names)
 // Zero domain vocabulary. AP-31: presence-based only.
 
@@ -60,7 +60,7 @@ export function computeStructuralFingerprint(profile: ContentProfile): Structura
 
 // ============================================================
 // SIGNAL WRITE — Called at execute/confirm time
-// Writes to existing classification_signals table using signal_value JSONB
+// Writes to DEDICATED COLUMNS on classification_signals (HF-092)
 // ============================================================
 
 export interface ClassificationSignalPayload {
@@ -90,21 +90,19 @@ export async function writeClassificationSignal(
       .insert({
         tenant_id: payload.tenantId,
         signal_type: 'sci:classification_outcome_v2',
-        signal_value: {
-          source_file_name: payload.sourceFileName,
-          sheet_name: payload.sheetName,
-          structural_fingerprint: payload.fingerprint,
-          classification: payload.classification,
-          decision_source: payload.decisionSource,
-          classification_trace: payload.classificationTrace,
-          vocabulary_bindings: payload.vocabularyBindings,
-          agent_scores: payload.agentScores,
-          human_correction_from: payload.humanCorrectionFrom,
-          scope: 'tenant',
-        },
+        source_file_name: payload.sourceFileName,
+        sheet_name: payload.sheetName,
+        structural_fingerprint: payload.fingerprint,
+        classification: payload.classification,
         confidence: payload.confidence,
+        decision_source: payload.decisionSource,
+        classification_trace: payload.classificationTrace,
+        vocabulary_bindings: payload.vocabularyBindings,
+        agent_scores: payload.agentScores,
+        human_correction_from: payload.humanCorrectionFrom,
+        scope: 'tenant',
         source: payload.humanCorrectionFrom ? 'user_corrected' : 'sci_agent',
-        context: { sciVersion: '2.0', phase: 'E' },
+        context: { sciVersion: '2.0', phase: 'E', schema: 'HF-092' },
       })
       .select('id')
       .single();
@@ -123,6 +121,7 @@ export async function writeClassificationSignal(
 
 // ============================================================
 // PRIOR SIGNAL LOOKUP — Called BEFORE scoring
+// Queries DEDICATED COLUMNS, not signal_value JSONB (HF-092)
 // ============================================================
 
 export interface PriorSignal {
@@ -144,9 +143,9 @@ export async function lookupPriorSignals(
 
     const { data, error } = await supabase
       .from('classification_signals')
-      .select('id, signal_value, confidence')
+      .select('id, classification, confidence, decision_source, structural_fingerprint')
       .eq('tenant_id', tenantId)
-      .eq('signal_type', 'sci:classification_outcome_v2')
+      .eq('scope', 'tenant')
       .order('created_at', { ascending: false })
       .limit(20);
 
@@ -157,20 +156,16 @@ export async function lookupPriorSignals(
 
     return data
       .filter(row => {
-        const sv = row.signal_value as Record<string, unknown>;
-        const stored = sv?.structural_fingerprint as StructuralFingerprint | undefined;
+        const stored = row.structural_fingerprint as StructuralFingerprint | null;
         return stored && matchesFingerprint(stored, fingerprint);
       })
-      .map(row => {
-        const sv = row.signal_value as Record<string, unknown>;
-        return {
-          classification: sv.classification as string,
-          confidence: row.confidence ?? 0,
-          source: (sv.decision_source as string) ?? 'unknown',
-          fingerprintMatch: true,
-          signalId: row.id,
-        };
-      });
+      .map(row => ({
+        classification: row.classification as string,
+        confidence: row.confidence ?? 0,
+        source: (row.decision_source as string) ?? 'unknown',
+        fingerprintMatch: true,
+        signalId: row.id,
+      }));
   } catch (err) {
     console.error('[SCI Signal] Prior lookup exception:', err);
     return [];
@@ -192,7 +187,7 @@ function matchesFingerprint(
 }
 
 // ============================================================
-// VOCABULARY BINDING RECALL — Wires Phase B's interface to DB
+// VOCABULARY BINDING RECALL — Queries DEDICATED COLUMN (HF-092)
 // ============================================================
 
 export async function recallVocabularyBindings(
@@ -206,10 +201,9 @@ export async function recallVocabularyBindings(
 
     const { data, error } = await supabase
       .from('classification_signals')
-      .select('signal_value')
+      .select('vocabulary_bindings')
       .eq('tenant_id', tenantId)
-      .eq('signal_type', 'sci:classification_outcome_v2')
-      .not('signal_value->vocabulary_bindings', 'is', null)
+      .not('vocabulary_bindings', 'is', null)
       .order('created_at', { ascending: false })
       .limit(5);
 
@@ -220,8 +214,7 @@ export async function recallVocabularyBindings(
     // Merge bindings from recent signals, most recent takes precedence
     const bindings = new Map<string, string>();
     for (const row of data.reverse()) {
-      const sv = row.signal_value as Record<string, unknown>;
-      const vb = sv?.vocabulary_bindings as Record<string, string> | null;
+      const vb = row.vocabulary_bindings as Record<string, string> | null;
       if (vb && typeof vb === 'object') {
         for (const [header, meaning] of Object.entries(vb)) {
           if (columnHeaders.includes(header)) {
