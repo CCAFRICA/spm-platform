@@ -29,19 +29,32 @@ export interface ContentProfile {
   patterns: {
     hasEntityIdentifier: boolean;
     hasDateColumn: boolean;
-    hasPeriodMarkers: boolean;        // HF-091: integer year + month columns
+    hasTemporalColumns: boolean;      // OB-160A: type-agnostic temporal detection (raw values)
     hasCurrencyColumns: number;       // count
     hasPercentageValues: boolean;
     hasDescriptiveLabels: boolean;
-    hasStructuralNameColumn: boolean; // OB-158: text with multi-word values, high cardinality
+    hasStructuralNameColumn: boolean; // OB-160A: identifier-relative cardinality name detection
     rowCountCategory: 'reference' | 'moderate' | 'transactional';
-    // OB-159: Volume pattern based on rows-per-entity
+    // OB-160A: Volume pattern based on rows-per-entity
     volumePattern: 'single' | 'few' | 'many' | 'unknown';
-    // single: ≤ 1.3 rows per entity (roster, one-time reference)
-    // few: 1.3 - 3.0 rows per entity (targets per period, quarterly data)
+    // single: ≤ 1.5 rows per entity (roster, one-time reference)
+    // few: 1.5 - 3.0 rows per entity (targets per period, quarterly data)
     // many: > 3.0 rows per entity (monthly transactions, daily events)
     // unknown: no identifier field detected
   };
+
+  // OB-160A: Every structural determination emittable as signal
+  observations: ProfileObservation[];
+}
+
+// OB-160A: Signal interface for flywheel emission
+export interface ProfileObservation {
+  columnName: string | null;          // null for sheet-level observations
+  observationType: string;            // 'type_classification', 'temporal_detection', 'name_detection', etc.
+  observedValue: unknown;             // the determination
+  confidence: number;                 // how confident
+  alternativeInterpretations: Record<string, number>;  // other plausible types/interpretations with scores
+  structuralEvidence: string;         // why this determination was made
 }
 
 export interface FieldProfile {

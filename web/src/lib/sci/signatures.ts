@@ -1,5 +1,5 @@
 // Synaptic Content Ingestion — Composite Structural Signatures
-// OB-159 — Fingerprints over checklists.
+// OB-159, OB-160A — Fingerprints over checklists.
 // When multiple structural signals align, set a confidence floor.
 // Korean Test: ALL conditions use structural properties. Zero field-name matching.
 
@@ -20,7 +20,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   // TRANSACTION: "Repeated entities over time with numeric measurements"
   // ────────────────────────────────────────────────────────
   const hasHighRepeat = structure.identifierRepeatRatio > 1.5;
-  const hasTemporalDimension = patterns.hasDateColumn || patterns.hasPeriodMarkers;
+  const hasTemporalDimension = patterns.hasDateColumn || patterns.hasTemporalColumns;
   const isDataHeavy = structure.numericFieldRatio > 0.40;
 
   if (hasHighRepeat && hasTemporalDimension && isDataHeavy) {
@@ -30,7 +30,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
       signatureName: 'repeated_entities_over_time',
       matchedConditions: [
         `identifierRepeatRatio: ${structure.identifierRepeatRatio.toFixed(1)} (>1.5)`,
-        `temporal: ${patterns.hasPeriodMarkers ? 'period markers' : 'date column'}`,
+        `temporal: ${patterns.hasTemporalColumns ? 'temporal columns' : 'date column'}`,
         `numericFieldRatio: ${(structure.numericFieldRatio * 100).toFixed(0)}% (>40%)`,
       ],
     });
@@ -39,7 +39,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   // ────────────────────────────────────────────────────────
   // ENTITY: "One row per unique individual with categorical attributes"
   // ────────────────────────────────────────────────────────
-  const hasLowRepeat = structure.identifierRepeatRatio > 0 && structure.identifierRepeatRatio <= 1.3;
+  const hasLowRepeat = structure.identifierRepeatRatio > 0 && structure.identifierRepeatRatio <= 1.5;
   const isCategoricalHeavy = structure.categoricalFieldRatio > 0.25;
   const hasId = patterns.hasEntityIdentifier;
   const hasName = patterns.hasStructuralNameColumn;
@@ -50,7 +50,7 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
       confidence: 0.85,
       signatureName: 'one_per_entity_with_attributes',
       matchedConditions: [
-        `identifierRepeatRatio: ${structure.identifierRepeatRatio.toFixed(1)} (<=1.3)`,
+        `identifierRepeatRatio: ${structure.identifierRepeatRatio.toFixed(1)} (<=1.5)`,
         `categoricalFieldRatio: ${(structure.categoricalFieldRatio * 100).toFixed(0)}% (>25%)`,
         `hasEntityIdentifier: true`,
         `hasStructuralNameColumn: true`,
