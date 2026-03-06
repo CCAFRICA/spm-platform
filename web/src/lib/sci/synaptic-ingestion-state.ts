@@ -18,6 +18,7 @@ import { computeAdditiveScores, applyHeaderComprehensionSignals, resolveClaimsPh
 import { computeFieldAffinities, analyzeSplit, generatePartialBindings } from './negotiation';
 import { generateProposalIntelligence } from './proposal-intelligence';
 import { computeTenantContextAdjustments } from './tenant-context';
+import type { PriorSignal } from './classification-signal-service';
 
 // ============================================================
 // SYNAPTIC INGESTION STATE
@@ -45,6 +46,9 @@ export interface SynapticIngestionState {
 
   // Entity ID overlaps per content unit (populated by Phase D before scoring)
   entityIdOverlaps: Map<string, EntityIdOverlap | null>;
+
+  // Prior signals from flywheel (populated by Phase E before scoring)
+  priorSignals: Map<string, PriorSignal[]>;
 
   // Classification traces (one per content unit — THE FLYWHEEL'S RAW MATERIAL)
   traces: Map<string, ClassificationTrace>;
@@ -189,6 +193,7 @@ export function createIngestionState(
     round2Scores: new Map(),
     resolutions: new Map(),
     entityIdOverlaps: new Map(),
+    priorSignals: new Map(),
     traces: new Map(),
   };
 }
