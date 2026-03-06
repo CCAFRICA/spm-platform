@@ -12,6 +12,7 @@ import type {
   ColumnRole,
   VocabularyBinding,
 } from './sci-types';
+import { recallVocabularyBindings } from './classification-signal-service';
 
 // ============================================================
 // INPUT TYPES
@@ -143,17 +144,48 @@ async function callLLMForHeaders(prompt: string): Promise<{
 
 /**
  * Check if stored vocabulary bindings exist for these headers.
- * Phase B: returns empty map (no storage backend yet)
- * Phase E: wired to classification_signals table
+ * Phase E: wired to classification_signals table via recallVocabularyBindings
  */
 export async function lookupVocabularyBindings(
   tenantId: string, columns: string[],
   structuralContext: { columnCount: number; rowCountBucket: string },
 ): Promise<Map<string, VocabularyBinding>> {
-  // Phase B: no storage backend — always returns empty
-  // Phase E: query classification_signals for tenantId + columns + structuralContext
-  void tenantId; void columns; void structuralContext;
-  return new Map();
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) return new Map();
+
+    const recalled = await recallVocabularyBindings(tenantId, columns, supabaseUrl, supabaseKey);
+    if (recalled.size === 0) return new Map();
+
+    // Convert recalled column→semanticMeaning into VocabularyBinding objects
+    const bindings = new Map<string, VocabularyBinding>();
+    for (const [colName, semanticMeaning] of Array.from(recalled.entries())) {
+      bindings.set(colName, {
+        columnName: colName,
+        interpretation: {
+          columnName: colName,
+          semanticMeaning,
+          dataExpectation: 'recalled',
+          columnRole: 'unknown' as ColumnRole,
+          confidence: 0.85,
+        },
+        structuralContext: {
+          sheetColumnCount: structuralContext.columnCount,
+          sheetRowCountBucket: structuralContext.rowCountBucket as 'small' | 'medium' | 'large',
+          columnPosition: 0,
+          dataType: 'unknown',
+        },
+        confirmationSource: 'classification_success',
+        confirmationCount: 2,
+        lastConfirmed: new Date().toISOString(),
+      });
+    }
+
+    return bindings;
+  } catch {
+    return new Map();
+  }
 }
 
 /**
