@@ -17,6 +17,7 @@ import { detectSignatures } from './signatures';
 import { computeAdditiveScores, applyHeaderComprehensionSignals, resolveClaimsPhase1, requiresHumanReview } from './agents';
 import { computeFieldAffinities, analyzeSplit, generatePartialBindings } from './negotiation';
 import { generateProposalIntelligence } from './proposal-intelligence';
+import { computeTenantContextAdjustments } from './tenant-context';
 
 // ============================================================
 // SYNAPTIC INGESTION STATE
@@ -41,6 +42,9 @@ export interface SynapticIngestionState {
 
   // Tenant context (populated by Phase D)
   tenantContext?: TenantContext;
+
+  // Entity ID overlaps per content unit (populated by Phase D before scoring)
+  entityIdOverlaps: Map<string, EntityIdOverlap | null>;
 
   // Classification traces (one per content unit — THE FLYWHEEL'S RAW MATERIAL)
   traces: Map<string, ClassificationTrace>;
@@ -68,9 +72,26 @@ export interface TenantContext {
   existingEntityCount: number;
   existingEntityExternalIds: Set<string>;
   existingPlanCount: number;
+  existingPlanComponentNames: string[];
   existingPlanInputRequirements: string[];
   committedDataRowCount: number;
+  committedDataTypes: string[];
   referenceDataExists: boolean;
+}
+
+export interface EntityIdOverlap {
+  sheetIdentifierColumn: string;
+  sheetUniqueValues: Set<string>;
+  matchingEntityIds: Set<string>;
+  overlapPercentage: number;
+  overlapSignal: 'high' | 'partial' | 'none';
+}
+
+export interface TenantContextAdjustment {
+  agent: string;
+  adjustment: number;
+  signal: string;
+  evidence: string;
 }
 
 // ============================================================
@@ -167,6 +188,7 @@ export function createIngestionState(
     signatureMatches: new Map(),
     round2Scores: new Map(),
     resolutions: new Map(),
+    entityIdOverlaps: new Map(),
     traces: new Map(),
   };
 }
@@ -210,6 +232,28 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
 
     // STEP 3: Header comprehension signals (ADDITIVE — when null, scoring works on structural signals only)
     applyHeaderComprehensionSignals(scores, profile);
+
+    // STEP 3.5: Tenant context adjustments (Phase D — presence-based only)
+    if (state.tenantContext) {
+      const overlap = state.entityIdOverlaps.get(unitId) ?? null;
+      const tcAdjustments = computeTenantContextAdjustments(state.tenantContext, overlap, profile);
+      for (const adj of tcAdjustments) {
+        const agentScore = scores.find(s => s.agent === adj.agent);
+        if (agentScore) {
+          agentScore.confidence = Math.max(0, Math.min(1, agentScore.confidence + adj.adjustment));
+          agentScore.signals.push({
+            signal: `tc_${adj.signal}`,
+            weight: adj.adjustment,
+            evidence: adj.evidence,
+          });
+        }
+      }
+      trace.tenantContextApplied = tcAdjustments.map(adj => ({
+        signal: adj.signal,
+        adjustment: adj.adjustment,
+        evidence: adj.evidence,
+      }));
+    }
 
     // STEP 4: Round 2 negotiation through shared state
     applyRound2Negotiation(scores, profile, trace);
@@ -264,7 +308,7 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
     trace.finalConfidence = resolution.confidence;
     trace.decisionSource = resolution.decisionSource;
     trace.requiresHumanReview = resolution.requiresHumanReview;
-    trace.tenantContextApplied = [];
+    // tenantContextApplied is populated in Step 3.5 (or stays empty from initializeTrace if no tenant context)
     trace.priorSignals = [];
 
     state.traces.set(unitId, trace);

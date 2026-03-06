@@ -13,6 +13,7 @@ import { generateContentProfile } from '@/lib/sci/content-profile';
 import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, classifyContentUnits, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { requiresHumanReview } from '@/lib/sci/agents';
+import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { SCIProposal, ContentProfile, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
@@ -62,6 +63,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
     }
 
+    // Phase D: Query tenant context ONCE before scoring (parallel queries)
+    const tenantContext = await queryTenantContext(
+      tenantId,
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
+
     const proposalId = crypto.randomUUID();
     const contentUnits: ContentUnitProposal[] = [];
 
@@ -96,8 +104,24 @@ export async function POST(req: NextRequest) {
         tenantId,
       );
 
-      // Phase C: Create Synaptic Ingestion State and classify through consolidated pipeline
+      // Phase C+D: Create Synaptic Ingestion State, populate tenant context, classify
       const state = createIngestionState(tenantId, file.fileName, profileMap);
+      state.tenantContext = tenantContext;
+
+      // Compute entity ID overlap per content unit (Phase D)
+      for (let tabIndex = 0; tabIndex < file.sheets.length; tabIndex++) {
+        const sheet = file.sheets[tabIndex];
+        const profile = profileMap.get(sheet.sheetName);
+        if (profile) {
+          const overlap = computeEntityIdOverlap(
+            profile,
+            sheet.rows,
+            tenantContext.existingEntityExternalIds,
+          );
+          state.entityIdOverlaps.set(profile.contentUnitId, overlap);
+        }
+      }
+
       classifyContentUnits(state);
 
       // Build proposal from state (same format as before — proposal cards render correctly)
