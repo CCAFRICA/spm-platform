@@ -13,7 +13,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
-import { persistSignalBatch } from '@/lib/ai/signal-persistence';
+import { writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import type { Json } from '@/lib/supabase/database.types';
 
 export async function POST(request: NextRequest) {
@@ -43,14 +44,6 @@ export async function POST(request: NextRequest) {
 
     let totalDerivations = 0;
     const allReports: Array<{ ruleSetId: string; derivations: number; report: unknown[] }> = [];
-    const allSignals: Array<{
-      tenantId: string;
-      signalType: string;
-      signalValue: Record<string, unknown>;
-      confidence: number;
-      source: string;
-      context: Record<string, unknown>;
-    }> = [];
 
     for (const rsId of ruleSetIds) {
       const result = await convergeBindings(tenantId, rsId, supabase);
@@ -96,37 +89,54 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // Collect signals
+      // OB-160G: Write Level 3 convergence signals via Phase E service (HF-092 dedicated columns)
       for (const signal of result.signals) {
-        allSignals.push({
-          tenantId,
-          signalType: 'convergence_binding',
-          signalValue: {
-            fieldName: signal.fieldName,
-            semanticType: signal.semanticType,
-            domain: signal.domain,
-          },
-          confidence: signal.confidence,
-          source: 'ai_prediction',
-          context: { ruleSetId: rsId, convergenceVersion: 'ob120' },
-        });
+        try {
+          writeClassificationSignal(
+            {
+              tenantId,
+              sourceFileName: 'convergence',
+              sheetName: signal.domain,
+              fingerprint: { columnCount: 0, numericFieldRatioBucket: '0-25', categoricalFieldRatioBucket: '0-25', identifierRepeatBucket: '0-1', hasTemporalColumns: false, hasIdentifier: false, hasStructuralName: false, rowCountBucket: 'small' },
+              classification: 'convergence_match',
+              confidence: signal.confidence,
+              decisionSource: 'convergence',
+              classificationTrace: {} as ClassificationTrace,
+              vocabularyBindings: null,
+              agentScores: { convergence: signal.confidence },
+              humanCorrectionFrom: null,
+            },
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          ).catch(() => {});
+        } catch {
+          // Signal failure must not block convergence
+        }
       }
-    }
 
-    // Persist classification signals (fire-and-forget)
-    if (allSignals.length > 0) {
-      try {
-        await persistSignalBatch(
-          allSignals.map(s => ({
-            tenantId: s.tenantId,
-            signalType: s.signalType,
-            signalValue: s.signalValue,
-            confidence: s.confidence,
-            source: s.source,
-          }))
-        );
-      } catch (sigErr) {
-        console.warn('[Convergence API] Signal persistence failed (non-blocking):', sigErr);
+      // Write gap signals
+      for (const gap of result.gaps) {
+        try {
+          writeClassificationSignal(
+            {
+              tenantId,
+              sourceFileName: 'convergence',
+              sheetName: gap.component,
+              fingerprint: { columnCount: 0, numericFieldRatioBucket: '0-25', categoricalFieldRatioBucket: '0-25', identifierRepeatBucket: '0-1', hasTemporalColumns: false, hasIdentifier: false, hasStructuralName: false, rowCountBucket: 'small' },
+              classification: 'convergence_gap',
+              confidence: 0,
+              decisionSource: 'convergence',
+              classificationTrace: {} as ClassificationTrace,
+              vocabularyBindings: null,
+              agentScores: { convergence: 0 },
+              humanCorrectionFrom: null,
+            },
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          ).catch(() => {});
+        } catch {
+          // Signal failure must not block convergence
+        }
       }
     }
 
