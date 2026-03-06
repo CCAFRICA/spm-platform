@@ -297,6 +297,10 @@ export interface ContentUnitProposal {
   sharedFields?: string[];            // join key fields shared with partner (PARTIAL only)
   partnerContentUnitId?: string;      // the other half of a PARTIAL split
   negotiationLog?: NegotiationLogEntry[];
+  // OB-160E: Flywheel data — passed through to execute for signal write
+  structuralFingerprint?: Record<string, unknown>;
+  classificationTrace?: Record<string, unknown>;
+  vocabularyBindings?: Record<string, string>;
 }
 
 // ============================================================
@@ -327,6 +331,12 @@ export interface ContentUnitExecution {
   // OB-135: Original prediction for signal outcome recording
   originalClassification?: AgentType; // what the agent proposed (before user override)
   originalConfidence?: number;        // agent's original confidence
+  // OB-160E: Flywheel data — passed from proposal for signal write
+  structuralFingerprint?: Record<string, unknown>;
+  classificationTrace?: Record<string, unknown>;
+  vocabularyBindings?: Record<string, string>;
+  sourceFile?: string;
+  tabName?: string;
 }
 
 export interface SCIExecutionResult {

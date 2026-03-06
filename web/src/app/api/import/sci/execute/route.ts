@@ -12,6 +12,9 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
+import { writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import type { StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
+import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { Json } from '@/lib/supabase/database.types';
 import type {
@@ -129,6 +132,41 @@ export async function POST(req: NextRequest) {
       captureSCISignalBatch(outcomeCaptures).catch(() => {});
     } catch {
       // Signal capture failure must NEVER block import
+    }
+
+    // OB-160E: Write classification signals for flywheel (fire-and-forget)
+    try {
+      for (const unit of contentUnits) {
+        if (!unit.structuralFingerprint) continue;
+
+        const originalClassification = unit.originalClassification || unit.confirmedClassification;
+        const wasOverridden = originalClassification !== unit.confirmedClassification;
+        const traceData = unit.classificationTrace as ClassificationTrace | undefined;
+
+        const payload: ClassificationSignalPayload = {
+          tenantId,
+          sourceFileName: unit.sourceFile || '',
+          sheetName: unit.tabName || '',
+          fingerprint: unit.structuralFingerprint as unknown as StructuralFingerprint,
+          classification: unit.confirmedClassification,
+          confidence: wasOverridden ? 1.0 : (unit.originalConfidence || 0),
+          decisionSource: wasOverridden ? 'human_override' : (traceData?.decisionSource || 'heuristic'),
+          classificationTrace: traceData || {} as ClassificationTrace,
+          vocabularyBindings: unit.vocabularyBindings || null,
+          agentScores: traceData
+            ? Object.fromEntries(traceData.round1.map(s => [s.agent, s.confidence]))
+            : {},
+          humanCorrectionFrom: wasOverridden ? originalClassification : null,
+        };
+
+        writeClassificationSignal(
+          payload,
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        ).catch(() => {});
+      }
+    } catch {
+      // Flywheel signal failure must NEVER block import
     }
 
     return NextResponse.json(response);

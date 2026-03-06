@@ -18,6 +18,7 @@ import { computeAdditiveScores, applyHeaderComprehensionSignals, resolveClaimsPh
 import { computeFieldAffinities, analyzeSplit, generatePartialBindings } from './negotiation';
 import { generateProposalIntelligence } from './proposal-intelligence';
 import { computeTenantContextAdjustments } from './tenant-context';
+import { computeStructuralFingerprint } from './classification-signal-service';
 import type { PriorSignal } from './classification-signal-service';
 
 // ============================================================
@@ -567,6 +568,11 @@ export function buildProposalFromState(
       warnings.push('Auto-generated headers detected (__EMPTY pattern) — content may be rule definitions');
     }
 
+    // Phase E: Compute flywheel data for signal write at execute time
+    const fingerprint = computeStructuralFingerprint(profile);
+    const trace = state.traces.get(unitId);
+    const vocabBindings = extractVocabularyBindings(profile);
+
     if (splitAnalysis.shouldSplit && splitAnalysis.secondaryAgent) {
       // PARTIAL claims — two content units from one tab
       const primaryAgent = splitAnalysis.primaryAgent;
@@ -602,6 +608,9 @@ export function buildProposalFromState(
         sharedFields: splitAnalysis.sharedFields,
         partnerContentUnitId: secondaryId,
         negotiationLog: log,
+        structuralFingerprint: fingerprint as unknown as Record<string, unknown>,
+        classificationTrace: trace as unknown as Record<string, unknown>,
+        vocabularyBindings: vocabBindings,
       });
 
       contentUnits.push({
@@ -623,6 +632,9 @@ export function buildProposalFromState(
         sharedFields: splitAnalysis.sharedFields,
         partnerContentUnitId: primaryId,
         negotiationLog: log,
+        structuralFingerprint: fingerprint as unknown as Record<string, unknown>,
+        classificationTrace: trace as unknown as Record<string, unknown>,
+        vocabularyBindings: vocabBindings,
       });
     } else {
       // FULL claim — single agent wins
@@ -645,9 +657,29 @@ export function buildProposalFromState(
         whatChangesMyMind: intel.whatChangesMyMind,
         claimType: 'FULL',
         negotiationLog: log,
+        structuralFingerprint: fingerprint as unknown as Record<string, unknown>,
+        classificationTrace: trace as unknown as Record<string, unknown>,
+        vocabularyBindings: vocabBindings,
       });
     }
   }
 
   return contentUnits;
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function extractVocabularyBindings(
+  profile: ContentProfile,
+): Record<string, string> | undefined {
+  if (!profile.headerComprehension?.interpretations) return undefined;
+  const bindings: Record<string, string> = {};
+  for (const [col, interp] of Array.from(profile.headerComprehension.interpretations.entries())) {
+    if (interp?.semanticMeaning) {
+      bindings[col] = interp.semanticMeaning;
+    }
+  }
+  return Object.keys(bindings).length > 0 ? bindings : undefined;
 }
