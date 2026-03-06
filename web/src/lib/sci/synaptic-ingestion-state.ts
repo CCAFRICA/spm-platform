@@ -270,8 +270,13 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
       );
       const matchingAgent = scores.find(s => s.agent === bestPrior.classification);
       if (matchingAgent) {
-        // Human override priors get stronger boost (+0.15) vs heuristic/signature (+0.10)
-        const boost = bestPrior.source === 'human_override' || bestPrior.source === 'user_corrected' ? 0.15 : 0.10;
+        // OB-160I: Three-scope boost hierarchy
+        // Human override: +0.15, Tenant prior: +0.10, Domain prior: +0.07, Foundational prior: +0.05
+        const boost = bestPrior.source === 'human_override' || bestPrior.source === 'user_corrected'
+          ? 0.15
+          : bestPrior.source === 'foundational' ? 0.05
+          : bestPrior.source === 'domain' ? 0.07
+          : 0.10;
         matchingAgent.confidence = Math.max(0, Math.min(1, matchingAgent.confidence + boost));
         matchingAgent.signals.push({
           signal: 'prior_signal_match',

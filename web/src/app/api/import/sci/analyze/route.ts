@@ -53,16 +53,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'tenantId and files required' }, { status: 400 });
     }
 
-    // Verify tenant exists
+    // Verify tenant exists + read industry for domain flywheel (OB-160J)
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('id')
+      .select('id, industry')
       .eq('id', tenantId)
       .single();
 
     if (!tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
     }
+    const tenantDomainId = ((tenant as Record<string, unknown>).industry as string) || '';
 
     // Phase D: Query tenant context ONCE before scoring (parallel queries)
     const tenantContext = await queryTenantContext(
@@ -129,6 +130,7 @@ export async function POST(req: NextRequest) {
             fingerprint,
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            tenantDomainId,
           );
           if (priors.length > 0) {
             state.priorSignals.set(profile.contentUnitId, priors);

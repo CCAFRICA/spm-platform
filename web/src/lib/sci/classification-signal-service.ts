@@ -137,6 +137,7 @@ export async function lookupPriorSignals(
   fingerprint: StructuralFingerprint,
   supabaseUrl: string,
   supabaseServiceKey: string,
+  domainId?: string,
 ): Promise<PriorSignal[]> {
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -154,7 +155,7 @@ export async function lookupPriorSignals(
       return [];
     }
 
-    return data
+    const tenantPriors = data
       .filter(row => {
         const stored = row.structural_fingerprint as StructuralFingerprint | null;
         return stored && matchesFingerprint(stored, fingerprint);
@@ -166,8 +167,124 @@ export async function lookupPriorSignals(
         fingerprintMatch: true,
         signalId: row.id,
       }));
+
+    if (tenantPriors.length > 0) {
+      return tenantPriors;
+    }
+
+    // OB-160J: Domain fallback — industry-specific structural patterns
+    if (domainId) {
+      const domainPriors = await lookupDomainPriors(fingerprint, domainId, supabaseUrl, supabaseServiceKey);
+      if (domainPriors.length > 0) return domainPriors;
+    }
+
+    // OB-160I: Foundational fallback — cross-tenant structural patterns
+    // Only queried when no tenant or domain priors exist (cold start)
+    return await lookupFoundationalPriors(fingerprint, supabaseUrl, supabaseServiceKey);
   } catch (err) {
     console.error('[SCI Signal] Prior lookup exception:', err);
+    return [];
+  }
+}
+
+/**
+ * OB-160I: Query foundational_patterns for cross-tenant structural priors.
+ * Returns PriorSignal[] with source='foundational' for lower boost (+0.05 vs +0.10).
+ * Only structural fingerprint + classification outcome — zero tenant-identifiable info.
+ */
+async function lookupFoundationalPriors(
+  fingerprint: StructuralFingerprint,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<PriorSignal[]> {
+  try {
+    const sig = fingerprintToSignature(fingerprint);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data, error } = await supabase
+      .from('foundational_patterns')
+      .select('id, pattern_signature, confidence_mean, total_executions, learned_behaviors')
+      .eq('pattern_signature', sig)
+      .maybeSingle();
+
+    if (error || !data) return [];
+
+    const row = data as { id: string; pattern_signature: string; confidence_mean: number; total_executions: number; learned_behaviors: Record<string, unknown> | null };
+    if (row.total_executions < 3) return []; // Require minimum evidence
+
+    // Extract the most common classification from learned_behaviors
+    const behaviors = row.learned_behaviors ?? {};
+    const dist = (behaviors.classification_distribution as Record<string, number>) ?? {};
+    const entries = Object.entries(dist);
+    if (entries.length === 0) return [];
+
+    entries.sort((a, b) => b[1] - a[1]);
+    const [topClassification, topCount] = entries[0];
+    const total = entries.reduce((sum, [, c]) => sum + c, 0);
+    const accuracy = topCount / total;
+
+    // Only return if the pattern is consistently classified (>= 60% agreement)
+    if (accuracy < 0.60) return [];
+
+    return [{
+      classification: topClassification,
+      confidence: row.confidence_mean * accuracy,
+      source: 'foundational',
+      fingerprintMatch: true,
+      signalId: row.id,
+    }];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * OB-160J: Query domain_patterns for industry-specific structural priors.
+ * Returns PriorSignal[] with source='domain' for medium boost (+0.07).
+ * Sharper than foundational because domain-specific patterns have higher signal.
+ */
+async function lookupDomainPriors(
+  fingerprint: StructuralFingerprint,
+  domainId: string,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<PriorSignal[]> {
+  try {
+    const sig = fingerprintToSignature(fingerprint);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data, error } = await supabase
+      .from('domain_patterns')
+      .select('id, pattern_signature, confidence_mean, total_executions, learned_behaviors')
+      .eq('pattern_signature', sig)
+      .eq('domain_id', domainId)
+      .maybeSingle();
+
+    if (error || !data) return [];
+
+    const row = data as { id: string; confidence_mean: number; total_executions: number; learned_behaviors: Record<string, unknown> | null };
+    if (row.total_executions < 3) return [];
+
+    const behaviors = row.learned_behaviors ?? {};
+    const dist = (behaviors.classification_distribution as Record<string, number>) ?? {};
+    const entries = Object.entries(dist);
+    if (entries.length === 0) return [];
+
+    entries.sort((a, b) => b[1] - a[1]);
+    const [topClassification, topCount] = entries[0];
+    const total = entries.reduce((sum, [, c]) => sum + c, 0);
+    const accuracy = topCount / total;
+
+    if (accuracy < 0.60) return [];
+
+    return [{
+      classification: topClassification,
+      confidence: row.confidence_mean * accuracy,
+      source: 'domain',
+      fingerprintMatch: true,
+      signalId: row.id,
+    }];
+  } catch {
     return [];
   }
 }
@@ -184,6 +301,139 @@ function matchesFingerprint(
     stored.hasIdentifier === current.hasIdentifier &&
     stored.rowCountBucket === current.rowCountBucket
   );
+}
+
+// ============================================================
+// FOUNDATIONAL AGGREGATION — Cross-tenant anonymized patterns
+// OB-160I: Wire SCI classification signals to flywheel
+// ============================================================
+
+/**
+ * Hash a structural fingerprint into a deterministic pattern_signature string.
+ * Used as the key in foundational_patterns and domain_patterns tables.
+ */
+function fingerprintToSignature(fp: StructuralFingerprint): string {
+  return `sci:${fp.columnCount}:${fp.numericFieldRatioBucket}:${fp.categoricalFieldRatioBucket}:${fp.identifierRepeatBucket}:${fp.hasTemporalColumns ? 1 : 0}:${fp.hasIdentifier ? 1 : 0}:${fp.hasStructuralName ? 1 : 0}:${fp.rowCountBucket}`;
+}
+
+/**
+ * Aggregate a classification signal into foundational_patterns.
+ * PRIVACY: Strips tenant_id, file names, sheet names.
+ * Retains ONLY: structural fingerprint signature + classification + confidence.
+ * Fire-and-forget — failure must never block signal write.
+ *
+ * OB-160I: Connects SCI classification pipeline to Flywheel 2.
+ */
+export async function aggregateToFoundational(
+  fingerprint: StructuralFingerprint,
+  classification: string,
+  confidence: number,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<void> {
+  try {
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const sig = fingerprintToSignature(fingerprint);
+
+    const { data: existing } = await supabase
+      .from('foundational_patterns')
+      .select('id, confidence_mean, total_executions, tenant_count, learned_behaviors')
+      .eq('pattern_signature', sig)
+      .maybeSingle();
+
+    if (existing) {
+      // EMA update (weight 0.1 = recent signal has 10% influence)
+      const newConfidence = existing.confidence_mean * 0.9 + confidence * 0.1;
+      const behaviors = (existing.learned_behaviors as Record<string, unknown>) ?? {};
+      const dist = (behaviors.classification_distribution as Record<string, number>) ?? {};
+      dist[classification] = (dist[classification] ?? 0) + 1;
+
+      await supabase
+        .from('foundational_patterns')
+        .update({
+          confidence_mean: newConfidence,
+          total_executions: existing.total_executions + 1,
+          learned_behaviors: { ...behaviors, classification_distribution: dist },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id);
+    } else {
+      await supabase
+        .from('foundational_patterns')
+        .insert({
+          pattern_signature: sig,
+          confidence_mean: confidence,
+          total_executions: 1,
+          tenant_count: 1,
+          anomaly_rate_mean: 0,
+          learned_behaviors: {
+            classification_distribution: { [classification]: 1 },
+          },
+        });
+    }
+  } catch {
+    // Fire-and-forget — aggregation failure must never block the signal pipeline
+  }
+}
+
+/**
+ * Aggregate a classification signal into domain_patterns.
+ * Same privacy guarantees as foundational. Additionally keyed by domainId.
+ * OB-160J: Connects SCI classification pipeline to Flywheel 3.
+ */
+export async function aggregateToDomain(
+  fingerprint: StructuralFingerprint,
+  classification: string,
+  confidence: number,
+  domainId: string,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<void> {
+  if (!domainId) return; // No domain tag → skip domain aggregation
+
+  try {
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const sig = fingerprintToSignature(fingerprint);
+
+    const { data: existing } = await supabase
+      .from('domain_patterns')
+      .select('id, confidence_mean, total_executions, tenant_count, learned_behaviors')
+      .eq('pattern_signature', sig)
+      .eq('domain_id', domainId)
+      .maybeSingle();
+
+    if (existing) {
+      const newConfidence = existing.confidence_mean * 0.9 + confidence * 0.1;
+      const behaviors = (existing.learned_behaviors as Record<string, unknown>) ?? {};
+      const dist = (behaviors.classification_distribution as Record<string, number>) ?? {};
+      dist[classification] = (dist[classification] ?? 0) + 1;
+
+      await supabase
+        .from('domain_patterns')
+        .update({
+          confidence_mean: newConfidence,
+          total_executions: existing.total_executions + 1,
+          learned_behaviors: { ...behaviors, classification_distribution: dist },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id);
+    } else {
+      await supabase
+        .from('domain_patterns')
+        .insert({
+          pattern_signature: sig,
+          domain_id: domainId,
+          confidence_mean: confidence,
+          total_executions: 1,
+          tenant_count: 1,
+          learned_behaviors: {
+            classification_distribution: { [classification]: 1 },
+          },
+        });
+    }
+  } catch {
+    // Fire-and-forget
+  }
 }
 
 // ============================================================
