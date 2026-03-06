@@ -17,8 +17,9 @@ import { detectSignatures } from './signatures';
 import { computeAdditiveScores, applyHeaderComprehensionSignals, resolveClaimsPhase1, requiresHumanReview } from './agents';
 import { computeFieldAffinities, analyzeSplit, generatePartialBindings } from './negotiation';
 import { generateProposalIntelligence } from './proposal-intelligence';
+import { checkPromotedPatterns } from './promoted-patterns';
+import { computeStructuralFingerprint, fingerprintToSignature } from './classification-signal-service';
 import { computeTenantContextAdjustments } from './tenant-context';
-import { computeStructuralFingerprint } from './classification-signal-service';
 import type { PriorSignal } from './classification-signal-service';
 
 // ============================================================
@@ -50,6 +51,9 @@ export interface SynapticIngestionState {
 
   // Prior signals from flywheel (populated by Phase E before scoring)
   priorSignals: Map<string, PriorSignal[]>;
+
+  // OB-160L: Promoted patterns from foundational signals (loaded once before scoring)
+  promotedPatterns?: Map<string, import('./promoted-patterns').PromotedPattern>;
 
   // Classification traces (one per content unit — THE FLYWHEEL'S RAW MATERIAL)
   traces: Map<string, ClassificationTrace>;
@@ -230,6 +234,25 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
 
     // STEP 2: Additive scoring with signature floors (Round 1)
     const scores = computeAdditiveScores(profile);
+
+    // STEP 2.5: OB-160L — Apply promoted patterns from foundational signals
+    if (state.promotedPatterns && state.promotedPatterns.size > 0) {
+      const fingerprint = computeStructuralFingerprint(profile);
+      const sig = fingerprintToSignature(fingerprint);
+      const promoted = checkPromotedPatterns(sig, state.promotedPatterns);
+      if (promoted) {
+        const agentScore = scores.find(s => s.agent === promoted.agent);
+        if (agentScore && agentScore.confidence < promoted.confidence) {
+          agentScore.confidence = promoted.confidence;
+          agentScore.signals.unshift({
+            signal: `promoted:${promoted.patternSignature}`,
+            weight: promoted.confidence,
+            evidence: `Promoted pattern: ${promoted.evidence.signalCount} signals, ${Math.round(promoted.evidence.accuracy * 100)}% accuracy across ${promoted.evidence.tenantCount} tenants`,
+          });
+        }
+      }
+    }
+
     trace.round1 = scores.map(s => ({
       agent: s.agent,
       confidence: s.confidence,
