@@ -1,5 +1,5 @@
 // SCI Analyze API — POST /api/import/sci/analyze
-// Decision 77 — OB-127, OB-134 Round 2 Negotiation
+// Decision 77 — OB-127, OB-134 Round 2 Negotiation, OB-160B Header Comprehension
 // Accepts parsed file data, returns agent-classified proposal.
 // Zero domain vocabulary. Korean Test applies.
 
@@ -10,11 +10,12 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateContentProfile } from '@/lib/sci/content-profile';
+import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
 import { negotiateRound2, requiresHumanReview } from '@/lib/sci/negotiation';
 import { generateProposalIntelligence } from '@/lib/sci/proposal-intelligence';
 import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
-import type { SCIProposal, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
+import type { SCIProposal, ContentProfile, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
 
 const PROCESSING_ORDER: Record<AgentType, number> = {
   plan: 0,
@@ -73,11 +74,12 @@ export async function POST(req: NextRequest) {
     const contentUnits: ContentUnitProposal[] = [];
 
     for (const file of files) {
+      // Phase 1: Generate Content Profiles for all sheets
+      const profileMap = new Map<string, ContentProfile>();
+      const profileList: Array<{ profile: ContentProfile; sheet: typeof file.sheets[0] }> = [];
+
       for (let tabIndex = 0; tabIndex < file.sheets.length; tabIndex++) {
         const sheet = file.sheets[tabIndex];
-
-        // Generate Content Profile
-        // HF-091: Pass totalRowCount so patterns use full sheet size, not sample size
         const profile = generateContentProfile(
           sheet.sheetName,
           tabIndex,
@@ -86,7 +88,24 @@ export async function POST(req: NextRequest) {
           sheet.rows,
           sheet.totalRowCount,
         );
+        profileMap.set(sheet.sheetName, profile);
+        profileList.push({ profile, sheet });
+      }
 
+      // Phase B: Enhance with header comprehension (one LLM call for all sheets)
+      await enhanceWithHeaderComprehension(
+        profileMap,
+        file.sheets.map(s => ({
+          sheetName: s.sheetName,
+          columns: s.columns,
+          sampleRows: s.rows.slice(0, 5),
+          rowCount: s.totalRowCount,
+        })),
+        tenantId,
+      );
+
+      // Phase 2: Score each enhanced profile
+      for (const { profile, sheet } of profileList) {
         // OB-134: Round 2 negotiation (replaces Phase 1 scoring)
         const negotiation = negotiateRound2(profile);
         const scores = negotiation.round2Scores;
