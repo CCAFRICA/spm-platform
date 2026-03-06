@@ -37,8 +37,8 @@ const PLAN_WEIGHTS: WeightRule[] = [
 
 const ENTITY_WEIGHTS: WeightRule[] = [
   { signal: 'has_entity_id', weight: 0.25, test: p => p.patterns.hasEntityIdentifier, evidence: () => 'entity identifier column present' },
-  // OB-159: Structural name detection (Korean Test compliant — from values, not headers)
-  { signal: 'has_structural_name', weight: 0.20, test: p => p.patterns.hasStructuralNameColumn || p.fields.some(f => f.nameSignals.looksLikePersonName), evidence: () => 'structural name column detected (multi-word text values)' },
+  // OB-160C: Korean Test compliant — structural name detection only (no nameSignals in scoring)
+  { signal: 'has_structural_name', weight: 0.20, test: p => p.patterns.hasStructuralNameColumn, evidence: () => 'structural name column detected (identifier-relative cardinality)' },
   // OB-159: Volume pattern replaces absolute row count
   { signal: 'single_per_entity', weight: 0.15, test: p => p.patterns.volumePattern === 'single', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (single — roster pattern)` },
   { signal: 'categorical_attributes', weight: 0.10, test: p => p.structure.categoricalFieldCount >= 2, evidence: p => `${p.structure.categoricalFieldCount} categorical text fields` },
@@ -168,6 +168,124 @@ export function scoreContentUnit(profile: ContentProfile): AgentScore[] {
 
   // STEP 5: Sort by confidence descending
   return scores.sort((a, b) => b.confidence - a.confidence);
+}
+
+// ============================================================
+// HEADER COMPREHENSION SIGNALS (OB-160C Phase 2)
+// ADDITIVE: when headerComprehension is null, scoring works on structural signals only.
+// ============================================================
+
+export function applyHeaderComprehensionSignals(
+  scores: AgentScore[],
+  profile: ContentProfile,
+): void {
+  if (!profile.headerComprehension) return;
+
+  const interpretations = profile.headerComprehension.interpretations;
+
+  // Count columns by ColumnRole
+  let temporalCount = 0;
+  let measureCount = 0;
+  let nameCount = 0;
+  let attributeCount = 0;
+  let referenceKeyCount = 0;
+
+  for (const interp of Array.from(interpretations.values())) {
+    switch (interp.columnRole) {
+      case 'temporal': temporalCount++; break;
+      case 'measure': measureCount++; break;
+      case 'name': nameCount++; break;
+      case 'attribute': attributeCount++; break;
+      case 'reference_key': referenceKeyCount++; break;
+    }
+  }
+
+  const totalColumns = interpretations.size;
+  if (totalColumns === 0) return;
+
+  const measureRatio = measureCount / totalColumns;
+  const attributeRatio = attributeCount / totalColumns;
+
+  // --- Transaction Agent signals from header comprehension ---
+  const transaction = scores.find(s => s.agent === 'transaction');
+  if (transaction) {
+    if (temporalCount >= 1) {
+      transaction.confidence += 0.10;
+      transaction.signals.push({
+        signal: 'hc_temporal_columns',
+        weight: 0.10,
+        evidence: `LLM identified ${temporalCount} temporal column(s)`,
+      });
+    }
+    if (measureRatio > 0.40) {
+      transaction.confidence += 0.08;
+      transaction.signals.push({
+        signal: 'hc_measure_heavy',
+        weight: 0.08,
+        evidence: `LLM identified ${(measureRatio * 100).toFixed(0)}% of columns as measures`,
+      });
+    }
+  }
+
+  // --- Entity Agent signals from header comprehension ---
+  const entity = scores.find(s => s.agent === 'entity');
+  if (entity) {
+    if (nameCount >= 1) {
+      entity.confidence += 0.10;
+      entity.signals.push({
+        signal: 'hc_name_column',
+        weight: 0.10,
+        evidence: `LLM identified ${nameCount} name column(s)`,
+      });
+    }
+    if (attributeRatio > 0.30) {
+      entity.confidence += 0.08;
+      entity.signals.push({
+        signal: 'hc_attribute_heavy',
+        weight: 0.08,
+        evidence: `LLM identified ${(attributeRatio * 100).toFixed(0)}% of columns as attributes`,
+      });
+    }
+    if (temporalCount >= 2) {
+      entity.confidence -= 0.10;
+      entity.signals.push({
+        signal: 'hc_temporal_not_roster',
+        weight: -0.10,
+        evidence: `LLM identified ${temporalCount} temporal columns — rosters don't have multiple temporal dimensions`,
+      });
+    }
+  }
+
+  // --- Target Agent signals from header comprehension ---
+  const target = scores.find(s => s.agent === 'target');
+  if (target) {
+    if (temporalCount >= 1) {
+      target.confidence -= 0.10;
+      target.signals.push({
+        signal: 'hc_temporal_not_targets',
+        weight: -0.10,
+        evidence: `LLM identified ${temporalCount} temporal column(s) — targets are static reference data`,
+      });
+    }
+  }
+
+  // --- Reference Agent signals from header comprehension ---
+  const reference = scores.find(s => s.agent === 'reference');
+  if (reference) {
+    if (referenceKeyCount >= 1) {
+      reference.confidence += 0.15;
+      reference.signals.push({
+        signal: 'hc_reference_key',
+        weight: 0.15,
+        evidence: `LLM identified ${referenceKeyCount} reference key column(s)`,
+      });
+    }
+  }
+
+  // Clamp all scores to [0, 1]
+  for (const s of scores) {
+    s.confidence = Math.max(0, Math.min(1, s.confidence));
+  }
 }
 
 // ============================================================
