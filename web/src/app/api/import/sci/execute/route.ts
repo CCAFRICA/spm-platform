@@ -85,9 +85,23 @@ export async function POST(req: NextRequest) {
 
     const results: ContentUnitResult[] = [];
 
-    for (const unit of contentUnits) {
+    // OB-160F: Processing order enforcement — dependency chain
+    // Entity FIRST (entities must exist before transaction/target can reference them)
+    // Reference SECOND (reference data available for convergence)
+    // Transaction/Target THIRD (resolve entity_id from already-created entities)
+    // Plan LAST (independent — no dependency on other pipelines)
+    const PIPELINE_ORDER: Record<string, number> = { entity: 0, reference: 1, target: 2, transaction: 2, plan: 3 };
+    const sorted = [...contentUnits].sort((a, b) =>
+      (PIPELINE_ORDER[a.confirmedClassification] ?? 9) - (PIPELINE_ORDER[b.confirmedClassification] ?? 9)
+    );
+
+    // OB-160F: EntityMap from entity pipeline → shared with transaction/target pipelines
+    // Enables first-pass entity resolution without relying solely on postCommitConstruction
+    const sharedEntityMap = new Map<string, string>();
+
+    for (const unit of sorted) {
       try {
-        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId);
+        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId, sharedEntityMap);
         results.push(result);
       } catch (err) {
         results.push({
@@ -185,18 +199,19 @@ async function executeContentUnit(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
-  userId: string
+  userId: string,
+  sharedEntityMap: Map<string, string>,
 ): Promise<ContentUnitResult> {
   // OB-134: For PARTIAL claims, filter rawData to only include owned + shared fields
   const effectiveUnit = filterFieldsForPartialClaim(unit);
 
   switch (effectiveUnit.confirmedClassification) {
     case 'target':
-      return executeTargetPipeline(supabase, tenantId, proposalId, effectiveUnit);
+      return executeTargetPipeline(supabase, tenantId, proposalId, effectiveUnit, sharedEntityMap);
     case 'transaction':
-      return executeTransactionPipeline(supabase, tenantId, proposalId, effectiveUnit);
+      return executeTransactionPipeline(supabase, tenantId, proposalId, effectiveUnit, sharedEntityMap);
     case 'entity':
-      return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit);
+      return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit, sharedEntityMap);
     case 'plan':
       return executePlanPipeline(supabase, tenantId, effectiveUnit, userId);
     case 'reference':
@@ -244,7 +259,8 @@ async function executeTargetPipeline(
   supabase: SupabaseClient,
   tenantId: string,
   proposalId: string,
-  unit: ContentUnitExecution
+  unit: ContentUnitExecution,
+  sharedEntityMap: Map<string, string>,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -294,32 +310,36 @@ async function executeTargetPipeline(
     b => b.semanticRole === 'entity_identifier'
   );
   const entityIdField = entityIdBinding?.sourceField;
-  const entityIdMap = new Map<string, string>();
+  // OB-160F: Seed from sharedEntityMap (populated by entity pipeline running first)
+  const entityIdMap = new Map<string, string>(sharedEntityMap);
 
   if (entityIdField) {
-    // Collect unique external IDs
+    // Collect unique external IDs not already in sharedEntityMap
     const externalIds = new Set<string>();
     for (const row of rows) {
       const val = row[entityIdField];
       if (val != null && String(val).trim()) {
-        externalIds.add(String(val).trim());
+        const key = String(val).trim();
+        if (!entityIdMap.has(key)) externalIds.add(key);
       }
     }
 
-    // Fetch existing entities
-    const allIds = Array.from(externalIds);
-    const BATCH = 200;
-    for (let i = 0; i < allIds.length; i += BATCH) {
-      const slice = allIds.slice(i, i + BATCH);
-      const { data: existing } = await supabase
-        .from('entities')
-        .select('id, external_id')
-        .eq('tenant_id', tenantId)
-        .in('external_id', slice);
+    // Fetch any remaining entities not in sharedEntityMap
+    if (externalIds.size > 0) {
+      const allIds = Array.from(externalIds);
+      const BATCH = 200;
+      for (let i = 0; i < allIds.length; i += BATCH) {
+        const slice = allIds.slice(i, i + BATCH);
+        const { data: existing } = await supabase
+          .from('entities')
+          .select('id, external_id')
+          .eq('tenant_id', tenantId)
+          .in('external_id', slice);
 
-      if (existing) {
-        for (const e of existing) {
-          if (e.external_id) entityIdMap.set(e.external_id, e.id);
+        if (existing) {
+          for (const e of existing) {
+            if (e.external_id) entityIdMap.set(e.external_id, e.id);
+          }
         }
       }
     }
@@ -469,7 +489,8 @@ async function executeTransactionPipeline(
   supabase: SupabaseClient,
   tenantId: string,
   proposalId: string,
-  unit: ContentUnitExecution
+  unit: ContentUnitExecution,
+  sharedEntityMap: Map<string, string>,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -505,30 +526,35 @@ async function executeTransactionPipeline(
     b => b.semanticRole === 'entity_identifier'
   );
   const entityIdField = entityIdBinding?.sourceField;
-  const entityIdMap = new Map<string, string>();
+  // OB-160F: Seed from sharedEntityMap (populated by entity pipeline running first)
+  const entityIdMap = new Map<string, string>(sharedEntityMap);
 
   if (entityIdField) {
+    // Only fetch entities not already in sharedEntityMap
     const externalIds = new Set<string>();
     for (const row of rows) {
       const val = row[entityIdField];
       if (val != null && String(val).trim()) {
-        externalIds.add(String(val).trim());
+        const key = String(val).trim();
+        if (!entityIdMap.has(key)) externalIds.add(key);
       }
     }
 
-    const allIds = Array.from(externalIds);
-    const BATCH = 200;
-    for (let i = 0; i < allIds.length; i += BATCH) {
-      const slice = allIds.slice(i, i + BATCH);
-      const { data: existing } = await supabase
-        .from('entities')
-        .select('id, external_id')
-        .eq('tenant_id', tenantId)
-        .in('external_id', slice);
+    if (externalIds.size > 0) {
+      const allIds = Array.from(externalIds);
+      const BATCH = 200;
+      for (let i = 0; i < allIds.length; i += BATCH) {
+        const slice = allIds.slice(i, i + BATCH);
+        const { data: existing } = await supabase
+          .from('entities')
+          .select('id, external_id')
+          .eq('tenant_id', tenantId)
+          .in('external_id', slice);
 
-      if (existing) {
-        for (const e of existing) {
-          if (e.external_id) entityIdMap.set(e.external_id, e.id);
+        if (existing) {
+          for (const e of existing) {
+            if (e.external_id) entityIdMap.set(e.external_id, e.id);
+          }
         }
       }
     }
@@ -676,7 +702,8 @@ async function executeEntityPipeline(
   supabase: SupabaseClient,
   tenantId: string,
   _proposalId: string,
-  unit: ContentUnitExecution
+  unit: ContentUnitExecution,
+  sharedEntityMap: Map<string, string>,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -795,6 +822,23 @@ async function executeEntityPipeline(
   }
 
   console.log(`[SCI Execute] Entity: ${created} new, ${existingMap.size} existing (deduped)`);
+
+  // OB-160F: Populate sharedEntityMap so downstream transaction/target pipelines
+  // can resolve entity_id on first pass (before postCommitConstruction)
+  const allExtIds = Array.from(entityData.keys());
+  for (let i = 0; i < allExtIds.length; i += BATCH) {
+    const slice = allExtIds.slice(i, i + BATCH);
+    const { data: ents } = await supabase
+      .from('entities')
+      .select('id, external_id')
+      .eq('tenant_id', tenantId)
+      .in('external_id', slice);
+    if (ents) {
+      for (const e of ents) {
+        if (e.external_id) sharedEntityMap.set(e.external_id, e.id);
+      }
+    }
+  }
 
   return {
     contentUnitId: unit.contentUnitId,
