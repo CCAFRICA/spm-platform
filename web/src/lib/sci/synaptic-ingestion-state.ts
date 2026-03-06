@@ -68,9 +68,26 @@ export interface TenantContext {
   existingEntityCount: number;
   existingEntityExternalIds: Set<string>;
   existingPlanCount: number;
+  existingPlanComponentNames: string[];
   existingPlanInputRequirements: string[];
   committedDataRowCount: number;
+  committedDataTypes: string[];
   referenceDataExists: boolean;
+}
+
+export interface EntityIdOverlap {
+  sheetIdentifierColumn: string;
+  sheetUniqueValues: Set<string>;
+  matchingEntityIds: Set<string>;
+  overlapPercentage: number;
+  overlapSignal: 'high' | 'partial' | 'none';
+}
+
+export interface TenantContextAdjustment {
+  agent: string;
+  adjustment: number;
+  signal: string;
+  evidence: string;
 }
 
 // ============================================================
