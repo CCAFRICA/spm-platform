@@ -45,16 +45,87 @@ export interface ContentProfile {
 
   // OB-160A: Every structural determination emittable as signal
   observations: ProfileObservation[];
+
+  // OB-160B: LLM header comprehension (populated after profile generation)
+  headerComprehension?: HeaderComprehension;
 }
 
 // OB-160A: Signal interface for flywheel emission
 export interface ProfileObservation {
   columnName: string | null;          // null for sheet-level observations
-  observationType: string;            // 'type_classification', 'temporal_detection', 'name_detection', etc.
+  observationType: string;            // 'type_classification', 'temporal_detection', 'name_detection', 'header_comprehension', etc.
   observedValue: unknown;             // the determination
   confidence: number;                 // how confident
   alternativeInterpretations: Record<string, number>;  // other plausible types/interpretations with scores
   structuralEvidence: string;         // why this determination was made
+}
+
+// ============================================================
+// OB-160B: HEADER COMPREHENSION (LLM contextual understanding)
+// ============================================================
+
+// Structural role of a column in its dataset
+export type ColumnRole =
+  | 'identifier'         // uniquely identifies an entity (employee ID, account number)
+  | 'name'               // human-readable name for an entity
+  | 'temporal'           // represents time (date, month, year, quarter)
+  | 'measure'            // numeric measurement or metric (revenue, count, percentage)
+  | 'attribute'          // categorical property (department, region, role, type)
+  | 'reference_key'      // lookup key for reference data (hub ID, location code)
+  | 'unknown'            // LLM couldn't determine
+  ;
+
+// LLM interpretation of a single column header
+export interface HeaderInterpretation {
+  columnName: string;              // original header as customer wrote it
+  semanticMeaning: string;         // what it means: 'month_indicator', 'employee_identifier', etc.
+  dataExpectation: string;         // what values should look like: 'integer_1_to_12', 'unique_numeric_id'
+  columnRole: ColumnRole;          // structural role in the dataset
+  confidence: number;              // LLM's confidence in this interpretation
+}
+
+// Result of LLM header comprehension for one sheet
+export interface HeaderComprehension {
+  interpretations: Map<string, HeaderInterpretation>;  // columnName -> interpretation
+  crossSheetInsights: string[];    // observations about relationships between sheets
+  llmCallDuration: number;         // milliseconds
+  llmModel: string;                // which model was used
+  fromVocabularyBinding: boolean;  // true if recalled from stored bindings (Phase E), false if fresh LLM call
+}
+
+// Metrics for every header comprehension call (LLM or binding)
+export interface HeaderComprehensionMetrics {
+  llmCalled: boolean;               // was LLM called, or were vocabulary bindings used?
+  llmCallDuration: number | null;   // milliseconds (null if not called)
+  llmModel: string | null;
+  columnsInterpreted: number;       // total columns across all sheets
+  columnsFromBindings: number;      // how many came from stored vocabulary bindings
+  columnsFromLLM: number;           // how many required fresh LLM interpretation
+  averageConfidence: number;        // mean confidence across all interpretations
+  crossSheetInsightCount: number;   // how many cross-sheet insights were generated
+  timestamp: string;                // ISO timestamp
+}
+
+// Vocabulary binding — stored header interpretation for flywheel recall
+export interface VocabularyBinding {
+  columnName: string;              // the header as the customer wrote it
+  interpretation: HeaderInterpretation;
+  structuralContext: {             // structural context at time of binding
+    sheetColumnCount: number;
+    sheetRowCountBucket: 'small' | 'medium' | 'large';
+    columnPosition: number;
+    dataType: string;              // Phase A type classification
+  };
+  confirmationSource: 'llm_initial' | 'user_confirmed' | 'user_corrected' | 'classification_success';
+  confirmationCount: number;
+  lastConfirmed: string;           // ISO timestamp
+}
+
+// Trace entry for Phase C ClassificationTrace integration
+export interface HeaderComprehensionTraceEntry {
+  metrics: HeaderComprehensionMetrics;
+  interpretations: Record<string, HeaderInterpretation>;  // per column
+  enhancements: string[];  // which profile fields were enhanced by comprehension
 }
 
 export interface FieldProfile {
