@@ -32,11 +32,12 @@ export async function POST(request: NextRequest) {
     if (ruleSetId) {
       ruleSetIds = [ruleSetId];
     } else {
+      // OB-160G: Include draft rule_sets — SCI-imported plans start as draft
       const { data: ruleSets } = await supabase
         .from('rule_sets')
         .select('id')
         .eq('tenant_id', tenantId)
-        .eq('status', 'active');
+        .in('status', ['active', 'draft']);
       ruleSetIds = (ruleSets || []).map(rs => rs.id);
     }
 

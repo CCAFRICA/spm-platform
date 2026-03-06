@@ -115,10 +115,77 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // OB-160G: Run convergence ONCE after all pipelines complete (not per-pipeline)
+    // Collects convergence report for the execute response
+    let convergenceReport: SCIExecutionResult['convergence'] | undefined;
+    try {
+      const { data: allRuleSets } = await supabase
+        .from('rule_sets')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .in('status', ['active', 'draft']);
+
+      if (allRuleSets && allRuleSets.length > 0) {
+        const reports: NonNullable<SCIExecutionResult['convergence']>['reports'] = [];
+        let totalDerivations = 0;
+
+        for (const rs of allRuleSets) {
+          const result = await convergeBindings(tenantId, rs.id, supabase);
+
+          if (result.derivations.length > 0) {
+            const { data: rsData } = await supabase
+              .from('rule_sets')
+              .select('input_bindings')
+              .eq('id', rs.id)
+              .single();
+
+            const existing = ((rsData?.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
+            const merged = [...existing];
+
+            for (const d of result.derivations) {
+              if (!merged.some(e => e.metric === d.metric)) {
+                merged.push(d as unknown as Record<string, unknown>);
+              }
+            }
+
+            await supabase
+              .from('rule_sets')
+              .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
+              .eq('id', rs.id);
+
+            totalDerivations += result.derivations.length;
+          }
+
+          reports.push({
+            ruleSetId: rs.id,
+            ruleSetName: rs.name,
+            derivations: result.derivations.length,
+            matches: result.matchReport,
+            gaps: result.gaps.map(g => ({
+              component: g.component,
+              reason: g.reason,
+              resolution: g.resolution,
+              referenceDataAvailable: g.referenceDataAvailable,
+            })),
+          });
+        }
+
+        convergenceReport = {
+          ruleSetsProcessed: allRuleSets.length,
+          totalDerivations,
+          reports,
+        };
+        console.log(`[SCI Execute] OB-160G: Convergence complete — ${totalDerivations} derivations across ${allRuleSets.length} rule sets`);
+      }
+    } catch (convErr) {
+      console.error('[SCI Execute] Post-execute convergence failed (non-blocking):', convErr);
+    }
+
     const response: SCIExecutionResult = {
       proposalId,
       results,
       overallSuccess: results.every(r => r.success),
+      convergence: convergenceReport,
     };
 
     // OB-135: Capture outcome signals (fire-and-forget)
@@ -427,50 +494,8 @@ async function executeTargetPipeline(
   // OB-144: Post-commit construction — create missing entities, bind entity_id, create assignments
   await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit);
 
-  // Trigger convergence re-run for all active rule_sets
-  const { data: ruleSets } = await supabase
-    .from('rule_sets')
-    .select('id, name')
-    .eq('tenant_id', tenantId)
-    .eq('status', 'active');
-
-  let convergenceCount = 0;
-  if (ruleSets && ruleSets.length > 0) {
-    for (const rs of ruleSets) {
-      try {
-        const result = await convergeBindings(tenantId, rs.id, supabase);
-        if (result.derivations.length > 0) {
-          // Read existing bindings and merge
-          const { data: rsData } = await supabase
-            .from('rule_sets')
-            .select('input_bindings')
-            .eq('id', rs.id)
-            .single();
-
-          const existing = ((rsData?.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
-          const merged = [...existing];
-
-          for (const d of result.derivations) {
-            if (!merged.some(e => e.metric === d.metric)) {
-              merged.push(d as unknown as Record<string, unknown>);
-            }
-          }
-
-          await supabase
-            .from('rule_sets')
-            .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
-            .eq('id', rs.id);
-
-          convergenceCount += result.derivations.length;
-          console.log(`[SCI Execute] Convergence for ${rs.name}: ${result.derivations.length} new derivations`);
-        }
-      } catch (convErr) {
-        console.error(`[SCI Execute] Convergence failed for ${rs.name}:`, convErr);
-      }
-    }
-  }
-
-  console.log(`[SCI Execute] Target pipeline complete: ${totalInserted} rows, ${convergenceCount} derivations`);
+  // OB-160G: Per-pipeline convergence removed — runs once after all pipelines complete
+  console.log(`[SCI Execute] Target pipeline complete: ${totalInserted} rows`);
 
   return {
     contentUnitId: unit.contentUnitId,
@@ -645,45 +670,7 @@ async function executeTransactionPipeline(
   // OB-144: Post-commit construction — create missing entities, bind entity_id, create assignments
   await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit);
 
-  // Trigger convergence re-run for all active rule_sets (same as target pipeline)
-  const { data: ruleSets } = await supabase
-    .from('rule_sets')
-    .select('id, name')
-    .eq('tenant_id', tenantId)
-    .eq('status', 'active');
-
-  if (ruleSets && ruleSets.length > 0) {
-    for (const rs of ruleSets) {
-      try {
-        const result = await convergeBindings(tenantId, rs.id, supabase);
-        if (result.derivations.length > 0) {
-          const { data: rsData } = await supabase
-            .from('rule_sets')
-            .select('input_bindings')
-            .eq('id', rs.id)
-            .single();
-
-          const existing = ((rsData?.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
-          const merged = [...existing];
-
-          for (const d of result.derivations) {
-            if (!merged.some(e => e.metric === d.metric)) {
-              merged.push(d as unknown as Record<string, unknown>);
-            }
-          }
-
-          await supabase
-            .from('rule_sets')
-            .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
-            .eq('id', rs.id);
-
-          console.log(`[SCI Execute] Transaction convergence for ${rs.name}: ${result.derivations.length} derivations`);
-        }
-      } catch (convErr) {
-        console.error(`[SCI Execute] Transaction convergence failed for ${rs.name}:`, convErr);
-      }
-    }
-  }
+  // OB-160G: Per-pipeline convergence removed — runs once after all pipelines complete
 
   return {
     contentUnitId: unit.contentUnitId,
