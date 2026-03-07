@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       .eq('auth_user_id', user.id)
       .maybeSingle();
 
-    if (!profile || profile.role !== 'vl_admin') {
+    if (!profile || profile.role !== 'platform') {
       return NextResponse.json({ error: 'Forbidden — VL Admin required' }, { status: 403 });
     }
 
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
         metric_value: 1,
         period_key: periodKey,
         dimensions: {
-          created_by: user.email || 'vl_admin',
+          created_by: user.email || 'platform',
           industry,
           tier: tier || 'inicio',
           modules: modules || [],

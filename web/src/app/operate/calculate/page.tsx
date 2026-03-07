@@ -545,7 +545,7 @@ function ResultsSkeleton() {
 
 export default function CalculatePage() {
   return (
-    <RequireRole roles={['vl_admin', 'admin']}>
+    <RequireRole roles={['platform', 'admin']}>
       <CalculatePageInner />
     </RequireRole>
   );

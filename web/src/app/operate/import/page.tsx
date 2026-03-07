@@ -293,7 +293,7 @@ export default function OperateImportPage() {
   const subtitle = PHASE_SUBTITLES[state.phase] || '';
 
   return (
-    <RequireRole roles={['vl_admin', 'admin']}>
+    <RequireRole roles={['platform', 'admin']}>
       <div className="min-h-screen bg-zinc-950 p-6 md:p-8">
         <div className="max-w-3xl mx-auto">
           {/* Page header — hidden during executing + complete (components show their own) */}

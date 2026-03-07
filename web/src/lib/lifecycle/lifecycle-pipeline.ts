@@ -402,7 +402,7 @@ export function canViewResultsInConfig(
   if (!gate) return false;
 
   // Admin/VL Admin can always view
-  if (role === 'vl_admin' || role === 'platform_admin' || role === 'admin') return true;
+  if (role === 'platform' || role === 'platform_admin' || role === 'admin') return true;
 
   // Approvers can see during approval
   if (state === 'PENDING_APPROVAL' && role === 'approver') return true;

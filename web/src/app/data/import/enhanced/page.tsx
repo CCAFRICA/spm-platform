@@ -4352,7 +4352,7 @@ function DataPackageImportPageInner() {
 
 export default function DataPackageImportPage() {
   return (
-    <RequireRole roles={['vl_admin', 'admin']}>
+    <RequireRole roles={['platform', 'admin']}>
       <DataPackageImportPageInner />
     </RequireRole>
   );

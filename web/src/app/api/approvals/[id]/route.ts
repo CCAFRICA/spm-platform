@@ -43,8 +43,8 @@ export async function PATCH(
       return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
     }
 
-    // Only admin/vl_admin can approve
-    if (!['vl_admin', 'admin', 'tenant_admin'].includes(profile.role)) {
+    // Only admin/platform can approve
+    if (!['platform', 'admin', 'tenant_admin'].includes(profile.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 

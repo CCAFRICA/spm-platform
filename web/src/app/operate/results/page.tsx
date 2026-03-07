@@ -809,7 +809,7 @@ function ResultsDashboardPageInner() {
 
 export default function ResultsDashboardPage() {
   return (
-    <RequireRole roles={['vl_admin', 'admin']}>
+    <RequireRole roles={['platform', 'admin']}>
       <ResultsDashboardPageInner />
     </RequireRole>
   );

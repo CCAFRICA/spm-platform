@@ -45,7 +45,7 @@ export async function getPulseMetrics(
       return getManagerMetrics(tenantId);
     case 'admin':
       return getAdminMetrics(tenantId);
-    case 'vl_admin':
+    case 'platform':
       return getVLAdminMetrics(tenantId);
     default:
       return [];
@@ -278,7 +278,7 @@ async function getVLAdminMetrics(tenantId: string): Promise<PulseMetric[]> {
       labelEs: 'Tenants Activos',
       value: tenantCount > 0 ? tenantCount : '\u2014',
       format: tenantCount > 0 ? 'number' : 'text',
-      roles: ['vl_admin'],
+      roles: ['platform'],
     },
     {
       id: 'cc-total-users',
@@ -286,7 +286,7 @@ async function getVLAdminMetrics(tenantId: string): Promise<PulseMetric[]> {
       labelEs: 'Usuarios Totales',
       value: profileCount > 0 ? profileCount : '\u2014',
       format: profileCount > 0 ? 'number' : 'text',
-      roles: ['vl_admin'],
+      roles: ['platform'],
     },
     {
       id: 'cc-calculations-today',
@@ -294,7 +294,7 @@ async function getVLAdminMetrics(tenantId: string): Promise<PulseMetric[]> {
       labelEs: 'Calculos Hoy',
       value: calcsToday,
       format: 'number',
-      roles: ['vl_admin'],
+      roles: ['platform'],
     },
     {
       id: 'cc-issues',
@@ -302,7 +302,7 @@ async function getVLAdminMetrics(tenantId: string): Promise<PulseMetric[]> {
       labelEs: 'Problemas Pendientes',
       value: '\u2014',
       format: 'text',
-      roles: ['vl_admin'],
+      roles: ['platform'],
     },
   ];
 }

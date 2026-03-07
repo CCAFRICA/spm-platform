@@ -136,7 +136,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   useEffect(() => {
     if (!effectiveRole) return;
 
-    const defaultWs = getDefaultWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
+    const defaultWs = getDefaultWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep');
     setActiveWorkspaceState(defaultWs);
   }, [effectiveRole]);
 
@@ -147,11 +147,11 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
     const wsForRoute = getWorkspaceForRoute(pathname);
     if (wsForRoute) {
-      if (effectiveRole && canAccessWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
+      if (effectiveRole && canAccessWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
         setActiveWorkspaceState(prev => prev === wsForRoute ? prev : wsForRoute);
       } else if (effectiveRole) {
         // OB-94: Route belongs to a workspace this persona can't access — redirect to default
-        const defaultWs = getDefaultWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep');
+        const defaultWs = getDefaultWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep');
         const ws = WORKSPACES[defaultWs];
         router.push(ws.defaultRoute);
         return;
@@ -170,7 +170,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   }, [pathname, effectiveRole]);
 
   // Map auth role to clock service persona type (uses raw auth role, not persona override)
-  const clockPersona: PersonaType = userRole === 'vl_admin' ? 'vl_admin'
+  const clockPersona: PersonaType = userRole === 'platform' ? 'platform'
     : userRole === 'admin' ? 'platform_admin'
     : userRole === 'manager' ? 'manager'
     : 'sales_rep';
@@ -223,7 +223,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Set active workspace with validation (OB-94: uses effectiveRole from persona)
   const setActiveWorkspace = useCallback((workspace: WorkspaceId) => {
-    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
+    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep', workspace)) {
       console.warn(`Persona role ${effectiveRole} cannot access workspace ${workspace}`);
       return;
     }
@@ -253,7 +253,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Navigate to workspace (OB-94: uses effectiveRole from persona)
   const navigateToWorkspace = useCallback((workspace: WorkspaceId) => {
-    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep', workspace)) {
+    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep', workspace)) {
       console.warn(`Persona role ${effectiveRole} cannot access workspace ${workspace}`);
       return;
     }
@@ -359,7 +359,7 @@ export function useAcceleration() {
     const { getSmartSuggestions: getSuggestions } = await import('@/lib/navigation/acceleration-hints');
     if (!cycleState || !userRole) return [];
     return getSuggestions(
-      userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep',
+      userRole as 'platform' | 'admin' | 'manager' | 'sales_rep',
       cycleState.currentPhase,
       cycleState.pendingActions,
       activeWorkspace
@@ -370,7 +370,7 @@ export function useAcceleration() {
     const { getProactiveAlerts: getAlerts } = await import('@/lib/navigation/acceleration-hints');
     if (!cycleState || !userRole) return [];
     return getAlerts(
-      userRole as 'vl_admin' | 'admin' | 'manager' | 'sales_rep',
+      userRole as 'platform' | 'admin' | 'manager' | 'sales_rep',
       cycleState.currentPhase,
       queueItems
     );

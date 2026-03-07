@@ -55,7 +55,7 @@ export const TRANSITION_CAPABILITIES: Record<string, string> = {
   PUBLISHED:          'close_period',
 };
 
-type UserRole = 'vl_admin' | 'platform_admin' | 'manager' | 'sales_rep' | 'approver' | 'admin';
+type UserRole = 'platform' | 'platform_admin' | 'manager' | 'sales_rep' | 'approver' | 'admin';
 
 /**
  * Get display label for a lifecycle state.
@@ -123,10 +123,10 @@ export function canViewResults(state: CalculationState | string, role: string): 
     case 'PREVIEW':
     case 'RECONCILE':
     case 'OFFICIAL':
-      return r === 'vl_admin' || r === 'platform_admin' || r === 'admin';
+      return r === 'platform' || r === 'platform_admin' || r === 'admin';
     case 'PENDING_APPROVAL':
     case 'APPROVED':
-      return r === 'vl_admin' || r === 'platform_admin' || r === 'admin' || r === 'approver';
+      return r === 'platform' || r === 'platform_admin' || r === 'admin' || r === 'approver';
     case 'POSTED':
     case 'CLOSED':
     case 'PAID':
@@ -134,7 +134,7 @@ export function canViewResults(state: CalculationState | string, role: string): 
       return true;
     case 'REJECTED':
     case 'SUPERSEDED':
-      return r === 'vl_admin' || r === 'platform_admin' || r === 'admin';
+      return r === 'platform' || r === 'platform_admin' || r === 'admin';
     default:
       return false;
   }

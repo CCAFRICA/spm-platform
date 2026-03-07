@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, string> = {
-  vl_admin: 'Platform Admin',
+  platform: 'Platform Admin',
   admin: 'Admin',
   tenant_admin: 'Tenant Admin',
   manager: 'Manager',
@@ -36,7 +36,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const ROLE_COLORS: Record<string, string> = {
-  vl_admin: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  platform: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
   admin: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300',
   tenant_admin: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
   manager: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
@@ -178,7 +178,7 @@ function UsersPageInner() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="vl_admin">Platform Admin</SelectItem>
+                <SelectItem value="platform">Platform Admin</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
                 <SelectItem value="tenant_admin">Tenant Admin</SelectItem>
                 <SelectItem value="manager">Manager</SelectItem>
@@ -230,7 +230,7 @@ function UsersPageInner() {
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="vl_admin">Platform Admin</SelectItem>
+                                <SelectItem value="platform">Platform Admin</SelectItem>
                                 <SelectItem value="admin">Admin</SelectItem>
                                 <SelectItem value="tenant_admin">Tenant Admin</SelectItem>
                                 <SelectItem value="manager">Manager</SelectItem>
@@ -281,7 +281,7 @@ function UsersPageInner() {
 
 export default function UsersPage() {
   return (
-    <RequireRole roles={['vl_admin', 'admin']}>
+    <RequireRole roles={['platform', 'admin']}>
       <UsersPageInner />
     </RequireRole>
   );

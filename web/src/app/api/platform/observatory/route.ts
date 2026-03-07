@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
       .eq('auth_user_id', user.id)
       .limit(10);
 
-    const hasVLAdmin = profiles?.some(p => p.role === 'vl_admin');
+    const hasVLAdmin = profiles?.some(p => p.role === 'platform');
     if (!hasVLAdmin) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

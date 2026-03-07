@@ -38,7 +38,7 @@ export async function POST() {
       .eq('auth_user_id', user.id)
       .maybeSingle();
 
-    if (!profile || profile.role !== 'vl_admin') {
+    if (!profile || profile.role !== 'platform') {
       return NextResponse.json({ error: 'Forbidden — VL Admin only' }, { status: 403 });
     }
 

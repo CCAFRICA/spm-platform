@@ -95,7 +95,7 @@ export default function PlansPage() {
   };
 
   // Access control - only admin can access this page
-  if (user?.role !== 'admin' && user?.role !== 'vl_admin') {
+  if (user?.role !== 'admin' && user?.role !== 'platform') {
     return (
       <div className="p-6">
         <Card>

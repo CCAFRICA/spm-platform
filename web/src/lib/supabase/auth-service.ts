@@ -15,7 +15,7 @@ import type { Profile } from './database.types';
 export interface AuthProfile {
   id: string;
   authUserId: string;
-  tenantId: string;
+  tenantId: string | null;
   displayName: string;
   email: string;
   role: string;
@@ -118,20 +118,27 @@ export async function getAuthUser() {
  * Fetch the profile for the current auth user from the profiles table.
  * Returns null on ANY error — never throws. Callers should treat null
  * as "not authenticated" and let AuthShellProtected handle the redirect.
+ *
+ * VL ADMIN GUARD — HF-097
+ * VL Admin has tenant_id = NULL and role = 'platform'.
+ * Profile fetch on login MUST work for tenant_id IS NULL.
+ * DO NOT add tenant_id filters to the login profile fetch.
+ * DO NOT reference scope_level — the column is 'role'.
+ * See: CC FP-49 (SQL Schema Fabrication), HF-097
  */
 export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
   try {
     const supabase = createClient();
 
-    // Check local session first (no network request)
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return null;
+    // HF-097: Use getUser() as the SOLE auth check.
+    // getSession() reads from cookies which may not be available immediately
+    // after signInWithPassword() — this caused "Account found but profile
+    // is missing" for VL Admin login. getUser() validates with the server
+    // and works reliably in all cases.
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return null;
 
-    // Validate with server
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-
-    // Both session and user confirmed — query profiles.
+    // Query profiles by auth_user_id — NO tenant_id filter.
     // HF-062: Use array query instead of .maybeSingle().
     // The profiles table has NO unique constraint on auth_user_id — platform
     // users can have profiles across multiple tenants. .maybeSingle() errors
@@ -145,22 +152,27 @@ export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
       .limit(10);
 
     if (error) {
-      console.error('[Auth] Profile query failed:', error.message);
+      console.error('[Auth] Profile query failed:', error.message, error.details);
       return null;
     }
 
-    if (!profiles || profiles.length === 0) return null;
+    if (!profiles || profiles.length === 0) {
+      console.error('[Auth] No profile rows found for auth_user_id:', user.id);
+      return null;
+    }
 
-    // If multiple profiles, prefer platform-level (vl_admin or manage_tenants)
+    // If multiple profiles, prefer platform-level (platform role or manage_tenants)
     const profile = (
-      profiles.find(p => p.role === 'vl_admin') ||
+      profiles.find(p => p.role === 'platform') ||
       profiles.find(p => ((p.capabilities as string[]) || []).includes('manage_tenants')) ||
       profiles[0]
     ) as Profile;
     return {
       id: profile.id,
       authUserId: profile.auth_user_id,
-      tenantId: profile.tenant_id,
+      // HF-097: VL Admin has tenant_id = NULL in DB. The Profile Row type says string
+      // (pre-existing type lie) but the actual DB column is nullable for platform users.
+      tenantId: (profile as unknown as { tenant_id: string | null }).tenant_id,
       displayName: profile.display_name,
       email: profile.email,
       role: profile.role,
@@ -168,8 +180,8 @@ export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
       locale: profile.locale,
       avatarUrl: profile.avatar_url,
     };
-  } catch {
-    // Swallow ALL errors — return null, never throw
+  } catch (err) {
+    console.error('[Auth] fetchCurrentProfile error:', err);
     return null;
   }
 }

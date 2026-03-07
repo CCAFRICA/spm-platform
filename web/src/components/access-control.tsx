@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 
-type UserRole = 'sales_rep' | 'supervisor' | 'manager' | 'admin' | 'vl_admin';
+type UserRole = 'sales_rep' | 'supervisor' | 'manager' | 'admin' | 'platform';
 
 interface AccessControlProps {
   children: ReactNode;
@@ -28,7 +28,7 @@ export function AccessControl({
 
   // Get role from auth context
   const currentRole = (user?.role as UserRole) || 'sales_rep';
-  const hasAccess = allowedRoles.includes(currentRole) || currentRole === 'vl_admin';
+  const hasAccess = allowedRoles.includes(currentRole) || currentRole === 'platform';
 
   if (!hasAccess) {
     return (
@@ -71,15 +71,15 @@ export function useAccessControl() {
 
   return {
     currentRole,
-    hasRole: (roles: UserRole[]) => roles.includes(currentRole) || currentRole === 'vl_admin',
-    isAdmin: currentRole === 'admin' || currentRole === 'vl_admin',
-    isManager: ['manager', 'admin', 'vl_admin'].includes(currentRole),
-    isSupervisor: ['supervisor', 'manager', 'admin', 'vl_admin'].includes(currentRole),
+    hasRole: (roles: UserRole[]) => roles.includes(currentRole) || currentRole === 'platform',
+    isAdmin: currentRole === 'admin' || currentRole === 'platform',
+    isManager: ['manager', 'admin', 'platform'].includes(currentRole),
+    isSupervisor: ['supervisor', 'manager', 'admin', 'platform'].includes(currentRole),
   };
 }
 
 // Export role constants for convenience
-export const ADMIN_ROLES: UserRole[] = ['admin', 'vl_admin'];
-export const MANAGER_ROLES: UserRole[] = ['manager', 'admin', 'vl_admin'];
-export const SUPERVISOR_ROLES: UserRole[] = ['supervisor', 'manager', 'admin', 'vl_admin'];
-export const ALL_ROLES: UserRole[] = ['sales_rep', 'supervisor', 'manager', 'admin', 'vl_admin'];
+export const ADMIN_ROLES: UserRole[] = ['admin', 'platform'];
+export const MANAGER_ROLES: UserRole[] = ['manager', 'admin', 'platform'];
+export const SUPERVISOR_ROLES: UserRole[] = ['supervisor', 'manager', 'admin', 'platform'];
+export const ALL_ROLES: UserRole[] = ['sales_rep', 'supervisor', 'manager', 'admin', 'platform'];

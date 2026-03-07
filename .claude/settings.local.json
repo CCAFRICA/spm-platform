@@ -271,7 +271,8 @@
       "Bash(pkill -f \"next dev\" 2>/dev/null; sleep 2; cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npm run build 2>&1 | grep -E \"import/sci|error|Error\" | head -20)",
       "Bash(git fetch origin && git checkout main && git pull origin main && git checkout dev && git pull origin dev)",
       "Bash(cp /tmp/clt160-diag.ts /Users/AndrewAfrica/spm-platform/web/scripts/clt160-diag.ts && cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/clt160-diag.ts)",
-      "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" 2>/dev/null; rm -rf .next && npm run build 2>&1 | grep -E \"error|Error|import/sci\" | head -20)"
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && pkill -f \"next dev\" 2>/dev/null; rm -rf .next && npm run build 2>&1 | grep -E \"error|Error|import/sci\" | head -20)",
+      "Bash(cd /Users/AndrewAfrica/spm-platform/web && rm -rf .next && npx next build 2>&1 | tail -25)"
     ]
   }
 }

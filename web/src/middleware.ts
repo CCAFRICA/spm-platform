@@ -26,13 +26,13 @@ const PUBLIC_PATHS = ['/login', '/signup', '/landing', '/auth/callback', '/api/a
 // OB-67: Workspace-level access (only restricted workspaces listed)
 // Paths not listed here are open to all authenticated users.
 const RESTRICTED_WORKSPACES: Record<string, string[]> = {
-  '/admin':         ['vl_admin'],
-  '/operate':       ['vl_admin', 'admin', 'tenant_admin'],
-  '/configure':     ['vl_admin', 'admin', 'tenant_admin'],
-  '/configuration': ['vl_admin', 'admin', 'tenant_admin'],
-  '/govern':        ['vl_admin', 'admin', 'tenant_admin'],
-  '/data':          ['vl_admin', 'admin', 'tenant_admin'],
-  '/financial':     ['vl_admin', 'admin', 'tenant_admin', 'manager'],
+  '/admin':         ['platform'],
+  '/operate':       ['platform', 'admin', 'tenant_admin'],
+  '/configure':     ['platform', 'admin', 'tenant_admin'],
+  '/configuration': ['platform', 'admin', 'tenant_admin'],
+  '/govern':        ['platform', 'admin', 'tenant_admin'],
+  '/data':          ['platform', 'admin', 'tenant_admin'],
+  '/financial':     ['platform', 'admin', 'tenant_admin', 'manager'],
 };
 
 /**
@@ -222,7 +222,7 @@ export async function middleware(request: NextRequest) {
       .maybeSingle();
 
     const capabilities = (profile?.capabilities as string[]) || [];
-    const isPlatformAdmin = profile?.role === 'vl_admin' || capabilities.includes('manage_tenants');
+    const isPlatformAdmin = profile?.role === 'platform' || capabilities.includes('manage_tenants');
 
     if (isPlatformAdmin) {
       // HF-057: If VL Admin already selected a tenant (cookie set), go to admin landing

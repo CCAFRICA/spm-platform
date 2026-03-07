@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
       .eq('auth_user_id', user.id)
       .maybeSingle();
 
-    if (!profile || profile.role !== 'vl_admin') {
+    if (!profile || profile.role !== 'platform') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

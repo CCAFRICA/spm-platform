@@ -190,8 +190,8 @@ export default function PlanDetailPage() {
     });
   };
 
-  const canEdit = plan?.status === 'draft' && (user?.role === 'admin' || user?.role === 'vl_admin');
-  const canApprove = plan?.status === 'pending_approval' && (user?.role === 'admin' || user?.role === 'vl_admin');
+  const canEdit = plan?.status === 'draft' && (user?.role === 'admin' || user?.role === 'platform');
+  const canApprove = plan?.status === 'pending_approval' && (user?.role === 'admin' || user?.role === 'platform');
 
   if (isLoading) {
     return (

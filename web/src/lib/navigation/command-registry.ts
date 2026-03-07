@@ -71,7 +71,7 @@ function getActionCommands(role: UserRole, isSpanish: boolean): CommandItem[] {
   const actions: CommandItem[] = [];
 
   // Admin/VL Admin actions
-  if (role === 'vl_admin' || role === 'admin') {
+  if (role === 'platform' || role === 'admin') {
     actions.push({
       id: 'action-run-calculations',
       label: isSpanish ? 'Ejecutar Cálculos' : 'Run Calculations',
@@ -139,7 +139,7 @@ function getActionCommands(role: UserRole, isSpanish: boolean): CommandItem[] {
   }
 
   // Manager actions
-  if (role === 'manager' || role === 'admin' || role === 'vl_admin') {
+  if (role === 'manager' || role === 'admin' || role === 'platform') {
     actions.push({
       id: 'action-view-team',
       label: isSpanish ? 'Ver Rendimiento del Equipo' : 'View Team Performance',

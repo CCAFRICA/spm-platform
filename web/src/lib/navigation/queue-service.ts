@@ -58,7 +58,7 @@ function sortQueueItems(items: QueueItem[]): QueueItem[] {
  * Generate onboarding items for new tenants with no data
  */
 async function getOnboardingItems(tenantId: string, role: UserRole): Promise<QueueItem[]> {
-  if (role !== 'vl_admin' && role !== 'admin') return [];
+  if (role !== 'platform' && role !== 'admin') return [];
 
   const items: QueueItem[] = [];
 
@@ -128,7 +128,7 @@ async function getOnboardingItems(tenantId: string, role: UserRole): Promise<Que
  * Generate pipeline status items based on actual workflow state
  */
 async function getPipelineItems(tenantId: string, role: UserRole): Promise<QueueItem[]> {
-  if (role !== 'vl_admin' && role !== 'admin') return [];
+  if (role !== 'platform' && role !== 'admin') return [];
 
   const items: QueueItem[] = [];
 
@@ -164,7 +164,7 @@ async function getPipelineItems(tenantId: string, role: UserRole): Promise<Queue
  * Generate queue items from calculation lifecycle state (Supabase batches)
  */
 async function getLifecycleItems(tenantId: string, role: UserRole): Promise<QueueItem[]> {
-  if (role !== 'vl_admin' && role !== 'admin') return [];
+  if (role !== 'platform' && role !== 'admin') return [];
 
   const items: QueueItem[] = [];
 
