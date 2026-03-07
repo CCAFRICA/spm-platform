@@ -447,16 +447,85 @@ export async function enhanceWithHeaderComprehension(
   return metrics;
 }
 
+// HC confidence threshold for override authority (Decision 108)
+const HC_OVERRIDE_THRESHOLD = 0.80;
+
 function enhanceProfileWithComprehension(profile: ContentProfile): void {
   if (!profile.headerComprehension) return;
 
-  for (const [colName, interp] of Array.from(profile.headerComprehension.interpretations.entries())) {
+  const hc = profile.headerComprehension;
+
+  // ────────────────────────────────────────────────────────
+  // Decision 108: HC OVERRIDE AUTHORITY
+  // When HC produces column roles with confidence >= 0.80,
+  // those roles OVERRIDE structural detection.
+  // ────────────────────────────────────────────────────────
+
+  // OVERRIDE 1: Identifier detection
+  // If HC identifies a column as 'identifier' or 'reference_key' with high confidence,
+  // use that column for identifierRepeatRatio — even if structural uniqueness picked a different column.
+  const hcIdentifierCol = findHCColumnByRole(hc, ['identifier', 'reference_key'], HC_OVERRIDE_THRESHOLD);
+  if (hcIdentifierCol) {
+    const idField = profile.fields.find(f => f.fieldName === hcIdentifierCol.colName);
+    if (idField && idField.distinctCount > 0) {
+      const oldRatio = profile.structure.identifierRepeatRatio;
+      const newRatio = profile.structure.rowCount / idField.distinctCount;
+      if (Math.abs(oldRatio - newRatio) > 0.01) {
+        profile.structure.identifierRepeatRatio = newRatio;
+        // Update volume pattern to match new ratio
+        profile.patterns.volumePattern =
+          newRatio === 0 ? 'unknown' :
+          newRatio <= 1.5 ? 'single' :
+          newRatio <= 3.0 ? 'few' :
+          'many';
+        profile.observations.push({
+          columnName: hcIdentifierCol.colName,
+          observationType: 'hc_identifier_override',
+          observedValue: newRatio,
+          confidence: hcIdentifierCol.confidence,
+          alternativeInterpretations: { structuralRatio: oldRatio },
+          structuralEvidence: `HC identified "${hcIdentifierCol.colName}" as ${hcIdentifierCol.role} (${hcIdentifierCol.semanticMeaning}) — overriding structural identifier. Ratio: ${oldRatio.toFixed(2)} → ${newRatio.toFixed(2)}`,
+        });
+      }
+    }
+    if (!profile.patterns.hasEntityIdentifier) {
+      profile.patterns.hasEntityIdentifier = true;
+    }
+  }
+
+  // OVERRIDE 2: Temporal suppression
+  // If structural analysis flagged columns as temporal, but HC says they are NOT temporal
+  // (e.g., 'attribute' or 'measure'), suppress the temporal detection for those columns.
+  if (profile.patterns.hasTemporalColumns) {
+    const suppressedTemporal = suppressFalseTemporalColumns(profile, hc);
+    if (suppressedTemporal) {
+      // Re-evaluate hasDateColumn: only true if a genuine date-typed or HC-confirmed temporal column remains
+      const hasGenuineDateColumn = profile.fields.some(f => f.dataType === 'date');
+      const hasHCTemporalColumn = Array.from(hc.interpretations.values()).some(
+        interp => interp.columnRole === 'temporal' && interp.confidence >= HC_OVERRIDE_THRESHOLD,
+      );
+      profile.patterns.hasDateColumn = hasGenuineDateColumn || hasHCTemporalColumn;
+      profile.patterns.hasTemporalColumns = hasGenuineDateColumn || hasHCTemporalColumn;
+    }
+  }
+
+  // OVERRIDE 3: Currency suppression
+  // If structural analysis typed a column as currency based on header substring ("total", "amount"),
+  // but HC says it's a non-monetary measure (capacity, count, utilization), suppress currency classification.
+  suppressFalseCurrencyColumns(profile, hc);
+
+  // ────────────────────────────────────────────────────────
+  // REINFORCEMENT (existing behavior — only adds, never removes)
+  // ────────────────────────────────────────────────────────
+
+  for (const [colName, interp] of Array.from(hc.interpretations.entries())) {
     const field = profile.fields.find(f => f.fieldName === colName);
     if (!field) continue;
 
-    // Enhancement 1: Temporal column reinforcement
-    if (interp.columnRole === 'temporal' && !profile.patterns.hasTemporalColumns) {
+    // Reinforcement 1: Temporal column reinforcement (HC adds temporal that structural missed)
+    if (interp.columnRole === 'temporal' && interp.confidence >= HC_OVERRIDE_THRESHOLD && !profile.patterns.hasTemporalColumns) {
       profile.patterns.hasTemporalColumns = true;
+      profile.patterns.hasDateColumn = true;
       profile.observations.push({
         columnName: colName,
         observationType: 'temporal_enhancement',
@@ -467,8 +536,8 @@ function enhanceProfileWithComprehension(profile: ContentProfile): void {
       });
     }
 
-    // Enhancement 2: Name column reinforcement
-    if (interp.columnRole === 'name' && !profile.patterns.hasStructuralNameColumn) {
+    // Reinforcement 2: Name column reinforcement
+    if (interp.columnRole === 'name' && interp.confidence >= HC_OVERRIDE_THRESHOLD && !profile.patterns.hasStructuralNameColumn) {
       profile.patterns.hasStructuralNameColumn = true;
       field.nameSignals.looksLikePersonName = true;
       profile.observations.push({
@@ -481,9 +550,112 @@ function enhanceProfileWithComprehension(profile: ContentProfile): void {
       });
     }
 
-    // Enhancement 3: Identifier reinforcement
+    // Reinforcement 3: Identifier reinforcement (existing — low-confidence HC also adds)
     if (interp.columnRole === 'identifier' && !profile.patterns.hasEntityIdentifier) {
       profile.patterns.hasEntityIdentifier = true;
     }
+  }
+}
+
+// ============================================================
+// HC OVERRIDE HELPERS
+// ============================================================
+
+function findHCColumnByRole(
+  hc: HeaderComprehension,
+  roles: ColumnRole[],
+  minConfidence: number,
+): { colName: string; role: ColumnRole; confidence: number; semanticMeaning: string } | null {
+  for (const [colName, interp] of Array.from(hc.interpretations.entries())) {
+    if (roles.includes(interp.columnRole as ColumnRole) && interp.confidence >= minConfidence) {
+      return { colName, role: interp.columnRole as ColumnRole, confidence: interp.confidence, semanticMeaning: interp.semanticMeaning };
+    }
+  }
+  return null;
+}
+
+/**
+ * Suppress temporal detection for columns that HC identifies as non-temporal.
+ * Returns true if any temporal columns were suppressed.
+ */
+function suppressFalseTemporalColumns(
+  profile: ContentProfile,
+  hc: HeaderComprehension,
+): boolean {
+  let anySuppressed = false;
+
+  for (const [colName, interp] of Array.from(hc.interpretations.entries())) {
+    if (interp.confidence < HC_OVERRIDE_THRESHOLD) continue;
+    if (interp.columnRole === 'temporal') continue; // HC agrees it's temporal — no suppression
+
+    // HC says this column is NOT temporal (e.g., 'attribute', 'measure', 'reference_key')
+    // Check if structural analysis flagged this column as temporal via integer range detection
+    const field = profile.fields.find(f => f.fieldName === colName);
+    if (!field) continue;
+
+    // Check if this field's values are in temporal ranges (1-12 or 2000-2040)
+    const dist = field.distribution;
+    if (dist.min === undefined || dist.max === undefined) continue;
+    const min = Number(dist.min);
+    const max = Number(dist.max);
+    const isYearRange = min >= 2000 && max <= 2040;
+    const isMonthRange = min >= 1 && max <= 12;
+
+    if (isYearRange || isMonthRange) {
+      // Structural analysis would have flagged this as temporal, but HC says otherwise
+      anySuppressed = true;
+      profile.observations.push({
+        columnName: colName,
+        observationType: 'hc_temporal_suppression',
+        observedValue: false,
+        confidence: interp.confidence,
+        alternativeInterpretations: {},
+        structuralEvidence: `HC identified "${colName}" as ${interp.columnRole} (${interp.semanticMeaning}), not temporal — suppressing structural temporal detection (values ${min}-${max})`,
+      });
+    }
+  }
+
+  return anySuppressed;
+}
+
+/**
+ * Suppress currency classification for columns that HC identifies as non-monetary measures.
+ * Recalculates hasCurrencyColumns after suppression.
+ */
+function suppressFalseCurrencyColumns(
+  profile: ContentProfile,
+  hc: HeaderComprehension,
+): void {
+  let currencyCountAdjustment = 0;
+
+  for (const [colName, interp] of Array.from(hc.interpretations.entries())) {
+    if (interp.confidence < HC_OVERRIDE_THRESHOLD) continue;
+
+    const field = profile.fields.find(f => f.fieldName === colName);
+    if (!field) continue;
+
+    // Check if field was typed as currency but HC says it's a non-monetary measure
+    const isCurrencyTyped = field.dataType === 'currency' ||
+      (field.nameSignals.containsAmount && ['decimal', 'integer', 'currency'].includes(field.dataType));
+
+    if (!isCurrencyTyped) continue;
+
+    // HC says this is a measure with non-monetary meaning (capacity, count, utilization, etc.)
+    const nonMonetaryPatterns = /capacity|count|volume|utilization|rate|quantity|units|loads|deliveries|incidents/i;
+    if (interp.columnRole === 'measure' && nonMonetaryPatterns.test(interp.semanticMeaning)) {
+      currencyCountAdjustment++;
+      profile.observations.push({
+        columnName: colName,
+        observationType: 'hc_currency_suppression',
+        observedValue: false,
+        confidence: interp.confidence,
+        alternativeInterpretations: {},
+        structuralEvidence: `HC identified "${colName}" as non-monetary measure (${interp.semanticMeaning}) — suppressing currency classification`,
+      });
+    }
+  }
+
+  if (currencyCountAdjustment > 0) {
+    profile.patterns.hasCurrencyColumns = Math.max(0, profile.patterns.hasCurrencyColumns - currencyCountAdjustment);
   }
 }
