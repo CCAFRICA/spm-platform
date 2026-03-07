@@ -358,9 +358,24 @@ function extractClassificationSignals(
 
 // ============================================================
 // BAYESIAN POSTERIOR COMPUTATION
-// P(C | signals) ∝ P(C) × ∏ P(signal_i | C)
-// Where P(signal_i | C) uses CRL reliability as the likelihood.
+// P(C | signals) ∝ P(C) × ∏ BF_i(C)
+// Where BF_i is the Bayes Factor (likelihood ratio) for signal i.
+//
+// Bayes Factor formulation (HF-102):
+//   w = reliability × strength (effective evidence weight)
+//   Supporting (signal asserts C):  BF = 1 + EVIDENCE_SCALE × w
+//     → Always > 1.0 → log > 0 → INCREASES posterior
+//   Contradicting (signal asserts ≠C): BF = 1 / (1 + EVIDENCE_SCALE × w / (N-1))
+//     → Always < 1.0 → log < 0 → DECREASES posterior
+//
+// Derivation: model P(signal | C correct) = 1 + α×w, P(signal | C incorrect) = 1.
+// BF = P(signal | C) / P(signal | baseline). Valid likelihood ratio.
 // ============================================================
+
+// Evidence scale: controls how much each signal shifts the posterior.
+// α=3.0: perfect signal (w=1.0) gives BF=4.0 (quadruples the odds).
+const EVIDENCE_SCALE = 3.0;
+const N_CLASSES = CLASSIFICATION_TYPES.length; // 5
 
 function computePosteriors(
   signals: ClassificationSignal[],
@@ -381,19 +396,20 @@ function computePosteriors(
     let logPosterior = Math.log(prior);
     const usedCRLs: CRLResult[] = [];
 
-    // Supporting signals: likelihood = reliability * strength
+    // Supporting signals: BF = 1 + α × reliability × strength
+    // Each supporting signal INCREASES the posterior (BF > 1, log > 0)
     for (const signal of supportingSignals) {
       const crl = crlResults.get(signal.sourceType);
       const reliability = crl?.reliability ?? 0.50;
       if (crl && !usedCRLs.includes(crl)) usedCRLs.push(crl);
 
-      // Likelihood: P(signal | C is correct) = reliability * strength
-      // Clamped to prevent log(0)
-      const likelihood = Math.max(0.01, reliability * signal.strength);
-      logPosterior += Math.log(likelihood);
+      const w = reliability * signal.strength;
+      const bayesFactor = 1 + EVIDENCE_SCALE * w;
+      logPosterior += Math.log(bayesFactor);
     }
 
-    // Contradicting signals: inverse likelihood = (1 - reliability * strength)
+    // Contradicting signals: BF = 1 / (1 + α × reliability × strength / (N-1))
+    // Each contradicting signal DECREASES the posterior (BF < 1, log < 0)
     // Only count the strongest contradicting signal per source type to avoid overcounting
     const contradictBySource = new Map<SignalSourceType, ClassificationSignal>();
     for (const signal of contradictingSignals) {
@@ -408,9 +424,9 @@ function computePosteriors(
       const reliability = crl?.reliability ?? 0.50;
       if (crl && !usedCRLs.includes(crl)) usedCRLs.push(crl);
 
-      // Inverse likelihood: P(contradicting signal | C is correct) = 1 - reliability * strength
-      const inverseLikelihood = Math.max(0.01, 1 - reliability * signal.strength * 0.5);
-      logPosterior += Math.log(inverseLikelihood);
+      const w = reliability * signal.strength;
+      const bayesFactor = 1.0 / (1 + EVIDENCE_SCALE * w / (N_CLASSES - 1));
+      logPosterior += Math.log(bayesFactor);
     }
 
     results.push({
