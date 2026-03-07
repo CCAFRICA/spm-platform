@@ -93,6 +93,7 @@ async function callLLMForHeaders(prompt: string): Promise<{
   duration: number;
 } | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  console.log(`[HC-TRACE-3] API key check: ${!!apiKey} (length: ${apiKey ? apiKey.length : 0})`);
   if (!apiKey) {
     console.log('[SCI] No Anthropic API key — header comprehension skipped (heuristics only)');
     return null;
@@ -101,6 +102,7 @@ async function callLLMForHeaders(prompt: string): Promise<{
   try {
     const startTime = Date.now();
 
+    console.log('[HC-TRACE-4] About to call Anthropic API (POST https://api.anthropic.com/v1/messages)');
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -115,13 +117,17 @@ async function callLLMForHeaders(prompt: string): Promise<{
       }),
     });
 
+    console.log(`[HC-TRACE-5] Anthropic API response: status=${response.status} ok=${response.ok}`);
     if (!response.ok) {
+      const errorBody = await response.text().catch(() => 'unable to read body');
+      console.log(`[HC-TRACE-ERROR] API returned non-OK: status=${response.status} body=${errorBody}`);
       console.log(`[SCI] LLM header comprehension failed: ${response.status}`);
       return null;
     }
 
     const data = await response.json();
     const text = data.content?.[0]?.text;
+    console.log(`[HC-TRACE-5b] Response parsed. hasText=${!!text}, textLength=${text?.length ?? 0}`);
     if (!text) return null;
 
     // Parse JSON response — strip any markdown fences
@@ -130,9 +136,11 @@ async function callLLMForHeaders(prompt: string): Promise<{
 
     const duration = Date.now() - startTime;
     console.log(`[SCI] Header comprehension completed in ${duration}ms`);
+    console.log(`[HC-TRACE-5c] LLM success. duration=${duration}ms sheets=${Object.keys(parsed.sheets || {}).length}`);
 
     return { result: parsed, duration };
   } catch (error) {
+    console.log('[HC-TRACE-ERROR] Exception in callLLMForHeaders:', error instanceof Error ? error.message : String(error));
     console.log('[SCI] Header comprehension error (falling back to heuristics):', error);
     return null;
   }
@@ -318,6 +326,7 @@ export async function comprehendHeaders(
   comprehensions: Map<string, HeaderComprehension> | null;
   metrics: HeaderComprehensionMetrics;
 }> {
+  console.log(`[HC-TRACE-2b] comprehendHeaders entered. sheets=${input.sheets.length}`);
   const allColumns = input.sheets.flatMap(s => s.columns);
 
   // Step 1: Check vocabulary bindings (Phase E will populate these)
@@ -325,6 +334,7 @@ export async function comprehendHeaders(
     columnCount: input.sheets[0]?.columns.length ?? 0,
     rowCountBucket: 'medium',
   });
+  console.log(`[HC-TRACE-2c] Vocab bindings checked. existingBindings=${existingBindings.size}, totalColumns=${allColumns.length}`);
 
   // Step 2: If ALL columns have confirmed bindings with high confidence, skip LLM
   const allBound = allColumns.length > 0 && allColumns.every(col => {
@@ -333,6 +343,7 @@ export async function comprehendHeaders(
   });
 
   if (allBound) {
+    console.log('[HC-TRACE-2d] All columns bound from vocabulary — skipping LLM');
     const comprehensions = buildComprehensionFromBindings(input, existingBindings);
     const metrics: HeaderComprehensionMetrics = {
       llmCalled: false,
@@ -349,8 +360,10 @@ export async function comprehendHeaders(
   }
 
   // Step 3: Call LLM for all headers
+  console.log('[HC-TRACE-2e] About to call callLLMForHeaders');
   const prompt = buildHeaderComprehensionPrompt(input);
   const llmResponse = await callLLMForHeaders(prompt);
+  console.log(`[HC-TRACE-2f] callLLMForHeaders returned: ${llmResponse ? 'HAS DATA' : 'NULL'}`);
 
   if (!llmResponse) {
     const metrics: HeaderComprehensionMetrics = {
@@ -418,6 +431,7 @@ export async function enhanceWithHeaderComprehension(
   sheets: HeaderComprehensionInput['sheets'],
   tenantId: string,
 ): Promise<HeaderComprehensionMetrics> {
+  console.log(`[HC-TRACE-2] enhanceWithHeaderComprehension entered. sheets=${sheets.length}, tenantId=${tenantId}`);
   const { comprehensions, metrics } = await comprehendHeaders({ sheets }, tenantId);
 
   if (!comprehensions) return metrics;

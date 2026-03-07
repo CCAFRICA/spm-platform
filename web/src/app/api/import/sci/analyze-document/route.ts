@@ -82,6 +82,7 @@ async function analyzeWithAnthropic(
   extractedText?: string
 ): Promise<DocumentAnalysis> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  console.log(`[PLAN-AI-TRACE] Plan interpretation calling Anthropic API. keyPresent=${!!apiKey} keyLength=${apiKey?.length ?? 0}`);
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
   const isPdf = mimeType === 'application/pdf';
