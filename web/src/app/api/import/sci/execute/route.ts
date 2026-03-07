@@ -11,11 +11,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
-import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
 import { writeClassificationSignal, aggregateToFoundational, aggregateToDomain } from '@/lib/sci/classification-signal-service';
 import type { StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
-import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { Json } from '@/lib/supabase/database.types';
 import type {
   SCIExecutionRequest,
@@ -190,34 +188,8 @@ export async function POST(req: NextRequest) {
       convergence: convergenceReport,
     };
 
-    // OB-135: Capture outcome signals (fire-and-forget)
-    try {
-      const outcomeCaptures: SCISignalCapture[] = [];
-
-      for (const unit of contentUnits) {
-        const originalClassification = unit.originalClassification || unit.confirmedClassification;
-        const originalConfidence = unit.originalConfidence || 0;
-        const wasOverridden = originalClassification !== unit.confirmedClassification;
-
-        outcomeCaptures.push({
-          tenantId,
-          signal: {
-            signalType: 'content_classification_outcome',
-            contentUnitId: unit.contentUnitId,
-            predictedClassification: originalClassification,
-            confirmedClassification: unit.confirmedClassification,
-            wasOverridden,
-            predictionConfidence: originalConfidence,
-          },
-        });
-      }
-
-      captureSCISignalBatch(outcomeCaptures).catch(() => {});
-    } catch {
-      // Signal capture failure must NEVER block import
-    }
-
-    // OB-160E: Write classification signals for flywheel (fire-and-forget)
+    // OB-160E/HF-094: Write classification signals via dedicated columns (fire-and-forget)
+    // Single write path: writeClassificationSignal (HF-092 dedicated columns)
     try {
       for (const unit of contentUnits) {
         if (!unit.structuralFingerprint) continue;

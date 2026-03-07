@@ -14,11 +14,9 @@ import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, classifyContentUnits, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { requiresHumanReview } from '@/lib/sci/agents';
 import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
-import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity } from '@/lib/sci/classification-signal-service';
-import type { ClassificationDensity } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import type { ClassificationDensity, StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
-import { captureSCISignalBatch } from '@/lib/sci/signal-capture-service';
-import type { SCISignalCapture } from '@/lib/sci/sci-signal-types';
 import type { SCIProposal, ContentProfile, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
 
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -78,6 +76,7 @@ export async function POST(req: NextRequest) {
     const proposalId = crypto.randomUUID();
     const contentUnits: ContentUnitProposal[] = [];
     const densityMap = new Map<string, ClassificationDensity>(); // OB-160K
+    const fingerprintMap = new Map<string, StructuralFingerprint>(); // HF-094
 
     // OB-160L: Load promoted patterns once (from foundational signals)
     const promotedPatterns = await loadPromotedPatterns(
@@ -136,6 +135,7 @@ export async function POST(req: NextRequest) {
 
           // Phase E: Prior signal consultation
           const fingerprint = computeStructuralFingerprint(profile);
+          fingerprintMap.set(profile.contentUnitId, fingerprint); // HF-094
           const priors = await lookupPriorSignals(
             tenantId,
             fingerprint,
@@ -205,57 +205,53 @@ export async function POST(req: NextRequest) {
       density: Object.keys(densitySummary).length > 0 ? densitySummary : undefined,
     };
 
-    // OB-135: Capture classification signals (fire-and-forget)
+    // HF-094: Write classification signals via dedicated columns (fire-and-forget)
+    // Single write path: writeClassificationSignal (HF-092 indexed columns)
     try {
-      const signalCaptures: SCISignalCapture[] = [];
-
       for (const unit of proposal.contentUnits) {
-        // One content_classification signal per content unit
-        signalCaptures.push({
+        const fp = fingerprintMap.get(unit.contentUnitId);
+        if (!fp) continue; // Document-based units (plan) have no fingerprint
+
+        const payload: ClassificationSignalPayload = {
           tenantId,
-          signal: {
-            signalType: 'content_classification',
+          sourceFileName: unit.sourceFile,
+          sheetName: unit.tabName,
+          fingerprint: fp,
+          classification: unit.classification,
+          confidence: unit.confidence,
+          decisionSource: 'sci_prediction',
+          classificationTrace: {
             contentUnitId: unit.contentUnitId,
-            sourceFile: unit.sourceFile,
-            tabName: unit.tabName,
-            agentScores: unit.allScores.map(s => ({
+            sheetName: unit.tabName,
+            structuralProfile: { rowCount: 0, columnCount: 0, numericFieldRatio: 0, categoricalFieldRatio: 0, identifierRepeatRatio: 0, volumePattern: 'unknown', hasTemporalColumns: false, hasStructuralNameColumn: false, hasEntityIdentifier: false },
+            headerComprehension: null,
+            round1: unit.allScores.map(s => ({
               agent: s.agent,
               confidence: s.confidence,
-              topSignals: s.signals
-                .filter(sig => sig.weight > 0)
-                .slice(0, 3)
-                .map(sig => sig.signal),
+              signals: s.signals.filter(sig => sig.weight > 0).slice(0, 3),
             })),
-            winningAgent: unit.classification,
-            winningConfidence: unit.confidence,
-            claimType: unit.claimType || 'FULL',
-            requiresHumanReview: anyNeedsReview,
-            round: 2,
+            signatureChecks: [],
+            round2: [],
+            tenantContextApplied: [],
+            priorSignals: [],
+            finalClassification: unit.classification,
+            finalConfidence: unit.confidence,
+            decisionSource: 'sci_prediction',
+            requiresHumanReview: false,
           },
-        });
+          vocabularyBindings: null,
+          agentScores: Object.fromEntries(
+            unit.allScores.map(s => [s.agent, s.confidence])
+          ),
+          humanCorrectionFrom: null,
+        };
 
-        // One grouped field_binding signal per content unit
-        signalCaptures.push({
-          tenantId,
-          signal: {
-            signalType: 'field_binding',
-            contentUnitId: unit.contentUnitId,
-            fieldCount: unit.fieldBindings.length,
-            bindingSummary: unit.fieldBindings.slice(0, 10).map(b => ({
-              sourceField: b.sourceField,
-              semanticRole: b.semanticRole,
-              confidence: b.confidence,
-              claimedBy: b.claimedBy,
-            })),
-            avgConfidence: unit.fieldBindings.length > 0
-              ? unit.fieldBindings.reduce((s, b) => s + b.confidence, 0) / unit.fieldBindings.length
-              : 0,
-          },
-        });
+        writeClassificationSignal(
+          payload,
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        ).catch(() => {});
       }
-
-      // Fire-and-forget — do not await
-      captureSCISignalBatch(signalCaptures).catch(() => {});
     } catch {
       // Signal capture failure must NEVER block import
     }
