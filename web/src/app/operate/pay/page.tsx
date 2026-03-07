@@ -335,7 +335,7 @@ function PayPageInner() {
 
 export default function PayPage() {
   return (
-    <RequireRole roles={['vl_admin', 'admin']}>
+    <RequireRole roles={['platform', 'admin']}>
       <PayPageInner />
     </RequireRole>
   );

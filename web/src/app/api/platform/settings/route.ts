@@ -27,7 +27,7 @@ export async function GET() {
       .eq('auth_user_id', user.id)
       .maybeSingle();
 
-    if (!profile || profile.role !== 'vl_admin') {
+    if (!profile || profile.role !== 'platform') {
       return NextResponse.json({ error: 'Forbidden — platform admin only' }, { status: 403 });
     }
 
@@ -63,7 +63,7 @@ export async function PATCH(request: NextRequest) {
       .eq('auth_user_id', user.id)
       .maybeSingle();
 
-    if (!profile || profile.role !== 'vl_admin') {
+    if (!profile || profile.role !== 'platform') {
       return NextResponse.json({ error: 'Forbidden — platform admin only' }, { status: 403 });
     }
 

@@ -81,7 +81,7 @@ function derivePersona(user: User | null, capabilities: string[]): PersonaKey {
   if (!user) return 'rep';
 
   // VL Platform Admin or tenant admin
-  if (user.role === 'vl_admin' || user.role === 'admin') return 'admin';
+  if (user.role === 'platform' || user.role === 'admin') return 'admin';
 
   // Manager capability or manages relationships
   if (

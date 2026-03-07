@@ -93,7 +93,7 @@ const MODULE_ACCESS: Record<string, AppModule[]> = {
     'data_import',
     'audit_log',
   ],
-  vl_admin: [
+  platform: [
     // VL Admin has access to everything
     'dashboard',
     'my_compensation',
@@ -281,7 +281,7 @@ class AccessControlService {
    */
   getAccessibleModules(user: User | null): AppModule[] {
     if (!user) return [];
-    if (isVLAdmin(user)) return MODULE_ACCESS.vl_admin;
+    if (isVLAdmin(user)) return MODULE_ACCESS.platform;
     return MODULE_ACCESS[user.role] || [];
   }
 

@@ -80,9 +80,9 @@ function extractEmployeeId(email: string | undefined): string | null {
 /**
  * Map auth role to lifecycle role for visibility check.
  */
-function mapRole(role: string): 'vl_admin' | 'platform_admin' | 'manager' | 'sales_rep' | 'approver' {
+function mapRole(role: string): 'platform' | 'platform_admin' | 'manager' | 'sales_rep' | 'approver' {
   switch (role) {
-    case 'vl_admin': return 'vl_admin';
+    case 'platform': return 'platform';
     case 'admin': return 'platform_admin';
     case 'manager': return 'manager';
     default: return 'sales_rep';

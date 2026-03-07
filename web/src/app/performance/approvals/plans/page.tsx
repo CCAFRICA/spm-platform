@@ -55,7 +55,7 @@ export default function PlanApprovalsPage() {
 
   // Determine reviewer role based on user
   const getReviewerRole = (): ReviewerRole => {
-    if (user?.role === 'vl_admin' || user?.role === 'admin') return 'admin';
+    if (user?.role === 'platform' || user?.role === 'admin') return 'admin';
     if (user?.role === 'manager') return 'manager';
     return 'admin'; // Default for demo
   };

@@ -2,7 +2,7 @@
  * Authentication Types - ViaLuce SPM Platform
  */
 
-export type UserRole = 'vl_admin' | 'admin' | 'manager' | 'sales_rep';
+export type UserRole = 'platform' | 'admin' | 'manager' | 'sales_rep';
 
 export interface BaseUser {
   id: string;
@@ -15,7 +15,7 @@ export interface BaseUser {
 }
 
 export interface TenantUser extends BaseUser {
-  role: Exclude<UserRole, 'vl_admin'>;
+  role: Exclude<UserRole, 'platform'>;
   tenantId: string;
   teamId?: string;
   regionId?: string;
@@ -29,7 +29,7 @@ export interface TenantUser extends BaseUser {
 }
 
 export interface VLAdminUser extends BaseUser {
-  role: 'vl_admin';
+  role: 'platform';
   tenantId: null;
   accessLevel: 'full' | 'readonly';
   department?: string;
@@ -38,16 +38,16 @@ export interface VLAdminUser extends BaseUser {
 export type User = TenantUser | VLAdminUser;
 
 export function isVLAdmin(user: User): user is VLAdminUser {
-  return user.role === 'vl_admin';
+  return user.role === 'platform';
 }
 
 export function isTenantUser(user: User): user is TenantUser {
-  return user.role !== 'vl_admin';
+  return user.role !== 'platform';
 }
 
 export function getUserDisplayRole(user: User): string {
   switch (user.role) {
-    case 'vl_admin':
+    case 'platform':
       return 'Platform Administrator';
     case 'admin':
       return 'Administrator';

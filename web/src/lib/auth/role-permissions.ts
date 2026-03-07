@@ -6,56 +6,56 @@
  * 2. Page-level — checked by RequireRole HOC (client-side)
  * 3. Action-level — checked by useCanPerform hook (inline)
  *
- * SCHEMA_TRUTH.md roles: vl_admin, admin, tenant_admin, manager, viewer
- * Auth types roles: vl_admin, admin, manager, sales_rep
+ * SCHEMA_TRUTH.md roles: platform, admin, tenant_admin, manager, viewer
+ * Auth types roles: platform, admin, manager, sales_rep
  * Both sets are supported in all permission maps.
  */
 
 // Workspace-level access (checked by middleware)
 export const WORKSPACE_ACCESS: Record<string, string[]> = {
-  '/admin':         ['vl_admin'],
-  '/operate':       ['vl_admin', 'admin', 'tenant_admin'],
-  '/configure':     ['vl_admin', 'admin', 'tenant_admin'],
-  '/configuration': ['vl_admin', 'admin', 'tenant_admin'],
-  '/govern':        ['vl_admin', 'admin', 'tenant_admin'],
-  '/data':          ['vl_admin', 'admin', 'tenant_admin'],
-  '/perform':       ['vl_admin', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
-  '/insights':      ['vl_admin', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
-  '/my-compensation': ['vl_admin', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
-  '/financial':     ['vl_admin', 'admin', 'tenant_admin', 'manager'],
-  '/transactions':  ['vl_admin', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
-  '/performance':   ['vl_admin', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
+  '/admin':         ['platform'],
+  '/operate':       ['platform', 'admin', 'tenant_admin'],
+  '/configure':     ['platform', 'admin', 'tenant_admin'],
+  '/configuration': ['platform', 'admin', 'tenant_admin'],
+  '/govern':        ['platform', 'admin', 'tenant_admin'],
+  '/data':          ['platform', 'admin', 'tenant_admin'],
+  '/perform':       ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
+  '/insights':      ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
+  '/my-compensation': ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
+  '/financial':     ['platform', 'admin', 'tenant_admin', 'manager'],
+  '/transactions':  ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
+  '/performance':   ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
 };
 
 // Page-level access (checked by RequireRole HOC — finer grain)
 export const PAGE_ACCESS: Record<string, string[]> = {
-  '/admin/launch/calculate':       ['vl_admin', 'admin'],
-  '/admin/launch/reconciliation':  ['vl_admin'],
-  '/admin/launch/plan-import':     ['vl_admin', 'admin'],
-  '/admin/launch':                 ['vl_admin'],
-  '/operate/calculate':            ['vl_admin', 'admin'],
-  '/operate/approve':              ['vl_admin', 'admin', 'manager'],
-  '/operate/pay':                  ['vl_admin', 'admin'],
-  '/operate/results':              ['vl_admin', 'admin'],
-  '/govern/calculation-approvals': ['vl_admin', 'admin'],
-  '/configure/users':              ['vl_admin', 'admin'],
-  '/configure/personnel':          ['vl_admin', 'admin'],
-  '/data/import/enhanced':         ['vl_admin', 'admin'],
-  '/operate/import':               ['vl_admin', 'admin'],
+  '/admin/launch/calculate':       ['platform', 'admin'],
+  '/admin/launch/reconciliation':  ['platform'],
+  '/admin/launch/plan-import':     ['platform', 'admin'],
+  '/admin/launch':                 ['platform'],
+  '/operate/calculate':            ['platform', 'admin'],
+  '/operate/approve':              ['platform', 'admin', 'manager'],
+  '/operate/pay':                  ['platform', 'admin'],
+  '/operate/results':              ['platform', 'admin'],
+  '/govern/calculation-approvals': ['platform', 'admin'],
+  '/configure/users':              ['platform', 'admin'],
+  '/configure/personnel':          ['platform', 'admin'],
+  '/data/import/enhanced':         ['platform', 'admin'],
+  '/operate/import':               ['platform', 'admin'],
 };
 
 // Action-level permissions (checked inline via useCanPerform)
 export const ACTION_PERMISSIONS: Record<string, string[]> = {
-  'import_data':     ['vl_admin', 'admin', 'tenant_admin'],
-  'run_calculation': ['vl_admin', 'admin'],
-  'approve_results': ['vl_admin', 'admin', 'manager'],
-  'publish_results': ['vl_admin', 'admin'],
-  'manage_users':    ['vl_admin', 'admin'],
-  'manage_tenants':  ['vl_admin'],
-  'toggle_features': ['vl_admin'],
-  'submit_dispute':  ['vl_admin', 'admin', 'manager', 'viewer', 'sales_rep'],
-  'view_team':       ['vl_admin', 'admin', 'manager'],
-  'export_payroll':  ['vl_admin', 'admin'],
+  'import_data':     ['platform', 'admin', 'tenant_admin'],
+  'run_calculation': ['platform', 'admin'],
+  'approve_results': ['platform', 'admin', 'manager'],
+  'publish_results': ['platform', 'admin'],
+  'manage_users':    ['platform', 'admin'],
+  'manage_tenants':  ['platform'],
+  'toggle_features': ['platform'],
+  'submit_dispute':  ['platform', 'admin', 'manager', 'viewer', 'sales_rep'],
+  'view_team':       ['platform', 'admin', 'manager'],
+  'export_payroll':  ['platform', 'admin'],
 };
 
 /**

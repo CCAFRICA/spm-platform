@@ -319,7 +319,7 @@ function getDefaultAlertRules(): AlertRule[] {
       threshold: 5,
       thresholdUnit: 'issues',
       targetType: 'role',
-      targetIds: ['admin', 'vl_admin'],
+      targetIds: ['admin', 'platform'],
       channels: ['in_app'],
       frequency: 'daily_digest',
       enabled: true,

@@ -290,7 +290,7 @@ function PeopleConfigurePageInner() {
 
 export default function PeopleConfigurePage() {
   return (
-    <RequireRole roles={['vl_admin', 'admin']}>
+    <RequireRole roles={['platform', 'admin']}>
       <PeopleConfigurePageInner />
     </RequireRole>
   );

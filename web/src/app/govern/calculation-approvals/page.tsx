@@ -290,7 +290,7 @@ function CalculationApprovalPageInner() {
 
 export default function CalculationApprovalPage() {
   return (
-    <RequireRole roles={['vl_admin', 'admin']}>
+    <RequireRole roles={['platform', 'admin']}>
       <CalculationApprovalPageInner />
     </RequireRole>
   );

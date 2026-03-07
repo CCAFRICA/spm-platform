@@ -32,7 +32,7 @@ import { useAuth } from '@/contexts/auth-context';
 export function useCapability(capability: string): boolean {
   const { user, capabilities } = useAuth();
   if (!user) return false;
-  if (user.role === 'vl_admin') return true;
+  if (user.role === 'platform') return true;
   return capabilities.includes(capability);
 }
 
@@ -42,7 +42,7 @@ export function useCapability(capability: string): boolean {
 export function useHasAnyCapability(caps: string[]): boolean {
   const { user, capabilities } = useAuth();
   if (!user) return false;
-  if (user.role === 'vl_admin') return true;
+  if (user.role === 'platform') return true;
   return caps.some(cap => capabilities.includes(cap));
 }
 
@@ -52,6 +52,6 @@ export function useHasAnyCapability(caps: string[]): boolean {
 export function useHasAllCapabilities(caps: string[]): boolean {
   const { user, capabilities } = useAuth();
   if (!user) return false;
-  if (user.role === 'vl_admin') return true;
+  if (user.role === 'platform') return true;
   return caps.every(cap => capabilities.includes(cap));
 }

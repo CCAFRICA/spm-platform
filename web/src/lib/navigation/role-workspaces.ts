@@ -30,7 +30,7 @@ export function personaToRole(persona: PersonaKey): UserRole {
 // =============================================================================
 
 export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
-  vl_admin: ['operate', 'perform', 'configure', 'financial'],
+  platform: ['operate', 'perform', 'configure', 'financial'],
   admin: ['operate', 'perform', 'configure', 'financial'],
   manager: ['perform', 'financial'],
   sales_rep: ['perform', 'financial'],
@@ -41,7 +41,7 @@ export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
 // =============================================================================
 
 export const DEFAULT_WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceId> = {
-  vl_admin: 'operate',
+  platform: 'operate',
   admin: 'operate',
   manager: 'perform',
   sales_rep: 'perform',
@@ -83,7 +83,7 @@ export interface WorkspaceFeatureAccess {
 }
 
 export const WORKSPACE_FEATURE_ACCESS: Record<UserRole, Partial<Record<WorkspaceId, WorkspaceFeatureAccess>>> = {
-  vl_admin: {
+  platform: {
     operate: { canViewAll: true, canEdit: true },
     perform: { canViewAll: true, canEdit: true },
     configure: { canViewAll: true, canEdit: true },

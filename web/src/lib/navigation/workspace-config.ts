@@ -30,14 +30,14 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Ver rendimiento y compensación',
     defaultRoute: '/perform',
     accentColor: 'hsl(142, 76%, 36%)', // Green
-    roles: ['vl_admin', 'admin', 'manager', 'sales_rep'],
+    roles: ['platform', 'admin', 'manager', 'sales_rep'],
     sections: [
       {
         id: 'dashboard',
         label: 'Dashboard',
         labelEs: 'Panel',
         routes: [
-          { path: '/perform', label: 'Dashboard', labelEs: 'Panel', icon: 'LayoutDashboard', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform', label: 'Dashboard', labelEs: 'Panel', icon: 'LayoutDashboard', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
@@ -45,7 +45,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Results',
         labelEs: 'Resultados',
         routes: [
-          { path: '/operate/results', label: 'Results', labelEs: 'Resultados', icon: 'BarChart3', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/operate/results', label: 'Results', labelEs: 'Resultados', icon: 'BarChart3', roles: ['platform', 'admin', 'manager'] },
         ],
       },
     ],
@@ -60,14 +60,14 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Ejecutar el ciclo de compensación actual',
     defaultRoute: '/operate',
     accentColor: 'hsl(262, 83%, 58%)', // Purple
-    roles: ['vl_admin', 'admin'],
+    roles: ['platform', 'admin'],
     sections: [
       {
         id: 'overview',
         label: 'Overview',
         labelEs: 'Resumen',
         routes: [
-          { path: '/operate', label: 'Operations Overview', labelEs: 'Resumen de Operaciones', icon: 'Activity', roles: ['vl_admin', 'admin'] },
+          { path: '/operate', label: 'Operations Overview', labelEs: 'Resumen de Operaciones', icon: 'Activity', roles: ['platform', 'admin'] },
         ],
       },
       {
@@ -75,7 +75,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Operations',
         labelEs: 'Operaciones',
         routes: [
-          { path: '/operate/lifecycle', label: 'Operations Center', labelEs: 'Centro de Operaciones', icon: 'Zap', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/lifecycle', label: 'Operations Center', labelEs: 'Centro de Operaciones', icon: 'Zap', roles: ['platform', 'admin'] },
         ],
       },
       {
@@ -83,8 +83,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Import',
         labelEs: 'Importar',
         routes: [
-          { path: '/operate/import/enhanced', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['vl_admin', 'admin'] },
-          { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial', icon: 'History', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/import/enhanced', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['platform', 'admin'] },
+          { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial', icon: 'History', roles: ['platform', 'admin'] },
         ],
       },
       {
@@ -92,7 +92,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Calculate',
         labelEs: 'Calcular',
         routes: [
-          { path: '/admin/launch/calculate', label: 'Calculate', labelEs: 'Calcular', icon: 'Calculator', roles: ['vl_admin', 'admin'] },
+          { path: '/admin/launch/calculate', label: 'Calculate', labelEs: 'Calcular', icon: 'Calculator', roles: ['platform', 'admin'] },
         ],
       },
       {
@@ -100,7 +100,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Reconciliation',
         labelEs: 'Conciliación',
         routes: [
-          { path: '/operate/reconciliation', label: 'Reconciliation', labelEs: 'Conciliación', icon: 'GitCompare', roles: ['vl_admin', 'admin'] },
+          { path: '/operate/reconciliation', label: 'Reconciliation', labelEs: 'Conciliación', icon: 'GitCompare', roles: ['platform', 'admin'] },
         ],
       },
     ],
@@ -115,14 +115,14 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Configurar y mantener el sistema',
     defaultRoute: '/configure',
     accentColor: 'hsl(24, 95%, 53%)', // Orange
-    roles: ['vl_admin', 'admin'],
+    roles: ['platform', 'admin'],
     sections: [
       {
         id: 'plans',
         label: 'Plans',
         labelEs: 'Planes',
         routes: [
-          { path: '/admin/launch/plan-import', label: 'Plan Import', labelEs: 'Importar Plan', icon: 'FileText', roles: ['vl_admin', 'admin'] },
+          { path: '/admin/launch/plan-import', label: 'Plan Import', labelEs: 'Importar Plan', icon: 'FileText', roles: ['platform', 'admin'] },
         ],
       },
       {
@@ -130,7 +130,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Periods',
         labelEs: 'Períodos',
         routes: [
-          { path: '/configure/periods', label: 'Periods', labelEs: 'Períodos', icon: 'Calendar', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/periods', label: 'Periods', labelEs: 'Períodos', icon: 'Calendar', roles: ['platform', 'admin'] },
         ],
       },
       {
@@ -138,7 +138,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'People',
         labelEs: 'Personas',
         routes: [
-          { path: '/configure/people', label: 'Personnel', labelEs: 'Personal', icon: 'Users', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/people', label: 'Personnel', labelEs: 'Personal', icon: 'Users', roles: ['platform', 'admin'] },
         ],
       },
       {
@@ -146,7 +146,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'System',
         labelEs: 'Sistema',
         routes: [
-          { path: '/configure/users', label: 'Users', labelEs: 'Usuarios', icon: 'Shield', roles: ['vl_admin', 'admin'] },
+          { path: '/configure/users', label: 'Users', labelEs: 'Usuarios', icon: 'Shield', roles: ['platform', 'admin'] },
         ],
       },
     ],
@@ -161,7 +161,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Analisis POS e inteligencia financiera',
     defaultRoute: '/financial',
     accentColor: 'hsl(45, 93%, 47%)', // Gold
-    roles: ['vl_admin', 'admin', 'manager', 'sales_rep'],
+    roles: ['platform', 'admin', 'manager', 'sales_rep'],
     featureFlag: 'financial',
     sections: [
       {
@@ -169,8 +169,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Network',
         labelEs: 'Red',
         routes: [
-          { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
@@ -178,12 +178,12 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Analysis',
         labelEs: 'Análisis',
         routes: [
-          { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronología de Ingresos', icon: 'LineChart', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicación', icon: 'BarChart3', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Clock', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/summary', label: 'Monthly Summary', labelEs: 'Resumen Mensual', icon: 'FileText', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'ShoppingBag', roles: ['vl_admin', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronología de Ingresos', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicación', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Clock', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/summary', label: 'Monthly Summary', labelEs: 'Resumen Mensual', icon: 'FileText', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'ShoppingBag', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
@@ -191,7 +191,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Controls',
         labelEs: 'Controles',
         routes: [
-          { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['vl_admin', 'admin', 'manager'] },
+          { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['platform', 'admin', 'manager'] },
         ],
       },
     ],

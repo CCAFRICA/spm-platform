@@ -298,7 +298,7 @@ function InvitePageInner() {
 
 export default function InvitePage() {
   return (
-    <RequireRole roles={['vl_admin', 'admin']}>
+    <RequireRole roles={['platform', 'admin']}>
       <InvitePageInner />
     </RequireRole>
   );

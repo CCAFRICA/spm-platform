@@ -58,15 +58,15 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 function mapProfileToUser(profile: AuthProfile): User {
   const capabilities = profile.capabilities || [];
 
-  // Platform admin: either role is 'vl_admin' or has manage_tenants capability
-  const isPlatformAdmin = profile.role === 'vl_admin' || capabilities.includes('manage_tenants');
+  // Platform admin: role is 'platform' or has manage_tenants capability
+  const isPlatformAdmin = profile.role === 'platform' || capabilities.includes('manage_tenants');
 
   if (isPlatformAdmin) {
     return {
       id: profile.id,
       email: profile.email,
       name: profile.displayName,
-      role: 'vl_admin',
+      role: 'platform',
       tenantId: null,
       accessLevel: capabilities.includes('manage_tenants') ? 'full' : 'readonly',
       status: 'active',

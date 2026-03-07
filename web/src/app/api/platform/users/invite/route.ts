@@ -18,7 +18,7 @@ const ROLE_TEMPLATES: Record<string, {
 }> = {
   platform_admin: {
     scope: 'platform',
-    role: 'vl_admin',
+    role: 'platform',
     capabilities: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments'],
   },
   tenant_admin: {
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       .eq('auth_user_id', user.id)
       .maybeSingle();
 
-    if (!profile || profile.role !== 'vl_admin') {
+    if (!profile || profile.role !== 'platform') {
       return NextResponse.json({ error: 'Forbidden — VL Admin required' }, { status: 403 });
     }
 
@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
             email,
             role: roleTemplate || 'individual',
             method,
-            invited_by: user.email || 'vl_admin',
+            invited_by: user.email || 'platform',
           },
         });
     } catch (meterErr) {

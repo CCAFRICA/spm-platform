@@ -19,7 +19,7 @@ import { getPulseMetrics as getBasePulseMetrics } from '@/lib/navigation/pulse-s
 // TYPES
 // =============================================================================
 
-export type PersonaType = 'vl_admin' | 'platform_admin' | 'manager' | 'sales_rep';
+export type PersonaType = 'platform' | 'platform_admin' | 'manager' | 'sales_rep';
 
 export interface PeriodState {
   period: string;
@@ -62,7 +62,7 @@ const STATE_TO_PHASE: Record<string, { phase: CyclePhase; progress: number }> = 
 
 function personaToRole(persona: PersonaType): UserRole {
   switch (persona) {
-    case 'vl_admin': return 'vl_admin';
+    case 'platform': return 'platform';
     case 'platform_admin': return 'admin';
     case 'manager': return 'manager';
     case 'sales_rep': return 'sales_rep';
@@ -144,7 +144,7 @@ export async function getNextAction(tenantId: string, persona: PersonaType, isSp
   const phase = cycle.currentPhase;
 
   switch (persona) {
-    case 'vl_admin':
+    case 'platform':
     case 'platform_admin':
       return await getAdminNextAction(phase, tenantId, isSpanish);
     case 'manager':

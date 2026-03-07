@@ -357,7 +357,7 @@ export function CommandPalette() {
                   <Receipt className="h-4 w-4 text-muted-foreground" />
                   <span>{isSpanish ? 'Mis Transacciones' : 'My Transactions'}</span>
                 </CommandUIItem>
-                {(effectiveRole === 'admin' || effectiveRole === 'vl_admin') && (
+                {(effectiveRole === 'admin' || effectiveRole === 'platform') && (
                   <CommandUIItem
                     value="import data"
                     onSelect={() => router.push('/operate/import')}
