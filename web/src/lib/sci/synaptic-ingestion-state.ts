@@ -389,13 +389,6 @@ function applyRound2Negotiation(
   const repeatRatio = profile.structure.identifierRepeatRatio;
   const hasTemporal = profile.patterns.hasDateColumn || profile.patterns.hasTemporalColumns;
 
-  // Decision 108: Check if HC identified reference_key at high confidence
-  // When active, temporal+repeat signals are from reference table dimensions, not events
-  const hasHCReferenceOverride = profile.headerComprehension &&
-    Array.from(profile.headerComprehension.interpretations.values()).some(
-      interp => interp.columnRole === 'reference_key' && interp.confidence >= 0.80
-    );
-
   // Target penalty when repeat ratio contradicts target pattern
   if (transaction && target && target.confidence > 0.30 && repeatRatio > 2.0) {
     const penalty = Math.min(0.25, (repeatRatio - 1.0) * 0.08);
@@ -415,9 +408,7 @@ function applyRound2Negotiation(
   }
 
   // Transaction boost when temporal + repeat confirms event pattern
-  // Decision 108: Suppressed when HC identifies reference_key — temporal signals
-  // are from reference table dimensions, not event timestamps
-  if (transaction && target && hasTemporal && repeatRatio > 1.5 && !hasHCReferenceOverride) {
+  if (transaction && target && hasTemporal && repeatRatio > 1.5) {
     const boost = 0.10;
     transaction.confidence = Math.min(1, transaction.confidence + boost);
     transaction.signals.push({

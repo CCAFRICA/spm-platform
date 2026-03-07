@@ -11,7 +11,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateContentProfile } from '@/lib/sci/content-profile';
 import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
-import { createIngestionState, classifyContentUnits, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
+import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
+import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
+import { resolveClassification } from '@/lib/sci/resolver';
 import { requiresHumanReview } from '@/lib/sci/agents';
 import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
 import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
@@ -174,7 +176,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      classifyContentUnits(state);
+      await resolveClassification(
+        state,
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
 
       // ── HF-096: Scores Diagnostic Logging ──
       for (const [cuId, resolution] of Array.from(state.resolutions.entries())) {
@@ -248,26 +254,8 @@ export async function POST(req: NextRequest) {
           fingerprint: fp,
           classification: unit.classification,
           confidence: unit.confidence,
-          decisionSource: 'sci_prediction',
-          classificationTrace: {
-            contentUnitId: unit.contentUnitId,
-            sheetName: unit.tabName,
-            structuralProfile: { rowCount: 0, columnCount: 0, numericFieldRatio: 0, categoricalFieldRatio: 0, identifierRepeatRatio: 0, volumePattern: 'unknown', hasTemporalColumns: false, hasStructuralNameColumn: false, hasEntityIdentifier: false },
-            headerComprehension: null,
-            round1: unit.allScores.map(s => ({
-              agent: s.agent,
-              confidence: s.confidence,
-              signals: s.signals.filter(sig => sig.weight > 0).slice(0, 3),
-            })),
-            signatureChecks: [],
-            round2: [],
-            tenantContextApplied: [],
-            priorSignals: [],
-            finalClassification: unit.classification,
-            finalConfidence: unit.confidence,
-            decisionSource: 'sci_prediction',
-            requiresHumanReview: false,
-          },
+          decisionSource: 'crr_bayesian',
+          classificationTrace: (unit.classificationTrace as unknown as ClassificationTrace) ?? ({} as unknown as ClassificationTrace),
           vocabularyBindings: null,
           agentScores: Object.fromEntries(
             unit.allScores.map(s => [s.agent, s.confidence])
