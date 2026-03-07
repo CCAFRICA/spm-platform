@@ -59,7 +59,8 @@ export type AITaskType =
   | 'recommendation'                // Generate actionable recommendation
   | 'natural_language_query'        // Answer question about platform data
   | 'dashboard_assessment'          // OB-71: Persona-driven dashboard intelligence
-  | 'narration';                    // OB-98: Natural language insight narrative
+  | 'narration'                     // OB-98: Natural language insight narrative
+  | 'header_comprehension';         // HF-100: SCI header comprehension (column role analysis)
 
 // === TASK-SPECIFIC TYPES ===
 

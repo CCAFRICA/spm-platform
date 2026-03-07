@@ -3,6 +3,7 @@
 // ONE LLM call per file upload — all sheets, all headers, sample values.
 // Korean Test compliant: headers are content understood in real-time, not matched against dictionaries.
 // Graceful fallback: if LLM unavailable, returns null. Phase A structural heuristics stand alone.
+// HF-100: Migrated to AIService — single code path for all AI calls.
 
 import type {
   ContentProfile,
@@ -13,6 +14,7 @@ import type {
   VocabularyBinding,
 } from './sci-types';
 import { recallVocabularyBindings } from './classification-signal-service';
+import { getAIService } from '@/lib/ai/ai-service';
 
 // ============================================================
 // INPUT TYPES
@@ -28,11 +30,11 @@ export interface HeaderComprehensionInput {
 }
 
 // ============================================================
-// LLM PROMPT CONSTRUCTION
+// SHEETS DESCRIPTION BUILDER
 // ============================================================
 
-function buildHeaderComprehensionPrompt(input: HeaderComprehensionInput): string {
-  const sheetsDescription = input.sheets.map(sheet => {
+function buildSheetsDescription(input: HeaderComprehensionInput): string {
+  return input.sheets.map(sheet => {
     const sampleStr = sheet.sampleRows.slice(0, 3).map((row, i) => {
       const vals = sheet.columns.map(col => `${col}: ${JSON.stringify(row[col] ?? null)}`);
       return `  Row ${i + 1}: { ${vals.join(', ')} }`;
@@ -43,39 +45,10 @@ function buildHeaderComprehensionPrompt(input: HeaderComprehensionInput): string
   Sample data:
 ${sampleStr}`;
   }).join('\n\n');
-
-  return `You are analyzing a data file with multiple sheets. For each column in each sheet, determine what the column represents based on its header name and sample values.
-
-${sheetsDescription}
-
-For each column, provide:
-- semanticMeaning: what this column represents (e.g., "month_indicator", "employee_identifier", "revenue_attainment_percentage", "hub_name", "safety_incident_count")
-- dataExpectation: what values should look like (e.g., "integer_1_to_12", "unique_numeric_id", "decimal_0_to_1")
-- columnRole: one of: identifier, name, temporal, measure, attribute, reference_key, unknown
-- confidence: 0.0 to 1.0
-
-Also provide crossSheetInsights: observations about relationships between sheets (e.g., "Sheet A and Sheet B share the same employee identifier column", "Sheet C appears to be hub-level reference data while Sheet B has employee-level performance data").
-
-Respond ONLY with valid JSON, no preamble, no markdown:
-{
-  "sheets": {
-    "<sheetName>": {
-      "columns": {
-        "<columnName>": {
-          "semanticMeaning": "...",
-          "dataExpectation": "...",
-          "columnRole": "...",
-          "confidence": 0.00
-        }
-      }
-    }
-  },
-  "crossSheetInsights": ["...", "..."]
-}`;
 }
 
 // ============================================================
-// LLM CALL
+// LLM CALL VIA AISERVICE
 // ============================================================
 
 interface LLMHeaderResponse {
@@ -88,60 +61,39 @@ interface LLMHeaderResponse {
   crossSheetInsights: string[];
 }
 
-async function callLLMForHeaders(prompt: string): Promise<{
+async function callLLMForHeaders(input: HeaderComprehensionInput): Promise<{
   result: LLMHeaderResponse;
   duration: number;
 } | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  console.log(`[HC-TRACE-3] API key check: ${!!apiKey} (length: ${apiKey ? apiKey.length : 0})`);
-  if (!apiKey) {
-    console.log('[SCI] No Anthropic API key — header comprehension skipped (heuristics only)');
-    return null;
-  }
-
   try {
     const startTime = Date.now();
+    const sheetsDescription = buildSheetsDescription(input);
 
-    console.log('[HC-TRACE-4] About to call Anthropic API (POST https://api.anthropic.com/v1/messages)');
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    const aiService = getAIService();
+    const response = await aiService.execute({
+      task: 'header_comprehension',
+      input: { sheetsDescription },
+      options: { maxTokens: 8192, responseFormat: 'json' },
+    }, false); // No signal capture for HC — it runs on every import
 
-    console.log(`[HC-TRACE-5] Anthropic API response: status=${response.status} ok=${response.ok}`);
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => 'unable to read body');
-      console.log(`[HC-TRACE-ERROR] API returned non-OK: status=${response.status} body=${errorBody}`);
-      console.log(`[SCI] LLM header comprehension failed: ${response.status}`);
+    const duration = Date.now() - startTime;
+
+    // AIService returns { parseError: true } on JSON parse failure
+    if (response.result.parseError) {
+      console.log(`[SCI] Header comprehension JSON parse failed (AIService fallback). duration=${duration}ms`);
       return null;
     }
 
-    const data = await response.json();
-    const text = data.content?.[0]?.text;
-    console.log(`[HC-TRACE-5b] Response parsed. hasText=${!!text}, textLength=${text?.length ?? 0}`);
-    if (!text) return null;
+    const parsed = response.result as unknown as LLMHeaderResponse;
+    if (!parsed.sheets) {
+      console.log(`[SCI] Header comprehension response missing 'sheets' key. duration=${duration}ms`);
+      return null;
+    }
 
-    // Parse JSON response — strip any markdown fences
-    const clean = text.replace(/```json\n?|```\n?/g, '').trim();
-    const parsed: LLMHeaderResponse = JSON.parse(clean);
-
-    const duration = Date.now() - startTime;
-    console.log(`[SCI] Header comprehension completed in ${duration}ms`);
-    console.log(`[HC-TRACE-5c] LLM success. duration=${duration}ms sheets=${Object.keys(parsed.sheets || {}).length}`);
-
+    console.log(`[SCI] Header comprehension completed in ${duration}ms via AIService`);
     return { result: parsed, duration };
   } catch (error) {
-    console.log('[HC-TRACE-ERROR] Exception in callLLMForHeaders:', error instanceof Error ? error.message : String(error));
-    console.log('[SCI] Header comprehension error (falling back to heuristics):', error);
+    console.log('[SCI] Header comprehension error (falling back to heuristics):', error instanceof Error ? error.message : String(error));
     return null;
   }
 }
@@ -326,7 +278,6 @@ export async function comprehendHeaders(
   comprehensions: Map<string, HeaderComprehension> | null;
   metrics: HeaderComprehensionMetrics;
 }> {
-  console.log(`[HC-TRACE-2b] comprehendHeaders entered. sheets=${input.sheets.length}`);
   const allColumns = input.sheets.flatMap(s => s.columns);
 
   // Step 1: Check vocabulary bindings (Phase E will populate these)
@@ -334,8 +285,6 @@ export async function comprehendHeaders(
     columnCount: input.sheets[0]?.columns.length ?? 0,
     rowCountBucket: 'medium',
   });
-  console.log(`[HC-TRACE-2c] Vocab bindings checked. existingBindings=${existingBindings.size}, totalColumns=${allColumns.length}`);
-
   // Step 2: If ALL columns have confirmed bindings with high confidence, skip LLM
   const allBound = allColumns.length > 0 && allColumns.every(col => {
     const binding = existingBindings.get(col);
@@ -343,7 +292,6 @@ export async function comprehendHeaders(
   });
 
   if (allBound) {
-    console.log('[HC-TRACE-2d] All columns bound from vocabulary — skipping LLM');
     const comprehensions = buildComprehensionFromBindings(input, existingBindings);
     const metrics: HeaderComprehensionMetrics = {
       llmCalled: false,
@@ -359,11 +307,8 @@ export async function comprehendHeaders(
     return { comprehensions, metrics };
   }
 
-  // Step 3: Call LLM for all headers
-  console.log('[HC-TRACE-2e] About to call callLLMForHeaders');
-  const prompt = buildHeaderComprehensionPrompt(input);
-  const llmResponse = await callLLMForHeaders(prompt);
-  console.log(`[HC-TRACE-2f] callLLMForHeaders returned: ${llmResponse ? 'HAS DATA' : 'NULL'}`);
+  // Step 3: Call LLM via AIService for all headers
+  const llmResponse = await callLLMForHeaders(input);
 
   if (!llmResponse) {
     const metrics: HeaderComprehensionMetrics = {
@@ -431,7 +376,6 @@ export async function enhanceWithHeaderComprehension(
   sheets: HeaderComprehensionInput['sheets'],
   tenantId: string,
 ): Promise<HeaderComprehensionMetrics> {
-  console.log(`[HC-TRACE-2] enhanceWithHeaderComprehension entered. sheets=${sheets.length}, tenantId=${tenantId}`);
   const { comprehensions, metrics } = await comprehendHeaders({ sheets }, tenantId);
 
   if (!comprehensions) return metrics;
