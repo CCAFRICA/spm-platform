@@ -6,7 +6,35 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { ContentProfile } from './sci-types';
-import type { TenantContext, EntityIdOverlap, TenantContextAdjustment } from './synaptic-ingestion-state';
+// HF-103: Interfaces moved here from synaptic-ingestion-state.ts
+// Tenant context is no longer used in classification (Decision 72).
+// These types remain for potential post-classification use.
+
+export interface TenantContext {
+  existingEntityCount: number;
+  existingEntityExternalIds: Set<string>;
+  existingPlanCount: number;
+  existingPlanComponentNames: string[];
+  existingPlanInputRequirements: string[];
+  committedDataRowCount: number;
+  committedDataTypes: string[];
+  referenceDataExists: boolean;
+}
+
+export interface EntityIdOverlap {
+  sheetIdentifierColumn: string;
+  sheetUniqueValues: Set<string>;
+  matchingEntityIds: Set<string>;
+  overlapPercentage: number;
+  overlapSignal: 'high' | 'partial' | 'none';
+}
+
+export interface TenantContextAdjustment {
+  agent: string;
+  adjustment: number;
+  signal: string;
+  evidence: string;
+}
 
 // ============================================================
 // TENANT STATE QUERY

@@ -17,10 +17,8 @@ export type SignalSourceType =
   | 'structural_signature'   // Composite structural signatures (signatures.ts)
   | 'structural_heuristic'   // Additive weight rules (agents.ts)
   | 'promoted_pattern'       // Promoted patterns from foundational signals
-  | 'tenant_context'         // Tenant context adjustments (existing data)
   | 'prior_signal'           // Flywheel prior from classification_signals
   | 'r2_negotiation'         // Round 2 inter-agent negotiation
-  | 'entity_overlap'         // Entity ID overlap with existing data
   ;
 
 // ============================================================
@@ -56,16 +54,6 @@ const SEED_PRIOR_TABLE: SeedPrior[] = [
     sourceType: 'promoted_pattern',
     reliability: 0.75,
     description: 'Cross-tenant foundational patterns promoted by evidence density',
-  },
-  {
-    sourceType: 'entity_overlap',
-    reliability: 0.70,
-    description: 'Entity ID overlap with existing tenant data — strong contextual signal',
-  },
-  {
-    sourceType: 'tenant_context',
-    reliability: 0.65,
-    description: 'Tenant data presence signals — moderate contextual authority',
   },
   {
     sourceType: 'structural_heuristic',
