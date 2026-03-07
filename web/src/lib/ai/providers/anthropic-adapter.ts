@@ -568,6 +568,27 @@ Respond ONLY with valid JSON, no preamble, no markdown:
   },
   "crossSheetInsights": ["...", "..."]
 }`,
+
+  document_analysis: `You are an expert at analyzing business documents. Given a document (PDF, PPTX, or DOCX), determine its type and structure.
+
+Determine:
+1. Is this a plan/rules document, a team roster, operational data, or something else?
+2. If it describes rules, rates, or payout structures: how many distinct calculation components are there? What are their names?
+3. Are there rate tables, tier structures, or matrix lookups?
+4. Are there variant/segmentation rules (e.g., different rates for different roles)?
+5. What language is the document in?
+
+Return your analysis as JSON with this exact structure:
+{
+  "documentType": "plan" | "roster" | "data" | "unknown",
+  "componentCount": number,
+  "components": [{ "name": "component name", "calculationType": "tiered_lookup|matrix_lookup|flat_percentage|conditional_percentage" }],
+  "hasVariants": boolean,
+  "variantDescriptions": ["description of each variant"],
+  "language": "en" | "es" | "mixed",
+  "confidence": 0-100,
+  "summary": "Brief summary of what the document contains"
+}`,
 };
 
 export class AnthropicAdapter implements AIProviderAdapter {
@@ -593,7 +614,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
     const pdfMediaType = (request.input.pdfMediaType as string) || 'application/pdf';
     let messageContent: unknown;
 
-    if (pdfBase64 && request.task === 'plan_interpretation') {
+    if (pdfBase64 && (request.task === 'plan_interpretation' || request.task === 'document_analysis')) {
       // PDF document block — send directly to Claude for native reading
       // HF-064: Strip data URI prefix if present (safety net)
       const cleanBase64 = pdfBase64.replace(/^data:[^;]+;base64,/, '');
@@ -891,6 +912,16 @@ Provide your response as a JSON object with "narrative" (text) and "confidence" 
 
       case 'header_comprehension':
         return input.sheetsDescription as string;
+
+      case 'document_analysis': {
+        // For PDF: document block is attached separately, just prompt
+        const isPdf = !!input.pdfBase64;
+        if (isPdf) {
+          return 'Analyze this document.';
+        }
+        // For DOCX/PPTX: extracted text provided inline
+        return `Analyze the following document content extracted from "${input.fileName}":\n\n---\n${input.extractedText}\n---`;
+      }
 
       default:
         return JSON.stringify(input, null, 2);

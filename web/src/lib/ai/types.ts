@@ -60,7 +60,8 @@ export type AITaskType =
   | 'natural_language_query'        // Answer question about platform data
   | 'dashboard_assessment'          // OB-71: Persona-driven dashboard intelligence
   | 'narration'                     // OB-98: Natural language insight narrative
-  | 'header_comprehension';         // HF-100: SCI header comprehension (column role analysis)
+  | 'header_comprehension'          // HF-100: SCI header comprehension (column role analysis)
+  | 'document_analysis';            // HF-101: Document type classification (PDF/PPTX/DOCX)
 
 // === TASK-SPECIFIC TYPES ===
 

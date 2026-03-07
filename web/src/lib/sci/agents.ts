@@ -285,9 +285,39 @@ export function applyHeaderComprehensionSignals(
   }
 
   // --- Reference Agent signals from header comprehension ---
+  // Decision 108 HC Override: reference_key at >=0.80 OVERRIDES structural detection.
   const reference = scores.find(s => s.agent === 'reference');
   if (reference) {
-    if (referenceKeyCount >= 1) {
+    const highConfRefKeys = Array.from(interpretations.values()).filter(
+      interp => interp.columnRole === 'reference_key' && interp.confidence >= 0.80
+    );
+
+    if (highConfRefKeys.length >= 1) {
+      // HC OVERRIDE AUTHORITY (Decision 108)
+      // reference_key at >=0.80 → floor reference score, penalize transaction
+      const overrideFloor = 0.80;
+      if (reference.confidence < overrideFloor) {
+        const oldConf = reference.confidence;
+        reference.confidence = overrideFloor;
+        reference.signals.push({
+          signal: 'hc_override_reference_floor',
+          weight: overrideFloor - oldConf,
+          evidence: `Decision 108 HC Override: ${highConfRefKeys.length} reference_key column(s) at >=0.80 confidence`,
+        });
+      }
+
+      // Penalize transaction — HC says key column is reference, not event data
+      if (transaction) {
+        const penalty = 0.30;
+        transaction.confidence = Math.max(0, transaction.confidence - penalty);
+        transaction.signals.push({
+          signal: 'hc_override_reference_contradict_tx',
+          weight: -penalty,
+          evidence: `Decision 108: HC reference_key overrides structural temporal/event signals`,
+        });
+      }
+    } else if (referenceKeyCount >= 1) {
+      // Low-confidence reference_key — normal boost
       reference.confidence += 0.15;
       reference.signals.push({
         signal: 'hc_reference_key',
@@ -319,6 +349,12 @@ function negotiateRound2(scores: AgentScore[], profile: ContentProfile): void {
   const repeatRatio = profile.structure.identifierRepeatRatio;
   const hasTemporal = profile.patterns.hasDateColumn || profile.patterns.hasTemporalColumns;
 
+  // Decision 108: Check if HC identified reference_key at high confidence
+  const hasHCReferenceOverride = profile.headerComprehension &&
+    Array.from(profile.headerComprehension.interpretations.values()).some(
+      interp => interp.columnRole === 'reference_key' && interp.confidence >= 0.80
+    );
+
   // Transaction vs Target: targets don't repeat 4x per entity
   if (transaction && target && target.confidence > 0.30 && repeatRatio > 2.0) {
     const penalty = Math.min(0.25, (repeatRatio - 1.0) * 0.08);
@@ -331,7 +367,8 @@ function negotiateRound2(scores: AgentScore[], profile: ContentProfile): void {
   }
 
   // Transaction boost: temporal + high repeat = transactional
-  if (transaction && target && hasTemporal && repeatRatio > 1.5) {
+  // Decision 108: Suppressed when HC identifies reference_key
+  if (transaction && target && hasTemporal && repeatRatio > 1.5 && !hasHCReferenceOverride) {
     const boost = 0.10;
     transaction.confidence = Math.min(1, transaction.confidence + boost);
     transaction.signals.push({

@@ -192,15 +192,21 @@ function AuthShellProtected({ children }: AuthShellProps) {
     return <>{children}</>;
   }
 
+  // Decision 92: Import surface has zero period API calls.
+  // PeriodProvider is NOT mounted on import routes — usePeriod() returns safe empty defaults.
+  const isImportRoute = pathname.startsWith('/operate/import');
+
   // Full app shell with Mission Control Rail
+  const shell = (
+    <NavigationProvider>
+      <AuthShellInner>{children}</AuthShellInner>
+      <DemoPersonaSwitcher />
+    </NavigationProvider>
+  );
+
   return (
     <PersonaProvider>
-      <PeriodProvider>
-        <NavigationProvider>
-          <AuthShellInner>{children}</AuthShellInner>
-          <DemoPersonaSwitcher />
-        </NavigationProvider>
-      </PeriodProvider>
+      {isImportRoute ? shell : <PeriodProvider>{shell}</PeriodProvider>}
     </PersonaProvider>
   );
 }
