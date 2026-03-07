@@ -301,6 +301,8 @@ function inferRoleForAgent(
   switch (agent) {
     case 'entity':
       if (hcRole === 'name' || field.nameSignals.looksLikePersonName) return { role: 'entity_name', context: `${field.fieldName} — display name`, confidence: 0.85 };
+      // HF-098: Structural fallback — first column in entity sheet → entity_identifier
+      if (field.fieldIndex === 0 && (field.dataType === 'integer' || field.dataType === 'text')) return { role: 'entity_identifier', context: `${field.fieldName} — first column identifier`, confidence: 0.75 };
       if (hcRole === 'attribute') return { role: 'entity_attribute', context: `${field.fieldName} — attribute`, confidence: 0.75 };
       if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20) return { role: 'entity_attribute', context: `${field.fieldName} — categorical property`, confidence: 0.70 };
       return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };

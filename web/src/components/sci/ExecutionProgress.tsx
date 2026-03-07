@@ -13,8 +13,8 @@ const CLASSIFICATION_LABELS: Record<AgentType, string> = {
   plan: 'Plan Rules',
   entity: 'Team Roster',
   target: 'Perf. Targets',
-  transaction: 'Operational',
-  reference: 'Reference',
+  transaction: 'Transaction Data',
+  reference: 'Reference Data',
 };
 
 export type ItemStatus = 'pending' | 'active' | 'done' | 'failed';
