@@ -1,0 +1,497 @@
+// Contextual Reliability Resolver (CRRes) — Decision 110
+// OB-161 — Bayesian posterior classification.
+// Reads all signals from the Synaptic Surface (agent scores, HC, signatures,
+// tenant context, priors). Looks up reliability for each source via CRL.
+// Computes posterior probability for each classification. Highest posterior wins.
+//
+// Replaces: classifyContentUnits() scoring logic
+// Preserves: signal production (agents, HC, signatures), field affinity, split analysis
+
+import type {
+  ContentProfile,
+  AgentType,
+  AgentScore,
+  NegotiationLogEntry,
+} from './sci-types';
+import type { SignatureMatch } from './signatures';
+import type { SynapticIngestionState, ContentUnitResolution, ClassificationTrace } from './synaptic-ingestion-state';
+import { detectSignatures } from './signatures';
+import { computeAdditiveScores, applyHeaderComprehensionSignals } from './agents';
+import { computeFieldAffinities, analyzeSplit } from './negotiation';
+import { computeStructuralFingerprint, fingerprintToSignature } from './classification-signal-service';
+import { checkPromotedPatterns } from './promoted-patterns';
+import { computeTenantContextAdjustments } from './tenant-context';
+import { contextualReliabilityLookup, resetCRLCache } from './contextual-reliability';
+import { getClassificationPrior, CLASSIFICATION_TYPES } from './seed-priors';
+import type { SignalSourceType } from './seed-priors';
+import type { CRLResult } from './contextual-reliability';
+
+// ============================================================
+// CLASSIFICATION SIGNAL — normalized input to Bayesian resolver
+// ============================================================
+
+interface ClassificationSignal {
+  sourceType: SignalSourceType;
+  classification: AgentType;     // which classification this signal supports
+  strength: number;              // 0-1: how strongly this signal supports the classification
+  evidence: string;              // human-readable evidence string
+}
+
+// ============================================================
+// BAYESIAN POSTERIOR RESULT
+// ============================================================
+
+export interface PosteriorResult {
+  classification: AgentType;
+  posterior: number;
+  signals: ClassificationSignal[];
+  crlLookups: CRLResult[];
+}
+
+// ============================================================
+// RESOLVE CLASSIFICATION — Main entry point
+// Replaces classifyContentUnits from synaptic-ingestion-state.ts
+// ============================================================
+
+export async function resolveClassification(
+  state: SynapticIngestionState,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<void> {
+  // Reset CRL cache at the start of each resolve call
+  resetCRLCache();
+
+  for (const [unitId, profile] of Array.from(state.contentUnits.entries())) {
+    const trace = initializeTrace(unitId, profile);
+
+    // ── STEP 1: Collect all signals ──
+
+    // 1a: Composite signatures
+    const signatures = detectSignatures(profile);
+    trace.signatureChecks = signatures.map(s => ({
+      signatureName: s.signatureName,
+      conditions: s.matchedConditions.map(c => ({ name: c, value: true, passed: true })),
+      matched: true,
+      confidenceFloor: s.confidence,
+    }));
+    state.signatureMatches.set(unitId, signatures);
+
+    // 1b: Additive scoring (structural heuristic)
+    const scores = computeAdditiveScores(profile);
+
+    // 1c: Promoted patterns
+    if (state.promotedPatterns && state.promotedPatterns.size > 0) {
+      const fingerprint = computeStructuralFingerprint(profile);
+      const sig = fingerprintToSignature(fingerprint);
+      const promoted = checkPromotedPatterns(sig, state.promotedPatterns);
+      if (promoted) {
+        const agentScore = scores.find(s => s.agent === promoted.agent);
+        if (agentScore && agentScore.confidence < promoted.confidence) {
+          agentScore.confidence = promoted.confidence;
+          agentScore.signals.unshift({
+            signal: `promoted:${promoted.patternSignature}`,
+            weight: promoted.confidence,
+            evidence: `Promoted pattern: ${promoted.evidence.signalCount} signals, ${Math.round(promoted.evidence.accuracy * 100)}% accuracy across ${promoted.evidence.tenantCount} tenants`,
+          });
+        }
+      }
+    }
+
+    // Record Round 1 in trace (pre-HC)
+    trace.round1 = scores.map(s => ({
+      agent: s.agent,
+      confidence: s.confidence,
+      signals: s.signals.map(sig => ({ signal: sig.signal, weight: sig.weight, evidence: sig.evidence })),
+    }));
+
+    // 1d: Header comprehension signals (additive to agent scores)
+    applyHeaderComprehensionSignals(scores, profile);
+
+    // 1e: Tenant context adjustments
+    if (state.tenantContext) {
+      const overlap = state.entityIdOverlaps.get(unitId) ?? null;
+      const tcAdjustments = computeTenantContextAdjustments(state.tenantContext, overlap, profile);
+      for (const adj of tcAdjustments) {
+        const agentScore = scores.find(s => s.agent === adj.agent);
+        if (agentScore) {
+          agentScore.confidence = Math.max(0, Math.min(1, agentScore.confidence + adj.adjustment));
+          agentScore.signals.push({
+            signal: `tc_${adj.signal}`,
+            weight: adj.adjustment,
+            evidence: adj.evidence,
+          });
+        }
+      }
+      trace.tenantContextApplied = tcAdjustments.map(adj => ({
+        signal: adj.signal,
+        adjustment: adj.adjustment,
+        evidence: adj.evidence,
+      }));
+    }
+
+    // 1f: Prior signals from flywheel
+    const unitPriors = state.priorSignals.get(unitId) ?? [];
+    if (unitPriors.length > 0) {
+      trace.priorSignals = unitPriors.map(s => ({
+        classification: s.classification,
+        confidence: s.confidence,
+        source: s.source,
+      }));
+    }
+
+    // Record pre-resolution scores
+    state.round1Scores.set(unitId, scores.map(s => ({ ...s })));
+
+    // ── STEP 2: Extract classification signals from all sources ──
+    const classificationSignals = extractClassificationSignals(
+      scores, signatures, profile, unitPriors, state,
+    );
+
+    // ── STEP 3: CRL lookup for each signal source type ──
+    const fingerprint = computeStructuralFingerprint(profile);
+
+    // Identify competing classifications (boundary)
+    const sortedScores = [...scores].sort((a, b) => b.confidence - a.confidence);
+    const boundaryClassifications = sortedScores
+      .filter(s => s.confidence > 0.30)
+      .slice(0, 3)
+      .map(s => s.agent);
+
+    const crlResults = new Map<SignalSourceType, CRLResult>();
+    const uniqueSourceTypes = new Set(classificationSignals.map(s => s.sourceType));
+
+    for (const sourceType of Array.from(uniqueSourceTypes)) {
+      const crl = await contextualReliabilityLookup(
+        sourceType,
+        fingerprint,
+        state.tenantId,
+        supabaseUrl,
+        supabaseServiceKey,
+        boundaryClassifications,
+      );
+      crlResults.set(sourceType, crl);
+    }
+
+    // ── STEP 4: Bayesian posterior computation ──
+    const posteriors = computePosteriors(classificationSignals, crlResults);
+
+    // Sort by posterior descending
+    posteriors.sort((a, b) => b.posterior - a.posterior);
+
+    // ── STEP 5: Apply posteriors back to agent scores for compatibility ──
+    for (const p of posteriors) {
+      const agentScore = scores.find(s => s.agent === p.classification);
+      if (agentScore) {
+        agentScore.confidence = p.posterior;
+      }
+    }
+
+    // Sort scores by confidence descending
+    scores.sort((a, b) => b.confidence - a.confidence);
+    state.round2Scores.set(unitId, scores);
+
+    // ── STEP 6: CRR diagnostic logging ──
+    const crlDiagEntries = Array.from(crlResults.entries())
+      .map(([src, crl]) => `${src}=${crl.reliability.toFixed(2)}@${crl.level}(${crl.observations})`)
+      .join(', ');
+    console.log(`[SCI-CRR-DIAG] sheet=${profile.tabName} posteriors=[${posteriors.map(p => `${p.classification}=${(p.posterior * 100).toFixed(0)}%`).join(', ')}] crl=[${crlDiagEntries}]`);
+
+    // Record R2 trace entries from CRR
+    trace.round2 = posteriors.map(p => ({
+      agent: p.classification,
+      adjustment: p.posterior - (state.round1Scores.get(unitId)?.find(s => s.agent === p.classification)?.confidence ?? 0),
+      reason: `CRR posterior: ${p.signals.length} signals, ${p.crlLookups.map(c => `${c.sourceType}@${c.level}`).join(', ')}`,
+      evidenceProperty: 'bayesian_posterior',
+      evidenceValue: p.posterior,
+    }));
+
+    // ── STEP 7: Field affinity + split + resolution ──
+    const log: NegotiationLogEntry[] = [];
+    const fieldAffinities = computeFieldAffinities(profile);
+    const splitAnalysis = analyzeSplit(fieldAffinities, scores, log);
+
+    const winner = scores[0];
+    const gap = scores.length >= 2 ? scores[0].confidence - scores[1].confidence : 1.0;
+
+    const resolution: ContentUnitResolution = {
+      classification: winner.agent,
+      confidence: winner.confidence,
+      decisionSource: determineDecisionSource(signatures, winner, crlResults),
+      claimType: splitAnalysis.shouldSplit ? 'PARTIAL' : 'FULL',
+      requiresHumanReview: winner.confidence < 0.50 || gap < 0.10,
+    };
+
+    if (splitAnalysis.shouldSplit && splitAnalysis.secondaryAgent) {
+      resolution.sharedFields = splitAnalysis.sharedFields;
+    }
+
+    state.resolutions.set(unitId, resolution);
+
+    // ── STEP 8: Record final trace ──
+    trace.finalClassification = resolution.classification;
+    trace.finalConfidence = resolution.confidence;
+    trace.decisionSource = resolution.decisionSource;
+    trace.requiresHumanReview = resolution.requiresHumanReview;
+
+    state.traces.set(unitId, trace);
+  }
+}
+
+// ============================================================
+// SIGNAL EXTRACTION
+// Converts all scoring sources into normalized ClassificationSignals.
+// ============================================================
+
+function extractClassificationSignals(
+  scores: AgentScore[],
+  signatures: SignatureMatch[],
+  profile: ContentProfile,
+  priors: Array<{ classification: string; confidence: number; source: string }>,
+  state: SynapticIngestionState,
+): ClassificationSignal[] {
+  const signals: ClassificationSignal[] = [];
+
+  // From structural heuristic scores (each agent's additive score)
+  for (const score of scores) {
+    // Only positive signals count as evidence
+    const positiveSignals = score.signals.filter(s => s.weight > 0);
+    if (positiveSignals.length > 0) {
+      // Separate HC signals from structural signals
+      const hcSignals = positiveSignals.filter(s => s.signal.startsWith('hc_'));
+      const structuralSignals = positiveSignals.filter(s => !s.signal.startsWith('hc_') && !s.signal.startsWith('promoted:') && !s.signal.startsWith('tc_') && s.signal !== 'prior_signal_match');
+      const promotedSignals = positiveSignals.filter(s => s.signal.startsWith('promoted:'));
+      const tcSignals = positiveSignals.filter(s => s.signal.startsWith('tc_'));
+
+      if (structuralSignals.length > 0) {
+        const totalWeight = structuralSignals.reduce((sum, s) => sum + s.weight, 0);
+        signals.push({
+          sourceType: 'structural_heuristic',
+          classification: score.agent,
+          strength: Math.min(1, totalWeight),
+          evidence: structuralSignals.map(s => s.evidence).join('; '),
+        });
+      }
+
+      if (hcSignals.length > 0) {
+        const totalWeight = hcSignals.reduce((sum, s) => sum + s.weight, 0);
+        signals.push({
+          sourceType: 'hc_contextual',
+          classification: score.agent,
+          strength: Math.min(1, Math.abs(totalWeight)),
+          evidence: hcSignals.map(s => s.evidence).join('; '),
+        });
+      }
+
+      if (promotedSignals.length > 0) {
+        signals.push({
+          sourceType: 'promoted_pattern',
+          classification: score.agent,
+          strength: promotedSignals[0].weight,
+          evidence: promotedSignals[0].evidence,
+        });
+      }
+
+      if (tcSignals.length > 0) {
+        const totalWeight = tcSignals.reduce((sum, s) => sum + Math.abs(s.weight), 0);
+        signals.push({
+          sourceType: 'tenant_context',
+          classification: score.agent,
+          strength: Math.min(1, totalWeight),
+          evidence: tcSignals.map(s => s.evidence).join('; '),
+        });
+      }
+    }
+  }
+
+  // From composite signatures
+  for (const sig of signatures) {
+    signals.push({
+      sourceType: 'structural_signature',
+      classification: sig.agent,
+      strength: sig.confidence,
+      evidence: `Signature "${sig.signatureName}": ${sig.matchedConditions.join(', ')}`,
+    });
+  }
+
+  // From HC reference_key interpretation (direct signal extraction)
+  if (profile.headerComprehension) {
+    const refKeys = Array.from(profile.headerComprehension.interpretations.values())
+      .filter(interp => interp.columnRole === 'reference_key' && interp.confidence >= 0.80);
+    if (refKeys.length > 0) {
+      signals.push({
+        sourceType: 'hc_contextual',
+        classification: 'reference',
+        strength: Math.max(...refKeys.map(r => r.confidence)),
+        evidence: `HC reference_key: ${refKeys.length} column(s) at high confidence`,
+      });
+    }
+  }
+
+  // From prior signals
+  for (const prior of priors) {
+    const classification = prior.classification as AgentType;
+    if (CLASSIFICATION_TYPES.includes(classification)) {
+      signals.push({
+        sourceType: 'prior_signal',
+        classification,
+        strength: prior.confidence,
+        evidence: `Prior import: ${prior.source} at ${Math.round(prior.confidence * 100)}%`,
+      });
+    }
+  }
+
+  // From entity ID overlap
+  const overlaps = Array.from(state.entityIdOverlaps.entries());
+  for (const [, overlap] of overlaps) {
+    if (overlap && overlap.overlapSignal === 'high') {
+      signals.push({
+        sourceType: 'entity_overlap',
+        classification: 'entity',
+        strength: overlap.overlapPercentage,
+        evidence: `Entity ID overlap: ${Math.round(overlap.overlapPercentage * 100)}% match with existing entities`,
+      });
+    }
+  }
+
+  return signals;
+}
+
+// ============================================================
+// BAYESIAN POSTERIOR COMPUTATION
+// P(C | signals) ∝ P(C) × ∏ P(signal_i | C)
+// Where P(signal_i | C) uses CRL reliability as the likelihood.
+// ============================================================
+
+function computePosteriors(
+  signals: ClassificationSignal[],
+  crlResults: Map<SignalSourceType, CRLResult>,
+): PosteriorResult[] {
+  const results: PosteriorResult[] = [];
+
+  for (const classification of CLASSIFICATION_TYPES) {
+    const prior = getClassificationPrior(classification);
+
+    // Collect signals relevant to this classification
+    const supportingSignals = signals.filter(s => s.classification === classification);
+    const contradictingSignals = signals.filter(s =>
+      s.classification !== classification && s.strength > 0.30
+    );
+
+    // Log-space computation to avoid numerical underflow
+    let logPosterior = Math.log(prior);
+    const usedCRLs: CRLResult[] = [];
+
+    // Supporting signals: likelihood = reliability * strength
+    for (const signal of supportingSignals) {
+      const crl = crlResults.get(signal.sourceType);
+      const reliability = crl?.reliability ?? 0.50;
+      if (crl && !usedCRLs.includes(crl)) usedCRLs.push(crl);
+
+      // Likelihood: P(signal | C is correct) = reliability * strength
+      // Clamped to prevent log(0)
+      const likelihood = Math.max(0.01, reliability * signal.strength);
+      logPosterior += Math.log(likelihood);
+    }
+
+    // Contradicting signals: inverse likelihood = (1 - reliability * strength)
+    // Only count the strongest contradicting signal per source type to avoid overcounting
+    const contradictBySource = new Map<SignalSourceType, ClassificationSignal>();
+    for (const signal of contradictingSignals) {
+      const existing = contradictBySource.get(signal.sourceType);
+      if (!existing || signal.strength > existing.strength) {
+        contradictBySource.set(signal.sourceType, signal);
+      }
+    }
+
+    for (const [, signal] of Array.from(contradictBySource.entries())) {
+      const crl = crlResults.get(signal.sourceType);
+      const reliability = crl?.reliability ?? 0.50;
+      if (crl && !usedCRLs.includes(crl)) usedCRLs.push(crl);
+
+      // Inverse likelihood: P(contradicting signal | C is correct) = 1 - reliability * strength
+      const inverseLikelihood = Math.max(0.01, 1 - reliability * signal.strength * 0.5);
+      logPosterior += Math.log(inverseLikelihood);
+    }
+
+    results.push({
+      classification,
+      posterior: Math.exp(logPosterior),
+      signals: supportingSignals,
+      crlLookups: usedCRLs,
+    });
+  }
+
+  // Normalize posteriors to sum to 1
+  const totalPosterior = results.reduce((sum, r) => sum + r.posterior, 0);
+  if (totalPosterior > 0) {
+    for (const r of results) {
+      r.posterior = r.posterior / totalPosterior;
+    }
+  }
+
+  return results;
+}
+
+// ============================================================
+// DECISION SOURCE DETERMINATION
+// ============================================================
+
+function determineDecisionSource(
+  signatures: SignatureMatch[],
+  winner: AgentScore,
+  crlResults: Map<SignalSourceType, CRLResult>,
+): ContentUnitResolution['decisionSource'] {
+  // Check if CRL had empirical data (not just seed priors)
+  const hasEmpiricalCRL = Array.from(crlResults.values()).some(c => c.level !== 'seed');
+
+  if (hasEmpiricalCRL) return 'prior_signal';
+  if (signatures.some(s => s.agent === winner.agent)) return 'signature';
+  return 'heuristic';
+}
+
+// ============================================================
+// TRACE INITIALIZATION (same as synaptic-ingestion-state.ts)
+// ============================================================
+
+function initializeTrace(unitId: string, profile: ContentProfile): ClassificationTrace {
+  const headerComp = profile.headerComprehension;
+  const hcData: ClassificationTrace['headerComprehension'] = headerComp ? {
+    available: true,
+    interpretations: Object.fromEntries(
+      Array.from(headerComp.interpretations.entries()).map(([col, interp]) => [
+        col,
+        { semanticMeaning: interp.semanticMeaning, columnRole: interp.columnRole, confidence: interp.confidence },
+      ])
+    ),
+    crossSheetInsights: headerComp.crossSheetInsights,
+    llmCalled: !headerComp.fromVocabularyBinding,
+    llmDuration: headerComp.llmCallDuration,
+    fromVocabularyBinding: headerComp.fromVocabularyBinding,
+  } : null;
+
+  return {
+    contentUnitId: unitId,
+    sheetName: profile.tabName,
+    structuralProfile: {
+      rowCount: profile.structure.rowCount,
+      columnCount: profile.structure.columnCount,
+      numericFieldRatio: profile.structure.numericFieldRatio,
+      categoricalFieldRatio: profile.structure.categoricalFieldRatio,
+      identifierRepeatRatio: profile.structure.identifierRepeatRatio,
+      volumePattern: profile.patterns.volumePattern,
+      hasTemporalColumns: profile.patterns.hasTemporalColumns,
+      hasStructuralNameColumn: profile.patterns.hasStructuralNameColumn,
+      hasEntityIdentifier: profile.patterns.hasEntityIdentifier,
+    },
+    headerComprehension: hcData,
+    round1: [],
+    signatureChecks: [],
+    round2: [],
+    tenantContextApplied: [],
+    priorSignals: [],
+    finalClassification: '',
+    finalConfidence: 0,
+    decisionSource: '',
+    requiresHumanReview: false,
+  };
+}
