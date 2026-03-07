@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Phase B: Enhance with header comprehension (one LLM call for all sheets)
-      await enhanceWithHeaderComprehension(
+      const hcMetrics = await enhanceWithHeaderComprehension(
         profileMap,
         file.sheets.map(s => ({
           sheetName: s.sheetName,
@@ -114,6 +114,22 @@ export async function POST(req: NextRequest) {
         })),
         tenantId,
       );
+
+      // ── HF-096: HC Diagnostic Logging (visible in Vercel Runtime Logs) ──
+      console.log(`[SCI-HC-DIAG] file=${file.fileName} llmCalled=${hcMetrics.llmCalled} duration=${hcMetrics.llmCallDuration}ms avgConf=${hcMetrics.averageConfidence.toFixed(2)} cols=${hcMetrics.columnsInterpreted} insights=${hcMetrics.crossSheetInsightCount}`);
+      for (const [sheetName, profile] of Array.from(profileMap.entries())) {
+        const hc = profile.headerComprehension;
+        if (hc) {
+          const roles = Array.from(hc.interpretations.entries())
+            .map(([col, interp]) => `${col}:${interp.columnRole}@${interp.confidence.toFixed(2)}`)
+            .join(', ');
+          console.log(`[SCI-HC-DIAG] sheet=${sheetName} roles=[${roles}]`);
+        } else {
+          console.log(`[SCI-HC-DIAG] sheet=${sheetName} HC=null (structural only)`);
+        }
+        // Profile state after HC override
+        console.log(`[SCI-PROFILE-DIAG] sheet=${sheetName} idRepeatRatio=${profile.structure.identifierRepeatRatio.toFixed(2)} volumePattern=${profile.patterns.volumePattern} hasTemporal=${profile.patterns.hasTemporalColumns} hasDate=${profile.patterns.hasDateColumn} hasCurrency=${profile.patterns.hasCurrencyColumns} hasName=${profile.patterns.hasStructuralNameColumn} hasEntityId=${profile.patterns.hasEntityIdentifier} numericRatio=${profile.structure.numericFieldRatio.toFixed(2)}`);
+      }
 
       // Phase C+D: Create Synaptic Ingestion State, populate tenant context, classify
       const state = createIngestionState(tenantId, file.fileName, profileMap);
@@ -159,6 +175,19 @@ export async function POST(req: NextRequest) {
       }
 
       classifyContentUnits(state);
+
+      // ── HF-096: Scores Diagnostic Logging ──
+      for (const [cuId, resolution] of Array.from(state.resolutions.entries())) {
+        const profile = Array.from(profileMap.values()).find(p => p.contentUnitId === cuId);
+        const sheetLabel = profile?.tabName ?? cuId;
+        const round2 = state.round2Scores.get(cuId) ?? state.round1Scores.get(cuId) ?? [];
+        const scoresStr = round2
+          .slice()
+          .sort((a, b) => b.confidence - a.confidence)
+          .map(s => `${s.agent}=${(s.confidence * 100).toFixed(0)}%`)
+          .join(', ');
+        console.log(`[SCI-SCORES-DIAG] sheet=${sheetLabel} winner=${resolution.classification}@${(resolution.confidence * 100).toFixed(0)}% scores=[${scoresStr}]`);
+      }
 
       // Build proposal from state (same format as before — proposal cards render correctly)
       const fileContentUnits = buildProposalFromState(state, fileSheets);
