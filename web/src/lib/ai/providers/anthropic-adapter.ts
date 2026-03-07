@@ -541,6 +541,33 @@ Return a JSON object with:
   "narrative": "Your complete narrative text",
   "confidence": 0-100
 }`,
+
+  header_comprehension: `You are analyzing a data file with multiple sheets. For each column in each sheet, determine what the column represents based on its header name and sample values.
+
+For each column, provide:
+- semanticMeaning: what this column represents (e.g., "month_indicator", "employee_identifier", "revenue_attainment_percentage", "hub_name", "safety_incident_count")
+- dataExpectation: what values should look like (e.g., "integer_1_to_12", "unique_numeric_id", "decimal_0_to_1")
+- columnRole: one of: identifier, name, temporal, measure, attribute, reference_key, unknown
+- confidence: 0.0 to 1.0
+
+Also provide crossSheetInsights: observations about relationships between sheets (e.g., "Sheet A and Sheet B share the same employee identifier column", "Sheet C appears to be hub-level reference data while Sheet B has employee-level performance data").
+
+Respond ONLY with valid JSON, no preamble, no markdown:
+{
+  "sheets": {
+    "<sheetName>": {
+      "columns": {
+        "<columnName>": {
+          "semanticMeaning": "...",
+          "dataExpectation": "...",
+          "columnRole": "...",
+          "confidence": 0.00
+        }
+      }
+    }
+  },
+  "crossSheetInsights": ["...", "..."]
+}`,
 };
 
 export class AnthropicAdapter implements AIProviderAdapter {
@@ -861,6 +888,9 @@ Provide your assessment as a JSON object with "assessment" (text with line break
 ${input.userMessage || JSON.stringify(input, null, 2)}
 
 Provide your response as a JSON object with "narrative" (text) and "confidence" (0-100).`;
+
+      case 'header_comprehension':
+        return input.sheetsDescription as string;
 
       default:
         return JSON.stringify(input, null, 2);

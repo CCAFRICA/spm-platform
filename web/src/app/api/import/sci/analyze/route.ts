@@ -104,7 +104,6 @@ export async function POST(req: NextRequest) {
       }
 
       // Phase B: Enhance with header comprehension (one LLM call for all sheets)
-      console.log(`[HC-TRACE-1] About to call enhanceWithHeaderComprehension. Sheets: ${file.sheets.length}, file: ${file.fileName}`);
       const hcMetrics = await enhanceWithHeaderComprehension(
         profileMap,
         file.sheets.map(s => ({
@@ -116,7 +115,6 @@ export async function POST(req: NextRequest) {
         tenantId,
       );
 
-      console.log(`[HC-TRACE-7] HC returned. llmCalled=${hcMetrics.llmCalled}, avgConf=${hcMetrics.averageConfidence}`);
       // ── HF-096: HC Diagnostic Logging (visible in Vercel Runtime Logs) ──
       console.log(`[SCI-HC-DIAG] file=${file.fileName} llmCalled=${hcMetrics.llmCalled} duration=${hcMetrics.llmCallDuration}ms avgConf=${hcMetrics.averageConfidence.toFixed(2)} cols=${hcMetrics.columnsInterpreted} insights=${hcMetrics.crossSheetInsightCount}`);
       for (const [sheetName, profile] of Array.from(profileMap.entries())) {
