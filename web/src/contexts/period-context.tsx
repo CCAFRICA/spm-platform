@@ -8,7 +8,6 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
-import { usePathname } from 'next/navigation';
 import { useTenant } from './tenant-context';
 import type { PeriodInfo } from '@/components/design-system/PeriodRibbon';
 
@@ -70,16 +69,12 @@ function formatPeriodLabel(periodKey: string, startDate: string): string {
 
 export function PeriodProvider({ children }: { children: ReactNode }) {
   const { currentTenant } = useTenant();
-  const pathname = usePathname();
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
   const [activeKey, setActiveKey] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
-  // Decision 93: No period queries on the import surface
-  const isImportRoute = pathname.startsWith('/operate/import');
-
   useEffect(() => {
-    if (!currentTenant?.id || isImportRoute) {
+    if (!currentTenant?.id) {
       setPeriods([]);
       setActiveKey('');
       setIsLoading(false);
@@ -110,7 +105,7 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
 
     init();
     return () => { cancelled = true; };
-  }, [currentTenant?.id, isImportRoute]);
+  }, [currentTenant?.id]);
 
   const setActivePeriod = useCallback((periodKey: string) => {
     setActiveKey(periodKey);
@@ -139,10 +134,19 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// Safe empty context — returned when PeriodProvider is not mounted (e.g., import route)
+const EMPTY_PERIOD_CONTEXT: PeriodContextValue = {
+  activePeriodKey: '',
+  activePeriodId: '',
+  activePeriodLabel: '',
+  availablePeriods: [],
+  setActivePeriod: () => {},
+  isLoading: false,
+};
+
 export function usePeriod(): PeriodContextValue {
   const context = useContext(PeriodContext);
-  if (!context) {
-    throw new Error('usePeriod must be used within PeriodProvider');
-  }
-  return context;
+  // Decision 92: On routes without PeriodProvider (e.g., import),
+  // return empty defaults instead of throwing. Zero period API calls.
+  return context ?? EMPTY_PERIOD_CONTEXT;
 }

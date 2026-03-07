@@ -1,5 +1,6 @@
 // SCI Analyze Document API — POST /api/import/sci/analyze-document
-// OB-133: Document content extraction via Anthropic → SCI proposal
+// OB-133: Document content extraction → SCI proposal
+// HF-101: Migrated to AIService — zero raw AI calls outside AIService.
 // Handles PDF (native), PPTX (text extraction), DOCX (text extraction)
 // Zero domain vocabulary. Korean Test applies.
 
@@ -10,10 +11,8 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import JSZip from 'jszip';
+import { getAIService } from '@/lib/ai/ai-service';
 import type { SCIProposal, ContentUnitProposal } from '@/lib/sci/sci-types';
-
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_VERSION = '2023-06-01';
 
 interface DocumentAnalysis {
   documentType: 'plan' | 'roster' | 'data' | 'unknown';
@@ -73,115 +72,6 @@ async function extractPptxText(base64: string): Promise<string> {
   return allTexts.join(' ');
 }
 
-// ── Anthropic document analysis ──
-
-async function analyzeWithAnthropic(
-  fileBase64: string,
-  mimeType: string,
-  fileName: string,
-  extractedText?: string
-): Promise<DocumentAnalysis> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
-
-  const isPdf = mimeType === 'application/pdf';
-
-  // Build message content
-  const messageContent: unknown[] = [];
-
-  if (isPdf) {
-    // PDF: Send as native document block
-    messageContent.push({
-      type: 'document',
-      source: {
-        type: 'base64',
-        media_type: 'application/pdf',
-        data: fileBase64,
-      },
-    });
-  }
-
-  const textPrompt = isPdf
-    ? `Analyze this document.`
-    : `Analyze the following document content extracted from "${fileName}":\n\n---\n${extractedText}\n---`;
-
-  messageContent.push({
-    type: 'text',
-    text: `${textPrompt}
-
-Determine:
-1. Is this a plan/rules document, a team roster, operational data, or something else?
-2. If it describes rules, rates, or payout structures: how many distinct calculation components are there? What are their names?
-3. Are there rate tables, tier structures, or matrix lookups?
-4. Are there variant/segmentation rules (e.g., different rates for different roles)?
-5. What language is the document in?
-
-Return your analysis as JSON with this exact structure:
-{
-  "documentType": "plan" | "roster" | "data" | "unknown",
-  "componentCount": number,
-  "components": [{ "name": "component name", "calculationType": "tiered_lookup|matrix_lookup|flat_percentage|conditional_percentage" }],
-  "hasVariants": boolean,
-  "variantDescriptions": ["description of each variant"],
-  "language": "en" | "es" | "mixed",
-  "confidence": 0-100,
-  "summary": "Brief summary of what the document contains"
-}`,
-  });
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'x-api-key': apiKey,
-    'anthropic-version': ANTHROPIC_VERSION,
-  };
-  if (isPdf) {
-    headers['anthropic-beta'] = 'pdfs-2024-09-25';
-  }
-
-  const response = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      temperature: 0.1,
-      messages: [{ role: 'user', content: messageContent }],
-    }),
-  });
-
-  if (!response.ok) {
-    const errData = await response.json().catch(() => ({}));
-    throw new Error(`Anthropic API error: ${response.status} ${JSON.stringify(errData)}`);
-  }
-
-  const data = await response.json();
-  const content = data.content?.[0]?.text;
-
-  if (!content) throw new Error('No content in Anthropic response');
-
-  // Parse JSON from response
-  let jsonStr = content;
-  const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (jsonMatch) jsonStr = jsonMatch[1];
-  const objectMatch = jsonStr.match(/\{[\s\S]*\}/);
-  if (objectMatch) jsonStr = objectMatch[0];
-
-  try {
-    return JSON.parse(jsonStr) as DocumentAnalysis;
-  } catch {
-    // Fallback if JSON parsing fails
-    return {
-      documentType: 'unknown',
-      componentCount: 0,
-      components: [],
-      hasVariants: false,
-      language: 'en',
-      confidence: 20,
-      summary: 'Could not analyze document structure.',
-    };
-  }
-}
-
 // ── API Route ──
 
 export async function POST(req: NextRequest) {
@@ -219,6 +109,7 @@ export async function POST(req: NextRequest) {
 
     // Extract text for non-PDF formats
     let extractedText: string | undefined;
+    const isPdf = mimeType === 'application/pdf';
     const isPptx = mimeType.includes('presentationml') || fileName.endsWith('.pptx');
     const isDocx = mimeType.includes('wordprocessingml') || fileName.endsWith('.docx');
 
@@ -228,8 +119,48 @@ export async function POST(req: NextRequest) {
       extractedText = await extractDocxText(fileBase64);
     }
 
-    // Analyze with Anthropic
-    const analysis = await analyzeWithAnthropic(fileBase64, mimeType, fileName, extractedText);
+    // Analyze via AIService (HF-101: single code path for all AI calls)
+    const aiService = getAIService();
+    const aiInput: Record<string, unknown> = { fileName };
+
+    if (isPdf) {
+      aiInput.pdfBase64 = fileBase64;
+      aiInput.pdfMediaType = mimeType;
+    } else {
+      aiInput.extractedText = extractedText || '';
+    }
+
+    const aiResponse = await aiService.execute({
+      task: 'document_analysis',
+      input: aiInput,
+      options: { maxTokens: 4096, responseFormat: 'json' },
+    }, true, { tenantId });
+
+    // Parse analysis from AIService response
+    let analysis: DocumentAnalysis;
+    if (aiResponse.result.parseError) {
+      analysis = {
+        documentType: 'unknown',
+        componentCount: 0,
+        components: [],
+        hasVariants: false,
+        language: 'en',
+        confidence: 20,
+        summary: 'Could not analyze document structure.',
+      };
+    } else {
+      const r = aiResponse.result as unknown as DocumentAnalysis;
+      analysis = {
+        documentType: r.documentType || 'unknown',
+        componentCount: r.componentCount || 0,
+        components: r.components || [],
+        hasVariants: r.hasVariants || false,
+        variantDescriptions: r.variantDescriptions,
+        language: r.language || 'en',
+        confidence: r.confidence || 20,
+        summary: r.summary || 'Document analyzed.',
+      };
+    }
 
     // Map documentType to AgentType
     const classificationMap: Record<string, 'plan' | 'entity' | 'target' | 'transaction'> = {
@@ -292,7 +223,6 @@ export async function POST(req: NextRequest) {
       warnings: normalizedConfidence < 0.60
         ? ['Low confidence — manual classification review recommended']
         : [],
-      // OB-138: Document intelligence
       observations: [
         `Document format: ${mimeType.split('/').pop() || 'unknown'}`,
         ...(analysis.componentCount > 0
