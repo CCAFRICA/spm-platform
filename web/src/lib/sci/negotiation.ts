@@ -13,6 +13,7 @@ import type {
   FieldAffinity,
   NegotiationResult,
   NegotiationLogEntry,
+  ColumnRole,
 } from './sci-types';
 import { scoreContentUnit, resolveClaimsPhase1, requiresHumanReview } from './agents';
 
@@ -20,41 +21,53 @@ import { scoreContentUnit, resolveClaimsPhase1, requiresHumanReview } from './ag
 // FIELD AFFINITY WEIGHTS
 // ============================================================
 
-interface FieldAffinityRule {
-  test: (f: FieldProfile) => boolean;
+// HC-aware field affinity rules (Decision 108)
+// Uses HC columnRole when available, falls back to structural/dataType detection
+interface HCFieldAffinityRule {
+  test: (f: FieldProfile, hcRole?: ColumnRole) => boolean;
   affinities: Record<AgentType, number>;
 }
 
-const FIELD_AFFINITY_RULES: FieldAffinityRule[] = [
-  // Entity identifier — entity owns it, but target + transaction need it as join key
+const FIELD_AFFINITY_RULES: HCFieldAffinityRule[] = [
+  // Entity identifier — HC 'identifier' or structural uniqueness
   {
-    test: f => f.nameSignals.containsId,
+    test: (f, hcRole) => hcRole === 'identifier' || (f.dataType === 'integer' && !!f.distribution.isSequential),
     affinities: { entity: 0.90, target: 0.70, transaction: 0.70, plan: 0.10, reference: 0.30 },
   },
-  // Name fields → entity (header-based or structural)
+  // Name fields → entity (HC 'name' or structural person-name detection)
   {
-    test: f => f.nameSignals.containsName || f.nameSignals.looksLikePersonName,
+    test: (f, hcRole) => hcRole === 'name' || f.nameSignals.looksLikePersonName,
     affinities: { entity: 0.90, target: 0.20, transaction: 0.10, plan: 0.10, reference: 0.50 },
   },
-  // Date fields → transaction
+  // Temporal fields → transaction (HC 'temporal' or date dataType)
   {
-    test: f => f.nameSignals.containsDate || f.dataType === 'date',
+    test: (f, hcRole) => hcRole === 'temporal' || f.dataType === 'date',
     affinities: { transaction: 0.90, entity: 0.10, target: 0.20, plan: 0.10, reference: 0.05 },
   },
-  // Amount/currency fields → transaction, then target
+  // Currency/monetary fields → transaction, then target (dataType-based, not header substring)
   {
-    test: f => f.nameSignals.containsAmount || f.dataType === 'currency',
+    test: (f) => f.dataType === 'currency',
     affinities: { transaction: 0.80, target: 0.60, entity: 0.10, plan: 0.30, reference: 0.10 },
   },
-  // Target fields → target
+  // Reference key fields → reference
   {
-    test: f => f.nameSignals.containsTarget,
-    affinities: { target: 0.90, entity: 0.20, transaction: 0.20, plan: 0.10, reference: 0.10 },
+    test: (_f, hcRole) => hcRole === 'reference_key',
+    affinities: { reference: 0.90, entity: 0.20, transaction: 0.10, target: 0.10, plan: 0.05 },
   },
-  // Rate/percentage → plan, then target
+  // Rate/percentage → plan, then target (dataType-based)
   {
-    test: f => f.nameSignals.containsRate || f.dataType === 'percentage',
+    test: (f) => f.dataType === 'percentage',
     affinities: { plan: 0.80, target: 0.50, transaction: 0.20, entity: 0.10, reference: 0.10 },
+  },
+  // HC measure → transaction or target depending on context
+  {
+    test: (_f, hcRole) => hcRole === 'measure',
+    affinities: { transaction: 0.60, target: 0.50, entity: 0.10, plan: 0.20, reference: 0.10 },
+  },
+  // HC attribute → entity or reference
+  {
+    test: (_f, hcRole) => hcRole === 'attribute',
+    affinities: { entity: 0.60, reference: 0.50, transaction: 0.30, target: 0.20, plan: 0.10 },
   },
   // Low-cardinality text (categorical) → entity attribute or category code
   {
@@ -72,12 +85,12 @@ const FIELD_AFFINITY_RULES: FieldAffinityRule[] = [
 // FIELD AFFINITY SCORING
 // ============================================================
 
-function scoreFieldAffinity(field: FieldProfile): Record<AgentType, number> {
+function scoreFieldAffinity(field: FieldProfile, hcRole?: ColumnRole): Record<AgentType, number> {
   const affinities: Record<AgentType, number> = { plan: 0, entity: 0, target: 0, transaction: 0, reference: 0 };
   let matchCount = 0;
 
   for (const rule of FIELD_AFFINITY_RULES) {
-    if (rule.test(field)) {
+    if (rule.test(field, hcRole)) {
       for (const agent of ['plan', 'entity', 'target', 'transaction', 'reference'] as AgentType[]) {
         affinities[agent] = Math.max(affinities[agent], rule.affinities[agent]);
       }
@@ -97,13 +110,19 @@ function scoreFieldAffinity(field: FieldProfile): Record<AgentType, number> {
 }
 
 export function computeFieldAffinities(profile: ContentProfile): FieldAffinity[] {
+  const hc = profile.headerComprehension;
+
   return profile.fields.map(field => {
-    const affinities = scoreFieldAffinity(field);
+    // Get HC column role if available
+    const hcInterp = hc?.interpretations.get(field.fieldName);
+    const hcRole = hcInterp?.columnRole as ColumnRole | undefined;
+    const affinities = scoreFieldAffinity(field, hcRole);
 
     const entries = Object.entries(affinities) as [AgentType, number][];
     entries.sort((a, b) => b[1] - a[1]);
     const winner = entries[0][0];
-    const isShared = field.nameSignals.containsId;
+    // Shared fields: HC 'identifier' or structural sequential integer
+    const isShared = hcRole === 'identifier' || (field.dataType === 'integer' && !!field.distribution.isSequential);
 
     return {
       fieldName: field.fieldName,
@@ -242,11 +261,14 @@ export function generatePartialBindings(
 ): SemanticBinding[] {
   const relevantFields = new Set([...ownedFields, ...sharedFields]);
   const bindings: SemanticBinding[] = [];
+  const hc = profile.headerComprehension;
 
   for (const field of profile.fields) {
     if (!relevantFields.has(field.fieldName)) continue;
 
-    const role = inferRoleForAgent(field, agent);
+    const hcInterp = hc?.interpretations.get(field.fieldName);
+    const hcRole = hcInterp?.columnRole as ColumnRole | undefined;
+    const role = inferRoleForAgent(field, agent, hcRole);
     bindings.push({
       sourceField: field.fieldName,
       platformType: field.dataType,
@@ -263,40 +285,48 @@ export function generatePartialBindings(
 
 function inferRoleForAgent(
   field: FieldProfile,
-  agent: AgentType
+  agent: AgentType,
+  hcRole?: ColumnRole,
 ): { role: SemanticBinding['semanticRole']; context: string; confidence: number } {
-  if (field.nameSignals.containsId) {
+  // HC identifier or structural sequential integer → entity_identifier
+  if (hcRole === 'identifier' || (field.dataType === 'integer' && !!field.distribution.isSequential)) {
     return { role: 'entity_identifier', context: `${field.fieldName} — links to entity`, confidence: 0.90 };
+  }
+
+  // HC reference_key → entity_identifier (for reference tables)
+  if (hcRole === 'reference_key') {
+    return { role: 'entity_identifier', context: `${field.fieldName} — reference key`, confidence: 0.90 };
   }
 
   switch (agent) {
     case 'entity':
-      if (field.nameSignals.containsName) return { role: 'entity_name', context: `${field.fieldName} — display name`, confidence: 0.85 };
-      if (field.nameSignals.looksLikePersonName) return { role: 'entity_name', context: `${field.fieldName} — display name (structural)`, confidence: 0.80 };
+      if (hcRole === 'name' || field.nameSignals.looksLikePersonName) return { role: 'entity_name', context: `${field.fieldName} — display name`, confidence: 0.85 };
+      if (hcRole === 'attribute') return { role: 'entity_attribute', context: `${field.fieldName} — attribute`, confidence: 0.75 };
       if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20) return { role: 'entity_attribute', context: `${field.fieldName} — categorical property`, confidence: 0.70 };
       return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };
 
     case 'target':
-      if (field.nameSignals.containsTarget) return { role: 'performance_target', context: `${field.fieldName} — goal value`, confidence: 0.90 };
-      if (field.dataType === 'currency' || field.nameSignals.containsAmount) return { role: 'baseline_value', context: `${field.fieldName} — baseline`, confidence: 0.70 };
+      if (hcRole === 'measure') return { role: 'performance_target', context: `${field.fieldName} — measure/goal`, confidence: 0.80 };
+      if (field.dataType === 'currency') return { role: 'baseline_value', context: `${field.fieldName} — baseline`, confidence: 0.70 };
       if (field.dataType === 'text') return { role: 'category_code', context: `${field.fieldName} — grouping`, confidence: 0.60 };
       return { role: 'unknown', context: `${field.fieldName} — unclassified`, confidence: 0.30 };
 
     case 'transaction':
-      if (field.nameSignals.containsDate || field.dataType === 'date') return { role: 'transaction_date', context: `${field.fieldName} — event timestamp`, confidence: 0.90 };
-      if (field.dataType === 'currency' || field.nameSignals.containsAmount) return { role: 'transaction_amount', context: `${field.fieldName} — event value`, confidence: 0.85 };
+      if (hcRole === 'temporal' || field.dataType === 'date') return { role: 'transaction_date', context: `${field.fieldName} — event timestamp`, confidence: 0.90 };
+      if (field.dataType === 'currency') return { role: 'transaction_amount', context: `${field.fieldName} — event value`, confidence: 0.85 };
+      if (hcRole === 'measure') return { role: 'transaction_count', context: `${field.fieldName} — measure`, confidence: 0.70 };
       if (field.dataType === 'integer') return { role: 'transaction_count', context: `${field.fieldName} — event count`, confidence: 0.60 };
       if (field.dataType === 'text') return { role: 'category_code', context: `${field.fieldName} — classification`, confidence: 0.60 };
       return { role: 'unknown', context: `${field.fieldName} — unclassified`, confidence: 0.30 };
 
     case 'plan':
-      if (field.dataType === 'percentage' || field.nameSignals.containsRate) return { role: 'rate_value', context: `${field.fieldName} — rate/threshold`, confidence: 0.80 };
-      if (field.dataType === 'currency' || field.nameSignals.containsAmount) return { role: 'payout_amount', context: `${field.fieldName} — reward amount`, confidence: 0.75 };
+      if (field.dataType === 'percentage') return { role: 'rate_value', context: `${field.fieldName} — rate/threshold`, confidence: 0.80 };
+      if (field.dataType === 'currency') return { role: 'payout_amount', context: `${field.fieldName} — reward amount`, confidence: 0.75 };
       if (field.dataType === 'text') return { role: 'descriptive_label', context: `${field.fieldName} — rule text`, confidence: 0.65 };
       return { role: 'tier_boundary', context: `${field.fieldName} — threshold`, confidence: 0.50 };
 
     case 'reference':
-      if (field.nameSignals.containsName) return { role: 'descriptive_label', context: `${field.fieldName} — display label`, confidence: 0.85 };
+      if (hcRole === 'name') return { role: 'descriptive_label', context: `${field.fieldName} — display label`, confidence: 0.85 };
       if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20) return { role: 'category_code', context: `${field.fieldName} — category`, confidence: 0.75 };
       if (field.dataType === 'text') return { role: 'descriptive_label', context: `${field.fieldName} — descriptive text`, confidence: 0.65 };
       return { role: 'unknown', context: `${field.fieldName} — unclassified reference field`, confidence: 0.30 };

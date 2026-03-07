@@ -414,12 +414,15 @@ export function requiresHumanReview(scores: AgentScore[]): boolean {
 
 // ============================================================
 // SEMANTIC BINDING GENERATION
-// nameSignals are used here for OBSERVATION/BINDING text — not scoring.
+// Decision 108: Uses HC columnRole when available, structural dataType as fallback.
 // ============================================================
 
 function generateSemanticBindings(profile: ContentProfile, agent: AgentType): SemanticBinding[] {
+  const hc = profile.headerComprehension;
   return profile.fields.map(field => {
-    const binding = assignSemanticRole(field, agent);
+    const hcInterp = hc?.interpretations.get(field.fieldName);
+    const hcRole = hcInterp?.columnRole;
+    const binding = assignSemanticRole(field, agent, hcRole);
     return {
       sourceField: field.fieldName,
       platformType: field.dataType,
@@ -434,22 +437,34 @@ function generateSemanticBindings(profile: ContentProfile, agent: AgentType): Se
 
 function assignSemanticRole(
   field: ContentProfile['fields'][0],
-  agent: AgentType
+  agent: AgentType,
+  hcRole?: string,
 ): { role: SemanticRole; context: string; confidence: number } {
+  // HC identifier or reference_key → entity_identifier regardless of agent
+  if (hcRole === 'identifier' || hcRole === 'reference_key') {
+    return { role: 'entity_identifier', context: `${field.fieldName} — identifier`, confidence: 0.90 };
+  }
+  // Structural sequential integer → entity_identifier
+  if (field.dataType === 'integer' && field.distribution.isSequential) {
+    return { role: 'entity_identifier', context: `${field.fieldName} — sequential identifier`, confidence: 0.85 };
+  }
+
   switch (agent) {
-    case 'plan': return assignPlanRole(field);
-    case 'entity': return assignEntityRole(field);
-    case 'target': return assignTargetRole(field);
-    case 'transaction': return assignTransactionRole(field);
-    case 'reference': return assignReferenceRole(field);
+    case 'plan': return assignPlanRole(field, hcRole);
+    case 'entity': return assignEntityRole(field, hcRole);
+    case 'target': return assignTargetRole(field, hcRole);
+    case 'transaction': return assignTransactionRole(field, hcRole);
+    case 'reference': return assignReferenceRole(field, hcRole);
   }
 }
 
-function assignPlanRole(field: ContentProfile['fields'][0]): { role: SemanticRole; context: string; confidence: number } {
-  if (field.dataType === 'percentage' || field.nameSignals.containsRate)
+function assignPlanRole(field: ContentProfile['fields'][0], hcRole?: string): { role: SemanticRole; context: string; confidence: number } {
+  if (field.dataType === 'percentage')
     return { role: 'rate_value', context: `Rule definition — rate/threshold value`, confidence: 0.80 };
-  if (field.dataType === 'currency' || field.nameSignals.containsAmount)
+  if (field.dataType === 'currency')
     return { role: 'payout_amount', context: `Rule definition — reward amount`, confidence: 0.75 };
+  if (hcRole === 'measure')
+    return { role: 'tier_boundary', context: `Rule definition — measure value`, confidence: 0.70 };
   if (field.dataType === 'text')
     return { role: 'descriptive_label', context: `Rule definition — descriptive text`, confidence: 0.70 };
   if (field.dataType === 'integer' || field.dataType === 'decimal')
@@ -457,24 +472,20 @@ function assignPlanRole(field: ContentProfile['fields'][0]): { role: SemanticRol
   return { role: 'unknown', context: `Rule definition — unclassified field`, confidence: 0.30 };
 }
 
-function assignEntityRole(field: ContentProfile['fields'][0]): { role: SemanticRole; context: string; confidence: number } {
-  if (field.nameSignals.containsId)
-    return { role: 'entity_identifier', context: `${field.fieldName} — unique identifier`, confidence: 0.90 };
-  if (field.nameSignals.containsName)
+function assignEntityRole(field: ContentProfile['fields'][0], hcRole?: string): { role: SemanticRole; context: string; confidence: number } {
+  if (hcRole === 'name' || field.nameSignals.looksLikePersonName)
     return { role: 'entity_name', context: `${field.fieldName} — display name`, confidence: 0.85 };
-  if (field.nameSignals.looksLikePersonName)
-    return { role: 'entity_name', context: `${field.fieldName} — display name (structural)`, confidence: 0.80 };
+  if (hcRole === 'attribute')
+    return { role: 'entity_attribute', context: `${field.fieldName} — attribute`, confidence: 0.75 };
   if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
     return { role: 'entity_attribute', context: `${field.fieldName} — categorical property`, confidence: 0.70 };
   return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };
 }
 
-function assignTargetRole(field: ContentProfile['fields'][0]): { role: SemanticRole; context: string; confidence: number } {
-  if (field.nameSignals.containsId)
-    return { role: 'entity_identifier', context: `${field.fieldName} — links target to entity`, confidence: 0.90 };
-  if (field.nameSignals.containsTarget)
-    return { role: 'performance_target', context: `${field.fieldName} — goal/benchmark value`, confidence: 0.90 };
-  if (field.dataType === 'currency' || field.nameSignals.containsAmount)
+function assignTargetRole(field: ContentProfile['fields'][0], hcRole?: string): { role: SemanticRole; context: string; confidence: number } {
+  if (hcRole === 'measure')
+    return { role: 'performance_target', context: `${field.fieldName} — measure/goal`, confidence: 0.80 };
+  if (field.dataType === 'currency')
     return { role: 'baseline_value', context: `${field.fieldName} — baseline for comparison`, confidence: 0.70 };
   if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
     return { role: 'category_code', context: `${field.fieldName} — grouping category`, confidence: 0.65 };
@@ -483,14 +494,14 @@ function assignTargetRole(field: ContentProfile['fields'][0]): { role: SemanticR
   return { role: 'unknown', context: `${field.fieldName} — unclassified target field`, confidence: 0.30 };
 }
 
-function assignTransactionRole(field: ContentProfile['fields'][0]): { role: SemanticRole; context: string; confidence: number } {
-  if (field.nameSignals.containsId)
-    return { role: 'entity_identifier', context: `${field.fieldName} — links event to entity`, confidence: 0.85 };
-  if (field.nameSignals.containsDate || field.dataType === 'date')
+function assignTransactionRole(field: ContentProfile['fields'][0], hcRole?: string): { role: SemanticRole; context: string; confidence: number } {
+  if (hcRole === 'temporal' || field.dataType === 'date')
     return { role: 'transaction_date', context: `${field.fieldName} — event timestamp`, confidence: 0.90 };
-  if (field.dataType === 'currency' || field.nameSignals.containsAmount)
+  if (field.dataType === 'currency')
     return { role: 'transaction_amount', context: `${field.fieldName} — monetary value`, confidence: 0.85 };
-  if (field.dataType === 'integer' && !field.nameSignals.containsId)
+  if (hcRole === 'measure')
+    return { role: 'transaction_count', context: `${field.fieldName} — measure`, confidence: 0.70 };
+  if (field.dataType === 'integer')
     return { role: 'transaction_count', context: `${field.fieldName} — event count`, confidence: 0.60 };
   if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
     return { role: 'category_code', context: `${field.fieldName} — classification`, confidence: 0.70 };
@@ -499,10 +510,8 @@ function assignTransactionRole(field: ContentProfile['fields'][0]): { role: Sema
   return { role: 'unknown', context: `${field.fieldName} — unclassified event field`, confidence: 0.30 };
 }
 
-function assignReferenceRole(field: ContentProfile['fields'][0]): { role: SemanticRole; context: string; confidence: number } {
-  if (field.distinctCount > 0 && field.distinctCount / Math.max(1, field.distinctCount + 1) > 0.80 && field.nameSignals.containsId)
-    return { role: 'entity_identifier', context: `${field.fieldName} — reference key`, confidence: 0.90 };
-  if (field.nameSignals.containsName)
+function assignReferenceRole(field: ContentProfile['fields'][0], hcRole?: string): { role: SemanticRole; context: string; confidence: number } {
+  if (hcRole === 'name')
     return { role: 'descriptive_label', context: `${field.fieldName} — display label`, confidence: 0.85 };
   if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
     return { role: 'category_code', context: `${field.fieldName} — category grouping`, confidence: 0.75 };
