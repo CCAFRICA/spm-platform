@@ -110,7 +110,7 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
 
     init();
     return () => { cancelled = true; };
-  }, [currentTenant?.id]);
+  }, [currentTenant?.id, isImportRoute]);
 
   const setActivePeriod = useCallback((periodKey: string) => {
     setActiveKey(periodKey);
