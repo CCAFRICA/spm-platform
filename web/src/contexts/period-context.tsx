@@ -8,6 +8,7 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import { useTenant } from './tenant-context';
 import type { PeriodInfo } from '@/components/design-system/PeriodRibbon';
 
@@ -69,12 +70,16 @@ function formatPeriodLabel(periodKey: string, startDate: string): string {
 
 export function PeriodProvider({ children }: { children: ReactNode }) {
   const { currentTenant } = useTenant();
+  const pathname = usePathname();
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
   const [activeKey, setActiveKey] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
+  // Decision 93: No period queries on the import surface
+  const isImportRoute = pathname.startsWith('/operate/import');
+
   useEffect(() => {
-    if (!currentTenant?.id) {
+    if (!currentTenant?.id || isImportRoute) {
       setPeriods([]);
       setActiveKey('');
       setIsLoading(false);
