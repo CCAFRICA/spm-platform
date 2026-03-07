@@ -75,14 +75,15 @@ export async function POST(req: NextRequest) {
     // Verify tenant exists + read industry for domain flywheel (OB-160J)
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('id, industry')
+      .select('id, settings')
       .eq('id', tenantId)
       .single();
 
     if (!tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
     }
-    const tenantDomainId = ((tenant as Record<string, unknown>).industry as string) || '';
+    const tenantSettings = (tenant.settings as Record<string, unknown>) ?? {};
+    const tenantDomainId = (tenantSettings.industry as string) || '';
 
     const results: ContentUnitResult[] = [];
 
