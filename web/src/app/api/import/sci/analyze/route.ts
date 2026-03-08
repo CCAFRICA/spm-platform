@@ -228,11 +228,13 @@ export async function POST(req: NextRequest) {
       }
 
       // Build proposal from state (same format as before — proposal cards render correctly)
-      // HF-106: Dedup safety net — filter out ::split entries for Level-1-matched sheets
+      // HF-106: Dedup safety net — one sheet = one content unit, always.
+      // Remove ALL ::split entries. Split claims caused unique constraint violations
+      // on import because two CUs map to the same sheet/committed_data rows.
       const fileContentUnits = buildProposalFromState(state, fileSheets)
         .filter(cu => {
-          if (cu.contentUnitId.includes('::split') && level1Sheets.has(cu.tabName)) {
-            console.log(`[SCI-DEDUP] Removed split duplicate for ${cu.tabName}`);
+          if (cu.contentUnitId.includes('::split')) {
+            console.log(`[SCI-DEDUP] Removed split duplicate for ${cu.tabName} (${cu.classification})`);
             return false;
           }
           return true;
