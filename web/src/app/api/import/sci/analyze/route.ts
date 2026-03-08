@@ -15,7 +15,6 @@ import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
 import { requiresHumanReview } from '@/lib/sci/agents';
-import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
 import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
 import type { ClassificationDensity, StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
@@ -67,13 +66,6 @@ export async function POST(req: NextRequest) {
     }
     const tenantSettings = (tenant.settings as Record<string, unknown>) ?? {};
     const tenantDomainId = (tenantSettings.industry as string) || '';
-
-    // Phase D: Query tenant context ONCE before scoring (parallel queries)
-    const tenantContext = await queryTenantContext(
-      tenantId,
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    );
 
     const proposalId = crypto.randomUUID();
     const contentUnits: ContentUnitProposal[] = [];
@@ -133,25 +125,15 @@ export async function POST(req: NextRequest) {
         console.log(`[SCI-PROFILE-DIAG] sheet=${sheetName} idRepeatRatio=${profile.structure.identifierRepeatRatio.toFixed(2)} volumePattern=${profile.patterns.volumePattern} hasTemporal=${profile.patterns.hasTemporalColumns} hasDate=${profile.patterns.hasDateColumn} hasCurrency=${profile.patterns.hasCurrencyColumns} hasName=${profile.patterns.hasStructuralNameColumn} hasEntityId=${profile.patterns.hasEntityIdentifier} numericRatio=${profile.structure.numericFieldRatio.toFixed(2)}`);
       }
 
-      // Phase C+D: Create Synaptic Ingestion State, populate tenant context, classify
+      // Phase C: Create Synaptic Ingestion State, classify
       const state = createIngestionState(tenantId, file.fileName, profileMap);
-      state.tenantContext = tenantContext;
       state.promotedPatterns = promotedPatterns; // OB-160L
 
-      // Compute entity ID overlap per content unit (Phase D)
-      // + Compute structural fingerprint and lookup prior signals (Phase E)
+      // Phase E: Compute structural fingerprint and lookup prior signals + density
       for (let tabIndex = 0; tabIndex < file.sheets.length; tabIndex++) {
         const sheet = file.sheets[tabIndex];
         const profile = profileMap.get(sheet.sheetName);
         if (profile) {
-          const overlap = computeEntityIdOverlap(
-            profile,
-            sheet.rows,
-            tenantContext.existingEntityExternalIds,
-          );
-          state.entityIdOverlaps.set(profile.contentUnitId, overlap);
-
-          // Phase E: Prior signal consultation
           const fingerprint = computeStructuralFingerprint(profile);
           fingerprintMap.set(profile.contentUnitId, fingerprint); // HF-094
           const priors = await lookupPriorSignals(

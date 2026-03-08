@@ -1,7 +1,7 @@
 // Contextual Reliability Resolver (CRRes) — Decision 110
 // OB-161 — Bayesian posterior classification.
 // Reads all signals from the Synaptic Surface (agent scores, HC, signatures,
-// tenant context, priors). Looks up reliability for each source via CRL.
+// priors). Looks up reliability for each source via CRL.
 // Computes posterior probability for each classification. Highest posterior wins.
 //
 // Replaces: classifyContentUnits() scoring logic
@@ -20,7 +20,6 @@ import { computeAdditiveScores, applyHeaderComprehensionSignals } from './agents
 import { computeFieldAffinities, analyzeSplit } from './negotiation';
 import { computeStructuralFingerprint, fingerprintToSignature } from './classification-signal-service';
 import { checkPromotedPatterns } from './promoted-patterns';
-import { computeTenantContextAdjustments } from './tenant-context';
 import { contextualReliabilityLookup, resetCRLCache } from './contextual-reliability';
 import { getClassificationPrior, CLASSIFICATION_TYPES } from './seed-priors';
 import type { SignalSourceType } from './seed-priors';
@@ -107,29 +106,7 @@ export async function resolveClassification(
     // 1d: Header comprehension signals (additive to agent scores)
     applyHeaderComprehensionSignals(scores, profile);
 
-    // 1e: Tenant context adjustments
-    if (state.tenantContext) {
-      const overlap = state.entityIdOverlaps.get(unitId) ?? null;
-      const tcAdjustments = computeTenantContextAdjustments(state.tenantContext, overlap, profile);
-      for (const adj of tcAdjustments) {
-        const agentScore = scores.find(s => s.agent === adj.agent);
-        if (agentScore) {
-          agentScore.confidence = Math.max(0, Math.min(1, agentScore.confidence + adj.adjustment));
-          agentScore.signals.push({
-            signal: `tc_${adj.signal}`,
-            weight: adj.adjustment,
-            evidence: adj.evidence,
-          });
-        }
-      }
-      trace.tenantContextApplied = tcAdjustments.map(adj => ({
-        signal: adj.signal,
-        adjustment: adj.adjustment,
-        evidence: adj.evidence,
-      }));
-    }
-
-    // 1f: Prior signals from flywheel
+    // 1e: Prior signals from flywheel
     const unitPriors = state.priorSignals.get(unitId) ?? [];
     if (unitPriors.length > 0) {
       trace.priorSignals = unitPriors.map(s => ({
@@ -144,7 +121,7 @@ export async function resolveClassification(
 
     // ── STEP 2: Extract classification signals from all sources ──
     const classificationSignals = extractClassificationSignals(
-      scores, signatures, profile, unitPriors, state,
+      scores, signatures, profile, unitPriors,
     );
 
     // ── STEP 3: CRL lookup for each signal source type ──
@@ -247,7 +224,6 @@ function extractClassificationSignals(
   signatures: SignatureMatch[],
   profile: ContentProfile,
   priors: Array<{ classification: string; confidence: number; source: string }>,
-  state: SynapticIngestionState,
 ): ClassificationSignal[] {
   const signals: ClassificationSignal[] = [];
 
@@ -258,9 +234,8 @@ function extractClassificationSignals(
     if (positiveSignals.length > 0) {
       // Separate HC signals from structural signals
       const hcSignals = positiveSignals.filter(s => s.signal.startsWith('hc_'));
-      const structuralSignals = positiveSignals.filter(s => !s.signal.startsWith('hc_') && !s.signal.startsWith('promoted:') && !s.signal.startsWith('tc_') && s.signal !== 'prior_signal_match');
+      const structuralSignals = positiveSignals.filter(s => !s.signal.startsWith('hc_') && !s.signal.startsWith('promoted:') && s.signal !== 'prior_signal_match');
       const promotedSignals = positiveSignals.filter(s => s.signal.startsWith('promoted:'));
-      const tcSignals = positiveSignals.filter(s => s.signal.startsWith('tc_'));
 
       if (structuralSignals.length > 0) {
         const totalWeight = structuralSignals.reduce((sum, s) => sum + s.weight, 0);
@@ -291,15 +266,6 @@ function extractClassificationSignals(
         });
       }
 
-      if (tcSignals.length > 0) {
-        const totalWeight = tcSignals.reduce((sum, s) => sum + Math.abs(s.weight), 0);
-        signals.push({
-          sourceType: 'tenant_context',
-          classification: score.agent,
-          strength: Math.min(1, totalWeight),
-          evidence: tcSignals.map(s => s.evidence).join('; '),
-        });
-      }
     }
   }
 
@@ -336,19 +302,6 @@ function extractClassificationSignals(
         classification,
         strength: prior.confidence,
         evidence: `Prior import: ${prior.source} at ${Math.round(prior.confidence * 100)}%`,
-      });
-    }
-  }
-
-  // From entity ID overlap
-  const overlaps = Array.from(state.entityIdOverlaps.entries());
-  for (const [, overlap] of overlaps) {
-    if (overlap && overlap.overlapSignal === 'high') {
-      signals.push({
-        sourceType: 'entity_overlap',
-        classification: 'entity',
-        strength: overlap.overlapPercentage,
-        evidence: `Entity ID overlap: ${Math.round(overlap.overlapPercentage * 100)}% match with existing entities`,
       });
     }
   }
@@ -503,7 +456,6 @@ function initializeTrace(unitId: string, profile: ContentProfile): Classificatio
     round1: [],
     signatureChecks: [],
     round2: [],
-    tenantContextApplied: [],
     priorSignals: [],
     finalClassification: '',
     finalConfidence: 0,

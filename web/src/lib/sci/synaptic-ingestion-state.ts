@@ -19,7 +19,6 @@ import { computeFieldAffinities, analyzeSplit, generatePartialBindings } from '.
 import { generateProposalIntelligence } from './proposal-intelligence';
 import { checkPromotedPatterns } from './promoted-patterns';
 import { computeStructuralFingerprint, fingerprintToSignature } from './classification-signal-service';
-import { computeTenantContextAdjustments } from './tenant-context';
 import type { PriorSignal } from './classification-signal-service';
 
 // ============================================================
@@ -43,12 +42,6 @@ export interface SynapticIngestionState {
   // Resolution (populated after scoring)
   resolutions: Map<string, ContentUnitResolution>;
 
-  // Tenant context (populated by Phase D)
-  tenantContext?: TenantContext;
-
-  // Entity ID overlaps per content unit (populated by Phase D before scoring)
-  entityIdOverlaps: Map<string, EntityIdOverlap | null>;
-
   // Prior signals from flywheel (populated by Phase E before scoring)
   priorSignals: Map<string, PriorSignal[]>;
 
@@ -71,36 +64,6 @@ export interface ContentUnitResolution {
   fieldAssignments?: Map<string, AgentType>;  // Phase H: field → claiming agent
   sharedFields?: string[];                     // Phase H: fields needed by multiple agents
   requiresHumanReview: boolean;
-}
-
-// ============================================================
-// TENANT CONTEXT (Phase D populates)
-// ============================================================
-
-export interface TenantContext {
-  existingEntityCount: number;
-  existingEntityExternalIds: Set<string>;
-  existingPlanCount: number;
-  existingPlanComponentNames: string[];
-  existingPlanInputRequirements: string[];
-  committedDataRowCount: number;
-  committedDataTypes: string[];
-  referenceDataExists: boolean;
-}
-
-export interface EntityIdOverlap {
-  sheetIdentifierColumn: string;
-  sheetUniqueValues: Set<string>;
-  matchingEntityIds: Set<string>;
-  overlapPercentage: number;
-  overlapSignal: 'high' | 'partial' | 'none';
-}
-
-export interface TenantContextAdjustment {
-  agent: string;
-  adjustment: number;
-  signal: string;
-  evidence: string;
 }
 
 // ============================================================
@@ -158,13 +121,6 @@ export interface ClassificationTrace {
     evidenceValue: unknown;
   }[];
 
-  // Phase D: Tenant context (populated later)
-  tenantContextApplied: {
-    signal: string;
-    adjustment: number;
-    evidence: string;
-  }[];
-
   // Phase E: Prior signals (populated later)
   priorSignals: {
     classification: string;
@@ -197,7 +153,6 @@ export function createIngestionState(
     signatureMatches: new Map(),
     round2Scores: new Map(),
     resolutions: new Map(),
-    entityIdOverlaps: new Map(),
     priorSignals: new Map(),
     traces: new Map(),
   };
@@ -262,29 +217,7 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
     // STEP 3: Header comprehension signals (ADDITIVE — when null, scoring works on structural signals only)
     applyHeaderComprehensionSignals(scores, profile);
 
-    // STEP 3.5: Tenant context adjustments (Phase D — presence-based only)
-    if (state.tenantContext) {
-      const overlap = state.entityIdOverlaps.get(unitId) ?? null;
-      const tcAdjustments = computeTenantContextAdjustments(state.tenantContext, overlap, profile);
-      for (const adj of tcAdjustments) {
-        const agentScore = scores.find(s => s.agent === adj.agent);
-        if (agentScore) {
-          agentScore.confidence = Math.max(0, Math.min(1, agentScore.confidence + adj.adjustment));
-          agentScore.signals.push({
-            signal: `tc_${adj.signal}`,
-            weight: adj.adjustment,
-            evidence: adj.evidence,
-          });
-        }
-      }
-      trace.tenantContextApplied = tcAdjustments.map(adj => ({
-        signal: adj.signal,
-        adjustment: adj.adjustment,
-        evidence: adj.evidence,
-      }));
-    }
-
-    // STEP 3.75: Prior signal boost (Phase E — flywheel data)
+    // STEP 3.5: Prior signal boost (Phase E — flywheel data)
     const unitPriors = state.priorSignals.get(unitId) ?? [];
     if (unitPriors.length > 0) {
       // Use the most recent, highest-confidence prior signal
@@ -367,7 +300,7 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
     trace.finalConfidence = resolution.confidence;
     trace.decisionSource = resolution.decisionSource;
     trace.requiresHumanReview = resolution.requiresHumanReview;
-    // tenantContextApplied is populated in Step 3.5, priorSignals in Step 3.75 (or stay empty from initializeTrace)
+    // priorSignals populated in Step 3.5 (or stay empty from initializeTrace)
 
     state.traces.set(unitId, trace);
   }
@@ -525,7 +458,6 @@ function initializeTrace(unitId: string, profile: ContentProfile): Classificatio
     round1: [],
     signatureChecks: [],
     round2: [],
-    tenantContextApplied: [],
     priorSignals: [],
     finalClassification: '',
     finalConfidence: 0,
