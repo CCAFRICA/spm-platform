@@ -169,19 +169,35 @@ export async function POST(req: NextRequest) {
       for (const [unitId, profile] of Array.from(state.contentUnits.entries())) {
         const hcResult = classifyByHCPattern(profile);
         if (hcResult) {
+          // Override resolution
           const resolution = state.resolutions.get(unitId);
           if (resolution) {
             resolution.classification = hcResult.classification;
             resolution.confidence = hcResult.confidence;
             resolution.decisionSource = 'hc_pattern';
-            resolution.requiresHumanReview = false; // Level 1 pattern match = high confidence
+            resolution.requiresHumanReview = false;
           }
+          // Override trace
           const trace = state.traces.get(unitId);
           if (trace) {
             trace.finalClassification = hcResult.classification;
             trace.finalConfidence = hcResult.confidence;
             trace.decisionSource = 'hc_pattern';
             trace.requiresHumanReview = false;
+          }
+          // Override round2Scores so buildProposalFromState picks up Level 1 winner
+          const r2Scores = state.round2Scores.get(unitId);
+          if (r2Scores) {
+            const winnerScore = r2Scores.find(s => s.agent === hcResult.classification);
+            if (winnerScore) {
+              winnerScore.confidence = hcResult.confidence;
+              winnerScore.signals.unshift({
+                signal: `hc_pattern:${hcResult.patternName}`,
+                weight: hcResult.confidence,
+                evidence: `Level 1 HC pattern: ${hcResult.matchedConditions.join(', ')}`,
+              });
+            }
+            r2Scores.sort((a, b) => b.confidence - a.confidence);
           }
           console.log(`[SCI-HC-PATTERN] sheet=${profile.tabName} classification=${hcResult.classification}@${(hcResult.confidence * 100).toFixed(0)}% pattern=${hcResult.patternName} conditions=[${hcResult.matchedConditions.join(', ')}]`);
         } else {
