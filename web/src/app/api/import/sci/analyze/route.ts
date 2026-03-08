@@ -14,6 +14,7 @@ import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
+import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
 import type { ClassificationDensity, StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
@@ -164,6 +165,30 @@ export async function POST(req: NextRequest) {
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
       );
 
+      // ── HF-105: Level 1 HC Pattern Classification (overrides Level 2 when matched) ──
+      for (const [unitId, profile] of Array.from(state.contentUnits.entries())) {
+        const hcResult = classifyByHCPattern(profile);
+        if (hcResult) {
+          const resolution = state.resolutions.get(unitId);
+          if (resolution) {
+            resolution.classification = hcResult.classification;
+            resolution.confidence = hcResult.confidence;
+            resolution.decisionSource = 'hc_pattern';
+            resolution.requiresHumanReview = false; // Level 1 pattern match = high confidence
+          }
+          const trace = state.traces.get(unitId);
+          if (trace) {
+            trace.finalClassification = hcResult.classification;
+            trace.finalConfidence = hcResult.confidence;
+            trace.decisionSource = 'hc_pattern';
+            trace.requiresHumanReview = false;
+          }
+          console.log(`[SCI-HC-PATTERN] sheet=${profile.tabName} classification=${hcResult.classification}@${(hcResult.confidence * 100).toFixed(0)}% pattern=${hcResult.patternName} conditions=[${hcResult.matchedConditions.join(', ')}]`);
+        } else {
+          console.log(`[SCI-HC-PATTERN] sheet=${profile.tabName} NO_MATCH — Level 2 CRR Bayesian retained`);
+        }
+      }
+
       // ── HF-096: Scores Diagnostic Logging ──
       for (const [cuId, resolution] of Array.from(state.resolutions.entries())) {
         const profile = Array.from(profileMap.values()).find(p => p.contentUnitId === cuId);
@@ -229,6 +254,9 @@ export async function POST(req: NextRequest) {
         const fp = fingerprintMap.get(unit.contentUnitId);
         if (!fp) continue; // Document-based units (plan) have no fingerprint
 
+        const unitTrace = unit.classificationTrace as unknown as ClassificationTrace | undefined;
+        const unitDecisionSource = unitTrace?.decisionSource || 'crr_bayesian';
+
         const payload: ClassificationSignalPayload = {
           tenantId,
           sourceFileName: unit.sourceFile,
@@ -236,7 +264,7 @@ export async function POST(req: NextRequest) {
           fingerprint: fp,
           classification: unit.classification,
           confidence: unit.confidence,
-          decisionSource: 'crr_bayesian',
+          decisionSource: unitDecisionSource,
           classificationTrace: (unit.classificationTrace as unknown as ClassificationTrace) ?? ({} as unknown as ClassificationTrace),
           vocabularyBindings: null,
           agentScores: Object.fromEntries(
