@@ -279,20 +279,6 @@ function extractClassificationSignals(
     });
   }
 
-  // From HC reference_key interpretation (direct signal extraction)
-  if (profile.headerComprehension) {
-    const refKeys = Array.from(profile.headerComprehension.interpretations.values())
-      .filter(interp => interp.columnRole === 'reference_key' && interp.confidence >= 0.80);
-    if (refKeys.length > 0) {
-      signals.push({
-        sourceType: 'hc_contextual',
-        classification: 'reference',
-        strength: Math.max(...refKeys.map(r => r.confidence)),
-        evidence: `HC reference_key: ${refKeys.length} column(s) at high confidence`,
-      });
-    }
-  }
-
   // From prior signals
   for (const prior of priors) {
     const classification = prior.classification as AgentType;
