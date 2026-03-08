@@ -59,7 +59,7 @@ export interface SynapticIngestionState {
 export interface ContentUnitResolution {
   classification: AgentType;
   confidence: number;
-  decisionSource: 'signature' | 'heuristic' | 'llm' | 'prior_signal' | 'human_override';
+  decisionSource: 'signature' | 'heuristic' | 'llm' | 'prior_signal' | 'human_override' | 'hc_pattern';
   claimType: 'FULL' | 'PARTIAL';
   fieldAssignments?: Map<string, AgentType>;  // Phase H: field → claiming agent
   sharedFields?: string[];                     // Phase H: fields needed by multiple agents
