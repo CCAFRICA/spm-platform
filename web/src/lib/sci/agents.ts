@@ -204,6 +204,7 @@ export function applyHeaderComprehensionSignals(
   let nameCount = 0;
   let attributeCount = 0;
   let referenceKeyCount = 0;
+  let identifierCount = 0;
 
   for (const interp of Array.from(interpretations.values())) {
     switch (interp.columnRole) {
@@ -212,6 +213,7 @@ export function applyHeaderComprehensionSignals(
       case 'name': nameCount++; break;
       case 'attribute': attributeCount++; break;
       case 'reference_key': referenceKeyCount++; break;
+      case 'identifier': identifierCount++; break;
     }
   }
 
@@ -224,6 +226,14 @@ export function applyHeaderComprehensionSignals(
   // --- Transaction Agent signals from header comprehension ---
   const transaction = scores.find(s => s.agent === 'transaction');
   if (transaction) {
+    if (identifierCount >= 1) {
+      transaction.confidence += 0.10;
+      transaction.signals.push({
+        signal: 'hc_identifier_column',
+        weight: 0.10,
+        evidence: `LLM identified ${identifierCount} identifier column(s) — transaction data has entity identifiers`,
+      });
+    }
     if (temporalCount >= 1) {
       transaction.confidence += 0.10;
       transaction.signals.push({
@@ -245,6 +255,14 @@ export function applyHeaderComprehensionSignals(
   // --- Entity Agent signals from header comprehension ---
   const entity = scores.find(s => s.agent === 'entity');
   if (entity) {
+    if (identifierCount >= 1) {
+      entity.confidence += 0.12;
+      entity.signals.push({
+        signal: 'hc_identifier_column',
+        weight: 0.12,
+        evidence: `LLM identified ${identifierCount} identifier column(s)`,
+      });
+    }
     if (nameCount >= 1) {
       entity.confidence += 0.10;
       entity.signals.push({
