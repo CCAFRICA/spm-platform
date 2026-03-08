@@ -19,7 +19,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePersona } from '@/contexts/persona-context';
-import { usePeriod } from '@/contexts/period-context';
+import { PeriodProvider, usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
 import { PeriodRibbon } from '@/components/design-system/PeriodRibbon';
 import { AdminDashboard } from '@/components/dashboards/AdminDashboard';
@@ -265,7 +265,12 @@ function PerformContent() {
 }
 
 export default function PerformPage() {
-  return <PerformContent />;
+  // HF-106: PeriodProvider moved from auth-shell to individual pages that need it.
+  return (
+    <PeriodProvider>
+      <PerformContent />
+    </PeriodProvider>
+  );
 }
 
 // ─── Hero Metrics Row (4 stat cards) ──────────────────────────
