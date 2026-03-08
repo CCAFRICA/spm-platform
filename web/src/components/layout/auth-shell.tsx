@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { PersonaProvider } from '@/contexts/persona-context';
 import { NavigationProvider, useNavigation } from '@/contexts/navigation-context';
-import { PeriodProvider } from '@/contexts/period-context';
+
 import { ChromeSidebar } from '@/components/navigation/ChromeSidebar';
 import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
 import { Navbar } from '@/components/navigation/Navbar';
@@ -192,11 +192,9 @@ function AuthShellProtected({ children }: AuthShellProps) {
     return <>{children}</>;
   }
 
+  // HF-106: PeriodProvider removed from shell. Pages that need periods
+  // wrap themselves in <PeriodProvider> (e.g. /, /perform).
   // Decision 92: Import surface has zero period API calls.
-  // PeriodProvider is NOT mounted on import routes — usePeriod() returns safe empty defaults.
-  const isImportRoute = pathname.startsWith('/operate/import') || pathname.startsWith('/data/import');
-
-  // Full app shell with Mission Control Rail
   const shell = (
     <NavigationProvider>
       <AuthShellInner>{children}</AuthShellInner>
@@ -206,7 +204,7 @@ function AuthShellProtected({ children }: AuthShellProps) {
 
   return (
     <PersonaProvider>
-      {isImportRoute ? shell : <PeriodProvider>{shell}</PeriodProvider>}
+      {shell}
     </PersonaProvider>
   );
 }

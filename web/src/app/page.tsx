@@ -15,7 +15,7 @@
 
 import { useState, useEffect } from 'react';
 import { usePersona } from '@/contexts/persona-context';
-import { usePeriod } from '@/contexts/period-context';
+import { PeriodProvider, usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
 import { PeriodRibbon } from '@/components/design-system/PeriodRibbon';
 import { AdminDashboard } from '@/components/dashboards/AdminDashboard';
@@ -119,11 +119,10 @@ function DashboardContent() {
 }
 
 export default function DashboardPage() {
-  // HF-059: Removed redundant client-side auth redirect.
-  // Middleware handles auth gating (server-side 307 to /login).
-  // AuthShellProtected handles client-side backup redirect with loop protection.
-  // A third redirect here caused race conditions and redirect loops.
-  // Note: Middleware redirects authenticated users from / to role-based default,
-  // so this page rarely renders — but keep it clean regardless.
-  return <DashboardContent />;
+  // HF-106: PeriodProvider moved from auth-shell to individual pages that need it.
+  return (
+    <PeriodProvider>
+      <DashboardContent />
+    </PeriodProvider>
+  );
 }

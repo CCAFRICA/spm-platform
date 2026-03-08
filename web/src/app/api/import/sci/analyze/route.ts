@@ -165,16 +165,21 @@ export async function POST(req: NextRequest) {
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
       );
 
-      // ── HF-105: Level 1 HC Pattern Classification (overrides Level 2 when matched) ──
+      // ── HF-105/HF-106: Level 1 HC Pattern Classification ──
+      // Level 1 REPLACES Level 2 when matched. One sheet = one content unit.
+      // HF-106: Cap non-winner scores to prevent analyzeSplit from creating duplicates.
+      const level1Sheets = new Set<string>();
       for (const [unitId, profile] of Array.from(state.contentUnits.entries())) {
         const hcResult = classifyByHCPattern(profile);
         if (hcResult) {
+          level1Sheets.add(profile.tabName);
           // Override resolution
           const resolution = state.resolutions.get(unitId);
           if (resolution) {
             resolution.classification = hcResult.classification;
             resolution.confidence = hcResult.confidence;
             resolution.decisionSource = 'hc_pattern';
+            resolution.claimType = 'FULL'; // HF-106: Level 1 never splits
             resolution.requiresHumanReview = false;
           }
           // Override trace
@@ -185,17 +190,21 @@ export async function POST(req: NextRequest) {
             trace.decisionSource = 'hc_pattern';
             trace.requiresHumanReview = false;
           }
-          // Override round2Scores so buildProposalFromState picks up Level 1 winner
+          // Override round2Scores: set winner, cap all others to prevent split
           const r2Scores = state.round2Scores.get(unitId);
           if (r2Scores) {
-            const winnerScore = r2Scores.find(s => s.agent === hcResult.classification);
-            if (winnerScore) {
-              winnerScore.confidence = hcResult.confidence;
-              winnerScore.signals.unshift({
-                signal: `hc_pattern:${hcResult.patternName}`,
-                weight: hcResult.confidence,
-                evidence: `Level 1 HC pattern: ${hcResult.matchedConditions.join(', ')}`,
-              });
+            for (const score of r2Scores) {
+              if (score.agent === hcResult.classification) {
+                score.confidence = hcResult.confidence;
+                score.signals.unshift({
+                  signal: `hc_pattern:${hcResult.patternName}`,
+                  weight: hcResult.confidence,
+                  evidence: `Level 1 HC pattern: ${hcResult.matchedConditions.join(', ')}`,
+                });
+              } else {
+                // HF-106: Cap competing agents to prevent analyzeSplit from splitting
+                score.confidence = Math.min(score.confidence, 0.10);
+              }
             }
             r2Scores.sort((a, b) => b.confidence - a.confidence);
           }
@@ -219,7 +228,18 @@ export async function POST(req: NextRequest) {
       }
 
       // Build proposal from state (same format as before — proposal cards render correctly)
-      const fileContentUnits = buildProposalFromState(state, fileSheets);
+      // HF-106: Dedup safety net — one sheet = one content unit, always.
+      // Remove ALL ::split entries. Split claims caused unique constraint violations
+      // on import because two CUs map to the same sheet/committed_data rows.
+      const fileContentUnits = buildProposalFromState(state, fileSheets)
+        .filter(cu => {
+          if (cu.contentUnitId.includes('::split')) {
+            console.log(`[SCI-DEDUP] Removed split duplicate for ${cu.tabName} (${cu.classification})`);
+            return false;
+          }
+          return true;
+        });
+      console.log(`[SCI-PROPOSAL] ${fileContentUnits.length} content units for ${file.sheets.length} sheets`);
       contentUnits.push(...fileContentUnits);
     }
 
