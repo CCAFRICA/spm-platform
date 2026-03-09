@@ -172,6 +172,12 @@ export function SCIExecution({
         ...(proposalUnit.sharedFields ? { sharedFields: proposalUnit.sharedFields } : {}),
         originalClassification: proposalUnit.classification,
         originalConfidence: proposalUnit.confidence,
+        // HF-110: Pass HC data for field_identities extraction (DS-009 1.3)
+        ...(proposalUnit.classificationTrace ? { classificationTrace: proposalUnit.classificationTrace } : {}),
+        ...(proposalUnit.structuralFingerprint ? { structuralFingerprint: proposalUnit.structuralFingerprint } : {}),
+        ...(proposalUnit.vocabularyBindings ? { vocabularyBindings: proposalUnit.vocabularyBindings } : {}),
+        sourceFile: proposalUnit.sourceFile,
+        tabName: proposalUnit.tabName,
       };
     }).filter(Boolean);
 
@@ -245,6 +251,12 @@ export function SCIExecution({
       ...(proposalUnit.sharedFields ? { sharedFields: proposalUnit.sharedFields } : {}),
       originalClassification: proposalUnit.classification,
       originalConfidence: proposalUnit.confidence,
+      // HF-110: Pass HC data for field_identities extraction (DS-009 1.3)
+      ...(proposalUnit.classificationTrace ? { classificationTrace: proposalUnit.classificationTrace } : {}),
+      ...(proposalUnit.structuralFingerprint ? { structuralFingerprint: proposalUnit.structuralFingerprint } : {}),
+      ...(proposalUnit.vocabularyBindings ? { vocabularyBindings: proposalUnit.vocabularyBindings } : {}),
+      sourceFile: proposalUnit.sourceFile,
+      tabName: proposalUnit.tabName,
     };
 
     const res = await fetchWithTimeout('/api/import/sci/execute', {
