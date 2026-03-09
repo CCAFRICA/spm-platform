@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
+import { resolveEntitiesFromCommittedData } from '@/lib/sci/entity-resolution';
 import { writeClassificationSignal, aggregateToFoundational, aggregateToDomain } from '@/lib/sci/classification-signal-service';
 import type { StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
@@ -30,7 +31,6 @@ import {
 import { extractFieldIdentitiesFromTrace } from '@/lib/sci/header-comprehension';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
-const ROLE_TARGETS = ['role', 'position', 'puesto', 'title', 'cargo'];
 
 // Normalize filename to semantic data_type (same logic as import/commit)
 function normalizeFileNameToDataType(fn: string): string {
@@ -86,23 +86,16 @@ export async function POST(req: NextRequest) {
 
     const results: ContentUnitResult[] = [];
 
-    // OB-160F: Processing order enforcement — dependency chain
-    // Entity FIRST (entities must exist before transaction/target can reference them)
-    // Reference SECOND (reference data available for convergence)
-    // Transaction/Target THIRD (resolve entity_id from already-created entities)
-    // Plan LAST (independent — no dependency on other pipelines)
-    const PIPELINE_ORDER: Record<string, number> = { entity: 0, reference: 1, target: 2, transaction: 2, plan: 3 };
+    // HF-109: Pipeline order — reference before data for convergence, plan independent
+    // Entity resolution is post-import (DS-009 3.3), so no ordering constraint for entity pipeline
+    const PIPELINE_ORDER: Record<string, number> = { reference: 0, entity: 1, target: 1, transaction: 1, plan: 2 };
     const sorted = [...contentUnits].sort((a, b) =>
       (PIPELINE_ORDER[a.confirmedClassification] ?? 9) - (PIPELINE_ORDER[b.confirmedClassification] ?? 9)
     );
 
-    // OB-160F: EntityMap from entity pipeline → shared with transaction/target pipelines
-    // Enables first-pass entity resolution without relying solely on postCommitConstruction
-    const sharedEntityMap = new Map<string, string>();
-
     for (const unit of sorted) {
       try {
-        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId, sharedEntityMap);
+        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId);
         results.push(result);
       } catch (err) {
         results.push({
@@ -207,6 +200,15 @@ export async function POST(req: NextRequest) {
       console.error('[SCI Execute] Post-execute convergence failed (non-blocking):', convErr);
     }
 
+    // HF-109: Post-import entity resolution (DS-009 3.3)
+    // Scans ALL committed_data for person identifiers, creates entities, backfills entity_id
+    try {
+      const entityResult = await resolveEntitiesFromCommittedData(supabase, tenantId);
+      console.log(`[SCI Execute] HF-109 Entity resolution: ${entityResult.created} created, ${entityResult.linked} rows linked`);
+    } catch (entityErr) {
+      console.error('[SCI Execute] Post-import entity resolution failed (non-blocking):', entityErr);
+    }
+
     const response: SCIExecutionResult = {
       proposalId,
       results,
@@ -288,18 +290,17 @@ async function executeContentUnit(
   proposalId: string,
   unit: ContentUnitExecution,
   userId: string,
-  sharedEntityMap: Map<string, string>,
 ): Promise<ContentUnitResult> {
   // OB-134: For PARTIAL claims, filter rawData to only include owned + shared fields
   const effectiveUnit = filterFieldsForPartialClaim(unit);
 
   switch (effectiveUnit.confirmedClassification) {
     case 'target':
-      return executeTargetPipeline(supabase, tenantId, proposalId, effectiveUnit, sharedEntityMap);
+      return executeTargetPipeline(supabase, tenantId, proposalId, effectiveUnit);
     case 'transaction':
-      return executeTransactionPipeline(supabase, tenantId, proposalId, effectiveUnit, sharedEntityMap);
+      return executeTransactionPipeline(supabase, tenantId, proposalId, effectiveUnit);
     case 'entity':
-      return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit, sharedEntityMap);
+      return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit);
     case 'plan':
       return executePlanPipeline(supabase, tenantId, effectiveUnit, userId);
     case 'reference':
@@ -348,7 +349,6 @@ async function executeTargetPipeline(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
-  sharedEntityMap: Map<string, string>,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -398,46 +398,6 @@ async function executeTargetPipeline(
     unit.classificationTrace as Record<string, unknown> | undefined
   );
 
-  // Resolve entity IDs from bindings
-  const entityIdBinding = unit.confirmedBindings.find(
-    b => b.semanticRole === 'entity_identifier'
-  );
-  const entityIdField = entityIdBinding?.sourceField;
-  // OB-160F: Seed from sharedEntityMap (populated by entity pipeline running first)
-  const entityIdMap = new Map<string, string>(sharedEntityMap);
-
-  if (entityIdField) {
-    // Collect unique external IDs not already in sharedEntityMap
-    const externalIds = new Set<string>();
-    for (const row of rows) {
-      const val = row[entityIdField];
-      if (val != null && String(val).trim()) {
-        const key = String(val).trim();
-        if (!entityIdMap.has(key)) externalIds.add(key);
-      }
-    }
-
-    // Fetch any remaining entities not in sharedEntityMap
-    if (externalIds.size > 0) {
-      const allIds = Array.from(externalIds);
-      const BATCH = 200;
-      for (let i = 0; i < allIds.length; i += BATCH) {
-        const slice = allIds.slice(i, i + BATCH);
-        const { data: existing } = await supabase
-          .from('entities')
-          .select('id, external_id')
-          .eq('tenant_id', tenantId)
-          .in('external_id', slice);
-
-        if (existing) {
-          for (const e of existing) {
-            if (e.external_id) entityIdMap.set(e.external_id, e.id);
-          }
-        }
-      }
-    }
-  }
-
   // OB-152: Extract source_date using structural heuristics (Korean Test: zero field names)
   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
@@ -445,16 +405,12 @@ async function executeTargetPipeline(
   const periodMarkerHint = detectPeriodMarkerColumns(rows);
 
   // Build committed_data rows with source_date (OB-152)
+  // HF-109: entity_id set to null — backfilled post-import by resolveEntitiesFromCommittedData (DS-009 3.3)
   let earliestDate: string | null = null;
   let latestDate: string | null = null;
   let dateCount = 0;
 
   const insertRows = rows.map((row, i) => {
-    let entityId: string | null = null;
-    if (entityIdField && row[entityIdField] != null) {
-      entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
-    }
-
     // OB-152/OB-157: Extract source_date per row (with period marker composition)
     const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
     if (sourceDate) {
@@ -466,7 +422,7 @@ async function executeTargetPipeline(
     return {
       tenant_id: tenantId,
       import_batch_id: batchId,
-      entity_id: entityId,
+      entity_id: null as string | null,
       period_id: null,
       source_date: sourceDate,
       data_type: dataType,
@@ -520,8 +476,9 @@ async function executeTargetPipeline(
   console.log(`[SCI Execute] Target: ${totalInserted} rows committed, data_type=${dataType}, source_dates=${dateCount}/${rows.length} (${earliestDate}..${latestDate})`);
 
   // OB-153: Period creation removed from import (Decision 92 — periods created at calculate time)
-  // OB-144: Post-commit construction — create missing entities, bind entity_id, create assignments
-  await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit);
+  // OB-144: Post-commit construction — create assignments, bind entity_id, store metadata
+  const tgtEntityIdField = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier')?.sourceField;
+  await postCommitConstruction(supabase, tenantId, batchId, tgtEntityIdField, unit);
 
   // OB-160G: Per-pipeline convergence removed — runs once after all pipelines complete
   console.log(`[SCI Execute] Target pipeline complete: ${totalInserted} rows`);
@@ -544,7 +501,6 @@ async function executeTransactionPipeline(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
-  sharedEntityMap: Map<string, string>,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -575,45 +531,6 @@ async function executeTransactionPipeline(
   const normalized = normalizeFileNameToDataType(fileName);
   const dataType = normalized.length > 2 ? normalized : tabName.toLowerCase().replace(/[\s\-]+/g, '_');
 
-  // Resolve entity IDs
-  const entityIdBinding = unit.confirmedBindings.find(
-    b => b.semanticRole === 'entity_identifier'
-  );
-  const entityIdField = entityIdBinding?.sourceField;
-  // OB-160F: Seed from sharedEntityMap (populated by entity pipeline running first)
-  const entityIdMap = new Map<string, string>(sharedEntityMap);
-
-  if (entityIdField) {
-    // Only fetch entities not already in sharedEntityMap
-    const externalIds = new Set<string>();
-    for (const row of rows) {
-      const val = row[entityIdField];
-      if (val != null && String(val).trim()) {
-        const key = String(val).trim();
-        if (!entityIdMap.has(key)) externalIds.add(key);
-      }
-    }
-
-    if (externalIds.size > 0) {
-      const allIds = Array.from(externalIds);
-      const BATCH = 200;
-      for (let i = 0; i < allIds.length; i += BATCH) {
-        const slice = allIds.slice(i, i + BATCH);
-        const { data: existing } = await supabase
-          .from('entities')
-          .select('id, external_id')
-          .eq('tenant_id', tenantId)
-          .in('external_id', slice);
-
-        if (existing) {
-          for (const e of existing) {
-            if (e.external_id) entityIdMap.set(e.external_id, e.id);
-          }
-        }
-      }
-    }
-  }
-
   // Build semantic_roles map from bindings (same as target pipeline)
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
   for (const binding of unit.confirmedBindings) {
@@ -640,12 +557,8 @@ async function executeTransactionPipeline(
   let txnDateCount = 0;
 
   // Build insert rows with source_date (OB-152)
+  // HF-109: entity_id set to null — backfilled post-import by resolveEntitiesFromCommittedData (DS-009 3.3)
   const insertRows = rows.map((row, i) => {
-    let entityId: string | null = null;
-    if (entityIdField && row[entityIdField] != null) {
-      entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
-    }
-
     // OB-152/OB-157: Extract source_date per row (with period marker composition)
     const sourceDate = extractSourceDate(row, txnDateHint, txnSemanticMap, txnPeriodHint);
     if (sourceDate) {
@@ -657,7 +570,7 @@ async function executeTransactionPipeline(
     return {
       tenant_id: tenantId,
       import_batch_id: batchId,
-      entity_id: entityId,
+      entity_id: null as string | null,
       period_id: null,
       source_date: sourceDate,
       data_type: dataType,
@@ -704,8 +617,9 @@ async function executeTransactionPipeline(
   console.log(`[SCI Execute] Transaction: ${totalInserted} rows committed, data_type=${dataType}, source_dates=${txnDateCount}/${rows.length} (${txnEarliest}..${txnLatest})`);
 
   // OB-153: Period creation removed from import (Decision 92 — periods created at calculate time)
-  // OB-144: Post-commit construction — create missing entities, bind entity_id, create assignments
-  await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit);
+  // OB-144: Post-commit construction — create assignments, bind entity_id, store metadata
+  const txnEntityIdField = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier')?.sourceField;
+  await postCommitConstruction(supabase, tenantId, batchId, txnEntityIdField, unit);
 
   // OB-160G: Per-pipeline convergence removed — runs once after all pipelines complete
 
@@ -719,7 +633,9 @@ async function executeTransactionPipeline(
 }
 
 // ============================================================
-// ENTITY PIPELINE — dedup + create entities
+// ENTITY PIPELINE — HF-109: committed_data only (DS-009 3.3)
+// Entity creation + entity_id backfill moved to post-import
+// resolveEntitiesFromCommittedData (entity-resolution.ts)
 // ============================================================
 
 async function executeEntityPipeline(
@@ -727,7 +643,6 @@ async function executeEntityPipeline(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
-  sharedEntityMap: Map<string, string>,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -740,23 +655,7 @@ async function executeEntityPipeline(
     };
   }
 
-  // Find entity identifier and name fields from semantic bindings
-  const idBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
-  const nameBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_name');
-  const licenseBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_license');
-
-  if (!idBinding) {
-    return {
-      contentUnitId: unit.contentUnitId,
-      classification: 'entity',
-      success: false,
-      rowsProcessed: 0,
-      pipeline: 'entity',
-      error: 'No entity_identifier binding found',
-    };
-  }
-
-  // HF-108: Create import batch for entity data (Decision 111 — unified committed_data storage)
+  // Create import batch for entity data
   const batchId = crypto.randomUUID();
   await supabase.from('import_batches').insert({
     id: batchId,
@@ -788,19 +687,19 @@ async function executeEntityPipeline(
     };
   }
 
-  // HF-108: Extract field identities from HC trace (Decision 111)
+  // Extract field identities from HC trace (Decision 111)
   const entityFieldIdentities = extractFieldIdentitiesFromTrace(
     unit.classificationTrace as Record<string, unknown> | undefined
   );
 
-  // HF-108: Write ALL entity rows to committed_data (Decision 111 — unified storage)
-  // Entity data stored in committed_data like transaction/target/reference
+  // HF-109: Write ALL entity rows to committed_data ONLY (DS-009 3.3)
+  // Entity creation + entity_id backfill handled post-import by resolveEntitiesFromCommittedData
   const insertRows = rows.map((row, i) => ({
     tenant_id: tenantId,
     import_batch_id: batchId,
-    entity_id: null as string | null, // Backfilled after entity creation
+    entity_id: null as string | null,
     period_id: null as string | null,
-    source_date: null as string | null, // Entity records are not temporal
+    source_date: null as string | null,
     data_type: dataType,
     row_data: { ...row, _sheetName: tabName, _rowIndex: i },
     metadata: {
@@ -837,158 +736,7 @@ async function executeEntityPipeline(
     }
   }
 
-  console.log(`[SCI Execute] HF-108: Entity data written to committed_data (${rows.length} rows, batch ${batchId})`);
-
-  // Collect unique external IDs with metadata (for entity table creation)
-  const entityData = new Map<string, { name: string; role?: string; licenses?: string }>();
-  for (const row of rows) {
-    const eid = row[idBinding.sourceField];
-    if (eid == null || !String(eid).trim()) continue;
-    const key = String(eid).trim();
-    if (entityData.has(key)) continue;
-
-    const name = nameBinding ? String(row[nameBinding.sourceField] || key).trim() : key;
-    const meta: { name: string; role?: string; licenses?: string } = { name };
-
-    // Extract role from any role-like field
-    for (const binding of unit.confirmedBindings) {
-      if (binding.semanticRole === 'entity_attribute') {
-        const fieldLower = binding.sourceField.toLowerCase().replace(/[\s_-]+/g, '');
-        if (ROLE_TARGETS.some(t => fieldLower.includes(t))) {
-          meta.role = String(row[binding.sourceField] || '').trim();
-        }
-      }
-    }
-
-    if (licenseBinding) {
-      meta.licenses = String(row[licenseBinding.sourceField] || '').trim();
-    }
-
-    entityData.set(key, meta);
-  }
-
-  // Fetch existing entities
-  const allIds = Array.from(entityData.keys());
-  const existingMap = new Map<string, string>();
-  const BATCH = 200;
-  for (let i = 0; i < allIds.length; i += BATCH) {
-    const slice = allIds.slice(i, i + BATCH);
-    const { data: existing } = await supabase
-      .from('entities')
-      .select('id, external_id')
-      .eq('tenant_id', tenantId)
-      .in('external_id', slice);
-
-    if (existing) {
-      for (const e of existing) {
-        if (e.external_id) existingMap.set(e.external_id, e.id);
-      }
-    }
-  }
-
-  // Create new entities (dedup against existing)
-  const newIds = allIds.filter(eid => !existingMap.has(eid));
-  let created = 0;
-
-  if (newIds.length > 0) {
-    const newEntities = newIds.map(eid => {
-      const meta = entityData.get(eid);
-      return {
-        tenant_id: tenantId,
-        external_id: eid,
-        display_name: meta?.name || eid,
-        entity_type: 'individual' as const,
-        status: 'active' as const,
-        temporal_attributes: [] as Json[],
-        metadata: {
-          ...(meta?.role ? { role: meta.role } : {}),
-          ...(meta?.licenses ? { product_licenses: meta.licenses } : {}),
-        } as Record<string, Json>,
-      };
-    });
-
-    const INSERT_BATCH = 5000;
-    for (let i = 0; i < newEntities.length; i += INSERT_BATCH) {
-      const slice = newEntities.slice(i, i + INSERT_BATCH);
-      const { error: entErr } = await supabase
-        .from('entities')
-        .insert(slice);
-
-      if (entErr) {
-        return {
-          contentUnitId: unit.contentUnitId,
-          classification: 'entity' as const,
-          success: false,
-          rowsProcessed: created,
-          pipeline: 'entity',
-          error: entErr.message,
-        };
-      }
-      created += slice.length;
-    }
-  }
-
-  console.log(`[SCI Execute] Entity: ${created} new, ${existingMap.size} existing (deduped)`);
-
-  // OB-160F: Populate sharedEntityMap so downstream transaction/target pipelines
-  // can resolve entity_id on first pass (before postCommitConstruction)
-  const allExtIds = Array.from(entityData.keys());
-  for (let i = 0; i < allExtIds.length; i += BATCH) {
-    const slice = allExtIds.slice(i, i + BATCH);
-    const { data: ents } = await supabase
-      .from('entities')
-      .select('id, external_id')
-      .eq('tenant_id', tenantId)
-      .in('external_id', slice);
-    if (ents) {
-      for (const e of ents) {
-        if (e.external_id) sharedEntityMap.set(e.external_id, e.id);
-      }
-    }
-  }
-
-  // HF-108: Backfill entity_id on committed_data rows for entity batch
-  // Uses the sharedEntityMap we just populated
-  const entityIdField = idBinding.sourceField;
-  let entityBound = 0;
-  let page = 0;
-  while (true) {
-    const { data: cdRows } = await supabase
-      .from('committed_data')
-      .select('id, row_data')
-      .eq('tenant_id', tenantId)
-      .eq('import_batch_id', batchId)
-      .is('entity_id', null)
-      .limit(500);
-
-    if (!cdRows || cdRows.length === 0) break;
-
-    const groups = new Map<string, string[]>();
-    for (const r of cdRows) {
-      const rd = r.row_data as Record<string, unknown>;
-      const extId = String(rd[entityIdField] ?? '').trim();
-      const eid = sharedEntityMap.get(extId);
-      if (eid) {
-        if (!groups.has(eid)) groups.set(eid, []);
-        groups.get(eid)!.push(r.id);
-      }
-    }
-
-    for (const [entityId, ids] of Array.from(groups.entries())) {
-      for (let i = 0; i < ids.length; i += BATCH) {
-        const slice = ids.slice(i, i + BATCH);
-        await supabase.from('committed_data').update({ entity_id: entityId }).in('id', slice);
-        entityBound += slice.length;
-      }
-    }
-
-    page++;
-    if (cdRows.length < 500 || page > 200) break;
-  }
-
-  if (entityBound > 0) {
-    console.log(`[SCI Execute] HF-108: Bound entity_id on ${entityBound} entity committed_data rows`);
-  }
+  console.log(`[SCI Execute] HF-109: Entity data written to committed_data (${rows.length} rows, batch ${batchId})`);
 
   // Mark import batch complete
   await supabase.from('import_batches').update({
