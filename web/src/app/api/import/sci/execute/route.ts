@@ -134,27 +134,48 @@ export async function POST(req: NextRequest) {
           const result = await convergeBindings(tenantId, rs.id, supabase);
 
           if (result.derivations.length > 0 || Object.keys(result.componentBindings).length > 0) {
-            const { data: rsData } = await supabase
+            // HF-108: convergence_bindings is the PRIMARY output (Decision 111)
+            // metric_derivations preserved as read-only fallback for pre-OB-162 data
+            // but no longer written for new convergence runs when convergence_bindings exist
+            const updatedBindings: Record<string, unknown> = {};
+
+            if (Object.keys(result.componentBindings).length > 0) {
+              // New convergence path: convergence_bindings is authoritative
+              updatedBindings.convergence_bindings = result.componentBindings;
+              // Still write metric_derivations for backward compatibility (engine fallback)
+              // but convergence_bindings takes priority in the engine
+              if (result.derivations.length > 0) {
+                updatedBindings.metric_derivations = result.derivations;
+              }
+            } else {
+              // No convergence_bindings produced — write metric_derivations as primary
+              // (legacy path for data without field identities)
+              const { data: rsData } = await supabase
+                .from('rule_sets')
+                .select('input_bindings')
+                .eq('id', rs.id)
+                .single();
+
+              const existing = ((rsData?.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
+              const merged = [...existing];
+
+              for (const d of result.derivations) {
+                if (!merged.some(e => e.metric === d.metric)) {
+                  merged.push(d as unknown as Record<string, unknown>);
+                }
+              }
+              updatedBindings.metric_derivations = merged;
+            }
+
+            // Preserve existing metric_mappings if present
+            const { data: currentRs } = await supabase
               .from('rule_sets')
               .select('input_bindings')
               .eq('id', rs.id)
               .single();
-
-            const existing = ((rsData?.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
-            const merged = [...existing];
-
-            for (const d of result.derivations) {
-              if (!merged.some(e => e.metric === d.metric)) {
-                merged.push(d as unknown as Record<string, unknown>);
-              }
-            }
-
-            // OB-162: Write per-component convergence bindings (Decision 111)
-            const updatedBindings: Record<string, unknown> = {
-              metric_derivations: merged,
-            };
-            if (Object.keys(result.componentBindings).length > 0) {
-              updatedBindings.convergence_bindings = result.componentBindings;
+            const currentBindings = (currentRs?.input_bindings as Record<string, unknown>) ?? {};
+            if (currentBindings.metric_mappings) {
+              updatedBindings.metric_mappings = currentBindings.metric_mappings;
             }
 
             await supabase
@@ -708,7 +729,7 @@ async function executeTransactionPipeline(
 async function executeEntityPipeline(
   supabase: SupabaseClient,
   tenantId: string,
-  _proposalId: string,
+  proposalId: string,
   unit: ContentUnitExecution,
   sharedEntityMap: Map<string, string>,
 ): Promise<ContentUnitResult> {
@@ -739,7 +760,90 @@ async function executeEntityPipeline(
     };
   }
 
-  // Collect unique external IDs with metadata
+  // HF-108: Create import batch for entity data (Decision 111 — unified committed_data storage)
+  const batchId = crypto.randomUUID();
+  await supabase.from('import_batches').insert({
+    id: batchId,
+    tenant_id: tenantId,
+    file_name: `sci-execute-${proposalId}`,
+    file_type: 'sci',
+    status: 'processing',
+    row_count: rows.length,
+    metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
+  });
+
+  // Resolve data_type from contentUnitId
+  const parts = unit.contentUnitId.split('::');
+  const fileName = parts[0] || 'unknown';
+  const tabName = parts[1] || 'Sheet1';
+  const normalized = normalizeFileNameToDataType(fileName);
+  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
+  const dataType = !isGenericTab && normalized.length > 2
+    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
+    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+
+  // Build semantic_roles map from bindings
+  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
+  for (const binding of unit.confirmedBindings) {
+    semanticRoles[binding.sourceField] = {
+      role: binding.semanticRole,
+      confidence: binding.confidence,
+      claimedBy: binding.claimedBy,
+    };
+  }
+
+  // HF-108: Extract field identities from HC trace (Decision 111)
+  const entityFieldIdentities = extractFieldIdentitiesFromTrace(
+    unit.classificationTrace as Record<string, unknown> | undefined
+  );
+
+  // HF-108: Write ALL entity rows to committed_data (Decision 111 — unified storage)
+  // Entity data stored in committed_data like transaction/target/reference
+  const insertRows = rows.map((row, i) => ({
+    tenant_id: tenantId,
+    import_batch_id: batchId,
+    entity_id: null as string | null, // Backfilled after entity creation
+    period_id: null as string | null,
+    source_date: null as string | null, // Entity records are not temporal
+    data_type: dataType,
+    row_data: { ...row, _sheetName: tabName, _rowIndex: i },
+    metadata: {
+      source: 'sci',
+      proposalId,
+      semantic_roles: semanticRoles,
+      resolved_data_type: dataType,
+      ...(entityFieldIdentities ? { field_identities: entityFieldIdentities } : {}),
+      informational_label: 'entity',
+    },
+  }));
+
+  const CHUNK = 5000;
+  for (let i = 0; i < insertRows.length; i += CHUNK) {
+    const slice = insertRows.slice(i, i + CHUNK);
+    const { error: insertErr } = await supabase
+      .from('committed_data')
+      .insert(slice);
+
+    if (insertErr) {
+      console.error('[SCI Execute] Entity→committed_data insert failed:', insertErr);
+      await supabase.from('import_batches').update({
+        status: 'failed',
+        error_summary: { error: insertErr.message } as unknown as Json,
+      }).eq('id', batchId);
+      return {
+        contentUnitId: unit.contentUnitId,
+        classification: 'entity' as const,
+        success: false,
+        rowsProcessed: 0,
+        pipeline: 'entity',
+        error: insertErr.message,
+      };
+    }
+  }
+
+  console.log(`[SCI Execute] HF-108: Entity data written to committed_data (${rows.length} rows, batch ${batchId})`);
+
+  // Collect unique external IDs with metadata (for entity table creation)
   const entityData = new Map<string, { name: string; role?: string; licenses?: string }>();
   for (const row of rows) {
     const eid = row[idBinding.sourceField];
@@ -846,6 +950,54 @@ async function executeEntityPipeline(
       }
     }
   }
+
+  // HF-108: Backfill entity_id on committed_data rows for entity batch
+  // Uses the sharedEntityMap we just populated
+  const entityIdField = idBinding.sourceField;
+  let entityBound = 0;
+  let page = 0;
+  while (true) {
+    const { data: cdRows } = await supabase
+      .from('committed_data')
+      .select('id, row_data')
+      .eq('tenant_id', tenantId)
+      .eq('import_batch_id', batchId)
+      .is('entity_id', null)
+      .limit(500);
+
+    if (!cdRows || cdRows.length === 0) break;
+
+    const groups = new Map<string, string[]>();
+    for (const r of cdRows) {
+      const rd = r.row_data as Record<string, unknown>;
+      const extId = String(rd[entityIdField] ?? '').trim();
+      const eid = sharedEntityMap.get(extId);
+      if (eid) {
+        if (!groups.has(eid)) groups.set(eid, []);
+        groups.get(eid)!.push(r.id);
+      }
+    }
+
+    for (const [entityId, ids] of Array.from(groups.entries())) {
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const slice = ids.slice(i, i + BATCH);
+        await supabase.from('committed_data').update({ entity_id: entityId }).in('id', slice);
+        entityBound += slice.length;
+      }
+    }
+
+    page++;
+    if (cdRows.length < 500 || page > 200) break;
+  }
+
+  if (entityBound > 0) {
+    console.log(`[SCI Execute] HF-108: Bound entity_id on ${entityBound} entity committed_data rows`);
+  }
+
+  // Mark import batch complete
+  await supabase.from('import_batches').update({
+    status: 'completed',
+  }).eq('id', batchId);
 
   return {
     contentUnitId: unit.contentUnitId,
