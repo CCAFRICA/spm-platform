@@ -29,6 +29,53 @@ import {
   detectPeriodMarkerColumns,
 } from '@/lib/sci/source-date-extraction';
 import { extractFieldIdentitiesFromTrace } from '@/lib/sci/header-comprehension';
+import type { SemanticBinding } from '@/lib/sci/sci-types';
+import type { ColumnRole, FieldIdentity } from '@/lib/sci/sci-types';
+
+// HF-110: Build field_identities from confirmedBindings when HC trace is unavailable (DS-009 1.3)
+// Maps SemanticRole → ColumnRole + contextualIdentity — guaranteed write, never null
+function buildFieldIdentitiesFromBindings(
+  bindings: SemanticBinding[],
+): Record<string, FieldIdentity> {
+  const ROLE_MAP: Record<string, { structuralType: ColumnRole; contextualIdentity: string }> = {
+    entity_identifier: { structuralType: 'identifier', contextualIdentity: 'person_identifier' },
+    entity_name: { structuralType: 'name', contextualIdentity: 'person_name' },
+    entity_attribute: { structuralType: 'attribute', contextualIdentity: 'entity_attribute' },
+    entity_relationship: { structuralType: 'attribute', contextualIdentity: 'entity_relationship' },
+    entity_license: { structuralType: 'attribute', contextualIdentity: 'entity_license' },
+    performance_target: { structuralType: 'measure', contextualIdentity: 'performance_target' },
+    baseline_value: { structuralType: 'measure', contextualIdentity: 'baseline_value' },
+    transaction_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
+    transaction_count: { structuralType: 'measure', contextualIdentity: 'count' },
+    transaction_date: { structuralType: 'temporal', contextualIdentity: 'date' },
+    transaction_identifier: { structuralType: 'identifier', contextualIdentity: 'transaction_identifier' },
+    period_marker: { structuralType: 'temporal', contextualIdentity: 'period' },
+    category_code: { structuralType: 'attribute', contextualIdentity: 'category' },
+    rate_value: { structuralType: 'measure', contextualIdentity: 'percentage' },
+    tier_boundary: { structuralType: 'measure', contextualIdentity: 'threshold' },
+    payout_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
+    descriptive_label: { structuralType: 'attribute', contextualIdentity: 'label' },
+  };
+
+  const identities: Record<string, FieldIdentity> = {};
+  for (const binding of bindings) {
+    const mapped = ROLE_MAP[binding.semanticRole];
+    if (mapped) {
+      identities[binding.sourceField] = {
+        structuralType: mapped.structuralType,
+        contextualIdentity: mapped.contextualIdentity,
+        confidence: binding.confidence,
+      };
+    } else {
+      identities[binding.sourceField] = {
+        structuralType: 'unknown',
+        contextualIdentity: binding.semanticRole || 'unknown',
+        confidence: binding.confidence,
+      };
+    }
+  }
+  return identities;
+}
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 
@@ -393,10 +440,10 @@ async function executeTargetPipeline(
     };
   }
 
-  // OB-162: Extract field identities from HC trace (Decision 111)
+  // HF-110: Extract field identities — HC trace primary, confirmedBindings fallback (DS-009 1.3)
   const tgtFieldIdentities = extractFieldIdentitiesFromTrace(
     unit.classificationTrace as Record<string, unknown> | undefined
-  );
+  ) || buildFieldIdentitiesFromBindings(unit.confirmedBindings);
 
   // OB-152: Extract source_date using structural heuristics (Korean Test: zero field names)
   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
@@ -433,7 +480,7 @@ async function executeTargetPipeline(
         semantic_roles: semanticRoles,
         resolved_data_type: dataType,
         // OB-162: Field identities from HC (Decision 111)
-        ...(tgtFieldIdentities ? { field_identities: tgtFieldIdentities } : {}),
+        field_identities: tgtFieldIdentities,
         informational_label: 'target',
       },
     };
@@ -541,10 +588,10 @@ async function executeTransactionPipeline(
     };
   }
 
-  // OB-162: Extract field identities from HC trace (Decision 111)
+  // HF-110: Extract field identities — HC trace primary, confirmedBindings fallback (DS-009 1.3)
   const txnFieldIdentities = extractFieldIdentitiesFromTrace(
     unit.classificationTrace as Record<string, unknown> | undefined
-  );
+  ) || buildFieldIdentitiesFromBindings(unit.confirmedBindings);
 
   // OB-152: Extract source_date using structural heuristics
   const txnDateHint = findDateColumnFromBindings(unit.confirmedBindings);
@@ -581,7 +628,7 @@ async function executeTransactionPipeline(
         semantic_roles: semanticRoles,
         resolved_data_type: dataType,
         // OB-162: Field identities from HC (Decision 111)
-        ...(txnFieldIdentities ? { field_identities: txnFieldIdentities } : {}),
+        field_identities: txnFieldIdentities,
         informational_label: 'transaction',
       },
     };
@@ -687,10 +734,10 @@ async function executeEntityPipeline(
     };
   }
 
-  // Extract field identities from HC trace (Decision 111)
+  // HF-110: Extract field identities — HC trace primary, confirmedBindings fallback (DS-009 1.3)
   const entityFieldIdentities = extractFieldIdentitiesFromTrace(
     unit.classificationTrace as Record<string, unknown> | undefined
-  );
+  ) || buildFieldIdentitiesFromBindings(unit.confirmedBindings);
 
   // HF-109: Write ALL entity rows to committed_data ONLY (DS-009 3.3)
   // Entity creation + entity_id backfill handled post-import by resolveEntitiesFromCommittedData
@@ -707,7 +754,7 @@ async function executeEntityPipeline(
       proposalId,
       semantic_roles: semanticRoles,
       resolved_data_type: dataType,
-      ...(entityFieldIdentities ? { field_identities: entityFieldIdentities } : {}),
+      field_identities: entityFieldIdentities,
       informational_label: 'entity',
     },
   }));
@@ -809,10 +856,10 @@ async function executeReferencePipeline(
     };
   }
 
-  // OB-162: Extract field identities from HC trace (Decision 111)
+  // HF-110: Extract field identities — HC trace primary, confirmedBindings fallback (DS-009 1.3)
   const refFieldIdentities = extractFieldIdentitiesFromTrace(
     unit.classificationTrace as Record<string, unknown> | undefined
-  );
+  ) || buildFieldIdentitiesFromBindings(unit.confirmedBindings);
 
   // OB-162: Decision 111 — store ALL data in committed_data with field_identities
   // No writes to reference_data or reference_items tables
@@ -829,8 +876,7 @@ async function executeReferencePipeline(
       proposalId,
       semantic_roles: semanticRoles,
       resolved_data_type: dataType,
-      // OB-162: Field identities from HC (Decision 111)
-      ...(refFieldIdentities ? { field_identities: refFieldIdentities } : {}),
+      field_identities: refFieldIdentities,
       informational_label: 'reference',
     },
   }));
