@@ -947,59 +947,102 @@ function hasCompleteBindings(
   return true;
 }
 
+// HF-113: Validate that AI response is a metric→column mapping (not a narrative)
+function isValidColumnMapping(
+  result: Record<string, unknown>,
+  metricFields: string[],
+  columnNames: string[],
+): boolean {
+  const mappedCount = metricFields.filter(m =>
+    typeof result[m] === 'string' && columnNames.includes(result[m] as string)
+  ).length;
+  return mappedCount >= Math.ceil(metricFields.length * 0.5);
+}
+
 // One AI call: match plan metric field names to data column contextual identities
 async function resolveColumnMappingsViaAI(
   components: PlanComponent[],
   allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
   measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats }>,
 ): Promise<Record<string, string>> {
-  // Build metric requirements list
-  const metricLines = allRequirements.map((r, i) => {
-    const rangeHint = r.req.expectedRange
-      ? `expected values ${r.req.expectedRange.min}-${r.req.expectedRange.max}`
-      : 'no boundary constraints';
-    return `${i + 1}. "${r.req.metricField}" (component: ${r.compName}, role: ${r.req.role}, ${rangeHint})`;
-  });
+  const metricFields = allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown');
+  const columnNames = measureColumns.map(c => c.name);
 
-  // Build column inventory
-  const columnLines = measureColumns.map((c, i) => {
-    const range = `${c.stats.min.toFixed(2)}-${c.stats.max.toFixed(2)}`;
-    return `${i + 1}. "${c.name}" — ${c.fi.contextualIdentity} (values: ${range}, mean: ${c.stats.mean.toFixed(2)})`;
-  });
+  // Build compact metric list
+  const metricList = metricFields.map((f, i) => `${i + 1}. "${f}"`).join('\n');
 
-  const systemPrompt = `You match compensation plan metric requirements to data columns. Both metric names and column descriptions are in English. Column names may be in any language. Match based on semantic meaning, not spelling.`;
+  // Build column list with contextual identities
+  const columnList = measureColumns.map((c, i) =>
+    `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})`
+  ).join('\n');
 
-  const userPrompt = `METRIC REQUIREMENTS (from compensation plan):
-${metricLines.join('\n')}
+  // HF-113: System prompt forces JSON-only output with explicit schema
+  const systemPrompt = `You are a data column mapper. Return ONLY a JSON object mapping metric field names to data column names. No explanation, no narrative, no markdown. Output format: {"metric_name": "column_name", ...}`;
 
-DATA COLUMNS (from imported data):
-${columnLines.join('\n')}
+  const userPrompt = `Match each metric field to the best data column. Each column used at most once.
 
-For each metric requirement, identify which data column best satisfies it.
-Each column should be used at most once.
+METRIC FIELDS:
+${metricList}
 
-Respond ONLY with valid JSON object. No markdown, no explanation.
-Format: { "metric_field_name": "column_name", ... }`;
+DATA COLUMNS:
+${columnList}
+
+EXAMPLE OUTPUT FORMAT:
+{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": "${columnNames[1] || 'Column_B'}"}
+
+Return the JSON mapping now:`;
 
   try {
     const aiService = getAIService();
+
+    // HF-113: Use responseFormat: 'json' to enforce JSON output
     const response = await aiService.execute({
-      task: 'narration',
+      task: 'field_mapping',
       input: { system: systemPrompt, userMessage: userPrompt },
-      options: { maxTokens: 500 },
+      options: { maxTokens: 500, responseFormat: 'json' as const },
     }, false);
 
-    const result = response.result as Record<string, unknown>;
-    if (result && typeof result === 'object') {
-      const mapping: Record<string, string> = {};
-      for (const [key, val] of Object.entries(result)) {
-        if (typeof val === 'string') mapping[key] = val;
+    let result = response.result as Record<string, unknown>;
+
+    // HF-113: Validate response is a mapping, not a narrative
+    if (!isValidColumnMapping(result, metricFields, columnNames)) {
+      console.warn(`[Convergence] HF-113 Invalid AI response (got keys: ${Object.keys(result).join(', ')}). Retrying.`);
+
+      // Retry with minimal prompt
+      const retryPrompt = `Map these metric names to column names. Return ONLY JSON.
+
+Metrics: ${metricFields.join(', ')}
+Columns: ${columnNames.join(', ')}
+Column descriptions: ${measureColumns.map(c => `${c.name}=${c.fi.contextualIdentity}`).join(', ')}
+
+Output: {"metric_name": "column_name", ...}`;
+
+      const retryResponse = await aiService.execute({
+        task: 'field_mapping',
+        input: { system: 'Return only a JSON object mapping metric names to column names.', userMessage: retryPrompt },
+        options: { maxTokens: 500, responseFormat: 'json' as const },
+      }, false);
+
+      const retryResult = retryResponse.result as Record<string, unknown>;
+      if (isValidColumnMapping(retryResult, metricFields, columnNames)) {
+        result = retryResult;
+        console.log('[Convergence] HF-113 Retry succeeded');
+      } else {
+        console.error('[Convergence] HF-113 Retry also failed — falling back to boundary matching');
+        return {};
       }
-      console.log(`[Convergence] HF-112 AI mapping: ${JSON.stringify(mapping)}`);
-      return mapping;
     }
+
+    const mapping: Record<string, string> = {};
+    for (const [key, val] of Object.entries(result)) {
+      if (typeof val === 'string' && columnNames.includes(val)) {
+        mapping[key] = val;
+      }
+    }
+    console.log(`[Convergence] HF-113 AI mapping: ${JSON.stringify(mapping)}`);
+    return mapping;
   } catch (err) {
-    console.error('[Convergence] HF-112 AI mapping failed:', err);
+    console.error('[Convergence] HF-113 AI mapping failed:', err);
   }
 
   return {};
