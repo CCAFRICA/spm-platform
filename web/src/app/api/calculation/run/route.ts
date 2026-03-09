@@ -131,16 +131,21 @@ export async function POST(request: NextRequest) {
     addLog(`OB-153 Metric mappings: ${Object.keys(metricMappings).length} mappings from input_bindings`);
   }
 
-  // OB-162: Parse convergence_bindings from input_bindings (Decision 111)
+  // HF-108: Parse convergence_bindings from input_bindings (Decision 111)
   // Per-component bindings: { component_N: { actual: { source_batch_id, column, ... }, ... } }
+  // Priority: convergence_bindings (Decision 111) > metric_derivations (legacy)
   const convergenceBindings = inputBindings?.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
-  if (convergenceBindings) {
+  if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
     const bindingCount = Object.keys(convergenceBindings).length;
-    addLog(`OB-162 Convergence bindings: ${bindingCount} component bindings from field identity matching`);
+    addLog(`HF-108 Using convergence_bindings (Decision 111) for data resolution — ${bindingCount} component bindings`);
     for (const [compKey, bindings] of Object.entries(convergenceBindings)) {
       const bindingTypes = Object.keys(bindings);
       addLog(`  ${compKey}: ${bindingTypes.join(', ')}`);
     }
+  } else if (metricDerivations.length > 0) {
+    addLog('HF-108 Using metric_derivations (legacy) for data resolution — no convergence_bindings found');
+  } else {
+    addLog('HF-108 WARNING: No input_bindings found — calculation may produce incomplete results');
   }
 
   // ── OB-76: Transform components to intents (once, before entity loop) ──

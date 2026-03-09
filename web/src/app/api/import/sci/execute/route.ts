@@ -134,27 +134,48 @@ export async function POST(req: NextRequest) {
           const result = await convergeBindings(tenantId, rs.id, supabase);
 
           if (result.derivations.length > 0 || Object.keys(result.componentBindings).length > 0) {
-            const { data: rsData } = await supabase
+            // HF-108: convergence_bindings is the PRIMARY output (Decision 111)
+            // metric_derivations preserved as read-only fallback for pre-OB-162 data
+            // but no longer written for new convergence runs when convergence_bindings exist
+            const updatedBindings: Record<string, unknown> = {};
+
+            if (Object.keys(result.componentBindings).length > 0) {
+              // New convergence path: convergence_bindings is authoritative
+              updatedBindings.convergence_bindings = result.componentBindings;
+              // Still write metric_derivations for backward compatibility (engine fallback)
+              // but convergence_bindings takes priority in the engine
+              if (result.derivations.length > 0) {
+                updatedBindings.metric_derivations = result.derivations;
+              }
+            } else {
+              // No convergence_bindings produced — write metric_derivations as primary
+              // (legacy path for data without field identities)
+              const { data: rsData } = await supabase
+                .from('rule_sets')
+                .select('input_bindings')
+                .eq('id', rs.id)
+                .single();
+
+              const existing = ((rsData?.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
+              const merged = [...existing];
+
+              for (const d of result.derivations) {
+                if (!merged.some(e => e.metric === d.metric)) {
+                  merged.push(d as unknown as Record<string, unknown>);
+                }
+              }
+              updatedBindings.metric_derivations = merged;
+            }
+
+            // Preserve existing metric_mappings if present
+            const { data: currentRs } = await supabase
               .from('rule_sets')
               .select('input_bindings')
               .eq('id', rs.id)
               .single();
-
-            const existing = ((rsData?.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
-            const merged = [...existing];
-
-            for (const d of result.derivations) {
-              if (!merged.some(e => e.metric === d.metric)) {
-                merged.push(d as unknown as Record<string, unknown>);
-              }
-            }
-
-            // OB-162: Write per-component convergence bindings (Decision 111)
-            const updatedBindings: Record<string, unknown> = {
-              metric_derivations: merged,
-            };
-            if (Object.keys(result.componentBindings).length > 0) {
-              updatedBindings.convergence_bindings = result.componentBindings;
+            const currentBindings = (currentRs?.input_bindings as Record<string, unknown>) ?? {};
+            if (currentBindings.metric_mappings) {
+              updatedBindings.metric_mappings = currentBindings.metric_mappings;
             }
 
             await supabase
