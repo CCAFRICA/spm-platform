@@ -17,6 +17,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { MetricDerivationRule } from '@/lib/calculation/run-calculation';
 import type { FieldIdentity } from '@/lib/sci/sci-types';
+import { getAIService } from '@/lib/ai';
 
 // ──────────────────────────────────────────────
 // Types
@@ -170,8 +171,10 @@ export async function convergeBindings(
     // Note: per-component bindings generated in bulk below (HF-111)
   }
 
-  // HF-111: Generate all component bindings with boundary matching + column exclusion
-  generateAllComponentBindings(components, matches, capabilities, componentBindings);
+  // HF-112: Generate all component bindings with AI mapping + boundary validation
+  const existingConvergenceBindings = (ruleSet.input_bindings as Record<string, unknown>)?.convergence_bindings as
+    Record<string, Record<string, unknown>> | undefined;
+  await generateAllComponentBindings(components, matches, capabilities, componentBindings, existingConvergenceBindings);
 
   // 5b. OB-128: Detect actuals-target pairs via semantic roles
   const targetCapabilities = capabilities.filter(c => c.hasTargetData);
@@ -795,50 +798,64 @@ function generateDerivationsForMatch(
 
 interface ComponentInputRequirement {
   role: string;  // 'actual', 'row', 'column', 'numerator', 'denominator'
+  metricField: string;  // HF-112: from sourceSpec.field (e.g., 'revenue_attainment')
   expectedRange: { min: number; max: number } | null;
 }
 
 function extractInputRequirements(component: PlanComponent): ComponentInputRequirement[] {
   const intent = component.calculationIntent;
-  if (!intent) return [{ role: 'actual', expectedRange: null }];
+  if (!intent) return [{ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: null }];
 
   const reqs: ComponentInputRequirement[] = [];
   const op = intent.operation as string;
 
+  // Helper to get field name from a sourceSpec
+  const getField = (spec: Record<string, unknown> | undefined): string =>
+    spec?.field ? String(spec.field).replace(/^metric:/, '') : 'unknown';
+
   switch (op) {
     case 'bounded_lookup_2d': {
-      const inputs = intent.inputs as Record<string, unknown> | undefined;
+      const inputs = intent.inputs as Record<string, Record<string, unknown>> | undefined;
       const rowRange = extractRangeFromBoundaries(intent.rowBoundaries as Array<Record<string, unknown>> | undefined);
       const colRange = extractRangeFromBoundaries(intent.columnBoundaries as Array<Record<string, unknown>> | undefined);
       if (inputs) {
-        reqs.push({ role: 'row', expectedRange: rowRange });
-        reqs.push({ role: 'column', expectedRange: colRange });
+        const rowSpec = inputs.row?.sourceSpec as Record<string, unknown> | undefined;
+        const colSpec = inputs.column?.sourceSpec as Record<string, unknown> | undefined;
+        reqs.push({ role: 'row', metricField: getField(rowSpec), expectedRange: rowRange });
+        reqs.push({ role: 'column', metricField: getField(colSpec), expectedRange: colRange });
       } else {
-        reqs.push({ role: 'actual', expectedRange: rowRange });
+        reqs.push({ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: rowRange });
       }
       break;
     }
     case 'bounded_lookup_1d': {
       const range = extractRangeFromBoundaries(intent.boundaries as Array<Record<string, unknown>> | undefined);
-      reqs.push({ role: 'actual', expectedRange: range });
+      const inputSpec = (intent.input as Record<string, unknown>)?.sourceSpec as Record<string, unknown> | undefined;
+      reqs.push({ role: 'actual', metricField: getField(inputSpec), expectedRange: range });
       break;
     }
     case 'scalar_multiply': {
       const input = intent.input as Record<string, unknown> | undefined;
       if (input?.source === 'ratio') {
-        reqs.push({ role: 'numerator', expectedRange: null });
-        reqs.push({ role: 'denominator', expectedRange: null });
+        const spec = input.sourceSpec as Record<string, unknown> | undefined;
+        const num = spec?.numerator ? String(spec.numerator).replace(/^metric:/, '') : 'unknown';
+        const den = spec?.denominator ? String(spec.denominator).replace(/^metric:/, '') : 'unknown';
+        reqs.push({ role: 'numerator', metricField: num, expectedRange: null });
+        reqs.push({ role: 'denominator', metricField: den, expectedRange: null });
       } else {
-        reqs.push({ role: 'actual', expectedRange: null });
+        const spec = input?.sourceSpec as Record<string, unknown> | undefined;
+        reqs.push({ role: 'actual', metricField: getField(spec), expectedRange: null });
       }
       break;
     }
     case 'conditional_gate': {
-      reqs.push({ role: 'actual', expectedRange: null });
+      const condLeft = (intent.condition as Record<string, unknown>)?.left as Record<string, unknown> | undefined;
+      const spec = condLeft?.sourceSpec as Record<string, unknown> | undefined;
+      reqs.push({ role: 'actual', metricField: getField(spec), expectedRange: null });
       break;
     }
     default:
-      reqs.push({ role: 'actual', expectedRange: null });
+      reqs.push({ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: null });
   }
 
   return reqs;
@@ -911,17 +928,157 @@ function scoreColumnForRequirement(
 }
 
 // ──────────────────────────────────────────────
-// HF-111: Generate Per-Component Input Bindings
-// Uses boundary matching for column selection + column exclusion
+// HF-112: AI-Assisted Column-to-Metric Mapping
+// LLM-Primary, Deterministic Validation, Human Authority
 // ──────────────────────────────────────────────
 
-function generateAllComponentBindings(
+// Check if existing bindings are complete (skip AI call if so)
+function hasCompleteBindings(
+  existingBindings: Record<string, Record<string, unknown>> | undefined,
+  componentCount: number,
+): boolean {
+  if (!existingBindings) return false;
+  const boundComponents = Object.keys(existingBindings).length;
+  if (boundComponents < componentCount) return false;
+  for (const compBindings of Object.values(existingBindings)) {
+    const cb = compBindings as Record<string, { column?: string }>;
+    if (!cb.actual?.column && !cb.row?.column && !cb.numerator?.column) return false;
+  }
+  return true;
+}
+
+// One AI call: match plan metric field names to data column contextual identities
+async function resolveColumnMappingsViaAI(
+  components: PlanComponent[],
+  allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
+  measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats }>,
+): Promise<Record<string, string>> {
+  // Build metric requirements list
+  const metricLines = allRequirements.map((r, i) => {
+    const rangeHint = r.req.expectedRange
+      ? `expected values ${r.req.expectedRange.min}-${r.req.expectedRange.max}`
+      : 'no boundary constraints';
+    return `${i + 1}. "${r.req.metricField}" (component: ${r.compName}, role: ${r.req.role}, ${rangeHint})`;
+  });
+
+  // Build column inventory
+  const columnLines = measureColumns.map((c, i) => {
+    const range = `${c.stats.min.toFixed(2)}-${c.stats.max.toFixed(2)}`;
+    return `${i + 1}. "${c.name}" — ${c.fi.contextualIdentity} (values: ${range}, mean: ${c.stats.mean.toFixed(2)})`;
+  });
+
+  const systemPrompt = `You match compensation plan metric requirements to data columns. Both metric names and column descriptions are in English. Column names may be in any language. Match based on semantic meaning, not spelling.`;
+
+  const userPrompt = `METRIC REQUIREMENTS (from compensation plan):
+${metricLines.join('\n')}
+
+DATA COLUMNS (from imported data):
+${columnLines.join('\n')}
+
+For each metric requirement, identify which data column best satisfies it.
+Each column should be used at most once.
+
+Respond ONLY with valid JSON object. No markdown, no explanation.
+Format: { "metric_field_name": "column_name", ... }`;
+
+  try {
+    const aiService = getAIService();
+    const response = await aiService.execute({
+      task: 'narration',
+      input: { system: systemPrompt, userMessage: userPrompt },
+      options: { maxTokens: 500 },
+    }, false);
+
+    const result = response.result as Record<string, unknown>;
+    if (result && typeof result === 'object') {
+      const mapping: Record<string, string> = {};
+      for (const [key, val] of Object.entries(result)) {
+        if (typeof val === 'string') mapping[key] = val;
+      }
+      console.log(`[Convergence] HF-112 AI mapping: ${JSON.stringify(mapping)}`);
+      return mapping;
+    }
+  } catch (err) {
+    console.error('[Convergence] HF-112 AI mapping failed:', err);
+  }
+
+  return {};
+}
+
+// ──────────────────────────────────────────────
+// HF-112: Generate Per-Component Input Bindings
+// AI-Primary column selection + boundary validation + column exclusion
+// ──────────────────────────────────────────────
+
+async function generateAllComponentBindings(
   components: PlanComponent[],
   matches: BindingMatch[],
   capabilities: DataCapability[],
   bindings: Record<string, Record<string, ComponentBinding>>,
-): void {
-  // Track which columns have already been bound (per batch) to prevent reuse
+  existingConvergenceBindings: Record<string, Record<string, unknown>> | undefined,
+): Promise<void> {
+  // HF-112: Reuse existing bindings if complete (zero AI cost)
+  if (hasCompleteBindings(existingConvergenceBindings, components.length)) {
+    console.log('[Convergence] HF-112 Existing bindings complete — reusing (zero AI cost)');
+    for (const [compKey, compBindings] of Object.entries(existingConvergenceBindings!)) {
+      bindings[compKey] = compBindings as Record<string, ComponentBinding>;
+    }
+    return;
+  }
+
+  // Collect all measure columns across matched capabilities
+  const measureColumns: Array<{
+    name: string;
+    fi: FieldIdentity;
+    stats: ColumnValueStats;
+    batchId: string;
+  }> = [];
+  let primaryCap: DataCapability | undefined;
+
+  for (const match of matches) {
+    const cap = capabilities.find(c => c.dataType === match.dataType);
+    if (!cap) continue;
+    if (!primaryCap) {
+      primaryCap = cap;
+    }
+
+    for (const [colName, fi] of Object.entries(cap.fieldIdentities)) {
+      if (fi.structuralType === 'measure' && cap.columnStats[colName]) {
+        if (!measureColumns.some(mc => mc.name === colName)) {
+          measureColumns.push({ name: colName, fi, stats: cap.columnStats[colName], batchId: cap.batchIds[0] || '' });
+        }
+      }
+    }
+    // Also include numeric columns with stats but no field identity
+    for (const nf of cap.numericFields) {
+      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
+        measureColumns.push({
+          name: nf.field,
+          fi: { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 },
+          stats: cap.columnStats[nf.field],
+          batchId: cap.batchIds[0] || '',
+        });
+      }
+    }
+  }
+
+  if (measureColumns.length === 0 || !primaryCap) return;
+
+  // Collect all input requirements across all matched components
+  const allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }> = [];
+  for (const match of matches) {
+    const reqs = extractInputRequirements(match.component);
+    for (const req of reqs) {
+      allRequirements.push({ compIndex: match.component.index, compName: match.component.name, req });
+    }
+  }
+
+  // HF-112: AI-assisted column mapping (ONE call)
+  console.log('[Convergence] HF-112 Requesting AI column mapping');
+  const aiMapping = await resolveColumnMappingsViaAI(components, allRequirements, measureColumns);
+  console.log(`[Convergence] HF-112 AI proposed ${Object.keys(aiMapping).length} mappings`);
+
+  // Build bindings using AI mapping + boundary validation
   const boundColumns = new Set<string>();
 
   for (const match of matches) {
@@ -933,36 +1090,35 @@ function generateAllComponentBindings(
     if (!bindings[compKey]) bindings[compKey] = {};
 
     const batchId = cap.batchIds[0] || '';
-
-    // HF-111: Extract input requirements from calculationIntent
     const requirements = extractInputRequirements(comp);
 
-    // Get all measure columns with their stats
-    const measureColumns: Array<{
-      name: string;
-      fi: FieldIdentity;
-      stats: ColumnValueStats;
-    }> = [];
-    for (const [colName, fi] of Object.entries(cap.fieldIdentities)) {
-      if (fi.structuralType === 'measure' && cap.columnStats[colName]) {
-        measureColumns.push({ name: colName, fi, stats: cap.columnStats[colName] });
-      }
-    }
-    // Also include numeric columns that have stats but no field identity
-    for (const nf of cap.numericFields) {
-      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
-        measureColumns.push({
-          name: nf.field,
-          fi: { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 },
-          stats: cap.columnStats[nf.field],
-        });
-      }
-    }
-
-    // For each requirement, find the best unbound column using boundary matching
     for (const req of requirements) {
+      const proposedColumnName = aiMapping[req.metricField];
+
+      if (proposedColumnName) {
+        const mc = measureColumns.find(c => c.name === proposedColumnName);
+        if (mc && !boundColumns.has(proposedColumnName)) {
+          // Boundary validation of AI proposal
+          const { score: boundaryScore, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
+          const isValidated = !req.expectedRange || boundaryScore > 0.1;
+
+          bindings[compKey][req.role] = {
+            source_batch_id: mc.batchId,
+            column: proposedColumnName,
+            field_identity: mc.fi,
+            match_pass: isValidated ? 1 : 2,  // 1=AI+validated, 2=AI-only
+            confidence: isValidated ? 0.9 : 0.6,
+            scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
+          };
+          boundColumns.add(proposedColumnName);
+          console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor})`);
+          continue;
+        }
+      }
+
+      // Fallback: boundary matching for unmapped requirements (HF-111 logic)
       const candidates = measureColumns
-        .filter(mc => !boundColumns.has(`${batchId}:${mc.name}`))
+        .filter(mc => !boundColumns.has(mc.name))
         .map(mc => {
           const { score, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
           return { ...mc, score, scaleFactor };
@@ -972,16 +1128,15 @@ function generateAllComponentBindings(
       if (candidates.length > 0 && candidates[0].score > 0) {
         const best = candidates[0];
         bindings[compKey][req.role] = {
-          source_batch_id: batchId,
+          source_batch_id: best.batchId,
           column: best.name,
           field_identity: best.fi,
-          match_pass: best.score > 0.3 ? 1 : 3,  // 1=boundary-matched, 3=weak match
-          confidence: Math.min(0.95, match.matchConfidence * (0.5 + best.score * 0.5)),
+          match_pass: 3,  // Boundary-only fallback
+          confidence: Math.min(0.7, match.matchConfidence * (0.3 + best.score * 0.4)),
           scale_factor: best.scaleFactor !== 1 ? best.scaleFactor : undefined,
         };
-        boundColumns.add(`${batchId}:${best.name}`);
-
-        console.log(`[Convergence] HF-111 ${comp.name}:${req.role} → ${best.name} (score=${best.score.toFixed(2)}, scale=${best.scaleFactor})`);
+        boundColumns.add(best.name);
+        console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${best.name} (boundary fallback, score=${best.score.toFixed(2)})`);
       }
     }
 
@@ -1012,6 +1167,15 @@ function generateAllComponentBindings(
         confidence: match.matchConfidence,
       };
     }
+  }
+
+  // Log complete binding map
+  for (const [compKey, cb] of Object.entries(bindings)) {
+    const roles = Object.entries(cb)
+      .filter(([role]) => role !== 'entity_identifier' && role !== 'period')
+      .map(([role, b]) => `${role}=${b.column}`)
+      .join(', ');
+    if (roles) console.log(`[Convergence] HF-112 ${compKey}: ${roles}`);
   }
 }
 
