@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
         for (const rs of allRuleSets) {
           const result = await convergeBindings(tenantId, rs.id, supabase);
 
-          if (result.derivations.length > 0) {
+          if (result.derivations.length > 0 || Object.keys(result.componentBindings).length > 0) {
             const { data: rsData } = await supabase
               .from('rule_sets')
               .select('input_bindings')
@@ -149,9 +149,17 @@ export async function POST(req: NextRequest) {
               }
             }
 
+            // OB-162: Write per-component convergence bindings (Decision 111)
+            const updatedBindings: Record<string, unknown> = {
+              metric_derivations: merged,
+            };
+            if (Object.keys(result.componentBindings).length > 0) {
+              updatedBindings.convergence_bindings = result.componentBindings;
+            }
+
             await supabase
               .from('rule_sets')
-              .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
+              .update({ input_bindings: updatedBindings as unknown as Json })
               .eq('id', rs.id);
 
             totalDerivations += result.derivations.length;
