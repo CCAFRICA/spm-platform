@@ -130,6 +130,18 @@ export async function POST(request: NextRequest) {
     addLog(`OB-153 Metric mappings: ${Object.keys(metricMappings).length} mappings from input_bindings`);
   }
 
+  // OB-162: Parse convergence_bindings from input_bindings (Decision 111)
+  // Per-component bindings: { component_N: { actual: { source_batch_id, column, ... }, ... } }
+  const convergenceBindings = inputBindings?.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
+  if (convergenceBindings) {
+    const bindingCount = Object.keys(convergenceBindings).length;
+    addLog(`OB-162 Convergence bindings: ${bindingCount} component bindings from field identity matching`);
+    for (const [compKey, bindings] of Object.entries(convergenceBindings)) {
+      const bindingTypes = Object.keys(bindings);
+      addLog(`  ${compKey}: ${bindingTypes.join(', ')}`);
+    }
+  }
+
   // ── OB-76: Transform components to intents (once, before entity loop) ──
   const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
   addLog(`OB-76 Intent layer: ${componentIntents.length} components transformed to intents`);
