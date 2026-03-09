@@ -571,47 +571,56 @@ function matchComponentsToData(
 
       if (structuralCandidates.length === 0) continue;
 
-      // Pass 2: Contextual match — use contextualIdentity + component name to disambiguate
+      // HF-109 Pass 2: Structural co-location — disambiguate by component structural pattern (DS-009 4.2)
+      // Uses measure count + contextual type diversity, NOT token overlap with component names
+      const requiredMeasures = getRequiredMeasureCount(comp.calculationOp);
+
       let bestMatch: { cap: DataCapability; score: number; reason: string } | null = null;
 
       for (const cap of structuralCandidates) {
-        // Score based on contextualIdentity overlap with component metrics/name
-        const compTokens = tokenize(comp.name);
         let score = 0;
-        let reason = '';
+        const reasons: string[] = [];
 
-        // Check if any field identity's contextualIdentity matches component expected metrics
-        for (const [colName, fi] of Object.entries(cap.fieldIdentities)) {
-          if (fi.structuralType !== 'measure') continue;
-          const ciTokens = tokenize(fi.contextualIdentity);
-          const overlap = compTokens.filter(t => ciTokens.some(ci => ci.includes(t) || t.includes(ci)));
-          const colScore = overlap.length / Math.max(compTokens.length, 1);
-          if (colScore > score) {
-            score = colScore;
-            reason = `Field identity: ${colName} (${fi.contextualIdentity}) matches component`;
+        // Count measure columns in this capability
+        const measureFIs = Object.entries(cap.fieldIdentities)
+          .filter(([, fi]) => fi.structuralType === 'measure');
+        const measureCount = measureFIs.length;
+
+        // Does the batch have the right number of measures for this component?
+        if (measureCount >= requiredMeasures) {
+          score += 0.5;
+          reasons.push(`${measureCount} measures (need ${requiredMeasures})`);
+        }
+
+        // Does the batch have a temporal column?
+        const hasTemporal = Object.values(cap.fieldIdentities)
+          .some(fi => fi.structuralType === 'temporal');
+        if (hasTemporal) {
+          score += 0.25;
+          reasons.push('has temporal');
+        }
+
+        // For ratio/2D components needing 2+ measures: check contextual type diversity
+        // (e.g., one currency_amount and one percentage — likely actual + target pair)
+        if (requiredMeasures >= 2 && measureCount >= 2) {
+          const contextualTypes = new Set(measureFIs.map(([, fi]) => fi.contextualIdentity));
+          if (contextualTypes.size >= 2) {
+            score += 0.25;
+            reasons.push('diverse measure types');
           }
         }
 
-        // Also check data_type token overlap as tiebreaker
-        const dtTokens = tokenize(cap.dataType);
-        const dtOverlap = compTokens.filter(t => dtTokens.some(d => d.includes(t) || t.includes(d)));
-        const dtScore = dtOverlap.length / Math.max(compTokens.length, 1);
-        if (dtScore > score) {
-          score = dtScore;
-          reason = `Field identity structural + data_type token: ${(dtScore * 100).toFixed(0)}%`;
-        }
-
         if (score > 0 && (!bestMatch || score > bestMatch.score)) {
-          bestMatch = { cap, score, reason };
+          bestMatch = { cap, score, reason: reasons.join(', ') };
         }
       }
 
-      if (bestMatch && bestMatch.score > 0.15) {
+      if (bestMatch && bestMatch.score > 0.3) {
         matches.push({
           component: comp,
           dataType: bestMatch.cap.dataType,
-          matchConfidence: Math.min(0.90, 0.5 + bestMatch.score * 0.4),
-          matchReason: `OB-162 ${bestMatch.reason}`,
+          matchConfidence: Math.min(0.90, 0.4 + bestMatch.score * 0.5),
+          matchReason: `HF-109 structural: ${bestMatch.reason}`,
         });
         matchedComponents.add(comp.index);
       }
@@ -893,6 +902,24 @@ function detectBoundaryScale(componentsJson: unknown, componentIndex: number): n
   }
 
   return 1;
+}
+
+// HF-109: Structural measure count by operation type (DS-009 4.2)
+// Used by Pass 2 to match component structural pattern against batch field identities
+function getRequiredMeasureCount(operation: string): number {
+  switch (operation) {
+    case 'ratio':
+    case 'bounded_lookup_2d':
+      return 2; // actual + target (or numerator + denominator)
+    case 'sum':
+    case 'count':
+    case 'bounded_lookup_1d':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+    case 'aggregate':
+    default:
+      return 1;
+  }
 }
 
 // ──────────────────────────────────────────────
