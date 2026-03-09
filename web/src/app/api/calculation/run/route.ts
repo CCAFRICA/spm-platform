@@ -369,16 +369,14 @@ export async function POST(request: NextRequest) {
       if (entityIdBinding?.source_batch_id && entityIdBinding?.column) {
         entityColsByBatch.set(entityIdBinding.source_batch_id, entityIdBinding.column);
       }
-      // Also index the actual/target batch if its entity_identifier is from a different batch
-      if (cb.actual?.source_batch_id && !entityColsByBatch.has(cb.actual.source_batch_id)) {
-        // Use the same entity_identifier column for batches without explicit mapping
-        if (entityIdBinding?.column) {
-          entityColsByBatch.set(cb.actual.source_batch_id, entityIdBinding.column);
-        }
-      }
-      if (cb.target?.source_batch_id && !entityColsByBatch.has(cb.target.source_batch_id)) {
-        if (entityIdBinding?.column) {
-          entityColsByBatch.set(cb.target.source_batch_id, entityIdBinding.column);
+      // HF-111: Index ALL binding role batches (actual, target, row, column, numerator, denominator)
+      const bindingRoles = ['actual', 'target', 'row', 'column', 'numerator', 'denominator'];
+      for (const role of bindingRoles) {
+        const binding = cb[role];
+        if (binding?.source_batch_id && !entityColsByBatch.has(binding.source_batch_id)) {
+          if (entityIdBinding?.column) {
+            entityColsByBatch.set(binding.source_batch_id, entityIdBinding.column);
+          }
         }
       }
     }
@@ -820,6 +818,8 @@ export async function POST(request: NextRequest) {
     field_identity?: { structuralType?: string; contextualIdentity?: string };
     match_pass?: number;
     confidence?: number;
+    // HF-111: Scale factor for percentage columns (e.g., 100 when ratio → percentage)
+    scale_factor?: number;
   }
 
   function resolveMetricsFromConvergenceBindings(
@@ -827,46 +827,73 @@ export async function POST(request: NextRequest) {
     component: PlanComponent,
     entityExternalId: string,
   ): Record<string, number> | null {
-    const actualBinding = compBindings.actual as ConvergenceBindingEntry | undefined;
-    if (!actualBinding?.source_batch_id || !actualBinding?.column) return null;
+    // HF-111: Support multiple binding roles — actual, row, column, numerator, denominator
+    const actualBinding = (compBindings.actual || compBindings.row) as ConvergenceBindingEntry | undefined;
+    const targetBinding = (compBindings.target || compBindings.column) as ConvergenceBindingEntry | undefined;
+    const numBinding = compBindings.numerator as ConvergenceBindingEntry | undefined;
+    const denBinding = compBindings.denominator as ConvergenceBindingEntry | undefined;
 
-    const targetBinding = compBindings.target as ConvergenceBindingEntry | undefined;
+    // Need at least one measure binding
+    if (!actualBinding?.source_batch_id && !numBinding?.source_batch_id) return null;
 
     const expectedMetrics = getExpectedMetricNames(component);
     if (expectedMetrics.length === 0) return null;
 
-    // HF-109: Resolve actual value via external_id (DS-009 5.1)
-    // "convergence told me to get the value from column X in batch Y for entity Z"
-    // Entity Z is identified by external_id, NOT entity_id FK
-    const actualValue = resolveColumnFromBatch(
-      actualBinding.source_batch_id, actualBinding.column, entityExternalId
-    );
-
-    if (actualValue === null) return null;
-
     const metrics: Record<string, number> = {};
-    // Set primary expected metric to the actual value
-    metrics[expectedMetrics[0]] = actualValue;
 
-    // Resolve target value if binding exists
-    if (targetBinding?.source_batch_id && targetBinding?.column) {
-      const targetValue = resolveColumnFromBatch(
-        targetBinding.source_batch_id, targetBinding.column, entityExternalId
+    // HF-111: Ratio input — resolve both numerator and denominator
+    if (numBinding?.source_batch_id && numBinding?.column &&
+        denBinding?.source_batch_id && denBinding?.column) {
+      let numValue = resolveColumnFromBatch(
+        numBinding.source_batch_id, numBinding.column, entityExternalId
       );
-      if (targetValue !== null && targetValue !== 0) {
-        // Set target metric (convention: primary_target)
-        const targetMetricName = expectedMetrics.length > 1
-          ? expectedMetrics[1]  // Use second expected metric for target
-          : `${expectedMetrics[0]}_target`;
-        metrics[targetMetricName] = targetValue;
+      let denValue = resolveColumnFromBatch(
+        denBinding.source_batch_id, denBinding.column, entityExternalId
+      );
 
-        // Compute attainment ratio if both actual and target are present
-        const attainment = actualValue / targetValue;
-        metrics['attainment'] = attainment;
+      if (numBinding.scale_factor) numValue = numValue !== null ? numValue * numBinding.scale_factor : null;
+      if (denBinding.scale_factor) denValue = denValue !== null ? denValue * denBinding.scale_factor : null;
+
+      if (numValue !== null && denValue !== null && denValue !== 0) {
+        metrics[expectedMetrics[0]] = numValue / denValue;
+      }
+      return Object.keys(metrics).length > 0 ? metrics : null;
+    }
+
+    // Single or dual input (actual + target, or row + column)
+    if (actualBinding?.source_batch_id && actualBinding?.column) {
+      let actualValue = resolveColumnFromBatch(
+        actualBinding.source_batch_id, actualBinding.column, entityExternalId
+      );
+      if (actualValue === null) return null;
+
+      // HF-111: Apply scale factor (e.g., 0.85 ratio → 85 percentage)
+      if (actualBinding.scale_factor) actualValue *= actualBinding.scale_factor;
+
+      metrics[expectedMetrics[0]] = actualValue;
+
+      // Resolve target/column value if binding exists
+      if (targetBinding?.source_batch_id && targetBinding?.column) {
+        let targetValue = resolveColumnFromBatch(
+          targetBinding.source_batch_id, targetBinding.column, entityExternalId
+        );
+        if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
+
+        if (targetValue !== null && targetValue !== 0) {
+          const targetMetricName = expectedMetrics.length > 1
+            ? expectedMetrics[1]
+            : `${expectedMetrics[0]}_target`;
+          metrics[targetMetricName] = targetValue;
+
+          // Only compute attainment for actual+target pairs, NOT row+column 2D lookups
+          if (compBindings.actual && compBindings.target) {
+            metrics['attainment'] = actualValue / targetValue;
+          }
+        }
       }
     }
 
-    return metrics;
+    return Object.keys(metrics).length > 0 ? metrics : null;
   }
 
   // HF-109: Resolve a single column value for an entity from the batch data cache (DS-009 5.1).

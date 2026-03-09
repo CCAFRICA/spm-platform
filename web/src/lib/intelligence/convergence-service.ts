@@ -28,6 +28,16 @@ interface PlanComponent {
   expectedMetrics: string[];
   calculationOp: string;
   calculationRate?: number;
+  // HF-111: Carry raw calculationIntent for boundary extraction
+  calculationIntent?: Record<string, unknown>;
+}
+
+// HF-111: Per-column value statistics for boundary matching
+interface ColumnValueStats {
+  min: number;
+  max: number;
+  mean: number;
+  sampleCount: number;
 }
 
 interface DataCapability {
@@ -43,6 +53,8 @@ interface DataCapability {
   // OB-162: Field identity awareness (Decision 111)
   fieldIdentities: Record<string, FieldIdentity>;  // columnName → FieldIdentity
   batchIds: string[];                               // import_batch_ids for this data_type
+  // HF-111: Per-column value distributions for boundary matching
+  columnStats: Record<string, ColumnValueStats>;    // columnName → value stats
 }
 
 // OB-162: Per-component convergence binding (Decision 111)
@@ -50,8 +62,10 @@ export interface ComponentBinding {
   source_batch_id: string;
   column: string;
   field_identity: FieldIdentity;
-  match_pass: number;  // 1=structural, 2=contextual, 3=token
+  match_pass: number;  // 1=structural/boundary, 2=contextual/AI, 3=token
   confidence: number;
+  // HF-111: Scale factor for percentage columns (e.g., 100 when column is 0-1 ratio but boundary is 0-100)
+  scale_factor?: number;
 }
 
 interface BindingMatch {
@@ -153,15 +167,11 @@ export async function convergeBindings(
       });
     }
 
-    // OB-162: Generate per-component input bindings (Decision 111)
-    generateComponentBindings(
-      match.component,
-      cap,
-      match.matchConfidence,
-      match.matchReason,
-      componentBindings,
-    );
+    // Note: per-component bindings generated in bulk below (HF-111)
   }
+
+  // HF-111: Generate all component bindings with boundary matching + column exclusion
+  generateAllComponentBindings(components, matches, capabilities, componentBindings);
 
   // 5b. OB-128: Detect actuals-target pairs via semantic roles
   const targetCapabilities = capabilities.filter(c => c.hasTargetData);
@@ -386,6 +396,8 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
       expectedMetrics: metrics,
       calculationOp: op,
       calculationRate: rate,
+      // HF-111: Carry raw calculationIntent for boundary extraction
+      calculationIntent: intent || undefined,
     });
   }
 
@@ -508,6 +520,7 @@ async function inventoryData(
       targetField: targetFieldEntry?.[0],
       fieldIdentities,
       batchIds,
+      columnStats: {},
     };
 
     if (samples.length === 0) {
@@ -533,6 +546,29 @@ async function inventoryData(
         const avg = numericValues.reduce((a, b) => a + b, 0) / numericValues.length;
         if (avg > 100 && (avg < 43000 || avg > 48000)) {
           cap.numericFields.push({ field: key, avg, nonNullCount: numericValues.length });
+        }
+        // HF-111: Collect per-column value stats for boundary matching
+        // Include ALL numeric columns (not just the filtered ones above)
+        const minVal = Math.min(...numericValues);
+        const maxVal = Math.max(...numericValues);
+        cap.columnStats[key] = { min: minVal, max: maxVal, mean: avg, sampleCount: numericValues.length };
+      }
+
+      // HF-111: Also parse numeric strings (e.g., "0.85", "265625")
+      if (numericValues.length <= values.length * 0.5 && stringValues.length > 0) {
+        const parsedNums: number[] = [];
+        for (const sv of stringValues) {
+          const p = parseFloat(sv.replace(/[,$\s]/g, ''));
+          if (!isNaN(p)) parsedNums.push(p);
+        }
+        if (parsedNums.length > values.length * 0.5) {
+          const avg = parsedNums.reduce((a, b) => a + b, 0) / parsedNums.length;
+          cap.columnStats[key] = {
+            min: Math.min(...parsedNums),
+            max: Math.max(...parsedNums),
+            mean: avg,
+            sampleCount: parsedNums.length,
+          };
         }
       }
 
@@ -753,74 +789,229 @@ function generateDerivationsForMatch(
 }
 
 // ──────────────────────────────────────────────
-// OB-162: Generate Per-Component Input Bindings
+// HF-111: Component Input Requirements
+// Extracts what each component needs from its calculationIntent
 // ──────────────────────────────────────────────
 
-function generateComponentBindings(
-  component: PlanComponent,
-  capability: DataCapability,
-  confidence: number,
-  matchReason: string,
+interface ComponentInputRequirement {
+  role: string;  // 'actual', 'row', 'column', 'numerator', 'denominator'
+  expectedRange: { min: number; max: number } | null;
+}
+
+function extractInputRequirements(component: PlanComponent): ComponentInputRequirement[] {
+  const intent = component.calculationIntent;
+  if (!intent) return [{ role: 'actual', expectedRange: null }];
+
+  const reqs: ComponentInputRequirement[] = [];
+  const op = intent.operation as string;
+
+  switch (op) {
+    case 'bounded_lookup_2d': {
+      const inputs = intent.inputs as Record<string, unknown> | undefined;
+      const rowRange = extractRangeFromBoundaries(intent.rowBoundaries as Array<Record<string, unknown>> | undefined);
+      const colRange = extractRangeFromBoundaries(intent.columnBoundaries as Array<Record<string, unknown>> | undefined);
+      if (inputs) {
+        reqs.push({ role: 'row', expectedRange: rowRange });
+        reqs.push({ role: 'column', expectedRange: colRange });
+      } else {
+        reqs.push({ role: 'actual', expectedRange: rowRange });
+      }
+      break;
+    }
+    case 'bounded_lookup_1d': {
+      const range = extractRangeFromBoundaries(intent.boundaries as Array<Record<string, unknown>> | undefined);
+      reqs.push({ role: 'actual', expectedRange: range });
+      break;
+    }
+    case 'scalar_multiply': {
+      const input = intent.input as Record<string, unknown> | undefined;
+      if (input?.source === 'ratio') {
+        reqs.push({ role: 'numerator', expectedRange: null });
+        reqs.push({ role: 'denominator', expectedRange: null });
+      } else {
+        reqs.push({ role: 'actual', expectedRange: null });
+      }
+      break;
+    }
+    case 'conditional_gate': {
+      reqs.push({ role: 'actual', expectedRange: null });
+      break;
+    }
+    default:
+      reqs.push({ role: 'actual', expectedRange: null });
+  }
+
+  return reqs;
+}
+
+function extractRangeFromBoundaries(
+  boundaries: Array<Record<string, unknown>> | undefined
+): { min: number; max: number } | null {
+  if (!boundaries || boundaries.length === 0) return null;
+  const first = boundaries[0];
+  const last = boundaries[boundaries.length - 1];
+  const minVal = (first.min as number) ?? 0;
+  const maxVal = (last.max as number) ?? (last.min as number) * 2;
+  if (typeof minVal !== 'number' || typeof maxVal !== 'number') return null;
+  return { min: minVal, max: maxVal };
+}
+
+// ──────────────────────────────────────────────
+// HF-111: Score a column against a component requirement
+// Korean Test compliant: matches on value distribution vs boundary range
+// ──────────────────────────────────────────────
+
+function scoreColumnForRequirement(
+  columnName: string,
+  stats: ColumnValueStats,
+  requirement: ComponentInputRequirement,
+): { score: number; scaleFactor: number } {
+  if (!requirement.expectedRange) {
+    // No boundaries to match — return baseline score
+    return { score: 0.1, scaleFactor: 1 };
+  }
+
+  const { min: expMin, max: expMax } = requirement.expectedRange;
+  if (expMax <= expMin) return { score: 0.1, scaleFactor: 1 };
+
+  let bestScore = 0;
+  let bestScale = 1;
+
+  // Try multiple scale factors: raw, ×100 (ratio→percentage), ×1000
+  const scales = [1, 100];
+  for (const scale of scales) {
+    const scaledMin = stats.min * scale;
+    const scaledMax = stats.max * scale;
+
+    // Does the scaled column range overlap with the boundary range?
+    if (scaledMax >= expMin * 0.5 && scaledMin <= expMax * 2) {
+      // Compute fit ratio: how well does the column's range fit within the boundary range?
+      const overlapMin = Math.max(scaledMin, expMin);
+      const overlapMax = Math.min(scaledMax, expMax);
+      const overlap = Math.max(0, overlapMax - overlapMin);
+      const boundarySpan = expMax - expMin;
+      const columnSpan = scaledMax - scaledMin;
+
+      // Good fit: column values span a meaningful portion of the boundary range
+      // but don't wildly exceed it
+      const coverageRatio = boundarySpan > 0 ? overlap / boundarySpan : 0;
+      const excessRatio = columnSpan > 0 && boundarySpan > 0
+        ? Math.min(1, boundarySpan / columnSpan)  // Penalize columns much wider than boundaries
+        : 0.5;
+
+      const fitScore = coverageRatio * 0.6 + excessRatio * 0.4;
+      if (fitScore > bestScore) {
+        bestScore = fitScore;
+        bestScale = scale;
+      }
+    }
+  }
+
+  return { score: bestScore, scaleFactor: bestScale };
+}
+
+// ──────────────────────────────────────────────
+// HF-111: Generate Per-Component Input Bindings
+// Uses boundary matching for column selection + column exclusion
+// ──────────────────────────────────────────────
+
+function generateAllComponentBindings(
+  components: PlanComponent[],
+  matches: BindingMatch[],
+  capabilities: DataCapability[],
   bindings: Record<string, Record<string, ComponentBinding>>,
 ): void {
-  const compKey = `component_${component.index}`;
-  if (!bindings[compKey]) bindings[compKey] = {};
+  // Track which columns have already been bound (per batch) to prevent reuse
+  const boundColumns = new Set<string>();
 
-  const matchPass = matchReason.startsWith('OB-162') ? (matchReason.includes('contextual') ? 2 : 1) : 3;
-  const batchId = capability.batchIds[0] || '';
+  for (const match of matches) {
+    const comp = match.component;
+    const cap = capabilities.find(c => c.dataType === match.dataType);
+    if (!cap) continue;
 
-  // Find the actual (measure) column
-  const measureEntries = Object.entries(capability.fieldIdentities)
-    .filter(([, fi]) => fi.structuralType === 'measure');
+    const compKey = `component_${comp.index}`;
+    if (!bindings[compKey]) bindings[compKey] = {};
 
-  if (measureEntries.length > 0) {
-    // Use the measure column with highest confidence
-    const [colName, fi] = measureEntries.sort((a, b) => b[1].confidence - a[1].confidence)[0];
-    bindings[compKey]['actual'] = {
-      source_batch_id: batchId,
-      column: colName,
-      field_identity: fi,
-      match_pass: matchPass,
-      confidence,
-    };
-  } else if (capability.numericFields.length > 0) {
-    // Fallback: use highest-avg numeric field without field identity
-    const best = capability.numericFields.sort((a, b) => b.avg - a.avg)[0];
-    bindings[compKey]['actual'] = {
-      source_batch_id: batchId,
-      column: best.field,
-      field_identity: { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 },
-      match_pass: 3,
-      confidence: confidence * 0.8,
-    };
-  }
+    const batchId = cap.batchIds[0] || '';
 
-  // Find entity identifier column
-  const idEntries = Object.entries(capability.fieldIdentities)
-    .filter(([, fi]) => fi.structuralType === 'identifier');
-  if (idEntries.length > 0) {
-    const [colName, fi] = idEntries[0];
-    bindings[compKey]['entity_identifier'] = {
-      source_batch_id: batchId,
-      column: colName,
-      field_identity: fi,
-      match_pass: matchPass,
-      confidence,
-    };
-  }
+    // HF-111: Extract input requirements from calculationIntent
+    const requirements = extractInputRequirements(comp);
 
-  // Find temporal column
-  const temporalEntries = Object.entries(capability.fieldIdentities)
-    .filter(([, fi]) => fi.structuralType === 'temporal');
-  if (temporalEntries.length > 0) {
-    const [colName, fi] = temporalEntries[0];
-    bindings[compKey]['period'] = {
-      source_batch_id: batchId,
-      column: colName,
-      field_identity: fi,
-      match_pass: matchPass,
-      confidence,
-    };
+    // Get all measure columns with their stats
+    const measureColumns: Array<{
+      name: string;
+      fi: FieldIdentity;
+      stats: ColumnValueStats;
+    }> = [];
+    for (const [colName, fi] of Object.entries(cap.fieldIdentities)) {
+      if (fi.structuralType === 'measure' && cap.columnStats[colName]) {
+        measureColumns.push({ name: colName, fi, stats: cap.columnStats[colName] });
+      }
+    }
+    // Also include numeric columns that have stats but no field identity
+    for (const nf of cap.numericFields) {
+      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
+        measureColumns.push({
+          name: nf.field,
+          fi: { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 },
+          stats: cap.columnStats[nf.field],
+        });
+      }
+    }
+
+    // For each requirement, find the best unbound column using boundary matching
+    for (const req of requirements) {
+      const candidates = measureColumns
+        .filter(mc => !boundColumns.has(`${batchId}:${mc.name}`))
+        .map(mc => {
+          const { score, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
+          return { ...mc, score, scaleFactor };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      if (candidates.length > 0 && candidates[0].score > 0) {
+        const best = candidates[0];
+        bindings[compKey][req.role] = {
+          source_batch_id: batchId,
+          column: best.name,
+          field_identity: best.fi,
+          match_pass: best.score > 0.3 ? 1 : 3,  // 1=boundary-matched, 3=weak match
+          confidence: Math.min(0.95, match.matchConfidence * (0.5 + best.score * 0.5)),
+          scale_factor: best.scaleFactor !== 1 ? best.scaleFactor : undefined,
+        };
+        boundColumns.add(`${batchId}:${best.name}`);
+
+        console.log(`[Convergence] HF-111 ${comp.name}:${req.role} → ${best.name} (score=${best.score.toFixed(2)}, scale=${best.scaleFactor})`);
+      }
+    }
+
+    // Find entity identifier column
+    const idEntries = Object.entries(cap.fieldIdentities)
+      .filter(([, fi]) => fi.structuralType === 'identifier');
+    if (idEntries.length > 0) {
+      const [colName, fi] = idEntries[0];
+      bindings[compKey]['entity_identifier'] = {
+        source_batch_id: batchId,
+        column: colName,
+        field_identity: fi,
+        match_pass: 1,
+        confidence: match.matchConfidence,
+      };
+    }
+
+    // Find temporal column
+    const temporalEntries = Object.entries(cap.fieldIdentities)
+      .filter(([, fi]) => fi.structuralType === 'temporal');
+    if (temporalEntries.length > 0) {
+      const [colName, fi] = temporalEntries[0];
+      bindings[compKey]['period'] = {
+        source_batch_id: batchId,
+        column: colName,
+        field_identity: fi,
+        match_pass: 1,
+        confidence: match.matchConfidence,
+      };
+    }
   }
 }
 
