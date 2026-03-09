@@ -542,12 +542,18 @@ Return a JSON object with:
   "confidence": 0-100
 }`,
 
-  header_comprehension: `You are analyzing a data file with multiple sheets. For each column in each sheet, determine what the column represents based on its header name and sample values.
+  header_comprehension: `You are analyzing a data file with multiple sheets. For each column in each sheet, identify WHAT the column IS — not how it is used in this particular sheet.
 
 For each column, provide:
-- semanticMeaning: what this column represents (e.g., "month_indicator", "employee_identifier", "revenue_attainment_percentage", "hub_name", "safety_incident_count")
+- semanticMeaning: what this column IS (e.g., "person_identifier", "location_code", "currency_amount", "delivery_percentage", "month_indicator", "hub_name", "safety_incident_count")
 - dataExpectation: what values should look like (e.g., "integer_1_to_12", "unique_numeric_id", "decimal_0_to_1")
 - columnRole: one of: identifier, name, temporal, measure, attribute, reference_key, unknown
+  - identifier: uniquely identifies something (person, location, transaction)
+  - name: human-readable label
+  - temporal: date, period, timestamp
+  - measure: numeric value representing a quantity
+  - attribute: categorical or descriptive property
+  - reference_key: links to another dataset
 - confidence: 0.0 to 1.0
 
 Also provide crossSheetInsights: observations about relationships between sheets (e.g., "Sheet A and Sheet B share the same employee identifier column", "Sheet C appears to be hub-level reference data while Sheet B has employee-level performance data").

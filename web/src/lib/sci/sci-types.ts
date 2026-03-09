@@ -75,6 +75,18 @@ export type ColumnRole =
   | 'unknown'            // LLM couldn't determine
   ;
 
+// ============================================================
+// OB-162: FIELD IDENTITY (Decision 111)
+// ============================================================
+
+// Field identity = what a column IS (stable, context-independent)
+// Stored in committed_data.metadata.field_identities
+export interface FieldIdentity {
+  structuralType: ColumnRole;         // what structural role this column plays
+  contextualIdentity: string;         // what kind of identifier/measure/etc (e.g., person_identifier, currency_amount)
+  confidence: number;                 // 0.0-1.0
+}
+
 // LLM interpretation of a single column header
 export interface HeaderInterpretation {
   columnName: string;              // original header as customer wrote it

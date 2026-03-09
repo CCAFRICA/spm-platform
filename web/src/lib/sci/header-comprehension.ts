@@ -12,6 +12,7 @@ import type {
   HeaderComprehensionMetrics,
   ColumnRole,
   VocabularyBinding,
+  FieldIdentity,
 } from './sci-types';
 import { recallVocabularyBindings } from './classification-signal-service';
 import { getAIService } from '@/lib/ai/ai-service';
@@ -345,6 +346,62 @@ export async function comprehendHeaders(
   };
 
   return { comprehensions, metrics };
+}
+
+// ============================================================
+// OB-162: FIELD IDENTITY EXTRACTION (Decision 111)
+// ============================================================
+
+/**
+ * Extract field identities from HC comprehension results for a specific sheet.
+ * Returns Record<columnName, FieldIdentity> suitable for committed_data.metadata.field_identities
+ */
+export function extractFieldIdentities(
+  comprehensions: Map<string, HeaderComprehension> | null,
+  sheetName: string,
+): Record<string, FieldIdentity> | null {
+  if (!comprehensions) return null;
+
+  const hc = comprehensions.get(sheetName);
+  if (!hc) return null;
+
+  const identities: Record<string, FieldIdentity> = {};
+  for (const [colName, interp] of Array.from(hc.interpretations.entries())) {
+    identities[colName] = {
+      structuralType: interp.columnRole,
+      contextualIdentity: interp.semanticMeaning,
+      confidence: interp.confidence,
+    };
+  }
+
+  return Object.keys(identities).length > 0 ? identities : null;
+}
+
+/**
+ * Extract field identities from a classificationTrace's headerComprehension data.
+ * This is used in the execute pipeline where we have the trace but not the full HC maps.
+ */
+export function extractFieldIdentitiesFromTrace(
+  classificationTrace: Record<string, unknown> | undefined,
+): Record<string, FieldIdentity> | null {
+  if (!classificationTrace) return null;
+
+  const hcData = classificationTrace.headerComprehension as
+    { interpretations?: Record<string, { columnRole?: string; semanticMeaning?: string; confidence?: number }> } | null;
+
+  if (!hcData?.interpretations) return null;
+
+  const identities: Record<string, FieldIdentity> = {};
+  for (const [colName, interp] of Object.entries(hcData.interpretations)) {
+    const role = interp.columnRole || 'unknown';
+    identities[colName] = {
+      structuralType: role as ColumnRole,
+      contextualIdentity: interp.semanticMeaning || 'unknown',
+      confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
+    };
+  }
+
+  return Object.keys(identities).length > 0 ? identities : null;
 }
 
 function computeAverageConfidence(

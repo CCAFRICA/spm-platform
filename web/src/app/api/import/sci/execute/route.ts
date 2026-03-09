@@ -27,6 +27,7 @@ import {
   buildSemanticRolesMap,
   detectPeriodMarkerColumns,
 } from '@/lib/sci/source-date-extraction';
+import { extractFieldIdentitiesFromTrace } from '@/lib/sci/header-comprehension';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 const ROLE_TARGETS = ['role', 'position', 'puesto', 'title', 'cargo'];
@@ -367,6 +368,11 @@ async function executeTargetPipeline(
     };
   }
 
+  // OB-162: Extract field identities from HC trace (Decision 111)
+  const tgtFieldIdentities = extractFieldIdentitiesFromTrace(
+    unit.classificationTrace as Record<string, unknown> | undefined
+  );
+
   // Resolve entity IDs from bindings
   const entityIdBinding = unit.confirmedBindings.find(
     b => b.semanticRole === 'entity_identifier'
@@ -445,6 +451,9 @@ async function executeTargetPipeline(
         proposalId,
         semantic_roles: semanticRoles,
         resolved_data_type: dataType,
+        // OB-162: Field identities from HC (Decision 111)
+        ...(tgtFieldIdentities ? { field_identities: tgtFieldIdentities } : {}),
+        informational_label: 'target',
       },
     };
   });
@@ -590,6 +599,11 @@ async function executeTransactionPipeline(
     };
   }
 
+  // OB-162: Extract field identities from HC trace (Decision 111)
+  const txnFieldIdentities = extractFieldIdentitiesFromTrace(
+    unit.classificationTrace as Record<string, unknown> | undefined
+  );
+
   // OB-152: Extract source_date using structural heuristics
   const txnDateHint = findDateColumnFromBindings(unit.confirmedBindings);
   const txnSemanticMap = buildSemanticRolesMap(unit.confirmedBindings);
@@ -628,6 +642,9 @@ async function executeTransactionPipeline(
         proposalId,
         semantic_roles: semanticRoles,
         resolved_data_type: dataType,
+        // OB-162: Field identities from HC (Decision 111)
+        ...(txnFieldIdentities ? { field_identities: txnFieldIdentities } : {}),
+        informational_label: 'transaction',
       },
     };
   });
@@ -832,7 +849,9 @@ async function executeEntityPipeline(
 }
 
 // ============================================================
-// REFERENCE PIPELINE — OB-152: catalog/lookup data → reference_data + reference_items
+// REFERENCE PIPELINE — OB-162: Decision 111 — unified committed_data storage
+// All data → committed_data with field_identities in metadata.
+// reference_data/reference_items tables deprecated — zero new writes.
 // ============================================================
 
 async function executeReferencePipeline(
@@ -842,6 +861,7 @@ async function executeReferencePipeline(
   unit: ContentUnitExecution,
   userId: string,
 ): Promise<ContentUnitResult> {
+  void userId; // No longer needed — reference_data.created_by not used
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
     return {
@@ -865,138 +885,75 @@ async function executeReferencePipeline(
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
   });
 
-  // Determine reference name from contentUnitId
+  // Resolve data_type from contentUnitId (same as transaction/target pipelines)
   const parts = unit.contentUnitId.split('::');
   const fileName = parts[0] || 'unknown';
   const tabName = parts[1] || 'Sheet1';
-  const referenceName = tabName !== 'Sheet1' && tabName !== 'Hoja1'
-    ? tabName
-    : fileName.replace(/\.[^.]+$/, '');
+  const normalized = normalizeFileNameToDataType(fileName);
+  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
+  const dataType = !isGenericTab && normalized.length > 2
+    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
+    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
 
-  // HF-107: Find the key field — HC reference_key role → entity_identifier binding → first column
-  // Priority: 1) HC reference_key role from classificationTrace, 2) entity_identifier binding, 3) first column
-  let keyFieldName: string | null = null;
-
-  // Check HC interpretations for reference_key role (Korean Test: no field name matching)
-  const traceHC = (unit.classificationTrace as Record<string, unknown>)?.headerComprehension as
-    { interpretations?: Record<string, { columnRole: string; confidence: number }> } | null;
-  if (traceHC?.interpretations) {
-    for (const [col, interp] of Object.entries(traceHC.interpretations)) {
-      if (interp.columnRole === 'reference_key' && interp.confidence >= 0.80) {
-        keyFieldName = col;
-        break;
-      }
-    }
+  // Build semantic_roles map from bindings
+  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
+  for (const binding of unit.confirmedBindings) {
+    semanticRoles[binding.sourceField] = {
+      role: binding.semanticRole,
+      confidence: binding.confidence,
+      claimedBy: binding.claimedBy,
+    };
   }
 
-  // Fallback: entity_identifier binding (reference_key maps to this in negotiation.ts)
-  if (!keyFieldName) {
-    const keyBinding = unit.confirmedBindings.find(b =>
-      b.semanticRole === 'entity_identifier'
-    );
-    keyFieldName = keyBinding?.sourceField ?? null;
-  }
+  // OB-162: Extract field identities from HC trace (Decision 111)
+  const refFieldIdentities = extractFieldIdentitiesFromTrace(
+    unit.classificationTrace as Record<string, unknown> | undefined
+  );
 
-  // Last resort: first column
-  if (!keyFieldName) {
-    keyFieldName = unit.confirmedBindings[0]?.sourceField || Object.keys(rows[0] || {})[0] || 'id';
-  }
-
-  // Build schema definition from bindings
-  const schemaDefinition: Record<string, string> = {};
-  for (const b of unit.confirmedBindings) {
-    schemaDefinition[b.sourceField] = b.semanticRole;
-  }
-
-  // HF-107: Idempotent — delete existing reference for same tenant + name before re-import
-  const { data: existingRef } = await supabase.from('reference_data')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('name', referenceName);
-  if (existingRef && existingRef.length > 0) {
-    const existingIds = existingRef.map(r => r.id);
-    // Delete items first (FK dependency)
-    for (const refId of existingIds) {
-      await supabase.from('reference_items').delete().eq('reference_data_id', refId);
-    }
-    await supabase.from('reference_data').delete().in('id', existingIds);
-    console.log(`[SCI Execute] Reference: cleaned ${existingRef.length} existing "${referenceName}" records for idempotent re-import`);
-  }
-
-  // Create reference_data record
-  const refDataId = crypto.randomUUID();
-  const { error: refDataErr } = await supabase.from('reference_data').insert({
-    id: refDataId,
+  // OB-162: Decision 111 — store ALL data in committed_data with field_identities
+  // No writes to reference_data or reference_items tables
+  const insertRows = rows.map((row, i) => ({
     tenant_id: tenantId,
-    reference_type: 'catalog',
-    name: referenceName,
-    version: 1,
-    status: 'active',
-    key_field: keyFieldName,
-    schema_definition: schemaDefinition as unknown as Json,
     import_batch_id: batchId,
-    metadata: { proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
-    created_by: userId,
-  });
-
-  if (refDataErr) {
-    console.error('[SCI Execute] Reference data insert failed:', refDataErr);
-    return {
-      contentUnitId: unit.contentUnitId,
-      classification: 'reference',
-      success: false,
-      rowsProcessed: 0,
-      pipeline: 'reference',
-      error: refDataErr.message,
-    };
-  }
-
-  // Create reference_items from rows
-  const items = rows.map(row => {
-    const externalKey = keyFieldName && row[keyFieldName] != null
-      ? String(row[keyFieldName]).trim()
-      : crypto.randomUUID();
-
-    // Find display name from a 'descriptive_label' or 'entity_name' binding
-    const nameBinding = unit.confirmedBindings.find(b =>
-      b.semanticRole === 'descriptive_label' || b.semanticRole === 'entity_name'
-    );
-    const displayName = nameBinding && row[nameBinding.sourceField] != null
-      ? String(row[nameBinding.sourceField]).trim()
-      : externalKey;
-
-    // Find category from a 'category_code' binding
-    const catBinding = unit.confirmedBindings.find(b => b.semanticRole === 'category_code');
-    const category = catBinding && row[catBinding.sourceField] != null
-      ? String(row[catBinding.sourceField]).trim()
-      : null;
-
-    return {
-      tenant_id: tenantId,
-      reference_data_id: refDataId,
-      external_key: externalKey,
-      display_name: displayName,
-      category,
-      attributes: row as unknown as Json,
-      status: 'active',
-    };
-  });
+    entity_id: null as string | null,
+    period_id: null as string | null,
+    source_date: null as string | null,
+    data_type: dataType,
+    row_data: { ...row, _sheetName: tabName, _rowIndex: i },
+    metadata: {
+      source: 'sci',
+      proposalId,
+      semantic_roles: semanticRoles,
+      resolved_data_type: dataType,
+      // OB-162: Field identities from HC (Decision 111)
+      ...(refFieldIdentities ? { field_identities: refFieldIdentities } : {}),
+      informational_label: 'reference',
+    },
+  }));
 
   // Bulk insert in 5000-row chunks
   const CHUNK = 5000;
   let totalInserted = 0;
-  for (let i = 0; i < items.length; i += CHUNK) {
-    const slice = items.slice(i, i + CHUNK);
-    const { error: itemErr } = await supabase.from('reference_items').insert(slice);
-    if (itemErr) {
-      console.error('[SCI Execute] Reference items insert failed:', itemErr);
+  for (let i = 0; i < insertRows.length; i += CHUNK) {
+    const slice = insertRows.slice(i, i + CHUNK);
+    const { error: insertErr } = await supabase
+      .from('committed_data')
+      .insert(slice);
+
+    if (insertErr) {
+      console.error('[SCI Execute] Reference→committed_data insert failed:', insertErr);
+      await supabase.from('import_batches').update({
+        status: 'failed',
+        error_summary: { error: insertErr.message } as unknown as Json,
+      }).eq('id', batchId);
+
       return {
         contentUnitId: unit.contentUnitId,
         classification: 'reference',
         success: false,
         rowsProcessed: totalInserted,
         pipeline: 'reference',
-        error: itemErr.message,
+        error: insertErr.message,
       };
     }
     totalInserted += slice.length;
@@ -1008,7 +965,7 @@ async function executeReferencePipeline(
     row_count: totalInserted,
   }).eq('id', batchId);
 
-  console.log(`[SCI Execute] Reference: ${totalInserted} items in "${referenceName}" (ref_data=${refDataId})`);
+  console.log(`[SCI Execute] Reference (Decision 111): ${totalInserted} rows → committed_data, data_type=${dataType}`);
 
   return {
     contentUnitId: unit.contentUnitId,
