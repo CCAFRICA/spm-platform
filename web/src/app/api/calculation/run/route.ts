@@ -356,22 +356,51 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // HF-108: Build batch-indexed data cache for convergence binding resolution (Decision 111)
-  // Maps batchId → entityId → [row_data, ...] for O(1) lookup during calculation
+  // HF-109: Build batch-indexed data cache keyed by external_id via convergence binding column (DS-009 5.1)
+  // Maps batchId → entity_external_id_value → [row_data, ...] for O(1) lookup during calculation
+  // Key is the VALUE of row_data[entity_identifier_column], NOT the entity_id FK UUID
   const dataByBatch = new Map<string, Map<string, Array<Record<string, unknown>>>>();
   if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
+    // Step 1: Collect entity_identifier columns per batch from convergence bindings
+    const entityColsByBatch = new Map<string, string>();
+    for (const compBindings of Object.values(convergenceBindings)) {
+      const cb = compBindings as Record<string, { source_batch_id?: string; column?: string }>;
+      const entityIdBinding = cb.entity_identifier;
+      if (entityIdBinding?.source_batch_id && entityIdBinding?.column) {
+        entityColsByBatch.set(entityIdBinding.source_batch_id, entityIdBinding.column);
+      }
+      // Also index the actual/target batch if its entity_identifier is from a different batch
+      if (cb.actual?.source_batch_id && !entityColsByBatch.has(cb.actual.source_batch_id)) {
+        // Use the same entity_identifier column for batches without explicit mapping
+        if (entityIdBinding?.column) {
+          entityColsByBatch.set(cb.actual.source_batch_id, entityIdBinding.column);
+        }
+      }
+      if (cb.target?.source_batch_id && !entityColsByBatch.has(cb.target.source_batch_id)) {
+        if (entityIdBinding?.column) {
+          entityColsByBatch.set(cb.target.source_batch_id, entityIdBinding.column);
+        }
+      }
+    }
+
+    // Step 2: Index committed_data by row_data[entity_column] value (DS-009 pattern)
     for (const row of committedData) {
       const batchId = row.import_batch_id;
       if (!batchId) continue;
-      if (!dataByBatch.has(batchId)) dataByBatch.set(batchId, new Map());
-      const entityMap = dataByBatch.get(batchId)!;
-      const key = row.entity_id || '__no_entity__';
-      if (!entityMap.has(key)) entityMap.set(key, []);
+      const entityCol = entityColsByBatch.get(batchId);
+      if (!entityCol) continue; // No convergence binding references this batch
+
       const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
         ? row.row_data as Record<string, unknown> : {};
-      entityMap.get(key)!.push(rd);
+      const entityKey = String(rd[entityCol] ?? '').trim();
+      if (!entityKey) continue;
+
+      if (!dataByBatch.has(batchId)) dataByBatch.set(batchId, new Map());
+      const entityMap = dataByBatch.get(batchId)!;
+      if (!entityMap.has(entityKey)) entityMap.set(entityKey, []);
+      entityMap.get(entityKey)!.push(rd);
     }
-    addLog(`HF-108 Batch index: ${dataByBatch.size} batches indexed for convergence binding resolution`);
+    addLog(`HF-109 Batch cache: ${dataByBatch.size} batches indexed by external_id (DS-009 5.1)`);
   }
 
   const entityRowCount = Array.from(flatDataByEntity.values()).reduce((s, r) => s + r.length, 0);
@@ -796,22 +825,21 @@ export async function POST(request: NextRequest) {
   function resolveMetricsFromConvergenceBindings(
     compBindings: Record<string, unknown>,
     component: PlanComponent,
-    entityId: string,
     entityExternalId: string,
   ): Record<string, number> | null {
     const actualBinding = compBindings.actual as ConvergenceBindingEntry | undefined;
     if (!actualBinding?.source_batch_id || !actualBinding?.column) return null;
 
-    const entityIdBinding = compBindings.entity_identifier as ConvergenceBindingEntry | undefined;
     const targetBinding = compBindings.target as ConvergenceBindingEntry | undefined;
 
     const expectedMetrics = getExpectedMetricNames(component);
     if (expectedMetrics.length === 0) return null;
 
-    // Resolve actual value from batch data
+    // HF-109: Resolve actual value via external_id (DS-009 5.1)
+    // "convergence told me to get the value from column X in batch Y for entity Z"
+    // Entity Z is identified by external_id, NOT entity_id FK
     const actualValue = resolveColumnFromBatch(
-      actualBinding.source_batch_id, actualBinding.column,
-      entityId, entityExternalId, entityIdBinding?.column
+      actualBinding.source_batch_id, actualBinding.column, entityExternalId
     );
 
     if (actualValue === null) return null;
@@ -823,8 +851,7 @@ export async function POST(request: NextRequest) {
     // Resolve target value if binding exists
     if (targetBinding?.source_batch_id && targetBinding?.column) {
       const targetValue = resolveColumnFromBatch(
-        targetBinding.source_batch_id, targetBinding.column,
-        entityId, entityExternalId, entityIdBinding?.column
+        targetBinding.source_batch_id, targetBinding.column, entityExternalId
       );
       if (targetValue !== null && targetValue !== 0) {
         // Set target metric (convention: primary_target)
@@ -842,31 +869,19 @@ export async function POST(request: NextRequest) {
     return metrics;
   }
 
-  // Resolve a single column value for an entity from the batch data cache.
+  // HF-109: Resolve a single column value for an entity from the batch data cache (DS-009 5.1).
+  // Uses external_id as lookup key (the cache is indexed by row_data[entity_column] values).
   // Sums all matching rows (for period aggregation).
   function resolveColumnFromBatch(
     batchId: string,
     column: string,
-    entityId: string,
     entityExternalId: string,
-    entityIdColumn: string | undefined,
   ): number | null {
     const batchEntityMap = dataByBatch.get(batchId);
     if (!batchEntityMap) return null;
 
-    // Try entity_id FK match first (most reliable)
-    let rows = batchEntityMap.get(entityId);
-
-    // Fallback: scan no-entity rows for entity_identifier column match (reference data)
-    if ((!rows || rows.length === 0) && entityIdColumn) {
-      const noEntityRows = batchEntityMap.get('__no_entity__');
-      if (noEntityRows) {
-        rows = noEntityRows.filter(rd =>
-          String(rd[entityIdColumn] ?? '').trim() === entityExternalId
-        );
-      }
-    }
-
+    // DS-009 5.1: look up by external_id — the cache key IS the entity identifier value
+    const rows = batchEntityMap.get(entityExternalId);
     if (!rows || rows.length === 0) return null;
 
     let sum = 0;
@@ -1006,7 +1021,7 @@ export async function POST(request: NextRequest) {
 
       if (compBindings && dataByBatch.size > 0) {
         const cbMetrics = resolveMetricsFromConvergenceBindings(
-          compBindings, component, entityId, entityInfo?.external_id ?? ''
+          compBindings, component, entityInfo?.external_id ?? ''
         );
         if (cbMetrics && Object.keys(cbMetrics).length > 0) {
           metrics = cbMetrics;
