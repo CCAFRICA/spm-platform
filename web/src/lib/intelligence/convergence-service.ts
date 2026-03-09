@@ -318,11 +318,24 @@ export async function convergeBindings(
 
 function extractComponents(componentsJson: unknown): PlanComponent[] {
   const result: PlanComponent[] = [];
-  const cj = componentsJson as Record<string, unknown> | null;
-  if (!cj) return result;
+  if (!componentsJson) return result;
 
-  const variants = (cj.variants as Array<Record<string, unknown>>) ?? [];
-  const comps = (variants[0]?.components as Array<Record<string, unknown>>) ?? [];
+  // HF-110: Handle both formats (FP-49 — verify structure before assuming)
+  // Format 1: { variants: [{ variantId: "...", components: [...] }] }
+  // Format 2: Direct array of components [{ name: "...", ... }]
+  let comps: Array<Record<string, unknown>> = [];
+
+  if (Array.isArray(componentsJson)) {
+    // Direct array of components
+    comps = componentsJson as Array<Record<string, unknown>>;
+  } else if (typeof componentsJson === 'object') {
+    const cj = componentsJson as Record<string, unknown>;
+    const variants = cj.variants as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(variants) && variants.length > 0) {
+      // Variant structure — use first variant (all share same structural pattern)
+      comps = (variants[0].components as Array<Record<string, unknown>>) ?? [];
+    }
+  }
 
   for (let i = 0; i < comps.length; i++) {
     const comp = comps[i];
@@ -337,6 +350,7 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
     if (tierConfig?.metric) metrics.push(String(tierConfig.metric));
 
     if (intent) {
+      // Handle both 'input' (singular) and 'inputs' (plural) structures
       const inputSpec = (intent.input as Record<string, unknown>)?.sourceSpec as Record<string, unknown> | undefined;
       if (inputSpec?.field) {
         const field = String(inputSpec.field).replace(/^metric:/, '');
@@ -344,6 +358,18 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
       }
       if (inputSpec?.numerator) metrics.push(String(inputSpec.numerator).replace(/^metric:/, ''));
       if (inputSpec?.denominator) metrics.push(String(inputSpec.denominator).replace(/^metric:/, ''));
+
+      // 'inputs' plural — multiple named inputs (e.g., { row: { source: "metric", sourceSpec: { field: "..." } } })
+      const inputs = intent.inputs as Record<string, Record<string, unknown>> | undefined;
+      if (inputs) {
+        for (const inputEntry of Object.values(inputs)) {
+          const spec = inputEntry?.sourceSpec as Record<string, unknown> | undefined;
+          if (spec?.field) {
+            const field = String(spec.field).replace(/^metric:/, '');
+            if (!metrics.includes(field)) metrics.push(field);
+          }
+        }
+      }
     }
 
     if (calcMethod?.metric) {
