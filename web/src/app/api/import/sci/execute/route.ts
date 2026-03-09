@@ -873,17 +873,54 @@ async function executeReferencePipeline(
     ? tabName
     : fileName.replace(/\.[^.]+$/, '');
 
-  // Find the key field (entity_identifier binding, or fall back to first column)
-  const keyBinding = unit.confirmedBindings.find(b =>
-    b.semanticRole === 'entity_identifier'
-  );
-  const firstColumn = unit.confirmedBindings[0]?.sourceField || Object.keys(rows[0] || {})[0] || 'id';
-  const keyFieldName = keyBinding?.sourceField || firstColumn;
+  // HF-107: Find the key field — HC reference_key role → entity_identifier binding → first column
+  // Priority: 1) HC reference_key role from classificationTrace, 2) entity_identifier binding, 3) first column
+  let keyFieldName: string | null = null;
+
+  // Check HC interpretations for reference_key role (Korean Test: no field name matching)
+  const traceHC = (unit.classificationTrace as Record<string, unknown>)?.headerComprehension as
+    { interpretations?: Record<string, { columnRole: string; confidence: number }> } | null;
+  if (traceHC?.interpretations) {
+    for (const [col, interp] of Object.entries(traceHC.interpretations)) {
+      if (interp.columnRole === 'reference_key' && interp.confidence >= 0.80) {
+        keyFieldName = col;
+        break;
+      }
+    }
+  }
+
+  // Fallback: entity_identifier binding (reference_key maps to this in negotiation.ts)
+  if (!keyFieldName) {
+    const keyBinding = unit.confirmedBindings.find(b =>
+      b.semanticRole === 'entity_identifier'
+    );
+    keyFieldName = keyBinding?.sourceField ?? null;
+  }
+
+  // Last resort: first column
+  if (!keyFieldName) {
+    keyFieldName = unit.confirmedBindings[0]?.sourceField || Object.keys(rows[0] || {})[0] || 'id';
+  }
 
   // Build schema definition from bindings
   const schemaDefinition: Record<string, string> = {};
   for (const b of unit.confirmedBindings) {
     schemaDefinition[b.sourceField] = b.semanticRole;
+  }
+
+  // HF-107: Idempotent — delete existing reference for same tenant + name before re-import
+  const { data: existingRef } = await supabase.from('reference_data')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('name', referenceName);
+  if (existingRef && existingRef.length > 0) {
+    const existingIds = existingRef.map(r => r.id);
+    // Delete items first (FK dependency)
+    for (const refId of existingIds) {
+      await supabase.from('reference_items').delete().eq('reference_data_id', refId);
+    }
+    await supabase.from('reference_data').delete().in('id', existingIds);
+    console.log(`[SCI Execute] Reference: cleaned ${existingRef.length} existing "${referenceName}" records for idempotent re-import`);
   }
 
   // Create reference_data record
