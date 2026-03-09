@@ -20,6 +20,7 @@ import {
   aggregateMetrics,
   buildMetricsForComponent,
   applyMetricDerivations,
+  getExpectedMetricNames,
   type ComponentResult,
   type AIContextSheet,
   type MetricDerivationRule,
@@ -233,7 +234,8 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 4. Fetch committed data (OB-152: hybrid — source_date primary, period_id fallback) ──
-  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+  // HF-108: Added import_batch_id for convergence binding resolution (Decision 111)
+  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json; import_batch_id: string | null }> = [];
 
   // OB-152 Strategy: Try source_date range first (new imports), fall back to period_id (LAB/legacy)
   let usedSourceDate = false;
@@ -244,7 +246,7 @@ export async function POST(request: NextRequest) {
       const to = from + PAGE_SIZE - 1;
       const { data: page } = await supabase
         .from('committed_data')
-        .select('entity_id, data_type, row_data')
+        .select('entity_id, data_type, row_data, import_batch_id')
         .eq('tenant_id', tenantId)
         .not('source_date', 'is', null)
         .gte('source_date', period.start_date)
@@ -270,7 +272,7 @@ export async function POST(request: NextRequest) {
       const to = from + PAGE_SIZE - 1;
       const { data: page } = await supabase
         .from('committed_data')
-        .select('entity_id, data_type, row_data')
+        .select('entity_id, data_type, row_data, import_batch_id')
         .eq('tenant_id', tenantId)
         .eq('period_id', periodId)
         .range(from, to);
@@ -291,7 +293,7 @@ export async function POST(request: NextRequest) {
     const to = from + PAGE_SIZE - 1;
     const { data: page } = await supabase
       .from('committed_data')
-      .select('entity_id, data_type, row_data')
+      .select('entity_id, data_type, row_data, import_batch_id')
       .eq('tenant_id', tenantId)
       .is('period_id', null)
       .is('source_date', null)
@@ -349,6 +351,24 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // HF-108: Build batch-indexed data cache for convergence binding resolution (Decision 111)
+  // Maps batchId → entityId → [row_data, ...] for O(1) lookup during calculation
+  const dataByBatch = new Map<string, Map<string, Array<Record<string, unknown>>>>();
+  if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
+    for (const row of committedData) {
+      const batchId = row.import_batch_id;
+      if (!batchId) continue;
+      if (!dataByBatch.has(batchId)) dataByBatch.set(batchId, new Map());
+      const entityMap = dataByBatch.get(batchId)!;
+      const key = row.entity_id || '__no_entity__';
+      if (!entityMap.has(key)) entityMap.set(key, []);
+      const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+        ? row.row_data as Record<string, unknown> : {};
+      entityMap.get(key)!.push(rd);
+    }
+    addLog(`HF-108 Batch index: ${dataByBatch.size} batches indexed for convergence binding resolution`);
+  }
+
   const entityRowCount = Array.from(flatDataByEntity.values()).reduce((s, r) => s + r.length, 0);
   const storeRowCount = committedData.length - entityRowCount;
   addLog(`${committedData.length} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
@@ -375,7 +395,7 @@ export async function POST(request: NextRequest) {
         const to = from + PAGE_SIZE - 1;
         const { data: page } = await supabase
           .from('committed_data')
-          .select('entity_id, data_type, row_data')
+          .select('entity_id, data_type, row_data, import_batch_id')
           .eq('tenant_id', tenantId)
           .not('source_date', 'is', null)
           .gte('source_date', priorPeriod.start_date)
@@ -398,7 +418,7 @@ export async function POST(request: NextRequest) {
         const to = from + PAGE_SIZE - 1;
         const { data: page } = await supabase
           .from('committed_data')
-          .select('entity_id, data_type, row_data')
+          .select('entity_id, data_type, row_data, import_batch_id')
           .eq('tenant_id', tenantId)
           .eq('period_id', priorPeriodId)
           .range(from, to);
@@ -756,6 +776,114 @@ export async function POST(request: NextRequest) {
   const allInlineInsights: InlineInsight[] = [];
   const INSIGHT_CHECKPOINT_INTERVAL = Math.max(100, Math.floor(calculationEntityIds.length / 10));
 
+  // ── HF-108: Convergence binding resolution helper (Decision 111) ──
+  // Resolves metrics for a component using convergence_bindings (batch_id + column)
+  // instead of the old sheet-matching + aggregation path.
+  // Returns resolved metrics map, or null if bindings are missing/incomplete.
+  interface ConvergenceBindingEntry {
+    source_batch_id: string;
+    column: string;
+    field_identity?: { structuralType?: string; contextualIdentity?: string };
+    match_pass?: number;
+    confidence?: number;
+  }
+
+  function resolveMetricsFromConvergenceBindings(
+    compBindings: Record<string, unknown>,
+    component: PlanComponent,
+    entityId: string,
+    entityExternalId: string,
+  ): Record<string, number> | null {
+    const actualBinding = compBindings.actual as ConvergenceBindingEntry | undefined;
+    if (!actualBinding?.source_batch_id || !actualBinding?.column) return null;
+
+    const entityIdBinding = compBindings.entity_identifier as ConvergenceBindingEntry | undefined;
+    const targetBinding = compBindings.target as ConvergenceBindingEntry | undefined;
+
+    const expectedMetrics = getExpectedMetricNames(component);
+    if (expectedMetrics.length === 0) return null;
+
+    // Resolve actual value from batch data
+    const actualValue = resolveColumnFromBatch(
+      actualBinding.source_batch_id, actualBinding.column,
+      entityId, entityExternalId, entityIdBinding?.column
+    );
+
+    if (actualValue === null) return null;
+
+    const metrics: Record<string, number> = {};
+    // Set primary expected metric to the actual value
+    metrics[expectedMetrics[0]] = actualValue;
+
+    // Resolve target value if binding exists
+    if (targetBinding?.source_batch_id && targetBinding?.column) {
+      const targetValue = resolveColumnFromBatch(
+        targetBinding.source_batch_id, targetBinding.column,
+        entityId, entityExternalId, entityIdBinding?.column
+      );
+      if (targetValue !== null && targetValue !== 0) {
+        // Set target metric (convention: primary_target)
+        const targetMetricName = expectedMetrics.length > 1
+          ? expectedMetrics[1]  // Use second expected metric for target
+          : `${expectedMetrics[0]}_target`;
+        metrics[targetMetricName] = targetValue;
+
+        // Compute attainment ratio if both actual and target are present
+        const attainment = actualValue / targetValue;
+        metrics['attainment'] = attainment;
+      }
+    }
+
+    return metrics;
+  }
+
+  // Resolve a single column value for an entity from the batch data cache.
+  // Sums all matching rows (for period aggregation).
+  function resolveColumnFromBatch(
+    batchId: string,
+    column: string,
+    entityId: string,
+    entityExternalId: string,
+    entityIdColumn: string | undefined,
+  ): number | null {
+    const batchEntityMap = dataByBatch.get(batchId);
+    if (!batchEntityMap) return null;
+
+    // Try entity_id FK match first (most reliable)
+    let rows = batchEntityMap.get(entityId);
+
+    // Fallback: scan no-entity rows for entity_identifier column match (reference data)
+    if ((!rows || rows.length === 0) && entityIdColumn) {
+      const noEntityRows = batchEntityMap.get('__no_entity__');
+      if (noEntityRows) {
+        rows = noEntityRows.filter(rd =>
+          String(rd[entityIdColumn] ?? '').trim() === entityExternalId
+        );
+      }
+    }
+
+    if (!rows || rows.length === 0) return null;
+
+    let sum = 0;
+    let found = false;
+    for (const rd of rows) {
+      const val = rd[column];
+      if (val === null || val === undefined) continue;
+      if (typeof val === 'number') {
+        sum += val;
+        found = true;
+      } else if (typeof val === 'string') {
+        const parsed = parseFloat(val.replace(/[,$\s]/g, ''));
+        if (!isNaN(parsed)) {
+          sum += parsed;
+          found = true;
+        }
+      }
+    }
+
+    return found ? sum : null;
+  }
+
   // ── 6. Evaluate each entity using DUAL-PATH: current engine + intent executor ──
   const entityResults: Array<{
     entity_id: string;
@@ -860,19 +988,50 @@ export async function POST(request: NextRequest) {
     let entityTotal = 0;
     const perComponentMetrics: Record<string, number>[] = [];
 
-    for (const component of selectedComponents) {
-      // OB-85-R6: Pass per-store entity sheet aggregates for matrix column metrics
-      const entityStoreAgg = entityStoreId !== undefined
-        ? perStoreEntitySheetAgg.get(String(entityStoreId))
-        : undefined;
-      const metrics = buildMetricsForComponent(
-        component,
-        entitySheetData,
-        entityStoreData,
-        aiContextSheets,
-        entityStoreAgg,
-        metricMappings
-      );
+    for (let compIdx = 0; compIdx < selectedComponents.length; compIdx++) {
+      const component = selectedComponents[compIdx];
+
+      // HF-108: Convergence binding resolution (Decision 111) — PRIMARY path
+      // Convergence bindings tell us exactly which batch + column has each input.
+      // Old sheet-matching path (buildMetricsForComponent) is FALLBACK for pre-OB-162 data.
+      const compBindingKey = `component_${compIdx}`;
+      const compBindings = convergenceBindings?.[compBindingKey] as Record<string, unknown> | undefined;
+      let metrics: Record<string, number>;
+      let usedConvergenceBindings = false;
+
+      if (compBindings && dataByBatch.size > 0) {
+        const cbMetrics = resolveMetricsFromConvergenceBindings(
+          compBindings, component, entityId, entityInfo?.external_id ?? ''
+        );
+        if (cbMetrics && Object.keys(cbMetrics).length > 0) {
+          metrics = cbMetrics;
+          usedConvergenceBindings = true;
+        } else {
+          // Convergence binding resolution returned nothing — fall back
+          const entityStoreAgg = entityStoreId !== undefined
+            ? perStoreEntitySheetAgg.get(String(entityStoreId))
+            : undefined;
+          metrics = buildMetricsForComponent(
+            component, entitySheetData, entityStoreData,
+            aiContextSheets, entityStoreAgg, metricMappings
+          );
+        }
+      } else {
+        // FALLBACK: Old sheet-matching path (no convergence bindings for this component)
+        const entityStoreAgg = entityStoreId !== undefined
+          ? perStoreEntitySheetAgg.get(String(entityStoreId))
+          : undefined;
+        metrics = buildMetricsForComponent(
+          component, entitySheetData, entityStoreData,
+          aiContextSheets, entityStoreAgg, metricMappings
+        );
+      }
+
+      // Log which path was taken (first entity only, to avoid flooding)
+      if (entityResults.length === 0 && compIdx === 0) {
+        addLog(`HF-108 Resolution path: ${usedConvergenceBindings ? 'convergence_bindings (Decision 111)' : 'sheet-matching (fallback)'}`);
+      }
+
       // OB-118: Merge derived metrics into component metrics
       // Derived metrics take precedence (they're specifically configured)
       for (const [key, value] of Object.entries(derivedMetrics)) {
