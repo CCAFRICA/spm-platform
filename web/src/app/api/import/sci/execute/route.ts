@@ -140,13 +140,9 @@ export async function POST(req: NextRequest) {
             const updatedBindings: Record<string, unknown> = {};
 
             if (Object.keys(result.componentBindings).length > 0) {
-              // New convergence path: convergence_bindings is authoritative
+              // HF-109: convergence_bindings is THE sole output (DS-009 4.3)
+              // metric_derivations NOT written — single format, no dual write
               updatedBindings.convergence_bindings = result.componentBindings;
-              // Still write metric_derivations for backward compatibility (engine fallback)
-              // but convergence_bindings takes priority in the engine
-              if (result.derivations.length > 0) {
-                updatedBindings.metric_derivations = result.derivations;
-              }
             } else {
               // No convergence_bindings produced — write metric_derivations as primary
               // (legacy path for data without field identities)
