@@ -928,6 +928,80 @@ function scoreColumnForRequirement(
 }
 
 // ──────────────────────────────────────────────
+// HF-115: Value Distribution Profiling + Scale Inference
+// ──────────────────────────────────────────────
+
+export interface ColumnDistribution {
+  column: string;
+  min: number;
+  max: number;
+  median: number;
+  p25: number;
+  p75: number;
+  distinctCount: number;
+  nullCount: number;
+  sampleSize: number;
+  scaleInference: 'ratio_0_1' | 'percentage_0_100' | 'integer_count' | 'integer_hundreds' | 'currency_large' | 'unknown';
+}
+
+export function profileColumnDistribution(
+  committedData: Array<Record<string, unknown>>,
+  columnName: string,
+): ColumnDistribution {
+  const values: number[] = [];
+  let nullCount = 0;
+
+  for (const row of committedData) {
+    const rowData = row.row_data as Record<string, unknown> | undefined;
+    const val = rowData?.[columnName];
+    if (val === null || val === undefined || val === '') {
+      nullCount++;
+    } else {
+      const num = Number(val);
+      if (!isNaN(num)) values.push(num);
+      else nullCount++;
+    }
+  }
+
+  values.sort((a, b) => a - b);
+  const n = values.length;
+
+  const median = n === 0 ? 0 : n % 2 === 1 ? values[Math.floor(n / 2)] : (values[n / 2 - 1] + values[n / 2]) / 2;
+  const p25 = n === 0 ? 0 : values[Math.floor(n * 0.25)];
+  const p75 = n === 0 ? 0 : values[Math.floor(n * 0.75)];
+  const min = n === 0 ? 0 : values[0];
+  const max = n === 0 ? 0 : values[n - 1];
+  const distinctCount = new Set(values).size;
+
+  // Scale inference — structural heuristics (Korean Test compliant)
+  let scaleInference: ColumnDistribution['scaleInference'] = 'unknown';
+  if (n > 0) {
+    const allNonNeg = min >= 0;
+    const allIntegers = values.every(v => Number.isInteger(v));
+
+    if (allNonNeg && max <= 1.5) {
+      scaleInference = 'ratio_0_1';
+    } else if (allNonNeg && max <= 150 && min < 1.5) {
+      scaleInference = 'percentage_0_100';
+    } else if (allNonNeg && allIntegers && max <= 50) {
+      scaleInference = 'integer_count';
+    } else if (allNonNeg && max > 50 && max <= 10000) {
+      scaleInference = 'integer_hundreds';
+    } else if (max > 10000) {
+      scaleInference = 'currency_large';
+    }
+  }
+
+  return {
+    column: columnName,
+    min, max, median, p25, p75,
+    distinctCount, nullCount,
+    sampleSize: n,
+    scaleInference,
+  };
+}
+
+// ──────────────────────────────────────────────
 // HF-112: AI-Assisted Column-to-Metric Mapping
 // LLM-Primary, Deterministic Validation, Human Authority
 // ──────────────────────────────────────────────
