@@ -420,23 +420,25 @@ function calculateC1(metrics: MonthlyMetrics, level: 'Senior' | 'Standard'): num
   const rowVal = metrics.Cumplimiento_Colocacion;
   const colVal = metrics.Indice_Calidad_Cartera;
 
-  // Find row band (HF-123: half-open [min, max) except last)
+  // Match engine's evaluateMatrixLookup: [min, max] inclusive, first-match-wins
   let rowIdx = -1;
   for (let i = 0; i < C1_ROW_BANDS.length; i++) {
     const band = C1_ROW_BANDS[i];
-    const isLast = i === C1_ROW_BANDS.length - 1;
-    if (rowVal >= band.min && (isLast ? rowVal <= band.max : rowVal < band.max)) {
+    const min = Number.isFinite(band.min) ? band.min : -Infinity;
+    const max = Number.isFinite(band.max) ? band.max : Infinity;
+    if (rowVal >= min && rowVal <= max) {
       rowIdx = i;
       break;
     }
   }
 
-  // Find col band
+  // Find col band (inclusive, first-match-wins)
   let colIdx = -1;
   for (let i = 0; i < C1_COL_BANDS.length; i++) {
     const band = C1_COL_BANDS[i];
-    const isLast = i === C1_COL_BANDS.length - 1;
-    if (colVal >= band.min && (isLast ? colVal <= band.max : colVal < band.max)) {
+    const min = Number.isFinite(band.min) ? band.min : -Infinity;
+    const max = Number.isFinite(band.max) ? band.max : Infinity;
+    if (colVal >= min && colVal <= max) {
       colIdx = i;
       break;
     }
@@ -609,7 +611,7 @@ function buildPlanComponents(level: 'Senior' | 'Standard') {
       calculationIntent: {
         operation: 'conditional_gate',
         condition: {
-          operator: 'eq',
+          operator: '==',
           left: { source: 'metric', sourceSpec: { field: 'Infracciones_Regulatorias' } },
           right: { source: 'constant', value: 0 },
         },
@@ -796,8 +798,9 @@ async function seed() {
 
   // Build convergence bindings (input_bindings)
   const convergenceBindings: Record<string, Record<string, unknown>> = {};
-  for (const comp of standardComponents) {
-    const compKey = `component_${comp.order}`;
+  for (let idx = 0; idx < standardComponents.length; idx++) {
+    const comp = standardComponents[idx];
+    const compKey = `component_${idx}`; // 0-based to match engine's compIdx
     if (comp.componentType === 'matrix_lookup') {
       convergenceBindings[compKey] = {
         row: { column: 'Cumplimiento_Colocacion', source: 'committed_data' },
@@ -982,6 +985,8 @@ async function seed() {
         _entity_name: entity.displayName,
         _branch: entity.branch,
         _level: entity.level,
+        _role: entity.role,
+        _variant: entity.level === 'Senior' ? 'Ejecutivo Senior' : 'Ejecutivo',
       },
       metadata: { source: 'ob163_bcl_seed', month: period.key },
     });

@@ -1,5 +1,5 @@
 {
-  "grandTotal": 325803,
+  "grandTotal": 314978,
   "entityCount": 85,
   "monthCount": 6,
   "componentCount": 4,
@@ -8,31 +8,31 @@
   "perMonthTotals": [
     {
       "month": "2025-10",
-      "total": 47202
+      "total": 45202
     },
     {
       "month": "2025-11",
-      "total": 51654
+      "total": 49429
     },
     {
       "month": "2025-12",
-      "total": 67774
+      "total": 65949
     },
     {
       "month": "2026-01",
-      "total": 45282
+      "total": 44382
     },
     {
       "month": "2026-02",
-      "total": 52623
+      "total": 50548
     },
     {
       "month": "2026-03",
-      "total": 61268
+      "total": 59468
     }
   ],
   "componentTotals": {
-    "c1": 122125,
+    "c1": 111300,
     "c2": 103950,
     "c3": 49878,
     "c4": 49850
@@ -69,11 +69,11 @@
       {
         "entityId": "BCL-5012",
         "month": "2026-01",
-        "c1": 200,
+        "c1": 100,
         "c2": 75,
         "c3": 60,
         "c4": 100,
-        "total": 435
+        "total": 335
       },
       {
         "entityId": "BCL-5012",
@@ -107,11 +107,11 @@
       {
         "entityId": "BCL-5063",
         "month": "2025-11",
-        "c1": 300,
+        "c1": 200,
         "c2": 175,
         "c3": 84,
         "c4": 0,
-        "total": 559
+        "total": 459
       },
       {
         "entityId": "BCL-5063",
@@ -134,11 +134,11 @@
       {
         "entityId": "BCL-5063",
         "month": "2026-02",
-        "c1": 300,
+        "c1": 200,
         "c2": 175,
         "c3": 84,
         "c4": 0,
-        "total": 559
+        "total": 459
       },
       {
         "entityId": "BCL-5063",
@@ -210,21 +210,21 @@
   "tenantId": "b1c2d3e4-aaaa-bbbb-cccc-111111111111",
   "ruleSetId": "b1c20001-aaaa-bbbb-cccc-222222222222",
   "periodIds": {
-    "2025-10": "1e67244f-804a-4315-8603-7a066b4ee8e3",
-    "2025-11": "19468b8c-7a3f-44a6-b379-3dc3a516f924",
-    "2025-12": "ce18ab3b-fc3d-4767-820c-8f12a4db86b1",
-    "2026-01": "17a0c618-96b7-4bbc-8107-ab3333cd993f",
-    "2026-02": "ce9b50fc-5935-4a54-a1f6-f764ec59b496",
-    "2026-03": "03864704-0c3b-47f0-b1ba-80f984342dc6"
+    "2025-10": "d9118e2e-101e-4ae2-add3-8d01238181e9",
+    "2025-11": "e2956ad2-5633-44aa-b71f-c4d281dad37a",
+    "2025-12": "4d5ea98a-a575-4b27-be08-891a1eb94d21",
+    "2026-01": "10f3b5c5-0a4d-43c2-8e38-9a45eaec74ed",
+    "2026-02": "5985b1db-9dac-43d2-8140-4fcbaa3eae77",
+    "2026-03": "3712b70e-ba46-4a04-bba7-c1c4ebecb701"
   },
   "entityUuids": {
-    "BCL-5012": "9487397b-fc21-4f31-9195-30cce7b6c06f",
-    "BCL-5063": "aa54fdf8-cf00-44f2-9ac3-f3812de3848c",
-    "BCL-5003": "473d9771-de6b-4789-9931-35b84279b584"
+    "BCL-5012": "56cb4305-a209-4325-b2e8-8521f24a78d7",
+    "BCL-5063": "f2ea7d11-bcc6-428f-b309-601ccd3969fb",
+    "BCL-5003": "615c5fd4-63b2-4531-9375-a877d32d861e"
   },
   "managerEntityIds": {
-    "BCL-RM-COSTA": "05407049-42d7-4fa6-8532-7f613ff7a53c",
-    "BCL-RM-SIERRA": "4f7633b0-4dcf-4be2-a7f1-a764285827e0",
-    "BCL-RM-ORIENTE": "09697dad-f69e-45da-8c19-6304e19f3d14"
+    "BCL-RM-COSTA": "3511c27a-c148-4d32-aafa-d006e7bbfaf8",
+    "BCL-RM-SIERRA": "a605afc1-7cdf-4fb3-988c-7f5f57c3d1db",
+    "BCL-RM-ORIENTE": "ece7a41f-c968-4416-999b-2c25ae0101a1"
   }
 }
