@@ -28,8 +28,9 @@ import {
 import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
 import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
-import type { ComponentIntent } from '@/lib/calculation/intent-types';
+import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-types';
 import type { PlanComponent } from '@/types/compensation-plan';
+import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
 import { persistSignal } from '@/lib/ai/signal-persistence';
 import { loadDensity, persistDensityUpdates } from '@/lib/calculation/synaptic-density';
@@ -1085,8 +1086,9 @@ export async function POST(request: NextRequest) {
 
     // ── CURRENT ENGINE PATH ──
     const componentResults: ComponentResult[] = [];
-    let entityTotal = 0;
+    let entityTotalDecimal = ZERO;
     const perComponentMetrics: Record<string, number>[] = [];
+    const entityRoundingTraces: RoundingTrace[] = [];
 
     for (let compIdx = 0; compIdx < selectedComponents.length; compIdx++) {
       const component = selectedComponents[compIdx];
@@ -1151,10 +1153,27 @@ export async function POST(request: NextRequest) {
         }
       }
       const result = evaluateComponent(component, metrics);
+
+      // HF-122: Per-component rounding (Decision 122)
+      // Infer outputPrecision from plan structure — examines output VALUES, not currency
+      const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
+      const componentConfig = (component.tierConfig || component.matrixConfig ||
+        component.percentageConfig || component.conditionalConfig) as Record<string, unknown> | undefined;
+      const precision = inferOutputPrecision(componentIntent, componentConfig);
+
+      const { rounded, trace: roundingTrace } = roundComponentOutput(
+        result.payout, compIdx, component.name, precision
+      );
+      result.payout = toNumber(rounded);
+      entityRoundingTraces.push(roundingTrace);
+
       componentResults.push(result);
       perComponentMetrics.push(metrics);
-      entityTotal += result.payout;
+      entityTotalDecimal = entityTotalDecimal.plus(rounded);
     }
+
+    // HF-122: Entity total from rounded components (GAAP line-item presentation)
+    const entityTotal = toNumber(entityTotalDecimal);
 
     // ── OB-76 INTENT ENGINE PATH (parallel execution) ──
     // HF-119: Use selected variant's intents, not always defaultComponents
@@ -1216,6 +1235,12 @@ export async function POST(request: NextRequest) {
         intentTraces,
         intentTotal,
         intentMatch: entityMatch,
+        roundingTrace: {
+          rawTotal: entityRoundingTraces.reduce((s, t) => s + t.rawValue, 0),
+          roundedTotal: entityTotal,
+          totalRoundingAdjustment: entityRoundingTraces.reduce((s, t) => s + t.roundingAdjustment, 0),
+          components: entityRoundingTraces,
+        },
       },
     });
 

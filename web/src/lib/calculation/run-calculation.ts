@@ -27,7 +27,7 @@ import {
 } from '@/lib/orchestration/metric-resolver';
 import { executeOperation, type EntityData } from '@/lib/calculation/intent-executor';
 import { isIntentOperation, type IntentOperation } from '@/lib/calculation/intent-types';
-import { toNumber } from '@/lib/calculation/decimal-precision';
+import { toNumber, roundComponentOutput, inferOutputPrecision } from '@/lib/calculation/decimal-precision';
 
 // ──────────────────────────────────────────────
 // Types
@@ -1471,6 +1471,15 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         }
       }
       const result = evaluateComponent(component, metrics);
+
+      // HF-122: Per-component rounding (Decision 122)
+      const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
+      const componentConfig = (component.tierConfig || component.matrixConfig ||
+        component.percentageConfig || component.conditionalConfig) as Record<string, unknown> | undefined;
+      const precision = inferOutputPrecision(componentIntent, componentConfig);
+      const { rounded } = roundComponentOutput(result.payout, componentResults.length, component.name, precision);
+      result.payout = toNumber(rounded);
+
       componentResults.push(result);
       entityTotal += result.payout;
     }
