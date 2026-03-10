@@ -367,13 +367,30 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
         details = r.details;
       }
       break;
-    case 'conditional_percentage':
-      if (component.conditionalConfig) {
+    case 'conditional_percentage': {
+      // HF-120: If calculationIntent has a conditional_gate, use it as PRIMARY path.
+      // The intent structure has the correct condition (operator, left, right) and
+      // constant onTrue/onFalse values. The legacy evaluateConditionalPercentage
+      // multiplies base × rate, which is wrong for gate semantics.
+      const gateIntent = component.calculationIntent as unknown as Record<string, unknown> | undefined;
+      if (gateIntent?.operation === 'conditional_gate' && isIntentOperation(gateIntent as unknown as IntentOperation)) {
+        const entityData: EntityData = { entityId: '', metrics, attributes: {} };
+        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
+        const gatePayout = executeOperation(gateIntent as unknown as IntentOperation, entityData, inputLog, {});
+        payout = gatePayout;
+        details = {
+          source: 'calculationIntent',
+          operation: 'conditional_gate',
+          payout: gatePayout,
+          inputs: inputLog,
+        };
+      } else if (component.conditionalConfig) {
         const r = evaluateConditionalPercentage(component.conditionalConfig, metrics);
         payout = r.payout;
         details = r.details;
       }
       break;
+    }
   }
 
   // OB-117: calculationIntent fallback — when legacy evaluator produces $0
