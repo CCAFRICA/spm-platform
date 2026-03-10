@@ -200,6 +200,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       module: "data_import",
       moduleId: "data",
       children: [
+        { name: isSpanish ? "Resumen" : "Briefing", href: "/operate/briefing", module: "data_import" },
         { name: isSpanish ? "Importar Datos" : "Import Data", href: "/operate/import", module: "data_import" },
         { name: isSpanish ? "Calcular" : "Calculate", href: "/operate/calculate", module: "data_import" },
         { name: isSpanish ? "Reconciliar" : "Reconcile", href: "/operate/reconciliation", module: "data_import" },
