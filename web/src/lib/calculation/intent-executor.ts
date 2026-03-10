@@ -4,6 +4,10 @@
  * Executes structural operations defined by ComponentIntent.
  * ZERO domain awareness. Does not know what domain it operates in.
  * Processes boundaries, ratios, grids, conditions, and scalars.
+ *
+ * Decision 122 (DS-010): All arithmetic uses decimal.js with Banker's Rounding.
+ * Native number is used ONLY for boundary comparison (exact plan values)
+ * and at the output boundary (executeIntent → number).
  */
 
 import type {
@@ -24,6 +28,7 @@ import type {
   IntentModifier,
 } from './intent-types';
 import { isIntentOperation } from './intent-types';
+import { Decimal, toDecimal, toNumber, ZERO } from './decimal-precision';
 
 // ──────────────────────────────────────────────
 // Entity Data — the executor's view of an entity
@@ -46,35 +51,35 @@ export interface ExecutionResult {
 }
 
 // ──────────────────────────────────────────────
-// Source Resolution
+// Source Resolution (returns Decimal — Decision 122)
 // ──────────────────────────────────────────────
 
 function resolveSource(
   src: IntentSource,
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
-): number {
+): Decimal {
   switch (src.source) {
     case 'metric': {
       const field = src.sourceSpec.field;
       // Strip "metric:" prefix if present
       const key = field.startsWith('metric:') ? field.slice(7) : field;
-      const val = data.metrics[key] ?? 0;
-      inputLog[field] = { source: 'metric', rawValue: data.metrics[key], resolvedValue: val };
-      return val;
+      const raw = data.metrics[key] ?? 0;
+      inputLog[field] = { source: 'metric', rawValue: data.metrics[key], resolvedValue: raw };
+      return toDecimal(raw);
     }
     case 'ratio': {
       const numKey = src.sourceSpec.numerator.startsWith('metric:')
         ? src.sourceSpec.numerator.slice(7) : src.sourceSpec.numerator;
       const denKey = src.sourceSpec.denominator.startsWith('metric:')
         ? src.sourceSpec.denominator.slice(7) : src.sourceSpec.denominator;
-      const num = data.metrics[numKey] ?? 0;
-      const den = data.metrics[denKey] ?? 0;
-      const val = den !== 0 ? num / den : 0;
+      const num = toDecimal(data.metrics[numKey] ?? 0);
+      const den = toDecimal(data.metrics[denKey] ?? 0);
+      const val = den.isZero() ? ZERO : num.div(den);
       inputLog[`ratio(${numKey}/${denKey})`] = {
         source: 'ratio',
-        rawValue: { numerator: num, denominator: den },
-        resolvedValue: val,
+        rawValue: { numerator: toNumber(num), denominator: toNumber(den) },
+        resolvedValue: toNumber(val),
       };
       return val;
     }
@@ -82,34 +87,34 @@ function resolveSource(
       const field = src.sourceSpec.field;
       const key = field.startsWith('metric:') ? field.slice(7) : field;
       if (src.sourceSpec.scope === 'group' && data.groupMetrics) {
-        const val = data.groupMetrics[key] ?? 0;
-        inputLog[`aggregate:group:${key}`] = { source: 'aggregate:group', rawValue: val, resolvedValue: val };
-        return val;
+        const raw = data.groupMetrics[key] ?? 0;
+        inputLog[`aggregate:group:${key}`] = { source: 'aggregate:group', rawValue: raw, resolvedValue: raw };
+        return toDecimal(raw);
       }
-      const val = data.metrics[key] ?? 0;
+      const raw = data.metrics[key] ?? 0;
       inputLog[`aggregate:${src.sourceSpec.scope}:${key}`] = {
         source: `aggregate:${src.sourceSpec.scope}`,
-        rawValue: val,
-        resolvedValue: val,
+        rawValue: raw,
+        resolvedValue: raw,
       };
-      return val;
+      return toDecimal(raw);
     }
     case 'constant': {
       inputLog[`constant:${src.value}`] = { source: 'constant', rawValue: src.value, resolvedValue: src.value };
-      return src.value;
+      return toDecimal(src.value);
     }
     case 'entity_attribute': {
       const attr = src.sourceSpec.attribute;
       const raw = data.attributes[attr];
       const val = typeof raw === 'number' ? raw : (typeof raw === 'string' ? parseFloat(raw) || 0 : 0);
       inputLog[`attr:${attr}`] = { source: 'entity_attribute', rawValue: raw, resolvedValue: val };
-      return val;
+      return toDecimal(val);
     }
     case 'prior_component': {
       const idx = src.sourceSpec.componentIndex;
       const val = data.priorResults?.[idx] ?? 0;
       inputLog[`prior:${idx}`] = { source: 'prior_component', rawValue: val, resolvedValue: val };
-      return val;
+      return toDecimal(val);
     }
   }
 }
@@ -123,7 +128,7 @@ function resolveValue(
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
-): number {
+): Decimal {
   if (isIntentOperation(sourceOrOp)) {
     // Recursive: execute the nested operation to get a value
     return executeOperation(sourceOrOp, data, inputLog, trace);
@@ -134,6 +139,7 @@ function resolveValue(
 
 // ──────────────────────────────────────────────
 // Boundary Matching
+// Boundary values are exact plan constants — native number comparison is sufficient.
 // ──────────────────────────────────────────────
 
 export function findBoundaryIndex(boundaries: Boundary[], value: number): number {
@@ -147,7 +153,7 @@ export function findBoundaryIndex(boundaries: Boundary[], value: number): number
 }
 
 // ──────────────────────────────────────────────
-// Primitive Executors
+// Primitive Executors (Decimal arithmetic — Decision 122)
 // ──────────────────────────────────────────────
 
 function executeBoundedLookup1D(
@@ -155,26 +161,27 @@ function executeBoundedLookup1D(
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
-): number {
+): Decimal {
   const inputValue = resolveValue(op.input, data, inputLog, trace);
-  const idx = findBoundaryIndex(op.boundaries, inputValue);
+  // Boundary comparison uses native number — plan values are exact
+  const idx = findBoundaryIndex(op.boundaries, toNumber(inputValue));
 
   if (idx < 0) {
     trace.lookupResolution = { outputValue: 0 };
-    return op.noMatchBehavior === 'zero' ? 0 : 0;
+    return ZERO;
   }
 
-  const rawOutput = op.outputs[idx] ?? 0;
+  const rawOutput = toDecimal(op.outputs[idx] ?? 0);
   // OB-117: isMarginal — outputs are rates to multiply against the input value
-  const output = op.isMarginal ? rawOutput * inputValue : rawOutput;
+  const output = op.isMarginal ? rawOutput.mul(inputValue) : rawOutput;
   trace.lookupResolution = {
     rowBoundaryMatched: {
       min: op.boundaries[idx].min,
       max: op.boundaries[idx].max,
       index: idx,
     },
-    outputValue: output,
-    ...(op.isMarginal ? { isMarginal: true, rate: rawOutput, inputValue } : {}),
+    outputValue: toNumber(output),
+    ...(op.isMarginal ? { isMarginal: true, rate: toNumber(rawOutput), inputValue: toNumber(inputValue) } : {}),
   };
   return output;
 }
@@ -184,12 +191,12 @@ function executeBoundedLookup2D(
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
-): number {
+): Decimal {
   const rowValue = resolveValue(op.inputs.row, data, inputLog, trace);
   const colValue = resolveValue(op.inputs.column, data, inputLog, trace);
 
-  const rowIdx = findBoundaryIndex(op.rowBoundaries, rowValue);
-  const colIdx = findBoundaryIndex(op.columnBoundaries, colValue);
+  const rowIdx = findBoundaryIndex(op.rowBoundaries, toNumber(rowValue));
+  const colIdx = findBoundaryIndex(op.columnBoundaries, toNumber(colValue));
 
   if (rowIdx < 0 || colIdx < 0) {
     trace.lookupResolution = {
@@ -197,14 +204,14 @@ function executeBoundedLookup2D(
       columnBoundaryMatched: colIdx >= 0 ? { min: op.columnBoundaries[colIdx].min, max: op.columnBoundaries[colIdx].max, index: colIdx } : undefined,
       outputValue: 0,
     };
-    return op.noMatchBehavior === 'zero' ? 0 : 0;
+    return ZERO;
   }
 
-  const output = op.outputGrid[rowIdx]?.[colIdx] ?? 0;
+  const output = toDecimal(op.outputGrid[rowIdx]?.[colIdx] ?? 0);
   trace.lookupResolution = {
     rowBoundaryMatched: { min: op.rowBoundaries[rowIdx].min, max: op.rowBoundaries[rowIdx].max, index: rowIdx },
     columnBoundaryMatched: { min: op.columnBoundaries[colIdx].min, max: op.columnBoundaries[colIdx].max, index: colIdx },
-    outputValue: output,
+    outputValue: toNumber(output),
   };
   return output;
 }
@@ -214,12 +221,12 @@ function executeScalarMultiply(
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
-): number {
+): Decimal {
   const inputValue = resolveValue(op.input, data, inputLog, trace);
   const rateValue = typeof op.rate === 'number'
-    ? op.rate
+    ? toDecimal(op.rate)
     : resolveValue(op.rate, data, inputLog, trace);
-  return inputValue * rateValue;
+  return inputValue.mul(rateValue);
 }
 
 function executeConditionalGate(
@@ -227,19 +234,19 @@ function executeConditionalGate(
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
-): number {
+): Decimal {
   const leftVal = resolveSource(op.condition.left, data, inputLog);
   const rightVal = resolveSource(op.condition.right, data, inputLog);
 
   let conditionMet = false;
   switch (op.condition.operator) {
-    case '>=': conditionMet = leftVal >= rightVal; break;
-    case '>':  conditionMet = leftVal > rightVal;  break;
-    case '<=': conditionMet = leftVal <= rightVal; break;
-    case '<':  conditionMet = leftVal < rightVal;  break;
+    case '>=': conditionMet = leftVal.gte(rightVal); break;
+    case '>':  conditionMet = leftVal.gt(rightVal);  break;
+    case '<=': conditionMet = leftVal.lte(rightVal); break;
+    case '<':  conditionMet = leftVal.lt(rightVal);  break;
     case '=':  // AI plan interpreter produces single-equals for equality
-    case '==': conditionMet = leftVal === rightVal; break;
-    case '!=': conditionMet = leftVal !== rightVal; break;
+    case '==': conditionMet = leftVal.eq(rightVal);  break;
+    case '!=': conditionMet = !leftVal.eq(rightVal); break;
   }
 
   const branch = conditionMet ? op.onTrue : op.onFalse;
@@ -250,7 +257,7 @@ function executeAggregateOp(
   op: AggregateOp,
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
-): number {
+): Decimal {
   return resolveSource(op.source, data, inputLog);
 }
 
@@ -258,17 +265,17 @@ function executeRatioOp(
   op: RatioOp,
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
-): number {
+): Decimal {
   const num = resolveSource(op.numerator, data, inputLog);
   const den = resolveSource(op.denominator, data, inputLog);
-  if (den === 0) {
-    return op.zeroDenominatorBehavior === 'zero' ? 0 : 0;
+  if (den.isZero()) {
+    return ZERO;
   }
-  return num / den;
+  return num.div(den);
 }
 
-function executeConstantOp(op: ConstantOp): number {
-  return op.value;
+function executeConstantOp(op: ConstantOp): Decimal {
+  return toDecimal(op.value);
 }
 
 // ──────────────────────────────────────────────
@@ -280,7 +287,7 @@ function executeWeightedBlend(
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
-): number {
+): Decimal {
   const totalWeight = op.inputs.reduce((s, i) => s + i.weight, 0);
   if (Math.abs(totalWeight - 1.0) > 0.001) {
     inputLog['weighted_blend:weight_warning'] = {
@@ -290,15 +297,16 @@ function executeWeightedBlend(
     };
   }
 
-  let result = 0;
+  let result = ZERO;
   for (let i = 0; i < op.inputs.length; i++) {
     const input = op.inputs[i];
     const value = resolveValue(input.source, data, inputLog, trace);
-    result += value * input.weight;
+    const weighted = value.mul(toDecimal(input.weight));
+    result = result.plus(weighted);
     inputLog[`blend_input_${i}`] = {
       source: 'weighted_blend',
-      rawValue: value,
-      resolvedValue: value * input.weight,
+      rawValue: toNumber(value),
+      resolvedValue: toNumber(weighted),
     };
   }
   return result;
@@ -313,12 +321,13 @@ function executeTemporalWindow(
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
-): number {
+): Decimal {
   const currentValue = resolveValue(op.input, data, inputLog, trace);
 
   // Build window values from period history
   const history = data.periodHistory ?? [];
-  let windowValues = history.slice(-(op.windowSize));
+  const historySlice = history.slice(-(op.windowSize));
+  let windowValues: Decimal[] = historySlice.map(v => toDecimal(v));
 
   if (op.includeCurrentPeriod) {
     windowValues = [...windowValues, currentValue];
@@ -328,39 +337,42 @@ function executeTemporalWindow(
   if (windowValues.length === 0) {
     inputLog['temporal_window:no_history'] = {
       source: 'temporal_window',
-      rawValue: currentValue,
-      resolvedValue: currentValue,
+      rawValue: toNumber(currentValue),
+      resolvedValue: toNumber(currentValue),
     };
     return currentValue;
   }
 
-  let result: number;
+  let result: Decimal;
   switch (op.aggregation) {
     case 'sum':
-      result = windowValues.reduce((a, b) => a + b, 0);
+      result = windowValues.reduce((a, b) => a.plus(b), ZERO);
       break;
-    case 'average':
-      result = windowValues.reduce((a, b) => a + b, 0) / windowValues.length;
+    case 'average': {
+      const sum = windowValues.reduce((a, b) => a.plus(b), ZERO);
+      result = sum.div(toDecimal(windowValues.length));
       break;
+    }
     case 'min':
-      result = Math.min(...windowValues);
+      result = windowValues.reduce((a, b) => a.lt(b) ? a : b);
       break;
     case 'max':
-      result = Math.max(...windowValues);
+      result = windowValues.reduce((a, b) => a.gt(b) ? a : b);
       break;
     case 'trend': {
       // Linear regression slope: y = mx + b, return m
       const n = windowValues.length;
-      if (n < 2) { result = 0; break; }
-      const xMean = (n - 1) / 2;
-      const yMean = windowValues.reduce((a, b) => a + b, 0) / n;
-      let num = 0;
-      let den = 0;
+      if (n < 2) { result = ZERO; break; }
+      const xMean = toDecimal((n - 1) / 2);
+      const yMean = windowValues.reduce((a, b) => a.plus(b), ZERO).div(toDecimal(n));
+      let num = ZERO;
+      let den = ZERO;
       for (let i = 0; i < n; i++) {
-        num += (i - xMean) * (windowValues[i] - yMean);
-        den += (i - xMean) * (i - xMean);
+        const xDiff = toDecimal(i).minus(xMean);
+        num = num.plus(xDiff.mul(windowValues[i].minus(yMean)));
+        den = den.plus(xDiff.mul(xDiff));
       }
-      result = den !== 0 ? num / den : 0;
+      result = den.isZero() ? ZERO : num.div(den);
       break;
     }
   }
@@ -368,14 +380,14 @@ function executeTemporalWindow(
   inputLog['temporal_window'] = {
     source: 'temporal_window',
     rawValue: { windowSize: op.windowSize, aggregation: op.aggregation, valuesUsed: windowValues.length },
-    resolvedValue: result,
+    resolvedValue: toNumber(result),
   };
 
   return result;
 }
 
 // ──────────────────────────────────────────────
-// Operation Dispatch
+// Operation Dispatch (returns Decimal — Decision 122)
 // ──────────────────────────────────────────────
 
 // OB-117: Exported for use by evaluateComponent's calculationIntent fallback
@@ -384,7 +396,7 @@ export function executeOperation(
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
-): number {
+): Decimal {
   switch (op.operation) {
     case 'bounded_lookup_1d': return executeBoundedLookup1D(op, data, inputLog, trace);
     case 'bounded_lookup_2d': return executeBoundedLookup2D(op, data, inputLog, trace);
@@ -399,32 +411,36 @@ export function executeOperation(
 }
 
 // ──────────────────────────────────────────────
-// Modifier Application
+// Modifier Application (Decimal — Decision 122)
 // ──────────────────────────────────────────────
 
 function applyModifiers(
-  value: number,
+  value: Decimal,
   modifiers: IntentModifier[],
   data: EntityData,
   modifierLog: Array<{ modifier: string; before: number; after: number }>
-): number {
+): Decimal {
   let result = value;
 
   for (const mod of modifiers) {
-    const before = result;
+    const before = toNumber(result);
 
     switch (mod.modifier) {
-      case 'cap':
-        result = Math.min(result, mod.maxValue);
+      case 'cap': {
+        const cap = toDecimal(mod.maxValue);
+        result = result.gt(cap) ? cap : result;
         break;
-      case 'floor':
-        result = Math.max(result, mod.minValue);
+      }
+      case 'floor': {
+        const floor = toDecimal(mod.minValue);
+        result = result.lt(floor) ? floor : result;
         break;
+      }
       case 'proration': {
         const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
         const num = resolveSource(mod.numerator, data, inputLog);
         const den = resolveSource(mod.denominator, data, inputLog);
-        result = den !== 0 ? result * (num / den) : 0;
+        result = den.isZero() ? ZERO : result.mul(num.div(den));
         break;
       }
       case 'temporal_adjustment':
@@ -432,7 +448,7 @@ function applyModifiers(
         break;
     }
 
-    modifierLog.push({ modifier: mod.modifier, before, after: result });
+    modifierLog.push({ modifier: mod.modifier, before, after: toNumber(result) });
   }
 
   return result;
@@ -440,6 +456,7 @@ function applyModifiers(
 
 // ──────────────────────────────────────────────
 // Main Entry Point
+// Decision 122: Decimal→number conversion at output boundary
 // ──────────────────────────────────────────────
 
 export function executeIntent(
@@ -454,7 +471,7 @@ export function executeIntent(
     confidence: intent.confidence,
   };
 
-  let outcome = 0;
+  let outcome = ZERO;
 
   // 1. Resolve variant routing (if present)
   if (intent.variants) {
@@ -466,7 +483,7 @@ export function executeIntent(
     if (attrSrc.source === 'entity_attribute') {
       attrValue = entityData.attributes[attrSrc.sourceSpec.attribute] ?? '';
     } else {
-      attrValue = resolveSource(attrSrc, entityData, inputLog);
+      attrValue = toNumber(resolveSource(attrSrc, entityData, inputLog));
     }
 
     const matchedRoute = routing.routes.find(r => String(r.matchValue) === String(attrValue));
@@ -486,10 +503,10 @@ export function executeIntent(
           }
           break;
         case 'skip':
-          outcome = 0;
+          outcome = ZERO;
           break;
         case 'error':
-          outcome = 0;
+          outcome = ZERO;
           break;
       }
     }
@@ -501,7 +518,10 @@ export function executeIntent(
   // 3. Apply modifiers
   outcome = applyModifiers(outcome, intent.modifiers, entityData, modifierLog);
 
-  // 4. Build complete trace
+  // 4. Convert to native number at output boundary (Decision 122)
+  const outcomeNumber = toNumber(outcome);
+
+  // 5. Build complete trace
   const executionTrace: ExecutionTrace = {
     entityId: entityData.entityId,
     componentIndex: intent.componentIndex,
@@ -509,14 +529,14 @@ export function executeIntent(
     inputs: inputLog,
     lookupResolution: trace.lookupResolution,
     modifiers: modifierLog,
-    finalOutcome: outcome,
+    finalOutcome: outcomeNumber,
     confidence: intent.confidence,
   };
 
   return {
     entityId: entityData.entityId,
     componentIndex: intent.componentIndex,
-    outcome,
+    outcome: outcomeNumber,
     trace: executionTrace,
   };
 }

@@ -27,6 +27,7 @@ import {
 } from '@/lib/orchestration/metric-resolver';
 import { executeOperation, type EntityData } from '@/lib/calculation/intent-executor';
 import { isIntentOperation, type IntentOperation } from '@/lib/calculation/intent-types';
+import { toNumber, roundComponentOutput, inferOutputPrecision } from '@/lib/calculation/decimal-precision';
 
 // ──────────────────────────────────────────────
 // Types
@@ -376,7 +377,7 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
       if (gateIntent?.operation === 'conditional_gate' && isIntentOperation(gateIntent as unknown as IntentOperation)) {
         const entityData: EntityData = { entityId: '', metrics, attributes: {} };
         const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
-        const gatePayout = executeOperation(gateIntent as unknown as IntentOperation, entityData, inputLog, {});
+        const gatePayout = toNumber(executeOperation(gateIntent as unknown as IntentOperation, entityData, inputLog, {}));
         payout = gatePayout;
         details = {
           source: 'calculationIntent',
@@ -439,7 +440,8 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
           attributes: {},
         };
         const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
-        const intentPayout = executeOperation(intentOp, entityData, inputLog, {});
+        const intentPayoutDecimal = executeOperation(intentOp, entityData, inputLog, {});
+        const intentPayout = toNumber(intentPayoutDecimal);
         if (intentPayout > 0) {
           payout = intentPayout;
           details = {
@@ -1469,6 +1471,15 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         }
       }
       const result = evaluateComponent(component, metrics);
+
+      // HF-122: Per-component rounding (Decision 122)
+      const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
+      const componentConfig = (component.tierConfig || component.matrixConfig ||
+        component.percentageConfig || component.conditionalConfig) as Record<string, unknown> | undefined;
+      const precision = inferOutputPrecision(componentIntent, componentConfig);
+      const { rounded } = roundComponentOutput(result.payout, componentResults.length, component.name, precision);
+      result.payout = toNumber(rounded);
+
       componentResults.push(result);
       entityTotal += result.payout;
     }
