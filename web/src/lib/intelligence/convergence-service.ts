@@ -976,9 +976,9 @@ async function resolveColumnMappingsViaAI(
     `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})`
   ).join('\n');
 
-  // HF-113: System prompt forces JSON-only output with explicit schema
-  const systemPrompt = `You are a data column mapper. Return ONLY a JSON object mapping metric field names to data column names. No explanation, no narrative, no markdown. Output format: {"metric_name": "column_name", ...}`;
-
+  // HF-114: User prompt passed straight through to AI via convergence_mapping task type.
+  // System prompt is defined in SYSTEM_PROMPTS['convergence_mapping'] (anthropic-adapter.ts).
+  // Mirrors HC pattern: system prompt defines schema, user prompt provides raw context.
   const userPrompt = `Match each metric field to the best data column. Each column used at most once.
 
 METRIC FIELDS:
@@ -987,50 +987,25 @@ ${metricList}
 DATA COLUMNS:
 ${columnList}
 
-EXAMPLE OUTPUT FORMAT:
-{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": "${columnNames[1] || 'Column_B'}"}
-
-Return the JSON mapping now:`;
+EXAMPLE OUTPUT:
+{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": "${columnNames[1] || 'Column_B'}"}`;
 
   try {
     const aiService = getAIService();
 
-    // HF-113: Use responseFormat: 'json' to enforce JSON output
+    // HF-114: convergence_mapping task type — purpose-built system prompt + passthrough user prompt
     const response = await aiService.execute({
-      task: 'field_mapping',
-      input: { system: systemPrompt, userMessage: userPrompt },
+      task: 'convergence_mapping',
+      input: { userMessage: userPrompt },
       options: { maxTokens: 500, responseFormat: 'json' as const },
     }, false);
 
-    let result = response.result as Record<string, unknown>;
+    const result = response.result as Record<string, unknown>;
 
-    // HF-113: Validate response is a mapping, not a narrative
+    // Validate: at least some keys are metric fields with values being column names
     if (!isValidColumnMapping(result, metricFields, columnNames)) {
-      console.warn(`[Convergence] HF-113 Invalid AI response (got keys: ${Object.keys(result).join(', ')}). Retrying.`);
-
-      // Retry with minimal prompt
-      const retryPrompt = `Map these metric names to column names. Return ONLY JSON.
-
-Metrics: ${metricFields.join(', ')}
-Columns: ${columnNames.join(', ')}
-Column descriptions: ${measureColumns.map(c => `${c.name}=${c.fi.contextualIdentity}`).join(', ')}
-
-Output: {"metric_name": "column_name", ...}`;
-
-      const retryResponse = await aiService.execute({
-        task: 'field_mapping',
-        input: { system: 'Return only a JSON object mapping metric names to column names.', userMessage: retryPrompt },
-        options: { maxTokens: 500, responseFormat: 'json' as const },
-      }, false);
-
-      const retryResult = retryResponse.result as Record<string, unknown>;
-      if (isValidColumnMapping(retryResult, metricFields, columnNames)) {
-        result = retryResult;
-        console.log('[Convergence] HF-113 Retry succeeded');
-      } else {
-        console.error('[Convergence] HF-113 Retry also failed — falling back to boundary matching');
-        return {};
-      }
+      console.error(`[Convergence] HF-114 AI response invalid (keys: ${Object.keys(result).join(', ')}). Falling back to boundary matching.`);
+      return {};
     }
 
     const mapping: Record<string, string> = {};
@@ -1039,10 +1014,10 @@ Output: {"metric_name": "column_name", ...}`;
         mapping[key] = val;
       }
     }
-    console.log(`[Convergence] HF-113 AI mapping: ${JSON.stringify(mapping)}`);
+    console.log(`[Convergence] HF-114 AI mapping: ${JSON.stringify(mapping)}`);
     return mapping;
   } catch (err) {
-    console.error('[Convergence] HF-113 AI mapping failed:', err);
+    console.error('[Convergence] HF-114 AI mapping failed:', err);
   }
 
   return {};

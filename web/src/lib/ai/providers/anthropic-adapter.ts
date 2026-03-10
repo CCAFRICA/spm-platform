@@ -575,6 +575,13 @@ Respond ONLY with valid JSON, no preamble, no markdown:
   "crossSheetInsights": ["...", "..."]
 }`,
 
+  convergence_mapping: `You map compensation plan metric requirements to data columns. Given a list of metric field names (from plan interpretation) and data columns (with descriptions), return a flat JSON object mapping each metric to its best-matching column.
+
+Each column may be used at most once. Match by semantic meaning, not by string similarity.
+
+Respond ONLY with valid JSON, no preamble, no markdown, no explanation:
+{"metric_field_name": "column_name", "metric_field_name_2": "column_name_2"}`,
+
   document_analysis: `You are an expert at analyzing business documents. Given a document (PDF, PPTX, or DOCX), determine its type and structure.
 
 Determine:
@@ -918,6 +925,9 @@ Provide your response as a JSON object with "narrative" (text) and "confidence" 
 
       case 'header_comprehension':
         return input.sheetsDescription as string;
+
+      case 'convergence_mapping':
+        return input.userMessage as string;
 
       case 'document_analysis': {
         // For PDF: document block is attached separately, just prompt
