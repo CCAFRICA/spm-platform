@@ -373,21 +373,6 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
       // constant onTrue/onFalse values. The legacy evaluateConditionalPercentage
       // multiplies base × rate, which is wrong for gate semantics.
       const gateIntent = component.calculationIntent as unknown as Record<string, unknown> | undefined;
-      // HF-121 diagnostic: why is the guard not firing?
-      console.log('[GATE-DEBUG]', JSON.stringify({
-        componentName: component.name,
-        componentType: component.componentType,
-        hasCalcIntent: !!component.calculationIntent,
-        intentOp: gateIntent?.operation,
-        intentKeys: gateIntent ? Object.keys(gateIntent) : null,
-        isIntentOp: gateIntent ? isIntentOperation(gateIntent as unknown as IntentOperation) : false,
-        guardResult: !!(gateIntent?.operation === 'conditional_gate' && isIntentOperation(gateIntent as unknown as IntentOperation)),
-        condConfigAppliedTo: component.conditionalConfig?.appliedTo,
-        condConfigConditions: component.conditionalConfig?.conditions?.map(c => ({
-          metric: c.metric, min: c.min, max: c.max, rate: c.rate
-        })),
-        base: component.conditionalConfig?.appliedTo ? metrics[component.conditionalConfig.appliedTo] : undefined,
-      }));
       if (gateIntent?.operation === 'conditional_gate' && isIntentOperation(gateIntent as unknown as IntentOperation)) {
         const entityData: EntityData = { entityId: '', metrics, attributes: {} };
         const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};

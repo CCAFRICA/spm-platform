@@ -237,6 +237,7 @@ function executeConditionalGate(
     case '>':  conditionMet = leftVal > rightVal;  break;
     case '<=': conditionMet = leftVal <= rightVal; break;
     case '<':  conditionMet = leftVal < rightVal;  break;
+    case '=':  // AI plan interpreter produces single-equals for equality
     case '==': conditionMet = leftVal === rightVal; break;
     case '!=': conditionMet = leftVal !== rightVal; break;
   }
