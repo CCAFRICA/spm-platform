@@ -139,9 +139,9 @@ async function parseCsvFile(file: File, delimiter: string): Promise<ParsedFileDa
   };
 }
 
-// OB-156: Maximum rows to parse client-side (sample for AI analysis only).
-// Full data is parsed server-side from the Storage-uploaded file.
-const SAMPLE_ROWS = 50;
+// OB-156: AI analysis sample size. Full rows kept in parsedData for execute path.
+// Analyze API truncates to this sample; execute path uses all rows.
+const ANALYSIS_SAMPLE_SIZE = 50;
 
 async function parseExcelFile(file: File): Promise<ParsedFileData> {
   // Dynamic import to avoid SSR issues
@@ -155,38 +155,28 @@ async function parseExcelFile(file: File): Promise<ParsedFileData> {
     const ws = workbook.Sheets[sheetName];
     if (!ws) continue;
 
-    // OB-156: Get total row count from sheet range without parsing all rows
-    const ref = ws['!ref'];
-    let totalRowCount = 0;
-    if (ref) {
-      const range = XLSX.utils.decode_range(ref);
-      totalRowCount = Math.max(0, range.e.r - range.s.r); // rows minus header
-    }
-
-    // OB-156: Parse only sample rows for AI analysis (server parses full file)
-    const sampleData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+    // HF-118: Parse ALL rows — execute path needs full data when Storage
+    // upload fails. Analyze API applies its own sample truncation.
+    const allRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
       defval: '',
-      range: 0, // start from first row
+      range: 0,
     });
 
-    // Use actual count if small enough, otherwise trust range calculation
-    if (sampleData.length <= SAMPLE_ROWS) {
-      totalRowCount = sampleData.length;
-    }
-
-    const sampleRows = sampleData.slice(0, SAMPLE_ROWS);
-    const columns = sampleRows.length > 0 ? Object.keys(sampleRows[0]) : [];
+    const totalRowCount = allRows.length;
+    const columns = allRows.length > 0 ? Object.keys(allRows[0]) : [];
 
     // Filter out auto-generated __EMPTY columns that are fully empty
+    // (check first ANALYSIS_SAMPLE_SIZE rows for performance on large files)
+    const checkRows = allRows.slice(0, ANALYSIS_SAMPLE_SIZE);
     const meaningfulColumns = columns.filter(col => {
       if (!col.startsWith('__EMPTY')) return true;
-      return sampleRows.some(row => row[col] !== '' && row[col] != null);
+      return checkRows.some(row => row[col] !== '' && row[col] != null);
     });
 
     sheets.push({
       sheetName,
       columns: meaningfulColumns,
-      rows: sampleRows,
+      rows: allRows,
       totalRowCount,
     });
   }
