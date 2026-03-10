@@ -177,7 +177,9 @@ export async function convergeBindings(
   await generateAllComponentBindings(components, matches, capabilities, componentBindings, existingConvergenceBindings);
 
   // HF-115: Cross-component plausibility check — detect scale anomalies
-  if (Object.keys(componentBindings).length > 0) {
+  // Skip if reusing existing bindings (already validated in prior run)
+  const bindingsWereReused = hasCompleteBindings(existingConvergenceBindings, components.length);
+  if (Object.keys(componentBindings).length > 0 && !bindingsWereReused) {
     // Build distributions from existing columnStats (mean approximates median for 10x outlier detection)
     const distributions: Record<string, ColumnDistribution> = {};
     for (const cap of capabilities) {
