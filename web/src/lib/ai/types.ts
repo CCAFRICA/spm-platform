@@ -61,7 +61,8 @@ export type AITaskType =
   | 'dashboard_assessment'          // OB-71: Persona-driven dashboard intelligence
   | 'narration'                     // OB-98: Natural language insight narrative
   | 'header_comprehension'          // HF-100: SCI header comprehension (column role analysis)
-  | 'document_analysis';            // HF-101: Document type classification (PDF/PPTX/DOCX)
+  | 'document_analysis'             // HF-101: Document type classification (PDF/PPTX/DOCX)
+  | 'convergence_mapping';          // HF-114: Map plan metric fields to data columns
 
 // === TASK-SPECIFIC TYPES ===
 
