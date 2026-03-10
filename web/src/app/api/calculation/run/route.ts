@@ -1087,9 +1087,14 @@ export async function POST(request: NextRequest) {
       // OB-146: Normalize derived attainment metrics from decimal to percentage.
       // buildMetricsForComponent normalizes but the derivation override can
       // re-introduce decimal values (e.g., Cumplimiento = 1.165 → should be 116.5).
-      for (const [key, value] of Object.entries(metrics)) {
-        if (inferSemanticType(key) === 'attainment' && value > 0 && value < 10) {
-          metrics[key] = value * 100;
+      // HF-116: Skip for convergence path — convergence bindings handle scaling via
+      // scale_factor. Applying x100 here double-scales boundary-matched components
+      // and incorrectly scales ratio components (e.g., 0.829 ratio → 82.9 percentage).
+      if (!usedConvergenceBindings) {
+        for (const [key, value] of Object.entries(metrics)) {
+          if (inferSemanticType(key) === 'attainment' && value > 0 && value < 10) {
+            metrics[key] = value * 100;
+          }
         }
       }
       const result = evaluateComponent(component, metrics);
