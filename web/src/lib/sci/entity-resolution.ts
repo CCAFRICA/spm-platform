@@ -122,17 +122,13 @@ export async function resolveEntitiesFromCommittedData(
 
   if (batchIdentifiers.size === 0) return { created: 0, updated: 0, linked: 0 };
 
-  // HF-110: Prioritize entity-classified batches for entity discovery
-  // Entity batches are the canonical source of person identifiers
-  // Transaction/target batches are secondary (they reference entities)
-  // Reference batches are excluded from entity discovery (they contain hub/store/location data)
-  const ENTITY_LABELS = new Set(['entity', 'transaction', 'target']);
-  const entityBatchIds = Array.from(batchIdentifiers.keys())
-    .filter(id => ENTITY_LABELS.has(batchLabels.get(id) || ''));
-  // If no entity/transaction/target batches found, use all batches
-  const discoveryBatchIds = entityBatchIds.length > 0
-    ? entityBatchIds
-    : Array.from(batchIdentifiers.keys());
+  // HF-117: Use ALL batches with identifier columns for entity discovery.
+  // The field_identities metadata (from HC/DS-009) marks which columns are
+  // entity identifiers — that structural signal is sufficient. The SCI
+  // informational_label is unreliable for roster/entity sheets that may be
+  // classified as 'reference'. Existing guards (looksLikeRowIndex, dedup)
+  // prevent spurious entities from non-person identifier columns.
+  const discoveryBatchIds = Array.from(batchIdentifiers.keys());
 
   // Step 2: Scan committed_data for unique entity identifiers
   const allEntities = new Map<string, string>(); // external_id -> display_name

@@ -306,7 +306,10 @@ export function evaluateConditionalPercentage(config: ConditionalConfig, metrics
     const max = Number.isFinite(condition.max) ? condition.max : Infinity;
 
     if (conditionValue >= min && conditionValue <= max) {
-      const payout = base * condition.rate;
+      // HF-117: Gate semantics — when base is 0, multiplication always yields 0.
+      // In that case, rate IS the fixed payout (e.g., safety gate: 0 incidents → $500 bonus).
+      // When base > 0, standard percentage semantics apply (base * rate).
+      const payout = base === 0 ? condition.rate : base * condition.rate;
       return {
         payout,
         details: {
@@ -317,6 +320,7 @@ export function evaluateConditionalPercentage(config: ConditionalConfig, metrics
           conditionValue,
           rate: condition.rate,
           calculatedPayout: payout,
+          gateSemantics: base === 0,
         },
       };
     }

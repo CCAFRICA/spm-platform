@@ -973,6 +973,30 @@ export async function POST(request: NextRequest) {
       }
       if (entityStoreId !== undefined && entityRole) break;
     }
+
+    // HF-117: Structural variant discovery — scan ALL string field values for
+    // variant name matches when hardcoded field names miss. Korean Test: zero
+    // field name references; matches on VALUE equality with variant names.
+    if (!entityRole && variants.length > 1) {
+      const variantNames = variants.map(v =>
+        String(v.variantName ?? v.description ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+      ).filter(Boolean);
+      for (const row of entityRowsFlat) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        for (const val of Object.values(rd)) {
+          if (typeof val === 'string' && val.length > 0) {
+            const normVal = val.toLowerCase().replace(/\s+/g, ' ').trim();
+            if (variantNames.includes(normVal)) {
+              entityRole = val;
+              break;
+            }
+          }
+        }
+        if (entityRole) break;
+      }
+    }
+
     const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
 
     // OB-85-R3R4 Fix 2: Select variant based on entity role
