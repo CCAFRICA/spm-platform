@@ -176,6 +176,89 @@ export async function convergeBindings(
     Record<string, Record<string, unknown>> | undefined;
   await generateAllComponentBindings(components, matches, capabilities, componentBindings, existingConvergenceBindings);
 
+  // HF-115: Cross-component plausibility check — detect scale anomalies
+  if (Object.keys(componentBindings).length > 0) {
+    // Build distributions from existing columnStats (mean approximates median for 10x outlier detection)
+    const distributions: Record<string, ColumnDistribution> = {};
+    for (const cap of capabilities) {
+      for (const [colName, stats] of Object.entries(cap.columnStats)) {
+        if (!distributions[colName]) {
+          distributions[colName] = {
+            column: colName,
+            min: stats.min,
+            max: stats.max,
+            median: stats.mean,  // mean ≈ median for anomaly detection (10x threshold)
+            p25: stats.min + (stats.mean - stats.min) * 0.5,
+            p75: stats.mean + (stats.max - stats.mean) * 0.5,
+            distinctCount: stats.sampleCount,
+            nullCount: 0,
+            sampleSize: stats.sampleCount,
+            scaleInference: inferScale(stats),
+          };
+        }
+      }
+    }
+
+    const plausibilityResults = checkCalculationPlausibility(
+      components, componentBindings, distributions
+    );
+
+    // Apply corrections to bindings
+    for (const pr of plausibilityResults) {
+      if (pr.isAnomaly && pr.proposedCorrection) {
+        const compKey = `component_${pr.componentIndex}`;
+        const cb = componentBindings[compKey];
+        if (cb) {
+          const role = pr.proposedCorrection.bindingRole;
+          const binding = cb[role];
+          if (binding) {
+            binding.scale_factor = pr.proposedCorrection.proposedScale;
+            console.log(
+              `[CONVERGENCE-VALIDATION]   Applying correction to ${compKey}:${role} ` +
+              `(decision_source: structural_anomaly)`
+            );
+          }
+        }
+      }
+    }
+
+    // Capture classification signals
+    for (const pr of plausibilityResults) {
+      if (pr.isAnomaly) {
+        const compKey = `component_${pr.componentIndex}`;
+        const cb = componentBindings[compKey];
+        const bindingRole = pr.proposedCorrection?.bindingRole ?? 'actual';
+        const colName = cb?.[bindingRole]?.column ?? 'unknown';
+        const dist = distributions[colName];
+
+        await supabase.from('classification_signals').insert({
+          tenant_id: tenantId,
+          signal_type: 'convergence_calculation_validation',
+          signal_value: {
+            component_index: pr.componentIndex,
+            component_name: pr.componentName,
+            anomaly_type: pr.anomalyType,
+            detected_result: pr.sampleResult,
+            corrected_result: pr.proposedCorrection?.correctedResult,
+            peer_median: pr.medianPeerResult,
+            ratio_to_median: pr.ratioToMedian,
+            correction_applied: !!pr.proposedCorrection,
+            correction_type: pr.proposedCorrection?.type,
+          },
+          confidence: 0.85,
+          source: 'convergence_validation',
+          decision_source: 'structural_anomaly',
+          context: {
+            plan_id: ruleSetId,
+            component_type: components[pr.componentIndex]?.calculationOp ?? 'unknown',
+            bound_column: colName,
+            value_distribution: dist ? { min: dist.min, max: dist.max, median: dist.median, scale: dist.scaleInference } : null,
+          },
+        });
+      }
+    }
+  }
+
   // 5b. OB-128: Detect actuals-target pairs via semantic roles
   const targetCapabilities = capabilities.filter(c => c.hasTargetData);
   if (targetCapabilities.length > 0) {
@@ -999,6 +1082,258 @@ export function profileColumnDistribution(
     sampleSize: n,
     scaleInference,
   };
+}
+
+function inferScale(stats: ColumnValueStats): ColumnDistribution['scaleInference'] {
+  if (stats.sampleCount === 0) return 'unknown';
+  const allNonNeg = stats.min >= 0;
+  if (allNonNeg && stats.max <= 1.5) return 'ratio_0_1';
+  if (allNonNeg && stats.max <= 150 && stats.min < 1.5) return 'percentage_0_100';
+  if (allNonNeg && stats.max <= 50) return 'integer_count';
+  if (allNonNeg && stats.max > 50 && stats.max <= 10000) return 'integer_hundreds';
+  if (stats.max > 10000) return 'currency_large';
+  return 'unknown';
+}
+
+// ──────────────────────────────────────────────
+// HF-115: Cross-Component Plausibility Check
+// Detects scale anomalies by comparing sample results across components
+// ──────────────────────────────────────────────
+
+interface PlausibilityResult {
+  componentIndex: number;
+  componentName: string;
+  sampleResult: number;
+  medianPeerResult: number;
+  ratioToMedian: number;
+  isAnomaly: boolean;
+  anomalyType?: 'scale_mismatch' | 'rate_outlier' | 'unknown';
+  proposedCorrection?: {
+    type: 'scale_factor';
+    currentScale: number;
+    proposedScale: number;
+    correctedResult: number;
+    bindingRole: string;
+  };
+}
+
+function estimateSampleResult(
+  component: PlanComponent,
+  compBindings: Record<string, ComponentBinding>,
+  distributions: Record<string, ColumnDistribution>,
+): number {
+  const intent = component.calculationIntent;
+  const op = (intent?.operation || component.calculationOp) as string;
+
+  switch (op) {
+    case 'scalar_multiply': {
+      const rate = component.calculationRate ?? (intent?.rate as number | undefined) ?? 0;
+      if (rate === 0) return 0;
+
+      // Ratio input (numerator/denominator)
+      const numBinding = compBindings.numerator;
+      const denBinding = compBindings.denominator;
+      if (numBinding && denBinding) {
+        const numDist = distributions[numBinding.column];
+        const denDist = distributions[denBinding.column];
+        if (numDist && denDist && denDist.median !== 0) {
+          let ratio = numDist.median / denDist.median;
+          if (numBinding.scale_factor) ratio = (numDist.median * numBinding.scale_factor) / denDist.median;
+          if (denBinding.scale_factor) ratio = numDist.median / (denDist.median * denBinding.scale_factor);
+          return rate * ratio;
+        }
+        return 0;
+      }
+
+      // Single input
+      const actualBinding = compBindings.actual;
+      if (actualBinding) {
+        const dist = distributions[actualBinding.column];
+        if (dist) {
+          let value = dist.median;
+          if (actualBinding.scale_factor) value *= actualBinding.scale_factor;
+          return rate * value;
+        }
+      }
+      return 0;
+    }
+
+    case 'bounded_lookup_1d': {
+      const actualBinding = compBindings.actual;
+      if (!actualBinding) return 0;
+      const dist = distributions[actualBinding.column];
+      if (!dist) return 0;
+
+      let value = dist.median;
+      if (actualBinding.scale_factor) value *= actualBinding.scale_factor;
+
+      // Find which tier the median falls in
+      const boundaries = intent?.boundaries as Array<Record<string, unknown>> | undefined;
+      if (boundaries) {
+        for (const tier of boundaries) {
+          const min = (tier.min as number) ?? -Infinity;
+          const max = (tier.max as number) ?? Infinity;
+          if (value >= min && value <= max) {
+            return (tier.value as number) ?? (tier.payout as number) ?? 0;
+          }
+        }
+      }
+
+      // Fallback: check tierConfig
+      const tierConfig = intent?.tierConfig as Record<string, unknown> | undefined;
+      const tiers = tierConfig?.tiers as Array<Record<string, unknown>> | undefined;
+      if (tiers) {
+        for (const tier of tiers) {
+          const min = (tier.min as number) ?? -Infinity;
+          const max = (tier.max as number) ?? Infinity;
+          if (value >= min && value <= max) {
+            return (tier.value as number) ?? 0;
+          }
+        }
+      }
+      return 0;
+    }
+
+    case 'bounded_lookup_2d': {
+      const rowBinding = compBindings.row;
+      const colBinding = compBindings.column;
+      if (!rowBinding || !colBinding) return 0;
+
+      const rowDist = distributions[rowBinding.column];
+      const colDist = distributions[colBinding.column];
+      if (!rowDist || !colDist) return 0;
+
+      let rowValue = rowDist.median;
+      let colValue = colDist.median;
+      if (rowBinding.scale_factor) rowValue *= rowBinding.scale_factor;
+      if (colBinding.scale_factor) colValue *= colBinding.scale_factor;
+
+      const rowBounds = intent?.rowBoundaries as Array<Record<string, unknown>> | undefined;
+      const colBounds = intent?.columnBoundaries as Array<Record<string, unknown>> | undefined;
+      const outputGrid = intent?.outputGrid as number[][] | undefined;
+
+      if (!rowBounds || !colBounds || !outputGrid) return 0;
+
+      let rowIdx = -1;
+      for (let i = 0; i < rowBounds.length; i++) {
+        const min = (rowBounds[i].min as number) ?? -Infinity;
+        const max = (rowBounds[i].max as number) ?? Infinity;
+        if (rowValue >= min && rowValue <= max) { rowIdx = i; break; }
+      }
+      let colIdx = -1;
+      for (let i = 0; i < colBounds.length; i++) {
+        const min = (colBounds[i].min as number) ?? -Infinity;
+        const max = (colBounds[i].max as number) ?? Infinity;
+        if (colValue >= min && colValue <= max) { colIdx = i; break; }
+      }
+
+      return (rowIdx >= 0 && colIdx >= 0) ? (outputGrid[rowIdx]?.[colIdx] ?? 0) : 0;
+    }
+
+    case 'conditional_gate': {
+      const actualBinding = compBindings.actual;
+      if (!actualBinding) return 0;
+      const dist = distributions[actualBinding.column];
+      if (!dist) return 0;
+
+      // Gates typically return a fixed payout or 0. Estimate using the gate's payout value.
+      const onTrue = intent?.onTrue as Record<string, unknown> | undefined;
+      const payoutValue = (onTrue?.value as number) ?? (onTrue?.rate as number) ?? 0;
+      return payoutValue;
+    }
+
+    default:
+      return 0;
+  }
+}
+
+function checkCalculationPlausibility(
+  components: PlanComponent[],
+  componentBindings: Record<string, Record<string, ComponentBinding>>,
+  distributions: Record<string, ColumnDistribution>,
+): PlausibilityResult[] {
+  const results: PlausibilityResult[] = [];
+
+  for (const comp of components) {
+    const compKey = `component_${comp.index}`;
+    const cb = componentBindings[compKey];
+    if (!cb) continue;
+
+    const sampleResult = estimateSampleResult(comp, cb, distributions);
+    results.push({
+      componentIndex: comp.index,
+      componentName: comp.name,
+      sampleResult,
+      medianPeerResult: 0,  // filled below
+      ratioToMedian: 0,
+      isAnomaly: false,
+    });
+  }
+
+  // Cross-component comparison
+  const nonZeroResults = results.filter(r => r.sampleResult > 0);
+  if (nonZeroResults.length < 2) return results;
+
+  const sortedValues = nonZeroResults.map(r => r.sampleResult).sort((a, b) => a - b);
+  const mid = Math.floor(sortedValues.length / 2);
+  const medianResult = sortedValues.length % 2 === 1
+    ? sortedValues[mid]
+    : (sortedValues[mid - 1] + sortedValues[mid]) / 2;
+
+  for (const result of results) {
+    result.medianPeerResult = medianResult;
+    if (result.sampleResult > 0 && medianResult > 0) {
+      result.ratioToMedian = result.sampleResult / medianResult;
+      if (result.ratioToMedian > 10) {
+        result.isAnomaly = true;
+        result.anomalyType = 'scale_mismatch';
+
+        // Propose correction: try dividing by powers of 10 to bring within range
+        const comp = components[result.componentIndex];
+        const compKey = `component_${comp.index}`;
+        const cb = componentBindings[compKey];
+
+        for (const scaleDivisor of [100, 10, 1000]) {
+          const correctedResult = result.sampleResult / scaleDivisor;
+          const correctedRatio = correctedResult / medianResult;
+          if (correctedRatio >= 0.1 && correctedRatio <= 10) {
+            // Find which binding role carries the value that needs scaling
+            const bindingRole = cb.numerator ? 'numerator' : cb.actual ? 'actual' : 'row';
+            const binding = cb[bindingRole];
+            const currentScale = binding?.scale_factor ?? 1;
+
+            result.proposedCorrection = {
+              type: 'scale_factor',
+              currentScale,
+              proposedScale: currentScale / scaleDivisor,
+              correctedResult,
+              bindingRole,
+            };
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Log all results
+  for (const r of results) {
+    const status = r.isAnomaly ? 'SCALE ANOMALY' : 'OK';
+    console.log(
+      `[CONVERGENCE-VALIDATION] Component ${r.componentIndex} (${r.componentName}): ` +
+      `sample=${r.sampleResult.toFixed(0)}, median_peer=${r.medianPeerResult.toFixed(0)}, ` +
+      `ratio=${r.ratioToMedian.toFixed(1)} — ${status}`
+    );
+    if (r.proposedCorrection) {
+      console.log(
+        `[CONVERGENCE-VALIDATION]   Proposed correction: scale_factor ${r.proposedCorrection.currentScale}→${r.proposedCorrection.proposedScale}, ` +
+        `corrected=${r.proposedCorrection.correctedResult.toFixed(0)}, ` +
+        `new_ratio=${(r.proposedCorrection.correctedResult / r.medianPeerResult).toFixed(1)}`
+      );
+    }
+  }
+
+  return results;
 }
 
 // ──────────────────────────────────────────────
