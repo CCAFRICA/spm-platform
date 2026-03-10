@@ -1,15 +1,47 @@
 # CC STANDING ARCHITECTURE RULES
 ## MANDATORY — Include at top of every OB/HF/SD prompt
 
-*Version 2.1 — February 21, 2026*
+*Version 3.0 — March 10, 2026*
 *Replaces: Version 2.0 (February 19, 2026)*
-*Original: CLEARCOMP_STANDING_PRINCIPLES.md*
+
+---
+
+## SECTION 0: GOVERNING PRINCIPLES (Decisions 123 & 124)
+
+**These two principles sit above all other rules. They are the standard against which every architectural decision, every UX choice, every data model, every font selection, and every interaction pattern is evaluated.**
+
+### GP-1: Transparent Architectural Compliance (Decision 123)
+
+The platform's architecture must transparently embody compliance with all applicable governing standards — regulatory, financial, mathematical, and technical. **Compliance is not a layer added after architecture; compliance is a property that emerges from architecture.** The traceability between each architectural decision and the governing standard it satisfies must be explicit and documented.
+
+**Test:** Could an auditor verify compliance from architecture documentation alone, without reading source code? If no, the compliance is procedural, not architectural.
+
+**Examples of architectural compliance (not policy compliance):**
+- Deterministic Calculation Boundary IS the audit control (not "we test for reproducibility")
+- Row-Level Security IS the data isolation (not "we check tenant_id in application code")
+- Banker's Rounding IS the bias elimination (not "we use consistent rounding")
+- Immutable batch lifecycle IS the financial assertion (not "we log all changes")
+
+### GP-2: Research-Derived Design (Decision 124)
+
+Every platform decision — from arithmetic operations to font selection to interaction sequencing — must be derived from proven research in the applicable underlying discipline. **The platform does not default to convention, preference, or industry pattern.** It identifies the governing discipline, surveys the established research, and applies the proven principles structurally.
+
+**Test:** Is the justification "other platforms do it this way" or "research in [named discipline] demonstrates [cited finding]"? The first fails. The second passes.
+
+**The Abstraction Principle:** Find the governing discipline (not "SPM best practice" but "numerical analysis" or "cognitive load theory" or "pre-attentive visual processing"), understand the proven principles, and apply them structurally. The same intellectual move that produced the seven structural primitives: not "compensation calculation types" but "irreducible mathematical operations."
+
+**Examples:**
+- Rounding method: not "most platforms round half up" → "IEEE 754 and Kahan (1996) demonstrate that round half to even eliminates systematic bias at scale"
+- Navigation: not "dashboards have sidebars" → "Hick's Law and cognitive load theory (Sweller, 1988) predict that reducing choices reduces decision time"
+- Color: not "blue is professional" → "Opponent-process theory and WCAG 2.1 contrast ratios determine perceptible and meaningful color encoding"
 
 ---
 
 ## SECTION A: DESIGN PRINCIPLES (NON-NEGOTIABLE)
 
-### 1. AI-First, Never Hardcoded
+*Each principle is an instance of one or both Governing Principles (GP-1/GP-2).*
+
+### 1. AI-First, Never Hardcoded ← GP-2
 The platform uses AI to interpret plans, analyze data, and map fields. **Every downstream system must consume the AI's decisions — never re-derive them with hardcoded logic.**
 
 - NEVER hardcode field names, column patterns, or language-specific strings
@@ -20,7 +52,7 @@ The platform uses AI to interpret plans, analyze data, and map fields. **Every d
 
 **Test:** If a Korean company uploaded data in Hangul with completely different column names and sheet structures, would this code still work? If no, it's hardcoded.
 
-### 2. Scale by Design, Not Retrofit
+### 2. Scale by Design, Not Retrofit ← GP-1 + GP-2
 Every architectural decision must work at 10x current volume. A platform that processes 119K records today must handle 2M+ records tomorrow without re-architecture.
 
 - NEVER send row data through HTTP request/response bodies — use file storage
@@ -31,26 +63,44 @@ Every architectural decision must work at 10x current volume. A platform that pr
 
 **Test:** Would this approach work for 2 million records? 10 million? If the answer is "we'd need to redesign," the approach is wrong now.
 
-### 3. Fix Logic, Not Data
+### 3. Fix Logic, Not Data ← GP-2
 Never provide answer values. Never give CC the answer key. Systems derive correct results from source material. If a test produces wrong results, fix the logic — don't patch the data to match expectations.
 
-### 4. Be the Thermostat, Not the Thermometer
+**Research basis:** Formal verification — a system is correct if its logic is correct for all inputs, not if its data happens to produce correct outputs.
+
+### 4. Be the Thermostat, Not the Thermometer ← GP-2
 Act on data (recommend, alert, adjust), don't just display it. The platform makes decisions and takes actions — it doesn't just show dashboards.
 
-### 5. Closed-Loop Learning
+**Research basis:** Control systems theory (Wiener, 1948) — feedback loops act on measurements, not just report them.
+
+### 5. Closed-Loop Learning ← GP-2
 Platform activity generates training signals for continuous improvement. AI mappings that get manually corrected inform future AI interpretation. The platform gets smarter with use.
 
-### 6. Security, Scale, Performance by Design
+**Research basis:** Machine learning feedback theory; affinity maturation (immunology); Bayesian updating.
+
+### 6. Security, Scale, Performance by Design ← GP-1
 These three are designed in from the start, never retrofitted. Provider abstraction for AI (no hardcoded vendor). Row-Level Security for multi-tenancy. Audit trails for compliance.
 
-### 7. Prove, Don't Describe
+**Compliance basis:** SOC2 (security controls), SOC1/SSAE 18 (financial controls), GAAP (audit trail requirements).
+
+### 7. Prove, Don't Describe ← GP-1
 Show evidence, not claims. Every proof gate must verify LIVE, RENDERED, RUNNING state — not file existence, code review, or self-attestation.
 
-### 8. Domain-Agnostic Always
+**Compliance basis:** Audit methodology evidentiary standard — assertions require evidence, not attestation.
+
+### 8. Domain-Agnostic Always ← GP-2
 The platform is Vialuce — a Performance Optimization Engine. NOT an ICM tool. Every architectural decision, naming convention, and data model must work across any domain (compensation, franchise operations, any future module). Use case examples belong in labeled sections only. Biased architecture → biased platform.
 
-### 9. IAP Gate (Principle 9)
+**Research basis:** Abstraction principle — if the same mathematical operation appears in compensation, franchising, and channel management, the correct abstraction is the operation, not the domain.
+
+### 9. IAP Gate ← GP-1 + GP-2
 Every UI measure must score on Intelligence, Acceleration, Performance. Measures failing all 3 are cut. Standing design gate for all OB/HF touching UI.
+
+### 10. Calculation Precision Standard (Decision 122) ← GP-1 + GP-2
+The engine uses arbitrary-precision decimal arithmetic (decimal.js) with Banker's Rounding (IEEE 754 ROUND_HALF_EVEN). Rounding is applied per-component at plan-specified precision. Entity totals are sums of rounded components (GAAP line-item presentation). A rounding trace is stored per entity per component.
+
+**Compliance basis:** IEEE 754-2019, GAAP ASC 820, BIS 2018, SOC1/SSAE 18.
+**Research basis:** Goldberg (1991), Kahan (1996), Central Limit Theorem.
 
 ---
 
@@ -87,6 +137,24 @@ Option C: [Third approach - if applicable]
 
 CHOSEN: Option ___ because ___
 REJECTED: Option ___ because ___
+
+GOVERNING PRINCIPLES EVALUATION (Decisions 123 & 124)
+=====================================================
+G1 - Standard Identification: What governing standard(s) apply?
+     [Named standard: IEEE, GAAP, SOC, WCAG, ISO, or peer-reviewed research]
+G2 - Architectural Embodiment: How does architecture structurally guarantee compliance?
+     [Named mechanism, not policy. Must survive reimplementation.]
+G3 - Traceability: Can an auditor verify from documentation alone?
+     [Standard → Architecture → Implementation chain]
+G4 - Discipline Identification: What underlying discipline governs this decision?
+     [Named discipline with cited research, not "best practice"]
+G5 - Abstraction Test: Would the research still apply if vialuce changed domains?
+     [Universal finding, not domain-specific convention]
+G6 - Innovation Boundary: Is the innovation grounded in peer-reviewed evidence?
+     [Cited source, not speculation]
+
+Not all gates apply to every decision. But every decision must identify
+which gates are relevant and pass those that are.
 ```
 
 **DO NOT proceed to implementation until this is committed.**
@@ -111,7 +179,6 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 | AP-5 | Add field names to hardcoded dictionaries (FIELD_ID_MAPPINGS) | AI semantic inference with confidence scores | HF-046 |
 | AP-6 | Pattern match on column names in specific languages | AI analyzes data values + context, language-agnostic | Standing |
 | AP-7 | Hardcode "50%" or any placeholder confidence score | Calculate real confidence from AI analysis results | HF-046 |
-| AP-18 | AI generates analysis on empty data (fabricated numbers) | Data-existence gate: check calculation_results count > 0 before AI generation | CLT-72 F-38 |
 
 ### Deployment & Verification
 | # | Anti-Pattern | Correct Pattern | Source |
@@ -135,20 +202,21 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 | AP-16 | Navigate/refresh page during async operation | Disable navigation, show "don't close" message, or use server-side jobs | CLT-64 |
 | AP-17 | Two separate code paths for the same feature (GPV + Enhanced) | Single pipeline, shared API route, wrapper UI only | CLT-63 |
 
-### Pipeline & Lifecycle (NEW — CLT-72)
+### Schema & SQL
 | # | Anti-Pattern | Correct Pattern | Source |
 |---|---|---|---|
-| AP-19 | Import commits records despite unresolved field mappings | Validation gate: warn on critical unmapped fields, require confirmation | CLT-72 F-52 |
-| AP-20 | Lifecycle advances with all entities at $0 payout | Block advancement with $0 total; allow override with explicit confirmation | CLT-72 F-63 |
-| AP-21 | Summary card total differs from sum of detail rows | Single data source for both summary and detail (calculation_results) | CLT-72 F-56 |
-| AP-22 | Period detector interprets month values (1,2,3) as years (2001,2002,2003) | Validate detected year is within reasonable range (current year ± 5) | CLT-72 F-48 |
+| AP-18 | Write SQL referencing columns without schema verification | `SELECT column_name FROM information_schema.columns WHERE table_name = X` before any SQL | FP-49 |
+| AP-19 | Use `informational_label` or other fabricated column names | Verify against SCHEMA_REFERENCE_LIVE.md — no exceptions | FP-49 |
 
-### Temporal & Reference (NEW — OB-152)
+### Calculation & Verification
 | # | Anti-Pattern | Correct Pattern | Source |
 |---|---|---|---|
-| AP-23 | FK-bind data to period at import time (period_id only) | Extract source_date structurally at import; engine applies period windowing at calc time | OB-152 |
-| AP-24 | Field-name matching for date extraction ("date", "fecha", "날짜") | Structural detection: Content Profile hints → semantic role bindings → value-type scanning | OB-152 |
-| AP-25 | Discard catalog/lookup data or force into entity/transaction classification | Reference Agent classifies lookup data → reference_data + reference_items tables | OB-152 |
+| AP-20 | Completion report claims PASS without production evidence | Paste Vercel Runtime Log output, calculation result, or DB query as proof | FP-60 |
+| AP-21 | Diagnose calculation issues without comparing to ground truth | After EVERY calculation run, compare component-by-component against GT | FP-61 |
+| AP-22 | Describe wrong total as "close" or "in the neighborhood" | State the delta and the root cause. Decision 95: 100% or wrong. | FP-62 |
+| AP-23 | Apply sample/analysis limits to data commit paths | `SAMPLE_ROWS` belongs on AI analysis paths ONLY. Execute paths commit ALL rows. | FP-63 |
+| AP-24 | Test only one branch of conditional logic | Every conditional must be tested with entities that PASS and entities that FAIL | FP-64 |
+| AP-25 | Use native JavaScript `number` for financial calculation | Use arbitrary-precision decimal (decimal.js) with Banker's Rounding (Decision 122) | DS-010 |
 
 ---
 
@@ -160,36 +228,35 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 3. Final step of every OB/HF/SD: `gh pr create --base main --head dev` with descriptive title and body
 4. Git commit messages: ASCII only
 5. Completion reports and proof gates saved to PROJECT ROOT
-6. **Git commands MUST run from repo root (spm-platform), NOT from web/.** Running git from web/ causes web/web/ double-path errors.
 
 ### Supabase
-7. **Supabase migrations MUST be executed live** (SQL Editor or `supabase db push`) AND verified with a database query. File existence ≠ applied. Proof gate = live DB query showing changes exist.
-8. Use service role client for server-side bulk operations
-9. Use browser client only for user-scoped reads
-10. Every table the pipeline writes to must have VL Admin INSERT/UPDATE policies
+6. **Supabase migrations MUST be executed live** (SQL Editor or `supabase db push`) AND verified with a database query. File existence ≠ applied. Proof gate = live DB query showing changes exist.
+7. Use service role client for server-side bulk operations
+8. Use browser client only for user-scoped reads
+9. Every table the pipeline writes to must have VL Admin INSERT/UPDATE policies
 
 ### Prompts & Handoffs
-11. Autonomy Directive as first line: NEVER ask yes/no. NEVER say "shall I". Just act.
-12. Never provide CC with answer values — fix logic not data
-13. All handoffs must include accumulated rules/preferences
-14. CC Admin always sees English regardless of tenant locale
-15. OB/HF prompt committed to git (Rule 29)
+10. Autonomy Directive as first line: NEVER ask yes/no. NEVER say "shall I". Just act.
+11. Never provide CC with answer values — fix logic not data
+12. All handoffs must include accumulated rules/preferences
+13. CC Admin always sees English regardless of tenant locale
+14. OB/HF prompt committed to git (Rule 29)
 
 ### Proof Gates
-16. RENDERED output, not file existence
-17. LIVE database state, not migration file committed
-18. BROWSER console clean, not "code handles errors gracefully"
-19. REAL data displayed, not placeholder/hardcoded values
-20. ACTUAL performance measured, not "estimated < 60 seconds"
+15. RENDERED output, not file existence
+16. LIVE database state, not migration file committed
+17. BROWSER console clean, not "code handles errors gracefully"
+18. REAL data displayed, not placeholder/hardcoded values
+19. ACTUAL performance measured, not "estimated < 60 seconds"
+20. PRODUCTION evidence required — localhost PASS ≠ production PASS (FP-60)
+21. GT comparison after every calculation run — component-by-component (FP-61)
 
 ### Architecture
-21. Architecture Decision Gate required before implementation (Section B)
-22. Evaluate every approach against the Anti-Pattern Registry (Section C)
-23. If in doubt between "quick" and "right," choose "right"
-24. Every OB/HF touching data pipeline: include scale analysis (current volume vs 10x vs 100x)
-
-### Navigation & Routes
-25. **One canonical location per surface.** Every feature has ONE route that owns it. Other workspaces can link to it — they NEVER duplicate it. Cross-references allowed, duplicate routes prohibited. If it's not built, it's not in the nav. Reconciliation lives in Operate (lifecycle step: import > calculate > reconcile > approve).
+22. Architecture Decision Gate required before implementation (Section B)
+23. Evaluate every approach against the Anti-Pattern Registry (Section C)
+24. If in doubt between "quick" and "right," choose "right"
+25. Every OB/HF touching data pipeline: include scale analysis (current volume vs 10x vs 100x)
+26. **Governing Principles Evaluation (G1-G6) required** for decisions touching architecture, UX, or visualization (Section B)
 
 ---
 
@@ -212,45 +279,25 @@ For context on architectural decisions:
 
 ```
 Before submitting completion report, verify:
+□ Governing Principles (G1-G6) evaluated where applicable?
 □ Architecture Decision committed before implementation?
 □ Anti-Pattern Registry checked — zero violations?
 □ Scale test: works for 10x current volume?
 □ AI-first: zero hardcoded field names/patterns added?
 □ All Supabase migrations executed AND verified with DB query?
 □ Proof gates verify LIVE/RENDERED state, not file existence?
+□ Production evidence included (not just localhost)?
+□ GT comparison completed (if calculation HF)?
+□ Both branches tested (if conditional logic)?
 □ Browser console clean on localhost?
 □ Real data displayed, no placeholders?
 □ Single code path (no duplicate pipelines)?
 □ Atomic operations (clean state on failure)?
+□ Financial arithmetic uses decimal.js (not native number)?
 ```
-
----
-
----
-
-## SECTION G: SUPABASE BATCH SIZE LIMIT
-
-All `.in('column', array)` calls MUST batch at ≤200 items.
-Arrays >200 UUIDs produce URLs that exceed Supabase's URL limit and silently return 0 rows.
-
-This has caused 3 production failures:
-1. Entity data consolidation (route.ts) — 719 UUIDs → 0 rows
-2. Entity display (page-loaders.ts) — 719 UUIDs → 0 rows
-3. Reconciliation matching (reconciliation route) — 719 UUIDs → 0 rows
-
-Pattern: chunk the array, query each chunk, merge results.
-Grep for `.in(` periodically and verify batch sizes.
-
----
-
-## SECTION H: TERMINOLOGY ENFORCEMENT (Rule 21)
-
-- "Classification Signal" — NOT "Training Signal". We enrich prompts, not retrain models.
-- "LLM-Primary, Deterministic Fallback, Human Authority" — NOT "AI-Primary, ML Fallback".
-- Apply to all code, comments, documentation, commit messages.
 
 ---
 
 *These rules are non-negotiable. Every architectural decision, every function, every data flow must be evaluated against them. If a proposed solution violates any principle or repeats an anti-pattern, STOP and redesign. The cost of redesign now is always less than the cost of fixing it after deployment.*
 
-*"Choose right over quick. Every time."*
+*"The platform is not built from software conventions. It is built from the disciplines that software conventions forgot to consult."*
