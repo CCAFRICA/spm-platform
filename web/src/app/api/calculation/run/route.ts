@@ -947,6 +947,36 @@ export async function POST(request: NextRequest) {
   let intentMatchCount = 0;
   let intentMismatchCount = 0;
 
+  // HF-119: Token overlap variant matching — build token sets once before entity loop
+  const variantTokenize = (text: string): string[] =>
+    text
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove accents
+      .replace(/[^a-z0-9\s_]/g, ' ')
+      .split(/[\s_]+/)
+      .filter(t => t.length > 2);
+
+  const variantTokenSets = variants.map(v => {
+    const text = [
+      String(v.variantName ?? ''),
+      String(v.description ?? ''),
+      String(v.variantId ?? ''),
+    ].join(' ');
+    return new Set(variantTokenize(text));
+  });
+
+  // Discriminant tokens: tokens unique to each variant (not in any other variant)
+  const variantDiscriminants = variantTokenSets.map((tokens, i) => {
+    const otherTokens = new Set<string>();
+    variantTokenSets.forEach((t, j) => { if (j !== i) t.forEach(tok => otherTokens.add(tok)); });
+    return new Set(Array.from(tokens).filter(t => !otherTokens.has(t)));
+  });
+
+  if (variants.length > 1) {
+    addLog(`HF-119 Variant discriminants: ${variantDiscriminants.map((d, i) =>
+      `V${i}=[${Array.from(d).join(',')}]`).join(' ')}`);
+  }
+
   for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entitySheetData = dataByEntity.get(entityId) || new Map();
@@ -955,7 +985,6 @@ export async function POST(request: NextRequest) {
     // Find this entity's store ID and role (use FIRST occurrence, not sum)
     const allEntityMetrics = aggregateMetrics(entityRowsFlat);
     let entityStoreId: string | number | undefined;
-    let entityRole: string | null = null;
     for (const row of entityRowsFlat) {
       const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
         ? row.row_data as Record<string, unknown> : {};
@@ -965,66 +994,66 @@ export async function POST(request: NextRequest) {
           entityStoreId = sid as string | number;
         }
       }
-      if (!entityRole) {
-        const role = rd['role'] ?? rd['Puesto'] ?? rd['puesto'];
-        if (typeof role === 'string' && role.length > 0) {
-          entityRole = role;
-        }
-      }
-      if (entityStoreId !== undefined && entityRole) break;
-    }
-
-    // HF-117: Structural variant discovery — scan ALL string field values for
-    // variant name matches when hardcoded field names miss. Korean Test: zero
-    // field name references; matches on VALUE equality with variant names.
-    if (!entityRole && variants.length > 1) {
-      const variantNames = variants.map(v =>
-        String(v.variantName ?? v.description ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
-      ).filter(Boolean);
-      for (const row of entityRowsFlat) {
-        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-          ? row.row_data as Record<string, unknown> : {};
-        for (const val of Object.values(rd)) {
-          if (typeof val === 'string' && val.length > 0) {
-            const normVal = val.toLowerCase().replace(/\s+/g, ' ').trim();
-            if (variantNames.includes(normVal)) {
-              entityRole = val;
-              break;
-            }
-          }
-        }
-        if (entityRole) break;
-      }
+      if (entityStoreId !== undefined) break;
     }
 
     const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
 
-    // OB-85-R3R4 Fix 2: Select variant based on entity role
+    // HF-119: Token overlap variant matching — cross-language, structural
     let selectedComponents = defaultComponents;
-    if (entityRole && variants.length > 1) {
-      const normRole = entityRole.toLowerCase().replace(/\s+/g, ' ').trim();
-      for (const variant of variants) {
-        const variantName = String(variant.variantName ?? variant.description ?? '');
-        const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
-        if (normRole === normVariant) {
-          selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
-          break;
-        }
-      }
-      if (selectedComponents === defaultComponents) {
-        const sorted = [...variants].sort((a, b) => {
-          const aLen = String(a.variantName ?? '').length;
-          const bLen = String(b.variantName ?? '').length;
-          return bLen - aLen;
-        });
-        for (const variant of sorted) {
-          const variantName = String(variant.variantName ?? variant.description ?? '');
-          const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
-          if (normRole.includes(normVariant) || normVariant.includes(normRole)) {
-            selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
-            break;
+    let selectedVariantIndex = 0;
+    if (variants.length > 1) {
+      // Build entity token set from ALL string field values
+      const entityTokens = new Set<string>();
+      for (const row of entityRowsFlat) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        for (const val of Object.values(rd)) {
+          if (typeof val === 'string' && val.length > 1) {
+            for (const token of variantTokenize(val)) {
+              entityTokens.add(token);
+            }
           }
         }
+      }
+
+      // Score by discriminant token matches
+      const discScores = variantDiscriminants.map((disc, i) => {
+        const matched = Array.from(disc).filter(t => entityTokens.has(t));
+        return { index: i, matches: matched.length, tokens: matched };
+      });
+      discScores.sort((a, b) => b.matches - a.matches);
+
+      let method = 'default_last';
+      if (discScores[0].matches > (discScores[1]?.matches ?? 0)) {
+        // Clear discriminant winner
+        selectedVariantIndex = discScores[0].index;
+        method = 'discriminant_token';
+      } else {
+        // Tie on discriminants — try total overlap
+        const overlapScores = variantTokenSets.map((tokens, i) => ({
+          index: i,
+          overlap: Array.from(tokens).filter(t => entityTokens.has(t)).length,
+        }));
+        overlapScores.sort((a, b) => b.overlap - a.overlap);
+
+        if (overlapScores[0].overlap > (overlapScores[1]?.overlap ?? 0)) {
+          selectedVariantIndex = overlapScores[0].index;
+          method = 'total_overlap';
+        } else {
+          // Still tied — default to last variant (less-specific / Standard)
+          selectedVariantIndex = variants.length - 1;
+          method = 'default_last';
+        }
+      }
+
+      selectedComponents = (variants[selectedVariantIndex]?.components as PlanComponent[]) ?? defaultComponents;
+
+      // Log first 3 entities for debugging
+      if (entityResults.length < 3) {
+        const entityName = entityInfo?.display_name ?? entityId;
+        console.log(`[VARIANT] ${entityName}: disc=[${discScores.map(s =>
+          `V${s.index}:${s.matches}`).join(',')}] → variant_${selectedVariantIndex} (${method})`);
       }
     }
 
@@ -1128,11 +1157,15 @@ export async function POST(request: NextRequest) {
     }
 
     // ── OB-76 INTENT ENGINE PATH (parallel execution) ──
+    // HF-119: Use selected variant's intents, not always defaultComponents
+    const entityIntents = selectedVariantIndex === 0
+      ? componentIntents
+      : transformVariant(selectedComponents);
     const intentTraces: unknown[] = [];
     let intentTotal = 0;
     const priorResults: number[] = [];
 
-    for (const ci of componentIntents) {
+    for (const ci of entityIntents) {
       const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
       const entityData: EntityData = {
         entityId,
