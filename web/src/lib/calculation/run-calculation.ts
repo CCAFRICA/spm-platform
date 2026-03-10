@@ -207,11 +207,15 @@ export function evaluateTierLookup(config: TierConfig, metrics: Record<string, n
   const nonZeroValues = config.tiers.map(t => t.value).filter(v => v !== 0);
   const allRates = nonZeroValues.length > 0 && nonZeroValues.every(v => v > 0 && v < 1.0);
 
-  for (const tier of config.tiers) {
+  for (let i = 0; i < config.tiers.length; i++) {
+    const tier = config.tiers[i];
     const min = Number.isFinite(tier.min) ? tier.min : -Infinity;
     const max = Number.isFinite(tier.max) ? tier.max : Infinity;
+    const isLastTier = i === config.tiers.length - 1;
 
-    if (metricValue >= min && metricValue <= max) {
+    // G4: Half-open intervals [min, max) for step functions.
+    // Last tier uses [min, max] to capture the upper boundary.
+    if (metricValue >= min && (isLastTier ? metricValue <= max : metricValue < max)) {
       const basePayout = allRates ? tier.value * metricValue : tier.value;
       return {
         payout: basePayout,
