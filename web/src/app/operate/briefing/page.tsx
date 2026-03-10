@@ -11,13 +11,14 @@
  * Standing Rule 26: Data loaded at page level, passed as props.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useOperate } from '@/contexts/operate-context';
 import { usePersona } from '@/contexts/persona-context';
 import { RequireRole } from '@/components/auth/RequireRole';
 import { OperateSelector } from '@/components/operate/OperateSelector';
 import { PERSONA_TOKENS } from '@/lib/design/tokens';
+import { captureBriefingSignal, flushPendingSignals } from '@/lib/signals/briefing-signals';
 import {
   loadIndividualBriefing,
   loadManagerBriefing,
@@ -183,6 +184,31 @@ function BriefingPageInner() {
   useEffect(() => {
     loadBriefing();
   }, [loadBriefing]);
+
+  // OB-163 Phase 9: Signal capture — view event on data load
+  const hasEmittedView = useRef(false);
+  useEffect(() => {
+    if (loading || hasEmittedView.current) return;
+    const hasData = (persona === 'rep' && individualData) ||
+      (persona === 'manager' && managerData) ||
+      (persona === 'admin' && adminData);
+    if (hasData && tenantId && selectedPeriodId) {
+      hasEmittedView.current = true;
+      captureBriefingSignal({
+        signalType: 'view',
+        persona,
+        section: 'briefing_page',
+        tenantId,
+        periodId: selectedPeriodId,
+        entityId: persona === 'rep' ? (selectedEntityId || personaEntityId || undefined) : undefined,
+      });
+    }
+  }, [loading, persona, individualData, managerData, adminData, tenantId, selectedPeriodId, selectedEntityId, personaEntityId]);
+
+  // Flush signals on unmount
+  useEffect(() => {
+    return () => { flushPendingSignals(); };
+  }, []);
 
   // Persona switcher label
   const personaLabel = persona === 'admin' ? 'Admin' : persona === 'manager' ? 'Manager' : 'Individual';

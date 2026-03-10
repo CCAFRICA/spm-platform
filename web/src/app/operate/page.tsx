@@ -353,7 +353,7 @@ function getNextAction(data: PipelineData): QuickAction {
   if (!data.latestBatch) {
     return { label: 'Run First Calculation', labelEs: 'Ejecutar Primer Calculo', href: '/operate/calculate', icon: 'Calculator' };
   }
-  return { label: 'View Latest Results', labelEs: 'Ver Ultimos Resultados', href: '/operate/calculate', icon: 'BarChart3' };
+  return { label: 'View Briefing', labelEs: 'Ver Resumen', href: '/operate/briefing', icon: 'BarChart3' };
 }
 
 const ACTION_ICONS = {
@@ -424,15 +424,17 @@ export default function OperateLandingPage() {
       // If both have data, ICM logic below picks the right ICM page
     }
 
-    // 3. ICM with completed calculation → stay on operate overview (cockpit)
+    // 3. ICM with completed calculation → Briefing (OB-163 Phase 8)
     if (hasICM && pipelineData.latestBatch) {
-      // Don't redirect — show the Operate overview cockpit
+      setRedirecting(true);
+      router.replace('/operate/briefing');
       return;
     }
 
-    // 4. ICM with data but no calculations → stay on operate overview
+    // 4. ICM with data but no calculations → Calculate page
     if (hasICM && pipelineData.dataRowCount > 0) {
-      // Don't redirect — show the Operate overview cockpit
+      setRedirecting(true);
+      router.replace('/operate/calculate');
       return;
     }
 
