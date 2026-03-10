@@ -86,7 +86,7 @@ export interface ConditionalGate {
   operation: 'conditional_gate';
   condition: {
     left: IntentSource;
-    operator: '>=' | '>' | '<=' | '<' | '==' | '!=';
+    operator: '>=' | '>' | '<=' | '<' | '=' | '==' | '!=';
     right: IntentSource;
   };
   onTrue: IntentOperation;
