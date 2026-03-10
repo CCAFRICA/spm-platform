@@ -221,3 +221,34 @@ export interface ExecutionTrace {
   finalOutcome: number;
   confidence: number;
 }
+
+// ──────────────────────────────────────────────
+// Output Precision (Decision 122 — DS-010)
+// ──────────────────────────────────────────────
+
+/** Output precision specification — per-component rounding */
+export interface OutputPrecision {
+  /** Number of decimal places to round to (0-10) */
+  decimalPlaces: number;
+  /** Rounding method — default: half_even (Banker's Rounding, IEEE 754) */
+  roundingMethod: 'half_even' | 'half_up' | 'floor' | 'ceil' | 'truncate';
+  /** How precision was determined (metadata for audit) */
+  source: 'inferred_from_outputs' | 'explicit_in_plan' | 'default_currency' | 'user_override';
+}
+
+/** Rounding trace per component (stored in calculation_results.metadata) */
+export interface RoundingTrace {
+  componentIndex: number;
+  label: string;
+  rawValue: number;
+  roundedValue: number;
+  roundingAdjustment: number;
+  precision: OutputPrecision;
+}
+
+/** Default output precision when not specified in plan */
+export const DEFAULT_OUTPUT_PRECISION: OutputPrecision = {
+  decimalPlaces: 2,
+  roundingMethod: 'half_even',
+  source: 'default_currency',
+};
