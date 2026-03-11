@@ -58,6 +58,8 @@ const QUANTITY_PATTERNS = [
   /customers/i,
   /clients/i,
   /items/i,
+  /cantidad/i,
+  /infracci/i,
 ];
 
 /**
