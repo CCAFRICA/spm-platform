@@ -28,16 +28,16 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     icon: 'TrendingUp',
     description: 'View performance and compensation',
     descriptionEs: 'Ver rendimiento y compensación',
-    defaultRoute: '/perform',
+    defaultRoute: '/stream',
     accentColor: 'hsl(142, 76%, 36%)', // Green
     roles: ['platform', 'admin', 'manager', 'sales_rep'],
     sections: [
       {
-        id: 'dashboard',
-        label: 'Dashboard',
-        labelEs: 'Panel',
+        id: 'intelligence',
+        label: 'Intelligence',
+        labelEs: 'Inteligencia',
         routes: [
-          { path: '/perform', label: 'Dashboard', labelEs: 'Panel', icon: 'LayoutDashboard', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/stream', label: 'Intelligence', labelEs: 'Inteligencia', icon: 'Zap', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
         ],
       },
       {
@@ -247,6 +247,9 @@ export function getWorkspaceForRoute(path: string): WorkspaceId | null {
       return workspace.id;
     }
   }
+
+  // OB-165: Intelligence Stream → perform workspace
+  if (path.startsWith('/stream')) return 'perform';
 
   // OB-97: Routes under eliminated workspaces → map to new home
   if (path.startsWith('/investigate')) return 'operate';
