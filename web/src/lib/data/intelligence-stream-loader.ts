@@ -649,8 +649,19 @@ function buildLifecycle(lifecycleState: string | null): IntelligenceStreamData['
   }));
 
   const nextActionInfo = getNextAction(currentState);
+  // State-aware routing — each lifecycle action navigates to its relevant workspace page
+  const LIFECYCLE_ROUTES: Partial<Record<DashboardLifecycleState, string>> = {
+    DRAFT: '/admin/launch/calculate',        // Run Preview → Calculate page
+    PREVIEW: '/operate/reconciliation',       // Start Reconciliation → Reconciliation page
+    RECONCILE: '/operate/lifecycle',           // Mark Official → Operations Center
+    OFFICIAL: '/operate/lifecycle',            // Approve → Operations Center
+    APPROVED: '/operate/lifecycle',            // Publish → Operations Center
+    POSTED: '/operate/lifecycle',              // Close → Operations Center
+    CLOSED: '/operate/lifecycle',              // Confirm Payment → Operations Center
+    PAID: '/operate/lifecycle',                // Publish Results → Operations Center
+  };
   const nextAction = nextActionInfo
-    ? { label: nextActionInfo.label, route: '/admin/operate' }
+    ? { label: nextActionInfo.label, route: LIFECYCLE_ROUTES[currentState] ?? '/operate' }
     : null;
 
   return { stages, currentState, nextAction };

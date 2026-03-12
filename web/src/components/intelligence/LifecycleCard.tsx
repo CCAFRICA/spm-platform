@@ -9,6 +9,7 @@
  * OB-165: Intelligence Stream Foundation
  */
 
+import { useRouter } from 'next/navigation';
 import { Check, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IntelligenceCard } from './IntelligenceCard';
@@ -35,6 +36,15 @@ export function LifecycleCard({
   onAction,
   onView,
 }: LifecycleCardProps) {
+  const router = useRouter();
+
+  function handleAction() {
+    onAction?.();
+    if (nextAction?.route) {
+      router.push(nextAction.route);
+    }
+  }
+
   return (
     <IntelligenceCard
       accentColor={accentColor}
@@ -95,7 +105,7 @@ export function LifecycleCard({
         </p>
         {nextAction && (
           <button
-            onClick={onAction}
+            onClick={handleAction}
             className={cn(
               'inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md',
               'bg-zinc-800 hover:bg-zinc-700 text-slate-200 transition-colors',
