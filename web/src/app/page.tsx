@@ -1,33 +1,21 @@
 'use client';
 
 /**
- * Dashboard — Persona-Driven Root Page
+ * Root Page — Redirects to Intelligence Stream (/stream)
  *
- * DS-002: Dashboard IS the persona view.
- * Routes content based on derived persona:
- *   - admin → AdminDashboard (Gobernar)
- *   - manager → ManagerDashboard (Acelerar)
- *   - rep → RepDashboard (Crecer)
- *
- * Wraps in PersonaProvider + PeriodProvider for context.
- * Period switching in PeriodRibbon updates all dashboard content.
+ * OB-165: DS-013 Phase A — Intelligence Stream is the primary experience.
+ * The root page now redirects to /stream, preserving GPV wizard flow
+ * for new tenants that haven't completed onboarding.
  */
 
 import { useState, useEffect } from 'react';
-import { usePersona } from '@/contexts/persona-context';
-import { PeriodProvider, usePeriod } from '@/contexts/period-context';
-import { PersonaLayout } from '@/components/layout/PersonaLayout';
-import { PeriodRibbon } from '@/components/design-system/PeriodRibbon';
-import { AdminDashboard } from '@/components/dashboards/AdminDashboard';
-import { ManagerDashboard } from '@/components/dashboards/ManagerDashboard';
-import { RepDashboard } from '@/components/dashboards/RepDashboard';
+import { useRouter } from 'next/navigation';
 import { GPVWizard } from '@/components/gpv/GPVWizard';
 import { useGPV } from '@/hooks/useGPV';
 import { useTenant } from '@/contexts/tenant-context';
 
-function DashboardContent() {
-  const { persona, tokens } = usePersona();
-  const { availablePeriods, activePeriodKey, setActivePeriod, isLoading } = usePeriod();
+export default function RootPage() {
+  const router = useRouter();
   const { currentTenant } = useTenant();
   const { loading: gpvLoading, isComplete: gpvComplete, hasStarted: gpvStarted, currentStep } = useGPV(currentTenant?.id);
   const [gpvFlagEnabled, setGpvFlagEnabled] = useState(false);
@@ -46,10 +34,22 @@ function DashboardContent() {
       .catch(() => setGpvFlagEnabled(false));
   }, []);
 
+  // Redirect to /stream once GPV state resolves (unless GPV wizard is active)
+  useEffect(() => {
+    if (gpvLoading) return;
+
+    // If GPV wizard should show, don't redirect
+    const showGPV = gpvFlagEnabled && gpvStarted && !gpvComplete && !skippedGPV && currentStep < 4;
+    if (showGPV) return;
+
+    // Redirect to Intelligence Stream
+    router.replace('/stream');
+  }, [gpvLoading, gpvFlagEnabled, gpvStarted, gpvComplete, skippedGPV, currentStep, router]);
+
   if (!currentTenant) {
     return (
       <div className="p-8 text-center text-zinc-400">
-        <p>Selecciona un tenant para ver tu dashboard.</p>
+        <p>Loading...</p>
       </div>
     );
   }
@@ -66,15 +66,8 @@ function DashboardContent() {
     );
   }
 
-  // Existing tenants with calculation data skip GPV automatically
-  const hasCalculationData = availablePeriods.length > 0;
-
-  // HF-052: GPV shows ONLY when ALL conditions are met:
-  // 1. gpv_enabled flag is ON in platform_settings (primary control)
-  // 2. Tenant has explicitly started the wizard (hasStarted from HF-051, defense-in-depth)
-  // 3. Wizard is not complete
-  // 4. Tenant has no calculation data
-  if (gpvFlagEnabled && gpvStarted && !gpvComplete && !hasCalculationData && !skippedGPV && currentStep < 4) {
+  // GPV Wizard for new tenants
+  if (gpvFlagEnabled && gpvStarted && !gpvComplete && !skippedGPV && currentStep < 4) {
     return (
       <GPVWizard
         tenantId={currentTenant.id}
@@ -83,46 +76,13 @@ function DashboardContent() {
     );
   }
 
+  // Redirect in progress
   return (
-    <PersonaLayout persona={persona}>
-      {/* Period Ribbon — layout-level, always visible */}
-      <PeriodRibbon
-        periods={availablePeriods}
-        activeKey={activePeriodKey}
-        onSelect={setActivePeriod}
-      />
-
-      <div className="p-6 max-w-6xl mx-auto">
-        {/* Persona header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white">
-            {tokens.intent}
-          </h1>
-          <p className="text-xs text-zinc-400">{tokens.intentDescription}</p>
-        </div>
-
-        {/* Persona-driven content */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="animate-spin h-6 w-6 border-2 border-zinc-500 border-t-transparent rounded-full" />
-          </div>
-        ) : (
-          <>
-            {persona === 'admin' && <AdminDashboard />}
-            {persona === 'manager' && <ManagerDashboard />}
-            {persona === 'rep' && <RepDashboard />}
-          </>
-        )}
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#020617' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div className="animate-spin h-6 w-6 border-2 border-zinc-500 border-t-transparent rounded-full mx-auto" />
+        <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '12px' }}>Loading...</p>
       </div>
-    </PersonaLayout>
-  );
-}
-
-export default function DashboardPage() {
-  // HF-106: PeriodProvider moved from auth-shell to individual pages that need it.
-  return (
-    <PeriodProvider>
-      <DashboardContent />
-    </PeriodProvider>
+    </div>
   );
 }
