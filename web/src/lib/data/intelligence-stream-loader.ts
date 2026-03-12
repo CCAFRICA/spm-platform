@@ -336,6 +336,12 @@ async function buildAdminData(
     allResults, ruleSetComponents,
   );
 
+  // Entity names for bloodwork
+  const entityNameMap = await fetchEntityNames(supabase, allResults.map(r => r.entity_id));
+
+  // Bloodwork items (admin also sees these)
+  const bloodworkItems = await buildBloodworkItems(allResults, entityNameMap);
+
   return {
     systemHealth: {
       totalPayout,
@@ -347,6 +353,7 @@ async function buildAdminData(
     distribution,
     lifecycle,
     optimizationOpportunities,
+    bloodworkItems,
   };
 }
 
@@ -419,17 +426,23 @@ async function buildManagerData(
   // Fetch entity names in batches
   const entityNameMap = await fetchEntityNames(supabase, teamEntityIds);
 
-  // Team health
+  // Team health — relative position segmentation (domain-agnostic, Korean Test compliant)
   const teamTotal = sum(teamResults.map(r => r.total_payout));
   let onTrack = 0;
   let needsAttention = 0;
   let exceeding = 0;
 
-  for (const r of teamResults) {
-    const att = extractAttainment(r.attainment);
-    if (att >= 120) exceeding++;
-    else if (att >= 80) onTrack++;
-    else needsAttention++;
+  if (teamResults.length > 0) {
+    const sortedPayouts = [...teamResults.map(r => r.total_payout)].sort((a, b) => a - b);
+    const medianPay = computeMedian(sortedPayouts);
+    const q75Idx = Math.floor(sortedPayouts.length * 0.75);
+    const q75Pay = sortedPayouts[q75Idx] ?? medianPay;
+
+    for (const r of teamResults) {
+      if (r.total_payout >= q75Pay && q75Pay > 0) exceeding++;
+      else if (r.total_payout >= medianPay) onTrack++;
+      else needsAttention++;
+    }
   }
 
   // Prior period team total
@@ -483,8 +496,11 @@ async function buildRepData(
 ): Promise<Partial<IntelligenceStreamData>> {
   let resolvedEntityId = entityId;
 
-  // For admin override: fall back to top-performing entity
-  if (!resolvedEntityId && canSeeAll && allResults.length > 0) {
+  // Fallback: if entityId is null (entity resolution failed in persona context),
+  // pick the top-performing entity from calculation results.
+  // This handles: (a) admin persona override to rep, (b) demo users without profile_id linkage,
+  // (c) entities with entity_type that doesn't match 'individual' filter.
+  if (!resolvedEntityId && allResults.length > 0) {
     const sorted = [...allResults].sort((a, b) => b.total_payout - a.total_payout);
     resolvedEntityId = sorted[0].entity_id;
   }
@@ -671,7 +687,7 @@ function computeOptimizationOpportunities(
 
       for (const result of allResults) {
         const comps = parseResultComponents(result.components);
-        const comp = comps.find(c => c.name === compName);
+        const comp = findComponentByName(comps, compName);
         if (!comp) continue;
 
         // Use component attainment to check proximity to boundary
@@ -690,6 +706,35 @@ function computeOptimizationOpportunities(
           entityCount: nearBoundaryCount,
           costImpact: totalImpact,
           actionLabel: 'Review tier boundaries',
+          actionRoute: '/admin/configure/plans',
+        });
+      }
+    }
+  }
+
+  // Structural fallback: if no tier-based opportunities found, generate component-level insights
+  if (opportunities.length === 0 && allResults.length > 0) {
+    for (const compDef of ruleSetComponents) {
+      const compName = compDef.name;
+      let zeroPayoutCount = 0;
+      let totalCompPayout = 0;
+
+      for (const result of allResults) {
+        const comps = parseResultComponents(result.components);
+        const comp = findComponentByName(comps, compName);
+        if (comp) {
+          totalCompPayout += comp.payout;
+          if (comp.payout === 0) zeroPayoutCount++;
+        }
+      }
+
+      if (zeroPayoutCount > 0) {
+        opportunities.push({
+          componentName: compName,
+          description: `${zeroPayoutCount} entities with zero payout`,
+          entityCount: zeroPayoutCount,
+          costImpact: 0,
+          actionLabel: 'Review component rules',
           actionRoute: '/admin/configure/plans',
         });
       }
@@ -716,7 +761,7 @@ function computeCoachingPriority(
     const entityAtt = extractAttainment(result.attainment);
 
     for (const comp of comps) {
-      const compDef = ruleSetComponents.find(d => d.name === comp.name);
+      const compDef = ruleSetComponents.find(d => normalizeCompName(d.name) === normalizeCompName(comp.name));
       if (!compDef) continue;
 
       const tiers = parseTiers(compDef);
@@ -773,7 +818,7 @@ function buildTeamHeatmap(
     const entityAtt = extractAttainment(result.attainment);
 
     const components = ruleSetComponents.map(compDef => {
-      const comp = comps.find(c => c.name === compDef.name);
+      const comp = findComponentByName(comps, compDef.name);
       return {
         name: compDef.name,
         attainment: comp?.attainment ?? entityAtt,
@@ -902,7 +947,7 @@ function resolveTierInfo(
 ): { currentTier: string; nextTier: string | null; gapToNextTier: number | null; gapUnit: string } {
   // Use the first component with tier data
   for (const comp of components) {
-    const compDef = ruleSetComponents.find(d => d.name === comp.name);
+    const compDef = ruleSetComponents.find(d => normalizeCompName(d.name) === normalizeCompName(comp.name));
     if (!compDef) continue;
 
     const tiers = parseTiers(compDef);
@@ -943,7 +988,7 @@ function computeAllocationRecommendation(
   let smallestGap = Infinity;
 
   for (const comp of components) {
-    const compDef = ruleSetComponents.find(d => d.name === comp.name);
+    const compDef = ruleSetComponents.find(d => normalizeCompName(d.name) === normalizeCompName(comp.name));
     if (!compDef) continue;
 
     const tiers = parseTiers(compDef);
@@ -1060,7 +1105,7 @@ function parseResultComponents(
       const comp = c as Record<string, unknown>;
       return {
         name: String(comp.componentName ?? comp.name ?? 'Unknown'),
-        payout: Number(comp.payout ?? comp.value ?? comp.outputValue ?? 0),
+        payout: Number(comp.payout ?? comp.value ?? comp.outputValue ?? comp.final_payout ?? 0),
         attainment: typeof comp.attainment === 'number'
           ? normalizeAttainmentValue(comp.attainment)
           : null,
@@ -1069,14 +1114,41 @@ function parseResultComponents(
   }
 
   if (typeof components === 'object' && components !== null) {
-    return Object.entries(components as Record<string, unknown>).map(([name, value]) => ({
-      name,
-      payout: typeof value === 'number' ? value : 0,
-      attainment: null,
-    }));
+    return Object.entries(components as Record<string, unknown>).map(([name, value]) => {
+      if (typeof value === 'number') {
+        return { name, payout: value, attainment: null };
+      }
+      if (typeof value === 'object' && value !== null) {
+        const obj = value as Record<string, unknown>;
+        return {
+          name,
+          payout: Number(obj.payout ?? obj.value ?? obj.outputValue ?? obj.final_payout ?? 0),
+          attainment: typeof obj.attainment === 'number'
+            ? normalizeAttainmentValue(obj.attainment)
+            : null,
+        };
+      }
+      return { name, payout: 0, attainment: null };
+    });
   }
 
   return [];
+}
+
+function normalizeCompName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function findComponentByName(
+  comps: Array<{ name: string; payout: number; attainment: number | null }>,
+  targetName: string,
+): { name: string; payout: number; attainment: number | null } | undefined {
+  // Try exact match first
+  const exact = comps.find(c => c.name === targetName);
+  if (exact) return exact;
+  // Fallback: case-insensitive trimmed match
+  const normalized = normalizeCompName(targetName);
+  return comps.find(c => normalizeCompName(c.name) === normalized);
 }
 
 function normalizeAttainmentValue(val: number): number {
