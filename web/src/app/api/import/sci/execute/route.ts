@@ -256,6 +256,91 @@ export async function POST(req: NextRequest) {
       console.error('[SCI Execute] Post-import entity resolution failed (non-blocking):', entityErr);
     }
 
+    // HF-126: Auto-create rule_set_assignments after entity resolution.
+    // The calculation engine requires assignments to route entities to plans.
+    // This runs AFTER entity resolution so all entities exist.
+    try {
+      const { data: activeRuleSets } = await supabase
+        .from('rule_sets')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active');
+
+      if (activeRuleSets && activeRuleSets.length > 0) {
+        // Fetch all entity IDs for this tenant
+        const ASSIGN_PAGE = 1000;
+        const allEntityIds: string[] = [];
+        let page = 0;
+        while (true) {
+          const { data: entityPage } = await supabase
+            .from('entities')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .range(page * ASSIGN_PAGE, (page + 1) * ASSIGN_PAGE - 1);
+          if (!entityPage || entityPage.length === 0) break;
+          allEntityIds.push(...entityPage.map(e => e.id));
+          if (entityPage.length < ASSIGN_PAGE) break;
+          page++;
+        }
+
+        if (allEntityIds.length > 0) {
+          // Check which entities already have assignments
+          const assignedSet = new Set<string>();
+          for (let i = 0; i < allEntityIds.length; i += ASSIGN_PAGE) {
+            const slice = allEntityIds.slice(i, i + ASSIGN_PAGE);
+            const { data: existing } = await supabase
+              .from('rule_set_assignments')
+              .select('entity_id, rule_set_id')
+              .eq('tenant_id', tenantId)
+              .in('entity_id', slice);
+            if (existing) {
+              for (const a of existing) assignedSet.add(`${a.entity_id}:${a.rule_set_id}`);
+            }
+          }
+
+          // Build missing assignments
+          const newAssignments: Array<{
+            tenant_id: string;
+            rule_set_id: string;
+            entity_id: string;
+            assignment_type: string;
+            metadata: Record<string, never>;
+          }> = [];
+          for (const rs of activeRuleSets) {
+            for (const entityId of allEntityIds) {
+              if (!assignedSet.has(`${entityId}:${rs.id}`)) {
+                newAssignments.push({
+                  tenant_id: tenantId,
+                  rule_set_id: rs.id,
+                  entity_id: entityId,
+                  assignment_type: 'direct',
+                  metadata: {},
+                });
+              }
+            }
+          }
+
+          if (newAssignments.length > 0) {
+            const INSERT_BATCH = 5000;
+            for (let i = 0; i < newAssignments.length; i += INSERT_BATCH) {
+              const slice = newAssignments.slice(i, i + INSERT_BATCH);
+              const { error: insertErr } = await supabase
+                .from('rule_set_assignments')
+                .insert(slice);
+              if (insertErr) {
+                console.error(`[SCI Execute] HF-126 assignment insert batch ${i} error:`, insertErr.message);
+              }
+            }
+            console.log(`[SCI Execute] HF-126: Created ${newAssignments.length} rule_set_assignments for ${allEntityIds.length} entities x ${activeRuleSets.length} rule sets`);
+          } else {
+            console.log(`[SCI Execute] HF-126: All ${allEntityIds.length} entities already assigned`);
+          }
+        }
+      }
+    } catch (assignErr) {
+      console.error('[SCI Execute] HF-126 assignment creation failed (non-blocking):', assignErr);
+    }
+
     const response: SCIExecutionResult = {
       proposalId,
       results,
