@@ -1176,16 +1176,42 @@ export async function POST(request: NextRequest) {
       for (const [key, value] of Object.entries(derivedMetrics)) {
         metrics[key] = value;
       }
-      // OB-146: Normalize derived attainment metrics from decimal to percentage.
-      // buildMetricsForComponent normalizes but the derivation override can
-      // re-introduce decimal values (e.g., Cumplimiento = 1.165 → should be 116.5).
-      // HF-116: Skip for convergence path — convergence bindings handle scaling via
-      // scale_factor. Applying x100 here double-scales boundary-matched components
-      // and incorrectly scales ratio components (e.g., 0.829 ratio → 82.9 percentage).
+      // OB-167: Band-aware normalization — replaces inferSemanticType-gated normalization.
+      // Compare metric values against the component's band ranges (from the plan spec).
+      // If value is in decimal range (0-2) but the band expects percentage range (max > 10),
+      // normalize ×100. Korean Test: uses plan structure, not metric name patterns.
+      // HF-116: Still skip for convergence path (scale_factor handles it there).
       if (!usedConvergenceBindings) {
+        // Extract band thresholds from component config, keyed by metric name
+        const bandMaxByMetric: Record<string, number> = {};
+        const mc = component.matrixConfig as {
+          rowMetric?: string; columnMetric?: string;
+          rowBands?: Array<{ max: number }>; columnBands?: Array<{ max: number }>;
+        } | undefined;
+        if (mc?.rowMetric && mc.rowBands && mc.rowBands.length > 0) {
+          bandMaxByMetric[mc.rowMetric] = mc.rowBands[0].max;
+        }
+        if (mc?.columnMetric && mc.columnBands && mc.columnBands.length > 0) {
+          bandMaxByMetric[mc.columnMetric] = mc.columnBands[0].max;
+        }
+        const tc = component.tierConfig as {
+          metric?: string; tiers?: Array<{ max: number }>;
+        } | undefined;
+        if (tc?.metric && tc.tiers && tc.tiers.length > 0) {
+          bandMaxByMetric[tc.metric] = tc.tiers[0].max;
+        }
+
         for (const [key, value] of Object.entries(metrics)) {
-          if (inferSemanticType(key) === 'attainment' && value > 0 && value < 10) {
+          const bandMax = bandMaxByMetric[key];
+          if (bandMax !== undefined && bandMax > 10 && value > 0 && value < 10) {
+            // Metric is in decimal range but band expects percentage → scale ×100
             metrics[key] = value * 100;
+          } else if (bandMax === undefined) {
+            // No band references this metric — fall back to semantic type detection
+            // (handles derived metrics and other non-band-referenced inputs)
+            if (inferSemanticType(key) === 'attainment' && value > 0 && value < 10) {
+              metrics[key] = value * 100;
+            }
           }
         }
       }
