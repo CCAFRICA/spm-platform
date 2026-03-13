@@ -651,7 +651,7 @@ function buildLifecycle(lifecycleState: string | null): IntelligenceStreamData['
   const nextActionInfo = getNextAction(currentState);
   // State-aware routing — each lifecycle action navigates to its relevant workspace page
   const LIFECYCLE_ROUTES: Partial<Record<DashboardLifecycleState, string>> = {
-    DRAFT: '/admin/launch/calculate',        // Run Preview → Calculate page
+    DRAFT: '/operate/calculate',              // Run Preview → Calculate page
     PREVIEW: '/operate/reconciliation',       // Start Reconciliation → Reconciliation page
     RECONCILE: '/operate/lifecycle',           // Mark Official → Operations Center
     OFFICIAL: '/operate/lifecycle',            // Approve → Operations Center
@@ -728,15 +728,11 @@ function computeOptimizationOpportunities(
     for (const compDef of ruleSetComponents) {
       const compName = compDef.name;
       let zeroPayoutCount = 0;
-      let totalCompPayout = 0;
 
       for (const result of allResults) {
         const comps = parseResultComponents(result.components);
         const comp = findComponentByName(comps, compName);
-        if (comp) {
-          totalCompPayout += comp.payout;
-          if (comp.payout === 0) zeroPayoutCount++;
-        }
+        if (comp && comp.payout === 0) zeroPayoutCount++;
       }
 
       if (zeroPayoutCount > 0) {

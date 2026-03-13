@@ -293,7 +293,7 @@ function PayPageInner() {
       <div className="grid grid-cols-2 gap-4">
         <Card
           className="cursor-pointer hover:bg-zinc-800/50 transition-colors"
-          onClick={() => router.push('/admin/launch/calculate')}
+          onClick={() => router.push('/operate/calculate')}
         >
           <CardContent className="p-6 flex items-center gap-4">
             <div className="p-3 bg-blue-900/30 rounded-lg">
