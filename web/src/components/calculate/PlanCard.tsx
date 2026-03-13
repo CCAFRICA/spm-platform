@@ -171,7 +171,7 @@ export function PlanCard({
               ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
               : 'bg-zinc-700 hover:bg-zinc-600 text-zinc-300'
           )}
-          disabled={isCalculating || !periodId || !isReady}
+          disabled={isCalculating || !periodId}
           onClick={handleCalculate}
         >
           {isCalculating ? (
