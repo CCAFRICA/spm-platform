@@ -92,7 +92,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Calculate',
         labelEs: 'Calcular',
         routes: [
-          { path: '/admin/launch/calculate', label: 'Calculate', labelEs: 'Calcular', icon: 'Calculator', roles: ['platform', 'admin'] },
+          { path: '/operate/calculate', label: 'Calculate', labelEs: 'Calcular', icon: 'Calculator', roles: ['platform', 'admin'] },
         ],
       },
       {
