@@ -122,7 +122,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Plans',
         labelEs: 'Planes',
         routes: [
-          { path: '/admin/launch/plan-import', label: 'Plan Import', labelEs: 'Importar Plan', icon: 'FileText', roles: ['platform', 'admin'] },
+          { path: '/operate/import/enhanced', label: 'Plan Import', labelEs: 'Importar Plan', icon: 'FileText', roles: ['platform', 'admin'] },
         ],
       },
       {
