@@ -18,6 +18,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { usePersona } from '@/contexts/persona-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { PERSONA_TOKENS } from '@/lib/design/tokens';
@@ -52,6 +53,7 @@ const PERSONA_ACCENT: Record<string, string> = {
 };
 
 export default function StreamPage() {
+  const router = useRouter();
   const { persona, scope, entityId: personaEntityId } = usePersona();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
@@ -137,16 +139,31 @@ export default function StreamPage() {
     );
   }
 
-  if (error || !data) {
+  // HF-125: Detect empty data — data object exists but has no meaningful content
+  const hasContent = data && (
+    data.systemHealth || data.teamHealth || data.personalEarnings ||
+    (data.bloodworkItems && data.bloodworkItems.length > 0) ||
+    (data.teamHeatmap && data.teamHeatmap.length > 0) ||
+    (data.componentBreakdown && data.componentBreakdown.length > 0)
+  );
+
+  if (error || !data || !hasContent) {
     return (
       <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
         <div className="max-w-4xl mx-auto px-6 py-16">
           <div className="text-center py-20">
             <Zap className="h-8 w-8 text-zinc-600 mx-auto mb-4" />
             <h2 className="text-lg font-semibold text-zinc-300 mb-2">No Intelligence Available</h2>
-            <p className="text-sm text-zinc-500 max-w-md mx-auto">
-              {error || 'No calculation results found. Import data and run calculation to see your intelligence stream.'}
+            <p className="text-sm text-zinc-500 max-w-md mx-auto mb-6">
+              {error || 'No calculation results found. Import data and run a calculation to see your intelligence stream.'}
             </p>
+            <button
+              onClick={() => router.push('/operate/import/enhanced')}
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
+            >
+              Import Data
+              <span aria-hidden="true">&rarr;</span>
+            </button>
           </div>
         </div>
       </div>
