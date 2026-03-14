@@ -194,6 +194,29 @@ export function applyMetricDerivations(
 }
 
 // ──────────────────────────────────────────────
+// Shared Band Resolution — Half-Open Intervals [min, max)
+// OB-169: Single band resolution function for all evaluators.
+// Uses [min, max) for non-last bands, [min, max] for last band.
+// This prevents boundary values (e.g., 80.0) from matching the
+// lower band via first-match-wins with inclusive upper bounds.
+// ──────────────────────────────────────────────
+
+export function resolveBandIndex(bands: Array<{ min: number; max: number }>, value: number): number {
+  for (let i = 0; i < bands.length; i++) {
+    const band = bands[i];
+    const min = Number.isFinite(band.min) ? band.min : -Infinity;
+    const max = Number.isFinite(band.max) ? band.max : Infinity;
+    const isLast = i === bands.length - 1;
+    // G4: Half-open intervals [min, max) for step functions.
+    // Last band uses [min, max] to capture the upper boundary.
+    if (value >= min && (isLast ? value <= max : value < max)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// ──────────────────────────────────────────────
 // Component Evaluators
 // ──────────────────────────────────────────────
 
@@ -207,30 +230,26 @@ export function evaluateTierLookup(config: TierConfig, metrics: Record<string, n
   const nonZeroValues = config.tiers.map(t => t.value).filter(v => v !== 0);
   const allRates = nonZeroValues.length > 0 && nonZeroValues.every(v => v > 0 && v < 1.0);
 
-  for (let i = 0; i < config.tiers.length; i++) {
-    const tier = config.tiers[i];
+  // OB-169: Use shared half-open interval resolution
+  const tierIdx = resolveBandIndex(config.tiers, metricValue);
+  if (tierIdx >= 0) {
+    const tier = config.tiers[tierIdx];
     const min = Number.isFinite(tier.min) ? tier.min : -Infinity;
     const max = Number.isFinite(tier.max) ? tier.max : Infinity;
-    const isLastTier = i === config.tiers.length - 1;
-
-    // G4: Half-open intervals [min, max) for step functions.
-    // Last tier uses [min, max] to capture the upper boundary.
-    if (metricValue >= min && (isLastTier ? metricValue <= max : metricValue < max)) {
-      const basePayout = allRates ? tier.value * metricValue : tier.value;
-      return {
-        payout: basePayout,
-        details: {
-          metric: config.metric,
-          metricValue,
-          matchedTier: tier.label,
-          tierMin: min,
-          tierMax: max,
-          tierPayout: tier.value,
-          rateDetected: allRates,
-          rateApplied: allRates ? `${tier.value} × ${metricValue}` : undefined,
-        },
-      };
-    }
+    const basePayout = allRates ? tier.value * metricValue : tier.value;
+    return {
+      payout: basePayout,
+      details: {
+        metric: config.metric,
+        metricValue,
+        matchedTier: tier.label,
+        tierMin: min,
+        tierMax: max,
+        tierPayout: tier.value,
+        rateDetected: allRates,
+        rateApplied: allRates ? `${tier.value} × ${metricValue}` : undefined,
+      },
+    };
   }
 
   return { payout: 0, details: { metric: config.metric, metricValue, matchedTier: 'none' } };
@@ -262,29 +281,11 @@ export function evaluateMatrixLookup(config: MatrixConfig, metrics: Record<strin
   const rowValue = metrics[config.rowMetric] ?? 0;
   const colValue = metrics[config.columnMetric] ?? 0;
 
-  // Find row band index
-  let rowIdx = -1;
-  for (let i = 0; i < config.rowBands.length; i++) {
-    const band = config.rowBands[i];
-    const min = Number.isFinite(band.min) ? band.min : -Infinity;
-    const max = Number.isFinite(band.max) ? band.max : Infinity;
-    if (rowValue >= min && rowValue <= max) {
-      rowIdx = i;
-      break;
-    }
-  }
-
-  // Find column band index
-  let colIdx = -1;
-  for (let i = 0; i < config.columnBands.length; i++) {
-    const band = config.columnBands[i];
-    const min = Number.isFinite(band.min) ? band.min : -Infinity;
-    const max = Number.isFinite(band.max) ? band.max : Infinity;
-    if (colValue >= min && colValue <= max) {
-      colIdx = i;
-      break;
-    }
-  }
+  // OB-169: Use shared half-open interval resolution [min, max)
+  // Prevents boundary values (e.g., 80.0) from matching the lower band
+  // via first-match-wins with inclusive upper bounds.
+  const rowIdx = resolveBandIndex(config.rowBands, rowValue);
+  const colIdx = resolveBandIndex(config.columnBands, colValue);
 
   const payout = (rowIdx >= 0 && colIdx >= 0) ? (config.values[rowIdx]?.[colIdx] ?? 0) : 0;
 

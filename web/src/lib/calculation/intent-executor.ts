@@ -146,7 +146,25 @@ export function findBoundaryIndex(boundaries: Boundary[], value: number): number
   for (let i = 0; i < boundaries.length; i++) {
     const b = boundaries[i];
     const minOk = b.min === null || (b.minInclusive !== false ? value >= b.min : value > b.min);
-    const maxOk = b.max === null || (b.maxInclusive === true ? value <= b.max : value < b.max);
+
+    // OB-169: Handle .999 approximation in AI-extracted boundaries.
+    // When maxInclusive is true and max has a fractional part within 0.01
+    // of the next integer (e.g., 79.999), the AI meant the boundary to be
+    // exclusive at the ceiling value. Snap to ceiling and use strict less-than.
+    let maxOk: boolean;
+    if (b.max === null) {
+      maxOk = true;
+    } else {
+      let effectiveMax = b.max;
+      let effectiveInclusive = b.maxInclusive === true;
+      const frac = effectiveMax % 1;
+      if (frac > 0 && (1 - frac) < 0.01 && effectiveInclusive) {
+        effectiveMax = Math.ceil(effectiveMax);
+        effectiveInclusive = false;
+      }
+      maxOk = effectiveInclusive ? value <= effectiveMax : value < effectiveMax;
+    }
+
     if (minOk && maxOk) return i;
   }
   return -1;
