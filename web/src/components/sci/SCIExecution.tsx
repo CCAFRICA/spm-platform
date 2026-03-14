@@ -283,32 +283,68 @@ export function SCIExecution({
     const planUnits = unitsToExecute.filter(u => u.classification === 'plan');
     const dataUnits = unitsToExecute.filter(u => u.classification !== 'plan');
 
-    // Execute plan units first (legacy path — document-based, no row data)
-    for (const unit of planUnits) {
+    // HF-131: Execute ALL plan units in a SINGLE request so the backend (HF-130)
+    // can batch them into one AI interpretation call with full cross-sheet context.
+    if (planUnits.length > 0) {
       setElapsedSeconds(0);
+      // Mark all plan units as processing
       setUnits(prev => prev.map(u =>
-        u.contentUnitId === unit.contentUnitId
+        planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
           ? { ...u, status: 'processing' as const }
           : u
       ));
 
-      try {
-        const unitResult = await executeLegacyUnit(unit);
+      // Build execution payloads for ALL plan units
+      const planExecUnits = planUnits.map(unit => {
+        const proposalUnit = confirmedUnits.find(u => u.contentUnitId === unit.contentUnitId);
+        if (!proposalUnit) return null;
+        return {
+          contentUnitId: unit.contentUnitId,
+          confirmedClassification: unit.classification,
+          confirmedBindings: proposalUnit.fieldBindings,
+          rawData: [] as Record<string, unknown>[], // Plan units have no row data
+          ...(proposalUnit.documentMetadata ? { documentMetadata: proposalUnit.documentMetadata } : {}),
+          ...(proposalUnit.claimType ? { claimType: proposalUnit.claimType } : {}),
+          ...(proposalUnit.ownedFields ? { ownedFields: proposalUnit.ownedFields } : {}),
+          ...(proposalUnit.sharedFields ? { sharedFields: proposalUnit.sharedFields } : {}),
+          originalClassification: proposalUnit.classification,
+          originalConfidence: proposalUnit.confidence,
+          ...(proposalUnit.classificationTrace ? { classificationTrace: proposalUnit.classificationTrace } : {}),
+          ...(proposalUnit.structuralFingerprint ? { structuralFingerprint: proposalUnit.structuralFingerprint } : {}),
+          ...(proposalUnit.vocabularyBindings ? { vocabularyBindings: proposalUnit.vocabularyBindings } : {}),
+          sourceFile: proposalUnit.sourceFile,
+          tabName: proposalUnit.tabName,
+        };
+      }).filter(Boolean);
 
-        if (unitResult && unitResult.success) {
+      try {
+        // ONE request with ALL plan units + storagePath
+        const res = await fetchWithTimeout('/api/import/sci/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proposalId: proposal.proposalId,
+            tenantId,
+            contentUnits: planExecUnits,
+            ...(storagePath ? { storagePath } : {}),
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Plan processing failed (${res.status})`);
+        }
+
+        const planResult: SCIExecutionResult = await res.json();
+
+        // Map results back to individual plan units
+        for (const result of planResult.results) {
           setUnits(prev => prev.map(u =>
-            u.contentUnitId === unit.contentUnitId
-              ? { ...u, status: 'complete' as const, result: unitResult }
-              : u
-          ));
-        } else {
-          setUnits(prev => prev.map(u =>
-            u.contentUnitId === unit.contentUnitId
+            u.contentUnitId === result.contentUnitId
               ? {
                   ...u,
-                  status: 'error' as const,
-                  error: unitResult?.error || 'Unknown error',
-                  result: unitResult,
+                  status: result.success ? 'complete' as const : 'error' as const,
+                  result,
+                  error: result.success ? undefined : result.error,
                 }
               : u
           ));
@@ -318,11 +354,12 @@ export function SCIExecution({
         const isNetworkError = err instanceof TypeError && (err.message === 'Failed to fetch' || err.message.includes('network'));
         const errorMsg = isAbort
           ? 'Request timed out — the server may still be processing'
-          : err instanceof Error ? err.message : 'Processing failed';
+          : err instanceof Error ? err.message : 'Plan processing failed';
 
-        if ((isAbort || isNetworkError)) {
+        if (isAbort || isNetworkError) {
+          // Show checking status for all plan units
           setUnits(prev => prev.map(u =>
-            u.contentUnitId === unit.contentUnitId
+            planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
               ? { ...u, error: 'Connection lost — checking if server completed...' }
               : u
           ));
@@ -330,14 +367,14 @@ export function SCIExecution({
           const recovered = await pollPlanRecovery(tenantId);
           if (recovered) {
             setUnits(prev => prev.map(u =>
-              u.contentUnitId === unit.contentUnitId
+              planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
                 ? {
                     ...u,
                     status: 'complete' as const,
                     error: undefined,
                     result: {
-                      contentUnitId: unit.contentUnitId,
-                      classification: unit.classification,
+                      contentUnitId: u.contentUnitId,
+                      classification: u.classification,
                       success: true,
                       rowsProcessed: 0,
                       pipeline: 'plan-interpretation',
@@ -345,15 +382,22 @@ export function SCIExecution({
                   }
                 : u
             ));
-            continue;
+          } else {
+            // Recovery failed — mark all plan units as error
+            setUnits(prev => prev.map(u =>
+              planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
+                ? { ...u, status: 'error' as const, error: errorMsg }
+                : u
+            ));
           }
+        } else {
+          // Non-timeout error — mark all plan units as error
+          setUnits(prev => prev.map(u =>
+            planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
+              ? { ...u, status: 'error' as const, error: errorMsg }
+              : u
+          ));
         }
-
-        setUnits(prev => prev.map(u =>
-          u.contentUnitId === unit.contentUnitId
-            ? { ...u, status: 'error' as const, error: errorMsg }
-            : u
-        ));
       }
     }
 
