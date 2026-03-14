@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     );
 
     const body: SCIExecutionRequest = await req.json();
-    const { proposalId, tenantId, contentUnits } = body;
+    const { proposalId, tenantId, contentUnits, storagePath } = body;
 
     if (!tenantId || !proposalId || !contentUnits || contentUnits.length === 0) {
       return NextResponse.json(
@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
 
     for (const unit of sorted) {
       try {
-        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId);
+        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId, storagePath);
         results.push(result);
       } catch (err) {
         results.push({
@@ -422,6 +422,7 @@ async function executeContentUnit(
   proposalId: string,
   unit: ContentUnitExecution,
   userId: string,
+  storagePath?: string,
 ): Promise<ContentUnitResult> {
   // OB-134: For PARTIAL claims, filter rawData to only include owned + shared fields
   const effectiveUnit = filterFieldsForPartialClaim(unit);
@@ -434,7 +435,7 @@ async function executeContentUnit(
     case 'entity':
       return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit);
     case 'plan':
-      return executePlanPipeline(supabase, tenantId, effectiveUnit, userId);
+      return executePlanPipeline(supabase, tenantId, effectiveUnit, userId, storagePath);
     case 'reference':
       return executeReferencePipeline(supabase, tenantId, proposalId, effectiveUnit, userId);
   }
@@ -1020,7 +1021,8 @@ async function executePlanPipeline(
   supabase: SupabaseClient,
   tenantId: string,
   unit: ContentUnitExecution,
-  userId: string
+  userId: string,
+  storagePath?: string,
 ): Promise<ContentUnitResult> {
   // OB-151: Server-side idempotency — check if a rule_set already exists
   // for this contentUnitId. Prevents duplicates when client retries or
@@ -1046,9 +1048,49 @@ async function executePlanPipeline(
   }
 
   const docMeta = unit.documentMetadata;
+  let fileBase64 = docMeta?.fileBase64;
+  let mimeType = docMeta?.mimeType;
 
-  if (!docMeta?.fileBase64) {
-    // No document data — fallback for tabular plan classification
+  // HF-129: When fileBase64 is not in the request, retrieve from Supabase Storage
+  if (!fileBase64 && storagePath) {
+    console.log(`[SCI Execute] Plan ${unit.contentUnitId} — retrieving file from storage: ${storagePath}`);
+    const { data: fileData, error: downloadErr } = await supabase.storage
+      .from('ingestion-raw')
+      .download(storagePath);
+
+    if (downloadErr || !fileData) {
+      console.error(`[SCI Execute] Storage download failed: ${downloadErr?.message || 'No data'}`);
+      return {
+        contentUnitId: unit.contentUnitId,
+        classification: 'plan',
+        success: false,
+        rowsProcessed: 0,
+        pipeline: 'plan-interpretation',
+        error: `Failed to retrieve plan document from storage: ${downloadErr?.message || 'No data'}`,
+      };
+    }
+
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+    fileBase64 = buffer.toString('base64');
+    console.log(`[SCI Execute] Plan file retrieved from storage: ${(buffer.length / 1024).toFixed(1)}KB`);
+
+    // Infer MIME type from storage path extension
+    if (!mimeType) {
+      const ext = storagePath.split('.').pop()?.toLowerCase();
+      const MIME_MAP: Record<string, string> = {
+        pdf: 'application/pdf',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        xls: 'application/vnd.ms-excel',
+        csv: 'text/csv',
+      };
+      mimeType = (ext && MIME_MAP[ext]) || 'application/octet-stream';
+    }
+  }
+
+  if (!fileBase64) {
+    // No document data and no storage path — fallback for tabular plan classification
     console.log(`[SCI Execute] Plan content unit ${unit.contentUnitId} — no document data, deferred`);
     return {
       contentUnitId: unit.contentUnitId,
@@ -1065,22 +1107,22 @@ async function executePlanPipeline(
   const { getAIService } = await import('@/lib/ai');
   const aiService = getAIService();
 
-  const isPdf = docMeta.mimeType === 'application/pdf';
+  const isPdf = mimeType === 'application/pdf';
   let documentContent = '';
   let pdfBase64: string | undefined;
   let pdfMediaType: string | undefined;
 
   if (isPdf) {
-    pdfBase64 = docMeta.fileBase64;
+    pdfBase64 = fileBase64;
     pdfMediaType = 'application/pdf';
-    documentContent = `[PDF document: ${docMeta.fileBase64.length} bytes base64]`;
+    documentContent = `[PDF document: ${fileBase64.length} bytes base64]`;
   } else {
     // For PPTX/DOCX, extract text server-side
     const JSZip = (await import('jszip')).default;
-    const buffer = Buffer.from(docMeta.fileBase64, 'base64');
+    const buffer = Buffer.from(fileBase64, 'base64');
     const zip = await JSZip.loadAsync(buffer);
 
-    if (docMeta.mimeType.includes('presentationml') || unit.contentUnitId.endsWith('.pptx')) {
+    if (mimeType?.includes('presentationml') || unit.contentUnitId.endsWith('.pptx')) {
       // PPTX text extraction
       const slideFiles = Object.keys(zip.files)
         .filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name))

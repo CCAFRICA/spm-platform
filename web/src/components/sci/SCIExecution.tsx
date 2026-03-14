@@ -266,6 +266,7 @@ export function SCIExecution({
         proposalId: proposal.proposalId,
         tenantId,
         contentUnits: [execUnit],
+        ...(storagePath ? { storagePath } : {}), // HF-129: Pass storage path for plan document retrieval
       }),
     });
 
@@ -275,7 +276,7 @@ export function SCIExecution({
 
     const result: SCIExecutionResult = await res.json();
     return result.results[0];
-  }, [confirmedUnits, rawData, proposal.proposalId, tenantId]);
+  }, [confirmedUnits, rawData, proposal.proposalId, tenantId, storagePath]);
 
   const executeUnits = useCallback(async (unitsToExecute: ExecutionUnit[]) => {
     // OB-156: Split units into plan (legacy) and data (bulk) groups
