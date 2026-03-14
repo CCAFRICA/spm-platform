@@ -1240,6 +1240,13 @@ async function executeBatchedPlanInterpretation(
   const filenameFallback = primaryContentUnitId.split('::')[0]?.replace(/\.[^.]+$/, '') || '';
   const planName = engineFormat.name || filenameFallback || 'Untitled Plan';
 
+  // HF-132: Supersede any existing active rule_sets for this tenant before activating the new one
+  await supabase
+    .from('rule_sets')
+    .update({ status: 'superseded', updated_at: new Date().toISOString() })
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active');
+
   const { error: upsertError } = await supabase
     .from('rule_sets')
     .upsert({
@@ -1247,7 +1254,7 @@ async function executeBatchedPlanInterpretation(
       tenant_id: tenantId,
       name: planName,
       description: engineFormat.description || '',
-      status: 'draft' as const,
+      status: 'active' as const, // HF-132: Auto-activate on creation
       version: 1,
       population_config: {
         eligible_roles: [],
@@ -1487,6 +1494,13 @@ async function executePlanPipeline(
   const filenameFallback = unit.contentUnitId.split('::')[0]?.replace(/\.[^.]+$/, '') || '';
   const planName = engineFormat.name || filenameFallback || 'Untitled Plan';
 
+  // HF-132: Supersede any existing active rule_sets for this tenant before activating the new one
+  await supabase
+    .from('rule_sets')
+    .update({ status: 'superseded', updated_at: new Date().toISOString() })
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active');
+
   const { error: upsertError } = await supabase
     .from('rule_sets')
     .upsert({
@@ -1494,7 +1508,7 @@ async function executePlanPipeline(
       tenant_id: tenantId,
       name: planName,
       description: engineFormat.description || '',
-      status: 'draft' as const,
+      status: 'active' as const, // HF-132: Auto-activate on creation
       version: 1,
       population_config: {
         eligible_roles: [],
