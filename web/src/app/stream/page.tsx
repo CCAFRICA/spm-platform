@@ -158,7 +158,7 @@ export default function StreamPage() {
               {error || 'No calculation results found. Import data and run a calculation to see your intelligence stream.'}
             </p>
             <button
-              onClick={() => router.push('/operate/import/enhanced')}
+              onClick={() => router.push('/operate/import')}
               className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
             >
               Import Data

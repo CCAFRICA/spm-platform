@@ -83,7 +83,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Import',
         labelEs: 'Importar',
         routes: [
-          { path: '/operate/import/enhanced', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['platform', 'admin'] },
+          { path: '/operate/import', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['platform', 'admin'] },
           { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial', icon: 'History', roles: ['platform', 'admin'] },
         ],
       },
@@ -122,7 +122,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Plans',
         labelEs: 'Planes',
         routes: [
-          { path: '/operate/import/enhanced', label: 'Plan Import', labelEs: 'Importar Plan', icon: 'FileText', roles: ['platform', 'admin'] },
+          { path: '/operate/import', label: 'Plan Import', labelEs: 'Importar Plan', icon: 'FileText', roles: ['platform', 'admin'] },
         ],
       },
       {

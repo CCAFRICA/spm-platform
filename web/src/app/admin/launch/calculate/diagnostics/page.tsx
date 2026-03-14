@@ -151,7 +151,7 @@ export default function CalculationDiagnosticsPage() {
         ? {
             label: "Import Data",
             labelEs: "Importar Datos",
-            href: "/data/import/enhanced",
+            href: "/operate/import",
           }
         : undefined,
     };
@@ -195,7 +195,7 @@ export default function CalculationDiagnosticsPage() {
         ? {
             label: "Configure Mappings",
             labelEs: "Configurar Mapeos",
-            href: "/data/import/enhanced",
+            href: "/operate/import",
           }
         : undefined,
     };
@@ -379,7 +379,7 @@ export default function CalculationDiagnosticsPage() {
                   {isSpanish ? "Gestionar planes de compensación" : "Manage compensation plans"}
                 </p>
               </Link>
-              <Link href="/data/import/enhanced" className="p-4 border rounded-lg hover:bg-muted transition-colors">
+              <Link href="/operate/import" className="p-4 border rounded-lg hover:bg-muted transition-colors">
                 <Database className="h-5 w-5 text-primary mb-2" />
                 <p className="font-medium">{isSpanish ? "Importar Datos" : "Import Data"}</p>
                 <p className="text-xs text-muted-foreground">

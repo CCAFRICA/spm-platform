@@ -980,7 +980,7 @@ function CalculatePageInner() {
                     ? 'Importe un documento de plan para comenzar.'
                     : 'Import a plan document to get started.'}
                 </p>
-                <Link href="/admin/launch/plan-import">
+                <Link href="/operate/import">
                   <Button variant="outline" size="sm" className="mt-4">
                     {locale === 'es-MX' ? 'Importar Plan →' : 'Import Plan →'}
                   </Button>

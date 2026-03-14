@@ -4017,7 +4017,7 @@ function DataPackageImportPageInner() {
                         ? 'Importe un plan de compensación primero para habilitar el mapeo de campos basado en componentes.'
                         : 'Import a rule set first to enable component-based field mapping.'}
                     </p>
-                    <a href="/admin/launch/plan-import" className="text-sm text-primary hover:underline">
+                    <a href="/operate/import" className="text-sm text-primary hover:underline">
                       {isSpanish ? 'Importar Plan →' : 'Import Plan →'}
                     </a>
                   </CardContent>

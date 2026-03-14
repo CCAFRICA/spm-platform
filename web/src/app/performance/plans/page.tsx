@@ -119,7 +119,7 @@ export default function PlansPage() {
             Configure and manage rule set structures
           </p>
         </div>
-        <Button onClick={() => router.push('/admin/launch/plan-import')}>
+        <Button onClick={() => router.push('/operate/import')}>
           <Plus className="h-4 w-4 mr-2" />
           Import Plan
         </Button>
@@ -202,7 +202,7 @@ export default function PlansPage() {
                   : 'No plans match your search criteria.'}
               </div>
               {plans.length === 0 && (
-                <Button className="mt-4" onClick={() => router.push('/admin/launch/plan-import')}>
+                <Button className="mt-4" onClick={() => router.push('/operate/import')}>
                   <Plus className="h-4 w-4 mr-2" />
                   Import First Plan
                 </Button>

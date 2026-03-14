@@ -176,7 +176,7 @@ export default function DailyOperationsPage() {
               </p>
               <div className="flex justify-center gap-3">
                 <Button variant="outline" asChild>
-                  <a href="/data/import/enhanced">
+                  <a href="/operate/import">
                     <Database className="h-4 w-4 mr-2" />
                     {isSpanish ? 'Importar Datos' : 'Import Data'}
                   </a>
