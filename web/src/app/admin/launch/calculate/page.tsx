@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import {
   getRuleSets,
@@ -1117,8 +1117,8 @@ function CalculatePageInner() {
 
 export default function CalculatePage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="data.calculate">
       <CalculatePageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }

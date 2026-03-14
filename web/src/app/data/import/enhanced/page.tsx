@@ -22,7 +22,7 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -4352,8 +4352,8 @@ function DataPackageImportPageInner() {
 
 export default function DataPackageImportPage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="data.import">
       <DataPackageImportPageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }

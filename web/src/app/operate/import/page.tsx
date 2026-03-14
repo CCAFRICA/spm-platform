@@ -8,7 +8,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { SCIUpload, type FileInfo, type ParsedFileData } from '@/components/sci/SCIUpload';
 import { SCIProposalView } from '@/components/sci/SCIProposal';
 import { SCIExecution } from '@/components/sci/SCIExecution';
@@ -293,7 +293,7 @@ export default function OperateImportPage() {
   const subtitle = PHASE_SUBTITLES[state.phase] || '';
 
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="data.import">
       <div className="min-h-screen bg-zinc-950 p-6 md:p-8">
         <div className="max-w-3xl mx-auto">
           {/* Page header — hidden during executing + complete (components show their own) */}
@@ -398,6 +398,6 @@ export default function OperateImportPage() {
           )}
         </div>
       </div>
-    </RequireRole>
+    </RequireCapability>
   );
 }

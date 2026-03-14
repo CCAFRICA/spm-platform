@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -298,8 +298,8 @@ function InvitePageInner() {
 
 export default function InvitePage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="tenant.manage_users">
       <InvitePageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }
