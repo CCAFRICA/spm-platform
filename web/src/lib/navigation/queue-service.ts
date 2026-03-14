@@ -80,7 +80,7 @@ async function getOnboardingItems(tenantId: string, role: UserRole): Promise<Que
         description: 'Start by importing your compensation plan document',
         descriptionEs: 'Comience importando su documento de plan de compensacion',
         workspace: 'operate',
-        route: '/admin/launch/plan-import',
+        route: '/operate/import',
         timestamp: new Date().toISOString(),
         read: false,
       });

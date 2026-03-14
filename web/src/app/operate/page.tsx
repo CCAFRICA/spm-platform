@@ -114,7 +114,7 @@ function buildPipelineSteps(data: PipelineData): PipelineStep[] {
       detailEs: hasPlan
         ? `${data.plans.length} plan${data.plans.length > 1 ? 'es' : ''} activo${data.plans.length > 1 ? 's' : ''}: ${planNames}`
         : 'No hay planes configurados',
-      action: hasPlan ? null : { label: 'Import Plan', labelEs: 'Importar Plan', href: '/admin/launch/plan-import' },
+      action: hasPlan ? null : { label: 'Import Plan', labelEs: 'Importar Plan', href: '/operate/import' },
     },
     {
       label: 'Roster',
@@ -342,7 +342,7 @@ interface QuickAction {
 
 function getNextAction(data: PipelineData): QuickAction {
   if (data.plans.length === 0) {
-    return { label: 'Import Your First Plan', labelEs: 'Importar Su Primer Plan', href: '/admin/launch/plan-import', icon: 'FileUp' };
+    return { label: 'Import Your First Plan', labelEs: 'Importar Su Primer Plan', href: '/operate/import', icon: 'FileUp' };
   }
   if (data.entityCount === 0) {
     return { label: 'Import Roster', labelEs: 'Importar Plantilla', href: '/operate/import', icon: 'Users' };

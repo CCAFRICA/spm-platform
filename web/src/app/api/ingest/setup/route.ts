@@ -7,6 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { hasCapability } from '@/lib/auth/permissions';
 
 const BUCKET_NAME = 'ingestion-raw';
 
@@ -38,8 +39,8 @@ export async function POST() {
       .eq('auth_user_id', user.id)
       .maybeSingle();
 
-    if (!profile || profile.role !== 'platform') {
-      return NextResponse.json({ error: 'Forbidden — VL Admin only' }, { status: 403 });
+    if (!profile || !hasCapability(profile.role, 'platform.system_config')) {
+      return NextResponse.json({ error: 'Forbidden — insufficient permissions' }, { status: 403 });
     }
 
     const supabase = await createServiceRoleClient();

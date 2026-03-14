@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { hasCapability } from '@/lib/auth/permissions';
 
 export async function GET(request: NextRequest) {
   try {
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
       .eq('auth_user_id', user.id)
       .maybeSingle();
 
-    if (!profile || profile.role !== 'platform') {
+    if (!profile || !hasCapability(profile.role, 'platform.view_all_tenants')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

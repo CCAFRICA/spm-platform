@@ -13,14 +13,10 @@ export type PageStatus = 'active' | 'preview' | 'coming' | 'restricted';
 export const PAGE_STATUS: Record<string, PageStatus> = {
   // ACTIVE — real data queries, functional
   '/':                             'active',
-  '/data/import/enhanced':         'active',
-  '/data/import':                  'active',
   '/operate/import':               'active',
   '/operate/calculate':             'active',
   '/operate/reconciliation':        'active',
   '/admin/launch/calculate':       'active',
-  '/admin/launch/plan-import':     'active',
-  '/admin/launch/reconciliation':  'active',
   '/admin/launch':                 'active',
   '/signup':                       'active',
   '/login':                        'active',

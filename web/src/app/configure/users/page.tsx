@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { loadUsersPageData, type UserRow, type LinkedEntity } from '@/lib/data/page-loaders';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -281,8 +281,8 @@ function UsersPageInner() {
 
 export default function UsersPage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="tenant.manage_users">
       <UsersPageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }

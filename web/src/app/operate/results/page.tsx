@@ -28,7 +28,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useOperate } from '@/contexts/operate-context';
 import { isVLAdmin } from '@/types/auth';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import {
   getCalculationResults,
 } from '@/lib/supabase/calculation-service';
@@ -809,8 +809,8 @@ function ResultsDashboardPageInner() {
 
 export default function ResultsDashboardPage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="view.all_results">
       <ResultsDashboardPageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }

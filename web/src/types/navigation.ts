@@ -10,6 +10,7 @@
  */
 
 import type { UserRole } from './auth';
+import type { Capability } from '@/lib/auth/permissions';
 
 // =============================================================================
 // WORKSPACE TYPES
@@ -44,6 +45,7 @@ export interface WorkspaceRoute {
   labelEs: string;
   icon: string;
   roles: UserRole[];
+  requiredCapability?: Capability;
   accelerationHints?: AccelerationHint[];
 }
 

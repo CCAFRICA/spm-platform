@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { createClient } from '@/lib/supabase/client';
 import type { EntityType, EntityStatus } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -290,8 +290,8 @@ function PeopleConfigurePageInner() {
 
 export default function PeopleConfigurePage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="view.all_entities">
       <PeopleConfigurePageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }

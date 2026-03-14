@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import {
   listApprovalItemsAsync,
   type ApprovalItem,
@@ -290,8 +290,8 @@ function CalculationApprovalPageInner() {
 
 export default function CalculationApprovalPage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="data.approve_results">
       <CalculationApprovalPageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }

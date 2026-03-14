@@ -19,41 +19,17 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/auth/permissions';
 
 // Paths that don't require authentication
 const PUBLIC_PATHS = ['/login', '/signup', '/landing', '/auth/callback', '/api/auth', '/api/health', '/api/calculation/run', '/api/intelligence/wire', '/api/intelligence/converge', '/api/import/sci', '/api/platform/flags', '/unauthorized'];
 
-// OB-67: Workspace-level access (only restricted workspaces listed)
-// Paths not listed here are open to all authenticated users.
-const RESTRICTED_WORKSPACES: Record<string, string[]> = {
-  '/admin':         ['platform'],
-  '/operate':       ['platform', 'admin', 'tenant_admin'],
-  '/configure':     ['platform', 'admin', 'tenant_admin'],
-  '/configuration': ['platform', 'admin', 'tenant_admin'],
-  '/govern':        ['platform', 'admin', 'tenant_admin'],
-  '/data':          ['platform', 'admin', 'tenant_admin'],
-  '/financial':     ['platform', 'admin', 'tenant_admin', 'manager'],
-};
-
 /**
- * Check if a path falls in a restricted workspace and whether the role is allowed.
- * Returns true if access is allowed, false if denied.
- * Paths not in any restricted workspace are always allowed.
- */
-function checkWorkspaceAccess(pathname: string, role: string): boolean {
-  const matchedWorkspace = Object.keys(RESTRICTED_WORKSPACES)
-    .filter(prefix => pathname.startsWith(prefix))
-    .sort((a, b) => b.length - a.length)[0];
-
-  if (!matchedWorkspace) return true;
-  return RESTRICTED_WORKSPACES[matchedWorkspace].includes(role);
-}
-
-/**
- * Check if a path is in a restricted workspace (needs role check).
+ * Check if a path is in a restricted workspace (needs capability check).
+ * DS-014: Uses WORKSPACE_CAPABILITIES from permissions.ts — single source of truth.
  */
 function isRestrictedWorkspace(pathname: string): boolean {
-  return Object.keys(RESTRICTED_WORKSPACES).some(prefix => pathname.startsWith(prefix));
+  return Object.keys(WORKSPACE_CAPABILITIES).some(prefix => pathname.startsWith(prefix));
 }
 
 function isPublicPath(pathname: string): boolean {
@@ -222,7 +198,8 @@ export async function middleware(request: NextRequest) {
       .maybeSingle();
 
     const capabilities = (profile?.capabilities as string[]) || [];
-    const isPlatformAdmin = profile?.role === 'platform' || capabilities.includes('manage_tenants');
+    const resolvedLoginRole = resolveRole(profile?.role || '');
+    const isPlatformAdmin = resolvedLoginRole === 'platform' || capabilities.includes('manage_tenants');
 
     if (isPlatformAdmin) {
       // HF-057: If VL Admin already selected a tenant (cookie set), go to admin landing
@@ -248,9 +225,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(defaultPath, request.url));
   }
 
-  // ── OB-67: WORKSPACE AUTHORIZATION ──
-  // Only check role for restricted workspaces (admin, operate, configure, etc.)
-  // Open workspaces (insights, transactions, performance, etc.) skip this check.
+  // ── DS-014: CAPABILITY-BASED WORKSPACE AUTHORIZATION ──
+  // Uses canAccessWorkspace from permissions.ts — single source of truth.
+  // Handles role aliases (vl_admin → platform, tenant_admin → admin, etc.)
   if (isRestrictedWorkspace(pathname)) {
     // Try to get role from user_metadata first (zero DB calls)
     let role = user.user_metadata?.role as string | undefined
@@ -266,15 +243,20 @@ export async function middleware(request: NextRequest) {
           .maybeSingle();
         role = profile?.role || undefined;
       } catch {
-        // If profile query fails, allow through (client-side HOC will catch)
+        // If profile query fails, allow through (client-side RequireCapability will catch)
       }
     }
 
-    // If we have a role and it's not allowed, redirect to /unauthorized
-    if (role && !checkWorkspaceAccess(pathname, role)) {
-      return NextResponse.redirect(new URL('/unauthorized', request.url));
+    // If we have a role, check capability-based access
+    // resolveRole handles aliases (vl_admin → platform, tenant_admin → admin)
+    if (role) {
+      const resolved = resolveRole(role);
+      const roleToCheck = resolved || role;
+      if (!canAccessWorkspace(roleToCheck, pathname)) {
+        return NextResponse.redirect(new URL('/unauthorized', request.url));
+      }
     }
-    // If no role found, allow through — client-side RequireRole HOC will catch
+    // If no role found, allow through — client-side RequireCapability will catch
   }
 
   // Authenticated user on protected route → pass through WITH cookie refresh.

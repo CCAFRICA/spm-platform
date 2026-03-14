@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useOperate } from '@/contexts/operate-context';
 import { isVLAdmin } from '@/types/auth';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { OperateSelector } from '@/components/operate/OperateSelector';
 import { PlanCard, type PlanReadiness } from '@/components/calculate/PlanCard';
 import { loadResultsPageData, type ResultsPageData } from '@/lib/data/results-loader';
@@ -545,8 +545,8 @@ function ResultsSkeleton() {
 
 export default function CalculatePage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="data.calculate">
       <CalculatePageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }

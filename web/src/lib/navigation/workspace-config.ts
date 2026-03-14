@@ -15,6 +15,7 @@
 
 import type { Workspace, WorkspaceId, WorkspaceSection } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
+import { hasCapability } from '@/lib/auth/permissions';
 
 // =============================================================================
 // WORKSPACE DEFINITIONS
@@ -37,7 +38,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Intelligence',
         labelEs: 'Inteligencia',
         routes: [
-          { path: '/stream', label: 'Intelligence', labelEs: 'Inteligencia', icon: 'Zap', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/stream', label: 'Intelligence', labelEs: 'Inteligencia', icon: 'Zap', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.intelligence_stream' },
         ],
       },
       {
@@ -45,7 +46,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Results',
         labelEs: 'Resultados',
         routes: [
-          { path: '/operate/results', label: 'Results', labelEs: 'Resultados', icon: 'BarChart3', roles: ['platform', 'admin', 'manager'] },
+          { path: '/operate/results', label: 'Results', labelEs: 'Resultados', icon: 'BarChart3', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.all_results' },
         ],
       },
     ],
@@ -67,7 +68,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Overview',
         labelEs: 'Resumen',
         routes: [
-          { path: '/operate', label: 'Operations Overview', labelEs: 'Resumen de Operaciones', icon: 'Activity', roles: ['platform', 'admin'] },
+          { path: '/operate', label: 'Operations Overview', labelEs: 'Resumen de Operaciones', icon: 'Activity', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
         ],
       },
       {
@@ -75,7 +76,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Operations',
         labelEs: 'Operaciones',
         routes: [
-          { path: '/operate/lifecycle', label: 'Operations Center', labelEs: 'Centro de Operaciones', icon: 'Zap', roles: ['platform', 'admin'] },
+          { path: '/operate/lifecycle', label: 'Operations Center', labelEs: 'Centro de Operaciones', icon: 'Zap', roles: ['platform', 'admin'], requiredCapability: 'data.advance_lifecycle' },
         ],
       },
       {
@@ -83,8 +84,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Import',
         labelEs: 'Importar',
         routes: [
-          { path: '/operate/import/enhanced', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['platform', 'admin'] },
-          { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial', icon: 'History', roles: ['platform', 'admin'] },
+          { path: '/operate/import', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+          { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial', icon: 'History', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
         ],
       },
       {
@@ -92,7 +93,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Calculate',
         labelEs: 'Calcular',
         routes: [
-          { path: '/operate/calculate', label: 'Calculate', labelEs: 'Calcular', icon: 'Calculator', roles: ['platform', 'admin'] },
+          { path: '/operate/calculate', label: 'Calculate', labelEs: 'Calcular', icon: 'Calculator', roles: ['platform', 'admin'], requiredCapability: 'data.calculate' },
         ],
       },
       {
@@ -100,7 +101,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Reconciliation',
         labelEs: 'Conciliación',
         routes: [
-          { path: '/operate/reconciliation', label: 'Reconciliation', labelEs: 'Conciliación', icon: 'GitCompare', roles: ['platform', 'admin'] },
+          { path: '/operate/reconciliation', label: 'Reconciliation', labelEs: 'Conciliación', icon: 'GitCompare', roles: ['platform', 'admin'], requiredCapability: 'data.reconcile' },
         ],
       },
     ],
@@ -122,7 +123,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Plans',
         labelEs: 'Planes',
         routes: [
-          { path: '/operate/import/enhanced', label: 'Plan Import', labelEs: 'Importar Plan', icon: 'FileText', roles: ['platform', 'admin'] },
+          { path: '/operate/import', label: 'Plan Import', labelEs: 'Importar Plan', icon: 'FileText', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
         ],
       },
       {
@@ -130,7 +131,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Periods',
         labelEs: 'Períodos',
         routes: [
-          { path: '/configure/periods', label: 'Periods', labelEs: 'Períodos', icon: 'Calendar', roles: ['platform', 'admin'] },
+          { path: '/configure/periods', label: 'Periods', labelEs: 'Períodos', icon: 'Calendar', roles: ['platform', 'admin'], requiredCapability: 'tenant.configure_periods' },
         ],
       },
       {
@@ -138,7 +139,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'People',
         labelEs: 'Personas',
         routes: [
-          { path: '/configure/people', label: 'Personnel', labelEs: 'Personal', icon: 'Users', roles: ['platform', 'admin'] },
+          { path: '/configure/people', label: 'Personnel', labelEs: 'Personal', icon: 'Users', roles: ['platform', 'admin'], requiredCapability: 'view.all_entities' },
         ],
       },
       {
@@ -146,7 +147,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'System',
         labelEs: 'Sistema',
         routes: [
-          { path: '/configure/users', label: 'Users', labelEs: 'Usuarios', icon: 'Shield', roles: ['platform', 'admin'] },
+          { path: '/configure/users', label: 'Users', labelEs: 'Usuarios', icon: 'Shield', roles: ['platform', 'admin'], requiredCapability: 'tenant.manage_users' },
         ],
       },
     ],
@@ -203,10 +204,19 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
 // =============================================================================
 
 /**
- * Get workspaces visible to a specific role
+ * Get workspaces visible to a specific role.
+ * DS-014: Uses hasCapability for capability-based filtering with role alias support.
  */
 export function getWorkspacesForRole(role: UserRole): Workspace[] {
-  return Object.values(WORKSPACES).filter(ws => ws.roles.includes(role));
+  return Object.values(WORKSPACES).filter(ws => {
+    // If any route in the workspace has a requiredCapability, check via permissions.ts
+    const firstCapability = ws.sections.flatMap(s => s.routes).find(r => r.requiredCapability)?.requiredCapability;
+    if (firstCapability) {
+      return hasCapability(role, firstCapability);
+    }
+    // Fallback to legacy roles check
+    return ws.roles.includes(role);
+  });
 }
 
 /**
@@ -218,7 +228,8 @@ export function getDefaultWorkspaceForRole(role: UserRole): WorkspaceId {
 }
 
 /**
- * Get all routes from a workspace that are accessible to a role
+ * Get all routes from a workspace that are accessible to a role.
+ * DS-014: Uses hasCapability for capability-based filtering with role alias support.
  */
 export function getWorkspaceRoutesForRole(workspaceId: WorkspaceId, role: UserRole): WorkspaceSection[] {
   const workspace = WORKSPACES[workspaceId];
@@ -226,7 +237,12 @@ export function getWorkspaceRoutesForRole(workspaceId: WorkspaceId, role: UserRo
 
   return workspace.sections.map(section => ({
     ...section,
-    routes: section.routes.filter(route => route.roles.includes(role)),
+    routes: section.routes.filter(route => {
+      if (route.requiredCapability) {
+        return hasCapability(role, route.requiredCapability);
+      }
+      return route.roles.includes(role);
+    }),
   })).filter(section => section.routes.length > 0);
 }
 

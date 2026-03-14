@@ -31,7 +31,7 @@ export const WORKSPACE_ACCESS: Record<string, string[]> = {
 export const PAGE_ACCESS: Record<string, string[]> = {
   '/admin/launch/calculate':       ['platform', 'admin'],
   '/admin/launch/reconciliation':  ['platform'],
-  '/admin/launch/plan-import':     ['platform', 'admin'],
+  '/operate/import':               ['platform', 'admin'],
   '/admin/launch':                 ['platform'],
   '/operate/calculate':            ['platform', 'admin'],
   '/operate/approve':              ['platform', 'admin', 'manager'],
@@ -40,8 +40,7 @@ export const PAGE_ACCESS: Record<string, string[]> = {
   '/govern/calculation-approvals': ['platform', 'admin'],
   '/configure/users':              ['platform', 'admin'],
   '/configure/personnel':          ['platform', 'admin'],
-  '/data/import/enhanced':         ['platform', 'admin'],
-  '/operate/import':               ['platform', 'admin'],
+  '/data/import':                  ['platform', 'admin'],
 };
 
 // Action-level permissions (checked inline via useCanPerform)

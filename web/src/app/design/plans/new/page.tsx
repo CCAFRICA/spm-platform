@@ -19,7 +19,7 @@ export default function NewPlanPage() {
 
   useEffect(() => {
     if (!currentTenant?.id || !user?.id) return;
-    router.replace('/admin/launch/plan-import');
+    router.replace('/operate/import');
   }, [currentTenant?.id, user?.id, router]);
 
   return (

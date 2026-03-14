@@ -234,7 +234,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       children: [
         { name: isSpanish ? "Registro de Auditoría" : "Audit Log", href: "/admin/audit", module: "audit_log" },
         { name: isSpanish ? "Nuevo Inquilino" : "New Tenant", href: "/admin/tenants/new", vlAdminOnly: true },
-        { name: isSpanish ? "Importar Plan" : "Plan Import", href: "/admin/launch/plan-import", vlAdminOnly: true },
+        { name: isSpanish ? "Importar Plan" : "Plan Import", href: "/operate/import", vlAdminOnly: true },
         { name: isSpanish ? "Ejecutar Cálculos" : "Run Calculations", href: "/admin/launch/calculate", vlAdminOnly: true },
         { name: isSpanish ? "Aprobaciones de Calculo" : "Calculation Approvals", href: "/govern/calculation-approvals", vlAdminOnly: true },
         { name: isSpanish ? "Reconciliacion" : "Reconciliation", href: "/operate/reconciliation", vlAdminOnly: true },

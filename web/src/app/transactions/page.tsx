@@ -336,7 +336,7 @@ export default function TransactionsPage() {
             </Button>
           )}
           <Button variant="outline" size="sm" asChild>
-            <Link href="/data/import/enhanced">
+            <Link href="/operate/import">
               <Upload className="mr-2 h-4 w-4" />
               {isSpanish ? 'Importar' : 'Import'}
             </Link>
@@ -412,7 +412,7 @@ export default function TransactionsPage() {
               Importa tu archivo de cheques para comenzar a ver los datos.
             </p>
             <Button asChild>
-              <Link href="/data/import/enhanced">
+              <Link href="/operate/import">
                 <Upload className="mr-2 h-4 w-4" />
                 Importar Cheques
               </Link>

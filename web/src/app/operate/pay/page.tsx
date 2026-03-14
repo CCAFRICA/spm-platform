@@ -11,7 +11,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCycleState } from '@/contexts/navigation-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { getStateLabel, getStateColor } from '@/lib/calculation/lifecycle-utils';
 import {
   listCalculationBatches,
@@ -335,8 +335,8 @@ function PayPageInner() {
 
 export default function PayPage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="data.export">
       <PayPageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }

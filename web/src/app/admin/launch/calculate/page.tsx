@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { isVLAdmin } from '@/types/auth';
-import { RequireRole } from '@/components/auth/RequireRole';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { useAdminLocale } from '@/hooks/useAdminLocale';
 import {
   getRuleSets,
@@ -980,7 +980,7 @@ function CalculatePageInner() {
                     ? 'Importe un documento de plan para comenzar.'
                     : 'Import a plan document to get started.'}
                 </p>
-                <Link href="/admin/launch/plan-import">
+                <Link href="/operate/import">
                   <Button variant="outline" size="sm" className="mt-4">
                     {locale === 'es-MX' ? 'Importar Plan →' : 'Import Plan →'}
                   </Button>
@@ -1117,8 +1117,8 @@ function CalculatePageInner() {
 
 export default function CalculatePage() {
   return (
-    <RequireRole roles={['platform', 'admin']}>
+    <RequireCapability capability="data.calculate">
       <CalculatePageInner />
-    </RequireRole>
+    </RequireCapability>
   );
 }

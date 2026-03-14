@@ -52,7 +52,7 @@ export function getSmartSuggestions(
       titleEs: 'Iniciar importación de datos',
       description: 'Begin the compensation cycle by importing transaction data',
       descriptionEs: 'Comienza el ciclo de compensación importando datos de transacciones',
-      route: '/operate/import/enhanced',
+      route: '/operate/import',
       icon: 'Upload',
     });
   }
