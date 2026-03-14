@@ -1051,29 +1051,9 @@ async function executeBatchedPlanInterpretation(
   const primaryUnit = planUnits[0];
   const primaryContentUnitId = primaryUnit.contentUnitId;
 
-  // Idempotency: check if a rule_set already exists for any of these plan units
-  for (const unit of planUnits) {
-    const { data: existingRuleSet } = await supabase
-      .from('rule_sets')
-      .select('id, components')
-      .eq('tenant_id', tenantId)
-      .filter('metadata->>contentUnitId', 'eq', unit.contentUnitId)
-      .limit(1)
-      .maybeSingle();
-
-    if (existingRuleSet) {
-      const componentCount = (existingRuleSet.components as { components?: unknown[] })?.components?.length || 0;
-      console.log(`[SCI Execute] Plan already exists for ${unit.contentUnitId} — returning existing (${existingRuleSet.id})`);
-      // Return success for all plan units since one already succeeded
-      return planUnits.map(u => ({
-        contentUnitId: u.contentUnitId,
-        classification: 'plan' as const,
-        success: true,
-        rowsProcessed: u.contentUnitId === unit.contentUnitId ? componentCount : 0,
-        pipeline: u.contentUnitId === unit.contentUnitId ? 'plan-interpretation' : 'plan-batch-included',
-      }));
-    }
-  }
+  // HF-133: Removed "already exists" early return — stale draft rule_sets from prior
+  // failed runs were short-circuiting the HF-129/130/131/132 chain. HF-132's supersede
+  // logic handles duplicates: old rule_sets get status='superseded', new one gets 'active'.
 
   // Download file from storage
   console.log(`[SCI Execute] Batched plan interpretation: ${planUnits.length} sheets from ${storagePath}`);
@@ -1311,28 +1291,9 @@ async function executePlanPipeline(
   userId: string,
   storagePath?: string,
 ): Promise<ContentUnitResult> {
-  // OB-151: Server-side idempotency — check if a rule_set already exists
-  // for this contentUnitId. Prevents duplicates when client retries or
-  // component remounts cause the same request to fire twice.
-  const { data: existingRuleSet } = await supabase
-    .from('rule_sets')
-    .select('id, components')
-    .eq('tenant_id', tenantId)
-    .filter('metadata->>contentUnitId', 'eq', unit.contentUnitId)
-    .limit(1)
-    .maybeSingle();
-
-  if (existingRuleSet) {
-    const componentCount = (existingRuleSet.components as { components?: unknown[] })?.components?.length || 0;
-    console.log(`[SCI Execute] Plan already exists for ${unit.contentUnitId} — returning existing (${existingRuleSet.id})`);
-    return {
-      contentUnitId: unit.contentUnitId,
-      classification: 'plan',
-      success: true,
-      rowsProcessed: componentCount,
-      pipeline: 'plan-interpretation',
-    };
-  }
+  // HF-133: Removed "already exists" early return — stale draft rule_sets from prior
+  // failed runs were short-circuiting the HF-129/130/131/132 chain. HF-132's supersede
+  // logic handles duplicates: old rule_sets get status='superseded', new one gets 'active'.
 
   const docMeta = unit.documentMetadata;
   let fileBase64 = docMeta?.fileBase64;
