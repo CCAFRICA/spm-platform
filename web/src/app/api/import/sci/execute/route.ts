@@ -140,7 +140,29 @@ export async function POST(req: NextRequest) {
       (PIPELINE_ORDER[a.confirmedClassification] ?? 9) - (PIPELINE_ORDER[b.confirmedClassification] ?? 9)
     );
 
+    // HF-130: Batch all plan-classified units from the same file into ONE interpretation call.
+    // A multi-sheet XLSX plan (e.g., overview + rate tables + targets) must be interpreted as
+    // a single document — the AI needs cross-sheet context to extract complete components.
+    const planUnits = sorted.filter(u => u.confirmedClassification === 'plan');
+    const handledPlanUnitIds = new Set<string>();
+
+    if (planUnits.length > 0 && storagePath) {
+      try {
+        const batchResults = await executeBatchedPlanInterpretation(
+          supabase, tenantId, planUnits, profileId, storagePath
+        );
+        for (const r of batchResults) {
+          results.push(r);
+          handledPlanUnitIds.add(r.contentUnitId);
+        }
+      } catch (err) {
+        // If batched interpretation fails, fall through to per-unit processing
+        console.error('[SCI Execute] Batched plan interpretation failed, falling back to per-unit:', err);
+      }
+    }
+
     for (const unit of sorted) {
+      if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-130: already handled in batch
       try {
         const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId, storagePath);
         results.push(result);
@@ -1013,6 +1035,264 @@ async function executeReferencePipeline(
 }
 
 // ============================================================
+// HF-130: BATCHED PLAN INTERPRETATION
+// When multiple sheets from the same file are classified as plan,
+// combine them into ONE AI interpretation call with full cross-sheet context.
+// ============================================================
+
+async function executeBatchedPlanInterpretation(
+  supabase: SupabaseClient,
+  tenantId: string,
+  planUnits: ContentUnitExecution[],
+  userId: string,
+  storagePath: string,
+): Promise<ContentUnitResult[]> {
+  // Use first unit's contentUnitId as the primary (for rule_set metadata)
+  const primaryUnit = planUnits[0];
+  const primaryContentUnitId = primaryUnit.contentUnitId;
+
+  // Idempotency: check if a rule_set already exists for any of these plan units
+  for (const unit of planUnits) {
+    const { data: existingRuleSet } = await supabase
+      .from('rule_sets')
+      .select('id, components')
+      .eq('tenant_id', tenantId)
+      .filter('metadata->>contentUnitId', 'eq', unit.contentUnitId)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingRuleSet) {
+      const componentCount = (existingRuleSet.components as { components?: unknown[] })?.components?.length || 0;
+      console.log(`[SCI Execute] Plan already exists for ${unit.contentUnitId} — returning existing (${existingRuleSet.id})`);
+      // Return success for all plan units since one already succeeded
+      return planUnits.map(u => ({
+        contentUnitId: u.contentUnitId,
+        classification: 'plan' as const,
+        success: true,
+        rowsProcessed: u.contentUnitId === unit.contentUnitId ? componentCount : 0,
+        pipeline: u.contentUnitId === unit.contentUnitId ? 'plan-interpretation' : 'plan-batch-included',
+      }));
+    }
+  }
+
+  // Download file from storage
+  console.log(`[SCI Execute] Batched plan interpretation: ${planUnits.length} sheets from ${storagePath}`);
+  const { data: fileData, error: downloadErr } = await supabase.storage
+    .from('ingestion-raw')
+    .download(storagePath);
+
+  if (downloadErr || !fileData) {
+    console.error(`[SCI Execute] Storage download failed: ${downloadErr?.message || 'No data'}`);
+    return planUnits.map(u => ({
+      contentUnitId: u.contentUnitId,
+      classification: 'plan' as const,
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'plan-interpretation',
+      error: `Failed to download plan file: ${downloadErr?.message || 'No data'}`,
+    }));
+  }
+
+  const fileBuffer = Buffer.from(await fileData.arrayBuffer());
+  const ext = storagePath.split('.').pop()?.toLowerCase();
+
+  // Extract text content from the file
+  let documentContent = '';
+  let pdfBase64ForAI: string | undefined;
+  let pdfMediaType: string | undefined;
+
+  if (ext === 'pdf') {
+    pdfBase64ForAI = fileBuffer.toString('base64');
+    pdfMediaType = 'application/pdf';
+    documentContent = `[PDF document: ${pdfBase64ForAI.length} bytes base64]`;
+  } else if (ext === 'xlsx' || ext === 'xls') {
+    // XLSX: Extract text from ALL plan-classified sheets using xlsx library
+    const XLSX = await import('xlsx');
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+
+    // Build a set of sheet names from the plan units' tab names
+    const planSheetNames = new Set(planUnits.map(u => u.tabName).filter(Boolean));
+
+    const sheetTexts: string[] = [];
+    for (const sheetName of workbook.SheetNames) {
+      // Include sheets that are plan-classified, or ALL sheets if we can't match by name
+      // (fallback ensures the AI gets full context even if tabName doesn't match exactly)
+      if (planSheetNames.size > 0 && !planSheetNames.has(sheetName)) continue;
+
+      const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) continue;
+
+      // Convert sheet to array of arrays for text representation
+      const rows: unknown[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+      if (rows.length === 0) continue;
+
+      sheetTexts.push(`=== Sheet: ${sheetName} ===`);
+      for (const row of rows) {
+        const values = (row as unknown[]).map(v => String(v ?? '').trim());
+        if (values.some(v => v !== '')) {
+          sheetTexts.push(values.join('\t'));
+        }
+      }
+      sheetTexts.push(''); // blank line between sheets
+    }
+
+    // If no plan sheets matched by name, fall back to ALL sheets
+    if (sheetTexts.length === 0) {
+      for (const sheetName of workbook.SheetNames) {
+        const worksheet = workbook.Sheets[sheetName];
+        if (!worksheet) continue;
+        const rows: unknown[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+        if (rows.length === 0) continue;
+        sheetTexts.push(`=== Sheet: ${sheetName} ===`);
+        for (const row of rows) {
+          const values = (row as unknown[]).map(v => String(v ?? '').trim());
+          if (values.some(v => v !== '')) {
+            sheetTexts.push(values.join('\t'));
+          }
+        }
+        sheetTexts.push('');
+      }
+    }
+
+    documentContent = sheetTexts.join('\n');
+    console.log(`[SCI Execute] XLSX plan text extracted: ${documentContent.length} chars from ${planSheetNames.size} sheets`);
+  } else {
+    // PPTX/DOCX: extract text via JSZip (existing logic)
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(fileBuffer);
+
+    if (ext === 'pptx') {
+      const slideFiles = Object.keys(zip.files)
+        .filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+        .sort((a, b) => {
+          const numA = parseInt(a.match(/slide(\d+)/)?.[1] || '0');
+          const numB = parseInt(b.match(/slide(\d+)/)?.[1] || '0');
+          return numA - numB;
+        });
+      const texts: string[] = [];
+      for (const sf of slideFiles) {
+        const content = await zip.file(sf)?.async('string');
+        if (!content) continue;
+        const matches = Array.from(content.matchAll(/<a:t>([^<]*)<\/a:t>/g));
+        for (const m of matches) {
+          const t = m[1].trim();
+          if (t) texts.push(t);
+        }
+      }
+      documentContent = texts.join('\n');
+    } else {
+      // DOCX
+      const docXml = await zip.file('word/document.xml')?.async('string');
+      if (docXml) {
+        const matches = Array.from(docXml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g));
+        documentContent = matches.map(m => m[1].trim()).filter(Boolean).join(' ');
+      }
+    }
+  }
+
+  if (!documentContent && !pdfBase64ForAI) {
+    console.log(`[SCI Execute] No document content extracted from ${storagePath}`);
+    return planUnits.map(u => ({
+      contentUnitId: u.contentUnitId,
+      classification: 'plan' as const,
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'plan-interpretation',
+      error: 'No document content could be extracted from the plan file',
+    }));
+  }
+
+  // ONE AI interpretation call with combined content from all sheets
+  console.log(`[SCI Execute] Batched plan interpretation starting — ${documentContent.length} chars`);
+  const { getAIService } = await import('@/lib/ai');
+  const aiService = getAIService();
+
+  const response = await aiService.interpretPlan(
+    documentContent,
+    pdfBase64ForAI ? 'pdf' : 'text',
+    { tenantId },
+    pdfBase64ForAI,
+    pdfMediaType
+  );
+
+  const interpretation = response.result;
+
+  if (interpretation.fallback || interpretation.error) {
+    return planUnits.map(u => ({
+      contentUnitId: u.contentUnitId,
+      classification: 'plan' as const,
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'plan-interpretation',
+      error: String(interpretation.error || 'AI interpretation returned no results'),
+    }));
+  }
+
+  // Bridge AI output to engine format — ONE rule_set
+  const { bridgeAIToEngineFormat } = await import('@/lib/compensation/ai-plan-interpreter');
+  const engineFormat = bridgeAIToEngineFormat(
+    interpretation as Record<string, unknown>,
+    tenantId,
+    userId,
+  );
+
+  const ruleSetId = crypto.randomUUID();
+  const filenameFallback = primaryContentUnitId.split('::')[0]?.replace(/\.[^.]+$/, '') || '';
+  const planName = engineFormat.name || filenameFallback || 'Untitled Plan';
+
+  const { error: upsertError } = await supabase
+    .from('rule_sets')
+    .upsert({
+      id: ruleSetId,
+      tenant_id: tenantId,
+      name: planName,
+      description: engineFormat.description || '',
+      status: 'draft' as const,
+      version: 1,
+      population_config: {
+        eligible_roles: [],
+      },
+      input_bindings: engineFormat.inputBindings as unknown as Json,
+      components: engineFormat.components as unknown as Json,
+      cadence_config: {},
+      outcome_config: {},
+      metadata: {
+        plan_type: 'additive_lookup',
+        source: 'sci',
+        contentUnitId: primaryContentUnitId,
+        batchedSheets: planUnits.map(u => u.contentUnitId),
+        aiConfidence: response.confidence,
+      } as unknown as Json,
+      created_by: userId,
+    });
+
+  if (upsertError) {
+    console.error('[SCI Execute] Batched plan save failed:', upsertError);
+    return planUnits.map(u => ({
+      contentUnitId: u.contentUnitId,
+      classification: 'plan' as const,
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'plan-interpretation',
+      error: upsertError.message,
+    }));
+  }
+
+  const variants = engineFormat.components.variants || [];
+  const componentCount = variants.reduce((sum: number, v: { components?: unknown[] }) => sum + (v.components?.length || 0), 0);
+  console.log(`[SCI Execute] Batched plan saved: ${planName} (${ruleSetId}), ${variants.length} variants, ${componentCount} components from ${planUnits.length} sheets`);
+
+  // Return results: primary unit gets full result, others marked as included in batch
+  return planUnits.map((u, i) => ({
+    contentUnitId: u.contentUnitId,
+    classification: 'plan' as const,
+    success: true,
+    rowsProcessed: i === 0 ? componentCount : 0,
+    pipeline: i === 0 ? 'plan-interpretation' : 'plan-batch-included',
+  }));
+}
+
+// ============================================================
 // PLAN PIPELINE — routes to existing plan interpretation
 // OB-133: Wired from stub to real AI interpretation + rule_set save
 // ============================================================
@@ -1116,6 +1396,27 @@ async function executePlanPipeline(
     pdfBase64 = fileBase64;
     pdfMediaType = 'application/pdf';
     documentContent = `[PDF document: ${fileBase64.length} bytes base64]`;
+  } else if (mimeType?.includes('spreadsheetml') || mimeType?.includes('ms-excel') || unit.contentUnitId.endsWith('.xlsx') || unit.contentUnitId.endsWith('.xls')) {
+    // HF-130: XLSX text extraction — extract all sheets as tab-separated text
+    const XLSX = await import('xlsx');
+    const buffer = Buffer.from(fileBase64, 'base64');
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheetTexts: string[] = [];
+    for (const sheetName of workbook.SheetNames) {
+      const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) continue;
+      const rows: unknown[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+      if (rows.length === 0) continue;
+      sheetTexts.push(`=== Sheet: ${sheetName} ===`);
+      for (const row of rows) {
+        const values = (row as unknown[]).map(v => String(v ?? '').trim());
+        if (values.some(v => v !== '')) {
+          sheetTexts.push(values.join('\t'));
+        }
+      }
+      sheetTexts.push('');
+    }
+    documentContent = sheetTexts.join('\n');
   } else {
     // For PPTX/DOCX, extract text server-side
     const JSZip = (await import('jszip')).default;
