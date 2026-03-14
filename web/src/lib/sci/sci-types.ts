@@ -330,6 +330,7 @@ export interface SCIExecutionRequest {
   proposalId: string;
   tenantId: string;
   contentUnits: ContentUnitExecution[];
+  storagePath?: string; // HF-129: File storage path for plan document retrieval
 }
 
 export interface ContentUnitExecution {
