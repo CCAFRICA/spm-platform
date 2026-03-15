@@ -22,7 +22,20 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/auth/permissions';
 
 // Paths that don't require authentication
-const PUBLIC_PATHS = ['/login', '/signup', '/landing', '/auth/callback', '/api/auth', '/api/health', '/api/calculation/run', '/api/intelligence/wire', '/api/intelligence/converge', '/api/import/sci', '/api/platform/flags', '/unauthorized'];
+// HF-136: SECURITY — Only truly public paths listed here.
+// API routes that process tenant data MUST require authentication.
+// Previously included /api/calculation/run, /api/intelligence/*, /api/import/sci
+// which allowed unauthenticated access to sensitive operations.
+const PUBLIC_PATHS = [
+  '/login',
+  '/signup',
+  '/landing',
+  '/auth/callback',
+  '/api/auth',          // Auth callback handlers
+  '/api/health',        // Health check (no tenant data)
+  '/api/platform/flags', // Public feature flags (no tenant data)
+  '/unauthorized',
+];
 
 /**
  * Check if a path is in a restricted workspace (needs capability check).
