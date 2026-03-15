@@ -21,6 +21,25 @@ const nextConfig = {
       bodySizeLimit: '20mb',
     },
   },
+  // HF-138: Cache-Control headers on all routes (belt-and-suspenders with middleware).
+  // Prevents Vercel edge from caching responses with Set-Cookie auth headers.
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'private, no-store, no-cache, must-revalidate',
+          },
+          {
+            key: 'Pragma',
+            value: 'no-cache',
+          },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       // Redirect old data/transactions to new transactions page
