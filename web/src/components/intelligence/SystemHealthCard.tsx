@@ -29,6 +29,9 @@ interface SystemHealthCardProps {
   formatCurrency: (n: number) => string;
   onAction?: () => void;
   onView?: () => void;
+  // OB-170: Five Elements additions
+  reconciliationStatus?: string; // "100.00% match" or "No reconciliation run"
+  impactText?: string; // describes what the action produces
 }
 
 export function SystemHealthCard({
@@ -43,6 +46,8 @@ export function SystemHealthCard({
   formatCurrency,
   onAction,
   onView,
+  reconciliationStatus,
+  impactText,
 }: SystemHealthCardProps) {
   const delta = priorPeriodTotal != null ? totalPayout - priorPeriodTotal : null;
   const deltaPct = priorPeriodTotal != null && priorPeriodTotal !== 0
@@ -102,24 +107,45 @@ export function SystemHealthCard({
         )}
       </div>
 
+      {/* OB-170: Comparison — Reconciliation status */}
+      {reconciliationStatus && (
+        <div className="mt-3 flex items-center gap-2">
+          <span className={cn(
+            'text-xs font-medium',
+            reconciliationStatus.includes('100') ? 'text-emerald-400' :
+            reconciliationStatus.includes('No ') ? 'text-slate-500' : 'text-amber-400',
+          )}>
+            {reconciliationStatus}
+          </span>
+        </div>
+      )}
+
       {/* Action + Impact */}
       {nextAction && (
-        <div className="mt-4 flex items-center justify-between border-t border-zinc-800/60 pt-4">
-          {nextLifecycleState && (
-            <p className="text-xs text-slate-500">
-              Advance to <span className="text-slate-400 font-medium">{nextLifecycleState}</span>
-            </p>
-          )}
-          <button
-            onClick={onAction}
-            className={cn(
-              'inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md',
-              'bg-zinc-800 hover:bg-zinc-700 text-slate-200 transition-colors',
-            )}
-          >
-            {nextAction.label}
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
+        <div className="mt-4 border-t border-zinc-800/60 pt-4">
+          <div className="flex items-center justify-between">
+            <div>
+              {nextLifecycleState && (
+                <p className="text-xs text-slate-500">
+                  Advance to <span className="text-slate-400 font-medium">{nextLifecycleState}</span>
+                </p>
+              )}
+              {/* OB-170: Impact text */}
+              {impactText && (
+                <p className="text-[11px] text-slate-600 mt-0.5">{impactText}</p>
+              )}
+            </div>
+            <button
+              onClick={onAction}
+              className={cn(
+                'inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md',
+                'bg-zinc-800 hover:bg-zinc-700 text-slate-200 transition-colors',
+              )}
+            >
+              {nextAction.label}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       )}
     </IntelligenceCard>

@@ -33,6 +33,10 @@ interface DistributionCardProps {
   stdDev: number;
   formatCurrency: (n: number) => string;
   onView?: () => void;
+  // OB-170: Five Elements additions
+  onViewEntities?: () => void;
+  isFirstPeriod?: boolean;
+  entityCount?: number;
 }
 
 export function DistributionCard({
@@ -43,6 +47,9 @@ export function DistributionCard({
   stdDev,
   formatCurrency,
   onView,
+  onViewEntities,
+  isFirstPeriod,
+  entityCount,
 }: DistributionCardProps) {
   if (buckets.length === 0) return null;
 
@@ -135,6 +142,25 @@ export function DistributionCard({
         <StatPill label="Mean" value={formatCurrency(mean)} color="text-blue-400" />
         <StatPill label="Median" value={formatCurrency(median)} color="text-violet-400" />
         <StatPill label="Std Dev" value={formatCurrency(stdDev)} color="text-slate-400" />
+      </div>
+
+      {/* OB-170: Comparison + Action + Impact */}
+      <div className="mt-3 flex items-center justify-between border-t border-zinc-800/60 pt-3">
+        <div className="text-[11px] text-slate-500">
+          {isFirstPeriod
+            ? 'First calculated period — comparison available after next calculation.'
+            : entityCount != null
+              ? `${Math.round((buckets.filter(b => b.max <= median).reduce((s, b) => s + b.count, 0) / Math.max(entityCount, 1)) * 100)}% of entities below median.`
+              : null}
+        </div>
+        {onViewEntities && (
+          <button
+            onClick={onViewEntities}
+            className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            View Entity Detail →
+          </button>
+        )}
       </div>
     </IntelligenceCard>
   );

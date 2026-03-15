@@ -15,6 +15,7 @@
  *   Individual (emerald): Earnings → Allocation → Components → Leaderboard
  *
  * OB-165: Intelligence Stream Foundation
+ * OB-170: Five Elements + Action Proximity + State Reader
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -26,6 +27,7 @@ import {
   loadIntelligenceStream,
   type IntelligenceStreamData,
 } from '@/lib/data/intelligence-stream-loader';
+import { getStateReader, type TenantContext } from '@/lib/intelligence/state-reader';
 import { captureStreamSignal, flushPendingStreamSignals } from '@/lib/signals/stream-signals';
 import {
   SystemHealthCard,
@@ -40,6 +42,8 @@ import {
   AllocationCard,
   ComponentBreakdownCard,
   RelativePositionCard,
+  ActionRequiredCard,
+  PipelineReadinessCard,
 } from '@/components/intelligence';
 import { Loader2, Zap } from 'lucide-react';
 
@@ -59,6 +63,7 @@ export default function StreamPage() {
   const { format: formatCurrency } = useCurrency();
 
   const [data, setData] = useState<IntelligenceStreamData | null>(null);
+  const [tenantCtx, setTenantCtx] = useState<TenantContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,17 +79,22 @@ export default function StreamPage() {
     setError(null);
 
     try {
-      const result = await loadIntelligenceStream(
-        tenantId,
-        currentTenant.name || currentTenant.displayName || '',
-        currentTenant.currency || 'USD',
-        currentTenant.locale || 'en',
-        persona,
-        personaEntityId,
-        scope.entityIds,
-        scope.canSeeAll,
-      );
+      // OB-170: Load stream data and tenant context in parallel
+      const [result, ctx] = await Promise.all([
+        loadIntelligenceStream(
+          tenantId,
+          currentTenant.name || currentTenant.displayName || '',
+          currentTenant.currency || 'USD',
+          currentTenant.locale || 'en',
+          persona,
+          personaEntityId,
+          scope.entityIds,
+          scope.canSeeAll,
+        ),
+        getStateReader(tenantId).catch(() => null), // graceful degradation
+      ]);
       setData(result);
+      setTenantCtx(ctx);
     } catch (err) {
       console.error('[IntelligenceStream] Load error:', err);
       setError(err instanceof Error ? err.message : 'Failed to load intelligence stream');
@@ -212,7 +222,7 @@ export default function StreamPage() {
 
         {/* Intelligence Stream — persona-specific rendering */}
         {persona === 'admin' && (
-          <AdminStream data={data} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
+          <AdminStream data={data} tenantCtx={tenantCtx} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
         )}
         {persona === 'manager' && (
           <ManagerStream data={data} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
@@ -232,15 +242,39 @@ export default function StreamPage() {
 
 function AdminStream({
   data,
+  tenantCtx,
   accentColor,
   formatCurrency,
   onInteract,
 }: {
   data: IntelligenceStreamData;
+  tenantCtx: TenantContext | null;
   accentColor: string;
   formatCurrency: (n: number) => string;
   onInteract: (elementId: string, action: 'click' | 'expand' | 'act') => void;
 }) {
+  const router = useRouter();
+
+  // OB-170: Derive reconciliation status from tenant context
+  const latestCalc = tenantCtx?.calculatedPeriods?.[tenantCtx.calculatedPeriods.length - 1];
+  const reconStatus = latestCalc?.hasReconciliation
+    ? latestCalc.reconciliationMatch != null && latestCalc.reconciliationMatch >= 0
+      ? `${latestCalc.reconciliationMatch.toFixed(2)}% match against ground truth`
+      : 'Reconciliation completed'
+    : 'No reconciliation run yet for this period';
+
+  // OB-170: Derive impact text from lifecycle state
+  const lifecycleState = data.lifecycle?.currentState;
+  const impactText = lifecycleState === 'DRAFT'
+    ? 'Advancing to Preview makes results visible for review.'
+    : lifecycleState === 'PREVIEW' && !latestCalc?.hasReconciliation
+      ? 'Running reconciliation verifies accuracy against external source.'
+      : lifecycleState === 'PREVIEW'
+        ? 'Advancing to Official freezes results for audit.'
+        : lifecycleState === 'OFFICIAL'
+          ? 'Submitting for approval starts the review workflow.'
+          : undefined;
+
   return (
     <div className="space-y-4">
       {/* 1. System Health — hero, full width */}
@@ -255,11 +289,49 @@ function AdminStream({
           nextAction={data.lifecycle?.nextAction ?? null}
           nextLifecycleState={data.lifecycle?.currentState ?? null}
           formatCurrency={formatCurrency}
-          onAction={() => onInteract('system_health', 'act')}
+          onAction={() => {
+            onInteract('system_health', 'act');
+            if (data.lifecycle?.nextAction?.route) {
+              router.push(data.lifecycle.nextAction.route);
+            }
+          }}
+          reconciliationStatus={reconStatus}
+          impactText={impactText}
         />
       )}
 
-      {/* 2. Bloodwork — only if items exist */}
+      {/* OB-170: 2. Action Required — uncalculated periods with data */}
+      {tenantCtx && tenantCtx.uncalculatedPeriodsWithData.length > 0 && (
+        <ActionRequiredCard
+          accentColor={accentColor}
+          periods={tenantCtx.uncalculatedPeriodsWithData}
+          calculatedPeriodCount={tenantCtx.calculatedPeriods.length}
+          latestCalculatedLabel={latestCalc?.label}
+          latestCalculatedTotal={latestCalc?.totalPayout}
+          formatCurrency={formatCurrency}
+          onCalculate={(periodId) => {
+            onInteract('action_required', 'act');
+            router.push(`/operate/calculate?periodId=${periodId}`);
+          }}
+        />
+      )}
+
+      {/* OB-170: 3. Pipeline Readiness — empty periods needing import */}
+      {tenantCtx && tenantCtx.emptyPeriods.length > 0 && (
+        <PipelineReadinessCard
+          accentColor={accentColor}
+          periods={tenantCtx.emptyPeriods}
+          periodsWithDataCount={
+            tenantCtx.calculatedPeriods.length + tenantCtx.uncalculatedPeriodsWithData.length
+          }
+          onImport={() => {
+            onInteract('pipeline_readiness', 'act');
+            router.push('/operate/import');
+          }}
+        />
+      )}
+
+      {/* 4. Bloodwork — only if items exist */}
       {data.bloodworkItems && data.bloodworkItems.length > 0 && (
         <BloodworkCard
           accentColor={accentColor}
@@ -268,18 +340,23 @@ function AdminStream({
         />
       )}
 
-      {/* 3. Lifecycle — stepper */}
+      {/* 5. Lifecycle — stepper */}
       {data.lifecycle && (
         <LifecycleCard
           accentColor={accentColor}
           stages={data.lifecycle.stages}
           currentState={data.lifecycle.currentState}
           nextAction={data.lifecycle.nextAction}
-          onAction={() => onInteract('lifecycle', 'act')}
+          onAction={() => {
+            onInteract('lifecycle', 'act');
+            if (data.lifecycle?.nextAction?.route) {
+              router.push(data.lifecycle.nextAction.route);
+            }
+          }}
         />
       )}
 
-      {/* 4-5. Two-column grid: Optimization + Distribution */}
+      {/* 6-7. Two-column grid: Optimization + Distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {data.optimizationOpportunities && data.optimizationOpportunities.length > 0 && (
           <OptimizationCard
@@ -298,6 +375,12 @@ function AdminStream({
             median={data.distribution.median}
             stdDev={data.distribution.stdDev}
             formatCurrency={formatCurrency}
+            isFirstPeriod={(tenantCtx?.calculatedPeriods.length ?? 0) <= 1}
+            entityCount={data.systemHealth?.entityCount}
+            onViewEntities={() => {
+              onInteract('distribution', 'act');
+              router.push('/operate/lifecycle');
+            }}
           />
         )}
       </div>

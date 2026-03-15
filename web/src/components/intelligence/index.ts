@@ -29,6 +29,10 @@ export { AllocationCard } from './AllocationCard';
 export { ComponentBreakdownCard } from './ComponentBreakdownCard';
 export { RelativePositionCard } from './RelativePositionCard';
 
+// OB-170: State-driven cards
+export { ActionRequiredCard } from './ActionRequiredCard';
+export { PipelineReadinessCard } from './PipelineReadinessCard';
+
 // Pre-existing components
 export { InsightPanel } from './InsightPanel';
 export { NextAction } from './NextAction';
