@@ -33,6 +33,9 @@ export { RelativePositionCard } from './RelativePositionCard';
 export { ActionRequiredCard } from './ActionRequiredCard';
 export { PipelineReadinessCard } from './PipelineReadinessCard';
 
+// OB-172: Trajectory intelligence
+export { TrajectoryCard } from './TrajectoryCard';
+
 // Pre-existing components
 export { InsightPanel } from './InsightPanel';
 export { NextAction } from './NextAction';

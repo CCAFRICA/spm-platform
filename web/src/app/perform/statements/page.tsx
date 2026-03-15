@@ -24,7 +24,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, FileText, ChevronDown, User } from 'lucide-react';
+import { Loader2, FileText, ChevronDown, User, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { computeVelocity, classifyTrend, type TrajectoryTrend } from '@/lib/intelligence/trajectory-service';
 
 // ──────────────────────────────────────────────
 // Types
@@ -95,6 +96,7 @@ export default function StatementsPage() {
   const [showEntityPicker, setShowEntityPicker] = useState(false);
   const [entitySearch, setEntitySearch] = useState('');
   const [showTransactions, setShowTransactions] = useState(false);
+  const [entityTrajectory, setEntityTrajectory] = useState<Array<{ periodLabel: string; totalPayout: number; components: Record<string, number> }> | null>(null);
 
   // Load entities and periods
   const loadOptions = useCallback(async () => {
@@ -241,6 +243,61 @@ export default function StatementsPage() {
         rowData: (t.row_data as Record<string, unknown>) || {},
       }))
     );
+
+    // OB-172: Load entity trajectory (all periods for this entity)
+    const { data: allBatches } = await supabase
+      .from('calculation_batches')
+      .select('id, period_id')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false });
+
+    const latestPerPeriod = new Map<string, string>();
+    for (const b of allBatches || []) {
+      if (!latestPerPeriod.has(b.period_id)) latestPerPeriod.set(b.period_id, b.id);
+    }
+
+    if (latestPerPeriod.size >= 2) {
+      const batchIds = Array.from(latestPerPeriod.values());
+      const { data: allEntityResults } = await supabase
+        .from('calculation_results')
+        .select('batch_id, total_payout, components')
+        .eq('entity_id', selectedEntityId)
+        .in('batch_id', batchIds);
+
+      if (allEntityResults && allEntityResults.length >= 2) {
+        const periodLabels = new Map<string, { label: string; startDate: string }>();
+        for (const p of periods) {
+          periodLabels.set(p.id, { label: p.label, startDate: p.startDate });
+        }
+
+        const batchToPeriod = new Map<string, string>();
+        Array.from(latestPerPeriod.entries()).forEach(([pid, bid]) => {
+          batchToPeriod.set(bid, pid);
+        });
+
+        const trajData = allEntityResults.map(r => {
+          const pid = batchToPeriod.get(r.batch_id) || '';
+          const pInfo = periodLabels.get(pid);
+          const comps: Record<string, number> = {};
+          const components = Array.isArray(r.components) ? r.components as Array<{ componentName?: string; payout?: number }> : [];
+          for (const c of components) {
+            comps[c.componentName || 'unknown'] = Number(c.payout || 0);
+          }
+          return {
+            periodLabel: pInfo?.label || '',
+            startDate: pInfo?.startDate || '',
+            totalPayout: Number(r.total_payout),
+            components: comps,
+          };
+        }).sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+
+        setEntityTrajectory(trajData);
+      } else {
+        setEntityTrajectory(null);
+      }
+    } else {
+      setEntityTrajectory(null);
+    }
   }, [tenantId, selectedEntityId, selectedPeriodId, periods]);
 
   useEffect(() => { loadStatement(); }, [loadStatement]);
@@ -434,6 +491,43 @@ export default function StatementsPage() {
                 </table>
               </div>
             </div>
+
+            {/* OB-172: Entity Trajectory */}
+            {entityTrajectory && entityTrajectory.length >= 2 && (() => {
+              const values = entityTrajectory.map(p => p.totalPayout);
+              const vel = computeVelocity(values);
+              const trend: TrajectoryTrend = classifyTrend(vel, null);
+              const TrendIcon = trend === 'accelerating' ? TrendingUp : trend === 'decelerating' ? TrendingDown : Minus;
+              const trendColor = trend === 'accelerating' ? 'text-emerald-400' : trend === 'decelerating' ? 'text-rose-400' : 'text-zinc-400';
+
+              return (
+                <div className="rounded-lg bg-zinc-900/50 border border-zinc-800/60 p-5">
+                  <p className="text-[11px] uppercase tracking-wider font-medium text-slate-400 mb-3">
+                    Your Trajectory
+                  </p>
+                  <div className="flex items-center gap-3 mb-3">
+                    {entityTrajectory.map((p, i) => (
+                      <span key={i} className="text-sm">
+                        {i > 0 && <span className="text-zinc-600 mx-1">→</span>}
+                        <span className="text-zinc-300">{p.periodLabel}:</span>{' '}
+                        <span className="font-mono text-zinc-100">{formatCurrency(p.totalPayout)}</span>
+                      </span>
+                    ))}
+                  </div>
+                  {vel !== null && (
+                    <div className="flex items-center gap-2">
+                      <TrendIcon className={`h-4 w-4 ${trendColor}`} />
+                      <span className={`text-sm font-medium ${trendColor}`}>
+                        {vel >= 0 ? '+' : ''}{formatCurrency(vel)}/period
+                      </span>
+                      <span className="text-xs text-zinc-500 ml-2">
+                        Based on {entityTrajectory.length} periods
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Source Transactions */}
             {transactions.length > 0 && (
