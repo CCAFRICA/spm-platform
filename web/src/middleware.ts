@@ -15,6 +15,9 @@
  * Fix: All redirect responses are fresh NextResponse.redirect() objects.
  * When user is NOT authenticated, ALL auth cookies (sb-* AND vialuce-tenant-id)
  * are explicitly cleared on the redirect response so the browser arrives clean.
+ *
+ * HF-138: Cache-Control: private, no-store on ALL responses. Prevents Vercel
+ * edge from caching responses with Set-Cookie headers (auth cookie poisoning).
  */
 
 import { createServerClient } from '@supabase/ssr';
@@ -23,9 +26,6 @@ import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/a
 
 // Paths that don't require authentication
 // HF-136: SECURITY — Only truly public paths listed here.
-// API routes that process tenant data MUST require authentication.
-// Previously included /api/calculation/run, /api/intelligence/*, /api/import/sci
-// which allowed unauthenticated access to sensitive operations.
 const PUBLIC_PATHS = [
   '/login',
   '/signup',
@@ -37,10 +37,6 @@ const PUBLIC_PATHS = [
   '/unauthorized',
 ];
 
-/**
- * Check if a path is in a restricted workspace (needs capability check).
- * DS-014: Uses WORKSPACE_CAPABILITIES from permissions.ts — single source of truth.
- */
 function isRestrictedWorkspace(pathname: string): boolean {
   return Object.keys(WORKSPACE_CAPABILITIES).some(prefix => pathname.startsWith(prefix));
 }
@@ -50,9 +46,21 @@ function isPublicPath(pathname: string): boolean {
 }
 
 /**
+ * HF-138: Prevent Vercel edge from caching responses with Set-Cookie headers.
+ * Supabase SSR writes auth cookies via setAll on every response. Without
+ * Cache-Control: private, no-store, Vercel caches these responses and serves
+ * them to different users — causing auth cookie cache poisoning.
+ * https://supabase.com/docs/guides/auth/server-side/advanced-guide
+ */
+function noCacheResponse(response: NextResponse): NextResponse {
+  response.headers.set('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+  response.headers.set('Pragma', 'no-cache');
+  response.headers.set('Expires', '0');
+  return response;
+}
+
+/**
  * Clear ALL auth-related cookies on a response.
- * Clears: sb-* (Supabase auth tokens) + vialuce-tenant-id (tenant selection).
- * Sets each cookie to empty with maxAge=0 so the browser deletes them.
  */
 function clearAuthCookies(request: NextRequest, response: NextResponse): void {
   request.cookies.getAll().forEach(cookie => {
@@ -68,27 +76,20 @@ function clearAuthCookies(request: NextRequest, response: NextResponse): void {
 }
 
 export async function middleware(request: NextRequest) {
-  // If Supabase is not configured, auth enforcement is impossible.
-  // FAIL-CLOSED: redirect to /landing instead of passing through.
-  // A missing env var must NEVER silently disable the entire auth layer.
+  // If Supabase is not configured, fail-closed.
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   ) {
-    console.error(
-      '[Middleware] CRITICAL: NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY missing — blocking access'
-    );
+    console.error('[Middleware] CRITICAL: Supabase env vars missing — blocking access');
     const pathname = request.nextUrl.pathname;
-    // Allow public paths through so /landing, /login, /signup still render
     if (isPublicPath(pathname)) {
-      return NextResponse.next({ request });
+      return noCacheResponse(NextResponse.next({ request }));
     }
-    // Everything else → redirect to /landing (fail-closed)
-    return NextResponse.redirect(new URL('/landing', request.url));
+    return noCacheResponse(NextResponse.redirect(new URL('/landing', request.url)));
   }
 
   // Response object for authenticated pass-through (carries cookie refresh).
-  // The Supabase client's setAll handler writes refreshed tokens to THIS response.
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -112,17 +113,7 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // AUTH GATE — HF-059/HF-061/HF-070
-  // This is the ONLY location for auth redirect logic.
-  // DO NOT add auth redirects in layouts, components, or other middleware.
-  // DO NOT add redirects that fire before auth session hydrates.
-  // DO NOT create Supabase sessions in API routes using service role client.
-  // See: CC Failure Pattern — Auth Bypass/Redirect Loop (4x regression)
-  //
-  // Refresh session and get user — may trigger setAll (token refresh).
-  // CRITICAL: Wrap in try/catch WITH timeout. If Supabase is unreachable
-  // or slow (Edge Function timeout on Vercel), the middleware must
-  // FAIL-CLOSED: redirect to /login, NOT pass through unguarded.
+  // AUTH GATE — Refresh session and get user
   const AUTH_TIMEOUT_MS = 5000;
   let user = null;
   try {
@@ -135,14 +126,12 @@ export async function middleware(request: NextRequest) {
     user = result.data.user;
   } catch (err) {
     console.error('[Middleware] getUser() failed or timed out — treating as unauthenticated:', err);
-    // Fall through with user=null → will redirect to /landing or /login
   }
 
   const pathname = request.nextUrl.pathname;
 
   // ── NOT AUTHENTICATED ──
   if (!user) {
-    // Root path without auth → route based on landing_page_enabled flag
     if (pathname === '/') {
       let landingEnabled = false;
       try {
@@ -152,7 +141,6 @@ export async function middleware(request: NextRequest) {
           landingEnabled = flags.landing_page_enabled === true;
         }
       } catch {
-        // On error, default to login (safe default)
         landingEnabled = false;
       }
 
@@ -161,46 +149,37 @@ export async function middleware(request: NextRequest) {
         : new URL('/login', request.url);
       const redirectResponse = NextResponse.redirect(targetUrl);
       clearAuthCookies(request, redirectResponse);
-      return redirectResponse;
+      return noCacheResponse(redirectResponse);
     }
 
     if (!isPublicPath(pathname)) {
-      // HF-056: API routes return 401 JSON, not 307 redirect.
-      // API clients expect JSON error responses, not HTML redirects.
       if (pathname.startsWith('/api/')) {
-        return NextResponse.json(
+        return noCacheResponse(NextResponse.json(
           { error: 'Unauthorized', message: 'Authentication required' },
           { status: 401 }
-        );
+        ));
       }
 
-      // Protected path, no user → redirect to /login.
-      // CRITICAL: Fresh NextResponse.redirect() — NOT supabaseResponse.
-      // Clear all stale sb-* cookies so the browser arrives at /login clean.
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       const redirectResponse = NextResponse.redirect(loginUrl);
       clearAuthCookies(request, redirectResponse);
-      return redirectResponse;
+      return noCacheResponse(redirectResponse);
     }
 
     // Public path, no user → pass through, but clear stale cookies.
-    // This prevents: GET /login with stale cookies → getUser() refreshes
-    // on a subsequent request → middleware thinks user is authenticated.
     const passThrough = NextResponse.next({ request });
     clearAuthCookies(request, passThrough);
-    return passThrough;
+    return noCacheResponse(passThrough);
   }
 
   // ── AUTHENTICATED ──
 
-  // OB-73 Mission 3 / F-14, F-22: Authenticated user on /login or / → redirect to role-appropriate workspace
   if (pathname === '/login' || pathname === '/') {
-    // HF-059: If arriving at /login with a ?redirect param, honor it (unless it points back to /login)
     if (pathname === '/login') {
       const redirectParam = request.nextUrl.searchParams.get('redirect');
       if (redirectParam && redirectParam !== '/login' && !redirectParam.startsWith('/login')) {
-        return NextResponse.redirect(new URL(redirectParam, request.url));
+        return noCacheResponse(NextResponse.redirect(new URL(redirectParam, request.url)));
       }
     }
 
@@ -215,12 +194,11 @@ export async function middleware(request: NextRequest) {
     const isPlatformAdmin = resolvedLoginRole === 'platform' || capabilities.includes('manage_tenants');
 
     if (isPlatformAdmin) {
-      // HF-057: If VL Admin already selected a tenant (cookie set), go to admin landing
       const tenantCookie = request.cookies.get('vialuce-tenant-id')?.value;
       if (tenantCookie) {
-        return NextResponse.redirect(new URL('/operate', request.url));
+        return noCacheResponse(NextResponse.redirect(new URL('/operate', request.url)));
       }
-      return NextResponse.redirect(new URL('/select-tenant', request.url));
+      return noCacheResponse(NextResponse.redirect(new URL('/select-tenant', request.url)));
     }
 
     // HF-137: Decision 128 — /stream is the canonical landing for ALL roles
@@ -233,19 +211,15 @@ export async function middleware(request: NextRequest) {
       support: '/stream',
     };
 
-    const defaultPath = roleDefaults[profile?.role || ''] || '/perform';
-    return NextResponse.redirect(new URL(defaultPath, request.url));
+    const defaultPath = roleDefaults[profile?.role || ''] || '/stream';
+    return noCacheResponse(NextResponse.redirect(new URL(defaultPath, request.url)));
   }
 
   // ── DS-014: CAPABILITY-BASED WORKSPACE AUTHORIZATION ──
-  // Uses canAccessWorkspace from permissions.ts — single source of truth.
-  // Handles role aliases (vl_admin → platform, tenant_admin → admin, etc.)
   if (isRestrictedWorkspace(pathname)) {
-    // Try to get role from user_metadata first (zero DB calls)
     let role = user.user_metadata?.role as string | undefined
       || user.app_metadata?.role as string | undefined;
 
-    // If role not in metadata, query profiles table (one DB call)
     if (!role) {
       try {
         const { data: profile } = await supabase
@@ -259,26 +233,22 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // If we have a role, check capability-based access
-    // resolveRole handles aliases (vl_admin → platform, tenant_admin → admin)
     if (role) {
       const resolved = resolveRole(role);
       const roleToCheck = resolved || role;
       if (!canAccessWorkspace(roleToCheck, pathname)) {
-        return NextResponse.redirect(new URL('/unauthorized', request.url));
+        return noCacheResponse(NextResponse.redirect(new URL('/unauthorized', request.url)));
       }
     }
-    // If no role found, allow through — client-side RequireCapability will catch
   }
 
   // Authenticated user on protected route → pass through WITH cookie refresh.
-  // supabaseResponse carries the refreshed session cookies from setAll.
-  return supabaseResponse;
+  // HF-138: noCacheResponse prevents Vercel edge from caching the Set-Cookie headers.
+  return noCacheResponse(supabaseResponse);
 }
 
 export const config = {
   matcher: [
-    // Match all routes except static files and images
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
