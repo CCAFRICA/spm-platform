@@ -223,15 +223,14 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/select-tenant', request.url));
     }
 
-    // HF-059: Role-based default landing pages — updated for OB-97 4-workspace model
-    // Eliminated routes: /insights → /perform, /investigate → /perform
+    // HF-137: Decision 128 — /stream is the canonical landing for ALL roles
     const roleDefaults: Record<string, string> = {
-      admin: '/operate',
-      tenant_admin: '/operate',
-      manager: '/perform',
-      viewer: '/perform',
-      sales_rep: '/perform',
-      support: '/perform',
+      admin: '/stream',
+      tenant_admin: '/stream',
+      manager: '/stream',
+      viewer: '/stream',
+      sales_rep: '/stream',
+      support: '/stream',
     };
 
     const defaultPath = roleDefaults[profile?.role || ''] || '/perform';
