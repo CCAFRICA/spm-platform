@@ -10,6 +10,7 @@
  */
 
 import { createClient } from '@/lib/supabase/client';
+import type { PeriodSnapshot, EntityPeriodData } from './trajectory-service';
 
 // ──────────────────────────────────────────────
 // Types
@@ -257,5 +258,167 @@ export async function getStateReader(tenantId: string): Promise<TenantContext> {
     crlTier,
     mostRelevantPeriod,
     hasTrajectoryData: calculatedPeriods.length >= 3,
+  };
+}
+
+// ──────────────────────────────────────────────
+// Trajectory Data Loader (OB-172)
+// ──────────────────────────────────────────────
+
+export async function loadTrajectoryData(tenantId: string): Promise<{
+  snapshots: PeriodSnapshot[];
+  entityData: Map<string, { externalId: string; displayName: string; periods: EntityPeriodData[] }>;
+}> {
+  const supabase = createClient();
+
+  // Get ALL calculation batches with period info
+  const { data: batches } = await supabase
+    .from('calculation_batches')
+    .select('id, period_id, entity_count, summary')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false });
+
+  // Deduplicate: keep latest batch per period
+  const latestBatchPerPeriod = new Map<string, typeof batches extends (infer T)[] | null ? T : never>();
+  for (const batch of batches || []) {
+    if (!latestBatchPerPeriod.has(batch.period_id)) {
+      latestBatchPerPeriod.set(batch.period_id, batch);
+    }
+  }
+
+  if (latestBatchPerPeriod.size === 0) {
+    return { snapshots: [], entityData: new Map() };
+  }
+
+  // Get period details
+  const periodIds = Array.from(latestBatchPerPeriod.keys());
+  const { data: periodRows } = await supabase
+    .from('periods')
+    .select('id, label, start_date')
+    .in('id', periodIds);
+
+  const periodMap = new Map((periodRows || []).map(p => [p.id, p]));
+
+  // Get results for all batches
+  const batchIds = Array.from(latestBatchPerPeriod.values()).map(b => b.id);
+  const allResults: Array<{ batch_id: string; entity_id: string; total_payout: number; components: unknown }> = [];
+
+  for (let i = 0; i < batchIds.length; i += 5) {
+    const chunk = batchIds.slice(i, i + 5);
+    const { data } = await supabase
+      .from('calculation_results')
+      .select('batch_id, entity_id, total_payout, components')
+      .eq('tenant_id', tenantId)
+      .in('batch_id', chunk);
+    if (data) allResults.push(...data);
+  }
+
+  // Get entity details for all entities in results
+  const entityIds = Array.from(new Set(allResults.map(r => r.entity_id)));
+  const entityDetails = new Map<string, { externalId: string; displayName: string }>();
+
+  for (let i = 0; i < entityIds.length; i += 200) {
+    const chunk = entityIds.slice(i, i + 200);
+    const { data } = await supabase
+      .from('entities')
+      .select('id, external_id, display_name')
+      .in('id', chunk);
+    if (data) {
+      for (const e of data) {
+        entityDetails.set(e.id, { externalId: e.external_id || '', displayName: e.display_name });
+      }
+    }
+  }
+
+  // Build batch-to-period mapping
+  const batchToPeriod = new Map<string, string>();
+  Array.from(latestBatchPerPeriod.entries()).forEach(([periodId, batch]) => {
+    batchToPeriod.set(batch.id, periodId);
+  });
+
+  // Build snapshots (aggregated per period)
+  const snapshotMap = new Map<string, PeriodSnapshot>();
+  for (const r of allResults) {
+    const periodId = batchToPeriod.get(r.batch_id);
+    if (!periodId) continue;
+
+    const period = periodMap.get(periodId);
+    if (!period) continue;
+
+    if (!snapshotMap.has(periodId)) {
+      snapshotMap.set(periodId, {
+        periodId,
+        periodLabel: period.label,
+        startDate: period.start_date,
+        totalPayout: 0,
+        entityCount: 0,
+        componentTotals: {},
+      });
+    }
+
+    const snapshot = snapshotMap.get(periodId)!;
+    snapshot.totalPayout += Number(r.total_payout);
+    snapshot.entityCount += 1;
+
+    // Parse components JSONB
+    const components = Array.isArray(r.components) ? r.components as Array<{ componentName?: string; payout?: number }> : [];
+    for (const c of components) {
+      const name = c.componentName || 'unknown';
+      snapshot.componentTotals[name] = (snapshot.componentTotals[name] || 0) + Number(c.payout || 0);
+    }
+  }
+
+  // Build entity data (per entity, per period)
+  const entityData = new Map<string, { externalId: string; displayName: string; periods: EntityPeriodData[] }>();
+
+  // Group results by entity
+  const resultsByEntity = new Map<string, typeof allResults>();
+  for (const r of allResults) {
+    if (!resultsByEntity.has(r.entity_id)) resultsByEntity.set(r.entity_id, []);
+    resultsByEntity.get(r.entity_id)!.push(r);
+  }
+
+  for (const [entityId, results] of Array.from(resultsByEntity.entries())) {
+    const details = entityDetails.get(entityId);
+    if (!details) continue;
+
+    // Sort by period start_date
+    const periodData: EntityPeriodData[] = [];
+    for (const r of results) {
+      const periodId = batchToPeriod.get(r.batch_id);
+      if (!periodId) continue;
+      const period = periodMap.get(periodId);
+      if (!period) continue;
+
+      const components: Record<string, number> = {};
+      const comps = Array.isArray(r.components) ? r.components as Array<{ componentName?: string; payout?: number }> : [];
+      for (const c of comps) {
+        components[c.componentName || 'unknown'] = Number(c.payout || 0);
+      }
+
+      periodData.push({
+        periodLabel: period.label,
+        totalPayout: Number(r.total_payout),
+        components,
+      });
+    }
+
+    // Sort by period start date
+    periodData.sort((a, b) => {
+      const pa = Array.from(periodMap.values()).find(p => p.label === a.periodLabel);
+      const pb = Array.from(periodMap.values()).find(p => p.label === b.periodLabel);
+      return (pa?.start_date || '').localeCompare(pb?.start_date || '');
+    });
+
+    entityData.set(entityId, {
+      externalId: details.externalId,
+      displayName: details.displayName,
+      periods: periodData,
+    });
+  }
+
+  return {
+    snapshots: Array.from(snapshotMap.values()),
+    entityData,
   };
 }

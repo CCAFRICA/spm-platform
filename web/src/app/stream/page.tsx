@@ -27,7 +27,8 @@ import {
   loadIntelligenceStream,
   type IntelligenceStreamData,
 } from '@/lib/data/intelligence-stream-loader';
-import { getStateReader, type TenantContext } from '@/lib/intelligence/state-reader';
+import { getStateReader, loadTrajectoryData, type TenantContext } from '@/lib/intelligence/state-reader';
+import { computePopulationTrajectory, type PopulationTrajectory } from '@/lib/intelligence/trajectory-service';
 import { captureStreamSignal, flushPendingStreamSignals } from '@/lib/signals/stream-signals';
 import {
   SystemHealthCard,
@@ -44,6 +45,7 @@ import {
   RelativePositionCard,
   ActionRequiredCard,
   PipelineReadinessCard,
+  TrajectoryCard,
 } from '@/components/intelligence';
 import { Loader2, Zap } from 'lucide-react';
 
@@ -64,6 +66,7 @@ export default function StreamPage() {
 
   const [data, setData] = useState<IntelligenceStreamData | null>(null);
   const [tenantCtx, setTenantCtx] = useState<TenantContext | null>(null);
+  const [trajectoryData, setTrajectoryData] = useState<PopulationTrajectory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +98,19 @@ export default function StreamPage() {
       ]);
       setData(result);
       setTenantCtx(ctx);
+
+      // OB-172: Load trajectory data if 2+ calculated periods
+      if (ctx && ctx.calculatedPeriods.length >= 2) {
+        try {
+          const trajData = await loadTrajectoryData(tenantId);
+          if (trajData.snapshots.length >= 2) {
+            const trajectory = computePopulationTrajectory(trajData.snapshots, trajData.entityData);
+            setTrajectoryData(trajectory);
+          }
+        } catch (trajErr) {
+          console.warn('[IntelligenceStream] Trajectory load failed (non-blocking):', trajErr);
+        }
+      }
     } catch (err) {
       console.error('[IntelligenceStream] Load error:', err);
       setError(err instanceof Error ? err.message : 'Failed to load intelligence stream');
@@ -222,7 +238,7 @@ export default function StreamPage() {
 
         {/* Intelligence Stream — persona-specific rendering */}
         {persona === 'admin' && (
-          <AdminStream data={data} tenantCtx={tenantCtx} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
+          <AdminStream data={data} tenantCtx={tenantCtx} trajectoryData={trajectoryData} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
         )}
         {persona === 'manager' && (
           <ManagerStream data={data} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
@@ -243,12 +259,14 @@ export default function StreamPage() {
 function AdminStream({
   data,
   tenantCtx,
+  trajectoryData,
   accentColor,
   formatCurrency,
   onInteract,
 }: {
   data: IntelligenceStreamData;
   tenantCtx: TenantContext | null;
+  trajectoryData: PopulationTrajectory | null;
   accentColor: string;
   formatCurrency: (n: number) => string;
   onInteract: (elementId: string, action: 'click' | 'expand' | 'act') => void;
@@ -331,7 +349,20 @@ function AdminStream({
         />
       )}
 
-      {/* 4. Bloodwork — only if items exist */}
+      {/* OB-172: 4. Trajectory Intelligence — 2+ calculated periods */}
+      {trajectoryData && trajectoryData.periods.length >= 2 && (
+        <TrajectoryCard
+          accentColor={accentColor}
+          trajectory={trajectoryData}
+          formatCurrency={formatCurrency}
+          onViewEntities={() => {
+            onInteract('trajectory', 'act');
+            router.push('/operate/lifecycle');
+          }}
+        />
+      )}
+
+      {/* 5. Bloodwork — only if items exist */}
       {data.bloodworkItems && data.bloodworkItems.length > 0 && (
         <BloodworkCard
           accentColor={accentColor}
