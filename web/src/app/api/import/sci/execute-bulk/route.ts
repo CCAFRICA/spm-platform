@@ -163,21 +163,35 @@ export async function POST(req: NextRequest) {
         const parts = unit.contentUnitId.split('::');
         const tabName = parts[1] || 'Sheet1';
 
-        const sheetData = sheetDataMap.get(tabName);
+        let sheetData = sheetDataMap.get(tabName);
         if (!sheetData || sheetData.rows.length === 0) {
           // Try case-insensitive match
           const match = Array.from(sheetDataMap.entries()).find(
             ([name]) => name.toLowerCase() === tabName.toLowerCase()
           );
-          if (!match || match[1].rows.length === 0) {
-            results.push({
-              contentUnitId: unit.contentUnitId,
-              classification: unit.confirmedClassification,
-              success: true,
-              rowsProcessed: 0,
-              pipeline: unit.confirmedClassification,
-            });
-            continue;
+          if (match && match[1].rows.length > 0) {
+            // HF-137: Assign matched sheet data back — was falling through with null sheetData
+            sheetData = match[1];
+          } else {
+            // HF-137: If only 1 sheet exists, use it regardless of name (unambiguous)
+            if (sheetDataMap.size === 1) {
+              const onlySheet = Array.from(sheetDataMap.values())[0];
+              if (onlySheet && onlySheet.rows.length > 0) {
+                sheetData = onlySheet;
+                console.log(`[SCI Bulk] Sheet name mismatch: "${tabName}" not found. Using only available sheet (${onlySheet.rows.length} rows)`);
+              }
+            }
+            if (!sheetData || sheetData.rows.length === 0) {
+              console.warn(`[SCI Bulk] No sheet data found for tab "${tabName}" (available: ${Array.from(sheetDataMap.keys()).join(', ')})`);
+              results.push({
+                contentUnitId: unit.contentUnitId,
+                classification: unit.confirmedClassification,
+                success: true,
+                rowsProcessed: 0,
+                pipeline: unit.confirmedClassification,
+              });
+              continue;
+            }
           }
         }
 

@@ -207,9 +207,12 @@ export async function loadIntelligenceStream(
   const allPeriods = periodsRes.data ?? [];
   const allBatches = allBatchesRes.data ?? [];
 
-  // Resolve current period: most recent open, fallback to most recent any
-  const openPeriod = allPeriods.find(p => p.status === 'open');
-  const currentPeriod = openPeriod ?? allPeriods[0] ?? null;
+  // HF-137: Resolve current period: most recent period WITH a calculation batch.
+  // Previously picked newest "open" period (e.g., March 2026) which had no batch,
+  // causing "No Intelligence Available" even when October had $44,590 calculated.
+  const batchPeriodIds = new Set(allBatches.map(b => b.period_id));
+  const periodWithBatch = allPeriods.find(p => batchPeriodIds.has(p.id));
+  const currentPeriod = periodWithBatch ?? allPeriods[0] ?? null;
 
   if (!currentPeriod) {
     return emptyStreamData(persona, tenantName, currency, locale);
