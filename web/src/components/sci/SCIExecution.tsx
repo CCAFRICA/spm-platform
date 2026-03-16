@@ -52,6 +52,7 @@ interface SCIExecutionProps {
   tenantId: string;
   rawData: ParsedFileData;
   storagePath?: string; // OB-156: File storage path for bulk server-side processing
+  storagePaths?: Record<string, string>; // HF-140: Per-file storage paths (fileName → path)
   onComplete: (result: SCIExecutionResult) => void;
   onUploadMore: () => void;
 }
@@ -117,6 +118,7 @@ export function SCIExecution({
   tenantId,
   rawData,
   storagePath,
+  storagePaths,
   onComplete,
   onUploadMore,
 }: SCIExecutionProps) {
@@ -149,8 +151,10 @@ export function SCIExecution({
     return () => clearInterval(interval);
   }, [executionDone, units]);
 
-  // OB-156: Bulk execution — sends storagePath to server, no row data in HTTP body
-  const executeBulk = useCallback(async (dataUnits: ExecutionUnit[]) => {
+  // OB-156/HF-140: Bulk execution — sends storagePath to server, no row data in HTTP body
+  // HF-140: Now accepts explicit path parameter for per-file isolation
+  const executeBulk = useCallback(async (dataUnits: ExecutionUnit[], bulkStoragePath?: string) => {
+    const effectivePath = bulkStoragePath || storagePath;
     // Mark all data units as processing
     setElapsedSeconds(0);
     setUnits(prev => prev.map(u =>
@@ -188,7 +192,7 @@ export function SCIExecution({
         body: JSON.stringify({
           proposalId: proposal.proposalId,
           tenantId,
-          storagePath,
+          storagePath: effectivePath,
           contentUnits: bulkUnits,
         }),
       });
@@ -401,9 +405,54 @@ export function SCIExecution({
       }
     }
 
-    // OB-156: Execute data units via bulk server-side processing
-    if (dataUnits.length > 0 && storagePath) {
-      await executeBulk(dataUnits);
+    // HF-140: Group data units by source file for per-file content isolation
+    if (dataUnits.length > 0 && (storagePaths && Object.keys(storagePaths).length > 0 || storagePath)) {
+      const fileGroups = new Map<string, ExecutionUnit[]>();
+      for (const unit of dataUnits) {
+        const proposalUnit = confirmedUnits.find(u => u.contentUnitId === unit.contentUnitId);
+        const sourceFile = proposalUnit?.sourceFile || '_default';
+        if (!fileGroups.has(sourceFile)) fileGroups.set(sourceFile, []);
+        fileGroups.get(sourceFile)!.push(unit);
+      }
+
+      for (const [sourceFile, groupUnits] of Array.from(fileGroups.entries())) {
+        const filePath = storagePaths?.[sourceFile] || storagePath;
+        if (filePath) {
+          await executeBulk(groupUnits, filePath);
+        } else {
+          // No storage path for this file — legacy fallback
+          for (const unit of groupUnits) {
+            setElapsedSeconds(0);
+            setUnits(prev => prev.map(u =>
+              u.contentUnitId === unit.contentUnitId
+                ? { ...u, status: 'processing' as const }
+                : u
+            ));
+            try {
+              const unitResult = await executeLegacyUnit(unit);
+              if (unitResult && unitResult.success) {
+                setUnits(prev => prev.map(u =>
+                  u.contentUnitId === unit.contentUnitId
+                    ? { ...u, status: 'complete' as const, result: unitResult }
+                    : u
+                ));
+              } else {
+                setUnits(prev => prev.map(u =>
+                  u.contentUnitId === unit.contentUnitId
+                    ? { ...u, status: 'error' as const, error: unitResult?.error || 'Unknown error', result: unitResult }
+                    : u
+                ));
+              }
+            } catch (err) {
+              setUnits(prev => prev.map(u =>
+                u.contentUnitId === unit.contentUnitId
+                  ? { ...u, status: 'error' as const, error: err instanceof Error ? err.message : 'Processing failed' }
+                  : u
+              ));
+            }
+          }
+        }
+      }
     } else if (dataUnits.length > 0) {
       // Fallback: no storagePath — use legacy execution for each data unit
       for (const unit of dataUnits) {
@@ -438,7 +487,7 @@ export function SCIExecution({
         }
       }
     }
-  }, [confirmedUnits, rawData, proposal.proposalId, tenantId, storagePath, executeBulk, executeLegacyUnit]);
+  }, [confirmedUnits, rawData, proposal.proposalId, tenantId, storagePath, storagePaths, executeBulk, executeLegacyUnit]);
 
   // Start execution on mount — OB-151: dual guard (module-level Set + useRef)
   useEffect(() => {
