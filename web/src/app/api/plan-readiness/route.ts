@@ -20,11 +20,16 @@ export async function GET(request: NextRequest) {
   // 'draft'. OB-151's pollPlanRecovery checks this endpoint to detect if the
   // server saved a plan despite the client connection dropping. Filtering only
   // 'active' caused recovery to never trigger (plans are draft on first save).
+  // DIAG-002: Sort active before draft so plans[0] is the active rule_set.
+  // Without this, the frontend picks plans[0].entityCount which could be 0
+  // from a draft plan with no assignments — showing "0 Entities Matched"
+  // even though the active plan has 85 assignments.
   const { data: ruleSets } = await supabase
     .from('rule_sets')
     .select('id, name, input_bindings, status')
     .eq('tenant_id', tenantId)
-    .in('status', ['active', 'draft']);
+    .in('status', ['active', 'draft'])
+    .order('status', { ascending: true });
 
   if (!ruleSets || ruleSets.length === 0) {
     return NextResponse.json({ plans: [] });
