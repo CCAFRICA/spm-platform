@@ -65,6 +65,7 @@ export function LifecycleCard({
       elementId="lifecycle-stepper"
       fullWidth
       onView={onView}
+      tier="status"
     >
       {/* Stepper */}
       <div className="flex items-center gap-0 overflow-x-auto pb-2">

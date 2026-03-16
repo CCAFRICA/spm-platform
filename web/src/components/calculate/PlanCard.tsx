@@ -16,6 +16,8 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +31,11 @@ export interface PlanReadiness {
   lastTotal: number | null;
 }
 
+interface ComponentSummary {
+  name: string;
+  total: number;
+}
+
 interface PlanCardProps {
   plan: PlanReadiness;
   periodId: string | null;
@@ -37,6 +44,7 @@ interface PlanCardProps {
   isSelected: boolean;
   onSelect: (planId: string) => void;
   onCalculateComplete: () => void;
+  priorPeriodTotal?: number | null;
 }
 
 export function PlanCard({
@@ -47,10 +55,13 @@ export function PlanCard({
   isSelected,
   onSelect,
   onCalculateComplete,
+  priorPeriodTotal,
 }: PlanCardProps) {
   const [isCalculating, setIsCalculating] = useState(false);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [calcSuccess, setCalcSuccess] = useState<string | null>(null);
+  const [componentBreakdown, setComponentBreakdown] = useState<ComponentSummary[] | null>(null);
+  const [calcTotal, setCalcTotal] = useState<number | null>(null);
 
   const isReady = plan.entityCount > 0 && plan.hasBindings && plan.dataRowCount > 0;
 
@@ -61,6 +72,8 @@ export function PlanCard({
     setIsCalculating(true);
     setCalcError(null);
     setCalcSuccess(null);
+    setComponentBreakdown(null);
+    setCalcTotal(null);
 
     try {
       const response = await fetch('/api/calculation/run', {
@@ -81,6 +94,25 @@ export function PlanCard({
         const count = result.entityCount || 0;
         const total = result.totalPayout || 0;
         setCalcSuccess(`${count} entities processed — ${formatCurrency(total)}`);
+        setCalcTotal(total);
+
+        // Extract component totals from results
+        if (result.results && Array.isArray(result.results)) {
+          const compMap = new Map<string, number>();
+          for (const entity of result.results) {
+            if (entity.components && Array.isArray(entity.components)) {
+              for (const comp of entity.components) {
+                compMap.set(comp.name, (compMap.get(comp.name) || 0) + comp.payout);
+              }
+            }
+          }
+          setComponentBreakdown(
+            Array.from(compMap.entries())
+              .map(([name, total]) => ({ name, total }))
+              .sort((a, b) => b.total - a.total)
+          );
+        }
+
         onCalculateComplete();
       }
     } catch (err) {
@@ -162,6 +194,58 @@ export function PlanCard({
           </div>
         )}
 
+        {/* Component breakdown (after calculation) */}
+        {componentBreakdown && componentBreakdown.length > 0 && (
+          <div className="mb-3 rounded-lg bg-zinc-800/40 border border-zinc-700/50 p-3">
+            <p className="text-[10px] uppercase tracking-wider text-zinc-400 mb-2 font-medium">Components</p>
+            <div className="space-y-1.5">
+              {componentBreakdown.map(comp => (
+                <div key={comp.name} className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-300 truncate mr-2">{comp.name}</span>
+                  <span className="font-mono tabular-nums text-zinc-200 shrink-0">
+                    {formatCurrency(comp.total)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {calcTotal != null && (
+              <div className="mt-2 pt-2 border-t border-zinc-700/50 flex items-center justify-between text-xs">
+                <span className="text-zinc-400 font-medium">Total</span>
+                <span className="font-mono tabular-nums text-emerald-400 font-semibold">
+                  {formatCurrency(calcTotal)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Period comparison */}
+        {calcTotal != null && (
+          <div className="mb-3 text-xs">
+            {priorPeriodTotal != null && priorPeriodTotal > 0 ? (() => {
+              const delta = calcTotal - priorPeriodTotal;
+              const deltaPct = (delta / priorPeriodTotal) * 100;
+              return (
+                <div className="flex items-center gap-1.5">
+                  {delta >= 0 ? (
+                    <TrendingUp className="w-3 h-3 text-emerald-400" />
+                  ) : (
+                    <TrendingDown className="w-3 h-3 text-rose-400" />
+                  )}
+                  <span className={cn(
+                    'font-medium',
+                    delta >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  )}>
+                    vs. {formatCurrency(priorPeriodTotal)} last period ({delta >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%)
+                  </span>
+                </div>
+              );
+            })() : (
+              <span className="text-zinc-500 italic">First calculation — no prior period</span>
+            )}
+          </div>
+        )}
+
         {/* Calculate button */}
         <Button
           size="sm"
@@ -203,7 +287,7 @@ export function PlanCard({
         {calcError && (
           <p className="text-xs text-red-400 mt-2">{calcError}</p>
         )}
-        {calcSuccess && (
+        {calcSuccess && !componentBreakdown && (
           <p className="text-xs text-emerald-400 mt-2">{calcSuccess}</p>
         )}
       </CardContent>

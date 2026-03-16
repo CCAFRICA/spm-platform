@@ -16,6 +16,7 @@ import { RequireCapability } from '@/components/auth/RequireCapability';
 import { OperateSelector } from '@/components/operate/OperateSelector';
 import { PlanCard, type PlanReadiness } from '@/components/calculate/PlanCard';
 import { loadResultsPageData, type ResultsPageData } from '@/lib/data/results-loader';
+import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -63,6 +64,7 @@ function CalculatePageInner() {
   const [storeFilter, setStoreFilter] = useState<string | null>(null);
   const [isCreatingPeriods, setIsCreatingPeriods] = useState(false);
   const [periodCreateError, setPeriodCreateError] = useState<string | null>(null);
+  const [priorPeriodTotals, setPriorPeriodTotals] = useState<Record<string, number>>({});
 
   const hasAccess = user && (isVLAdmin(user) || user.role === 'admin');
   const tenantId = currentTenant?.id || '';
@@ -204,6 +206,57 @@ function CalculatePageInner() {
     URL.revokeObjectURL(url);
   }, [resultsData]);
 
+  // Load prior period totals for period comparison
+  useEffect(() => {
+    if (!tenantId || !selectedPeriodId || periods.length < 2) {
+      setPriorPeriodTotals({});
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async () => {
+      const sorted = [...periods].sort((a, b) =>
+        (a.startDate || a.canonicalKey || '').localeCompare(b.startDate || b.canonicalKey || '')
+      );
+      const currentIdx = sorted.findIndex(p => p.id === selectedPeriodId);
+      if (currentIdx <= 0) {
+        setPriorPeriodTotals({});
+        return;
+      }
+      const priorPeriodId = sorted[currentIdx - 1].id;
+      const planIds = activePlans.map(p => p.id);
+      if (planIds.length === 0) return;
+
+      const supabase = createClient();
+      const { data: batches } = await supabase
+        .from('calculation_batches')
+        .select('rule_set_id, summary')
+        .eq('tenant_id', tenantId)
+        .eq('period_id', priorPeriodId)
+        .in('rule_set_id', planIds)
+        .is('superseded_by', null)
+        .order('created_at', { ascending: false });
+
+      if (cancelled) return;
+
+      const totals: Record<string, number> = {};
+      const seen = new Set<string>();
+      for (const b of (batches || [])) {
+        if (!b.rule_set_id || seen.has(b.rule_set_id)) continue;
+        seen.add(b.rule_set_id);
+        const summary = b.summary as Record<string, unknown> | null;
+        if (summary?.total_payout != null) {
+          totals[b.rule_set_id] = Number(summary.total_payout);
+        }
+      }
+      setPriorPeriodTotals(totals);
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [tenantId, selectedPeriodId, periods, activePlans]);
+
   // OB-153: Create periods from committed_data source dates
   const handleCreatePeriods = useCallback(async () => {
     if (!tenantId) return;
@@ -257,17 +310,17 @@ function CalculatePageInner() {
           </div>
         </div>
 
-        {/* Period selector (inline) */}
+        {/* Period selector (inline) — B2.3: enhanced readability */}
         <div className="flex items-center gap-3">
-          <span className="text-sm text-zinc-400">Period:</span>
+          <span className="text-sm font-medium text-zinc-300">Period:</span>
           {periods.length > 0 ? (
             <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); }}>
-              <SelectTrigger className="w-56">
+              <SelectTrigger className="w-64 h-10 text-sm font-semibold text-zinc-100">
                 <SelectValue placeholder="Select period" />
               </SelectTrigger>
               <SelectContent>
                 {periods.map(p => (
-                  <SelectItem key={p.id} value={p.id}>{p.label || p.canonicalKey}</SelectItem>
+                  <SelectItem key={p.id} value={p.id} className="text-sm font-medium">{p.label || p.canonicalKey}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -372,6 +425,7 @@ function CalculatePageInner() {
                   isSelected={selectedPlanId === plan.id}
                   onSelect={setSelectedPlanId}
                   onCalculateComplete={handleCalculateComplete}
+                  priorPeriodTotal={priorPeriodTotals[plan.id] ?? null}
                 />
               );
             })}

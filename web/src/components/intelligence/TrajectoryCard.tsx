@@ -38,7 +38,7 @@ export function TrajectoryCard({
   onView,
 }: TrajectoryCardProps) {
   const [showComparison, setShowComparison] = useState(false);
-  const { periods, velocity, acceleration, trend, componentTrajectories, topAccelerators, topDecliners, confidenceBasis, periodCount } = trajectory;
+  const { periods, velocity, trend, componentTrajectories, topAccelerators, topDecliners, confidenceBasis, periodCount } = trajectory;
 
   if (periods.length < 2) return null;
 
@@ -60,25 +60,42 @@ export function TrajectoryCard({
       fullWidth
       onView={onView}
     >
-      {/* Value: velocity or delta */}
+      {/* Value: velocity or delta — C2.3: with percentage growth rate + period range */}
       <div className="flex items-end justify-between">
         <div>
-          {isWarm && velocity !== null ? (
-            <>
-              <p className="text-2xl font-bold text-zinc-100 tracking-tight">
-                {velocity >= 0 ? '+' : ''}{formatCurrency(velocity)}<span className="text-base text-zinc-400">/period</span>
-              </p>
-              <div className="flex items-center gap-2 mt-1">
-                <TrendIcon className={`h-4 w-4 ${trendColor}`} />
-                <span className={`text-sm font-medium ${trendColor}`}>{trendLabel}</span>
-                {acceleration !== null && (
-                  <span className="text-xs text-zinc-500">
-                    Acceleration: {acceleration >= 0 ? '+' : ''}{formatCurrency(acceleration)}
+          {isWarm && velocity !== null ? (() => {
+            // Compute average percentage growth rate
+            const pctDeltas: number[] = [];
+            for (let i = 1; i < periods.length; i++) {
+              const prev = periods[i - 1].totalPayout;
+              if (prev > 0) {
+                pctDeltas.push(((periods[i].totalPayout - prev) / prev) * 100);
+              }
+            }
+            const avgGrowthPct = pctDeltas.length > 0
+              ? pctDeltas.reduce((a, b) => a + b, 0) / pctDeltas.length
+              : null;
+            const firstPeriod = periods[0];
+
+            return (
+              <>
+                <p className="text-2xl font-bold text-zinc-100 tracking-tight">
+                  {velocity >= 0 ? '+' : ''}{formatCurrency(velocity)}<span className="text-base text-zinc-400">/period</span>
+                  {avgGrowthPct !== null && (
+                    <span className="text-base text-zinc-400 ml-2">
+                      ({avgGrowthPct >= 0 ? '+' : ''}{avgGrowthPct.toFixed(1)}% avg growth)
+                    </span>
+                  )}
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <TrendIcon className={`h-4 w-4 ${trendColor}`} />
+                  <span className={`text-sm font-medium ${trendColor}`}>
+                    {trendLabel} — from {formatCurrency(firstPeriod.totalPayout)} to {formatCurrency(latest.totalPayout)} over {periods.length} periods
                   </span>
-                )}
-              </div>
-            </>
-          ) : (
+                </div>
+              </>
+            );
+          })() : (
             <>
               <p className="text-2xl font-bold text-zinc-100 tracking-tight">
                 {periodDelta >= 0 ? '+' : ''}{formatCurrency(periodDelta)}

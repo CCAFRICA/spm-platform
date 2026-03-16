@@ -45,6 +45,7 @@ export function BloodworkCard({
       elementId="bloodwork"
       fullWidth
       onView={onView}
+      tier="status"
     >
       <div className="space-y-2">
         {items.map((item, i) => (

@@ -54,6 +54,7 @@ export function ActionRequiredCard({
       elementId="action-required"
       fullWidth
       onView={onView}
+      tier="action"
     >
       {/* Value */}
       <p className="text-lg font-semibold text-slate-100">
