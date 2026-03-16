@@ -154,11 +154,11 @@ function ContentUnitCard({
             {displayBindings.length > 0 && ` — ${displayBindings.slice(0, 3).map(b => b.sourceField).join(', ')}...`}
           </p>
 
-          {/* SECTION: What I observe */}
+          {/* SECTION: Observations — OB-173: institutional voice */}
           {((unit.observations?.length || 0) > 0 || displayBindings.length > 0) && (
             <div>
               <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-                What I observe
+                Observations
               </h4>
               <div className="space-y-1.5">
                 {(unit.observations || []).map((obs, i) => (
@@ -184,20 +184,20 @@ function ContentUnitCard({
             </div>
           )}
 
-          {/* SECTION: Why I chose this classification */}
+          {/* SECTION: Classification Rationale */}
           <div>
             <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-              Why I chose this classification
+              Classification Rationale
             </h4>
             <p className="text-sm text-zinc-400">
               {unit.verdictSummary || unit.reasoning || 'Not available'}
             </p>
           </div>
 
-          {/* SECTION: What would change my mind */}
+          {/* SECTION: Reclassification Conditions */}
           <div>
             <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-              What would change my mind
+              Reclassification Conditions
             </h4>
             <div className="space-y-1">
               {(unit.whatChangesMyMind || []).map((w, i) => (

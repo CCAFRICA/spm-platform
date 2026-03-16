@@ -14,6 +14,19 @@ import { Check, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IntelligenceCard } from './IntelligenceCard';
 
+// OB-173: State descriptions — shown only for the current state
+const LIFECYCLE_DESCRIPTIONS: Record<string, string> = {
+  DRAFT: 'Plan imported. Ready for first calculation.',
+  PREVIEW: 'Calculated. Review results before making official.',
+  RECONCILE: 'Compare against external sources.',
+  OFFICIAL: 'Results verified. Submit for approval.',
+  PENDING_APPROVAL: 'Awaiting authorized reviewer.',
+  APPROVED: 'Approved. Ready for payout processing.',
+  POSTED: 'Locked for payout processing.',
+  CLOSED: 'Period finalized. No further changes.',
+  PUBLISHED: 'Visible to all stakeholders.',
+};
+
 interface LifecycleStage {
   label: string;
   status: 'done' | 'active' | 'pending';
@@ -98,11 +111,15 @@ export function LifecycleCard({
         ))}
       </div>
 
-      {/* Current state + next action */}
-      <div className="mt-4 flex items-center justify-between border-t border-zinc-800/60 pt-3">
-        <p className="text-xs text-slate-500">
-          Current: <span className="text-slate-300 font-medium">{currentState}</span>
-        </p>
+      {/* OB-173: Current state + description + next action */}
+      <div className="mt-4 border-t border-zinc-800/60 pt-3">
+        <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs text-slate-500">
+            Current: <span className="text-slate-300 font-medium">{currentState}</span>
+          </p>
+          <p className="text-[11px] text-slate-600 mt-0.5">{LIFECYCLE_DESCRIPTIONS[currentState] || ''}</p>
+        </div>
         {nextAction && (
           <button
             onClick={handleAction}
@@ -115,6 +132,7 @@ export function LifecycleCard({
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
         )}
+        </div>
       </div>
     </IntelligenceCard>
   );
