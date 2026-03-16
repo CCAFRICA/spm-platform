@@ -20,6 +20,7 @@ import {
   CheckSquare,
   RotateCcw,
   Activity,
+  Zap,
 } from "lucide-react";
 import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
 import { useLocale } from "@/contexts/locale-context";
@@ -115,6 +116,14 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       icon: Wallet,
       module: "my_compensation",
       moduleId: "insights", // Part of insights family
+    },
+    // OB-173B C2.4: Intelligence Stream — Decision 128 canonical landing
+    {
+      name: isSpanish ? "Inteligencia" : "Intelligence",
+      href: "/stream",
+      icon: Zap,
+      module: "insights" as AppModule,
+      moduleId: "insights" as ModuleId,
     },
     {
       name: isSpanish ? "Análisis" : "Insights",

@@ -13,7 +13,7 @@
  * OB-165: Intelligence Stream Foundation
  */
 
-import { TrendingUp, TrendingDown, Minus, Users, Layers, AlertTriangle, ArrowRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Users, Layers, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IntelligenceCard } from './IntelligenceCard';
 
@@ -41,13 +41,9 @@ export function SystemHealthCard({
   componentCount,
   exceptionCount,
   priorPeriodTotal,
-  nextAction,
-  nextLifecycleState,
   formatCurrency,
-  onAction,
   onView,
   reconciliationStatus,
-  impactText,
 }: SystemHealthCardProps) {
   const delta = priorPeriodTotal != null ? totalPayout - priorPeriodTotal : null;
   const deltaPct = priorPeriodTotal != null && priorPeriodTotal !== 0
@@ -61,6 +57,7 @@ export function SystemHealthCard({
       elementId="system-health"
       fullWidth
       onView={onView}
+      tier="status"
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         {/* Value: hero number */}
@@ -120,34 +117,7 @@ export function SystemHealthCard({
         </div>
       )}
 
-      {/* Action + Impact */}
-      {nextAction && (
-        <div className="mt-4 border-t border-zinc-800/60 pt-4">
-          <div className="flex items-center justify-between">
-            <div>
-              {nextLifecycleState && (
-                <p className="text-xs text-slate-500">
-                  Advance to <span className="text-slate-400 font-medium">{nextLifecycleState}</span>
-                </p>
-              )}
-              {/* OB-170: Impact text */}
-              {impactText && (
-                <p className="text-[11px] text-slate-600 mt-0.5">{impactText}</p>
-              )}
-            </div>
-            <button
-              onClick={onAction}
-              className={cn(
-                'inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md',
-                'bg-zinc-800 hover:bg-zinc-700 text-slate-200 transition-colors',
-              )}
-            >
-              {nextAction.label}
-              <ArrowRight className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* OB-173B: Action removed — lifecycle actions live in LifecycleCard only (C2.2 dedup) */}
     </IntelligenceCard>
   );
 }

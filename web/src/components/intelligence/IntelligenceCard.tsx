@@ -20,6 +20,8 @@ interface IntelligenceCardProps {
   className?: string;
   fullWidth?: boolean;
   onView?: () => void;
+  /** OB-173B: Visual tier — status (muted), information (standard), action (accent) */
+  tier?: 'status' | 'information' | 'action';
 }
 
 export function IntelligenceCard({
@@ -30,6 +32,7 @@ export function IntelligenceCard({
   className,
   fullWidth,
   onView,
+  tier = 'information',
 }: IntelligenceCardProps) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -56,9 +59,10 @@ export function IntelligenceCard({
       ref={ref}
       data-element-id={elementId}
       className={cn(
-        'relative rounded-lg bg-zinc-900/50 border border-zinc-800/60 p-5',
-        'border-l-[3px]',
-        accentColor,
+        'relative rounded-lg p-5',
+        tier === 'status' && 'bg-zinc-900/30 border border-zinc-800/40',
+        tier === 'information' && cn('bg-zinc-900/50 border border-zinc-800/60 border-l-[3px]', accentColor),
+        tier === 'action' && cn('bg-zinc-900/60 border border-zinc-800/60 border-l-4', accentColor),
         fullWidth ? 'col-span-full' : '',
         className,
       )}
