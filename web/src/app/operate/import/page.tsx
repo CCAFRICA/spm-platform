@@ -234,6 +234,7 @@ export default function OperateImportPage() {
           const plans = data.plans as Array<{
             planId: string;
             planName: string;
+            status?: string;
             entityCount: number;
             hasBindings: boolean;
             dataRowCount: number;
@@ -242,11 +243,13 @@ export default function OperateImportPage() {
           }> | undefined;
 
           if (plans && plans.length > 0) {
-            const latestPlan = plans[0];
+            // DIAG-002: Prefer active plan for entity count display.
+            // Draft plans may have 0 assignments even when active has 85.
+            const activePlan = plans.find((p: { status?: string }) => p.status === 'active') || plans[0];
             setPostImportData(prev => prev ? {
               ...prev,
-              planName: latestPlan.planName,
-              entityCount: latestPlan.entityCount,
+              planName: activePlan.planName,
+              entityCount: activePlan.entityCount,
             } : prev);
           }
         }
