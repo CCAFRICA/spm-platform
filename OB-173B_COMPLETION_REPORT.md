@@ -55,4 +55,15 @@
 - Production evidence pending Vercel deployment after merge.
 
 ## BUILD OUTPUT
-[pending — will be appended after final build]
+```
++ First Load JS shared by all                 88.1 kB
+  ├ chunks/2117-a743d72d939a4854.js           31.9 kB
+  ├ chunks/fd9d1056-5bd80ebceecc0da8.js       53.7 kB
+  └ other shared chunks (total)               2.59 kB
+
+ƒ Middleware                                  75.4 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+```
+Build: PASS — zero errors, warnings are pre-existing (non-blocking).
