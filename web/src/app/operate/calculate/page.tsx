@@ -387,48 +387,80 @@ function CalculatePageInner() {
               <ResultsSkeleton />
             ) : resultsData ? (
               <>
-                {/* Action bar */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
-                      {resultsData.periodLabel}
-                    </span>
-                    <span className="text-[10px] text-zinc-700">&middot;</span>
-                    <span className="text-[10px] text-zinc-600 font-mono">
-                      {resultsData.lifecycleState}
-                    </span>
-                    <span className="text-[10px] text-zinc-700">&middot;</span>
-                    <span className="text-[10px] text-zinc-600">
-                      {new Date(resultsData.batchDate).toLocaleDateString()}
-                    </span>
+                {/* OB-173: Enhanced action bar with lifecycle status + transition */}
+                <div className="space-y-3">
+                  {/* Status + metadata row */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${
+                        resultsData.lifecycleState === 'POSTED' || resultsData.lifecycleState === 'APPROVED'
+                          ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                          : resultsData.lifecycleState === 'OFFICIAL' || resultsData.lifecycleState === 'PENDING_APPROVAL'
+                            ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
+                            : 'text-blue-400 border-blue-500/30 bg-blue-500/10'
+                      }`}>
+                        {resultsData.lifecycleState}
+                      </span>
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
+                        {resultsData.periodLabel}
+                      </span>
+                      <span className="text-[10px] text-zinc-600">
+                        {new Date(resultsData.batchDate).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={handleExportCSV}
+                      >
+                        <Download className="w-3.5 h-3.5 mr-1" />
+                        Export CSV
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => router.push('/operate/reconciliation')}
+                      >
+                        Reconcile
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-zinc-400"
+                        onClick={() => { setSelectedPlanId(null); setStoreFilter(null); }}
+                      >
+                        Close
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={handleExportCSV}
-                    >
-                      <Download className="w-3.5 h-3.5 mr-1" />
-                      Export CSV
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => router.push('/operate/reconciliation')}
-                    >
-                      Reconcile
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs text-zinc-400"
-                      onClick={() => { setSelectedPlanId(null); setStoreFilter(null); }}
-                    >
-                      Close
-                    </Button>
-                  </div>
+                  {/* Lifecycle action row */}
+                  {resultsData.lifecycleState === 'PREVIEW' && (
+                    <div className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-indigo-500/5 border border-indigo-500/20">
+                      <p className="text-xs text-zinc-400">Results calculated. Advance to make official for approval.</p>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+                        onClick={() => router.push('/operate/lifecycle')}
+                      >
+                        Advance to Official &rarr;
+                      </Button>
+                    </div>
+                  )}
+                  {resultsData.lifecycleState === 'OFFICIAL' && (
+                    <div className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                      <p className="text-xs text-zinc-400">Results verified. Submit for approval.</p>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                        onClick={() => router.push('/operate/lifecycle')}
+                      >
+                        Submit for Approval &rarr;
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {/* L5: Hero */}

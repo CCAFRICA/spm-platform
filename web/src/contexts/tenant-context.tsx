@@ -60,23 +60,9 @@ async function loadTenantConfig(tenantId: string): Promise<TenantConfig> {
     // Static config not found — fall back to Supabase tenants table
   }
 
-  // Try server-side API route (bypasses RLS via service role client)
-  try {
-    const res = await fetch(`/api/platform/tenant-config?id=${encodeURIComponent(normalizedId)}`);
-    if (res.ok) {
-      const data = await res.json();
-      const tenantConfig: TenantConfig = {
-        ...data,
-        industry: data.industry || 'Retail',
-        features: { ...DEFAULT_FEATURES, ...data.features },
-        terminology: DEFAULT_TERMINOLOGY,
-      };
-      tenantConfigCache[tenantConfig.id] = tenantConfig;
-      return tenantConfig;
-    }
-  } catch {
-    // API route unavailable — fall through to direct Supabase
-  }
+  // OB-173: Skip platform-only API route. It returns 403 for tenant admins
+  // (requires platform.view_all_tenants capability) and pollutes console.
+  // Direct Supabase fallback below works for all roles via RLS.
 
   // Direct Supabase fallback: try by ID first, then by slug
   try {
