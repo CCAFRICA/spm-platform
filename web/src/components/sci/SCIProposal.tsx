@@ -359,14 +359,32 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposal.contentUnits, rowCountMap]);
 
-  // State
+  // HF-139: Ensure unique IDs for each content unit. Duplicate contentUnitIds
+  // cause Set operations to collapse — expanding one card expands all, confirmAll
+  // sets size 1 instead of N, Import button stays disabled.
+  const unitIds = useMemo(() => {
+    const ids = new Map<number, string>();
+    const seen = new Set<string>();
+    proposal.contentUnits.forEach((u, i) => {
+      let id = u.contentUnitId;
+      // If duplicate, append index to make unique
+      if (seen.has(id)) {
+        id = `${id}::dedup_${i}`;
+      }
+      seen.add(id);
+      ids.set(i, id);
+    });
+    return ids;
+  }, [proposal.contentUnits]);
+
+  // State — uses guaranteed-unique IDs
   const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     // Auto-expand needs-review items
     const auto = new Set<string>();
-    proposal.contentUnits.forEach(u => {
+    proposal.contentUnits.forEach((u, i) => {
       if (u.confidence < 0.6 || (u.warnings?.length || 0) > 0) {
-        auto.add(u.contentUnitId);
+        auto.add(unitIds.get(i) || u.contentUnitId);
       }
     });
     return auto;
@@ -374,14 +392,15 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
   const [classificationOverrides, setClassificationOverrides] = useState<Map<string, AgentType>>(new Map());
 
   const effectiveUnits = useMemo(() => {
-    return proposal.contentUnits.map(u => {
-      const override = classificationOverrides.get(u.contentUnitId);
-      if (!override || override === u.classification) return u;
-      return { ...u, classification: override };
+    return proposal.contentUnits.map((u, i) => {
+      const uniqueId = unitIds.get(i) || u.contentUnitId;
+      const override = classificationOverrides.get(uniqueId);
+      if (!override || override === u.classification) return { ...u, _uniqueId: uniqueId };
+      return { ...u, classification: override, _uniqueId: uniqueId };
     });
-  }, [proposal.contentUnits, classificationOverrides]);
+  }, [proposal.contentUnits, classificationOverrides, unitIds]);
 
-  const allConfirmed = confirmedIds.size === effectiveUnits.length;
+  const allConfirmed = confirmedIds.size >= effectiveUnits.length && effectiveUnits.length > 0;
 
   const toggleConfirm = (id: string) => {
     setConfirmedIds(prev => {
@@ -400,7 +419,9 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
   };
 
   const confirmAll = () => {
-    setConfirmedIds(new Set(effectiveUnits.map(u => u.contentUnitId)));
+    // HF-139: Use guaranteed-unique IDs for all units
+    const allIds = effectiveUnits.map((u: { _uniqueId?: string; contentUnitId: string }) => u._uniqueId || u.contentUnitId);
+    setConfirmedIds(new Set(allIds));
   };
 
   const handleChangeClassification = (id: string, newType: AgentType) => {
@@ -438,21 +459,22 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
         totalRows={totalRows}
       />
 
-      {/* Content unit cards */}
+      {/* Content unit cards — HF-139: use guaranteed-unique IDs */}
       <div className="space-y-2">
-        {effectiveUnits.map(unit => {
+        {effectiveUnits.map((unit) => {
+          const uid = (unit as { _uniqueId?: string })._uniqueId || unit.contentUnitId;
           const original = proposal.contentUnits.find(u => u.contentUnitId === unit.contentUnitId);
           return (
             <ContentUnitCard
-              key={unit.contentUnitId}
+              key={uid}
               unit={unit}
               originalClassification={original?.classification}
               rowCount={getRowCount(unit)}
-              isConfirmed={confirmedIds.has(unit.contentUnitId)}
-              onToggleConfirm={() => toggleConfirm(unit.contentUnitId)}
-              isExpanded={expandedIds.has(unit.contentUnitId)}
-              onToggleExpand={() => toggleExpand(unit.contentUnitId)}
-              onChangeClassification={(newType) => handleChangeClassification(unit.contentUnitId, newType)}
+              isConfirmed={confirmedIds.has(uid)}
+              onToggleConfirm={() => toggleConfirm(uid)}
+              isExpanded={expandedIds.has(uid)}
+              onToggleExpand={() => toggleExpand(uid)}
+              onChangeClassification={(newType) => handleChangeClassification(uid, newType)}
             />
           );
         })}
