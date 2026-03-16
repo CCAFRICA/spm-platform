@@ -420,11 +420,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2: Index committed_data by row_data[entity_column] value (DS-009 pattern)
+    // DIAG-003: The entity_identifier column name is the SAME across batches (e.g., "ID_Empleado").
+    // Convergence bindings reference the source_batch_id where the column was LEARNED,
+    // but new periods have different import_batch_ids with the SAME column names.
+    // Index ALL committed_data rows using any known entity column, not just source_batch rows.
+    const knownEntityCols = Array.from(new Set(Array.from(entityColsByBatch.values())));
     for (const row of committedData) {
       const batchId = row.import_batch_id;
       if (!batchId) continue;
-      const entityCol = entityColsByBatch.get(batchId);
-      if (!entityCol) continue; // No convergence binding references this batch
+
+      // Try the batch-specific entity column first, then any known entity column
+      let entityCol = entityColsByBatch.get(batchId);
+      if (!entityCol && knownEntityCols.length > 0) {
+        entityCol = knownEntityCols[0]; // Same column name applies across batches
+      }
+      if (!entityCol) continue;
 
       const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
         ? row.row_data as Record<string, unknown> : {};
@@ -942,7 +952,19 @@ export async function POST(request: NextRequest) {
     column: string,
     entityExternalId: string,
   ): number | null {
-    const batchEntityMap = dataByBatch.get(batchId);
+    let batchEntityMap = dataByBatch.get(batchId);
+
+    // DIAG-003: If the binding's source_batch_id doesn't have data (different period),
+    // search ALL cached batches for this entity's data. The column names are the same
+    // across batches — only the batch_id differs between periods.
+    if (!batchEntityMap || !batchEntityMap.has(entityExternalId)) {
+      for (const [, map] of Array.from(dataByBatch.entries())) {
+        if (map.has(entityExternalId)) {
+          batchEntityMap = map;
+          break;
+        }
+      }
+    }
     if (!batchEntityMap) return null;
 
     // DS-009 5.1: look up by external_id — the cache key IS the entity identifier value
