@@ -147,6 +147,16 @@ export async function POST(req: NextRequest) {
     const totalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
     console.log(`[SCI Bulk] Parsed ${totalRows} rows across ${sheetDataMap.size} sheets in ${parseMs}ms`);
 
+    // HF-141: Diagnostic — log unique source_dates found in this file
+    const uniqueDates = new Set<string>();
+    for (const [, sheet] of Array.from(sheetDataMap.entries())) {
+      for (const row of sheet.rows.slice(0, 10)) {
+        const periodo = row['Periodo'] ?? row['periodo'] ?? row['PERIODO'];
+        if (periodo) uniqueDates.add(String(periodo).substring(0, 10));
+      }
+    }
+    console.log(`[HF-141] File: ${storagePath}, rows: ${totalRows}, source_dates: [${Array.from(uniqueDates).join(', ')}]`);
+
     // ── Step 3: Sort content units by processing order ──
     const sortedUnits = [...contentUnits].sort(
       (a, b) => PROCESSING_ORDER[a.confirmedClassification] - PROCESSING_ORDER[b.confirmedClassification]
