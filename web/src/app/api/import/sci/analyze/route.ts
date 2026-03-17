@@ -18,6 +18,7 @@ import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
 import type { ClassificationDensity, StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
+import { lookupFingerprint, writeFingerprint, type FlywheelLookupResult } from '@/lib/sci/fingerprint-flywheel';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
 import type { SCIProposal, ContentProfile, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
 
@@ -98,17 +99,40 @@ export async function POST(req: NextRequest) {
         fileSheets.push({ sourceFile: file.fileName, sheetName: sheet.sheetName });
       }
 
+      // OB-174 Phase 3: DS-017 Tier Routing — check fingerprint BEFORE LLM call
+      // Compute fingerprint from the first sheet (primary content) for file-level matching
+      const primarySheet = file.sheets[0];
+      let flywheelResult: FlywheelLookupResult | null = null;
+      if (primarySheet) {
+        try {
+          flywheelResult = await lookupFingerprint(
+            tenantId,
+            primarySheet.columns,
+            primarySheet.rows,
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          );
+          console.log(`[SCI-FINGERPRINT] file=${file.fileName} fingerprint=${flywheelResult.fingerprintHash.substring(0, 12)} tier=${flywheelResult.tier} match=${flywheelResult.match} confidence=${flywheelResult.confidence}`);
+        } catch (fpErr) {
+          console.warn(`[SCI-FINGERPRINT] Lookup failed (non-blocking): ${fpErr instanceof Error ? fpErr.message : 'unknown'}`);
+        }
+      }
+
       // Phase B: Enhance with header comprehension (one LLM call for all sheets)
-      const hcMetrics = await enhanceWithHeaderComprehension(
-        profileMap,
-        file.sheets.map(s => ({
-          sheetName: s.sheetName,
-          columns: s.columns,
-          sampleRows: s.rows.slice(0, 5),
-          rowCount: s.totalRowCount,
-        })),
-        tenantId,
-      );
+      // OB-174: Skip LLM for Tier 1 matches — classification already known
+      const skipHC = flywheelResult?.tier === 1 && flywheelResult.match;
+      const hcMetrics = skipHC
+        ? { llmCalled: false, llmCallDuration: 0, averageConfidence: flywheelResult!.confidence, columnsInterpreted: 0, crossSheetInsightCount: 0 }
+        : await enhanceWithHeaderComprehension(
+            profileMap,
+            file.sheets.map(s => ({
+              sheetName: s.sheetName,
+              columns: s.columns,
+              sampleRows: s.rows.slice(0, 5),
+              rowCount: s.totalRowCount,
+            })),
+            tenantId,
+          );
 
       // ── HF-096: HC Diagnostic Logging (visible in Vercel Runtime Logs) ──
       console.log(`[SCI-HC-DIAG] file=${file.fileName} llmCalled=${hcMetrics.llmCalled} duration=${hcMetrics.llmCallDuration}ms avgConf=${hcMetrics.averageConfidence.toFixed(2)} cols=${hcMetrics.columnsInterpreted} insights=${hcMetrics.crossSheetInsightCount}`);
@@ -282,6 +306,42 @@ export async function POST(req: NextRequest) {
       timestamp: new Date().toISOString(),
       density: Object.keys(densitySummary).length > 0 ? densitySummary : undefined,
     };
+
+    // OB-174 Phase 3: Write fingerprints to flywheel after classification (fire-and-forget)
+    try {
+      for (const unit of proposal.contentUnits) {
+        if (!unit.fieldBindings || unit.fieldBindings.length === 0) continue;
+        // Build column_roles map from field bindings
+        const columnRoles: Record<string, string> = {};
+        for (const binding of unit.fieldBindings) {
+          columnRoles[binding.sourceField] = binding.semanticRole;
+        }
+        // Find the file's primary sheet columns for fingerprint hash
+        const sourceFile = files.find(f => f.fileName === unit.sourceFile);
+        if (sourceFile && sourceFile.sheets[0]) {
+          const hash = (await import('@/lib/sci/structural-fingerprint')).computeFingerprintHashSync(
+            sourceFile.sheets[0].columns,
+            sourceFile.sheets[0].rows,
+          );
+          writeFingerprint(
+            tenantId,
+            hash,
+            {
+              classification: unit.classification,
+              confidence: unit.confidence,
+              fieldBindings: unit.fieldBindings,
+              tabName: unit.tabName,
+            },
+            columnRoles,
+            unit.sourceFile,
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          ).catch(() => {}); // Fire-and-forget
+        }
+      }
+    } catch {
+      // Flywheel write failure must NEVER block import
+    }
 
     // HF-094: Write classification signals via dedicated columns (fire-and-forget)
     // Single write path: writeClassificationSignal (HF-092 indexed columns)

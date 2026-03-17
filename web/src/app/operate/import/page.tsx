@@ -13,6 +13,7 @@ import { SCIUpload, type FileInfo, type ParsedFileData } from '@/components/sci/
 import { SCIProposalView } from '@/components/sci/SCIProposal';
 import { SCIExecution } from '@/components/sci/SCIExecution';
 import { ImportReadyState } from '@/components/sci/ImportReadyState';
+import { ImportProgress } from '@/components/sci/ImportProgress';
 import { AlertCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/client';
@@ -30,6 +31,7 @@ import type {
 type ImportState =
   | { phase: 'upload' }
   | { phase: 'analyzing'; files: FileInfo[] }
+  | { phase: 'processing'; sessionId: string; files: FileInfo[] } // OB-174: async processing
   | { phase: 'proposal'; proposal: SCIProposal; rawData: ParsedFileData; fileName: string }
   | { phase: 'executing'; proposal: SCIProposal; confirmedUnits: ContentUnitProposal[]; rawData: ParsedFileData; storagePath?: string; storagePaths?: Record<string, string> }
   | { phase: 'complete'; executionResult: SCIExecutionResult }
@@ -49,6 +51,7 @@ const ANALYSIS_SAMPLE_SIZE = 50;
 const PHASE_SUBTITLES: Record<string, string> = {
   upload: 'Upload your data and the platform will handle the rest.',
   analyzing: 'Understanding your data...',
+  processing: '',  // ImportProgress shows its own header
   proposal: 'Review what was found.',
   executing: '',  // ExecutionProgress shows its own header
   complete: '',   // ImportReadyState shows its own header
@@ -128,6 +131,74 @@ export default function OperateImportPage() {
       const firstFile = files[0];
       const isDocument = !!firstFile?.parsedData.documentBase64;
 
+      // OB-174: Try async processing path for spreadsheet files
+      // Creates processing_jobs records and fires parallel workers.
+      // Falls back to synchronous analyze if processing_jobs table doesn't exist.
+      if (!isDocument && spreadsheetFiles.length > 0) {
+        try {
+          // Wait for storage uploads to complete
+          if (storageUploadPromiseRef.current) {
+            await storageUploadPromiseRef.current;
+          }
+          const storagePaths = storagePathsRef.current;
+
+          // Check if all files were uploaded
+          if (Object.keys(storagePaths).length === spreadsheetFiles.length) {
+            const supabase = createClient();
+            const sessionId = crypto.randomUUID();
+            const jobIds: string[] = [];
+
+            // Create processing_jobs records
+            for (const file of spreadsheetFiles) {
+              const path = storagePaths[file.name];
+              if (!path) continue;
+
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const { data: job, error: jobErr } = await (supabase as any)
+                .from('processing_jobs')
+                .insert({
+                  tenant_id: tenantId,
+                  status: 'pending',
+                  file_storage_path: path,
+                  file_name: path.split('/').pop() || file.name,
+                  file_size_bytes: file.size,
+                  session_id: sessionId,
+                })
+                .select('id')
+                .single();
+
+              if (jobErr) {
+                // Table doesn't exist or insert failed — fall through to sync path
+                console.log('[OB-174] Async path unavailable:', jobErr.message);
+                throw new Error('ASYNC_UNAVAILABLE');
+              }
+              if (job) jobIds.push(job.id);
+            }
+
+            // Fire parallel workers (Option C — client-initiated)
+            console.log(`[OB-174] Launching ${jobIds.length} parallel workers`);
+            for (const jobId of jobIds) {
+              fetch('/api/import/sci/process-job', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jobId }),
+              }).catch(err => console.warn(`[OB-174] Worker fire failed:`, err));
+            }
+
+            // Transition to processing phase
+            setState({ phase: 'processing', sessionId, files });
+            return;
+          }
+        } catch (asyncErr) {
+          if (asyncErr instanceof Error && asyncErr.message === 'ASYNC_UNAVAILABLE') {
+            console.log('[OB-174] Falling back to synchronous analysis');
+          } else {
+            console.warn('[OB-174] Async path error, falling back:', asyncErr);
+          }
+        }
+      }
+
+      // Synchronous analysis path (existing — fallback for async unavailable or document imports)
       let proposal: SCIProposal;
 
       if (isDocument) {
@@ -187,6 +258,39 @@ export default function OperateImportPage() {
       });
     }
   }, [tenantId, handleError]);
+
+  // ── Processing → Proposal (OB-174: async jobs classified → build merged proposal) ──
+
+  const handleAllClassified = useCallback((jobs: Array<{ id: string; proposal: Record<string, unknown> | null; file_name: string }>) => {
+    // Merge proposals from all classified jobs into a single SCIProposal
+    const allUnits: ContentUnitProposal[] = [];
+    for (const job of jobs) {
+      const jobProposal = job.proposal as { contentUnits?: ContentUnitProposal[] } | null;
+      if (jobProposal?.contentUnits) {
+        allUnits.push(...jobProposal.contentUnits);
+      }
+    }
+
+    const mergedProposal: SCIProposal = {
+      proposalId: crypto.randomUUID(),
+      tenantId,
+      sourceFiles: jobs.map(j => j.file_name),
+      contentUnits: allUnits,
+      processingOrder: allUnits.map(u => u.contentUnitId),
+      overallConfidence: allUnits.length > 0
+        ? allUnits.reduce((s, u) => s + u.confidence, 0) / allUnits.length
+        : 0,
+      requiresHumanReview: false,
+      timestamp: new Date().toISOString(),
+    };
+
+    setState({
+      phase: 'proposal',
+      proposal: mergedProposal,
+      rawData: rawDataRef.current || { fileName: '', sheets: [] },
+      fileName: jobs.map(j => j.file_name).join(', '),
+    });
+  }, [tenantId]);
 
   // ── Proposal → Executing ──
 
@@ -307,7 +411,7 @@ export default function OperateImportPage() {
       <div className="min-h-screen bg-zinc-950 p-6 md:p-8">
         <div className="max-w-3xl mx-auto">
           {/* Page header — hidden during executing + complete (components show their own) */}
-          {state.phase !== 'executing' && state.phase !== 'complete' && (
+          {state.phase !== 'executing' && state.phase !== 'complete' && state.phase !== 'processing' && (
             <div className="mb-8">
               <h1 className="text-xl font-semibold text-zinc-100">Import</h1>
               {subtitle && (
@@ -336,6 +440,16 @@ export default function OperateImportPage() {
               onAnalysisStart={handleAnalysisStart}
               onError={handleError}
               analyzing={state.phase === 'analyzing'}
+            />
+          )}
+
+          {/* ─── PROCESSING STATE ─── (OB-174: async job processing) */}
+          {state.phase === 'processing' && (
+            <ImportProgress
+              sessionId={state.sessionId}
+              tenantId={tenantId}
+              onAllClassified={handleAllClassified}
+              onError={handleError}
             />
           )}
 
