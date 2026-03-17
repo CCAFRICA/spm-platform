@@ -19,4 +19,15 @@
 | HG-3 | npm run build: zero errors | | PENDING — appended after build |
 
 ## BUILD OUTPUT
-(appended after build)
+```
+npm run build — zero errors
+
+ƒ Middleware                                  75.4 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+```
+
+| # | Criterion | PASS/FAIL |
+|---|-----------|-----------|
+| HG-3 | npm run build: zero errors | PASS |
