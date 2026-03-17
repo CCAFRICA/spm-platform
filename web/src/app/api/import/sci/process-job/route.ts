@@ -137,7 +137,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Classify: generate profiles + (optionally) call LLM
-    const fileName = job.file_name.replace(/^\d+_[a-f0-9]{8}_/, ''); // Strip upload prefix
+    // HF-142: Strip HF-141 prefix format: timestamp_index_uuid8_originalFilename.xlsx
+    // Old regex ^\d+_[a-f0-9]{8}_ failed because _index_ between timestamp and uuid breaks the pattern.
+    const fileName = job.file_name.replace(/^\d+_\d+_[a-f0-9]{8}_/, '');
     const profileMap = new Map<string, ContentProfile>();
     const fileSheets: Array<{ sourceFile: string; sheetName: string }> = [];
 

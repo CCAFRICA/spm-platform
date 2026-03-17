@@ -419,8 +419,8 @@ export function SCIExecution({
         fileGroups.get(sourceFile)!.push(unit);
       }
 
-      console.log(`[HF-141] File groups: ${Array.from(fileGroups.keys()).join(', ')}`);
-      console.log(`[HF-141] Storage paths available: ${JSON.stringify(storagePaths || {})}`);
+      console.log(`[HF-142] File groups (${fileGroups.size}): ${Array.from(fileGroups.keys()).join(', ')}`);
+      console.log(`[HF-142] Storage paths available: ${JSON.stringify(storagePaths || {})}`);
 
       for (const [sourceFile, groupUnits] of Array.from(fileGroups.entries())) {
         // HF-141: Strict per-file path resolution — NO cross-file fallback.
@@ -429,9 +429,11 @@ export function SCIExecution({
         // single-file fallback. Never use storagePath when multiple files exist.
         const hasMultipleFiles = fileGroups.size > 1;
         const filePath = storagePaths?.[sourceFile] || (!hasMultipleFiles ? storagePath : undefined);
+        // HF-142: Log per-file storage path resolution for diagnostic traceability
+        console.log(`[HF-142] sourceFile: "${sourceFile}" → storagePath: ${filePath || 'NONE'} (matched: ${!!filePath})`);
 
         if (filePath) {
-          console.log(`[HF-141] Executing bulk for "${sourceFile}" → ${filePath} (${groupUnits.length} units)`);
+          console.log(`[HF-142] Executing bulk for "${sourceFile}" → ${filePath} (${groupUnits.length} units)`);
           await executeBulk(groupUnits, filePath);
         } else {
           // HF-141: No storage path for this specific file — legacy fallback per unit
