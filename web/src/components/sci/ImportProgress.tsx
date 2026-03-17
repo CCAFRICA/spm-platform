@@ -137,10 +137,9 @@ export function ImportProgress({ sessionId, tenantId, onAllClassified, onError }
           const tier = job.recognition_tier ? TIER_LABELS[job.recognition_tier] : null;
           const isAnimating = job.status === 'classifying' || job.status === 'committing';
 
-          // Strip upload prefix from file_name for display
+          // HF-142: Strip HF-141 prefix format: timestamp_index_uuid8_originalFilename
           const displayName = job.file_name
-            .replace(/^\d+_[a-f0-9]{8}_/, '')
-            .replace(/^\d+_/, '');
+            .replace(/^\d+_\d+_[a-f0-9]{8}_/, '');
 
           return (
             <div
