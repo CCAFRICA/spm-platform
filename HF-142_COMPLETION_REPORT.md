@@ -164,4 +164,22 @@ With 6 file groups and 6 resolved paths, `executeBulk` is called 6 times, each w
 3. **Corrupted data from DIAG-005 import remains:** 510 rows with `source_date = 2026-02-01` in `committed_data` for tenant `b1c2d3e4-aaaa-bbbb-cccc-111111111111` need cleanup before re-import.
 
 ## BUILD OUTPUT
-(appended after build)
+```
+npm run build — zero errors
+
+Route (app)                                Size     First Load JS
+...
+├ ƒ /api/import/sci/execute-bulk           0 B                0 B
+├ ƒ /api/import/sci/process-job            0 B                0 B
+...
+├ ○ /operate/import                        7.04 kB          285 kB
+...
+ƒ Middleware                               75.4 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+```
+
+| # | Criterion | PASS/FAIL |
+|---|-----------|-----------|
+| HG-3-1 | npm run build: zero errors | PASS |
