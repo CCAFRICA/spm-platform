@@ -100,4 +100,15 @@ When file N's upload fails or its key is missing from storagePaths, the `|| stor
 - The `rawDataRef.current = files[0].parsedData` (line 93) still only stores first file for legacy path. The legacy path is only used when storage upload fails, and in that case each file's units fall back independently (not to another file's data).
 
 ## BUILD OUTPUT
-[pending — will be appended after final build]
+```
++ First Load JS shared by all                 88.1 kB
+  ├ chunks/2117-a743d72d939a4854.js           31.9 kB
+  ├ chunks/fd9d1056-5bd80ebceecc0da8.js       53.7 kB
+  └ other shared chunks (total)               2.59 kB
+
+ƒ Middleware                                  75.4 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+```
+Build: PASS — zero errors.
