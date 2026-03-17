@@ -93,33 +93,35 @@ export default function OperateImportPage() {
         rawDataRef.current = files[0].parsedData;
       }
 
-      // HF-140: Upload ALL spreadsheet files to Supabase Storage in parallel.
-      // Each file gets its own storage path, keyed by filename.
-      // This fixes the bug where only files[0] was uploaded, causing all
-      // content units to read the first file's content.
+      // HF-141: Upload ALL spreadsheet files to Supabase Storage in parallel.
+      // Each file gets its own storage path with a unique suffix (index + random)
+      // to prevent any collision or ambiguity. Keyed by filename for lookup.
       const spreadsheetFiles = files.filter(f => f.rawFile && !f.parsedData.documentBase64);
       if (spreadsheetFiles.length > 0) {
         storageUploadPromiseRef.current = (async () => {
           try {
             const supabase = createClient();
             const paths: Record<string, string> = {};
-            await Promise.all(spreadsheetFiles.map(async (file) => {
-              const timestamp = Date.now();
+            const baseTimestamp = Date.now();
+            await Promise.all(spreadsheetFiles.map(async (file, index) => {
+              // HF-141: Unique path per file — timestamp + index + random suffix
+              const uniqueSuffix = `${baseTimestamp}_${index}_${crypto.randomUUID().substring(0, 8)}`;
               const sanitized = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-              const path = `${tenantId}/${timestamp}_${sanitized}`;
+              const path = `${tenantId}/${uniqueSuffix}_${sanitized}`;
               const { error: uploadErr } = await supabase.storage
                 .from('ingestion-raw')
                 .upload(path, file.rawFile!, { cacheControl: '3600', upsert: false });
               if (uploadErr) {
-                console.error(`[HF-140] Storage upload failed for ${file.name}:`, uploadErr.message);
+                console.error(`[HF-141] Storage upload FAILED for ${file.name}:`, uploadErr.message);
               } else {
                 paths[file.name] = path;
-                console.log(`[HF-140] File uploaded to Storage: ${file.name} → ${path}`);
+                console.log(`[HF-141] File uploaded: ${file.name} → ${path} (${(file.size / 1024).toFixed(0)}KB)`);
               }
             }));
             storagePathsRef.current = paths;
+            console.log(`[HF-141] Upload complete: ${Object.keys(paths).length}/${spreadsheetFiles.length} files`);
           } catch (err) {
-            console.error('[HF-140] Storage upload error:', err);
+            console.error('[HF-141] Storage upload error:', err);
           }
         })();
       }
