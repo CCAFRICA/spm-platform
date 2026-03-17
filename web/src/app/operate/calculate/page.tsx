@@ -6,7 +6,7 @@
 // Plan cards grid at top. When a plan is selected AND has results,
 // shows DS-007: Hero + Heatmap + PopulationHealth + EntityTable + NarrativeSpine.
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
@@ -68,7 +68,7 @@ function CalculatePageInner() {
 
   const hasAccess = user && (isVLAdmin(user) || user.role === 'admin');
   const tenantId = currentTenant?.id || '';
-  const activePlans = plans.filter(p => p.status === 'active');
+  const activePlans = useMemo(() => plans.filter(p => p.status === 'active'), [plans]);
 
   // Load plan readiness
   useEffect(() => {
