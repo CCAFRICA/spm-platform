@@ -537,8 +537,10 @@ export function buildProposalFromState(
       // PARTIAL claims — two content units from one tab
       const primaryAgent = splitAnalysis.primaryAgent;
       const secondaryAgent = splitAnalysis.secondaryAgent;
-      const primaryId = unitId;
-      const secondaryId = `${unitId}::split`;
+      // HF-142: Use profile.contentUnitId (fileName::sheetName::tabIndex) — unique per file.
+      // unitId is the profileMap key (sheet name only), which collides across multi-file imports.
+      const primaryId = profile.contentUnitId;
+      const secondaryId = `${profile.contentUnitId}::split`;
 
       const primaryScore = scores.find(s => s.agent === primaryAgent);
       const secondaryScore = scores.find(s => s.agent === secondaryAgent);
@@ -602,7 +604,8 @@ export function buildProposalFromState(
       const intel = generateProposalIntelligence(profile, scores, negotiationResult, claim.agent);
 
       contentUnits.push({
-        contentUnitId: unitId,
+        // HF-142: Use profile.contentUnitId (fileName::sheetName::tabIndex) — unique per file.
+        contentUnitId: profile.contentUnitId,
         sourceFile,
         tabName: profile.tabName,
         classification: claim.agent,
