@@ -219,6 +219,15 @@ export async function POST(req: NextRequest) {
     const contentUnits = buildProposalFromState(state, fileSheets)
       .filter(cu => !cu.contentUnitId.includes('::split'));
 
+    // OB-176: For Tier 1 matches, override CRR posterior with flywheel confidence
+    // and tag each content unit with its recognition tier
+    for (const unit of contentUnits) {
+      (unit as Record<string, unknown>).recognitionTier = recognitionTier;
+      if (recognitionTier === 1 && flywheelResult?.confidence) {
+        unit.confidence = Math.max(unit.confidence, flywheelResult.confidence);
+      }
+    }
+
     // Build classification result for job record
     const classificationResult = {
       contentUnits: contentUnits.map(u => ({

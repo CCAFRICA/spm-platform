@@ -320,6 +320,8 @@ export interface ContentUnitProposal {
   structuralFingerprint?: Record<string, unknown>;
   classificationTrace?: Record<string, unknown>;
   vocabularyBindings?: Record<string, string>;
+  // OB-176: Recognition tier from DS-017 fingerprint flywheel
+  recognitionTier?: 1 | 2 | 3;
 }
 
 // ============================================================
