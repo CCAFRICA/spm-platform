@@ -126,6 +126,23 @@ function ContentUnitCard({
           </span>
         )}
 
+        {/* OB-176: Recognition tier badge */}
+        {unit.recognitionTier === 1 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            Recognized
+          </span>
+        )}
+        {unit.recognitionTier === 2 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            Similar
+          </span>
+        )}
+        {unit.recognitionTier === 3 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+            New
+          </span>
+        )}
+
         {/* Verdict text */}
         <span className="text-xs text-zinc-500 flex-1 truncate">
           {unit.verdictSummary || unit.reasoning}
@@ -386,7 +403,16 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
   }, [proposal.contentUnits]);
 
   // State — uses guaranteed-unique IDs
-  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
+  // OB-176: Auto-confirm high-confidence content units (Tier 1 with >75% confidence)
+  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(() => {
+    const auto = new Set<string>();
+    proposal.contentUnits.forEach((u, i) => {
+      if (u.confidence >= 0.75) {
+        auto.add(unitIds.get(i) || u.contentUnitId);
+      }
+    });
+    return auto;
+  });
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     // Auto-expand needs-review items
     const auto = new Set<string>();

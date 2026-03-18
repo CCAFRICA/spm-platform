@@ -125,12 +125,12 @@ export async function writeFingerprint(
       .maybeSingle();
 
     if (existing) {
-      // Update: increment match_count, Bayesian confidence update
+      // Update: increment match_count, monotonic confidence increase
       const newMatchCount = existing.match_count + 1;
-      // Bayesian: confidence approaches 1.0 asymptotically
-      // P(correct | N matches) = (N * prior + 0.7) / (N + 1)
-      const prior = Number(existing.confidence);
-      const newConfidence = Math.min(0.9999, (newMatchCount * prior + 0.7) / (newMatchCount + 1));
+      // OB-176: Fixed formula — confidence = 1 - 1/(matchCount + 1)
+      // Monotonically increasing: matchCount 1→0.50, 6→0.86, 10→0.91, 20→0.95
+      // Old formula (N*prior+0.7)/(N+1) was a fixed point at 0.7 — never increased.
+      const newConfidence = 1 - (1 / (newMatchCount + 1));
 
       await supabase
         .from('structural_fingerprints')
@@ -145,17 +145,17 @@ export async function writeFingerprint(
 
       console.log(`[SCI-FINGERPRINT] Updated: hash=${fingerprintHash.substring(0, 12)} matchCount=${newMatchCount} confidence=${newConfidence.toFixed(4)}`);
     } else {
-      // Insert new fingerprint record
+      // Insert new fingerprint record — confidence = 1 - 1/(1+1) = 0.5
       await supabase
         .from('structural_fingerprints')
         .insert({
           tenant_id: tenantId,
           fingerprint_hash: fingerprintHash,
-          fingerprint: fingerprintHash, // store hash as both for uniqueness
+          fingerprint: fingerprintHash,
           classification_result: classificationResult,
           column_roles: columnRoles,
           match_count: 1,
-          confidence: 0.7000,
+          confidence: 0.5,
           source_file_sample: sourceFileName,
         });
 
