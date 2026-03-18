@@ -51,4 +51,10 @@
 2. **Observation filtering is regex-based:** The observation filter in SCIProposal.tsx uses a regex to exclude developer metrics. If new metrics are added with different names, the regex would need updating. A whitelist approach would be more robust but requires changes to proposal-intelligence.ts.
 
 ## BUILD OUTPUT
-(appended after build)
+```
+npm run build — zero errors
+
+ƒ Middleware                                  75.4 kB
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+```
