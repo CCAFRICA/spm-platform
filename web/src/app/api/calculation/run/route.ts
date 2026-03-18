@@ -1037,6 +1037,71 @@ export async function POST(request: NextRequest) {
       `V${i}=[${Array.from(d).join(',')}]`).join(' ')}`);
   }
 
+  // OB-177: Materialize period_entity_state and load for variant matching
+  // Resolves entities.temporal_attributes as-of period date into flat resolved_attributes
+  const materializedState = new Map<string, Record<string, unknown>>();
+  if (variants.length > 1) {
+    try {
+      const { data: period } = await supabase
+        .from('periods')
+        .select('end_date')
+        .eq('id', periodId)
+        .single();
+      const asOfDate = period?.end_date || new Date().toISOString().split('T')[0];
+
+      // Fetch entities with temporal_attributes for this tenant
+      const { data: entitiesWithAttrs } = await supabase
+        .from('entities')
+        .select('id, temporal_attributes, metadata')
+        .eq('tenant_id', tenantId)
+        .in('id', calculationEntityIds);
+
+      if (entitiesWithAttrs) {
+        for (const ent of entitiesWithAttrs) {
+          const attrs = (ent.temporal_attributes || []) as Array<{ key: string; value: Json; effective_from: string; effective_to: string | null }>;
+          const resolved: Record<string, unknown> = {};
+          // Resolve each temporal attribute as-of period date
+          const sorted = [...attrs].sort((a, b) => (b.effective_from || '').localeCompare(a.effective_from || ''));
+          for (const attr of sorted) {
+            if (attr.key in resolved) continue;
+            if (attr.effective_from && attr.effective_from > asOfDate) continue;
+            if (attr.effective_to && attr.effective_to < asOfDate) continue;
+            resolved[attr.key] = attr.value;
+          }
+          // Also include metadata.role if present (backward compat)
+          const meta = (ent.metadata || {}) as Record<string, unknown>;
+          if (meta.role && !resolved['role']) resolved['role'] = meta.role;
+          if (Object.keys(resolved).length > 0) {
+            materializedState.set(ent.id, resolved);
+          }
+        }
+        if (materializedState.size > 0) {
+          addLog(`OB-177 Materialized: ${materializedState.size} entities with resolved attributes`);
+        }
+      }
+
+      // Write to period_entity_state for audit trail
+      if (materializedState.size > 0) {
+        await supabase.from('period_entity_state').delete().eq('tenant_id', tenantId).eq('period_id', periodId);
+        const pesRows = Array.from(materializedState.entries()).map(([entityId, resolved]) => ({
+          tenant_id: tenantId,
+          entity_id: entityId,
+          period_id: periodId,
+          resolved_attributes: resolved as Json,
+          resolved_relationships: {} as Json,
+          entity_type: 'individual',
+          status: 'active',
+        }));
+        const PES_BATCH = 1000;
+        for (let i = 0; i < pesRows.length; i += PES_BATCH) {
+          await supabase.from('period_entity_state').insert(pesRows.slice(i, i + PES_BATCH));
+        }
+      }
+    } catch (matErr) {
+      console.warn('[OB-177] Materialization failed (non-blocking):', matErr);
+    }
+  }
+
   for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entitySheetData = dataByEntity.get(entityId) || new Map();
