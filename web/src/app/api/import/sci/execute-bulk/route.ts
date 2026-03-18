@@ -331,8 +331,12 @@ async function processEntityUnit(
     return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No entity_identifier binding found' };
   }
 
-  // Collect unique external IDs with metadata
-  const entityData = new Map<string, { name: string; role?: string; licenses?: string }>();
+  // Collect unique external IDs with metadata + enrichment attributes
+  const entityData = new Map<string, { name: string; role?: string; licenses?: string; enrichment: Record<string, string> }>();
+  // OB-177: Detect enrichment fields — entity_attribute bindings that are text (not ID/name)
+  const enrichmentBindings = unit.confirmedBindings.filter(b =>
+    b.semanticRole === 'entity_attribute' || b.semanticRole === 'descriptive_label'
+  );
   for (const row of rows) {
     const eid = row[idBinding.sourceField];
     if (eid == null || !String(eid).trim()) continue;
@@ -340,7 +344,7 @@ async function processEntityUnit(
     if (entityData.has(key)) continue;
 
     const name = nameBinding ? String(row[nameBinding.sourceField] || key).trim() : key;
-    const meta: { name: string; role?: string; licenses?: string } = { name };
+    const meta: { name: string; role?: string; licenses?: string; enrichment: Record<string, string> } = { name, enrichment: {} };
 
     for (const binding of unit.confirmedBindings) {
       if (binding.semanticRole === 'entity_attribute') {
@@ -352,6 +356,15 @@ async function processEntityUnit(
     }
     if (licenseBinding) {
       meta.licenses = String(row[licenseBinding.sourceField] || '').trim();
+    }
+
+    // OB-177: Collect ALL enrichment field values for temporal_attributes
+    for (const binding of enrichmentBindings) {
+      const val = row[binding.sourceField];
+      if (val != null && typeof val === 'string' && val.trim()) {
+        const normalizedKey = binding.sourceField.toLowerCase().replace(/[\s]+/g, '_');
+        meta.enrichment[normalizedKey] = val.trim();
+      }
     }
 
     entityData.set(key, meta);
@@ -375,6 +388,18 @@ async function processEntityUnit(
     }
   }
 
+  // OB-177: Build temporal_attributes from enrichment fields
+  const importDate = new Date().toISOString().split('T')[0];
+  function buildTemporalAttrs(enrichment: Record<string, string>): Json[] {
+    return Object.entries(enrichment).map(([key, value]) => ({
+      key,
+      value,
+      effective_from: importDate,
+      effective_to: null,
+      source: 'import',
+    }));
+  }
+
   // Create new entities — bulk insert in 5000-row chunks
   const newIds = allIds.filter(eid => !existingMap.has(eid));
   let created = 0;
@@ -387,7 +412,7 @@ async function processEntityUnit(
         display_name: meta?.name || eid,
         entity_type: 'individual' as const,
         status: 'active' as const,
-        temporal_attributes: [] as Json[],
+        temporal_attributes: buildTemporalAttrs(meta?.enrichment || {}) as Json[],
         metadata: {
           ...(meta?.role ? { role: meta.role } : {}),
           ...(meta?.licenses ? { product_licenses: meta.licenses } : {}),
@@ -406,7 +431,59 @@ async function processEntityUnit(
     }
   }
 
-  console.log(`[SCI Bulk] Entity: ${created} new, ${existingMap.size} existing (deduped)`);
+  // OB-177: Enrich EXISTING entities — merge temporal_attributes (don't overwrite)
+  let enriched = 0;
+  for (const eid of allIds) {
+    const entityId = existingMap.get(eid);
+    if (!entityId) continue;
+    const meta = entityData.get(eid);
+    if (!meta?.enrichment || Object.keys(meta.enrichment).length === 0) continue;
+
+    // Fetch current temporal_attributes
+    const { data: current } = await supabase
+      .from('entities')
+      .select('temporal_attributes')
+      .eq('id', entityId)
+      .single();
+
+    const existingAttrs = (current?.temporal_attributes || []) as Array<{ key: string; value: Json; effective_from: string; effective_to: string | null }>;
+
+    // Merge: for each enrichment field, check if value changed
+    const newAttrs = [...existingAttrs];
+    for (const [key, value] of Object.entries(meta.enrichment)) {
+      const existing = newAttrs.find(a => a.key === key && a.effective_to === null);
+      if (existing && existing.value === value) continue; // Same value, idempotent
+      if (existing) {
+        // Close current entry
+        existing.effective_to = importDate;
+      }
+      // Add new entry
+      newAttrs.push({ key, value, effective_from: importDate, effective_to: null });
+    }
+
+    // Also update metadata.role if detected
+    if (meta.role) {
+      const { data: entData } = await supabase.from('entities').select('metadata').eq('id', entityId).single();
+      const existingMeta = (entData?.metadata ?? {}) as Record<string, unknown>;
+      if (existingMeta.role !== meta.role) {
+        await supabase.from('entities').update({
+          temporal_attributes: newAttrs as unknown as Json[],
+          metadata: { ...existingMeta, role: meta.role } as unknown as Json,
+        }).eq('id', entityId);
+        enriched++;
+        continue;
+      }
+    }
+
+    if (newAttrs.length !== existingAttrs.length) {
+      await supabase.from('entities').update({
+        temporal_attributes: newAttrs as unknown as Json[],
+      }).eq('id', entityId);
+      enriched++;
+    }
+  }
+
+  console.log(`[SCI Bulk] Entity: ${created} new, ${existingMap.size} existing, ${enriched} enriched`);
 
   return { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: rows.length, pipeline: 'entity' };
 }
