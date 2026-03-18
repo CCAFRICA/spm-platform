@@ -403,7 +403,16 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
   }, [proposal.contentUnits]);
 
   // State — uses guaranteed-unique IDs
-  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
+  // OB-176: Auto-confirm high-confidence content units (Tier 1 with >75% confidence)
+  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(() => {
+    const auto = new Set<string>();
+    proposal.contentUnits.forEach((u, i) => {
+      if (u.confidence >= 0.75) {
+        auto.add(unitIds.get(i) || u.contentUnitId);
+      }
+    });
+    return auto;
+  });
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     // Auto-expand needs-review items
     const auto = new Set<string>();
