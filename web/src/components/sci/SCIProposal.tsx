@@ -126,6 +126,23 @@ function ContentUnitCard({
           </span>
         )}
 
+        {/* OB-176: Recognition tier badge */}
+        {unit.recognitionTier === 1 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            Recognized
+          </span>
+        )}
+        {unit.recognitionTier === 2 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            Similar
+          </span>
+        )}
+        {unit.recognitionTier === 3 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+            New
+          </span>
+        )}
+
         {/* Verdict text */}
         <span className="text-xs text-zinc-500 flex-1 truncate">
           {unit.verdictSummary || unit.reasoning}
