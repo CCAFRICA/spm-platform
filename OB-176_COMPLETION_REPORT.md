@@ -59,4 +59,10 @@
 3. **Rollback service is a stub** — no programmatic tenant data reset. Cleanup is manual SQL.
 
 ## BUILD OUTPUT
-(appended after build)
+```
+npm run build — zero errors
+
+ƒ Middleware                                  75.4 kB
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+```

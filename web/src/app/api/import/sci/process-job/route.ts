@@ -222,7 +222,7 @@ export async function POST(req: NextRequest) {
     // OB-176: For Tier 1 matches, override CRR posterior with flywheel confidence
     // and tag each content unit with its recognition tier
     for (const unit of contentUnits) {
-      (unit as Record<string, unknown>).recognitionTier = recognitionTier;
+      (unit as unknown as { recognitionTier: number }).recognitionTier = recognitionTier;
       if (recognitionTier === 1 && flywheelResult?.confidence) {
         unit.confidence = Math.max(unit.confidence, flywheelResult.confidence);
       }
