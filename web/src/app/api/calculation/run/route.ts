@@ -1125,18 +1125,36 @@ export async function POST(request: NextRequest) {
     const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
 
     // HF-119: Token overlap variant matching — cross-language, structural
+    // OB-177: PRIMARY source is materializedState (period_entity_state resolved_attributes)
+    // FALLBACK: flatDataByEntity (committed_data entity_id FK path)
     let selectedComponents = defaultComponents;
     let selectedVariantIndex = 0;
     if (variants.length > 1) {
-      // Build entity token set from ALL string field values
+      // Build entity token set
       const entityTokens = new Set<string>();
-      for (const row of entityRowsFlat) {
-        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-          ? row.row_data as Record<string, unknown> : {};
-        for (const val of Object.values(rd)) {
+
+      // OB-177: Read from materialized state FIRST (Living → Materialized layer)
+      const resolvedAttrs = materializedState.get(entityId);
+      if (resolvedAttrs && Object.keys(resolvedAttrs).length > 0) {
+        for (const val of Object.values(resolvedAttrs)) {
           if (typeof val === 'string' && val.length > 1) {
             for (const token of variantTokenize(val)) {
               entityTokens.add(token);
+            }
+          }
+        }
+      }
+
+      // Fallback: also read from flatDataByEntity (committed_data rows)
+      if (entityTokens.size === 0) {
+        for (const row of entityRowsFlat) {
+          const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+            ? row.row_data as Record<string, unknown> : {};
+          for (const val of Object.values(rd)) {
+            if (typeof val === 'string' && val.length > 1) {
+              for (const token of variantTokenize(val)) {
+                entityTokens.add(token);
+              }
             }
           }
         }
