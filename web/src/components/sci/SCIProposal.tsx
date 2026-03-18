@@ -108,9 +108,14 @@ function ContentUnitCard({
           className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 flex-shrink-0"
         />
 
-        {/* Tab name */}
+        {/* Tab name + source file — OB-175: show file-of-origin for multi-file imports */}
         <span className="text-sm font-medium text-zinc-200 min-w-[140px] truncate">
           {isDocPlan ? unit.sourceFile : unit.tabName}
+          {!isDocPlan && unit.sourceFile && unit.sourceFile !== unit.tabName && (
+            <span className="text-zinc-500 font-normal text-xs ml-1.5">
+              {unit.sourceFile.replace(/^\d+_\d+_[a-f0-9]{8}_/, '')}
+            </span>
+          )}
         </span>
 
         {/* Verdict badge */}
@@ -155,13 +160,16 @@ function ContentUnitCard({
           </p>
 
           {/* SECTION: Observations — OB-173: institutional voice */}
+          {/* OB-175: Filter developer-facing heuristic metrics from observations */}
           {((unit.observations?.length || 0) > 0 || displayBindings.length > 0) && (
             <div>
               <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
                 Observations
               </h4>
               <div className="space-y-1.5">
-                {(unit.observations || []).map((obs, i) => (
+                {(unit.observations || [])
+                  .filter(obs => !/repeat ratio|composite signature|identifierRepeat|numericFieldRatio/i.test(obs))
+                  .map((obs, i) => (
                   <div key={i} className="flex items-start gap-2 text-sm text-zinc-400">
                     <span className="text-zinc-600 mt-0.5">&bull;</span>
                     <span>{obs}</span>

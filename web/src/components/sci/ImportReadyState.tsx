@@ -115,13 +115,23 @@ export function ImportReadyState({
         <div>
           <p className="text-xs text-zinc-500 uppercase tracking-wider mb-3">What was imported</p>
           <div className="space-y-0.5">
-            {successResults.map(r => (
+            {successResults.map(r => {
+              // OB-175: Extract file name and tab name from HF-142 contentUnitId format
+              const parts = r.contentUnitId.split('::');
+              const sourceFile = parts.length >= 2
+                ? parts[0].replace(/^\d+_\d+_[a-f0-9]{8}_/, '')
+                : null;
+              const tabName = parts[1] || r.contentUnitId;
+              return (
               <div key={r.contentUnitId} className="flex items-center gap-3 px-3 py-2 rounded-lg">
                 <div className="w-4 h-4 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
                   <Check className="w-2.5 h-2.5 text-emerald-400" />
                 </div>
                 <span className="text-sm text-zinc-300 flex-1 min-w-0 truncate">
-                  {r.contentUnitId.split('::')[1] || r.contentUnitId}
+                  {tabName}
+                  {sourceFile && (
+                    <span className="text-zinc-500 text-xs ml-1.5">{sourceFile}</span>
+                  )}
                 </span>
                 <span className="text-xs text-zinc-600 flex-shrink-0">
                   {CLASSIFICATION_LABELS[r.classification]}
@@ -132,17 +142,27 @@ export function ImportReadyState({
                     : 'Acknowledged'}
                 </span>
               </div>
-            ))}
+              );
+            })}
 
             {/* Failed items — show error messages, not UUIDs */}
-            {failedResults.map(r => (
+            {failedResults.map(r => {
+              const fParts = r.contentUnitId.split('::');
+              const fSourceFile = fParts.length >= 2
+                ? fParts[0].replace(/^\d+_\d+_[a-f0-9]{8}_/, '')
+                : null;
+              const fTabName = fParts[1] || r.contentUnitId;
+              return (
               <div key={r.contentUnitId} className="flex items-start gap-3 px-3 py-2 rounded-lg bg-red-500/[0.05]">
                 <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
                   <XCircle className="w-2.5 h-2.5 text-red-400" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="text-sm text-red-400 block truncate">
-                    {r.contentUnitId.split('::')[1] || r.contentUnitId}
+                    {fTabName}
+                    {fSourceFile && (
+                      <span className="text-red-400/70 text-xs ml-1.5">{fSourceFile}</span>
+                    )}
                   </span>
                   {r.error && (
                     <span className="text-xs text-red-400/70 block mt-0.5">
@@ -154,7 +174,8 @@ export function ImportReadyState({
                   {CLASSIFICATION_LABELS[r.classification]}
                 </span>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

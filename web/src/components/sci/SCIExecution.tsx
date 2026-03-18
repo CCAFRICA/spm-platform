@@ -405,11 +405,12 @@ export function SCIExecution({
       }
     }
 
-    // HF-141: Group data units by source file for per-file content isolation.
-    // CRITICAL: No cross-file fallback. Each file MUST use its own storage path.
-    // If a file's path is missing, use legacy path for that file only — never
-    // another file's storage path (that was the HF-140 bug causing file 3+ to
-    // download file 1's content).
+    // ═══════════════════════════════════════════════════════════════════
+    // PRIMARY PATH: Per-file bulk execution via Supabase Storage (OB-174/HF-142)
+    // Each file group downloads its own file server-side. No rawData in HTTP body.
+    // Legacy fallback retained for graceful degradation when storage upload
+    // fails or processing_jobs table is unavailable.
+    // ═══════════════════════════════════════════════════════════════════
     if (dataUnits.length > 0 && (storagePaths && Object.keys(storagePaths).length > 0 || storagePath)) {
       const fileGroups = new Map<string, ExecutionUnit[]>();
       for (const unit of dataUnits) {
@@ -471,7 +472,9 @@ export function SCIExecution({
         }
       }
     } else if (dataUnits.length > 0) {
-      // Fallback: no storagePath — use legacy execution for each data unit
+      // LEGACY FALLBACK: No storagePath — sends rawData via HTTP body (AP-1 tolerated for degradation).
+      // Reached when: (1) storage upload failed, (2) single-file sync path without storage,
+      // (3) processing_jobs table unavailable. rawDataRef stores only first file's data.
       for (const unit of dataUnits) {
         setElapsedSeconds(0);
         setUnits(prev => prev.map(u =>

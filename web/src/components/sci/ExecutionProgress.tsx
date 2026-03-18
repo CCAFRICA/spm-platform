@@ -141,7 +141,7 @@ export function ExecutionProgress({
               )}
             </div>
 
-            {/* Content */}
+            {/* Content — OB-175: show source file alongside tab name */}
             <div className="flex-1 min-w-0">
               <span className={cn(
                 'text-sm',
@@ -151,6 +151,13 @@ export function ExecutionProgress({
                 'text-red-400'
               )}>
                 {item.tabName}
+                {(() => {
+                  const parts = item.contentUnitId.split('::');
+                  const sf = parts.length >= 2 ? parts[0].replace(/^\d+_\d+_[a-f0-9]{8}_/, '') : null;
+                  return sf && sf !== item.tabName ? (
+                    <span className="text-zinc-500 text-xs ml-1.5">{sf}</span>
+                  ) : null;
+                })()}
               </span>
             </div>
 

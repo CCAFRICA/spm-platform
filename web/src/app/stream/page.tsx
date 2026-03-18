@@ -174,22 +174,74 @@ export default function StreamPage() {
   );
 
   if (error || !data || !hasContent) {
+    // OB-175: Show tenant context in empty state — not bare "No Intelligence"
+    const hasPlan = !!tenantCtx?.activeRuleSet;
+    const hasEntities = (tenantCtx?.entityCount ?? 0) > 0;
+    const hasUncalculated = (tenantCtx?.uncalculatedPeriodsWithData?.length ?? 0) > 0;
+    const totalPeriods = (tenantCtx?.calculatedPeriods?.length ?? 0)
+      + (tenantCtx?.uncalculatedPeriodsWithData?.length ?? 0)
+      + (tenantCtx?.emptyPeriods?.length ?? 0);
+
     return (
       <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
         <div className="max-w-4xl mx-auto px-6 py-16">
-          <div className="text-center py-20">
+          <div className="text-center py-12">
             <Zap className="h-8 w-8 text-zinc-600 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-zinc-300 mb-2">No Intelligence Available</h2>
-            <p className="text-sm text-zinc-500 max-w-md mx-auto mb-6">
-              {error || 'No calculation results found. Import data and run a calculation to see your intelligence stream.'}
+            <h2 className="text-lg font-semibold text-zinc-300 mb-2">
+              {error ? 'Intelligence Unavailable' : 'No Intelligence Available'}
+            </h2>
+            <p className="text-sm text-zinc-500 max-w-md mx-auto mb-8">
+              {error || 'Import data and run a calculation to see your intelligence stream.'}
             </p>
-            <button
-              onClick={() => router.push('/operate/import')}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
-            >
-              Import Data
-              <span aria-hidden="true">&rarr;</span>
-            </button>
+
+            {/* Tenant context — what exists, what's needed */}
+            {tenantCtx && !error && (
+              <div className="max-w-sm mx-auto mb-8 rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 text-left space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-500">Plan</span>
+                  <span className={hasPlan ? 'text-zinc-200' : 'text-zinc-600'}>
+                    {tenantCtx.activeRuleSet?.name || 'None'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-500">Entities</span>
+                  <span className={hasEntities ? 'text-zinc-200' : 'text-zinc-600'}>
+                    {tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-500">Periods</span>
+                  <span className={totalPeriods > 0 ? 'text-zinc-200' : 'text-zinc-600'}>
+                    {totalPeriods > 0 ? totalPeriods : 'None'}
+                  </span>
+                </div>
+                {hasUncalculated && (
+                  <p className="text-xs text-indigo-400 pt-1">
+                    {tenantCtx.uncalculatedPeriodsWithData.length} period{tenantCtx.uncalculatedPeriodsWithData.length !== 1 ? 's' : ''} with data ready to calculate
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-center gap-3">
+              {hasUncalculated ? (
+                <button
+                  onClick={() => router.push('/operate/calculate')}
+                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
+                >
+                  Go to Calculate
+                  <span aria-hidden="true">&rarr;</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => router.push('/operate/import')}
+                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
+                >
+                  Import Data
+                  <span aria-hidden="true">&rarr;</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
