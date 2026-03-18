@@ -18,6 +18,7 @@ import {
   ClipboardCheck,
   TrendingUp,
   TrendingDown,
+  ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -289,6 +290,18 @@ export function PlanCard({
         )}
         {calcSuccess && !componentBreakdown && (
           <p className="text-xs text-emerald-400 mt-2">{calcSuccess}</p>
+        )}
+
+        {/* OB-176: Post-calculation guidance */}
+        {calcSuccess && componentBreakdown && (
+          <Link
+            href="/stream"
+            className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 mt-2 transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            View Intelligence
+            <ArrowRight className="w-3 h-3" />
+          </Link>
         )}
       </CardContent>
     </Card>
