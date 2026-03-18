@@ -288,7 +288,8 @@ export default function OperateImportPage() {
       phase: 'proposal',
       proposal: mergedProposal,
       rawData: rawDataRef.current || { fileName: '', sheets: [] },
-      fileName: jobs.map(j => j.file_name).join(', '),
+      // OB-175: Display original file names, strip HF-141 storage prefix
+      fileName: jobs.map(j => j.file_name.replace(/^\d+_\d+_[a-f0-9]{8}_/, '')).join(', '),
     });
   }, [tenantId]);
 
@@ -454,26 +455,15 @@ export default function OperateImportPage() {
           )}
 
           {/* ─── PROPOSAL STATE ─── */}
-          {/* Collapsed file indicator — ONLY during proposal, NOT during executing/complete */}
+          {/* OB-175: Single file header in SCIProposalView — no duplicate collapsed SCIUpload */}
           {state.phase === 'proposal' && (
-            <>
-              <div className="mb-6">
-                <SCIUpload
-                  onAnalysisStart={handleAnalysisStart}
-                  onError={handleError}
-                  collapsed
-                  fileName={state.fileName}
-                />
-              </div>
-
-              <SCIProposalView
-                proposal={state.proposal}
-                fileName={state.fileName}
-                rawData={state.rawData}
-                onConfirmAll={handleConfirmAll}
-                onCancel={handleCancel}
-              />
-            </>
+            <SCIProposalView
+              proposal={state.proposal}
+              fileName={state.fileName}
+              rawData={state.rawData}
+              onConfirmAll={handleConfirmAll}
+              onCancel={handleCancel}
+            />
           )}
 
           {/* ─── EXECUTING STATE ─── */}
