@@ -654,7 +654,7 @@ async function processDataUnit(
     if (totalInserted > 10 && matchRate < 0.5) {
       console.warn(`[OB-177] Entity binding failure: ${(matchRate * 100).toFixed(1)}% for batch ${batchId.substring(0, 8)}. Fingerprint entity_identifier may be incorrect.`);
       // Decrease confidence on the structural fingerprint
-      const unitSource = (unit as Record<string, unknown>).sourceFile as string | undefined;
+      const unitSource = (unit as unknown as Record<string, unknown>).sourceFile as string | undefined;
       if (unitSource) {
         const { computeFingerprintHashSync } = await import('@/lib/sci/structural-fingerprint');
         const sampleCols = Object.keys(rows[0] || {}).filter(k => !k.startsWith('_'));
