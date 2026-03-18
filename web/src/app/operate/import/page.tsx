@@ -92,6 +92,9 @@ export default function OperateImportPage() {
     setErrorMessage(null);
 
     try {
+      // OB-175: rawDataRef stores first file only — used for legacy execution fallback
+      // and row count display in SCIProposalView. Primary path (OB-174 async) downloads
+      // files server-side from Supabase Storage, so rawData is not needed for commitment.
       if (files.length > 0) {
         rawDataRef.current = files[0].parsedData;
       }
