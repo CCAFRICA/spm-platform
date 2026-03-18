@@ -644,6 +644,41 @@ async function processDataUnit(
   // Post-commit construction — entities, assignments, entity_id binding
   await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit, rows);
 
+  // OB-177 Phase 4: Flywheel self-correction — validate entity_id binding
+  try {
+    const { count: boundCount } = await supabase.from('committed_data')
+      .select('*', { count: 'exact', head: true })
+      .eq('import_batch_id', batchId)
+      .not('entity_id', 'is', null);
+    const matchRate = totalInserted > 0 ? (boundCount ?? 0) / totalInserted : 0;
+    if (totalInserted > 10 && matchRate < 0.5) {
+      console.warn(`[OB-177] Entity binding failure: ${(matchRate * 100).toFixed(1)}% for batch ${batchId.substring(0, 8)}. Fingerprint entity_identifier may be incorrect.`);
+      // Decrease confidence on the structural fingerprint
+      const unitSource = (unit as Record<string, unknown>).sourceFile as string | undefined;
+      if (unitSource) {
+        const { computeFingerprintHashSync } = await import('@/lib/sci/structural-fingerprint');
+        const sampleCols = Object.keys(rows[0] || {}).filter(k => !k.startsWith('_'));
+        const fpHash = computeFingerprintHashSync(sampleCols, rows.slice(0, 5));
+        const { data: fp } = await supabase.from('structural_fingerprints')
+          .select('id, confidence')
+          .eq('tenant_id', tenantId)
+          .eq('fingerprint_hash', fpHash)
+          .maybeSingle();
+        if (fp) {
+          const newConfidence = Math.max(0.3, Number(fp.confidence) - 0.2);
+          await supabase.from('structural_fingerprints')
+            .update({ confidence: newConfidence })
+            .eq('id', fp.id);
+          console.log(`[OB-177] Fingerprint confidence decreased: ${fp.confidence} → ${newConfidence} (binding failure)`);
+        }
+      }
+    } else if (totalInserted > 0) {
+      console.log(`[OB-177] Entity binding: ${(matchRate * 100).toFixed(1)}% (${boundCount}/${totalInserted} rows bound)`);
+    }
+  } catch (validErr) {
+    console.warn('[OB-177] Binding validation failed (non-blocking):', validErr);
+  }
+
   // Trigger convergence for active rule_sets
   const { data: ruleSets } = await supabase
     .from('rule_sets')
