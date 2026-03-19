@@ -1,10 +1,21 @@
 /**
- * Supabase Browser Client
+ * Supabase Browser Client — OB-178 / DS-019 Section 4.3
  *
- * Creates a Supabase client for use in client components.
- * Uses @supabase/ssr for cookie-based session management.
+ * WRITE-ONLY for auth operations:
+ *   - signInWithPassword (login)
+ *   - signOut (logout)
+ *   - mfa.enroll / mfa.challenge / mfa.verify (MFA ceremony)
+ *   - onAuthStateChange (SIGNED_OUT detection only — not for session init)
  *
- * Supabase IS the only data source. No fallback.
+ * READ operations (getUser, getSession) are done SERVER-SIDE
+ * via getServerAuthState() in server-auth.ts.
+ *
+ * Also used for Supabase data queries (from() calls) which use
+ * the anon key with RLS. This is intentional — data access is
+ * gated by RLS using auth.uid(), not by client-side auth checks.
+ *
+ * Do NOT add getUser() or getSession() calls for session initialization.
+ * The server resolves auth state and passes it to AuthProvider as props.
  */
 
 import { createBrowserClient } from '@supabase/ssr';
