@@ -67,8 +67,19 @@ export async function lookupFingerprint(
         matchCount: tier1.match_count,
       };
     }
-    // Confidence below threshold — demote to Tier 2 for re-classification
-    console.log(`[SCI-FINGERPRINT] tier=1 DEMOTED to tier=2: hash=${fingerprintHash.substring(0, 12)} confidence=${conf} < 0.5 threshold`);
+    // DIAG-010 / OB-178: Demoted Tier 1 returns as Tier 2 match with existing data.
+    // Caller runs targeted re-classification (HC + CRR) instead of full Tier 3 LLM.
+    // This preserves the flywheel's memory while allowing re-classification.
+    console.log(`[SCI-FINGERPRINT] tier=1 DEMOTED to tier=2: hash=${fingerprintHash.substring(0, 12)} confidence=${conf} < 0.5 — returning existing data for re-classification`);
+    return {
+      tier: 2,
+      match: true,
+      fingerprintHash,
+      classificationResult: tier1.classification_result as Record<string, unknown>,
+      columnRoles: tier1.column_roles as Record<string, string>,
+      confidence: conf,
+      matchCount: tier1.match_count,
+    };
   }
 
   // Tier 2: Foundational (cross-tenant) match — same hash, tenant_id IS NULL
