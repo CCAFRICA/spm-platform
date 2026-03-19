@@ -37,13 +37,13 @@ export async function signInWithEmail(email: string, password: string) {
   });
 
   if (error) {
-    // OB-178: Log login failure
-    logAuthEvent(supabase, 'auth.login.failure', { email, error: error.message });
+    // HF-147: Log login failure (service role — bypasses RLS)
+    logAuthEvent('auth.login.failure', { email, error: error.message });
     throw error;
   }
 
-  // OB-178: Log login success
-  logAuthEvent(supabase, 'auth.login.success', { email }, data.user?.id);
+  // HF-147: Log login success
+  logAuthEvent('auth.login.success', { email }, data.user?.id);
   return data;
 }
 
@@ -72,8 +72,8 @@ export async function signUpWithEmail(email: string, password: string) {
 export async function signOut() {
   const supabase = createClient();
 
-  // OB-178: Log logout event before clearing session
-  logAuthEvent(supabase, 'auth.logout', {});
+  // HF-147: Log logout event (service role — bypasses RLS)
+  logAuthEvent('auth.logout', {});
 
   // OB-178: Global scope revokes all refresh tokens server-side.
   try {

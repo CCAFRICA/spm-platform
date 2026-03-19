@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { logAuthEvent } from '@/lib/auth/auth-logger';
 import { Shield, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function MFAEnrollPage() {
@@ -60,6 +61,7 @@ export default function MFAEnrollPage() {
       });
       if (verifyErr) throw verifyErr;
 
+      logAuthEvent('auth.mfa.enroll', { method: 'totp' });
       router.push('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed. Check your code and try again.');
