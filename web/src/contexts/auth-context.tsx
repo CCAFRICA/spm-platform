@@ -12,7 +12,8 @@
  *   2. AuthShellProtected — backup redirect if isAuthenticated becomes false
  */
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { SessionExpiryWarning } from '@/components/session/SessionExpiryWarning';
 import { useRouter, usePathname } from 'next/navigation';
 import type { User, TenantUser, VLAdminUser } from '@/types/auth';
 import { isVLAdmin } from '@/types/auth';
@@ -345,6 +346,8 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
       }}
     >
       {children}
+      {/* HF-147: Session expiry warning — only shown when authenticated */}
+      {!!user && <SessionExpiryWarning />}
     </AuthContext.Provider>
   );
 }
