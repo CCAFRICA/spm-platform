@@ -134,14 +134,13 @@ export async function writeFingerprint(
       .maybeSingle();
 
     if (existing) {
-      // Update: increment match_count, monotonic confidence increase
+      // HF-145: Optimistic locking — only update if match_count hasn't changed since read.
+      // Prevents parallel worker race condition (DIAG-008: matchCount 12→13→12 in 47ms).
+      // If another worker already incremented, this update is a no-op (acceptable loss of one increment).
       const newMatchCount = existing.match_count + 1;
-      // OB-176: Fixed formula — confidence = 1 - 1/(matchCount + 1)
-      // Monotonically increasing: matchCount 1→0.50, 6→0.86, 10→0.91, 20→0.95
-      // Old formula (N*prior+0.7)/(N+1) was a fixed point at 0.7 — never increased.
       const newConfidence = 1 - (1 / (newMatchCount + 1));
 
-      await supabase
+      const { count: updated } = await supabase
         .from('structural_fingerprints')
         .update({
           match_count: newMatchCount,
@@ -150,9 +149,14 @@ export async function writeFingerprint(
           column_roles: columnRoles,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', existing.id);
+        .eq('id', existing.id)
+        .eq('match_count', existing.match_count);  // optimistic lock
 
-      console.log(`[SCI-FINGERPRINT] Updated: hash=${fingerprintHash.substring(0, 12)} matchCount=${newMatchCount} confidence=${newConfidence.toFixed(4)}`);
+      if (updated === 0) {
+        console.log(`[SCI-FINGERPRINT] Skipped (concurrent update): hash=${fingerprintHash.substring(0, 12)}`);
+      } else {
+        console.log(`[SCI-FINGERPRINT] Updated: hash=${fingerprintHash.substring(0, 12)} matchCount=${newMatchCount} confidence=${newConfidence.toFixed(4)}`);
+      }
     } else {
       // Insert new fingerprint record — confidence = 1 - 1/(1+1) = 0.5
       await supabase
