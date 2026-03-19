@@ -2,12 +2,13 @@
  * Auth Event Logger — OB-178 / DS-019 Section 8
  *
  * Provider-agnostic auth event logging to platform_events table.
- * Travels with the codebase regardless of auth provider.
- * Supabase audit_log_entries is the provider's log; this is ours.
+ * Uses the service role client to bypass RLS — auth logging is a system concern.
  *
  * CRITICAL: Logging must NEVER block the auth flow.
  * Every call is wrapped in try/catch. Failure is logged to console only.
  */
+
+import { createClient } from '@supabase/supabase-js';
 
 export type AuthEventType =
   | 'auth.login.success'
@@ -20,17 +21,23 @@ export type AuthEventType =
   | 'auth.session.expired.absolute'
   | 'auth.permission.denied';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SupabaseClient = any;
-
+/**
+ * Log an auth event to platform_events using the service role client.
+ * HF-147: Uses service role to bypass RLS (G3 fix — anon client gets 403).
+ * Safe to call from middleware, API routes, and client-side (with env vars).
+ */
 export async function logAuthEvent(
-  supabase: SupabaseClient,
   eventType: AuthEventType,
   payload: Record<string, unknown>,
   actorId?: string,
   tenantId?: string,
 ): Promise<void> {
   try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !serviceKey) return; // Client-side: no service key available, skip silently
+
+    const supabase = createClient(url, serviceKey);
     await supabase.from('platform_events').insert({
       tenant_id: tenantId || '00000000-0000-0000-0000-000000000000',
       event_type: eventType,
@@ -41,7 +48,6 @@ export async function logAuthEvent(
       },
     });
   } catch (err) {
-    // Auth logging must never block the auth flow
-    console.error('[OB-178] Auth event logging failed:', err);
+    console.error('[HF-147] Auth event logging failed:', err);
   }
 }

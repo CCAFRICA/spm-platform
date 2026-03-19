@@ -24,6 +24,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/auth/permissions';
 import { SESSION_COOKIE_OPTIONS, SESSION_LIMITS } from '@/lib/supabase/cookie-config';
+import { logAuthEvent } from '@/lib/auth/auth-logger';
 
 // Paths that don't require authentication
 // HF-136: SECURITY — Only truly public paths listed here.
@@ -190,6 +191,7 @@ export async function middleware(request: NextRequest) {
 
   // Check absolute timeout (8 hours)
   if (sessionStart && (now - Number(sessionStart)) > SESSION_LIMITS.ABSOLUTE_TIMEOUT_MS) {
+    logAuthEvent('auth.session.expired.absolute', { elapsed_ms: now - Number(sessionStart) }, user.id);
     const expiredResponse = NextResponse.redirect(new URL('/login?reason=session_expired', request.url));
     clearAuthCookies(request, expiredResponse);
     expiredResponse.cookies.set('vialuce-session-start', '', { maxAge: 0, path: '/' });
@@ -199,6 +201,7 @@ export async function middleware(request: NextRequest) {
 
   // Check idle timeout (30 minutes)
   if (lastActivity && (now - Number(lastActivity)) > SESSION_LIMITS.IDLE_TIMEOUT_MS) {
+    logAuthEvent('auth.session.expired.idle', { idle_ms: now - Number(lastActivity) }, user.id);
     const idleResponse = NextResponse.redirect(new URL('/login?reason=idle_timeout', request.url));
     clearAuthCookies(request, idleResponse);
     idleResponse.cookies.set('vialuce-session-start', '', { maxAge: 0, path: '/' });
@@ -319,6 +322,7 @@ export async function middleware(request: NextRequest) {
       const resolved = resolveRole(role);
       const roleToCheck = resolved || role;
       if (!canAccessWorkspace(roleToCheck, pathname)) {
+        logAuthEvent('auth.permission.denied', { pathname, role: roleToCheck }, user.id);
         return noCacheResponse(NextResponse.redirect(new URL('/unauthorized', request.url)));
       }
     }
