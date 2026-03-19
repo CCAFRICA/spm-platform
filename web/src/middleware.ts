@@ -32,11 +32,15 @@ const PUBLIC_PATHS = [
   '/signup',
   '/landing',
   '/auth/callback',
-  '/api/auth',          // Auth callback handlers
-  '/api/health',        // Health check (no tenant data)
+  '/auth/mfa',           // OB-178: MFA enrollment/verify (accessible post-login, pre-MFA)
+  '/api/auth',           // Auth callback handlers
+  '/api/health',         // Health check (no tenant data)
   '/api/platform/flags', // Public feature flags (no tenant data)
   '/unauthorized',
 ];
+
+// OB-178 / DS-019 Section 5.1: MFA Policy by role
+const MFA_REQUIRED_ROLES = ['platform', 'admin'];
 
 function isRestrictedWorkspace(pathname: string): boolean {
   return Object.keys(WORKSPACE_CAPABILITIES).some(prefix => pathname.startsWith(prefix));
@@ -217,6 +221,34 @@ export async function middleware(request: NextRequest) {
     secure: true,
     path: '/',
   });
+
+  // OB-178: MFA enforcement — check AAL level for required roles
+  if (!pathname.startsWith('/auth/mfa')) {
+    try {
+      const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aalData) {
+        const { currentLevel, nextLevel } = aalData;
+        // User has MFA enrolled but hasn't verified this session
+        if (currentLevel === 'aal1' && nextLevel === 'aal2') {
+          return noCacheResponse(NextResponse.redirect(new URL('/auth/mfa/verify', request.url)));
+        }
+        // Check if user's role requires MFA enrollment
+        if (currentLevel === 'aal1' && nextLevel === 'aal1') {
+          // No factors enrolled — check if role requires MFA
+          const { data: mfaProfile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('auth_user_id', user.id)
+            .maybeSingle();
+          if (mfaProfile && MFA_REQUIRED_ROLES.includes(mfaProfile.role)) {
+            return noCacheResponse(NextResponse.redirect(new URL('/auth/mfa/enroll', request.url)));
+          }
+        }
+      }
+    } catch {
+      // MFA check failure is non-blocking — allow through
+    }
+  }
 
   if (pathname === '/login' || pathname === '/') {
     if (pathname === '/login') {
