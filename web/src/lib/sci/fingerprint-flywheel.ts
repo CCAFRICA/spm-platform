@@ -49,17 +49,26 @@ export async function lookupFingerprint(
     .maybeSingle();
 
   if (tier1 && tier1.classification_result && Object.keys(tier1.classification_result as object).length > 0) {
-    console.log(`[SCI-FINGERPRINT] tier=1 match=true hash=${fingerprintHash.substring(0, 12)} confidence=${tier1.confidence} matchCount=${tier1.match_count}`);
-    console.log(`[SCI-FINGERPRINT] LLM skipped — Tier 1 match from ${tier1.match_count} prior imports`);
-    return {
-      tier: 1,
-      match: true,
-      fingerprintHash,
-      classificationResult: tier1.classification_result as Record<string, unknown>,
-      columnRoles: tier1.column_roles as Record<string, string>,
-      confidence: Number(tier1.confidence),
-      matchCount: tier1.match_count,
-    };
+    // HF-145: Confidence threshold gates Tier 1 routing.
+    // Below 0.5 → demote to Tier 2 (re-classify with minimal LLM).
+    // Self-correction (OB-177) decreases confidence on binding failures.
+    // 3 failures: 0.92 → 0.72 → 0.52 → 0.32 → Tier 2 re-classification triggered.
+    const conf = Number(tier1.confidence);
+    if (conf >= 0.5) {
+      console.log(`[SCI-FINGERPRINT] tier=1 match=true hash=${fingerprintHash.substring(0, 12)} confidence=${conf} matchCount=${tier1.match_count}`);
+      console.log(`[SCI-FINGERPRINT] LLM skipped — Tier 1 match from ${tier1.match_count} prior imports`);
+      return {
+        tier: 1,
+        match: true,
+        fingerprintHash,
+        classificationResult: tier1.classification_result as Record<string, unknown>,
+        columnRoles: tier1.column_roles as Record<string, string>,
+        confidence: conf,
+        matchCount: tier1.match_count,
+      };
+    }
+    // Confidence below threshold — demote to Tier 2 for re-classification
+    console.log(`[SCI-FINGERPRINT] tier=1 DEMOTED to tier=2: hash=${fingerprintHash.substring(0, 12)} confidence=${conf} < 0.5 threshold`);
   }
 
   // Tier 2: Foundational (cross-tenant) match — same hash, tenant_id IS NULL
@@ -125,14 +134,13 @@ export async function writeFingerprint(
       .maybeSingle();
 
     if (existing) {
-      // Update: increment match_count, monotonic confidence increase
+      // HF-145: Optimistic locking — only update if match_count hasn't changed since read.
+      // Prevents parallel worker race condition (DIAG-008: matchCount 12→13→12 in 47ms).
+      // If another worker already incremented, this update is a no-op (acceptable loss of one increment).
       const newMatchCount = existing.match_count + 1;
-      // OB-176: Fixed formula — confidence = 1 - 1/(matchCount + 1)
-      // Monotonically increasing: matchCount 1→0.50, 6→0.86, 10→0.91, 20→0.95
-      // Old formula (N*prior+0.7)/(N+1) was a fixed point at 0.7 — never increased.
       const newConfidence = 1 - (1 / (newMatchCount + 1));
 
-      await supabase
+      const { count: updated } = await supabase
         .from('structural_fingerprints')
         .update({
           match_count: newMatchCount,
@@ -141,9 +149,14 @@ export async function writeFingerprint(
           column_roles: columnRoles,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', existing.id);
+        .eq('id', existing.id)
+        .eq('match_count', existing.match_count);  // optimistic lock
 
-      console.log(`[SCI-FINGERPRINT] Updated: hash=${fingerprintHash.substring(0, 12)} matchCount=${newMatchCount} confidence=${newConfidence.toFixed(4)}`);
+      if (updated === 0) {
+        console.log(`[SCI-FINGERPRINT] Skipped (concurrent update): hash=${fingerprintHash.substring(0, 12)}`);
+      } else {
+        console.log(`[SCI-FINGERPRINT] Updated: hash=${fingerprintHash.substring(0, 12)} matchCount=${newMatchCount} confidence=${newConfidence.toFixed(4)}`);
+      }
     } else {
       // Insert new fingerprint record — confidence = 1 - 1/(1+1) = 0.5
       await supabase

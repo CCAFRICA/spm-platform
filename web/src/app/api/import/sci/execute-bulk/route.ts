@@ -665,11 +665,14 @@ async function processDataUnit(
           .eq('fingerprint_hash', fpHash)
           .maybeSingle();
         if (fp) {
-          const newConfidence = Math.max(0.3, Number(fp.confidence) - 0.2);
+          // HF-145: Optimistic lock — only decrease if confidence hasn't changed since read
+          const currentConf = Number(fp.confidence);
+          const newConfidence = Math.max(0.3, currentConf - 0.2);
           await supabase.from('structural_fingerprints')
-            .update({ confidence: newConfidence })
-            .eq('id', fp.id);
-          console.log(`[OB-177] Fingerprint confidence decreased: ${fp.confidence} → ${newConfidence} (binding failure)`);
+            .update({ confidence: newConfidence, updated_at: new Date().toISOString() })
+            .eq('id', fp.id)
+            .eq('confidence', currentConf);  // optimistic lock
+          console.log(`[OB-177] Fingerprint confidence decreased: ${currentConf} → ${newConfidence} (binding failure)`);
         }
       }
     } else if (totalInserted > 0) {
