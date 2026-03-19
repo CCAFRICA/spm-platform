@@ -11,6 +11,7 @@
 
 import { createClient } from './client';
 import type { Profile } from './database.types';
+import { logAuthEvent } from '@/lib/auth/auth-logger';
 
 export interface AuthProfile {
   id: string;
@@ -35,7 +36,14 @@ export async function signInWithEmail(email: string, password: string) {
     password,
   });
 
-  if (error) throw error;
+  if (error) {
+    // OB-178: Log login failure
+    logAuthEvent(supabase, 'auth.login.failure', { email, error: error.message });
+    throw error;
+  }
+
+  // OB-178: Log login success
+  logAuthEvent(supabase, 'auth.login.success', { email }, data.user?.id);
   return data;
 }
 
@@ -64,8 +72,10 @@ export async function signUpWithEmail(email: string, password: string) {
 export async function signOut() {
   const supabase = createClient();
 
+  // OB-178: Log logout event before clearing session
+  logAuthEvent(supabase, 'auth.logout', {});
+
   // OB-178: Global scope revokes all refresh tokens server-side.
-  // Fallback to local if global fails (network error).
   try {
     await supabase.auth.signOut({ scope: 'global' });
   } catch (globalErr) {
@@ -77,7 +87,6 @@ export async function signOut() {
     }
   }
 
-  // HF-050: Clear ALL Supabase auth keys from localStorage.
   clearSupabaseLocalStorage();
 }
 
