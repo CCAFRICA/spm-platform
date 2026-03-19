@@ -9,6 +9,7 @@ import { TenantProvider } from "@/contexts/tenant-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { AuthShell } from "@/components/layout/auth-shell";
 import { Toaster } from "sonner";
+import { getServerAuthState } from "@/lib/auth/server-auth";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -26,18 +27,21 @@ export const metadata: Metadata = {
   description: "Performance Intelligence Platform — Intelligence. Acceleration. Performance.",
 };
 
-export default function RootLayout({
+// OB-178: Server Component — resolves auth state server-side, passes to client AuthProvider
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const authState = await getServerAuthState();
+
   return (
     <html lang="en" className="dark" style={{ colorScheme: 'dark' }}>
       <body
         className={`${dmSans.variable} ${dmMono.variable} antialiased`}
         style={{ background: '#0a0e1a', color: '#e2e8f0', minHeight: '100vh' }}
       >
-        <AuthProvider>
+        <AuthProvider initialAuthState={authState}>
           <TenantProvider>
             <LocaleProvider>
               <SessionProvider>

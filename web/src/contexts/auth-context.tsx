@@ -115,13 +115,53 @@ function mapProfileToUser(profile: AuthProfile): User {
 // Running initAuth on /login can resurrect stale localStorage tokens.
 const AUTH_SKIP_ROUTES = ['/login', '/landing', '/signup'];
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+// OB-178: AuthProvider accepts optional server-resolved initial state
+interface AuthProviderProps {
+  children: ReactNode;
+  initialAuthState?: {
+    user: { id: string; email: string } | null;
+    profile: {
+      id: string;
+      role: string;
+      tenantId: string | null;
+      displayName: string;
+      email: string;
+      capabilities: string[];
+      locale: string | null;
+      avatarUrl: string | null;
+    } | null;
+    isAuthenticated: boolean;
+  };
+}
+
+export function AuthProvider({ children, initialAuthState }: AuthProviderProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState<User | null>(null);
-  const [capabilities, setCapabilities] = useState<string[]>([]);
-  const [profileLocale, setProfileLocale] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+
+  // OB-178: Initialize from server state if available, otherwise null (client-side init)
+  const [user, setUser] = useState<User | null>(() => {
+    if (initialAuthState?.profile) {
+      return mapProfileToUser({
+        id: initialAuthState.profile.id,
+        authUserId: initialAuthState.user?.id || '',
+        tenantId: initialAuthState.profile.tenantId,
+        displayName: initialAuthState.profile.displayName,
+        email: initialAuthState.profile.email,
+        role: initialAuthState.profile.role,
+        capabilities: initialAuthState.profile.capabilities,
+        locale: initialAuthState.profile.locale,
+        avatarUrl: initialAuthState.profile.avatarUrl,
+      });
+    }
+    return null;
+  });
+  const [capabilities, setCapabilities] = useState<string[]>(
+    initialAuthState?.profile?.capabilities || []
+  );
+  const [profileLocale, setProfileLocale] = useState<string | null>(
+    initialAuthState?.profile?.locale || null
+  );
+  const [isLoading, setIsLoading] = useState(!initialAuthState);
 
   // Initialize: check Supabase session + listen for auth changes
   useEffect(() => {
