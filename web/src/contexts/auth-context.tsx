@@ -247,11 +247,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCapabilities([]);
 
     // HF-043: Explicitly clear ALL auth-related cookies.
-    // signOut() asks Supabase to clear sb-* cookies, but we can't trust
-    // that it works in every browser. Force-clear everything.
     if (typeof document !== 'undefined') {
       // Clear tenant cookie
       document.cookie = 'vialuce-tenant-id=; path=/; max-age=0';
+      // OB-178: Clear provider-agnostic session cookies
+      document.cookie = 'vialuce-session-start=; path=/; max-age=0';
+      document.cookie = 'vialuce-last-activity=; path=/; max-age=0';
       // Force-clear all Supabase auth cookies
       document.cookie.split(';').forEach(c => {
         const name = c.trim().split('=')[0];

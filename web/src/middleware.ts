@@ -23,6 +23,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/auth/permissions';
+import { SESSION_COOKIE_OPTIONS, SESSION_LIMITS } from '@/lib/supabase/cookie-config';
 
 // Paths that don't require authentication
 // HF-136: SECURITY — Only truly public paths listed here.
@@ -96,6 +97,8 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
+      // OB-178: Apply SOC 2 / OWASP compliant cookie options
+      cookieOptions: SESSION_COOKIE_OPTIONS,
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -174,6 +177,46 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── AUTHENTICATED ──
+
+  // OB-178: Provider-agnostic session enforcement (idle + absolute timeout)
+  // These are OUR cookies, not Supabase's — they travel with the codebase.
+  const now = Date.now();
+  const sessionStart = request.cookies.get('vialuce-session-start')?.value;
+  const lastActivity = request.cookies.get('vialuce-last-activity')?.value;
+
+  // Check absolute timeout (8 hours)
+  if (sessionStart && (now - Number(sessionStart)) > SESSION_LIMITS.ABSOLUTE_TIMEOUT_MS) {
+    const expiredResponse = NextResponse.redirect(new URL('/login?reason=session_expired', request.url));
+    clearAuthCookies(request, expiredResponse);
+    expiredResponse.cookies.set('vialuce-session-start', '', { maxAge: 0, path: '/' });
+    expiredResponse.cookies.set('vialuce-last-activity', '', { maxAge: 0, path: '/' });
+    return noCacheResponse(expiredResponse);
+  }
+
+  // Check idle timeout (30 minutes)
+  if (lastActivity && (now - Number(lastActivity)) > SESSION_LIMITS.IDLE_TIMEOUT_MS) {
+    const idleResponse = NextResponse.redirect(new URL('/login?reason=idle_timeout', request.url));
+    clearAuthCookies(request, idleResponse);
+    idleResponse.cookies.set('vialuce-session-start', '', { maxAge: 0, path: '/' });
+    idleResponse.cookies.set('vialuce-last-activity', '', { maxAge: 0, path: '/' });
+    return noCacheResponse(idleResponse);
+  }
+
+  // Set/refresh session cookies on authenticated response
+  if (!sessionStart) {
+    supabaseResponse.cookies.set('vialuce-session-start', String(now), {
+      maxAge: SESSION_COOKIE_OPTIONS.maxAge,
+      sameSite: 'lax',
+      secure: true,
+      path: '/',
+    });
+  }
+  supabaseResponse.cookies.set('vialuce-last-activity', String(now), {
+    maxAge: SESSION_COOKIE_OPTIONS.maxAge,
+    sameSite: 'lax',
+    secure: true,
+    path: '/',
+  });
 
   if (pathname === '/login' || pathname === '/') {
     if (pathname === '/login') {

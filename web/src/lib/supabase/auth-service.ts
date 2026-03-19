@@ -55,25 +55,30 @@ export async function signUpWithEmail(email: string, password: string) {
 
 /**
  * Sign out via Supabase Auth.
- * Uses 'local' scope to clear the browser session without
- * revoking the refresh token server-side (avoids network errors
- * blocking logout). Cookie cleanup is handled by the caller.
+ * OB-178 / DS-019 Section 4.4: SOC 2 CC6 — server-side session revocation on logout.
+ * scope: 'global' revokes ALL refresh tokens on the Supabase server.
+ * Fallback to 'local' only if Supabase server is unreachable (network error).
  *
  * HF-050: Also clears ALL sb-* keys from localStorage.
- * @supabase/ssr uses cookie-backed storage, but edge cases (token refresh,
- * OAuth callbacks) may write to localStorage. If these survive logout,
- * a fresh browser session can reconstruct an authenticated state.
  */
 export async function signOut() {
   const supabase = createClient();
-  const { error } = await supabase.auth.signOut({ scope: 'local' });
+
+  // OB-178: Global scope revokes all refresh tokens server-side.
+  // Fallback to local if global fails (network error).
+  try {
+    await supabase.auth.signOut({ scope: 'global' });
+  } catch (globalErr) {
+    console.warn('[OB-178] Global signOut failed, falling back to local:', globalErr);
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch (localErr) {
+      console.error('[OB-178] Local signOut also failed:', localErr);
+    }
+  }
 
   // HF-050: Clear ALL Supabase auth keys from localStorage.
-  // Defense-in-depth — even if @supabase/ssr uses cookies, clear localStorage
-  // to prevent stale tokens from surviving across sessions.
   clearSupabaseLocalStorage();
-
-  if (error) throw error;
 }
 
 /**
