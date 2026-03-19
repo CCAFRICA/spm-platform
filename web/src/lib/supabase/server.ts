@@ -8,6 +8,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { Database } from './database.types';
+import { SESSION_COOKIE_OPTIONS } from './cookie-config';
 
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies();
@@ -16,6 +17,8 @@ export async function createServerSupabaseClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // OB-178: Apply SOC 2 / OWASP compliant cookie options
+      cookieOptions: SESSION_COOKIE_OPTIONS,
       cookies: {
         getAll() {
           return cookieStore.getAll();

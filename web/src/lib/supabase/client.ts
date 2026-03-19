@@ -9,6 +9,7 @@
 
 import { createBrowserClient } from '@supabase/ssr';
 import type { Database } from './database.types';
+import { SESSION_COOKIE_OPTIONS } from './cookie-config';
 
 let client: ReturnType<typeof createBrowserClient<Database>> | null = null;
 
@@ -24,7 +25,10 @@ export function createClient() {
     );
   }
 
-  client = createBrowserClient<Database>(url, key);
+  // OB-178: Apply SOC 2 / OWASP compliant cookie options (8h maxAge, secure, sameSite)
+  client = createBrowserClient<Database>(url, key, {
+    cookieOptions: SESSION_COOKIE_OPTIONS,
+  });
   return client;
 }
 
