@@ -234,13 +234,20 @@ export async function middleware(request: NextRequest) {
         }
         // Check if user's role requires MFA enrollment
         if (currentLevel === 'aal1' && nextLevel === 'aal1') {
-          // No factors enrolled — check if role requires MFA
-          const { data: mfaProfile } = await supabase
+          // HF-147: Use array query — platform users can have multiple profiles
+          // (HF-062: no unique constraint on auth_user_id). .maybeSingle() throws
+          // for multi-profile users, silently skipping MFA enforcement.
+          const { data: mfaProfiles } = await supabase
             .from('profiles')
             .select('role')
             .eq('auth_user_id', user.id)
-            .maybeSingle();
-          if (mfaProfile && MFA_REQUIRED_ROLES.includes(mfaProfile.role)) {
+            .order('created_at', { ascending: true })
+            .limit(5);
+          const mfaRole = (
+            mfaProfiles?.find(p => p.role === 'platform') ||
+            mfaProfiles?.[0]
+          )?.role;
+          if (mfaRole && MFA_REQUIRED_ROLES.includes(mfaRole)) {
             return noCacheResponse(NextResponse.redirect(new URL('/auth/mfa/enroll', request.url)));
           }
         }
