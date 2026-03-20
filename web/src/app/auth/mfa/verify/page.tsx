@@ -10,7 +10,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { logAuthEvent } from '@/lib/auth/auth-logger';
+import { logAuthEventClient } from '@/lib/auth/auth-logger';
 import { Shield, Loader2, AlertCircle } from 'lucide-react';
 
 export default function MFAVerifyPage() {
@@ -50,10 +50,10 @@ export default function MFAVerifyPage() {
       });
       if (verifyErr) throw verifyErr;
 
-      logAuthEvent('auth.mfa.verify.success', { method: 'totp' });
+      logAuthEventClient('auth.mfa.verify.success', { method: 'totp' });
       router.push('/');
     } catch (err) {
-      logAuthEvent('auth.mfa.verify.failure', { error: err instanceof Error ? err.message : 'unknown' });
+      logAuthEventClient('auth.mfa.verify.failure', { error: err instanceof Error ? err.message : 'unknown' });
       setError(err instanceof Error ? err.message : 'Verification failed. Check your code and try again.');
       setCode('');
     } finally {
