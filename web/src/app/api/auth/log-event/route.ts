@@ -16,46 +16,58 @@ import { createServerClient } from '@supabase/ssr';
 import { SESSION_COOKIE_OPTIONS } from '@/lib/supabase/cookie-config';
 import type { AuthEventType } from '@/lib/auth/auth-logger';
 
+// HF-150: Reject GET requests (F10 — redirects hitting this endpoint as GET)
+export async function GET() {
+  return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { eventType, payload } = await req.json() as {
+    const body = await req.json() as {
       eventType: AuthEventType;
       payload: Record<string, unknown>;
     };
 
+    const { eventType, payload } = body;
     if (!eventType) {
       return NextResponse.json({ error: 'eventType required' }, { status: 400 });
     }
 
-    // Resolve the caller's auth state from cookies
-    let actorId: string | null = null;
-    let tenantId: string | null = null;
+    // HF-150: Accept explicit actor_id/email/tenant_id from payload (logout case).
+    // When cookies are about to be destroyed, the caller passes these explicitly.
+    let actorId: string | null = (payload.actor_id as string) || null;
+    let tenantId: string | null = (payload.tenant_id as string) || null;
+    const explicitEmail = payload.email as string | undefined;
 
-    try {
-      const supabaseAuth = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          cookieOptions: SESSION_COOKIE_OPTIONS,
-          cookies: {
-            getAll() { return req.cookies.getAll(); },
-            setAll() { /* read-only */ },
+    // If not provided explicitly, resolve from cookies (login/MFA case)
+    if (!actorId) {
+      try {
+        const supabaseAuth = createServerClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          {
+            cookieOptions: SESSION_COOKIE_OPTIONS,
+            cookies: {
+              getAll() { return req.cookies.getAll(); },
+              setAll() { /* read-only */ },
+            },
           },
-        },
-      );
-      const { data: { user } } = await supabaseAuth.auth.getUser();
-      if (user) {
-        actorId = user.id;
-        // Resolve tenant from profile
-        const { data: profiles } = await supabaseAuth
-          .from('profiles')
-          .select('tenant_id')
-          .eq('auth_user_id', user.id)
-          .limit(1);
-        tenantId = profiles?.[0]?.tenant_id || null;
+        );
+        const { data: { user } } = await supabaseAuth.auth.getUser();
+        if (user) {
+          actorId = user.id;
+          if (!explicitEmail) payload.email = user.email;
+          // Resolve tenant from profile
+          const { data: profiles } = await supabaseAuth
+            .from('profiles')
+            .select('tenant_id')
+            .eq('auth_user_id', user.id)
+            .limit(1);
+          if (!tenantId) tenantId = profiles?.[0]?.tenant_id || null;
+        }
+      } catch {
+        // Actor resolution failure is non-blocking
       }
-    } catch {
-      // Actor resolution failure is non-blocking
     }
 
     // Insert using service role client (bypasses RLS)
@@ -78,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error('[HF-149] Auth log-event API error:', err);
+    console.error('[HF-150] Auth log-event API error:', err);
     return NextResponse.json({ ok: false }, { status: 500 });
   }
 }
