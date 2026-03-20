@@ -62,7 +62,8 @@ export default function MFAEnrollPage() {
       if (verifyErr) throw verifyErr;
 
       logAuthEventClient('auth.mfa.enroll', { method: 'totp' });
-      router.push('/');
+      // HF-153: Full page navigation after MFA state change.
+      window.location.href = '/';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed. Check your code and try again.');
       setCode('');

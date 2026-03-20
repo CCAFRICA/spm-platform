@@ -67,7 +67,9 @@ export default function MFAVerifyPage() {
         }
         await logAuthEventClient('auth.mfa.verify.success', { method: 'totp' });
       }
-      router.push('/');
+      // HF-153: Full page navigation ensures middleware receives AAL2 cookies.
+      // router.push('/') carries stale AAL1 cookies → redirect loop back to MFA.
+      window.location.href = '/';
     } catch (err) {
       logAuthEventClient('auth.mfa.verify.failure', { error: err instanceof Error ? err.message : 'unknown' });
       setError(err instanceof Error ? err.message : 'Verification failed. Check your code and try again.');
