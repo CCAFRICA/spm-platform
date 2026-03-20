@@ -54,16 +54,28 @@ export async function logAuthEvent(
   }
 }
 
+// HF-150: Deduplication guard — prevents duplicate events from React re-renders
+const recentEvents = new Map<string, number>();
+
 /**
  * Log an auth event — client-side (calls API route).
  * Called from login page, MFA pages, logout where service key is NOT available.
  * The API route uses the service role client server-side.
+ *
+ * HF-150: Accepts optional explicit fields (actor_id, email, tenant_id)
+ * for cases where cookies are about to be destroyed (logout).
  */
 export async function logAuthEventClient(
   eventType: AuthEventType,
   payload: Record<string, unknown>,
 ): Promise<void> {
   try {
+    // HF-150: Deduplicate — same event type within 5 seconds is dropped
+    const now = Date.now();
+    const lastLogged = recentEvents.get(eventType) || 0;
+    if (now - lastLogged < 5000) return;
+    recentEvents.set(eventType, now);
+
     await fetch('/api/auth/log-event', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

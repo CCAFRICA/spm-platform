@@ -35,7 +35,7 @@ export default function MFAVerifyPage() {
   }, [router]);
 
   const handleVerify = async () => {
-    if (!factorId || code.length !== 6) return;
+    if (!factorId || code.length !== 6 || loading) return; // HF-150: prevent double-submit
     setLoading(true);
     setError(null);
     try {
@@ -90,7 +90,7 @@ export default function MFAVerifyPage() {
           className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
         >
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-          Verify
+          {loading ? 'Verifying...' : 'Verify'}
         </button>
 
         {error && (

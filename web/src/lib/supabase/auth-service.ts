@@ -72,8 +72,23 @@ export async function signUpWithEmail(email: string, password: string) {
 export async function signOut() {
   const supabase = createClient();
 
-  // HF-147: Log logout event (service role — bypasses RLS)
-  logAuthEventClient('auth.logout', {});
+  // HF-150: Capture user data BEFORE signOut destroys the session.
+  // F03/F04: Without this, logout events have actor_id=NULL, tenant_id=NULL.
+  let loggedUserId: string | undefined;
+  let loggedEmail: string | undefined;
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    loggedUserId = user?.id;
+    loggedEmail = user?.email || undefined;
+  } catch {
+    // Non-blocking — log without actor data if getUser fails
+  }
+
+  // Log BEFORE signOut, with explicit user data (not cookie-resolved)
+  await logAuthEventClient('auth.logout', {
+    actor_id: loggedUserId,
+    email: loggedEmail,
+  });
 
   // OB-178: Global scope revokes all refresh tokens server-side.
   try {
