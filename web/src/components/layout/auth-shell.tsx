@@ -12,8 +12,10 @@ import { CommandPalette } from '@/components/navigation/command-palette/CommandP
 import { Navbar } from '@/components/navigation/Navbar';
 import { DemoPersonaSwitcher } from '@/components/demo/DemoPersonaSwitcher';
 import { cn } from '@/lib/utils';
+import { isMfaRoute } from '@/lib/auth/mfa-route-guard';
 
 // Routes that don't require a tenant to be selected
+// HF-148: MFA routes are tenant-exempt — MFA ceremony must complete before tenant selection
 const TENANT_EXEMPT_ROUTES = ['/login', '/select-tenant', '/admin/tenants/new'];
 
 // Routes that should not show the app shell (sidebar/navbar)
@@ -71,11 +73,15 @@ function AuthShellProtected({ children }: AuthShellProps) {
 
   // Note: public routes (/login, /api/auth) are handled by the AuthShell gate above.
   // This component only renders on protected routes.
-  const isTenantExempt = TENANT_EXEMPT_ROUTES.includes(pathname);
-  const showShell = !SHELL_EXCLUDED_ROUTES.includes(pathname);
+  // HF-148: MFA routes are fully exempt — no tenant requirement, no shell
+  const onMfaRoute = isMfaRoute(pathname);
+  const isTenantExempt = TENANT_EXEMPT_ROUTES.includes(pathname) || onMfaRoute;
+  const showShell = !SHELL_EXCLUDED_ROUTES.includes(pathname) && !onMfaRoute;
 
   useEffect(() => {
     if (isLoading || tenantLoading) return;
+    // HF-148: MFA ceremony must not be interrupted by any redirect
+    if (onMfaRoute) return;
 
     // AUTH GATE — HF-059/HF-061
     // This is the ONLY client-side location for auth redirect logic.
