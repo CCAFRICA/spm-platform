@@ -8,13 +8,11 @@
  */
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { logAuthEventClient } from '@/lib/auth/auth-logger';
 import { Shield, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function MFAEnrollPage() {
-  const router = useRouter();
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const [factorId, setFactorId] = useState<string | null>(null);
