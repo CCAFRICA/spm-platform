@@ -1,45 +1,88 @@
 'use client';
 
 /**
- * Session Expiry Warning — OB-178 / DS-019 Section 4.5
+ * Session Expiry Monitor — OB-178 / DS-019 Section 4.5
  *
- * Shows a non-intrusive banner when the user has been idle for 25 minutes
- * (5 minutes before the 30-minute idle timeout).
+ * TWO STAGES:
+ * 1. At 25 min idle: amber WARNING banner (advisory)
+ * 2. At 30 min idle: FORCE redirect to /login + hide content (enforcement)
  *
- * The SERVER enforces timeout (middleware checks vialuce-last-activity).
- * This component only WARNS — it does not enforce.
+ * The SERVER also enforces (middleware checks vialuce-last-activity).
+ * This client-side monitor is defense-in-depth for idle tabs.
+ *
+ * HF-150: Now enforces redirect, not just warns. Content hidden on expiry.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { SESSION_LIMITS } from '@/lib/supabase/cookie-config';
+import { logAuthEventClient } from '@/lib/auth/auth-logger';
 import { AlertTriangle } from 'lucide-react';
 
 const IDLE_WARN_MS = SESSION_LIMITS.IDLE_TIMEOUT_MS - SESSION_LIMITS.WARNING_BEFORE_IDLE_MS;
+const IDLE_EXPIRE_MS = SESSION_LIMITS.IDLE_TIMEOUT_MS;
 
 export function SessionExpiryWarning() {
   const [showWarning, setShowWarning] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const warnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expireTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const resetTimer = useCallback(() => {
+  const resetTimers = useCallback(() => {
     setShowWarning(false);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
+
+    if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
+    if (expireTimerRef.current) clearTimeout(expireTimerRef.current);
+
+    // Warning at 25 min
+    warnTimerRef.current = setTimeout(() => {
       setShowWarning(true);
     }, IDLE_WARN_MS);
+
+    // HF-150: Force redirect at 30 min
+    expireTimerRef.current = setTimeout(async () => {
+      setSessionExpired(true); // Hide content immediately
+
+      // Log the expiry event
+      try {
+        await logAuthEventClient('auth.session.expired.idle', {
+          reason: 'idle_timeout',
+        });
+      } catch {
+        // Don't block redirect
+      }
+
+      // Force redirect — replace prevents back button
+      window.location.replace('/login?reason=idle_timeout');
+    }, IDLE_EXPIRE_MS);
   }, []);
 
   useEffect(() => {
     const events = ['mousedown', 'keydown', 'scroll', 'touchstart'] as const;
-    const handler = () => resetTimer();
+    const handler = () => {
+      if (!sessionExpired) resetTimers();
+    };
 
     events.forEach(e => window.addEventListener(e, handler, { passive: true }));
-    resetTimer(); // Start on mount
+    resetTimers(); // Start on mount
 
     return () => {
       events.forEach(e => window.removeEventListener(e, handler));
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
+      if (expireTimerRef.current) clearTimeout(expireTimerRef.current);
     };
-  }, [resetTimer]);
+  }, [resetTimers, sessionExpired]);
+
+  // HF-150: Content hidden on session expiry
+  if (sessionExpired) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-zinc-950 flex items-center justify-center">
+        <div className="text-center">
+          <AlertTriangle className="h-8 w-8 text-amber-500 mx-auto mb-3" />
+          <p className="text-sm text-zinc-300">Session expired. Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!showWarning) return null;
 
