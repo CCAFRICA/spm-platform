@@ -2,10 +2,13 @@
  * Auth Event Logger — OB-178 / DS-019 Section 8
  *
  * Provider-agnostic auth event logging to platform_events table.
- * Uses the service role client to bypass RLS — auth logging is a system concern.
  *
+ * TWO PATHS:
+ * - Server-side (middleware, API routes): Uses service role client directly
+ * - Client-side (login page, MFA pages): Calls /api/auth/log-event API route
+ *
+ * HF-149: tenant_id is NULL for platform-scope events (VL Admin).
  * CRITICAL: Logging must NEVER block the auth flow.
- * Every call is wrapped in try/catch. Failure is logged to console only.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -22,24 +25,23 @@ export type AuthEventType =
   | 'auth.permission.denied';
 
 /**
- * Log an auth event to platform_events using the service role client.
- * HF-147: Uses service role to bypass RLS (G3 fix — anon client gets 403).
- * Safe to call from middleware, API routes, and client-side (with env vars).
+ * Log an auth event — server-side (service role client, direct INSERT).
+ * Called from middleware and API routes where SUPABASE_SERVICE_ROLE_KEY is available.
  */
 export async function logAuthEvent(
   eventType: AuthEventType,
   payload: Record<string, unknown>,
   actorId?: string,
-  tenantId?: string,
+  tenantId?: string | null,
 ): Promise<void> {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !serviceKey) return; // Client-side: no service key available, skip silently
+    if (!url || !serviceKey) return; // Not server-side — skip
 
     const supabase = createClient(url, serviceKey);
     await supabase.from('platform_events').insert({
-      tenant_id: tenantId || '00000000-0000-0000-0000-000000000000',
+      tenant_id: tenantId || null, // HF-149: NULL for platform-scope events
       event_type: eventType,
       actor_id: actorId || null,
       payload: {
@@ -48,6 +50,26 @@ export async function logAuthEvent(
       },
     });
   } catch (err) {
-    console.error('[HF-147] Auth event logging failed:', err);
+    console.error('[HF-149] Auth event logging failed:', err);
+  }
+}
+
+/**
+ * Log an auth event — client-side (calls API route).
+ * Called from login page, MFA pages, logout where service key is NOT available.
+ * The API route uses the service role client server-side.
+ */
+export async function logAuthEventClient(
+  eventType: AuthEventType,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await fetch('/api/auth/log-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventType, payload }),
+    });
+  } catch {
+    // Never block auth flow
   }
 }

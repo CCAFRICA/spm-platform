@@ -11,7 +11,7 @@
 
 import { createClient } from './client';
 import type { Profile } from './database.types';
-import { logAuthEvent } from '@/lib/auth/auth-logger';
+import { logAuthEventClient } from '@/lib/auth/auth-logger';
 
 export interface AuthProfile {
   id: string;
@@ -38,12 +38,12 @@ export async function signInWithEmail(email: string, password: string) {
 
   if (error) {
     // HF-147: Log login failure (service role — bypasses RLS)
-    logAuthEvent('auth.login.failure', { email, error: error.message });
+    logAuthEventClient('auth.login.failure', { email, error: error.message });
     throw error;
   }
 
   // HF-147: Log login success
-  logAuthEvent('auth.login.success', { email }, data.user?.id);
+  logAuthEventClient('auth.login.success', { email, userId: data.user?.id });
   return data;
 }
 
@@ -73,7 +73,7 @@ export async function signOut() {
   const supabase = createClient();
 
   // HF-147: Log logout event (service role — bypasses RLS)
-  logAuthEvent('auth.logout', {});
+  logAuthEventClient('auth.logout', {});
 
   // OB-178: Global scope revokes all refresh tokens server-side.
   try {
