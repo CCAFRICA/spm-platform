@@ -37,13 +37,13 @@ export async function signInWithEmail(email: string, password: string) {
   });
 
   if (error) {
-    // HF-147: Log login failure (service role — bypasses RLS)
-    logAuthEventClient('auth.login.failure', { email, error: error.message });
+    // HF-151 F1+F3: await ensures fetch completes before throw. Key 'reason' matches SQL query.
+    await logAuthEventClient('auth.login.failure', { email, reason: error.message });
     throw error;
   }
 
-  // HF-147: Log login success
-  logAuthEventClient('auth.login.success', { email, userId: data.user?.id });
+  // HF-151 F1: await ensures fetch completes before router.push cancels in-flight requests
+  await logAuthEventClient('auth.login.success', { email, userId: data.user?.id });
   return data;
 }
 
