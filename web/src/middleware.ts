@@ -226,7 +226,11 @@ export async function middleware(request: NextRequest) {
   });
 
   // OB-178: MFA enforcement — check AAL level for required roles
-  if (!pathname.startsWith('/auth/mfa')) {
+  // HF-152: Exempt /api/auth/log-event from MFA redirect so auth.login.success
+  // can be logged BEFORE MFA completion. The user is authenticated (password correct)
+  // but at AAL1 — the login event must be recorded before AAL2 is reached.
+  // SOC 2 CC6: audit logging must not conflict with MFA enforcement.
+  if (!pathname.startsWith('/auth/mfa') && !pathname.startsWith('/api/auth/log-event')) {
     try {
       const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (aalData) {
