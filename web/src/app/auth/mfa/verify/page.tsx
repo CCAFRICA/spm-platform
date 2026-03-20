@@ -7,7 +7,7 @@
  * User enters 6-digit TOTP code from authenticator app.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { logAuthEventClient } from '@/lib/auth/auth-logger';
@@ -19,6 +19,15 @@ export default function MFAVerifyPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [factorId, setFactorId] = useState<string | null>(null);
+  // HF-151 F4: Ref guard prevents duplicate MFA verify events across re-renders
+  const hasLoggedVerify = useRef(false);
+
+  useEffect(() => {
+    // Check if we already logged MFA for this login session
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('mfa_verify_logged') === 'true') {
+      hasLoggedVerify.current = true;
+    }
+  }, []);
 
   useEffect(() => {
     // Get the user's TOTP factor
@@ -50,7 +59,14 @@ export default function MFAVerifyPage() {
       });
       if (verifyErr) throw verifyErr;
 
-      logAuthEventClient('auth.mfa.verify.success', { method: 'totp' });
+      // HF-151 F4: Log ONCE per login session — ref + sessionStorage prevents duplicates
+      if (!hasLoggedVerify.current) {
+        hasLoggedVerify.current = true;
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('mfa_verify_logged', 'true');
+        }
+        await logAuthEventClient('auth.mfa.verify.success', { method: 'totp' });
+      }
       router.push('/');
     } catch (err) {
       logAuthEventClient('auth.mfa.verify.failure', { error: err instanceof Error ? err.message : 'unknown' });

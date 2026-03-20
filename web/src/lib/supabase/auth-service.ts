@@ -37,13 +37,13 @@ export async function signInWithEmail(email: string, password: string) {
   });
 
   if (error) {
-    // HF-147: Log login failure (service role — bypasses RLS)
-    logAuthEventClient('auth.login.failure', { email, error: error.message });
+    // HF-151 F1+F3: await ensures fetch completes before throw. Key 'reason' matches SQL query.
+    await logAuthEventClient('auth.login.failure', { email, reason: error.message });
     throw error;
   }
 
-  // HF-147: Log login success
-  logAuthEventClient('auth.login.success', { email, userId: data.user?.id });
+  // HF-151 F1: await ensures fetch completes before router.push cancels in-flight requests
+  await logAuthEventClient('auth.login.success', { email, userId: data.user?.id });
   return data;
 }
 
@@ -72,22 +72,37 @@ export async function signUpWithEmail(email: string, password: string) {
 export async function signOut() {
   const supabase = createClient();
 
-  // HF-150: Capture user data BEFORE signOut destroys the session.
-  // F03/F04: Without this, logout events have actor_id=NULL, tenant_id=NULL.
+  // HF-151 F2: Capture user data + tenant_id BEFORE signOut destroys the session.
   let loggedUserId: string | undefined;
   let loggedEmail: string | undefined;
+  let loggedTenantId: string | null = null;
   try {
     const { data: { user } } = await supabase.auth.getUser();
     loggedUserId = user?.id;
     loggedEmail = user?.email || undefined;
+    // Resolve tenant_id from profile (while session still valid)
+    if (user?.id) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('tenant_id')
+        .eq('auth_user_id', user.id)
+        .limit(1);
+      loggedTenantId = profiles?.[0]?.tenant_id || null;
+    }
   } catch {
-    // Non-blocking — log without actor data if getUser fails
+    // Non-blocking — log without actor data if resolution fails
   }
 
-  // Log BEFORE signOut, with explicit user data (not cookie-resolved)
+  // HF-151: Clear MFA verify dedup flag
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem('mfa_verify_logged');
+  }
+
+  // Log BEFORE signOut, with explicit user data including tenant_id
   await logAuthEventClient('auth.logout', {
     actor_id: loggedUserId,
     email: loggedEmail,
+    tenant_id: loggedTenantId,
   });
 
   // OB-178: Global scope revokes all refresh tokens server-side.
