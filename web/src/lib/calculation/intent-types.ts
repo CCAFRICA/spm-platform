@@ -18,7 +18,19 @@ export type IntentSource =
   | { source: 'aggregate'; sourceSpec: { field: string; scope: 'entity' | 'group' | 'global'; aggregation: AggregationType } }
   | { source: 'constant'; value: number }
   | { source: 'entity_attribute'; sourceSpec: { attribute: string } }
-  | { source: 'prior_component'; sourceSpec: { componentIndex: number } };
+  | { source: 'prior_component'; sourceSpec: { componentIndex: number } }
+  // OB-181: Cross-plan data count — counts/sums committed_data rows matching criteria
+  | { source: 'cross_data'; sourceSpec: {
+      dataType: string;     // structural filter on committed_data.data_type (e.g., 'equipment_sales')
+      field?: string;       // field to aggregate (for sum). If absent, counts rows.
+      aggregation: 'count' | 'sum';
+    }}
+  // OB-181: Hierarchical aggregate — sums a metric across all entities in scope
+  | { source: 'scope_aggregate'; sourceSpec: {
+      field: string;        // metric field to aggregate
+      scope: 'district' | 'region';  // hierarchy level
+      aggregation: AggregationType;
+    }};
 
 export type AggregationType = 'sum' | 'average' | 'count' | 'min' | 'max' | 'first' | 'last';
 
