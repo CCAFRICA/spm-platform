@@ -278,7 +278,8 @@ export async function POST(request: NextRequest) {
 
   // ── 4. Fetch committed data (OB-152: hybrid — source_date primary, period_id fallback) ──
   // HF-108: Added import_batch_id for convergence binding resolution (Decision 111)
-  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json; import_batch_id: string | null }> = [];
+  // OB-183: Added metadata to resolve entity_id_field at calc time
+  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json; import_batch_id: string | null; metadata: Json | null }> = [];
 
   // OB-152 Strategy: Try source_date range first (new imports), fall back to period_id (LAB/legacy)
   let usedSourceDate = false;
@@ -289,7 +290,7 @@ export async function POST(request: NextRequest) {
       const to = from + PAGE_SIZE - 1;
       const { data: page } = await supabase
         .from('committed_data')
-        .select('entity_id, data_type, row_data, import_batch_id')
+        .select('entity_id, data_type, row_data, import_batch_id, metadata')
         .eq('tenant_id', tenantId)
         .not('source_date', 'is', null)
         .gte('source_date', period.start_date)
@@ -315,7 +316,7 @@ export async function POST(request: NextRequest) {
       const to = from + PAGE_SIZE - 1;
       const { data: page } = await supabase
         .from('committed_data')
-        .select('entity_id, data_type, row_data, import_batch_id')
+        .select('entity_id, data_type, row_data, import_batch_id, metadata')
         .eq('tenant_id', tenantId)
         .eq('period_id', periodId)
         .range(from, to);
@@ -336,7 +337,7 @@ export async function POST(request: NextRequest) {
     const to = from + PAGE_SIZE - 1;
     const { data: page } = await supabase
       .from('committed_data')
-      .select('entity_id, data_type, row_data, import_batch_id')
+      .select('entity_id, data_type, row_data, import_batch_id, metadata')
       .eq('tenant_id', tenantId)
       .is('period_id', null)
       .is('source_date', null)
@@ -358,13 +359,43 @@ export async function POST(request: NextRequest) {
   // Store-level data (NULL entity_id) grouped by storeId → data_type → rows
   const storeData = new Map<string | number, Map<string, Array<{ row_data: Json }>>>();
 
+  // OB-183: Build entity external_id → UUID map for calc-time resolution
+  const extIdToUuid = new Map<string, string>();
+  for (const e of entities) {
+    if (e.external_id) extIdToUuid.set(String(e.external_id).trim(), e.id);
+  }
+
+  // OB-183: Detect entity identifier column from committed_data metadata
+  // This was set by OB-182 at import time: metadata.entity_id_field
+  let entityIdFieldFromMeta: string | null = null;
   for (const row of committedData) {
-    if (row.entity_id) {
-      // Entity-level: group by entity + sheet
-      if (!dataByEntity.has(row.entity_id)) {
-        dataByEntity.set(row.entity_id, new Map());
+    const meta = row.metadata as Record<string, unknown> | null;
+    if (meta?.entity_id_field && typeof meta.entity_id_field === 'string') {
+      entityIdFieldFromMeta = meta.entity_id_field;
+      break;
+    }
+  }
+
+  let calcTimeResolved = 0;
+  for (const row of committedData) {
+    let resolvedEntityId = row.entity_id; // Use FK if populated (backward compat for BCL)
+
+    // OB-183: If entity_id is NULL, resolve from row_data at calc time
+    if (!resolvedEntityId && entityIdFieldFromMeta) {
+      const rd = row.row_data as Record<string, unknown> | null;
+      const extId = rd?.[entityIdFieldFromMeta];
+      if (extId != null) {
+        resolvedEntityId = extIdToUuid.get(String(extId).trim()) || null;
+        if (resolvedEntityId) calcTimeResolved++;
       }
-      const entitySheets = dataByEntity.get(row.entity_id)!;
+    }
+
+    if (resolvedEntityId) {
+      // Entity-level: group by entity + sheet
+      if (!dataByEntity.has(resolvedEntityId)) {
+        dataByEntity.set(resolvedEntityId, new Map());
+      }
+      const entitySheets = dataByEntity.get(resolvedEntityId)!;
       const sheetName = row.data_type || '_unknown';
       if (!entitySheets.has(sheetName)) {
         entitySheets.set(sheetName, []);
@@ -372,10 +403,10 @@ export async function POST(request: NextRequest) {
       entitySheets.get(sheetName)!.push({ row_data: row.row_data });
 
       // Also flat
-      if (!flatDataByEntity.has(row.entity_id)) {
-        flatDataByEntity.set(row.entity_id, []);
+      if (!flatDataByEntity.has(resolvedEntityId)) {
+        flatDataByEntity.set(resolvedEntityId, []);
       }
-      flatDataByEntity.get(row.entity_id)!.push({ row_data: row.row_data });
+      flatDataByEntity.get(resolvedEntityId)!.push({ row_data: row.row_data });
     } else {
       // Store-level: group by store identifier
       const rd = row.row_data as Record<string, unknown> | null;
@@ -392,6 +423,10 @@ export async function POST(request: NextRequest) {
         storeSheets.get(sheetName)!.push({ row_data: row.row_data });
       }
     }
+  }
+
+  if (calcTimeResolved > 0) {
+    addLog(`OB-183: Resolved ${calcTimeResolved} rows to entities at calc time (entity_id was NULL)`);
   }
 
   // HF-109: Build batch-indexed data cache keyed by external_id via convergence binding column (DS-009 5.1)
@@ -475,7 +510,7 @@ export async function POST(request: NextRequest) {
         const to = from + PAGE_SIZE - 1;
         const { data: page } = await supabase
           .from('committed_data')
-          .select('entity_id, data_type, row_data, import_batch_id')
+          .select('entity_id, data_type, row_data, import_batch_id, metadata')
           .eq('tenant_id', tenantId)
           .not('source_date', 'is', null)
           .gte('source_date', priorPeriod.start_date)
@@ -498,7 +533,7 @@ export async function POST(request: NextRequest) {
         const to = from + PAGE_SIZE - 1;
         const { data: page } = await supabase
           .from('committed_data')
-          .select('entity_id, data_type, row_data, import_batch_id')
+          .select('entity_id, data_type, row_data, import_batch_id, metadata')
           .eq('tenant_id', tenantId)
           .eq('period_id', priorPeriodId)
           .range(from, to);
