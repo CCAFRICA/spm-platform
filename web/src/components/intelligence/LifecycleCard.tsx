@@ -14,17 +14,17 @@ import { Check, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IntelligenceCard } from './IntelligenceCard';
 
-// OB-173: State descriptions — shown only for the current state
+// OB-180: Stage justifications — explain WHY each stage exists, not just what it is
 const LIFECYCLE_DESCRIPTIONS: Record<string, string> = {
-  DRAFT: 'Plan imported. Ready for first calculation.',
-  PREVIEW: 'Calculated. Review results before making official.',
-  RECONCILE: 'Compare against external sources.',
-  OFFICIAL: 'Results verified. Submit for approval.',
-  PENDING_APPROVAL: 'Awaiting authorized reviewer.',
-  APPROVED: 'Approved. Ready for payout processing.',
-  POSTED: 'Locked for payout processing.',
-  CLOSED: 'Period finalized. No further changes.',
-  PUBLISHED: 'Visible to all stakeholders.',
+  DRAFT: 'Data is still flowing in. Results are preliminary and may change.',
+  PREVIEW: 'Snapshot calculated for review. Re-run as many times as needed. Not yet official.',
+  RECONCILE: 'Compare results against expected values. Identify and resolve discrepancies before committing.',
+  OFFICIAL: 'Results are the record of truth for this period. Locked — no further recalculation.',
+  PENDING_APPROVAL: 'Requires sign-off from a different authorized user. Separation of duties for compliance.',
+  APPROVED: 'Approved. Results are now visible to reps and managers as their compensation.',
+  POSTED: 'Results posted for payout processing.',
+  CLOSED: 'Period finalized. No further changes permitted.',
+  PUBLISHED: 'Visible to all stakeholders. Audit trail sealed.',
 };
 
 interface LifecycleStage {
