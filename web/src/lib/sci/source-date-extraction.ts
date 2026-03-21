@@ -108,13 +108,23 @@ export function parseAnyDateValue(value: unknown): string | null {
  * Returns the field name of the first temporal field, or null.
  */
 export function findDateColumnFromBindings(
-  bindings: Array<{ sourceField: string; semanticRole: string }>,
+  bindings: Array<{ sourceField: string; semanticRole: string; platformType?: string }>,
 ): string | null {
+  // OB-183: Comprehensive temporal role matching
   const temporalRoles = new Set([
     'transaction_date', 'period_marker', 'event_timestamp', 'date',
+    'event_date', 'cutoff_date', 'temporal', 'timestamp',
   ]);
   for (const b of bindings) {
     if (temporalRoles.has(b.semanticRole)) {
+      return b.sourceField;
+    }
+  }
+  // OB-183: Fallback — if any binding has platformType 'date', use it
+  // This catches cases where the AI identifies the column type as date
+  // but assigns a non-standard semanticRole
+  for (const b of bindings) {
+    if (b.platformType === 'date') {
       return b.sourceField;
     }
   }
