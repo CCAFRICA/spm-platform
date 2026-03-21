@@ -60,6 +60,11 @@ export function transformComponent(
       return component.conditionalConfig
         ? transformConditionalPercentage(component, component.conditionalConfig, componentIndex)
         : null;
+    // OB-182: New primitives — pass through metadata-driven intent construction
+    case 'linear_function':
+    case 'piecewise_linear':
+    case 'scope_aggregate':
+      return transformFromMetadata(component, componentIndex);
     default:
       return null;
   }
@@ -364,6 +369,45 @@ function buildComponentIntent(
       planReference: component.id,
       aiConfidence: 1.0,
       interpretationNotes: `Deterministic transform from ${component.componentType}`,
+    },
+  };
+}
+
+// ──────────────────────────────────────────────
+// OB-182: Metadata-driven intent construction for new primitives
+// The AI plan interpreter stores the intent structure in component.metadata
+// for types that don't fit the legacy PlanComponent config structure.
+// ──────────────────────────────────────────────
+
+function transformFromMetadata(
+  component: PlanComponent,
+  componentIndex: number
+): ComponentIntent | null {
+  const meta = component.metadata as Record<string, unknown> | undefined;
+  if (!meta?.intent) return null;
+
+  const intent = meta.intent as IntentOperation;
+  const modifiers: IntentModifier[] = [];
+
+  // Extract modifiers from metadata
+  if (meta.cap != null && Number(meta.cap) > 0) {
+    modifiers.push({ type: 'cap', maxValue: Number(meta.cap) });
+  }
+  if (meta.floor != null && Number(meta.floor) > 0) {
+    modifiers.push({ type: 'floor', minValue: Number(meta.floor) });
+  }
+
+  return {
+    componentIndex,
+    componentName: component.name,
+    componentType: component.componentType,
+    operation: intent,
+    modifiers,
+    metadata: {
+      domainLabel: component.name,
+      planReference: component.id,
+      aiConfidence: typeof meta.confidence === 'number' ? meta.confidence : 0.5,
+      interpretationNotes: `AI-interpreted ${component.componentType} from plan document`,
     },
   };
 }

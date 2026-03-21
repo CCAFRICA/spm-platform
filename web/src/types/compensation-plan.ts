@@ -51,7 +51,8 @@ export interface PlanVariant {
   components: PlanComponent[];
 }
 
-export type ComponentType = 'matrix_lookup' | 'tier_lookup' | 'percentage' | 'conditional_percentage';
+// OB-182: Extended with OB-180/181 primitives
+export type ComponentType = 'matrix_lookup' | 'tier_lookup' | 'percentage' | 'conditional_percentage' | 'linear_function' | 'piecewise_linear' | 'scope_aggregate';
 export type MeasurementLevel = 'store' | 'individual' | 'team' | 'region';
 
 export interface PlanComponent {
