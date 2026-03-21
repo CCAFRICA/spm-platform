@@ -291,7 +291,8 @@
       "Bash(do echo:*)",
       "Read(//Users/AndrewAfrica/spm-platform/web/**)",
       "WebSearch",
-      "WebFetch(domain:www.dhiwise.com)"
+      "WebFetch(domain:www.dhiwise.com)",
+      "Bash(wc -l web/src/lib/reconciliation/*.ts)"
     ]
   }
 }

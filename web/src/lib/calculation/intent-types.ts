@@ -46,7 +46,9 @@ export type IntentOperation =
   | RatioOp
   | ConstantOp
   | WeightedBlendOp
-  | TemporalWindowOp;
+  | TemporalWindowOp
+  | LinearFunctionOp
+  | PiecewiseLinearOp;
 
 /** 1D threshold table — maps a single value to an output */
 export interface BoundedLookup1D {
@@ -133,6 +135,29 @@ export interface TemporalWindowOp {
 }
 
 export type TemporalAggregation = 'sum' | 'average' | 'min' | 'max' | 'trend';
+
+/** OB-180: Linear function — y = slope * x + intercept */
+export interface LinearFunctionOp {
+  operation: 'linear_function';
+  input: IntentSource | IntentOperation;
+  slope: number;
+  intercept: number;
+}
+
+/** OB-180: Piecewise linear — attainment determines rate segment, applied to base input */
+export interface PiecewiseLinearOp {
+  operation: 'piecewise_linear';
+  /** The ratio/attainment input that determines which segment applies */
+  ratioInput: IntentSource | IntentOperation;
+  /** The base value to multiply the rate by (e.g., revenue) */
+  baseInput: IntentSource | IntentOperation;
+  /** Rate segments — each defines a range and its rate */
+  segments: Array<{
+    min: number;
+    max: number | null;  // null = no upper bound
+    rate: number;
+  }>;
+}
 
 // ──────────────────────────────────────────────
 // Modifiers — applied after base calculation

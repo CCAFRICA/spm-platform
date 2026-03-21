@@ -425,7 +425,49 @@ export function executeOperation(
     case 'constant':          return executeConstantOp(op);
     case 'weighted_blend':    return executeWeightedBlend(op, data, inputLog, trace);
     case 'temporal_window':   return executeTemporalWindow(op, data, inputLog, trace);
+    case 'linear_function':   return executeLinearFunction(op, data, inputLog, trace);
+    case 'piecewise_linear':  return executePiecewiseLinear(op, data, inputLog, trace);
   }
+}
+
+// ──────────────────────────────────────────────
+// OB-180: Linear Function — y = slope * x + intercept
+// ──────────────────────────────────────────────
+
+function executeLinearFunction(
+  op: import('./intent-types').LinearFunctionOp,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  const inputValue = resolveValue(op.input, data, inputLog, trace);
+  const result = inputValue.mul(op.slope).plus(op.intercept);
+  return result;
+}
+
+// ──────────────────────────────────────────────
+// OB-180: Piecewise Linear — attainment selects rate, applied to base
+// ──────────────────────────────────────────────
+
+function executePiecewiseLinear(
+  op: import('./intent-types').PiecewiseLinearOp,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  const ratio = toNumber(resolveValue(op.ratioInput, data, inputLog, trace));
+  const baseValue = resolveValue(op.baseInput, data, inputLog, trace);
+
+  // Find the matching segment
+  for (const seg of op.segments) {
+    const inRange = ratio >= seg.min && (seg.max === null || ratio < seg.max);
+    if (inRange) {
+      return baseValue.mul(seg.rate);
+    }
+  }
+
+  // No segment matched — return zero
+  return ZERO;
 }
 
 // ──────────────────────────────────────────────
