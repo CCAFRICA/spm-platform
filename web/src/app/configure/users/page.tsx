@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
+import { createClient } from '@/lib/supabase/client';
 import { RequireCapability } from '@/components/auth/RequireCapability';
 import { loadUsersPageData, type UserRow, type LinkedEntity } from '@/lib/data/page-loaders';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -99,6 +100,24 @@ function UsersPageInner() {
 
   const getLinkedEntity = (profileId: string) =>
     entities.find(e => e.profile_id === profileId);
+
+  // OB-179 M3: Assign entity to existing user
+  const [assigningEntity, setAssigningEntity] = useState<string | null>(null);
+  const unlinkedEntities = entities.filter(e => !e.profile_id);
+
+  const handleAssignEntity = async (profileId: string, entityId: string) => {
+    try {
+      const supabase = createClient();
+      await supabase.from('entities').update({ profile_id: profileId }).eq('id', entityId);
+      // Refresh
+      const data = await loadUsersPageData(tenantId);
+      setUsers(data.users);
+      setEntities(data.entities);
+      setAssigningEntity(null);
+    } catch {
+      alert('Failed to assign entity');
+    }
+  };
 
   const filteredUsers = users.filter(u => {
     const matchesSearch = !search ||
@@ -259,8 +278,26 @@ function UsersPageInner() {
                                 <span className="text-slate-400 ml-1">({linked.external_id})</span>
                               )}
                             </span>
+                          ) : assigningEntity === u.id ? (
+                            <Select onValueChange={(val) => handleAssignEntity(u.id, val)}>
+                              <SelectTrigger className="w-[200px] h-7 text-xs bg-slate-800 border-slate-700">
+                                <SelectValue placeholder="Select entity..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {unlinkedEntities.map(e => (
+                                  <SelectItem key={e.id} value={e.id} className="text-xs">
+                                    {e.display_name} {e.external_id ? `(${e.external_id})` : ''}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           ) : (
-                            <span className="text-slate-600">—</span>
+                            <button
+                              onClick={() => setAssigningEntity(u.id)}
+                              className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                            >
+                              Assign Entity
+                            </button>
                           )}
                         </TableCell>
                         <TableCell className="text-slate-400 text-sm">
