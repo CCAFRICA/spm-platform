@@ -1387,6 +1387,79 @@ export async function POST(request: NextRequest) {
     let intentTotal = 0;
     const priorResults: number[] = [];
 
+    // HF-155 Item 1: Populate crossDataCounts from entity's committed_data
+    // Uses dataByEntity which groups by data_type (sheet name)
+    const entityCrossData: Record<string, number> = {};
+    const entitySheetMap = dataByEntity.get(entityId);
+    if (entitySheetMap) {
+      for (const [dataType, rows] of Array.from(entitySheetMap.entries())) {
+        // Count rows for this data_type
+        const countKey = `${dataType}:count`;
+        entityCrossData[countKey] = rows.length;
+        // Sum numeric fields
+        for (const row of rows) {
+          const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+            ? row.row_data as Record<string, unknown> : {};
+          for (const [key, val] of Object.entries(rd)) {
+            if (key.startsWith('_') || typeof val !== 'number') continue;
+            const sumKey = `${dataType}:sum:${key}`;
+            entityCrossData[sumKey] = (entityCrossData[sumKey] || 0) + val;
+          }
+        }
+      }
+    }
+
+    // HF-155 Item 2: Populate scopeAggregates for entities with scope data
+    // Resolves scope from entities.metadata (district, region, store_id)
+    const entityScopeAgg: Record<string, number> = {};
+    const entityMeta = entityMap.get(entityId);
+    const entityMetadata = (entityMeta?.metadata || {}) as Record<string, unknown>;
+    const entityDistrict = entityMetadata.district || entityMetadata.store_id;
+    const entityRegion = entityMetadata.region;
+
+    // District scope: sum metrics from all entities sharing same district
+    if (entityDistrict) {
+      for (const [otherId, otherSheetMap] of Array.from(dataByEntity.entries())) {
+        if (otherId === entityId) continue;
+        const otherMeta = entityMap.get(otherId);
+        const otherMetaData = (otherMeta?.metadata || {}) as Record<string, unknown>;
+        const otherDistrict = otherMetaData.district || otherMetaData.store_id;
+        if (otherDistrict === entityDistrict) {
+          for (const [, rows] of Array.from(otherSheetMap.entries())) {
+            for (const row of rows) {
+              const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+                ? row.row_data as Record<string, unknown> : {};
+              for (const [key, val] of Object.entries(rd)) {
+                if (key.startsWith('_') || typeof val !== 'number') continue;
+                entityScopeAgg[`district:${key}:sum`] = (entityScopeAgg[`district:${key}:sum`] || 0) + val;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Region scope: sum across all entities sharing same region
+    if (entityRegion) {
+      for (const [otherId, otherSheetMap] of Array.from(dataByEntity.entries())) {
+        if (otherId === entityId) continue;
+        const otherMeta = entityMap.get(otherId);
+        const otherMetaData = (otherMeta?.metadata || {}) as Record<string, unknown>;
+        if (otherMetaData.region === entityRegion) {
+          for (const [, rows] of Array.from(otherSheetMap.entries())) {
+            for (const row of rows) {
+              const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+                ? row.row_data as Record<string, unknown> : {};
+              for (const [key, val] of Object.entries(rd)) {
+                if (key.startsWith('_') || typeof val !== 'number') continue;
+                entityScopeAgg[`region:${key}:sum`] = (entityScopeAgg[`region:${key}:sum`] || 0) + val;
+              }
+            }
+          }
+        }
+      }
+    }
+
     for (const ci of entityIntents) {
       const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
       const entityData: EntityData = {
@@ -1394,7 +1467,9 @@ export async function POST(request: NextRequest) {
         metrics,
         attributes: {},
         priorResults: [...priorResults],
-        periodHistory: periodHistoryMap.get(entityId), // OB-81: temporal_window support
+        periodHistory: periodHistoryMap.get(entityId),
+        crossDataCounts: entityCrossData,
+        scopeAggregates: entityScopeAgg,
       };
       const intentResult = executeIntent(ci, entityData);
       intentTraces.push(intentResult.trace);
