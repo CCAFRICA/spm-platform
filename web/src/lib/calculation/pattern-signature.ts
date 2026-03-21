@@ -71,6 +71,12 @@ function describeOperation(op: IntentOperation): string {
 
     case 'temporal_window':
       return `temporal_window:${op.aggregation}:${op.windowSize}periods:${describeInput(op.input)}`;
+
+    case 'linear_function':
+      return `linear_function:${describeInput(op.input)}:slope${op.slope}:int${op.intercept}`;
+
+    case 'piecewise_linear':
+      return `piecewise_linear:${describeInput(op.ratioInput)}:${describeInput(op.baseInput)}:${op.segments.length}seg`;
   }
 }
 

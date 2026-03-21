@@ -438,9 +438,9 @@ function executeLinearFunction(
   op: import('./intent-types').LinearFunctionOp,
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<import('./intent-types').ExecutionTrace>
+  trace: Partial<ExecutionTrace>
 ): Decimal {
-  const inputValue = resolveSource(op.input, data, inputLog, trace);
+  const inputValue = resolveValue(op.input, data, inputLog, trace);
   const result = inputValue.mul(op.slope).plus(op.intercept);
   return result;
 }
@@ -453,10 +453,10 @@ function executePiecewiseLinear(
   op: import('./intent-types').PiecewiseLinearOp,
   data: EntityData,
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<import('./intent-types').ExecutionTrace>
+  trace: Partial<ExecutionTrace>
 ): Decimal {
-  const ratio = toNumber(resolveSource(op.ratioInput, data, inputLog, trace));
-  const baseValue = resolveSource(op.baseInput, data, inputLog, trace);
+  const ratio = toNumber(resolveValue(op.ratioInput, data, inputLog, trace));
+  const baseValue = resolveValue(op.baseInput, data, inputLog, trace);
 
   // Find the matching segment
   for (const seg of op.segments) {
