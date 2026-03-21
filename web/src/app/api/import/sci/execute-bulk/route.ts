@@ -533,56 +533,26 @@ async function processDataUnit(
     };
   }
 
-  // Resolve entity IDs
+  // OB-182: Entity identifier field detected for semantic role tagging (NOT for binding).
+  // Entity binding deferred to calculation time per sequence-independence principle.
+  // committed_data.entity_id is NULL at import — engine resolves at calc time.
   const entityIdBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
   const entityIdField = entityIdBinding?.sourceField;
-  const entityIdMap = new Map<string, string>();
-
-  if (entityIdField) {
-    const externalIds = new Set<string>();
-    for (const row of rows) {
-      const val = row[entityIdField];
-      if (val != null && String(val).trim()) {
-        externalIds.add(String(val).trim());
-      }
-    }
-
-    const allIds = Array.from(externalIds);
-    const BATCH = 200;
-    for (let i = 0; i < allIds.length; i += BATCH) {
-      const slice = allIds.slice(i, i + BATCH);
-      const { data: existing } = await supabase
-        .from('entities')
-        .select('id, external_id')
-        .eq('tenant_id', tenantId)
-        .in('external_id', slice);
-      if (existing) {
-        for (const e of existing) {
-          if (e.external_id) entityIdMap.set(e.external_id, e.id);
-        }
-      }
-    }
-  }
 
   // OB-152/OB-157: Source date extraction with period marker composition
   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
   const periodMarkerHint = detectPeriodMarkerColumns(rows);
 
-  // Build committed_data rows
+  // OB-182: Build committed_data rows — entity_id NULL (resolved at calc time)
   const insertRows = rows.map((row, i) => {
-    let entityId: string | null = null;
-    if (entityIdField && row[entityIdField] != null) {
-      entityId = entityIdMap.get(String(row[entityIdField]).trim()) || null;
-    }
-
     const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
 
     return {
       tenant_id: tenantId,
       import_batch_id: batchId,
-      entity_id: entityId,
-      period_id: null,
+      entity_id: null, // OB-182: deferred to calculation time
+      period_id: null,  // Decision 92: engine binds at calc time
       source_date: sourceDate,
       data_type: dataType,
       row_data: { ...row, _sheetName: tabName, _rowIndex: i },
@@ -591,6 +561,7 @@ async function processDataUnit(
         proposalId,
         semantic_roles: semanticRoles,
         resolved_data_type: dataType,
+        entity_id_field: entityIdField || null, // preserve which field is the entity identifier
       },
     };
   });
@@ -641,84 +612,15 @@ async function processDataUnit(
 
   console.log(`[SCI Bulk] ${classification}: ${totalInserted} rows committed, data_type=${dataType}`);
 
-  // Post-commit construction — entities, assignments, entity_id binding
-  await postCommitConstruction(supabase, tenantId, batchId, entityIdField, unit, rows);
+  // OB-182: postCommitConstruction REMOVED from import pipeline.
+  // Entity assignment and entity_id binding deferred to calculation time.
+  // Entity creation for roster imports still handled by processEntityUnit (separate path).
+  // Convergence derivation also removed (was lines 685-716) — runs at calc time.
 
-  // OB-177 Phase 4: Flywheel self-correction — validate entity_id binding
-  try {
-    const { count: boundCount } = await supabase.from('committed_data')
-      .select('*', { count: 'exact', head: true })
-      .eq('import_batch_id', batchId)
-      .not('entity_id', 'is', null);
-    const matchRate = totalInserted > 0 ? (boundCount ?? 0) / totalInserted : 0;
-    if (totalInserted > 10 && matchRate < 0.5) {
-      console.warn(`[OB-177] Entity binding failure: ${(matchRate * 100).toFixed(1)}% for batch ${batchId.substring(0, 8)}. Fingerprint entity_identifier may be incorrect.`);
-      // Decrease confidence on the structural fingerprint
-      const unitSource = (unit as unknown as Record<string, unknown>).sourceFile as string | undefined;
-      if (unitSource) {
-        const { computeFingerprintHashSync } = await import('@/lib/sci/structural-fingerprint');
-        const sampleCols = Object.keys(rows[0] || {}).filter(k => !k.startsWith('_'));
-        const fpHash = computeFingerprintHashSync(sampleCols, rows.slice(0, 5));
-        const { data: fp } = await supabase.from('structural_fingerprints')
-          .select('id, confidence')
-          .eq('tenant_id', tenantId)
-          .eq('fingerprint_hash', fpHash)
-          .maybeSingle();
-        if (fp) {
-          // HF-145: Optimistic lock — only decrease if confidence hasn't changed since read
-          const currentConf = Number(fp.confidence);
-          const newConfidence = Math.max(0.3, currentConf - 0.2);
-          await supabase.from('structural_fingerprints')
-            .update({ confidence: newConfidence, updated_at: new Date().toISOString() })
-            .eq('id', fp.id)
-            .eq('confidence', currentConf);  // optimistic lock
-          console.log(`[OB-177] Fingerprint confidence decreased: ${currentConf} → ${newConfidence} (binding failure)`);
-        }
-      }
-    } else if (totalInserted > 0) {
-      console.log(`[OB-177] Entity binding: ${(matchRate * 100).toFixed(1)}% (${boundCount}/${totalInserted} rows bound)`);
-    }
-  } catch (validErr) {
-    console.warn('[OB-177] Binding validation failed (non-blocking):', validErr);
-  }
-
-  // Trigger convergence for active rule_sets
-  const { data: ruleSets } = await supabase
-    .from('rule_sets')
-    .select('id, name')
-    .eq('tenant_id', tenantId)
-    .eq('status', 'active');
-
-  if (ruleSets && ruleSets.length > 0) {
-    for (const rs of ruleSets) {
-      try {
-        const result = await convergeBindings(tenantId, rs.id, supabase);
-        if (result.derivations.length > 0) {
-          const { data: rsData } = await supabase
-            .from('rule_sets')
-            .select('input_bindings')
-            .eq('id', rs.id)
-            .single();
-
-          const existing = ((rsData?.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
-          const merged = [...existing];
-
-          for (const d of result.derivations) {
-            if (!merged.some(e => e.metric === d.metric)) {
-              merged.push(d as unknown as Record<string, unknown>);
-            }
-          }
-
-          await supabase
-            .from('rule_sets')
-            .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
-            .eq('id', rs.id);
-        }
-      } catch (convErr) {
-        console.error(`[SCI Bulk] Convergence failed for ${rs.name}:`, convErr);
-      }
-    }
-  }
+  // OB-182: Entity binding validation and convergence derivation REMOVED.
+  // Entity binding: deferred to calculation time (engine resolves from row_data).
+  // Convergence: deferred to calculation time (engine derives when input_bindings empty).
+  // Flywheel self-correction: entity_id is always NULL at import, so binding validation is N/A.
 
   return {
     contentUnitId: unit.contentUnitId,
