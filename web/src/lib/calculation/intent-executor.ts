@@ -41,6 +41,10 @@ export interface EntityData {
   groupMetrics?: Record<string, number>;
   priorResults?: number[];    // outcomes of previously calculated components
   periodHistory?: number[];   // prior period values for temporal_window (loaded in batch, not per-entity)
+  // OB-181: Cross-data counts — pre-computed counts/sums of committed_data by data_type
+  crossDataCounts?: Record<string, number>;  // key: "dataType:count" or "dataType:sum:field" → value
+  // OB-181: Scope aggregates — pre-computed sums across entities in hierarchical scope
+  scopeAggregates?: Record<string, number>;  // key: "scope:field:aggregation" → value
 }
 
 export interface ExecutionResult {
@@ -114,6 +118,22 @@ function resolveSource(
       const idx = src.sourceSpec.componentIndex;
       const val = data.priorResults?.[idx] ?? 0;
       inputLog[`prior:${idx}`] = { source: 'prior_component', rawValue: val, resolvedValue: val };
+      return toDecimal(val);
+    }
+    // OB-181: Cross-data count — reads pre-computed count/sum from crossDataCounts
+    case 'cross_data': {
+      const { dataType, field, aggregation } = src.sourceSpec;
+      const key = field ? `${dataType}:${aggregation}:${field}` : `${dataType}:${aggregation}`;
+      const val = data.crossDataCounts?.[key] ?? 0;
+      inputLog[`cross_data:${key}`] = { source: 'cross_data', rawValue: val, resolvedValue: val };
+      return toDecimal(val);
+    }
+    // OB-181: Scope aggregate — reads pre-computed hierarchical aggregate from scopeAggregates
+    case 'scope_aggregate': {
+      const { field, scope, aggregation } = src.sourceSpec;
+      const key = `${scope}:${field}:${aggregation}`;
+      const val = data.scopeAggregates?.[key] ?? 0;
+      inputLog[`scope_aggregate:${key}`] = { source: 'scope_aggregate', rawValue: val, resolvedValue: val };
       return toDecimal(val);
     }
   }
