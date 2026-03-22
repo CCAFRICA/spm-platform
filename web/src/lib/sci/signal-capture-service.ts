@@ -25,7 +25,7 @@ export async function captureSCISignal(capture: SCISignalCapture): Promise<strin
       confidence,
       source: getSource(capture.signal),
       context: { sciVersion: '1.0', capturedAt: new Date().toISOString() },
-    });
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     if (result.success) {
       return capture.signal.signalType;
@@ -56,7 +56,7 @@ export async function captureSCISignalBatch(captures: SCISignalCapture[]): Promi
       context: { sciVersion: '1.0', capturedAt: new Date().toISOString() } as Record<string, unknown>,
     }));
 
-    const result = await persistSignalBatch(signals);
+    const result = await persistSignalBatch(signals, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     return result.count;
   } catch (err) {
     console.warn('[SCISignalCapture] Batch exception (non-blocking):', err);
@@ -78,7 +78,7 @@ export async function getSCISignals(
 ): Promise<Array<{ signalType: string; signalValue: Record<string, unknown>; confidence: number | undefined; createdAt?: string }>> {
   try {
     const typeFilter = options?.signalType ? `sci:${options.signalType}` : undefined;
-    const raw = await getTrainingSignals(tenantId, typeFilter, options?.limit || 200);
+    const raw = await getTrainingSignals(tenantId, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, typeFilter, options?.limit || 200);
 
     return raw
       .filter(r => r.signalType.startsWith('sci:'))

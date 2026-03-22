@@ -1589,8 +1589,8 @@ export async function POST(request: NextRequest) {
         signalValue: (signal.signalValue as Record<string, unknown>) ?? {},
         source: 'ai_prediction',
         context: { trigger: 'synaptic_consolidation', batchId: undefined },
-      }).catch(err => {
-        console.warn('[CalcAPI] Synaptic signal persist failed (non-blocking):', err);
+      }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+        console.warn('[CalcAPI] Synaptic signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
       });
     }
   }
@@ -1616,8 +1616,8 @@ export async function POST(request: NextRequest) {
       ruleSetName: ruleSet.name,
       trigger: 'calculation_run',
     },
-  }).catch(err => {
-    console.warn('[CalcAPI] Training signal persist failed (non-blocking):', err);
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+    console.warn('[CalcAPI] Training signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
   });
 
   // ── 7. Write calculation_results (OB-121: DELETE before INSERT to prevent stale accumulation) ──

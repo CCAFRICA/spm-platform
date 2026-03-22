@@ -58,6 +58,7 @@ export function recordSignal(signal: Omit<ClassificationSignal, 'id' | 'timestam
   const id = `cs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   // HF-055: Fire-and-forget persist to Supabase
+  // HF-161: Pass credentials explicitly
   persistSignal({
     tenantId: signal.tenantId,
     signalType: signal.domain,
@@ -68,8 +69,8 @@ export function recordSignal(signal: Omit<ClassificationSignal, 'id' | 'timestam
     confidence: signal.confidence,
     source: signal.source,
     context: signal.metadata ?? {},
-  }).catch(err => {
-    console.warn('[ClassificationSignalService] Persist failed:', err);
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+    console.warn('[ClassificationSignalService] Persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
   });
 
   return id;
@@ -105,8 +106,8 @@ export function recordAIClassificationBatch(
     context: metadata ?? {},
   }));
 
-  persistSignalBatch(signals).catch(err => {
-    console.warn('[ClassificationSignalService] Batch persist failed:', err);
+  persistSignalBatch(signals, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+    console.warn('[ClassificationSignalService] Batch persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
   });
 
   return ids;
@@ -161,7 +162,7 @@ export function recordUserCorrection(
  * HF-055: Now reads from Supabase instead of returning [].
  */
 export async function getSignals(tenantId: string, domain?: string): Promise<ClassificationSignal[]> {
-  const rows = await getTrainingSignals(tenantId, domain, 500);
+  const rows = await getTrainingSignals(tenantId, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, domain, 500);
 
   return rows.map(row => ({
     id: `db-${Date.now()}`,

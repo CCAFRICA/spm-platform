@@ -78,7 +78,7 @@ export async function mapColumns(
   // HF-055 Mission 4: Retrieve historical field mapping signals for closed-loop learning
   let priorMappings: Array<{ fieldName: string; semanticType: string; confidence: number; source: string }> = [];
   try {
-    const historicalSignals = await getTrainingSignals(tenantId, 'reconciliation', 50);
+    const historicalSignals = await getTrainingSignals(tenantId, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, 'reconciliation', 50);
     priorMappings = historicalSignals
       .filter(s => s.signalValue?.fieldName && s.signalValue?.semanticType)
       .map(s => ({

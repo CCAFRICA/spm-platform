@@ -33,6 +33,7 @@ export class TrainingSignalService {
     const signalId = crypto.randomUUID();
 
     // HF-055: Fire-and-forget persist to Supabase
+    // HF-161: Pass credentials explicitly (no dynamic imports)
     persistSignal({
       tenantId,
       signalType: `training:${response.task}`,
@@ -53,8 +54,8 @@ export class TrainingSignalService {
         tokenUsage: response.tokenUsage,
         latencyMs: response.latencyMs,
       },
-    }).catch(err => {
-      console.warn('[TrainingSignalService] Persist failed:', err);
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+      console.warn('[TrainingSignalService] Persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
     });
 
     return signalId;
@@ -73,6 +74,7 @@ export class TrainingSignalService {
     const tid = tenantId || this.tenantId;
 
     // HF-055: Persist user action as a new signal
+    // HF-161: Pass credentials explicitly
     persistSignal({
       tenantId: tid,
       signalType: 'training:user_action',
@@ -84,8 +86,8 @@ export class TrainingSignalService {
       confidence: action === 'accepted' ? 0.95 : action === 'corrected' ? 0.99 : 0,
       source: action === 'corrected' ? 'user_corrected' : action === 'accepted' ? 'user_confirmed' : 'ai_prediction',
       context: { originalSignalId: signalId },
-    }).catch(err => {
-      console.warn('[TrainingSignalService] recordUserAction persist failed:', err);
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+      console.warn('[TrainingSignalService] recordUserAction persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
     });
   }
 
@@ -102,6 +104,7 @@ export class TrainingSignalService {
     const tid = tenantId || this.tenantId;
 
     // HF-055: Persist outcome as a new signal
+    // HF-161: Pass credentials explicitly
     persistSignal({
       tenantId: tid,
       signalType: 'training:outcome',
@@ -113,8 +116,8 @@ export class TrainingSignalService {
       confidence: wasCorrect ? 1.0 : 0.0,
       source: feedbackSource === 'user_explicit' ? 'user_confirmed' : 'ai_prediction',
       context: { originalSignalId: signalId },
-    }).catch(err => {
-      console.warn('[TrainingSignalService] recordOutcome persist failed:', err);
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+      console.warn('[TrainingSignalService] recordOutcome persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
     });
   }
 
@@ -133,7 +136,7 @@ export class TrainingSignalService {
    */
   async getSignalsAsync(tenantId?: string): Promise<TrainingSignal[]> {
     const tid = tenantId || this.tenantId;
-    const rows = await getTrainingSignals(tid, undefined, 200);
+    const rows = await getTrainingSignals(tid, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, undefined, 200);
 
     return rows
       .filter(row => row.signalType.startsWith('training:'))
