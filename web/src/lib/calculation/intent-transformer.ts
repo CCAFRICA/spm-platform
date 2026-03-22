@@ -60,13 +60,17 @@ export function transformComponent(
       return component.conditionalConfig
         ? transformConditionalPercentage(component, component.conditionalConfig, componentIndex)
         : null;
-    // OB-182: New primitives — pass through metadata-driven intent construction
+    // HF-156: All new primitive types route to metadata-driven intent construction
     case 'linear_function':
     case 'piecewise_linear':
     case 'scope_aggregate':
+    case 'scalar_multiply':
+    case 'conditional_gate':
       return transformFromMetadata(component, componentIndex);
     default:
-      return null;
+      // HF-156: For legacy types (tier_lookup) with calculationIntent, try metadata path
+      // This handles existing CRP data where componentType='tier_lookup' but calculationIntent exists
+      return transformFromMetadata(component, componentIndex);
   }
 }
 
@@ -383,13 +387,35 @@ function transformFromMetadata(
   component: PlanComponent,
   componentIndex: number
 ): ComponentIntent | null {
-  const meta = component.metadata as Record<string, unknown> | undefined;
-  if (!meta?.intent) return null;
+  const meta = (component.metadata || {}) as Record<string, unknown>;
+  // HF-156 Fix 3: Read from metadata.intent OR component.calculationIntent (DIAG-013 disconnect 3)
+  const rawIntent = (meta?.intent || (component as unknown as Record<string, unknown>).calculationIntent) as Record<string, unknown> | undefined;
+  if (!rawIntent) return null;
 
-  const intent = meta.intent as IntentOperation;
+  // HF-156: Convert AI calculationIntent to proper IntentOperation
+  // The AI may produce { operation: "scalar_multiply", rate: 0.06, input: {...}, additionalConstant: 200 }
+  // If additionalConstant exists, this is actually a linear_function (y = mx + b)
+  let operation: IntentOperation;
+  if (rawIntent.additionalConstant != null && rawIntent.rate != null) {
+    // Linear function: rate * input + constant
+    operation = {
+      operation: 'linear_function',
+      input: rawIntent.input as IntentSource,
+      slope: Number(rawIntent.rate),
+      intercept: Number(rawIntent.additionalConstant),
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'scalar_multiply' && rawIntent.rate != null) {
+    operation = {
+      operation: 'scalar_multiply',
+      input: rawIntent.input as IntentSource,
+      rate: Number(rawIntent.rate),
+    } as IntentOperation;
+  } else {
+    // Use as-is if it's already a proper IntentOperation
+    operation = rawIntent as unknown as IntentOperation;
+  }
+
   const modifiers: IntentModifier[] = [];
-
-  // Extract modifiers from metadata
   if (meta.cap != null && Number(meta.cap) > 0) {
     modifiers.push({ type: 'cap', maxValue: Number(meta.cap) });
   }
@@ -401,13 +427,13 @@ function transformFromMetadata(
     componentIndex,
     componentName: component.name,
     componentType: component.componentType,
-    operation: intent,
+    operation,
     modifiers,
     metadata: {
       domainLabel: component.name,
       planReference: component.id,
       aiConfidence: typeof meta.confidence === 'number' ? meta.confidence : 0.5,
-      interpretationNotes: `AI-interpreted ${component.componentType} from plan document`,
+      interpretationNotes: `AI-interpreted ${component.componentType} via calculationIntent`,
     },
   };
 }

@@ -260,12 +260,18 @@ export class AIPlainInterpreter {
   }
 
   private normalizeComponentType(type: unknown): ComponentCalculation['type'] {
+    // HF-156: Extended with OB-180/181 primitives (DIAG-013 Fix 1)
     const validTypes = [
       'matrix_lookup',
       'tiered_lookup',
       'percentage',
       'flat_percentage',
       'conditional_percentage',
+      'linear_function',
+      'piecewise_linear',
+      'scope_aggregate',
+      'scalar_multiply',
+      'conditional_gate',
     ];
     const typeStr = String(type || 'tiered_lookup');
     return validTypes.includes(typeStr) ? (typeStr as ComponentCalculation['type']) : 'tiered_lookup';
@@ -635,7 +641,40 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
       };
     }
 
+    // HF-156 Fix 2: New primitive types — store calculationIntent in metadata.intent
+    // so transformFromMetadata can find it (DIAG-013 disconnect 2+3)
+    case 'linear_function':
+    case 'piecewise_linear':
+    case 'scope_aggregate':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+      return {
+        ...base,
+        componentType: calcType as 'linear_function' | 'piecewise_linear' | 'scope_aggregate',
+        metadata: {
+          ...(base.metadata || {}),
+          intent: base.calculationIntent, // Copy to where transformFromMetadata reads
+        },
+      };
+
     default:
+      // HF-156: If calculationIntent exists, use it as metadata.intent even for legacy types
+      if (base.calculationIntent) {
+        return {
+          ...base,
+          componentType: 'tier_lookup',
+          metadata: {
+            ...(base.metadata || {}),
+            intent: base.calculationIntent,
+          },
+          tierConfig: {
+            metric: 'unknown',
+            metricLabel: 'Unknown',
+            tiers: [],
+            currency: 'MXN',
+          },
+        };
+      }
       return {
         ...base,
         componentType: 'tier_lookup',
