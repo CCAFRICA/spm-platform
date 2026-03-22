@@ -225,6 +225,87 @@ CONDITIONAL PERCENTAGE (different rates based on conditions):
     }
   }
 
+LINEAR FUNCTION (continuous formula: y = slope × input + intercept):
+- For commissions calculated as rate × revenue + base draw, or any linear formula
+- Use when the plan describes: "X% of revenue plus $Y base", "commission rate times sales plus guaranteed draw"
+- Example:
+  {
+    "type": "linear_function",
+    "calculationMethod": {
+      "type": "linear_function",
+      "slope": 0.06,
+      "intercept": 200,
+      "inputMetric": "period_equipment_revenue",
+      "inputMetricLabel": "Equipment Revenue"
+    }
+  }
+
+PIECEWISE LINEAR (accelerator curve: rate changes at attainment breakpoints):
+- For commissions where the rate INCREASES as attainment exceeds quota thresholds
+- The rate applies to the ENTIRE base amount (not marginal/incremental)
+- Use when the plan describes: "3% below quota, 5% at quota, 8% above 120%"
+- Example:
+  {
+    "type": "piecewise_linear",
+    "calculationMethod": {
+      "type": "piecewise_linear",
+      "ratioMetric": "quota_attainment",
+      "ratioMetricLabel": "Quota Attainment",
+      "baseMetric": "consumable_revenue",
+      "baseMetricLabel": "Consumable Revenue",
+      "segments": [
+        { "min": 0, "max": 1.0, "rate": 0.03, "label": "Below Quota" },
+        { "min": 1.0, "max": 1.2, "rate": 0.05, "label": "At/Above Quota" },
+        { "min": 1.2, "max": null, "rate": 0.08, "label": "Super Accelerator" }
+      ]
+    }
+  }
+
+SCOPE AGGREGATE (management override on team/district/region totals):
+- For managers who earn a percentage of their team's aggregate metric
+- Use when the plan describes: "1.5% of district total equipment revenue"
+- Example:
+  {
+    "type": "scope_aggregate",
+    "calculationMethod": {
+      "type": "scope_aggregate",
+      "scope": "district",
+      "metric": "equipment_revenue",
+      "metricLabel": "District Equipment Revenue",
+      "rate": 0.015
+    }
+  }
+
+SCALAR MULTIPLY (simple rate × base amount, no tiers or conditions):
+- For flat commission percentages without tiers, thresholds, or conditions
+- Example:
+  {
+    "type": "scalar_multiply",
+    "calculationMethod": {
+      "type": "scalar_multiply",
+      "metric": "sales_amount",
+      "metricLabel": "Sales Amount",
+      "rate": 0.04
+    }
+  }
+
+CONDITIONAL GATE (eligibility gate that depends on meeting a prerequisite):
+- For bonuses that require meeting a condition before any payout
+- Use when the plan describes: "must have at least 1 equipment sale to earn cross-sell bonus"
+- Example:
+  {
+    "type": "conditional_gate",
+    "calculationMethod": {
+      "type": "conditional_gate",
+      "conditionMetric": "equipment_deal_count",
+      "conditionOperator": ">=",
+      "conditionThreshold": 1,
+      "payoutPerUnit": 50,
+      "payoutMetric": "cross_sell_count",
+      "payoutMetricLabel": "Cross-Sell Transactions"
+    }
+  }
+
 NUMERIC PARSING RULES:
 - Currency: Remove $ and commas. "$1,500" or "$1.500" -> 1500 (handle both comma and period as thousand separator)
 - Percentages in ranges: "80% a menos de 90%" -> { min: 80, max: 90 }
@@ -278,6 +359,11 @@ MAPPING RULES:
 - matrix_lookup → bounded_lookup_2d with metric inputs, row/column boundaries from bands, outputGrid from values matrix
 - flat_percentage → scalar_multiply with metric input and rate
 - conditional_percentage → nested conditional_gate chain (check conditions in order, scalar_multiply with rate on match)
+- linear_function → linear_function with slope, intercept, and metric input source
+- piecewise_linear → piecewise_linear with ratioInput, baseInput, and segments array
+- scope_aggregate → scope_aggregate with scope, field, and aggregation source
+- scalar_multiply → scalar_multiply with metric input and rate
+- conditional_gate → conditional_gate with condition, onTrue operation, onFalse operation
 
 EXAMPLE calculationIntent for a tiered_lookup:
 {
@@ -794,7 +880,7 @@ Return a JSON object with:
       "id": "unique-id",
       "name": "Component Name",
       "nameEs": "Spanish name",
-      "type": "matrix_lookup | tiered_lookup | percentage | flat_percentage | conditional_percentage",
+      "type": "matrix_lookup | tiered_lookup | percentage | flat_percentage | conditional_percentage | linear_function | piecewise_linear | scope_aggregate | scalar_multiply | conditional_gate",
       "appliesToEmployeeTypes": ["certified"] or ["all"],
       "calculationMethod": {
         // For matrix_lookup: include rowAxis.ranges[], columnAxis.ranges[], values[][]

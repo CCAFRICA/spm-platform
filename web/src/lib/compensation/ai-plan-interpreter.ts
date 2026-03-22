@@ -561,7 +561,9 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
   // HF-158 / DIAG-014: Read calculationIntent.operation as fallback when calculationMethod is undefined.
   // The AI produces calculationIntent (with operation, rate, etc) but NOT calculationMethod.
   const calcMethod = comp?.calculationMethod;
-  const calcType = calcMethod?.type || (base.calculationIntent?.operation as string) || 'tiered_lookup';
+  // HF-160: calculationIntent.operation checked FIRST (priority inversion safety net)
+  // Even if AI returns tiered_lookup in calcMethod, calculationIntent has the correct type
+  const calcType = (base.calculationIntent?.operation as string) || calcMethod?.type || 'tiered_lookup';
 
   // DEBUG: Log exactly what type is being processed
   console.log(`[convertComponent] "${base.name}" calcType="${calcType}" (from calcMethod.type="${calcMethod?.type}", calculationIntent.operation="${base.calculationIntent?.operation}")`);
