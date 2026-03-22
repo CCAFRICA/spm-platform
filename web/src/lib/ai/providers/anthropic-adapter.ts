@@ -306,6 +306,38 @@ CONDITIONAL GATE (eligibility gate that depends on meeting a prerequisite):
     }
   }
 
+TYPE SELECTION RULES (MANDATORY — resolve ambiguity between similar types):
+
+RULE 1 — QUOTA ATTAINMENT RATE CURVES → ALWAYS piecewise_linear:
+When a plan describes rates (percentages) that change based on quota attainment
+(actual performance divided by a target/quota), ALWAYS use "piecewise_linear".
+NEVER use "conditional_percentage" or nested "conditional_gate" for quota-attainment
+rate curves. The structural signal is: there is a DENOMINATOR (quota/target) that
+creates a RATIO, and the rate applies to a BASE AMOUNT (usually revenue).
+Examples that MUST be piecewise_linear:
+- "3% if below quota, 5% if at/above quota, 8% if above 120% of quota"
+- "Commission rate increases with quota attainment"
+- Any structure with a quota/target that creates attainment tiers with different rates
+
+RULE 2 — FIXED DOLLAR PAYOUTS → tiered_lookup, RATE PERCENTAGES → piecewise_linear:
+When tiers produce FIXED DOLLAR AMOUNTS ($0, $150, $300), use "tiered_lookup".
+When tiers produce RATES (3%, 5%, 8%) applied to a revenue base, use "piecewise_linear".
+
+RULE 3 — BINARY PREREQUISITE → conditional_gate, RATE SELECTION → conditional_percentage:
+Use "conditional_gate" when there is ONE condition that gates ALL payout (must qualify to earn anything).
+Use "conditional_percentage" when MULTIPLE conditions select DIFFERENT RATES on the same metric.
+If you are building a nested chain of conditions to select a rate, ask: is this really a
+piecewise_linear? (See Rule 1 — if rates change with attainment, it IS piecewise_linear.)
+
+RULE 4 — NO INTERCEPT → scalar_multiply, HAS INTERCEPT → linear_function:
+If the plan has a fixed base draw plus a commission rate, use "linear_function".
+If there is only a commission rate with no base draw, use "scalar_multiply".
+Do NOT use "linear_function" with intercept=0 — use "scalar_multiply" instead.
+
+RULE 5 — flat_percentage is a LEGACY ALIAS for scalar_multiply:
+Always prefer "scalar_multiply". If you would have used "flat_percentage",
+use "scalar_multiply" instead.
+
 NUMERIC PARSING RULES:
 - Currency: Remove $ and commas. "$1,500" or "$1.500" -> 1500 (handle both comma and period as thousand separator)
 - Percentages in ranges: "80% a menos de 90%" -> { min: 80, max: 90 }
