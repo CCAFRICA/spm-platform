@@ -474,6 +474,79 @@ EXAMPLE calculationIntent for a conditional_percentage (2 conditions, sorted by 
   }
 }
 
+EXAMPLE calculationIntent for a linear_function:
+{
+  "calculationIntent": {
+    "operation": "linear_function",
+    "input": { "source": "metric", "sourceSpec": { "field": "period_equipment_revenue" } },
+    "slope": 0.06,
+    "intercept": 200
+  }
+}
+
+EXAMPLE calculationIntent for a piecewise_linear:
+{
+  "calculationIntent": {
+    "operation": "piecewise_linear",
+    "ratioInput": { "source": "ratio", "sourceSpec": { "numerator": "consumable_revenue", "denominator": "monthly_quota" } },
+    "baseInput": { "source": "metric", "sourceSpec": { "field": "consumable_revenue" } },
+    "segments": [
+      { "min": 0, "max": 1.0, "rate": 0.03 },
+      { "min": 1.0, "max": 1.2, "rate": 0.05 },
+      { "min": 1.2, "max": null, "rate": 0.08 }
+    ]
+  }
+}
+
+EXAMPLE calculationIntent for a scope_aggregate:
+{
+  "calculationIntent": {
+    "operation": "scope_aggregate",
+    "input": { "source": "scope_aggregate", "sourceSpec": { "scope": "district", "field": "equipment_revenue", "aggregation": "sum" } },
+    "rate": 0.015
+  }
+}
+
+EXAMPLE calculationIntent for a conditional_gate (binary prerequisite):
+{
+  "calculationIntent": {
+    "operation": "conditional_gate",
+    "condition": {
+      "left": { "source": "metric", "sourceSpec": { "field": "equipment_deal_count" } },
+      "operator": ">=",
+      "right": { "source": "constant", "value": 1 }
+    },
+    "onTrue": {
+      "operation": "scalar_multiply",
+      "input": { "source": "metric", "sourceSpec": { "field": "cross_sell_count" } },
+      "rate": 50
+    },
+    "onFalse": { "operation": "constant", "value": 0 }
+  }
+}
+
+EXAMPLE calculationIntent for a scalar_multiply:
+{
+  "calculationIntent": {
+    "operation": "scalar_multiply",
+    "input": { "source": "metric", "sourceSpec": { "field": "sales_amount" } },
+    "rate": 0.04
+  }
+}
+
+EXAMPLE calculationIntent for a linear_function with cap modifier:
+{
+  "calculationIntent": {
+    "operation": "linear_function",
+    "input": { "source": "metric", "sourceSpec": { "field": "revenue" } },
+    "slope": 0.06,
+    "intercept": 200,
+    "modifiers": [
+      { "modifier": "cap", "maxValue": 5000 }
+    ]
+  }
+}
+
 CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
 
 Return your analysis as valid JSON.`,
