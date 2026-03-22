@@ -337,6 +337,16 @@ export class AIPlainInterpreter {
           conditions: this.normalizeConditions(m.conditions),
         };
 
+      // HF-159: Pass through new primitive types (DIAG-014 root cause)
+      // Without these cases, the default overwrites type to 'tiered_lookup' with empty tiers.
+      // This was the ACTUAL destroyer — 5 prior fixes missed it.
+      case 'linear_function':
+      case 'piecewise_linear':
+      case 'scope_aggregate':
+      case 'scalar_multiply':
+      case 'conditional_gate':
+        return { type: typeStr, ...m } as GenericCalculation;
+
       default:
         return {
           type: 'tiered_lookup',
