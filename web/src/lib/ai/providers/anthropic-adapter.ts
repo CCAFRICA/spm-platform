@@ -116,8 +116,8 @@ CRITICAL CLASSIFICATION RULES:
 6. NEVER map two semantically opposite columns to the same type.
 7. If sample values are all 0 and 1 (or true/false) → boolean_flag.
 8. Confidence MUST reflect certainty. If column name suggests one type but values suggest another, FOLLOW the sample values and LOWER confidence.
-9. Use plan component context — if component needs "goal" and you see "Meta_Individual", that's likely amount (goal).
-10. Keywords (Spanish/Portuguese): "meta"/"objetivo" → amount (goal), "venta"/"monto" → amount, "cumplimiento" → achievement_pct, "cliente"/"count" → quantity
+9. Use plan component context — if a component needs "goal" and you see a column that appears to describe targets/goals in any language, that is likely amount (goal).
+10. Use your multilingual understanding — column names may be in any language. Classify based on meaning, not language-specific keyword matching.
 
 Return JSON array:
 {
@@ -345,22 +345,10 @@ NUMERIC PARSING RULES:
 - Large numbers: "$60k" -> 60000, "$180K" -> 180000
 
 IMPORTANT GUIDELINES:
-1. Documents may be in Spanish, English, or mixed languages. Preserve original language labels.
+1. Documents may be in ANY language. Preserve original language labels in component names and metric labels.
 2. Extract worked examples if present - these are critical for validation.
 3. Return confidence scores (0-100) for each component and overall.
-4. If a table has different values for different employee types (e.g., Certified vs Non-Certified), create SEPARATE components for each.
-
-COMMON SPANISH TERMS:
-- "% cumplimiento" = "% attainment"
-- "Venta de..." = "Sales of..."
-- "Meta" = "Goal/Target"
-- "Tienda" = "Store"
-- "Clientes Nuevos" = "New Customers"
-- "Cobranza" = "Collections"
-- "Seguros" = "Insurance"
-- "Servicios/Garantia Extendida" = "Warranty/Extended Services"
-- "Menos de" = "Less than"
-- "o mas" = "or more"
+4. If a table has different values for different employee types/classifications, create SEPARATE components for each.
 
 === CALCULATION INTENT (STRUCTURAL VOCABULARY) ===
 
@@ -564,7 +552,7 @@ SHEET CLASSIFICATION TYPES:
 
 RELATIONSHIP DETECTION:
 - Look for shared column names across sheets (e.g., entity_id, store_id, period)
-- Spanish column names are common: num_empleado, No_Tienda, Fecha_Corte
+- Column names may be in any language — use multilingual understanding to detect relationships
 - Detect primary keys and foreign key relationships
 - Identify if one sheet references another
 
