@@ -548,11 +548,13 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
   };
 
   // Null-safe calculation method access
+  // HF-158 / DIAG-014: Read calculationIntent.operation as fallback when calculationMethod is undefined.
+  // The AI produces calculationIntent (with operation, rate, etc) but NOT calculationMethod.
   const calcMethod = comp?.calculationMethod;
-  const calcType = calcMethod?.type || 'tiered_lookup';
+  const calcType = calcMethod?.type || (base.calculationIntent?.operation as string) || 'tiered_lookup';
 
   // DEBUG: Log exactly what type is being processed
-  console.log(`[convertComponent] "${base.name}" calcType="${calcType}" (from calcMethod.type="${calcMethod?.type}")`);
+  console.log(`[convertComponent] "${base.name}" calcType="${calcType}" (from calcMethod.type="${calcMethod?.type}", calculationIntent.operation="${base.calculationIntent?.operation}")`);
 
   switch (calcType) {
     case 'matrix_lookup': {
