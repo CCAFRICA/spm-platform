@@ -116,8 +116,8 @@ CRITICAL CLASSIFICATION RULES:
 6. NEVER map two semantically opposite columns to the same type.
 7. If sample values are all 0 and 1 (or true/false) → boolean_flag.
 8. Confidence MUST reflect certainty. If column name suggests one type but values suggest another, FOLLOW the sample values and LOWER confidence.
-9. Use plan component context — if component needs "goal" and you see "Meta_Individual", that's likely amount (goal).
-10. Keywords (Spanish/Portuguese): "meta"/"objetivo" → amount (goal), "venta"/"monto" → amount, "cumplimiento" → achievement_pct, "cliente"/"count" → quantity
+9. Use plan component context — if a component needs "goal" and you see a column that appears to describe targets/goals in any language, that is likely amount (goal).
+10. Use your multilingual understanding — column names may be in any language. Classify based on meaning, not language-specific keyword matching.
 
 Return JSON array:
 {
@@ -306,6 +306,38 @@ CONDITIONAL GATE (eligibility gate that depends on meeting a prerequisite):
     }
   }
 
+TYPE SELECTION RULES (MANDATORY — resolve ambiguity between similar types):
+
+RULE 1 — QUOTA ATTAINMENT RATE CURVES → ALWAYS piecewise_linear:
+When a plan describes rates (percentages) that change based on quota attainment
+(actual performance divided by a target/quota), ALWAYS use "piecewise_linear".
+NEVER use "conditional_percentage" or nested "conditional_gate" for quota-attainment
+rate curves. The structural signal is: there is a DENOMINATOR (quota/target) that
+creates a RATIO, and the rate applies to a BASE AMOUNT (usually revenue).
+Examples that MUST be piecewise_linear:
+- "3% if below quota, 5% if at/above quota, 8% if above 120% of quota"
+- "Commission rate increases with quota attainment"
+- Any structure with a quota/target that creates attainment tiers with different rates
+
+RULE 2 — FIXED DOLLAR PAYOUTS → tiered_lookup, RATE PERCENTAGES → piecewise_linear:
+When tiers produce FIXED DOLLAR AMOUNTS ($0, $150, $300), use "tiered_lookup".
+When tiers produce RATES (3%, 5%, 8%) applied to a revenue base, use "piecewise_linear".
+
+RULE 3 — BINARY PREREQUISITE → conditional_gate, RATE SELECTION → conditional_percentage:
+Use "conditional_gate" when there is ONE condition that gates ALL payout (must qualify to earn anything).
+Use "conditional_percentage" when MULTIPLE conditions select DIFFERENT RATES on the same metric.
+If you are building a nested chain of conditions to select a rate, ask: is this really a
+piecewise_linear? (See Rule 1 — if rates change with attainment, it IS piecewise_linear.)
+
+RULE 4 — NO INTERCEPT → scalar_multiply, HAS INTERCEPT → linear_function:
+If the plan has a fixed base draw plus a commission rate, use "linear_function".
+If there is only a commission rate with no base draw, use "scalar_multiply".
+Do NOT use "linear_function" with intercept=0 — use "scalar_multiply" instead.
+
+RULE 5 — flat_percentage is a LEGACY ALIAS for scalar_multiply:
+Always prefer "scalar_multiply". If you would have used "flat_percentage",
+use "scalar_multiply" instead.
+
 NUMERIC PARSING RULES:
 - Currency: Remove $ and commas. "$1,500" or "$1.500" -> 1500 (handle both comma and period as thousand separator)
 - Percentages in ranges: "80% a menos de 90%" -> { min: 80, max: 90 }
@@ -313,22 +345,10 @@ NUMERIC PARSING RULES:
 - Large numbers: "$60k" -> 60000, "$180K" -> 180000
 
 IMPORTANT GUIDELINES:
-1. Documents may be in Spanish, English, or mixed languages. Preserve original language labels.
+1. Documents may be in ANY language. Preserve original language labels in component names and metric labels.
 2. Extract worked examples if present - these are critical for validation.
 3. Return confidence scores (0-100) for each component and overall.
-4. If a table has different values for different employee types (e.g., Certified vs Non-Certified), create SEPARATE components for each.
-
-COMMON SPANISH TERMS:
-- "% cumplimiento" = "% attainment"
-- "Venta de..." = "Sales of..."
-- "Meta" = "Goal/Target"
-- "Tienda" = "Store"
-- "Clientes Nuevos" = "New Customers"
-- "Cobranza" = "Collections"
-- "Seguros" = "Insurance"
-- "Servicios/Garantia Extendida" = "Warranty/Extended Services"
-- "Menos de" = "Less than"
-- "o mas" = "or more"
+4. If a table has different values for different employee types/classifications, create SEPARATE components for each.
 
 === CALCULATION INTENT (STRUCTURAL VOCABULARY) ===
 
@@ -354,14 +374,15 @@ BOUNDARY FORMAT:
 { "min": number|null, "max": number|null, "minInclusive": true, "maxInclusive": true }
 Use null for unbounded (no lower/upper limit). Both inclusive to match >= min AND <= max.
 
-MAPPING RULES:
+MAPPING RULES (type → calculationIntent operation):
 - tiered_lookup → bounded_lookup_1d with metric input, boundaries from tiers, outputs from tier values
-- matrix_lookup → bounded_lookup_2d with metric inputs, row/column boundaries from bands, outputGrid from values matrix
-- flat_percentage → scalar_multiply with metric input and rate
-- conditional_percentage → nested conditional_gate chain (check conditions in order, scalar_multiply with rate on match)
-- linear_function → linear_function with slope, intercept, and metric input source
+- matrix_lookup → bounded_lookup_2d with metric inputs, row/column boundaries, outputGrid
+- flat_percentage → scalar_multiply with metric input and rate (flat_percentage is a legacy alias)
+- conditional_percentage → nested conditional_gate chain (conditions in order, scalar_multiply on match)
+- linear_function → linear_function with slope, intercept, and metric input
 - piecewise_linear → piecewise_linear with ratioInput, baseInput, and segments array
-- scope_aggregate → scope_aggregate with scope, field, and aggregation source
+  IMPORTANT: piecewise_linear ALWAYS maps to piecewise_linear operation, NEVER to conditional_gate chain
+- scope_aggregate → scope_aggregate with scope, field, and aggregation
 - scalar_multiply → scalar_multiply with metric input and rate
 - conditional_gate → conditional_gate with condition, onTrue operation, onFalse operation
 
@@ -442,6 +463,79 @@ EXAMPLE calculationIntent for a conditional_percentage (2 conditions, sorted by 
   }
 }
 
+EXAMPLE calculationIntent for a linear_function:
+{
+  "calculationIntent": {
+    "operation": "linear_function",
+    "input": { "source": "metric", "sourceSpec": { "field": "period_equipment_revenue" } },
+    "slope": 0.06,
+    "intercept": 200
+  }
+}
+
+EXAMPLE calculationIntent for a piecewise_linear:
+{
+  "calculationIntent": {
+    "operation": "piecewise_linear",
+    "ratioInput": { "source": "ratio", "sourceSpec": { "numerator": "consumable_revenue", "denominator": "monthly_quota" } },
+    "baseInput": { "source": "metric", "sourceSpec": { "field": "consumable_revenue" } },
+    "segments": [
+      { "min": 0, "max": 1.0, "rate": 0.03 },
+      { "min": 1.0, "max": 1.2, "rate": 0.05 },
+      { "min": 1.2, "max": null, "rate": 0.08 }
+    ]
+  }
+}
+
+EXAMPLE calculationIntent for a scope_aggregate:
+{
+  "calculationIntent": {
+    "operation": "scope_aggregate",
+    "input": { "source": "scope_aggregate", "sourceSpec": { "scope": "district", "field": "equipment_revenue", "aggregation": "sum" } },
+    "rate": 0.015
+  }
+}
+
+EXAMPLE calculationIntent for a conditional_gate (binary prerequisite):
+{
+  "calculationIntent": {
+    "operation": "conditional_gate",
+    "condition": {
+      "left": { "source": "metric", "sourceSpec": { "field": "equipment_deal_count" } },
+      "operator": ">=",
+      "right": { "source": "constant", "value": 1 }
+    },
+    "onTrue": {
+      "operation": "scalar_multiply",
+      "input": { "source": "metric", "sourceSpec": { "field": "cross_sell_count" } },
+      "rate": 50
+    },
+    "onFalse": { "operation": "constant", "value": 0 }
+  }
+}
+
+EXAMPLE calculationIntent for a scalar_multiply:
+{
+  "calculationIntent": {
+    "operation": "scalar_multiply",
+    "input": { "source": "metric", "sourceSpec": { "field": "sales_amount" } },
+    "rate": 0.04
+  }
+}
+
+EXAMPLE calculationIntent for a linear_function with cap modifier:
+{
+  "calculationIntent": {
+    "operation": "linear_function",
+    "input": { "source": "metric", "sourceSpec": { "field": "revenue" } },
+    "slope": 0.06,
+    "intercept": 200,
+    "modifiers": [
+      { "modifier": "cap", "maxValue": 5000 }
+    ]
+  }
+}
+
 CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
 
 Return your analysis as valid JSON.`,
@@ -458,7 +552,7 @@ SHEET CLASSIFICATION TYPES:
 
 RELATIONSHIP DETECTION:
 - Look for shared column names across sheets (e.g., entity_id, store_id, period)
-- Spanish column names are common: num_empleado, No_Tienda, Fecha_Corte
+- Column names may be in any language — use multilingual understanding to detect relationships
 - Detect primary keys and foreign key relationships
 - Identify if one sheet references another
 
