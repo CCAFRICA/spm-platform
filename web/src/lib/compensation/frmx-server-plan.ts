@@ -29,7 +29,7 @@ export function createFRMXServerPlan(): RuleSetConfig {
     status: 'active',
     effectiveDate: '2024-12-01T00:00:00Z',
     endDate: null,
-    eligibleRoles: ['server', 'bartender'],
+    eligibleRoles: [], // HF-161: Removed Korean Test violation. Roles derived from AI interpretation or user configuration.
     version: 1,
     previousVersionId: null,
     createdBy: 'system',
