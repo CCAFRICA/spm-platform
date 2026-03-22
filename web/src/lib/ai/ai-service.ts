@@ -152,7 +152,7 @@ export class AIService {
       {
         task: 'file_classification',
         input: { fileName, contentPreview, metadata },
-        options: { responseFormat: 'json' },
+        options: { responseFormat: 'json', temperature: 0 },
       },
       true,
       signalContext
@@ -174,7 +174,7 @@ export class AIService {
       {
         task: 'sheet_classification',
         input: { sheetName, headers, sampleRows, planContext },
-        options: { responseFormat: 'json' },
+        options: { responseFormat: 'json', temperature: 0 },
       },
       true,
       signalContext
@@ -196,7 +196,7 @@ export class AIService {
       {
         task: 'field_mapping',
         input: { columnName, sampleValues, targetFields, planComponents },
-        options: { responseFormat: 'json' },
+        options: { responseFormat: 'json', temperature: 0 },
       },
       true,
       signalContext
@@ -228,7 +228,7 @@ export class AIService {
           alreadyMapped,
           unresolvedFields,
         },
-        options: { responseFormat: 'json' },
+        options: { responseFormat: 'json', temperature: 0 },
       },
       true,
       signalContext
@@ -256,7 +256,7 @@ export class AIService {
       {
         task: 'plan_interpretation',
         input,
-        options: { responseFormat: 'json', maxTokens: 8192 },
+        options: { responseFormat: 'json', maxTokens: 8192, temperature: 0 },
       },
       true,
       signalContext
@@ -277,7 +277,7 @@ export class AIService {
       {
         task: 'workbook_analysis',
         input: { sheetsInfo, planComponents, expectedFields },
-        options: { responseFormat: 'json', maxTokens: 8000 },
+        options: { responseFormat: 'json', maxTokens: 8000, temperature: 0 },
       },
       true,
       signalContext
@@ -297,7 +297,7 @@ export class AIService {
       {
         task: 'import_field_mapping',
         input: { headers, sampleData, tenantContext },
-        options: { responseFormat: 'json' },
+        options: { responseFormat: 'json', temperature: 0 },
       },
       true,
       signalContext
