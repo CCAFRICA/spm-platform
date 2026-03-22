@@ -417,17 +417,22 @@ function transformFromMetadata(
 
   const modifiers: IntentModifier[] = [];
   if (meta.cap != null && Number(meta.cap) > 0) {
-    modifiers.push({ type: 'cap', maxValue: Number(meta.cap) });
+    modifiers.push({ modifier: 'cap', maxValue: Number(meta.cap), scope: 'per_period' });
   }
   if (meta.floor != null && Number(meta.floor) > 0) {
-    modifiers.push({ type: 'floor', minValue: Number(meta.floor) });
+    modifiers.push({ modifier: 'floor', minValue: Number(meta.floor), scope: 'per_period' });
   }
 
   return {
     componentIndex,
-    componentName: component.name,
-    componentType: component.componentType,
-    operation,
+    label: component.name,
+    confidence: typeof meta.confidence === 'number' ? meta.confidence : 0.5,
+    dataSource: {
+      sheetClassification: 'transaction',
+      entityScope: 'entity',
+      requiredMetrics: [],
+    },
+    intent: operation,
     modifiers,
     metadata: {
       domainLabel: component.name,

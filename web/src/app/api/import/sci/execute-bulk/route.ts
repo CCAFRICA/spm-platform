@@ -8,7 +8,7 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { convergeBindings } from '@/lib/intelligence/convergence-service';
+// OB-182: convergeBindings removed from import — runs at calc time
 import type { Json } from '@/lib/supabase/database.types';
 import type {
   SCIExecutionResult,
@@ -737,9 +737,11 @@ async function processReferenceUnit(
   return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: totalInserted, pipeline: 'reference' };
 }
 
-// ── Post-commit construction (entity creation, binding, assignments) ──
-
-async function postCommitConstruction(
+// ── Post-commit construction — REMOVED by OB-182 (sequence-independence)
+// Entity binding, assignments, and store metadata deferred to calculation time.
+// Function retained as dead code reference until calc-time equivalents verified.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function _postCommitConstruction_REMOVED(
   supabase: SupabaseClient,
   tenantId: string,
   importBatchId: string,
