@@ -228,13 +228,15 @@ export async function POST(request: NextRequest) {
   addLog(`${entityIds.length} entities assigned (paginated fetch)`);
 
   // Fetch entity display info (OB-85-R3: reduced batch to 200 to avoid URL length limits)
-  const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
-  const ENTITY_BATCH = 200; // 1000 UUIDs × 37 chars ≈ 37KB URL, exceeds Supabase limit
+  // HF-157: Added metadata for HF-155 scopeAggregates (district/region resolution)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const entities: Array<{ id: string; external_id: string | null; display_name: string; metadata: any }> = [];
+  const ENTITY_BATCH = 200;
   for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
     const batch = entityIds.slice(i, i + ENTITY_BATCH);
     const { data: page, error: entErr } = await supabase
       .from('entities')
-      .select('id, external_id, display_name')
+      .select('id, external_id, display_name, metadata')
       .in('id', batch);
     if (entErr) {
       console.log(`[R3-DIAG] Entity batch ${i}-${i+batch.length} ERROR: ${entErr.message}`);

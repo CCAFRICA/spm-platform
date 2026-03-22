@@ -69,11 +69,18 @@ export interface ConditionalPercentageCalculation {
   }[];
 }
 
+// HF-156: Generic type for new primitives (linear_function, piecewise_linear, etc.)
+export interface GenericCalculation {
+  type: 'linear_function' | 'piecewise_linear' | 'scope_aggregate' | 'scalar_multiply' | 'conditional_gate';
+  [key: string]: unknown;
+}
+
 export type ComponentCalculation =
   | MatrixCalculation
   | TieredCalculation
   | PercentageCalculation
-  | ConditionalPercentageCalculation;
+  | ConditionalPercentageCalculation
+  | GenericCalculation;
 
 export interface InterpretedComponent {
   id: string;

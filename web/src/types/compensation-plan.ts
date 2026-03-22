@@ -75,6 +75,8 @@ export interface PlanComponent {
    * When present, the calculation engine can execute this directly
    * instead of using the type-specific config above. */
   calculationIntent?: Record<string, unknown>;
+  /** HF-156: AI metadata including intent for new primitive types */
+  metadata?: Record<string, unknown>;
 }
 
 // Matrix Lookup (e.g., Optical Sales with attainment x volume)
