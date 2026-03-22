@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
     confidence: report.entityCount.matched / Math.max(report.entityCount.calculated, 1),
     source: 'ai_prediction',
     context: { trigger: 'reconciliation_run' },
-  }).catch(err => console.warn('[ReconciliationAPI] Signal persist failed:', err));
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => console.warn('[ReconciliationAPI] Signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown'));
 
   // OB-135: Capture convergence outcome signal (plan interpretation feedback loop)
   try {

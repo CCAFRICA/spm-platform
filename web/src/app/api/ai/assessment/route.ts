@@ -174,8 +174,8 @@ export async function POST(request: NextRequest) {
         },
         source: 'ai_prediction',
         context: { trigger: 'assessment_api', endpoint: '/api/ai/assessment' },
-      }).catch(err => {
-        console.warn('[Assessment API] Training signal failed (non-blocking):', err);
+      }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+        console.warn('[Assessment API] Training signal failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
       });
     }
 

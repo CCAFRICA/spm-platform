@@ -531,7 +531,7 @@ export function interpretationToPlanConfig(
     status: 'draft',
     effectiveDate: now,
     endDate: null,
-    eligibleRoles: ['sales_rep', 'optometrista'],
+    eligibleRoles: [], // HF-161: Removed Korean Test violation. Roles derived from AI interpretation or user configuration.
     version: 1,
     previousVersionId: null,
     createdBy: userId,

@@ -179,8 +179,8 @@ export async function PATCH(
         decidedBy: profile.display_name,
         trigger: 'approval_decision',
       },
-    }).catch(err => {
-      console.warn('[Approvals] Training signal persist failed (non-blocking):', err);
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+      console.warn('[Approvals] Training signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
     });
 
     return NextResponse.json({

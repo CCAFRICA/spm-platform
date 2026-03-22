@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
       confidence: comparisonResult.summary.matched / Math.max(comparisonResult.summary.totalEmployees, 1),
       source: userOverrides.length > 0 ? 'user_corrected' : 'ai_prediction',
       context: { trigger: 'reconciliation_compare' },
-    }).catch(err => console.warn('[ReconciliationCompare] Signal persist failed:', err));
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => console.warn('[ReconciliationCompare] Signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown'));
 
     // OB-135: Capture convergence outcome signal (plan interpretation feedback loop)
     try {

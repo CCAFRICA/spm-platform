@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     confidence: investigation.rootCause.confidence,
     source: 'ai_prediction',
     context: { trigger: 'dispute_investigation' },
-  }).catch(err => console.warn('[DisputeInvestigateAPI] Signal persist failed:', err));
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => console.warn('[DisputeInvestigateAPI] Signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown'));
 
   return NextResponse.json({
     success: true,

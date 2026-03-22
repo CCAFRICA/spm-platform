@@ -451,6 +451,7 @@ export async function performLifecycleTransition(
   );
 
   // OB-77: Training signal — lifecycle transition (fire-and-forget)
+  // HF-161: Pass credentials explicitly
   persistSignal({
     tenantId,
     signalType: 'training:lifecycle_transition',
@@ -467,8 +468,8 @@ export async function performLifecycleTransition(
       trigger: 'lifecycle_service',
       details: options?.details || options?.rejectionReason || null,
     },
-  }).catch(err => {
-    console.warn('[LifecycleService] Training signal persist failed (non-blocking):', err);
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+    console.warn('[LifecycleService] Training signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
   });
 
   return batchToCycle(updated, tenantId);

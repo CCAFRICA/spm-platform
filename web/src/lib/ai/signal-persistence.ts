@@ -2,15 +2,15 @@
  * Signal Persistence Service
  *
  * HF-055: Bridges in-memory signal capture → Supabase classification_signals table.
- * Works in both browser (client components) and server (API routes) contexts.
- *
- * Client-side: uses browser Supabase client (cookie-based auth)
- * Server-side: uses @supabase/supabase-js directly with service role key (no next/headers import)
+ * HF-161: Refactored to argument-passing pattern (same as writeClassificationSignal).
+ *         Removed getClient() dual-mode resolution that caused TypeError: fetch failed
+ *         in Vercel serverless functions. Static import, no dynamic imports.
  *
  * Columns from SCHEMA_REFERENCE.md:
  *   id, tenant_id, entity_id, signal_type, signal_value, confidence, source, context, created_at
  */
 
+import { createClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
 
 // ============================================
@@ -28,44 +28,22 @@ export interface SignalData {
 }
 
 // ============================================
-// CLIENT RESOLUTION
-// ============================================
-
-/**
- * Get a Supabase client that works in both browser and server contexts.
- * Browser: uses @supabase/ssr browser client (from client.ts)
- * Server: uses @supabase/supabase-js with service role key (avoids next/headers)
- */
-async function getClient() {
-  if (typeof window !== 'undefined') {
-    // Browser context: use the existing browser client
-    const { createClient } = await import('@/lib/supabase/client');
-    return createClient();
-  } else {
-    // Server context: create a standalone client with service role key
-    // This avoids importing next/headers which breaks client component bundles
-    const { createClient } = await import('@supabase/supabase-js');
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
-      throw new Error('[SignalPersistence] Missing Supabase env vars for server-side persistence');
-    }
-    return createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-  }
-}
-
-// ============================================
 // WRITE OPERATIONS
 // ============================================
 
 /**
  * Persist a single signal to Supabase classification_signals table.
+ * HF-161: Accepts Supabase credentials as arguments (no dynamic imports).
  */
-export async function persistSignal(signal: SignalData): Promise<{ success: boolean; error?: string }> {
+export async function persistSignal(
+  signal: SignalData,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<{ success: boolean; error?: string }> {
   try {
-    const supabase = await getClient();
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
     const { error } = await supabase
       .from('classification_signals')
       .insert({
@@ -79,24 +57,31 @@ export async function persistSignal(signal: SignalData): Promise<{ success: bool
       });
 
     if (error) {
-      console.error('[SignalPersistence] Failed to persist signal:', error.message);
+      console.error('[SignalPersistence] Failed to persist signal:', error.message, '| signal_type:', signal.signalType, '| tenant:', signal.tenantId);
       return { success: false, error: error.message };
     }
     return { success: true };
   } catch (err) {
-    console.error('[SignalPersistence] Exception:', err);
+    console.error('[SignalPersistence] Exception:', err, '| signal_type:', signal.signalType, '| tenant:', signal.tenantId);
     return { success: false, error: String(err) };
   }
 }
 
 /**
  * Persist a batch of signals to Supabase classification_signals table.
+ * HF-161: Accepts Supabase credentials as arguments (no dynamic imports).
  */
-export async function persistSignalBatch(signals: SignalData[]): Promise<{ success: boolean; count: number; error?: string }> {
+export async function persistSignalBatch(
+  signals: SignalData[],
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<{ success: boolean; count: number; error?: string }> {
   if (signals.length === 0) return { success: true, count: 0 };
 
   try {
-    const supabase = await getClient();
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
     const rows = signals.map(s => ({
       tenant_id: s.tenantId,
       entity_id: s.entityId || null,
@@ -112,12 +97,12 @@ export async function persistSignalBatch(signals: SignalData[]): Promise<{ succe
       .insert(rows);
 
     if (error) {
-      console.error('[SignalPersistence] Batch failed:', error.message);
+      console.error('[SignalPersistence] Batch failed:', error.message, '| count:', signals.length, '| tenant:', signals[0]?.tenantId);
       return { success: false, count: 0, error: error.message };
     }
     return { success: true, count: signals.length };
   } catch (err) {
-    console.error('[SignalPersistence] Batch exception:', err);
+    console.error('[SignalPersistence] Batch exception:', err, '| count:', signals.length, '| tenant:', signals[0]?.tenantId);
     return { success: false, count: 0, error: String(err) };
   }
 }
@@ -128,15 +113,19 @@ export async function persistSignalBatch(signals: SignalData[]): Promise<{ succe
 
 /**
  * Retrieve training signals from Supabase classification_signals table.
- * Replaces the old in-memory getSignals() that returned [].
+ * HF-161: Accepts Supabase credentials as arguments (no dynamic imports).
  */
 export async function getTrainingSignals(
   tenantId: string,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
   signalType?: string,
-  limit: number = 100
+  limit: number = 100,
 ): Promise<SignalData[]> {
   try {
-    const supabase = await getClient();
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
     let query = supabase
       .from('classification_signals')
       .select('*')
@@ -151,7 +140,7 @@ export async function getTrainingSignals(
     const { data, error } = await query;
 
     if (error) {
-      console.error('[SignalPersistence] getTrainingSignals failed:', error.message);
+      console.error('[SignalPersistence] getTrainingSignals failed:', error.message, '| tenant:', tenantId);
       return [];
     }
 
@@ -169,7 +158,7 @@ export async function getTrainingSignals(
         : {},
     }));
   } catch (err) {
-    console.error('[SignalPersistence] getTrainingSignals exception:', err);
+    console.error('[SignalPersistence] getTrainingSignals exception:', err, '| tenant:', tenantId);
     return [];
   }
 }
