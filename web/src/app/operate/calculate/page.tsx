@@ -65,10 +65,55 @@ function CalculatePageInner() {
   const [isCreatingPeriods, setIsCreatingPeriods] = useState(false);
   const [periodCreateError, setPeriodCreateError] = useState<string | null>(null);
   const [priorPeriodTotals, setPriorPeriodTotals] = useState<Record<string, number>>({});
+  const [dataStatus, setDataStatus] = useState<{ hasData: boolean; sourceDateRange?: { min: string; max: string } } | null>(null);
 
   const hasAccess = user && (isVLAdmin(user) || user.role === 'admin');
   const tenantId = currentTenant?.id || '';
-  const activePlans = useMemo(() => plans.filter(p => p.status === 'active'), [plans]);
+  // OB-184: Include both active AND draft plans. Draft plans are calculable
+  // (DRAFT → PREVIEW lifecycle: calculate first, then review).
+  const activePlans = useMemo(() => plans.filter(p => p.status === 'active' || p.status === 'draft'), [plans]);
+
+  // OB-184: Check data status (has committed_data? source date range?)
+  useEffect(() => {
+    if (!tenantId) { setDataStatus(null); return; }
+    let cancelled = false;
+    const load = async () => {
+      const supabase = createClient();
+      const { count } = await supabase
+        .from('committed_data')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId);
+      if (cancelled) return;
+      if (!count || count === 0) {
+        setDataStatus({ hasData: false });
+        return;
+      }
+      // Get source date range
+      const { data: minRow } = await supabase
+        .from('committed_data')
+        .select('source_date')
+        .eq('tenant_id', tenantId)
+        .not('source_date', 'is', null)
+        .order('source_date', { ascending: true })
+        .limit(1);
+      const { data: maxRow } = await supabase
+        .from('committed_data')
+        .select('source_date')
+        .eq('tenant_id', tenantId)
+        .not('source_date', 'is', null)
+        .order('source_date', { ascending: false })
+        .limit(1);
+      if (cancelled) return;
+      const minDate = minRow?.[0]?.source_date;
+      const maxDate = maxRow?.[0]?.source_date;
+      setDataStatus({
+        hasData: true,
+        sourceDateRange: minDate && maxDate ? { min: minDate, max: maxDate } : undefined,
+      });
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   // Load plan readiness
   useEffect(() => {
@@ -325,21 +370,35 @@ function CalculatePageInner() {
               </SelectContent>
             </Select>
           ) : (
-            <Button
-              onClick={handleCreatePeriods}
-              disabled={isCreatingPeriods}
-              variant="outline"
-              size="sm"
-            >
-              {isCreatingPeriods ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                  Detecting periods...
-                </>
-              ) : (
-                'Create periods from data'
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={handleCreatePeriods}
+                disabled={isCreatingPeriods || (dataStatus !== null && !dataStatus.hasData)}
+                variant="outline"
+                size="sm"
+              >
+                {isCreatingPeriods ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                    Detecting periods...
+                  </>
+                ) : (
+                  'Create periods from data'
+                )}
+              </Button>
+              {dataStatus?.sourceDateRange && (
+                <span className="text-xs text-zinc-500">
+                  Data spans: {dataStatus.sourceDateRange.min} to {dataStatus.sourceDateRange.max}
+                </span>
               )}
-            </Button>
+              {dataStatus !== null && !dataStatus.hasData && (
+                <span className="text-xs text-zinc-500">
+                  No data imported yet.{' '}
+                  <button onClick={() => router.push('/operate/import')} className="text-indigo-400 hover:text-indigo-300 underline">Import data</button>
+                  {' '}first.
+                </span>
+              )}
+            </div>
           )}
 
           {activePlans.length > 1 && selectedPeriodId && (
@@ -382,20 +441,20 @@ function CalculatePageInner() {
           </div>
         )}
 
-        {/* No plans */}
+        {/* No plans — OB-184: self-guiding with navigation */}
         {!contextLoading && !readinessLoading && activePlans.length === 0 && (
           <Card>
             <CardContent className="py-12 text-center">
               <Calculator className="h-10 w-10 mx-auto mb-3 text-zinc-500" />
-              <p className="text-sm text-zinc-400">No active plans.</p>
-              <p className="text-xs text-zinc-600 mt-1">Import and activate a plan to get started.</p>
+              <p className="text-sm text-zinc-400">No plans imported yet.</p>
+              <p className="text-xs text-zinc-600 mt-1">Import a plan document to define calculation rules, then return here to calculate.</p>
               <Button
                 variant="outline"
                 size="sm"
                 className="mt-4"
                 onClick={() => router.push('/operate/import')}
               >
-                Import Data
+                Import Plan
               </Button>
             </CardContent>
           </Card>
