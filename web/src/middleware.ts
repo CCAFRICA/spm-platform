@@ -113,9 +113,16 @@ export async function middleware(request: NextRequest) {
             request.cookies.set(name, value)
           );
           supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
+          // HF-167: Force session-scoped cookies. @supabase/ssr ignores our
+          // cookieOptions and injects its own ~400-day maxAge. We override by:
+          // 1. Spreading our SESSION_COOKIE_OPTIONS over theirs
+          // 2. Explicitly deleting maxAge so cookies are session-scoped
+          // Without maxAge, cookies die on browser close (OWASP/NIST compliant).
+          cookiesToSet.forEach(({ name, value, options }) => {
+            const sessionOptions = { ...options, ...SESSION_COOKIE_OPTIONS };
+            delete sessionOptions.maxAge;
+            supabaseResponse.cookies.set(name, value, sessionOptions);
+          });
         },
       },
     }
@@ -190,7 +197,10 @@ export async function middleware(request: NextRequest) {
   const lastActivity = request.cookies.get('vialuce-last-activity')?.value;
 
   // Check absolute timeout (8 hours)
-  if (sessionStart && (now - Number(sessionStart)) > SESSION_LIMITS.ABSOLUTE_TIMEOUT_MS) {
+  // HF-167: Missing session cookie = expired session. Previously, absent
+  // sessionStart caused this check to be SKIPPED, allowing auth bypass
+  // when vialuce-session-start expired but Supabase cookie persisted.
+  if (!sessionStart || (now - Number(sessionStart)) > SESSION_LIMITS.ABSOLUTE_TIMEOUT_MS) {
     logAuthEvent('auth.session.expired.absolute', { elapsed_ms: now - Number(sessionStart) }, user.id);
     const expiredResponse = NextResponse.redirect(new URL('/login?reason=session_expired', request.url));
     clearAuthCookies(request, expiredResponse);
@@ -200,7 +210,8 @@ export async function middleware(request: NextRequest) {
   }
 
   // Check idle timeout (30 minutes)
-  if (lastActivity && (now - Number(lastActivity)) > SESSION_LIMITS.IDLE_TIMEOUT_MS) {
+  // HF-167: Missing activity cookie = expired session (same rationale as above).
+  if (!lastActivity || (now - Number(lastActivity)) > SESSION_LIMITS.IDLE_TIMEOUT_MS) {
     logAuthEvent('auth.session.expired.idle', { idle_ms: now - Number(lastActivity) }, user.id);
     const idleResponse = NextResponse.redirect(new URL('/login?reason=idle_timeout', request.url));
     clearAuthCookies(request, idleResponse);
@@ -209,17 +220,17 @@ export async function middleware(request: NextRequest) {
     return noCacheResponse(idleResponse);
   }
 
-  // Set/refresh session cookies on authenticated response
+  // HF-167: Session-scoped cookies — no maxAge. Die on browser close.
+  // Timeout enforcement is via the timestamp VALUES (checked above),
+  // not via cookie expiry.
   if (!sessionStart) {
     supabaseResponse.cookies.set('vialuce-session-start', String(now), {
-      maxAge: SESSION_COOKIE_OPTIONS.maxAge,
       sameSite: 'lax',
       secure: true,
       path: '/',
     });
   }
   supabaseResponse.cookies.set('vialuce-last-activity', String(now), {
-    maxAge: SESSION_COOKIE_OPTIONS.maxAge,
     sameSite: 'lax',
     secure: true,
     path: '/',

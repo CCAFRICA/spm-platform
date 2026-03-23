@@ -25,8 +25,12 @@ export async function createServerSupabaseClient() {
         },
         setAll(cookiesToSet) {
           try {
+            // HF-167: Override Supabase SSR's 400-day cookie options.
+            // Same pattern as middleware.ts — force session-scoped cookies.
             cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
+              const sessionOptions = { ...options, ...SESSION_COOKIE_OPTIONS };
+              delete sessionOptions.maxAge;
+              cookieStore.set(name, value, sessionOptions);
             });
           } catch {
             // setAll can fail in Server Components when cookies are read-only.
