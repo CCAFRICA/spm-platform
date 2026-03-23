@@ -47,11 +47,11 @@ export function ImportReadyState({
     ? `Import partially complete — ${successResults.length} of ${results.length} succeeded`
     : 'Import Complete';
 
-  // Calculate readiness: need plan + entities + data
-  const hasPlan = !!planName;
-  const hasEntities = (entityCount ?? 0) > 0;
+  // OB-184: Calculate readiness — only data required at import time.
+  // Plans and periods are checked on the Calculate page.
+  // Entity matching removed at import time (OB-182).
   const hasData = totalRowsCommitted > 0;
-  const calculateReady = hasPlan && hasEntities && hasData;
+  const calculateReady = hasData;
 
   const calculateLabel = 'Go to Calculate';
 
@@ -69,20 +69,22 @@ export function ImportReadyState({
           <h2 className="text-base font-medium text-zinc-100">{title}</h2>
         </div>
 
-        {/* Stat boxes */}
-        <div className="grid grid-cols-3 gap-6 mb-6">
+        {/* Stat boxes — OB-184: Entity count removed (OB-182 removed entity matching at import) */}
+        <div className={cn('grid gap-6 mb-6', sourceDateRange ? 'grid-cols-3' : 'grid-cols-2')}>
           <div className="text-center">
             <p className="text-2xl text-zinc-100 font-light tabular-nums">
               {totalRowsCommitted.toLocaleString()}
             </p>
             <p className="text-xs text-zinc-500 mt-1">Records imported</p>
           </div>
-          <div className="text-center">
-            <p className="text-2xl text-zinc-100 font-light tabular-nums">
-              {entityCount != null ? entityCount.toLocaleString() : '—'}
-            </p>
-            <p className="text-xs text-zinc-500 mt-1">Entities matched</p>
-          </div>
+          {sourceDateRange && (
+            <div className="text-center">
+              <p className="text-lg text-zinc-100 font-light">
+                {sourceDateRange.min} — {sourceDateRange.max}
+              </p>
+              <p className="text-xs text-zinc-500 mt-1">Source date range</p>
+            </div>
+          )}
           <div className="text-center">
             <p className="text-2xl text-zinc-100 font-light tabular-nums">
               {componentCount != null ? componentCount.toString() : '—'}
@@ -217,13 +219,14 @@ export function ImportReadyState({
         </button>
       </div>
 
-      {/* Readiness warning */}
-      {!calculateReady && (
+      {/* OB-184: Guidance text */}
+      {!calculateReady ? (
         <div className="text-xs text-zinc-600 text-center">
-          {!hasPlan && 'No active plan found. '}
-          {!hasEntities && 'No entities matched. '}
-          {!hasData && 'No data imported. '}
-          Import more data to enable calculation.
+          No data imported. Import data to enable calculation.
+        </div>
+      ) : (
+        <div className="text-xs text-zinc-500 text-center">
+          Import complete. Navigate to Calculate to run calculations, or import additional data.
         </div>
       )}
     </div>
