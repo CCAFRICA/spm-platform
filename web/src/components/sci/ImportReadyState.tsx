@@ -31,7 +31,8 @@ interface ImportReadyStateProps {
 export function ImportReadyState({
   results,
   totalRowsCommitted,
-  entityCount,
+  // entityCount removed from display (OB-184) — kept in props for backward compat
+  entityCount: _entityCount,
   planName,
   componentCount,
   sourceDateRange,
