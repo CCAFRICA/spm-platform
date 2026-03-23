@@ -369,40 +369,74 @@ export async function convergeBindings(
     }
   }
 
+  // OB-185 Pass 4: AI Semantic Derivation for unresolved metrics
+  // When Passes 1-3 leave metrics unresolved, invoke AI to bridge the gap.
+  // This handles transaction-level data where plan metric names (e.g., "consumable_revenue")
+  // don't match column names (e.g., "total_amount") — AI reasons about the semantic bridge.
+  const allResolvedMetrics = new Set(derivations.map(d => d.metric));
+  const allRequiredMetrics = Array.from(new Set(components.flatMap(c => c.expectedMetrics)));
+  const unresolvedForAI = allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
+
+  if (unresolvedForAI.length > 0 && capabilities.length > 0) {
+    console.log(`[Convergence] OB-185 Pass 4: ${unresolvedForAI.length} unresolved metrics — invoking AI semantic derivation`);
+    try {
+      const aiResult = await generateAISemanticDerivations(
+        unresolvedForAI, capabilities, supabase, tenantId
+      );
+      derivations.push(...aiResult.derivations);
+      for (const g of aiResult.gaps) {
+        gaps.push({
+          component: components.find(c => c.expectedMetrics.includes(g.metric))?.name || 'Unknown',
+          componentIndex: components.find(c => c.expectedMetrics.includes(g.metric))?.index || 0,
+          requiredMetrics: [g.metric],
+          calculationOp: 'derived',
+          reason: g.reason,
+          resolution: g.resolution,
+        });
+      }
+      console.log(`[Convergence] OB-185 Pass 4: ${aiResult.derivations.length} derivations, ${aiResult.gaps.length} gaps`);
+    } catch (aiErr) {
+      console.error('[Convergence] OB-185 Pass 4 AI call failed:', aiErr);
+      // Non-blocking — gaps will be detected below
+    }
+  }
+
   // 6. Detect convergence gaps
   // OB-162: No longer check reference_data (deprecated) — all data in committed_data
   const matchedComponentIndices = new Set(matches.map(m => m.component.index));
+  // OB-185: Include AI-resolved metrics in the resolved set
+  const finalResolvedMetrics = new Set(derivations.map(d => d.metric));
   for (const comp of components) {
-    if (matchedComponentIndices.has(comp.index)) {
-      const compDerivations = derivations.filter(d =>
-        comp.expectedMetrics.includes(d.metric)
-      );
-      const resolvedMetrics = new Set(compDerivations.map(d => d.metric));
-      const unresolvedMetrics = comp.expectedMetrics.filter(m => !resolvedMetrics.has(m));
-      if (unresolvedMetrics.length > 0) {
+    // OB-185: Check against ALL resolved metrics (Passes 1-3 + Pass 4 AI)
+    const unresolvedMetrics = comp.expectedMetrics.filter(m => !finalResolvedMetrics.has(m));
+    // Also skip if gap already recorded by Pass 4
+    const alreadyGapped = gaps.some(g => g.componentIndex === comp.index);
+
+    if (unresolvedMetrics.length > 0 && !alreadyGapped) {
+      if (matchedComponentIndices.has(comp.index)) {
         gaps.push({
           component: comp.name,
           componentIndex: comp.index,
           requiredMetrics: unresolvedMetrics,
           calculationOp: comp.calculationOp,
-          reason: `Matched data type but ${unresolvedMetrics.length} metric(s) could not be derived`,
+          reason: `${unresolvedMetrics.length} metric(s) could not be derived from available data`,
           resolution: `Import data containing fields that map to: ${unresolvedMetrics.join(', ')}`,
         });
+      } else {
+        const opHint = comp.calculationOp === 'ratio' || comp.calculationOp === 'bounded_lookup_1d'
+          ? 'ratio/lookup-based calculation requires structured data with numerator and denominator fields'
+          : `${comp.calculationOp} calculation requires matching data`;
+        gaps.push({
+          component: comp.name,
+          componentIndex: comp.index,
+          requiredMetrics: unresolvedMetrics,
+          calculationOp: comp.calculationOp,
+          reason: `No matching data type found — ${opHint}`,
+          resolution: comp.expectedMetrics.length > 0
+            ? `Import data for metrics: ${unresolvedMetrics.join(', ')}`
+            : `Import data with a data_type matching component "${comp.name}"`,
+        });
       }
-    } else {
-      const opHint = comp.calculationOp === 'ratio' || comp.calculationOp === 'bounded_lookup_1d'
-        ? 'ratio/lookup-based calculation requires structured data with numerator and denominator fields'
-        : `${comp.calculationOp} calculation requires matching data`;
-      gaps.push({
-        component: comp.name,
-        componentIndex: comp.index,
-        requiredMetrics: comp.expectedMetrics,
-        calculationOp: comp.calculationOp,
-        reason: `No matching data type found — ${opHint}`,
-        resolution: comp.expectedMetrics.length > 0
-          ? `Import data for metrics: ${comp.expectedMetrics.join(', ')}`
-          : `Import data with a data_type matching component "${comp.name}"`,
-      });
     }
   }
 
@@ -468,6 +502,50 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
           }
         }
       }
+
+      // OB-185: Handle piecewise_linear 'ratioInput' and 'baseInput' structures
+      const ratioInput = intent.ratioInput as Record<string, unknown> | undefined;
+      if (ratioInput?.sourceSpec) {
+        const ratioSpec = ratioInput.sourceSpec as Record<string, unknown>;
+        if (ratioSpec.numerator) {
+          const n = String(ratioSpec.numerator).replace(/^metric:/, '');
+          if (!metrics.includes(n)) metrics.push(n);
+        }
+        if (ratioSpec.denominator) {
+          const d = String(ratioSpec.denominator).replace(/^metric:/, '');
+          if (!metrics.includes(d)) metrics.push(d);
+        }
+        if (ratioSpec.field) {
+          const f = String(ratioSpec.field).replace(/^metric:/, '');
+          if (!metrics.includes(f)) metrics.push(f);
+        }
+      }
+      const baseInput = intent.baseInput as Record<string, unknown> | undefined;
+      if (baseInput?.sourceSpec) {
+        const baseSpec = baseInput.sourceSpec as Record<string, unknown>;
+        if (baseSpec.field) {
+          const f = String(baseSpec.field).replace(/^metric:/, '');
+          if (!metrics.includes(f)) metrics.push(f);
+        }
+      }
+
+      // OB-185: Walk nested onTrue/onFalse for conditional_gate chains
+      const walkNested = (obj: Record<string, unknown>) => {
+        const spec = (obj.input as Record<string, unknown>)?.sourceSpec as Record<string, unknown> | undefined;
+        if (spec?.field) {
+          const f = String(spec.field).replace(/^metric:/, '');
+          if (!metrics.includes(f)) metrics.push(f);
+        }
+        const condLeft = (obj.condition as Record<string, unknown>)?.left as Record<string, unknown> | undefined;
+        const condSpec = condLeft?.sourceSpec as Record<string, unknown> | undefined;
+        if (condSpec?.field) {
+          const f = String(condSpec.field).replace(/^metric:/, '');
+          if (!metrics.includes(f)) metrics.push(f);
+        }
+        if (obj.onTrue && typeof obj.onTrue === 'object') walkNested(obj.onTrue as Record<string, unknown>);
+        if (obj.onFalse && typeof obj.onFalse === 'object') walkNested(obj.onFalse as Record<string, unknown>);
+      };
+      if (intent.onTrue || intent.onFalse || intent.condition) walkNested(intent);
     }
 
     if (calcMethod?.metric) {
@@ -937,6 +1015,24 @@ function extractInputRequirements(component: PlanComponent): ComponentInputRequi
       const condLeft = (intent.condition as Record<string, unknown>)?.left as Record<string, unknown> | undefined;
       const spec = condLeft?.sourceSpec as Record<string, unknown> | undefined;
       reqs.push({ role: 'actual', metricField: getField(spec), expectedRange: null });
+      break;
+    }
+    case 'piecewise_linear': {
+      // OB-185: piecewise_linear has ratioInput (numerator/denominator) and baseInput
+      const ratioIn = intent.ratioInput as Record<string, unknown> | undefined;
+      const baseIn = intent.baseInput as Record<string, unknown> | undefined;
+      const ratioSpec = ratioIn?.sourceSpec as Record<string, unknown> | undefined;
+      const baseSpec = baseIn?.sourceSpec as Record<string, unknown> | undefined;
+      if (ratioSpec?.numerator) reqs.push({ role: 'numerator', metricField: String(ratioSpec.numerator).replace(/^metric:/, ''), expectedRange: null });
+      if (ratioSpec?.denominator) reqs.push({ role: 'denominator', metricField: String(ratioSpec.denominator).replace(/^metric:/, ''), expectedRange: null });
+      if (baseSpec?.field) reqs.push({ role: 'actual', metricField: getField(baseSpec), expectedRange: null });
+      break;
+    }
+    case 'linear_function': {
+      // OB-185: linear_function has single input
+      const lfInput = intent.input as Record<string, unknown> | undefined;
+      const lfSpec = lfInput?.sourceSpec as Record<string, unknown> | undefined;
+      reqs.push({ role: 'actual', metricField: getField(lfSpec), expectedRange: null });
       break;
     }
     default:
@@ -1676,6 +1772,207 @@ function generateFilteredCountDerivations(
   }
 
   return rules;
+}
+
+// ──────────────────────────────────────────────
+// OB-185 Pass 4: AI-Assisted Semantic Derivation
+// When Passes 1-3 fail to match plan metric references to data columns,
+// invoke AI to reason about the semantic relationship and produce
+// MetricDerivationRule entries.
+// Korean Test: Zero hardcoded field names. AI receives column metadata
+// and sample values at runtime.
+// ──────────────────────────────────────────────
+
+async function generateAISemanticDerivations(
+  unresolvedMetrics: string[],
+  capabilities: DataCapability[],
+  supabase: SupabaseClient,
+  tenantId: string,
+): Promise<{ derivations: MetricDerivationRule[]; gaps: Array<{ metric: string; reason: string; resolution: string }> }> {
+  const derivations: MetricDerivationRule[] = [];
+  const gaps: Array<{ metric: string; reason: string; resolution: string }> = [];
+
+  if (unresolvedMetrics.length === 0) return { derivations, gaps };
+
+  // 1. Build column inventory for AI
+  const columnDescriptions: string[] = [];
+  for (const cap of capabilities) {
+    columnDescriptions.push(`Data type: "${cap.dataType}" (${cap.rowCount} rows)`);
+    for (const nf of cap.numericFields) {
+      const stats = cap.columnStats[nf.field];
+      columnDescriptions.push(`  - ${nf.field}: numeric (avg=${nf.avg.toFixed(2)}${stats ? `, min=${stats.min}, max=${stats.max}` : ''})`);
+    }
+    for (const cf of cap.categoricalFields) {
+      columnDescriptions.push(`  - ${cf.field}: categorical (values: ${cf.distinctValues.join(', ')})`);
+    }
+    for (const bf of cap.booleanFields) {
+      columnDescriptions.push(`  - ${bf.field}: boolean (true="${bf.trueValue}", false="${bf.falseValue}")`);
+    }
+  }
+
+  // 2. Get sample rows
+  const { data: sampleRows } = await supabase
+    .from('committed_data')
+    .select('row_data')
+    .eq('tenant_id', tenantId)
+    .not('row_data', 'is', null)
+    .limit(3);
+
+  const sampleData = (sampleRows || []).map(r => r.row_data);
+
+  // 3. Build AI prompt — system instructions folded into user content
+  // (AI service selects system prompt by task type; we use 'natural_language_query'
+  //  which has a generic system prompt, and include our instructions in user content)
+  const userPrompt = `You are a data analyst. You receive:
+1. A list of metric names that a calculation plan requires
+2. A description of available data columns with types and sample values
+
+Your task: For each required metric, determine if it can be derived from the available data using these operations:
+- sum: SUM a numeric field, optionally filtered by a categorical field value
+- count: COUNT rows, optionally filtered by a categorical field value
+- ratio: Divide one derived metric by another
+- delta: Difference between two values
+
+If a metric CANNOT be derived from the available data, mark it as a gap with an explanation of what data is missing.
+
+Respond with ONLY valid JSON, no markdown, no explanation:
+{
+  "derivations": [
+    {
+      "metric": "the_metric_name",
+      "operation": "sum",
+      "source_field": "column_name_to_aggregate",
+      "filters": [
+        { "field": "column_name", "operator": "eq", "value": "filter_value" }
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "metric": "the_metric_name",
+      "reason": "Why this metric cannot be derived",
+      "resolution": "What data the user should import"
+    }
+  ]
+}
+
+Required metrics: ${unresolvedMetrics.join(', ')}
+
+Available data columns:
+${columnDescriptions.join('\n')}
+
+Data sample (first ${sampleData.length} rows):
+${JSON.stringify(sampleData, null, 2)}
+
+Generate derivation rules for each required metric, or mark as a gap if not derivable.`;
+
+  // 4. Call AI
+  try {
+    const aiService = getAIService();
+    const response = await aiService.execute({
+      task: 'natural_language_query',
+      input: { question: userPrompt, context: {} },
+      options: { responseFormat: 'json', maxTokens: 4096, temperature: 0 },
+    }, false);
+
+    // 5. Parse response — handle different response shapes
+    let parsedResult: Record<string, unknown> = response.result as Record<string, unknown>;
+    // If wrapped in natural_language_query response format, extract from answer
+    if (parsedResult?.answer && typeof parsedResult.answer === 'string') {
+      try {
+        parsedResult = JSON.parse(parsedResult.answer);
+      } catch {
+        // answer might already be an object or unparseable
+      }
+    }
+    // If the result itself has derivations, use it directly
+    const aiDerivations = (parsedResult?.derivations as Array<Record<string, unknown>>) ?? [];
+    const aiGaps = (parsedResult?.gaps as Array<Record<string, unknown>>) ?? [];
+
+    if (Array.isArray(aiDerivations)) {
+      for (const d of aiDerivations) {
+        const metric = String(d.metric || '');
+        const operation = String(d.operation || 'sum');
+        if (!metric || !unresolvedMetrics.includes(metric)) continue;
+
+        // Validate operation is a valid MetricDerivationRule operation
+        const validOps = ['sum', 'count', 'ratio', 'delta'];
+        if (!validOps.includes(operation)) continue;
+
+        // Find the data_type that contains the source_field
+        let sourcePattern = '.*';
+        for (const cap of capabilities) {
+          const hasField = cap.numericFields.some(f => f.field === d.source_field) ||
+            cap.categoricalFields.some(f => f.field === d.source_field) ||
+            (Array.isArray(d.filters) && d.filters.some((df: Record<string, unknown>) =>
+              cap.categoricalFields.some(f => f.field === df.field)
+            ));
+          if (hasField) {
+            sourcePattern = cap.dataType;
+            break;
+          }
+        }
+
+        const filters: MetricDerivationRule['filters'] = [];
+        if (Array.isArray(d.filters)) {
+          for (const f of d.filters as Array<Record<string, unknown>>) {
+            if (f.field && f.value != null) {
+              filters.push({
+                field: String(f.field),
+                operator: (String(f.operator || 'eq') as MetricDerivationRule['filters'][0]['operator']),
+                value: f.value as string | number | boolean,
+              });
+            }
+          }
+        }
+
+        derivations.push({
+          metric,
+          operation: operation as MetricDerivationRule['operation'],
+          source_pattern: sourcePattern,
+          source_field: d.source_field ? String(d.source_field) : undefined,
+          filters,
+        });
+      }
+    }
+
+    if (Array.isArray(aiGaps)) {
+      for (const g of aiGaps) {
+        gaps.push({
+          metric: String(g.metric || ''),
+          reason: String(g.reason || 'Not derivable from available data'),
+          resolution: String(g.resolution || 'Import data containing this metric'),
+        });
+      }
+    }
+
+    // 6. Check for metrics that AI didn't address
+    const addressedMetrics = new Set([
+      ...derivations.map(d => d.metric),
+      ...gaps.map(g => g.metric),
+    ]);
+    for (const m of unresolvedMetrics) {
+      if (!addressedMetrics.has(m)) {
+        gaps.push({
+          metric: m,
+          reason: 'AI did not produce a derivation or gap for this metric',
+          resolution: 'Configure metric derivation rules manually',
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[Convergence] OB-185 Pass 4 AI call failed:', err);
+    // Non-blocking — return gaps for all unresolved metrics
+    for (const m of unresolvedMetrics) {
+      gaps.push({
+        metric: m,
+        reason: 'AI semantic derivation failed — manual configuration required',
+        resolution: 'Configure metric derivation rules in plan settings',
+      });
+    }
+  }
+
+  return { derivations, gaps };
 }
 
 // ──────────────────────────────────────────────
