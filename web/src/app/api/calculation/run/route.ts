@@ -32,6 +32,7 @@ import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-ty
 import type { PlanComponent } from '@/types/compensation-plan';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
+import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { persistSignal } from '@/lib/ai/signal-persistence';
 import { loadDensity, persistDensityUpdates } from '@/lib/calculation/synaptic-density';
 import {
@@ -116,6 +117,69 @@ export async function POST(request: NextRequest) {
   }
 
   addLog(`Rule set "${ruleSet.name}" has ${defaultComponents.length} components`);
+
+  // ── HF-165: Calc-time convergence (completes OB-182 deferred architecture) ──
+  // OB-182 removed convergence from the bulk import path to eliminate sequence dependency.
+  // At calculation time, both plans AND data are guaranteed to exist.
+  // If input_bindings is empty, run convergence now to generate derivation rules.
+  {
+    const rawBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+    const hasMetricDerivations = Array.isArray(rawBindings?.metric_derivations) && (rawBindings.metric_derivations as unknown[]).length > 0;
+    const hasConvergenceBindings = rawBindings?.convergence_bindings && Object.keys(rawBindings.convergence_bindings as Record<string, unknown>).length > 0;
+
+    if (!hasMetricDerivations && !hasConvergenceBindings) {
+      addLog('HF-165: input_bindings empty — running calc-time convergence');
+      try {
+        const convResult = await convergeBindings(tenantId, ruleSetId, supabase);
+        const derivationCount = convResult.derivations.length;
+        const bindingCount = Object.keys(convResult.componentBindings).length;
+        const gapCount = convResult.gaps.length;
+
+        if (derivationCount > 0 || bindingCount > 0) {
+          // Store convergence results on the rule_set for future calculations
+          const updatedBindings: Record<string, unknown> = {};
+
+          if (bindingCount > 0) {
+            // Decision 111: convergence_bindings is the primary output
+            updatedBindings.convergence_bindings = convResult.componentBindings;
+          }
+
+          if (derivationCount > 0) {
+            updatedBindings.metric_derivations = convResult.derivations;
+          }
+
+          // Persist to rule_set for reuse on subsequent calculations
+          await supabase
+            .from('rule_sets')
+            .update({ input_bindings: updatedBindings as unknown as Json })
+            .eq('id', ruleSetId);
+
+          // Re-read the updated rule_set so the engine uses the new bindings
+          const { data: updatedRS } = await supabase
+            .from('rule_sets')
+            .select('input_bindings')
+            .eq('id', ruleSetId)
+            .single();
+
+          if (updatedRS) {
+            (ruleSet as Record<string, unknown>).input_bindings = updatedRS.input_bindings;
+          }
+
+          addLog(`HF-165: Convergence complete — ${derivationCount} derivations, ${bindingCount} component bindings, ${gapCount} gaps`);
+        } else {
+          addLog(`HF-165: Convergence produced 0 derivations and 0 bindings (${gapCount} gaps)`);
+          for (const gap of convResult.gaps) {
+            addLog(`HF-165 Gap: ${gap.component} — ${gap.reason}`);
+          }
+        }
+      } catch (convErr) {
+        // Non-blocking: convergence failure should not prevent calculation attempt
+        addLog(`HF-165: Convergence failed (non-blocking): ${convErr instanceof Error ? convErr.message : String(convErr)}`);
+      }
+    } else {
+      addLog('HF-165: input_bindings already populated — skipping convergence');
+    }
+  }
 
   // ── OB-118: Parse metric derivation rules from input_bindings ──
   const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
