@@ -1820,8 +1820,10 @@ async function generateAISemanticDerivations(
 
   const sampleData = (sampleRows || []).map(r => r.row_data);
 
-  // 3. Build AI prompt
-  const systemPrompt = `You are a data analyst. You receive:
+  // 3. Build AI prompt — system instructions folded into user content
+  // (AI service selects system prompt by task type; we use 'natural_language_query'
+  //  which has a generic system prompt, and include our instructions in user content)
+  const userPrompt = `You are a data analyst. You receive:
 1. A list of metric names that a calculation plan requires
 2. A description of available data columns with types and sample values
 
@@ -1852,9 +1854,9 @@ Respond with ONLY valid JSON, no markdown, no explanation:
       "resolution": "What data the user should import"
     }
   ]
-}`;
+}
 
-  const userPrompt = `Required metrics: ${unresolvedMetrics.join(', ')}
+Required metrics: ${unresolvedMetrics.join(', ')}
 
 Available data columns:
 ${columnDescriptions.join('\n')}
@@ -1868,15 +1870,24 @@ Generate derivation rules for each required metric, or mark as a gap if not deri
   try {
     const aiService = getAIService();
     const response = await aiService.execute({
-      task: 'plan_interpretation',
-      input: { content: userPrompt },
+      task: 'natural_language_query',
+      input: { question: userPrompt, context: {} },
       options: { responseFormat: 'json', maxTokens: 4096, temperature: 0 },
     }, false);
 
-    // 5. Parse response
-    const result = response.result as Record<string, unknown>;
-    const aiDerivations = result?.derivations as Array<Record<string, unknown>> | undefined;
-    const aiGaps = result?.gaps as Array<Record<string, unknown>> | undefined;
+    // 5. Parse response — handle different response shapes
+    let parsedResult: Record<string, unknown> = response.result as Record<string, unknown>;
+    // If wrapped in natural_language_query response format, extract from answer
+    if (parsedResult?.answer && typeof parsedResult.answer === 'string') {
+      try {
+        parsedResult = JSON.parse(parsedResult.answer);
+      } catch {
+        // answer might already be an object or unparseable
+      }
+    }
+    // If the result itself has derivations, use it directly
+    const aiDerivations = (parsedResult?.derivations as Array<Record<string, unknown>>) ?? [];
+    const aiGaps = (parsedResult?.gaps as Array<Record<string, unknown>>) ?? [];
 
     if (Array.isArray(aiDerivations)) {
       for (const d of aiDerivations) {
