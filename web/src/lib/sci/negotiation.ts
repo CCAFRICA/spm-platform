@@ -269,7 +269,8 @@ export function generatePartialBindings(
 
     const hcInterp = hc?.interpretations.get(field.fieldName);
     const hcRole = hcInterp?.columnRole as ColumnRole | undefined;
-    const role = inferRoleForAgent(field, agent, hcRole, rowCount);
+    const identifiesWhat = hcInterp?.identifiesWhat;
+    const role = inferRoleForAgent(field, agent, hcRole, rowCount, identifiesWhat);
     bindings.push({
       sourceField: field.fieldName,
       platformType: field.dataType,
@@ -289,19 +290,43 @@ function inferRoleForAgent(
   agent: AgentType,
   hcRole?: ColumnRole,
   rowCount: number = 0,
+  identifiesWhat?: string,
 ): { role: SemanticBinding['semanticRole']; context: string; confidence: number } {
-  // HF-169: Distinguish entity identifiers from transaction identifiers
-  // using structural cardinality (Decision 105). Same logic as assignSemanticRole.
+  // HF-171: LLM-Primary identifier classification. Same logic as assignSemanticRole.
+  const ENTITY_TYPES = ['person', 'employee', 'organization', 'account', 'customer', 'client', 'member'];
+  const RECORD_TYPES = ['transaction', 'order', 'invoice', 'receipt', 'record', 'ticket'];
+
   if (hcRole === 'identifier' || (field.dataType === 'integer' && !!field.distribution.isSequential)) {
+    // LLM-Primary
+    if (identifiesWhat) {
+      const iw = identifiesWhat.toLowerCase();
+      if (ENTITY_TYPES.some(t => iw.includes(t))) {
+        return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (LLM: ${identifiesWhat})`, confidence: 0.95 };
+      }
+      if (RECORD_TYPES.some(t => iw.includes(t))) {
+        return { role: 'transaction_identifier', context: `${field.fieldName} — record identifier (LLM: ${identifiesWhat})`, confidence: 0.95 };
+      }
+      return { role: 'entity_identifier', context: `${field.fieldName} — identifier (LLM: ${identifiesWhat})`, confidence: 0.85 };
+    }
+    // Deterministic Fallback: cardinality
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
-      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.90 };
+      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%, no LLM context)`, confidence: 0.80 };
     }
-    return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.90 };
+    return { role: 'entity_identifier', context: `${field.fieldName} — identifier (cardinality fallback, uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.85 };
   }
 
-  // HC reference_key → check cardinality
+  // HC reference_key → LLM-primary then cardinality
   if (hcRole === 'reference_key') {
+    if (identifiesWhat) {
+      const iw = identifiesWhat.toLowerCase();
+      if (ENTITY_TYPES.some(t => iw.includes(t))) {
+        return { role: 'entity_identifier', context: `${field.fieldName} — entity ref key (LLM: ${identifiesWhat})`, confidence: 0.95 };
+      }
+      if (RECORD_TYPES.some(t => iw.includes(t))) {
+        return { role: 'transaction_identifier', context: `${field.fieldName} — record ref key (LLM: ${identifiesWhat})`, confidence: 0.95 };
+      }
+    }
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
       return { role: 'transaction_identifier', context: `${field.fieldName} — per-row reference key`, confidence: 0.90 };

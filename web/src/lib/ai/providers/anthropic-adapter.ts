@@ -734,6 +734,7 @@ For each column, provide:
   - measure: numeric value representing a quantity
   - attribute: categorical or descriptive property
   - reference_key: links to another dataset
+- identifiesWhat: (ONLY for identifier and reference_key columns) what kind of thing this column identifies. Must be one of: person, transaction, location, product, organization, account, other. This tells downstream systems whether this identifier links to an entity (person, organization, account) or to a record (transaction, order, invoice). For non-identifier columns, omit this field or set to null.
 - confidence: 0.0 to 1.0
 
 Also provide crossSheetInsights: observations about relationships between sheets (e.g., "Sheet A and Sheet B share the same employee identifier column", "Sheet C appears to be hub-level reference data while Sheet B has employee-level performance data").
@@ -747,6 +748,7 @@ Respond ONLY with valid JSON, no preamble, no markdown:
           "semanticMeaning": "...",
           "dataExpectation": "...",
           "columnRole": "...",
+          "identifiesWhat": "person|transaction|location|product|organization|account|other|null",
           "confidence": 0.00
         }
       }
