@@ -73,6 +73,21 @@ function CalculatePageInner() {
   // (DRAFT → PREVIEW lifecycle: calculate first, then review).
   const activePlans = useMemo(() => plans.filter(p => p.status === 'active' || p.status === 'draft'), [plans]);
 
+  // OB-186: Filter periods by selected plan's cadence_config
+  // If a plan has cadence_config.period_type, only show matching periods.
+  // If cadence_config is empty, show all periods (backward compatible).
+  const selectedPlanCadence = useMemo(() => {
+    if (!selectedPlanId) return null;
+    const plan = activePlans.find(p => p.id === selectedPlanId);
+    const cc = plan?.cadence_config as Record<string, unknown> | null;
+    return cc?.period_type ? String(cc.period_type) : null;
+  }, [selectedPlanId, activePlans]);
+
+  const filteredPeriods = useMemo(() => {
+    if (!selectedPlanCadence) return periods;
+    return periods.filter(p => p.period_type === selectedPlanCadence);
+  }, [periods, selectedPlanCadence]);
+
   // OB-184: Check data status (has committed_data? source date range?)
   useEffect(() => {
     if (!tenantId) { setDataStatus(null); return; }
@@ -358,13 +373,14 @@ function CalculatePageInner() {
         {/* Period selector (inline) — B2.3: enhanced readability */}
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-zinc-300">Period:</span>
-          {periods.length > 0 ? (
+          {/* OB-186: Use filteredPeriods (cadence-aware) instead of all periods */}
+          {filteredPeriods.length > 0 ? (
             <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); }}>
               <SelectTrigger className="w-64 h-10 text-sm font-semibold text-zinc-100">
                 <SelectValue placeholder="Select period" />
               </SelectTrigger>
               <SelectContent>
-                {periods.map(p => (
+                {filteredPeriods.map(p => (
                   <SelectItem key={p.id} value={p.id} className="text-sm font-medium">{p.label || p.canonicalKey}</SelectItem>
                 ))}
               </SelectContent>

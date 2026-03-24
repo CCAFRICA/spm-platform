@@ -967,6 +967,7 @@ Return a JSON object with:
   "ruleSetNameEs": "Spanish name if present",
   "description": "Brief description",
   "currency": "MXN or USD",
+  "cadence": "monthly | biweekly | weekly | quarterly | annual",
   "employeeTypes": [
     { "id": "certified", "name": "Optometrista Certificado", "nameEs": "..." },
     { "id": "non_certified", "name": "Optometrista No Certificado", "nameEs": "..." }
@@ -983,6 +984,8 @@ Return a JSON object with:
         // For tiered_lookup: include tiers[] with min, max, payout for EACH tier
         // For percentage/flat_percentage: include rate (as decimal) and metric
         // For conditional_percentage: include conditions[] and metric
+        // For piecewise_linear: include segments[], baseMetric, AND targetValue (quota/goal amount per variant)
+        // For scope_aggregate: include scope (district/region), metric to aggregate, rate
       },
       "confidence": 0-100,
       "reasoning": "How you extracted this component"
