@@ -25,6 +25,7 @@ interface PlanOption {
   id: string;
   name: string;
   status: string;
+  cadence_config?: Record<string, unknown>;  // OB-186: period_type for cadence-aware calculate
 }
 
 interface PeriodOption {
@@ -34,6 +35,7 @@ interface PeriodOption {
   startDate: string;
   endDate: string;
   status: string;
+  period_type?: string;  // OB-186: cadence-aware calculate
 }
 
 interface BatchOption {
@@ -129,12 +131,12 @@ export function OperateProvider({ children }: { children: ReactNode }) {
       const [plansRes, periodsRes] = await Promise.all([
         supabase
           .from('rule_sets')
-          .select('id, name, status')
+          .select('id, name, status, cadence_config')
           .eq('tenant_id', tenantId)
           .order('created_at', { ascending: false }),
         supabase
           .from('periods')
-          .select('id, label, canonical_key, start_date, end_date, status')
+          .select('id, label, canonical_key, start_date, end_date, status, period_type')
           .eq('tenant_id', tenantId)
           .order('start_date', { ascending: false }),
       ]);
@@ -145,6 +147,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
         id: p.id,
         name: p.name ?? 'Unnamed Plan',
         status: p.status ?? 'draft',
+        cadence_config: (p.cadence_config as Record<string, unknown>) ?? undefined,
       }));
 
       const loadedPeriods: PeriodOption[] = (periodsRes.data ?? []).map(p => ({
@@ -154,6 +157,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
         startDate: p.start_date ?? '',
         endDate: p.end_date ?? '',
         status: p.status ?? 'open',
+        period_type: p.period_type ?? undefined,
       }));
 
       setPlans(loadedPlans);
@@ -192,7 +196,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
     const supabase = createClient();
     const { data } = await supabase
       .from('periods')
-      .select('id, label, canonical_key, start_date, end_date, status')
+      .select('id, label, canonical_key, start_date, end_date, status, period_type')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
 
@@ -203,6 +207,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
       startDate: p.start_date ?? '',
       endDate: p.end_date ?? '',
       status: p.status ?? 'open',
+      period_type: p.period_type ?? undefined,
     }));
     setPeriods(loaded);
 

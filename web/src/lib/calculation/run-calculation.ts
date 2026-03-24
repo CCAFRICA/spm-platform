@@ -93,33 +93,33 @@ export interface MetricDerivationRule {
  * @param priorPeriodData - OB-121: Optional prior period data for delta operations
  * @returns Map of derived metric name → numeric value
  */
+// HF-172 + OB-186: Filter check helper — exported for use in scope aggregate pre-computation
+export function rowMatchesFilters(
+  rd: Record<string, unknown>,
+  filters: MetricDerivationRule['filters'],
+): boolean {
+  if (!filters || filters.length === 0) return true;
+  return filters.every(filter => {
+    const fieldValue = rd[filter.field];
+    switch (filter.operator) {
+      case 'eq':       return fieldValue === filter.value;
+      case 'neq':      return fieldValue !== filter.value;
+      case 'gt':       return typeof fieldValue === 'number' && fieldValue > (filter.value as number);
+      case 'gte':      return typeof fieldValue === 'number' && fieldValue >= (filter.value as number);
+      case 'lt':       return typeof fieldValue === 'number' && fieldValue < (filter.value as number);
+      case 'lte':      return typeof fieldValue === 'number' && fieldValue <= (filter.value as number);
+      case 'contains': return typeof fieldValue === 'string' && fieldValue.includes(String(filter.value));
+      default:         return false;
+    }
+  });
+}
+
 export function applyMetricDerivations(
   entitySheetData: Map<string, Array<{ row_data: Json }>>,
   derivations: MetricDerivationRule[],
   priorPeriodData?: Map<string, Array<{ row_data: Json }>>
 ): Record<string, number> {
   const derived: Record<string, number> = {};
-
-  // HF-172: Extract filter check into helper for DRY use across sum/count/delta
-  const rowMatchesFilters = (
-    rd: Record<string, unknown>,
-    filters: MetricDerivationRule['filters'],
-  ): boolean => {
-    if (!filters || filters.length === 0) return true;
-    return filters.every(filter => {
-      const fieldValue = rd[filter.field];
-      switch (filter.operator) {
-        case 'eq':       return fieldValue === filter.value;
-        case 'neq':      return fieldValue !== filter.value;
-        case 'gt':       return typeof fieldValue === 'number' && fieldValue > (filter.value as number);
-        case 'gte':      return typeof fieldValue === 'number' && fieldValue >= (filter.value as number);
-        case 'lt':       return typeof fieldValue === 'number' && fieldValue < (filter.value as number);
-        case 'lte':      return typeof fieldValue === 'number' && fieldValue <= (filter.value as number);
-        case 'contains': return typeof fieldValue === 'string' && fieldValue.includes(String(filter.value));
-        default:         return false;
-      }
-    });
-  };
 
   for (const rule of derivations) {
     // HF-172: source_pattern is provenance metadata, NOT a row filter.

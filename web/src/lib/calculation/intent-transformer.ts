@@ -421,10 +421,10 @@ function transformFromMetadata(
   if (operation.operation === 'piecewise_linear') {
     const pwOp = operation as import('./intent-types').PiecewiseLinearOp;
     if (!pwOp.targetValue) {
-      const calcMethod = component.calculationMethod as Record<string, unknown> | undefined;
+      const calcMethod = (component as unknown as Record<string, unknown>).calculationMethod as Record<string, unknown> | undefined;
       const tv = calcMethod?.targetValue ?? meta?.targetValue;
       if (tv != null && Number(tv) > 0) {
-        (pwOp as Record<string, unknown>).targetValue = Number(tv);
+        (pwOp as unknown as Record<string, unknown>).targetValue = Number(tv);
       }
     }
   }
