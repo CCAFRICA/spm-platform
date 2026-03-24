@@ -93,6 +93,7 @@ export interface HeaderInterpretation {
   semanticMeaning: string;         // what it means: 'month_indicator', 'employee_identifier', etc.
   dataExpectation: string;         // what values should look like: 'integer_1_to_12', 'unique_numeric_id'
   columnRole: ColumnRole;          // structural role in the dataset
+  identifiesWhat?: string;         // HF-171: person, transaction, location, product, organization, account, other
   confidence: number;              // LLM's confidence in this interpretation
 }
 

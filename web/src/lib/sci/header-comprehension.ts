@@ -57,6 +57,7 @@ interface LLMHeaderResponse {
     semanticMeaning: string;
     dataExpectation: string;
     columnRole: string;
+    identifiesWhat?: string;  // HF-171: person, transaction, location, product, organization, account, other
     confidence: number;
   }> }>;
   crossSheetInsights: string[];
@@ -220,6 +221,7 @@ function buildComprehensionFromLLM(
         semanticMeaning: interp.semanticMeaning || 'unknown',
         dataExpectation: interp.dataExpectation || 'unknown',
         columnRole: toColumnRole(interp.columnRole),
+        identifiesWhat: interp.identifiesWhat || undefined,  // HF-171
         confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
       });
     }

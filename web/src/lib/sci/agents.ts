@@ -441,7 +441,8 @@ function generateSemanticBindings(profile: ContentProfile, agent: AgentType): Se
   return profile.fields.map(field => {
     const hcInterp = hc?.interpretations.get(field.fieldName);
     const hcRole = hcInterp?.columnRole;
-    const binding = assignSemanticRole(field, agent, hcRole, rowCount);
+    const identifiesWhat = hcInterp?.identifiesWhat;
+    const binding = assignSemanticRole(field, agent, hcRole, rowCount, identifiesWhat);
     return {
       sourceField: field.fieldName,
       platformType: field.dataType,
@@ -459,22 +460,38 @@ function assignSemanticRole(
   agent: AgentType,
   hcRole?: string,
   rowCount: number = 0,
+  identifiesWhat?: string,
 ): { role: SemanticRole; context: string; confidence: number } {
-  // HF-169: Distinguish entity identifiers from transaction identifiers
-  // using structural cardinality (Decision 105). Entity identifiers have
-  // moderate cardinality (one per entity, many rows per value). Transaction
-  // identifiers have maximum cardinality (unique per row).
-  // Korean Test: uses distinctCount and rowCount — zero field name matching.
+  // HF-171: LLM-Primary identifier classification.
+  // The LLM already knows whether this identifies a person, transaction,
+  // location, etc. Use its answer directly. Cardinality is fallback only.
+  // Korean Test: LLM translates any language → English identifiesWhat.
+  // Code reads LLM's English output. Customer vocabulary never in code path.
+  const ENTITY_TYPES = ['person', 'employee', 'organization', 'account', 'customer', 'client', 'member'];
+  const RECORD_TYPES = ['transaction', 'order', 'invoice', 'receipt', 'record', 'ticket'];
+
   if (hcRole === 'identifier' || hcRole === 'reference_key') {
+    // LLM-Primary: use identifiesWhat if available
+    if (identifiesWhat) {
+      const iw = identifiesWhat.toLowerCase();
+      if (ENTITY_TYPES.some(t => iw.includes(t))) {
+        return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (LLM: ${identifiesWhat})`, confidence: 0.95 };
+      }
+      if (RECORD_TYPES.some(t => iw.includes(t))) {
+        return { role: 'transaction_identifier', context: `${field.fieldName} — record identifier (LLM: ${identifiesWhat})`, confidence: 0.95 };
+      }
+      // LLM provided identifiesWhat but not entity or record — default to entity
+      return { role: 'entity_identifier', context: `${field.fieldName} — identifier (LLM: ${identifiesWhat})`, confidence: 0.85 };
+    }
+
+    // Deterministic Fallback: HF-169 cardinality check
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
-      // >80% unique values → per-row identifier (transaction ID, order ID)
-      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.90 };
+      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%, no LLM context)`, confidence: 0.80 };
     }
-    // Moderate cardinality → entity identifier (employee ID, rep ID, store ID)
-    return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.90 };
+    return { role: 'entity_identifier', context: `${field.fieldName} — identifier (cardinality fallback, uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.85 };
   }
-  // Structural sequential integer → check cardinality before assuming entity
+  // Structural sequential integer → cardinality check
   if (field.dataType === 'integer' && field.distribution.isSequential) {
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
