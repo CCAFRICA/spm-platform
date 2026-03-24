@@ -163,6 +163,10 @@ export interface PiecewiseLinearOp {
   ratioInput: IntentSource | IntentOperation;
   /** The base value to multiply the rate by (e.g., revenue) */
   baseInput: IntentSource | IntentOperation;
+  /** OB-186: Target/quota value for computing attainment when denominator metric unavailable.
+   *  When ratioInput resolves to 0 (missing denominator), evaluator uses:
+   *  attainment = baseValue / targetValue */
+  targetValue?: number;
   /** Rate segments — each defines a range and its rate */
   segments: Array<{
     min: number;

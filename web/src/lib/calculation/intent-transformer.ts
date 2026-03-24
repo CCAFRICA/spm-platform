@@ -415,6 +415,20 @@ function transformFromMetadata(
     operation = rawIntent as unknown as IntentOperation;
   }
 
+  // OB-186: For piecewise_linear, propagate targetValue from component definition
+  // The AI extracts quota/target from the plan PDF and stores it in calculationMethod.
+  // If the intent doesn't have targetValue but the component does, copy it through.
+  if (operation.operation === 'piecewise_linear') {
+    const pwOp = operation as import('./intent-types').PiecewiseLinearOp;
+    if (!pwOp.targetValue) {
+      const calcMethod = (component as unknown as Record<string, unknown>).calculationMethod as Record<string, unknown> | undefined;
+      const tv = calcMethod?.targetValue ?? meta?.targetValue;
+      if (tv != null && Number(tv) > 0) {
+        (pwOp as unknown as Record<string, unknown>).targetValue = Number(tv);
+      }
+    }
+  }
+
   const modifiers: IntentModifier[] = [];
   if (meta.cap != null && Number(meta.cap) > 0) {
     modifiers.push({ modifier: 'cap', maxValue: Number(meta.cap), scope: 'per_period' });

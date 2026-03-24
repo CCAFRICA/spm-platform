@@ -24,6 +24,7 @@ import {
   type ComponentResult,
   type AIContextSheet,
   type MetricDerivationRule,
+  rowMatchesFilters,
 } from '@/lib/calculation/run-calculation';
 import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
@@ -183,10 +184,31 @@ export async function POST(request: NextRequest) {
 
   // ── OB-118: Parse metric derivation rules from input_bindings ──
   const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
-  const metricDerivations: MetricDerivationRule[] =
+  let metricDerivations: MetricDerivationRule[] =
     (inputBindings?.metric_derivations as MetricDerivationRule[] | undefined) ?? [];
   if (metricDerivations.length > 0) {
     addLog(`OB-118 Metric derivations: ${metricDerivations.length} rules from input_bindings`);
+  }
+
+  // OB-186: Cross-plan metric resolution for scope_aggregate plans.
+  // When current plan has 0 derivations, look for derivation rules in OTHER plans
+  // for this tenant. Scope aggregate plans consume metrics that other plans define.
+  if (metricDerivations.length === 0) {
+    const { data: otherPlans } = await supabase
+      .from('rule_sets')
+      .select('id, input_bindings')
+      .eq('tenant_id', tenantId)
+      .neq('id', ruleSetId);
+    const crossPlanDerivations: MetricDerivationRule[] = [];
+    for (const op of otherPlans || []) {
+      const opBindings = op.input_bindings as Record<string, unknown> | null;
+      const opDerivs = (opBindings?.metric_derivations as MetricDerivationRule[] | undefined) ?? [];
+      crossPlanDerivations.push(...opDerivs);
+    }
+    if (crossPlanDerivations.length > 0) {
+      metricDerivations = crossPlanDerivations;
+      addLog(`OB-186: Cross-plan metric resolution — ${crossPlanDerivations.length} derivations from other plans`);
+    }
   }
 
   // OB-153: Parse metric_mappings from input_bindings
@@ -1475,56 +1497,59 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // HF-155 Item 2: Populate scopeAggregates for entities with scope data
+    // HF-155 Item 2 + OB-186: Populate scopeAggregates for entities with scope data
     // Resolves scope from entities.metadata (district, region, store_id)
+    // OB-186: Produces BOTH unfiltered aggregates (raw field sums) AND filtered
+    // aggregates (metric_derivation rules applied). Filtered aggregates use the
+    // derived metric name as key (e.g., "district:equipment_revenue:sum").
     const entityScopeAgg: Record<string, number> = {};
     const entityMeta = entityMap.get(entityId);
     const entityMetadata = (entityMeta?.metadata || {}) as Record<string, unknown>;
     const entityDistrict = entityMetadata.district || entityMetadata.store_id;
     const entityRegion = entityMetadata.region;
 
-    // District scope: sum metrics from all entities sharing same district
-    if (entityDistrict) {
+    // Helper: aggregate rows from other entities in same scope
+    const aggregateScopeRows = (
+      scopeField: string,
+      scopeValue: unknown,
+      scopePrefix: string,
+    ) => {
       for (const [otherId, otherSheetMap] of Array.from(dataByEntity.entries())) {
         if (otherId === entityId) continue;
         const otherMeta = entityMap.get(otherId);
         const otherMetaData = (otherMeta?.metadata || {}) as Record<string, unknown>;
-        const otherDistrict = otherMetaData.district || otherMetaData.store_id;
-        if (otherDistrict === entityDistrict) {
-          for (const [, rows] of Array.from(otherSheetMap.entries())) {
-            for (const row of rows) {
-              const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-                ? row.row_data as Record<string, unknown> : {};
-              for (const [key, val] of Object.entries(rd)) {
-                if (key.startsWith('_') || typeof val !== 'number') continue;
-                entityScopeAgg[`district:${key}:sum`] = (entityScopeAgg[`district:${key}:sum`] || 0) + val;
-              }
-            }
-          }
-        }
-      }
-    }
+        const otherScope = scopeField === 'district'
+          ? (otherMetaData.district || otherMetaData.store_id)
+          : otherMetaData.region;
+        if (otherScope !== scopeValue) continue;
 
-    // Region scope: sum across all entities sharing same region
-    if (entityRegion) {
-      for (const [otherId, otherSheetMap] of Array.from(dataByEntity.entries())) {
-        if (otherId === entityId) continue;
-        const otherMeta = entityMap.get(otherId);
-        const otherMetaData = (otherMeta?.metadata || {}) as Record<string, unknown>;
-        if (otherMetaData.region === entityRegion) {
-          for (const [, rows] of Array.from(otherSheetMap.entries())) {
-            for (const row of rows) {
-              const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-                ? row.row_data as Record<string, unknown> : {};
-              for (const [key, val] of Object.entries(rd)) {
-                if (key.startsWith('_') || typeof val !== 'number') continue;
-                entityScopeAgg[`region:${key}:sum`] = (entityScopeAgg[`region:${key}:sum`] || 0) + val;
+        for (const [, rows] of Array.from(otherSheetMap.entries())) {
+          for (const row of rows) {
+            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+              ? row.row_data as Record<string, unknown> : {};
+
+            // Unfiltered: sum all numeric fields
+            for (const [key, val] of Object.entries(rd)) {
+              if (key.startsWith('_') || typeof val !== 'number') continue;
+              entityScopeAgg[`${scopePrefix}:${key}:sum`] = (entityScopeAgg[`${scopePrefix}:${key}:sum`] || 0) + val;
+            }
+
+            // OB-186: Filtered scope aggregates from metric_derivation rules
+            for (const rule of metricDerivations) {
+              if (rule.operation !== 'sum' || !rule.source_field) continue;
+              if (!rowMatchesFilters(rd, rule.filters)) continue;
+              const val = rd[rule.source_field];
+              if (typeof val === 'number') {
+                entityScopeAgg[`${scopePrefix}:${rule.metric}:sum`] = (entityScopeAgg[`${scopePrefix}:${rule.metric}:sum`] || 0) + val;
               }
             }
           }
         }
       }
-    }
+    };
+
+    if (entityDistrict) aggregateScopeRows('district', entityDistrict, 'district');
+    if (entityRegion) aggregateScopeRows('region', entityRegion, 'region');
 
     for (const ci of entityIntents) {
       const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
