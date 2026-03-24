@@ -437,10 +437,11 @@ export function requiresHumanReview(scores: AgentScore[]): boolean {
 
 function generateSemanticBindings(profile: ContentProfile, agent: AgentType): SemanticBinding[] {
   const hc = profile.headerComprehension;
+  const rowCount = profile.structure.rowCount ?? profile.fields.length;
   return profile.fields.map(field => {
     const hcInterp = hc?.interpretations.get(field.fieldName);
     const hcRole = hcInterp?.columnRole;
-    const binding = assignSemanticRole(field, agent, hcRole);
+    const binding = assignSemanticRole(field, agent, hcRole, rowCount);
     return {
       sourceField: field.fieldName,
       platformType: field.dataType,
@@ -457,14 +458,29 @@ function assignSemanticRole(
   field: ContentProfile['fields'][0],
   agent: AgentType,
   hcRole?: string,
+  rowCount: number = 0,
 ): { role: SemanticRole; context: string; confidence: number } {
-  // HC identifier or reference_key → entity_identifier regardless of agent
+  // HF-169: Distinguish entity identifiers from transaction identifiers
+  // using structural cardinality (Decision 105). Entity identifiers have
+  // moderate cardinality (one per entity, many rows per value). Transaction
+  // identifiers have maximum cardinality (unique per row).
+  // Korean Test: uses distinctCount and rowCount — zero field name matching.
   if (hcRole === 'identifier' || hcRole === 'reference_key') {
-    return { role: 'entity_identifier', context: `${field.fieldName} — identifier`, confidence: 0.90 };
+    const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
+    if (uniquenessRatio > 0.8) {
+      // >80% unique values → per-row identifier (transaction ID, order ID)
+      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.90 };
+    }
+    // Moderate cardinality → entity identifier (employee ID, rep ID, store ID)
+    return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.90 };
   }
-  // Structural sequential integer → entity_identifier
+  // Structural sequential integer → check cardinality before assuming entity
   if (field.dataType === 'integer' && field.distribution.isSequential) {
-    return { role: 'entity_identifier', context: `${field.fieldName} — sequential identifier`, confidence: 0.85 };
+    const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
+    if (uniquenessRatio > 0.8) {
+      return { role: 'transaction_identifier', context: `${field.fieldName} — sequential per-row identifier`, confidence: 0.85 };
+    }
+    return { role: 'entity_identifier', context: `${field.fieldName} — sequential entity identifier`, confidence: 0.85 };
   }
 
   switch (agent) {
