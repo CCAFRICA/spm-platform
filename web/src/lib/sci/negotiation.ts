@@ -262,13 +262,14 @@ export function generatePartialBindings(
   const relevantFields = new Set([...ownedFields, ...sharedFields]);
   const bindings: SemanticBinding[] = [];
   const hc = profile.headerComprehension;
+  const rowCount = profile.structure.rowCount ?? profile.fields.length;
 
   for (const field of profile.fields) {
     if (!relevantFields.has(field.fieldName)) continue;
 
     const hcInterp = hc?.interpretations.get(field.fieldName);
     const hcRole = hcInterp?.columnRole as ColumnRole | undefined;
-    const role = inferRoleForAgent(field, agent, hcRole);
+    const role = inferRoleForAgent(field, agent, hcRole, rowCount);
     bindings.push({
       sourceField: field.fieldName,
       platformType: field.dataType,
@@ -287,14 +288,24 @@ function inferRoleForAgent(
   field: FieldProfile,
   agent: AgentType,
   hcRole?: ColumnRole,
+  rowCount: number = 0,
 ): { role: SemanticBinding['semanticRole']; context: string; confidence: number } {
-  // HC identifier or structural sequential integer → entity_identifier
+  // HF-169: Distinguish entity identifiers from transaction identifiers
+  // using structural cardinality (Decision 105). Same logic as assignSemanticRole.
   if (hcRole === 'identifier' || (field.dataType === 'integer' && !!field.distribution.isSequential)) {
-    return { role: 'entity_identifier', context: `${field.fieldName} — links to entity`, confidence: 0.90 };
+    const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
+    if (uniquenessRatio > 0.8) {
+      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.90 };
+    }
+    return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.90 };
   }
 
-  // HC reference_key → entity_identifier (for reference tables)
+  // HC reference_key → check cardinality
   if (hcRole === 'reference_key') {
+    const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
+    if (uniquenessRatio > 0.8) {
+      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row reference key`, confidence: 0.90 };
+    }
     return { role: 'entity_identifier', context: `${field.fieldName} — reference key`, confidence: 0.90 };
   }
 
