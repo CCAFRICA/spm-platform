@@ -100,15 +100,34 @@ export function applyMetricDerivations(
 ): Record<string, number> {
   const derived: Record<string, number> = {};
 
-  for (const rule of derivations) {
-    const sourceRegex = new RegExp(rule.source_pattern, 'i');
-
-    // Find all sheets matching the source pattern (current period)
-    let matchingRows: Array<{ row_data: Json }> = [];
-    for (const [sheetName, rows] of Array.from(entitySheetData.entries())) {
-      if (sourceRegex.test(sheetName)) {
-        matchingRows = matchingRows.concat(rows);
+  // HF-172: Extract filter check into helper for DRY use across sum/count/delta
+  const rowMatchesFilters = (
+    rd: Record<string, unknown>,
+    filters: MetricDerivationRule['filters'],
+  ): boolean => {
+    if (!filters || filters.length === 0) return true;
+    return filters.every(filter => {
+      const fieldValue = rd[filter.field];
+      switch (filter.operator) {
+        case 'eq':       return fieldValue === filter.value;
+        case 'neq':      return fieldValue !== filter.value;
+        case 'gt':       return typeof fieldValue === 'number' && fieldValue > (filter.value as number);
+        case 'gte':      return typeof fieldValue === 'number' && fieldValue >= (filter.value as number);
+        case 'lt':       return typeof fieldValue === 'number' && fieldValue < (filter.value as number);
+        case 'lte':      return typeof fieldValue === 'number' && fieldValue <= (filter.value as number);
+        case 'contains': return typeof fieldValue === 'string' && fieldValue.includes(String(filter.value));
+        default:         return false;
       }
+    });
+  };
+
+  for (const rule of derivations) {
+    // HF-172: source_pattern is provenance metadata, NOT a row filter.
+    // All entity rows within the period's date range are candidates.
+    // Content filtering is done by the filters array, not source_pattern.
+    let matchingRows: Array<{ row_data: Json }> = [];
+    for (const [, rows] of Array.from(entitySheetData.entries())) {
+      matchingRows = matchingRows.concat(rows);
     }
 
     // OB-128: Ratio operation works on already-derived metrics, not raw rows
@@ -123,37 +142,41 @@ export function applyMetricDerivations(
 
     // Apply derivation operation
     if (rule.operation === 'sum' && rule.source_field) {
+      // HF-172: Apply filters to sum (was missing — caused cross-category aggregation)
       let total = 0;
       for (const row of matchingRows) {
         const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
           ? row.row_data as Record<string, unknown>
           : {};
+        if (!rowMatchesFilters(rd, rule.filters)) continue;
         const val = rd[rule.source_field];
         if (typeof val === 'number') total += val;
       }
       derived[rule.metric] = total;
     } else if (rule.operation === 'delta' && rule.source_field) {
       // OB-121: Period-over-period delta = current_sum - prior_sum
+      // HF-172: Apply filters to both current and prior period loops
       let currentTotal = 0;
       for (const row of matchingRows) {
         const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
           ? row.row_data as Record<string, unknown>
           : {};
+        if (!rowMatchesFilters(rd, rule.filters)) continue;
         const val = rd[rule.source_field];
         if (typeof val === 'number') currentTotal += val;
       }
 
       let priorTotal = 0;
       if (priorPeriodData) {
-        for (const [sheetName, rows] of Array.from(priorPeriodData.entries())) {
-          if (sourceRegex.test(sheetName)) {
-            for (const row of rows) {
-              const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-                ? row.row_data as Record<string, unknown>
-                : {};
-              const val = rd[rule.source_field];
-              if (typeof val === 'number') priorTotal += val;
-            }
+        // HF-172: Include ALL prior period rows, not just source_pattern matches
+        for (const [, rows] of Array.from(priorPeriodData.entries())) {
+          for (const row of rows) {
+            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+              ? row.row_data as Record<string, unknown>
+              : {};
+            if (!rowMatchesFilters(rd, rule.filters)) continue;
+            const val = rd[rule.source_field];
+            if (typeof val === 'number') priorTotal += val;
           }
         }
       }
@@ -163,28 +186,13 @@ export function applyMetricDerivations(
         console.log(`[Derivation] delta: no prior period data for "${rule.metric}" — using current value only`);
       }
     } else if (rule.operation === 'count') {
+      // HF-172: Uses same rowMatchesFilters helper (was already correct, now DRY)
       let count = 0;
       for (const row of matchingRows) {
         const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
           ? row.row_data as Record<string, unknown>
           : {};
-
-        // Check all filter conditions (AND logic)
-        const allMatch = rule.filters.every(filter => {
-          const fieldValue = rd[filter.field];
-          switch (filter.operator) {
-            case 'eq':       return fieldValue === filter.value;
-            case 'neq':      return fieldValue !== filter.value;
-            case 'gt':       return typeof fieldValue === 'number' && fieldValue > (filter.value as number);
-            case 'gte':      return typeof fieldValue === 'number' && fieldValue >= (filter.value as number);
-            case 'lt':       return typeof fieldValue === 'number' && fieldValue < (filter.value as number);
-            case 'lte':      return typeof fieldValue === 'number' && fieldValue <= (filter.value as number);
-            case 'contains': return typeof fieldValue === 'string' && fieldValue.includes(String(filter.value));
-            default:         return false;
-          }
-        });
-
-        if (allMatch) count++;
+        if (rowMatchesFilters(rd, rule.filters)) count++;
       }
       derived[rule.metric] = count;
     }
