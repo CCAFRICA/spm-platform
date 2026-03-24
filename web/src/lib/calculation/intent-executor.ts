@@ -475,8 +475,20 @@ function executePiecewiseLinear(
   inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
   trace: Partial<ExecutionTrace>
 ): Decimal {
-  const ratio = toNumber(resolveValue(op.ratioInput, data, inputLog, trace));
+  let ratio = toNumber(resolveValue(op.ratioInput, data, inputLog, trace));
   const baseValue = resolveValue(op.baseInput, data, inputLog, trace);
+
+  // OB-186: If ratio resolved to 0 (missing denominator metric) and component
+  // has a targetValue (quota), compute attainment = baseValue / targetValue.
+  // This handles plans where quota is a plan parameter, not in transaction data.
+  if (ratio === 0 && op.targetValue && op.targetValue > 0 && toNumber(baseValue) > 0) {
+    ratio = toNumber(baseValue) / op.targetValue;
+    inputLog['piecewise_linear:targetValue'] = {
+      source: 'component_parameter',
+      rawValue: op.targetValue,
+      resolvedValue: ratio,
+    };
+  }
 
   // Find the matching segment
   for (const seg of op.segments) {
