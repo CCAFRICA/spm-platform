@@ -392,29 +392,6 @@ function CalculatePageInner() {
     }
   };
 
-  const handleCreatePeriods = useCallback(async () => {
-    if (!tenantId) return;
-    setIsCreatingPeriods(true);
-    setPeriodCreateError(null);
-    try {
-      const res = await fetch('/api/periods/create-from-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setPeriodCreateError(data.error || 'Failed to create periods');
-      } else {
-        await refreshPeriods();
-      }
-    } catch (err) {
-      setPeriodCreateError(err instanceof Error ? err.message : 'Failed');
-    } finally {
-      setIsCreatingPeriods(false);
-    }
-  }, [tenantId, refreshPeriods]);
-
   if (!hasAccess) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
