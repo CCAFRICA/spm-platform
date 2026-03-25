@@ -32,6 +32,8 @@ import {
   BarChart3,
   Calendar,
   Zap,
+  CheckCircle2,
+  Circle,
 } from 'lucide-react';
 
 // DS-007 result components
@@ -66,6 +68,17 @@ function CalculatePageInner() {
   const [storeFilter, setStoreFilter] = useState<string | null>(null);
   const [isCreatingPeriods, setIsCreatingPeriods] = useState(false);
   const [periodCreateError, setPeriodCreateError] = useState<string | null>(null);
+  // OB-187: Period detection panel state
+  const [showDetectionPanel, setShowDetectionPanel] = useState(false);
+  const [detectionLoading, setDetectionLoading] = useState(false);
+  const [detectedPeriods, setDetectedPeriods] = useState<Array<{
+    label: string; period_type: string; start_date: string; end_date: string;
+    canonical_key: string; exists: boolean; used_by_plans: string[]; selected: boolean;
+  }>>([]);
+  const [detectionSummary, setDetectionSummary] = useState<{
+    total_detected: number; already_exist: number; new_needed: number;
+    cadences_found: string[]; data_range: { min: string; max: string } | null;
+  } | null>(null);
   const [priorPeriodTotals, setPriorPeriodTotals] = useState<Record<string, number>>({});
   const [dataStatus, setDataStatus] = useState<{ hasData: boolean; sourceDateRange?: { min: string; max: string } } | null>(null);
 
@@ -320,6 +333,65 @@ function CalculatePageInner() {
   }, [tenantId, selectedPeriodId, periods, activePlans]);
 
   // OB-153: Create periods from committed_data source dates
+  // OB-187: Intelligent period detection
+  const handleDetectPeriods = async () => {
+    if (!tenantId) return;
+    setShowDetectionPanel(true);
+    setDetectionLoading(true);
+    try {
+      const res = await fetch('/api/periods/detect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId }),
+      });
+      const data = await res.json();
+      if (data.detected) {
+        setDetectedPeriods(data.detected.map((d: Record<string, unknown>) => ({ ...d, selected: !d.exists })));
+        setDetectionSummary(data.summary);
+      }
+    } catch (err) {
+      setPeriodCreateError(err instanceof Error ? err.message : 'Detection failed');
+    } finally {
+      setDetectionLoading(false);
+    }
+  };
+
+  const handleCreateDetectedPeriods = async () => {
+    const toCreate = detectedPeriods.filter(p => p.selected && !p.exists);
+    if (toCreate.length === 0) return;
+    setIsCreatingPeriods(true);
+    try {
+      const res = await fetch('/api/periods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: tenantId,
+          periods: toCreate.map(p => ({
+            label: p.label,
+            period_type: p.period_type,
+            start_date: p.start_date,
+            end_date: p.end_date,
+            canonical_key: p.canonical_key,
+            status: 'open',
+            metadata: { source: 'ob187_detect' },
+          })),
+        }),
+      });
+      if (res.ok) {
+        setShowDetectionPanel(false);
+        setDetectedPeriods([]);
+        refreshPeriods();
+      } else {
+        const err = await res.json();
+        setPeriodCreateError(err.error || 'Creation failed');
+      }
+    } catch (err) {
+      setPeriodCreateError(err instanceof Error ? err.message : 'Creation failed');
+    } finally {
+      setIsCreatingPeriods(false);
+    }
+  };
+
   const handleCreatePeriods = useCallback(async () => {
     if (!tenantId) return;
     setIsCreatingPeriods(true);
@@ -411,11 +483,11 @@ function CalculatePageInner() {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <Button
-                      onClick={handleCreatePeriods}
-                      disabled={isCreatingPeriods || (dataStatus !== null && !dataStatus.hasData)}
+                      onClick={handleDetectPeriods}
+                      disabled={detectionLoading || (dataStatus !== null && !dataStatus.hasData)}
                       className="bg-indigo-600 hover:bg-indigo-500 text-white"
                     >
-                      {isCreatingPeriods ? (
+                      {detectionLoading ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin mr-1" />
                           Detecting...
@@ -423,7 +495,7 @@ function CalculatePageInner() {
                       ) : (
                         <>
                           <Zap className="w-4 h-4 mr-1" />
-                          Auto-Detect Periods
+                          Detect Periods from Data
                         </>
                       )}
                     </Button>
@@ -437,8 +509,85 @@ function CalculatePageInner() {
                   </div>
                 </CardContent>
               </Card>
-              {dataStatus !== null && !dataStatus.hasData && (
-                <span className="text-xs text-zinc-500 hidden">placeholder</span>
+              {/* OB-187: Period Detection Panel */}
+              {showDetectionPanel && (
+                <Card className="border-zinc-700 mt-3">
+                  <CardContent className="py-4">
+                    {detectionLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-zinc-400">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Analyzing data and plan cadences...
+                      </div>
+                    ) : detectionSummary ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-zinc-200">
+                              {detectionSummary.total_detected} periods detected
+                            </p>
+                            {detectionSummary.data_range && (
+                              <p className="text-xs text-zinc-500 mt-0.5">
+                                Data: {detectionSummary.data_range.min} to {detectionSummary.data_range.max} | Cadences: {detectionSummary.cadences_found.join(', ')}
+                              </p>
+                            )}
+                          </div>
+                          <button onClick={() => setShowDetectionPanel(false)} className="text-xs text-zinc-500 hover:text-zinc-300">Dismiss</button>
+                        </div>
+                        <div className="space-y-1">
+                          {detectedPeriods.map((p, i) => (
+                            <div key={p.canonical_key} className="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-zinc-800/50">
+                              {p.exists ? (
+                                <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                              ) : (
+                                <button
+                                  onClick={() => setDetectedPeriods(prev => prev.map((dp, j) => j === i ? { ...dp, selected: !dp.selected } : dp))}
+                                  className="flex-shrink-0"
+                                >
+                                  {p.selected ? (
+                                    <CheckCircle2 className="w-4 h-4 text-indigo-400" />
+                                  ) : (
+                                    <Circle className="w-4 h-4 text-zinc-600" />
+                                  )}
+                                </button>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm text-zinc-200">{p.label}</span>
+                                <span className="text-xs text-zinc-500 ml-2">({p.period_type})</span>
+                              </div>
+                              {p.exists ? (
+                                <span className="text-xs text-green-500/80">Already exists</span>
+                              ) : (
+                                <span className="text-xs text-indigo-400">NEW</span>
+                              )}
+                              {p.used_by_plans.length > 0 && (
+                                <span className="text-xs text-zinc-600 truncate max-w-48">{p.used_by_plans.join(', ')}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {detectionSummary.new_needed > 0 && (
+                          <Button
+                            onClick={handleCreateDetectedPeriods}
+                            disabled={isCreatingPeriods || detectedPeriods.filter(p => p.selected && !p.exists).length === 0}
+                            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white"
+                          >
+                            {isCreatingPeriods ? (
+                              <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Creating...</>
+                            ) : (
+                              <>Create {detectedPeriods.filter(p => p.selected && !p.exists).length} New Periods</>
+                            )}
+                          </Button>
+                        )}
+                        {detectionSummary.new_needed === 0 && (
+                          <p className="text-xs text-green-500/80 text-center">All detected periods already exist.</p>
+                        )}
+                      </div>
+                    ) : null}
+                    {periodCreateError && (
+                      <p className="text-xs text-red-400 mt-2">{periodCreateError}</p>
+                    )}
+                  </CardContent>
+                </Card>
               )}
             </div>
           )}
