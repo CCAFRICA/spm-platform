@@ -1242,7 +1242,7 @@ async function executeBatchedPlanInterpretation(
       input_bindings: engineFormat.inputBindings as unknown as Json,
       components: engineFormat.components as unknown as Json,
       // OB-186: Store cadence from AI interpretation (defaults to monthly)
-      cadence_config: { period_type: (response as Record<string, unknown>).cadence || 'monthly' } as unknown as Json,
+      cadence_config: { period_type: ((response as unknown as Record<string, unknown>).cadence as string) || 'monthly' } as unknown as Json,
       outcome_config: {},
       metadata: {
         plan_type: 'additive_lookup',
@@ -1478,7 +1478,7 @@ async function executePlanPipeline(
       input_bindings: engineFormat.inputBindings as unknown as Json,
       components: engineFormat.components as unknown as Json,
       // OB-186: Store cadence from AI interpretation (defaults to monthly)
-      cadence_config: { period_type: (response as Record<string, unknown>).cadence || 'monthly' } as unknown as Json,
+      cadence_config: { period_type: ((response as unknown as Record<string, unknown>).cadence as string) || 'monthly' } as unknown as Json,
       outcome_config: {},
       metadata: {
         plan_type: 'additive_lookup',
