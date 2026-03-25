@@ -146,7 +146,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
       const loadedPlans: PlanOption[] = (plansRes.data ?? []).map(p => ({
         id: p.id,
         name: p.name ?? 'Unnamed Plan',
-        status: p.status ?? 'draft',
+        status: p.status ?? 'open',
         cadence_config: (p.cadence_config as Record<string, unknown>) ?? undefined,
       }));
 
