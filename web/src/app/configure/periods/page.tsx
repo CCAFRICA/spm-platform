@@ -79,7 +79,7 @@ const STATUS_CONFIG: Record<PeriodStatus, { label: string; labelEs: string; colo
 
 const VALID_TRANSITIONS: Record<PeriodStatus, PeriodStatus[]> = {
   draft: ['open'],
-  open: ['data_collection', 'draft'],
+  open: ['data_collection'],
   data_collection: ['calculation_pending', 'open'],
   calculation_pending: ['calculated', 'data_collection'],
   calculated: ['review', 'calculation_pending'],
@@ -232,7 +232,7 @@ export default function PeriodsPage() {
             start_date: startDate,
             end_date: endDate,
             canonical_key: buildCanonicalKey(startDate),
-            status: 'draft',
+            status: 'open',
           }],
         }),
       });
@@ -281,7 +281,7 @@ export default function PeriodsPage() {
             start_date: start,
             end_date: end,
             canonical_key: buildCanonicalKey(start),
-            status: 'draft',
+            status: 'open',
           });
         }
       } else {
@@ -296,7 +296,7 @@ export default function PeriodsPage() {
             start_date: start,
             end_date: end,
             canonical_key: buildCanonicalKey(start),
-            status: 'draft',
+            status: 'open',
           });
         }
       }
@@ -462,7 +462,7 @@ export default function PeriodsPage() {
                               {isSpanish ? 'Estado' : 'Status'}
                             </Button>
                           )}
-                          {period.status === 'draft' && (
+                          {period.status === 'open' && (
                             <Button
                               variant="ghost"
                               size="sm"

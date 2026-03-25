@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
       start_date: p.start_date as string,
       end_date: p.end_date as string,
       canonical_key: p.canonical_key as string,
-      status: ((p.status as string) || 'draft') as PeriodStatus,
+      status: ((p.status as string) || 'open') as PeriodStatus,
       metadata: (p.metadata || {}) as Json,
     }));
 
@@ -175,13 +175,13 @@ export async function DELETE(request: NextRequest) {
       supabase = authClient;
     }
 
-    // Only delete draft periods
+    // HF-174: Only delete open periods (draft removed from DB constraint)
     const { error } = await supabase
       .from('periods')
       .delete()
       .eq('id', period_id)
       .eq('tenant_id', tenant_id)
-      .eq('status', 'draft');
+      .eq('status', 'open');
 
     if (error) {
       console.error('[DELETE /api/periods] Delete failed:', error);

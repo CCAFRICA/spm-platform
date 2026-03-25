@@ -3673,7 +3673,7 @@ function DataPackageImportPageInner() {
                                       start_date: p.startDate,
                                       end_date: p.endDate,
                                       canonical_key: p.canonicalKey,
-                                      status: 'draft',
+                                      status: 'open',
                                     }));
                                     const res = await fetch('/api/periods', {
                                       method: 'POST',
