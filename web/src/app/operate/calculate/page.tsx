@@ -30,6 +30,8 @@ import {
   Play,
   Download,
   BarChart3,
+  Calendar,
+  Zap,
 } from 'lucide-react';
 
 // DS-007 result components
@@ -386,33 +388,57 @@ function CalculatePageInner() {
               </SelectContent>
             </Select>
           ) : (
-            <div className="flex items-center gap-3">
-              <Button
-                onClick={handleCreatePeriods}
-                disabled={isCreatingPeriods || (dataStatus !== null && !dataStatus.hasData)}
-                variant="outline"
-                size="sm"
-              >
-                {isCreatingPeriods ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                    Detecting periods...
-                  </>
-                ) : (
-                  'Create periods from data'
-                )}
-              </Button>
-              {dataStatus?.sourceDateRange && (
-                <span className="text-xs text-zinc-500">
-                  Data spans: {dataStatus.sourceDateRange.min} to {dataStatus.sourceDateRange.max}
-                </span>
-              )}
+            <div className="flex flex-col gap-3">
+              {/* HF-175: Prominent Create Periods card — not a subtle text link */}
+              <Card className="border-indigo-500/30 bg-indigo-500/5">
+                <CardContent className="py-4 flex items-center gap-4">
+                  <Calendar className="w-8 h-8 text-indigo-400 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-zinc-200">No periods created yet</p>
+                    {dataStatus?.sourceDateRange ? (
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        Your data spans {dataStatus.sourceDateRange.min} to {dataStatus.sourceDateRange.max}. Create periods to start calculating.
+                      </p>
+                    ) : dataStatus !== null && !dataStatus.hasData ? (
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        No data imported yet.{' '}
+                        <button onClick={() => router.push('/operate/import')} className="text-indigo-400 hover:text-indigo-300 underline">Import data</button>
+                        {' '}first, or create periods manually.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-zinc-400 mt-0.5">Detect periods from imported data or create them manually.</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Button
+                      onClick={handleCreatePeriods}
+                      disabled={isCreatingPeriods || (dataStatus !== null && !dataStatus.hasData)}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white"
+                    >
+                      {isCreatingPeriods ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                          Detecting...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4 mr-1" />
+                          Auto-Detect Periods
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push('/configure/periods')}
+                    >
+                      Create Manually
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
               {dataStatus !== null && !dataStatus.hasData && (
-                <span className="text-xs text-zinc-500">
-                  No data imported yet.{' '}
-                  <button onClick={() => router.push('/operate/import')} className="text-indigo-400 hover:text-indigo-300 underline">Import data</button>
-                  {' '}first.
-                </span>
+                <span className="text-xs text-zinc-500 hidden">placeholder</span>
               )}
             </div>
           )}
