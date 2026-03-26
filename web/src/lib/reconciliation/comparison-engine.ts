@@ -137,6 +137,10 @@ export function runComparison(
   Array.from(fileByEmployee.keys()).forEach(empId => allEmployeeIds.add(empId));
   Array.from(vlByEmployee.keys()).forEach(empId => allEmployeeIds.add(empId));
 
+  // OB-189: Log sample values for diagnostics
+  let sampleCount = 0;
+  const sampleLog: string[] = [];
+
   // Compare each employee
   const employees: EmployeeComparison[] = [];
 
@@ -146,11 +150,18 @@ export function runComparison(
 
     if (fileRow && vlResult) {
       // MATCHED: both sides have this employee
-      const fileTotal = Number(fileRow[totalAmountField] ?? 0);
+      const rawFileValue = fileRow[totalAmountField];
+      const fileTotal = parseNumericValue(rawFileValue);
       const vlTotal = vlResult.totalIncentive || 0;
       const totalDelta = fileTotal - vlTotal;
       const totalDeltaPercent = vlTotal !== 0 ? (totalDelta / vlTotal) : (fileTotal !== 0 ? 1 : 0);
       const totalFlag = classifyDelta(totalDeltaPercent);
+
+      // OB-189: Sample diagnostic logging
+      if (sampleCount < 5) {
+        sampleLog.push(`  ${empId}: raw="${String(rawFileValue)}" (${typeof rawFileValue}) → parsed=${fileTotal}, VL=${vlTotal}, delta=${totalDelta}`);
+        sampleCount++;
+      }
 
       // Per-component comparison
       const components = compareComponents(fileRow, vlResult, componentMappings);
@@ -170,7 +181,7 @@ export function runComparison(
       });
     } else if (fileRow && !vlResult) {
       // FILE-ONLY
-      const fileTotal = Number(fileRow[totalAmountField] ?? 0);
+      const fileTotal = parseNumericValue(fileRow[totalAmountField]);
       employees.push({
         entityId: empId,
         entityName: empId,
@@ -201,6 +212,13 @@ export function runComparison(
     }
   }
 
+  // OB-189: Emit diagnostic log
+  if (sampleLog.length > 0) {
+    console.log(`[Reconciliation] Comparison: totalAmountField="${totalAmountField}", ${employees.length} employees`);
+    console.log(`[Reconciliation] Sample values (first ${sampleLog.length}):`);
+    for (const line of sampleLog) console.log(`[Reconciliation]${line}`);
+  }
+
   // Calculate summary
   const summary = buildSummary(employees);
 
@@ -210,6 +228,26 @@ export function runComparison(
 // ============================================
 // HELPERS
 // ============================================
+
+/**
+ * Parse a value into a number, handling currency strings, commas, and edge cases.
+ * Returns 0 for null/undefined/empty. Returns 0 for unparseable values (not NaN).
+ */
+function parseNumericValue(value: unknown): number {
+  if (value == null) return 0;
+  if (typeof value === 'number') return isNaN(value) ? 0 : value;
+  const str = String(value).trim();
+  if (str === '') return 0;
+  // Strip currency symbols, commas, non-breaking spaces, parentheses (accounting negative)
+  const cleaned = str.replace(/[$€£¥,\s\u00a0()]/g, '');
+  if (cleaned === '' || cleaned === '-') return 0;
+  const num = Number(cleaned);
+  // Handle accounting-style negatives: (1234.56) → -1234.56
+  if (!isNaN(num) && str.startsWith('(') && str.endsWith(')')) {
+    return -Math.abs(num);
+  }
+  return isNaN(num) ? 0 : num;
+}
 
 /**
  * Normalize employee ID for matching: trim, lowercase, strip leading zeros
@@ -249,7 +287,7 @@ function compareComponents(
   const comparisons: ComponentComparison[] = [];
 
   for (const mapping of componentMappings) {
-    const fileValue = Number(fileRow[mapping.sourceColumn] ?? 0);
+    const fileValue = parseNumericValue(fileRow[mapping.sourceColumn]);
 
     // Find matching VL component
     const vlComponent = vlResult.components.find(c =>

@@ -54,6 +54,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    console.log(`[Reconciliation] Comparing batch ${batchId} (${fileRows.length} file rows) with entityIdField="${entityIdField}", totalAmountField="${totalAmountField}"`);
+
     const supabase = await createServiceRoleClient();
 
     // Step 1: Filter rows by period if period columns and target periods provided
@@ -64,6 +66,7 @@ export async function POST(request: NextRequest) {
       const result = filterRowsByPeriod(fileRows, periodColumns, targetPeriods);
       filteredRows = result.filteredRows;
       periodFilterInfo = { originalCount: result.originalCount, filteredCount: result.filteredCount };
+      console.log(`[Reconciliation] Period filter: ${targetPeriods.map(tp => tp.label).join(', ')} → ${result.filteredCount} rows (of ${result.originalCount})`);
     }
 
     // Step 2: Load VL calculation results
@@ -116,6 +119,17 @@ export async function POST(request: NextRequest) {
       } as unknown as CalculationResult;
     });
 
+    console.log(`[Reconciliation] VL results loaded: ${vlResults.length} entities, total=$${vlResults.reduce((s, r) => s + r.totalIncentive, 0).toFixed(2)}`);
+
+    // OB-189: Log sample file row keys to diagnose column mismatch
+    if (filteredRows.length > 0) {
+      const sampleRow = filteredRows[0];
+      const keys = Object.keys(sampleRow);
+      console.log(`[Reconciliation] File row keys (${keys.length}): ${keys.slice(0, 8).join(', ')}${keys.length > 8 ? '...' : ''}`);
+      const rawVal = sampleRow[totalAmountField];
+      console.log(`[Reconciliation] Sample row[${totalAmountField}] = ${JSON.stringify(rawVal)} (${typeof rawVal})`);
+    }
+
     // Step 3: Build period labels for the comparison
     const periodsCompared = targetPeriods?.map(tp => tp.label) ?? [];
 
@@ -129,6 +143,13 @@ export async function POST(request: NextRequest) {
       periodsCompared,
       depthAchieved ?? 2,
     );
+
+    // OB-189: Log comparison results
+    const cs = comparisonResult.summary;
+    console.log(`[Reconciliation] Entity matching: ${cs.matched} matched, ${cs.vlOnly} VL-only, ${cs.fileOnly} file-only`);
+    console.log(`[Reconciliation] Totals: VL=$${cs.vlTotalAmount.toFixed(2)}, Benchmark=$${cs.fileTotalAmount.toFixed(2)}, Delta=$${cs.totalDelta.toFixed(2)}`);
+    const matchRate = cs.totalEmployees > 0 ? ((cs.exactMatches + cs.toleranceMatches) / cs.totalEmployees * 100).toFixed(1) : '0.0';
+    console.log(`[Reconciliation] Match rate: ${matchRate}% (${cs.exactMatches} exact, ${cs.toleranceMatches} tolerance, ${cs.amberFlags} amber, ${cs.redFlags} red)`);
 
     // Step 5: Record reconciliation training signal (fire-and-forget)
     const userOverrides = mappings.filter(m => m.isUserOverride);

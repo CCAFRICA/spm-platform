@@ -504,7 +504,7 @@ export default function ReconciliationPage() {
       csvRows.push([
         `"${row.entityId}"`, `"${row.entityName}"`,
         row.vlTotal.toFixed(2), row.fileTotal.toFixed(2),
-        row.totalDelta.toFixed(2), (row.totalDeltaPercent * 100).toFixed(2) + '%',
+        row.totalDelta.toFixed(2), (isFinite(row.totalDeltaPercent) ? (row.totalDeltaPercent * 100).toFixed(2) : 'N/A') + '%',
         row.totalFlag,
       ].join(','));
     }
@@ -1033,7 +1033,7 @@ export default function ReconciliationPage() {
                     report.summary.totalBenchmark !== 0 && Math.abs(report.summary.totalDelta / report.summary.totalBenchmark) < 0.01 ? 'text-emerald-400' : 'text-amber-400'
                   }`}>
                     {formatCurrency(Math.abs(report.summary.totalDelta))}
-                    {report.summary.totalBenchmark !== 0 && ` (${(Math.abs(report.summary.totalDelta / report.summary.totalBenchmark) * 100).toFixed(2)}%)`}
+                    {report.summary.totalBenchmark !== 0 && isFinite(report.summary.totalDelta / report.summary.totalBenchmark) && ` (${(Math.abs(report.summary.totalDelta / report.summary.totalBenchmark) * 100).toFixed(2)}%)`}
                   </p>
                 </div>
               </div>
@@ -1136,7 +1136,7 @@ export default function ReconciliationPage() {
                         <div className="flex items-center gap-4">
                           <span className={`text-xs font-mono tabular-nums ${comp.isExact ? 'text-emerald-400' : 'text-amber-400'}`}>
                             {comp.delta >= 0 ? '+' : ''}{formatCurrency(comp.delta)}
-                            {comp.benchmarkTotal !== 0 && ` (${comp.deltaPercent.toFixed(2)}%)`}
+                            {comp.benchmarkTotal !== 0 && isFinite(comp.deltaPercent) && ` (${comp.deltaPercent.toFixed(2)}%)`}
                           </span>
                           <span className="text-zinc-400 text-xs">{isExpanded ? '▼' : '▶'}</span>
                         </div>
