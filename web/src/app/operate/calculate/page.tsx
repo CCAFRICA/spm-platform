@@ -104,6 +104,23 @@ function CalculatePageInner() {
     return periods.filter(p => p.period_type === selectedPlanCadence);
   }, [periods, selectedPlanCadence]);
 
+  // OB-189: Filter plan cards by selected period's cadence type
+  const selectedPeriodType = useMemo(() => {
+    if (!selectedPeriodId) return null;
+    const period = periods.find(p => p.id === selectedPeriodId);
+    return period?.period_type ?? null;
+  }, [selectedPeriodId, periods]);
+
+  const cadenceFilteredPlans = useMemo(() => {
+    if (!selectedPeriodType) return activePlans;
+    return activePlans.filter(plan => {
+      const cc = plan.cadence_config as Record<string, unknown> | null;
+      const planCadence = cc?.period_type ? String(cc.period_type) : null;
+      if (!planCadence) return true; // No cadence set → show for all period types
+      return planCadence === selectedPeriodType;
+    });
+  }, [activePlans, selectedPeriodType]);
+
   // OB-184: Check data status (has committed_data? source date range?)
   useEffect(() => {
     if (!tenantId) { setDataStatus(null); return; }
@@ -214,15 +231,15 @@ function CalculatePageInner() {
     }
   }, [tenantId, refreshBatches]);
 
-  // Calculate all plans
+  // Calculate all plans (respects cadence filter)
   const handleCalculateAll = useCallback(async () => {
-    if (!tenantId || !selectedPeriodId || activePlans.length === 0) return;
+    if (!tenantId || !selectedPeriodId || cadenceFilteredPlans.length === 0) return;
 
     setIsCalculatingAll(true);
     setCalcAllError(null);
 
     const errors: string[] = [];
-    for (const plan of activePlans) {
+    for (const plan of cadenceFilteredPlans) {
       try {
         const response = await fetch('/api/calculation/run', {
           method: 'POST',
@@ -248,7 +265,7 @@ function CalculatePageInner() {
 
     await handleCalculateComplete();
     setIsCalculatingAll(false);
-  }, [tenantId, selectedPeriodId, activePlans, handleCalculateComplete]);
+  }, [tenantId, selectedPeriodId, cadenceFilteredPlans, handleCalculateComplete]);
 
   // Export CSV
   const handleExportCSV = useCallback(() => {
@@ -399,7 +416,7 @@ function CalculatePageInner() {
       if (res.ok) {
         setShowDetectionPanel(false);
         setDetectedPeriods([]);
-        refreshPeriods();
+        await refreshPeriods();
       } else {
         const err = await res.json();
         setPeriodCreateError(err.error || 'Creation failed');
@@ -610,7 +627,7 @@ function CalculatePageInner() {
             </div>
           )}
 
-          {activePlans.length > 1 && selectedPeriodId && (
+          {cadenceFilteredPlans.length > 1 && selectedPeriodId && (
             <Button
               onClick={handleCalculateAll}
               disabled={isCalculatingAll}
@@ -624,7 +641,7 @@ function CalculatePageInner() {
               ) : (
                 <>
                   <Play className="w-4 h-4" />
-                  Calculate All {activePlans.length} Plans
+                  Calculate All {cadenceFilteredPlans.length} Plans
                 </>
               )}
             </Button>
@@ -651,7 +668,7 @@ function CalculatePageInner() {
         )}
 
         {/* No plans — OB-184: self-guiding with navigation */}
-        {!contextLoading && !readinessLoading && activePlans.length === 0 && (
+        {!contextLoading && !readinessLoading && cadenceFilteredPlans.length === 0 && activePlans.length === 0 && (
           <Card>
             <CardContent className="py-12 text-center">
               <Calculator className="h-10 w-10 mx-auto mb-3 text-zinc-500" />
@@ -669,10 +686,21 @@ function CalculatePageInner() {
           </Card>
         )}
 
+        {/* Cadence mismatch hint — plans exist but filtered out by period cadence */}
+        {!contextLoading && !readinessLoading && cadenceFilteredPlans.length === 0 && activePlans.length > 0 && selectedPeriodId && (
+          <Card>
+            <CardContent className="py-8 text-center">
+              <Calendar className="h-10 w-10 mx-auto mb-3 text-zinc-500" />
+              <p className="text-sm text-zinc-400">No plans match this period&apos;s cadence ({selectedPeriodType}).</p>
+              <p className="text-xs text-zinc-600 mt-1">Select a different period, or update plan cadences in the detection panel.</p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Plan cards grid */}
-        {!contextLoading && !readinessLoading && activePlans.length > 0 && (
+        {!contextLoading && !readinessLoading && cadenceFilteredPlans.length > 0 && (
           <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {activePlans.map(plan => {
+            {cadenceFilteredPlans.map(plan => {
               const readiness = planReadiness.find(r => r.planId === plan.id) || {
                 planId: plan.id,
                 planName: plan.name,

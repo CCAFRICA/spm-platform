@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { analyzeBenchmark, matchPeriods } from '@/lib/reconciliation/benchmark-intelligence';
 import type { ParsedFile } from '@/lib/reconciliation/smart-file-parser';
-import type { CalculationBatchContext } from '@/lib/reconciliation/benchmark-intelligence';
+import type { CalculationBatchContext, ColumnMappingInfo, PeriodValue, DepthLevel } from '@/lib/reconciliation/benchmark-intelligence';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -38,6 +38,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    console.log(`[Reconciliation] Analyzing file: ${parsedFile.fileName}, ${parsedFile.totalRows} rows, ${parsedFile.headers.length} columns`);
+
     const supabase = await createServiceRoleClient();
 
     // Load batch context from calculation_batches + calculation_results
@@ -115,6 +117,8 @@ export async function POST(request: NextRequest) {
       periodEndDate: period?.end_date ?? '',
     };
 
+    console.log(`[Reconciliation] Batch context: ${entityExternalIds.length} entities, period="${batchContext.periodLabel}", ${componentNames.length} components`);
+
     // Run benchmark analysis (AI column mapping + period discovery + depth assessment)
     const analysis = await analyzeBenchmark(parsedFile, batchContext, tenantId, userId);
 
@@ -135,6 +139,23 @@ export async function POST(request: NextRequest) {
         label: p.label,
       })),
     );
+
+    // OB-189: Structured logging
+    console.log(`[Reconciliation] Detected entity ID column: ${analysis.entityIdColumn?.sourceColumn ?? 'NONE'}`);
+    console.log(`[Reconciliation] Detected total payout column: ${analysis.totalPayoutColumn?.sourceColumn ?? 'NONE'}`);
+    if (analysis.periodColumns?.length) {
+      console.log(`[Reconciliation] Detected period columns: ${analysis.periodColumns.map((c: ColumnMappingInfo) => c.sourceColumn).join(', ')}`);
+    }
+    if (analysis.periodDiscovery?.distinctPeriods?.length) {
+      console.log(`[Reconciliation] Period values found: ${analysis.periodDiscovery.distinctPeriods.map((p: PeriodValue) => p.label).join(', ')}`);
+    }
+    if (analysis.depthAssessment) {
+      const depthLevels = analysis.depthAssessment.levels
+        .map((lvl: DepthLevel) => `L${lvl.level}=${lvl.available}`)
+        .join(' ');
+      console.log(`[Reconciliation] Comparison depth: ${depthLevels} (max=${analysis.depthAssessment.maxDepth})`);
+    }
+    console.log(`[Reconciliation] Period matching: ${periodMatchResult.matched.length} matched, ${periodMatchResult.benchmarkOnly.length} benchmark-only, ${periodMatchResult.vlOnly.length} VL-only`);
 
     return NextResponse.json({
       success: true,

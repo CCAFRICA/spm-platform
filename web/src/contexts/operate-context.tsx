@@ -211,8 +211,9 @@ export function OperateProvider({ children }: { children: ReactNode }) {
     }));
     setPeriods(loaded);
 
-    // Auto-select first if none selected
-    if (loaded.length > 0 && !selectedPeriodId) {
+    // Auto-select first if none selected OR current selection is not in loaded periods
+    const currentValid = selectedPeriodId && loaded.some(p => p.id === selectedPeriodId);
+    if (loaded.length > 0 && !currentValid) {
       setSelectedPeriodId(loaded[0].id);
       ssSet(SK_PERIOD, loaded[0].id);
     }
