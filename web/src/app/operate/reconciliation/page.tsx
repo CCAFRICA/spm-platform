@@ -325,12 +325,50 @@ export default function ReconciliationPage() {
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheet = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheet];
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
+        let jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
         if (jsonData.length === 0) {
           setError('File contains no data rows');
           return;
         }
-        const headers = Object.keys(jsonData[0]);
+
+        // OB-190: Detect __EMPTY pattern — header row is NOT row 1
+        // SheetJS uses row 1 as headers by default. If the file has a title row,
+        // the keys will be the title text + __EMPTY, __EMPTY_1, etc.
+        const firstRowKeys = Object.keys(jsonData[0]);
+        const emptyKeyCount = firstRowKeys.filter(k => k.startsWith('__EMPTY')).length;
+
+        if (emptyKeyCount > 0 && firstRowKeys.length > 1) {
+          // Scan first 10 rows to find actual header row (structural detection — Korean Test safe)
+          const rawRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1 });
+
+          let headerRowIndex = 0;
+          for (let i = 1; i < Math.min(rawRows.length, 10); i++) {
+            const row = rawRows[i] as unknown[];
+            if (!row || row.length === 0) continue;
+            const nonEmpty = row.filter(v => v != null && v !== '');
+            const strings = nonEmpty.filter(v => typeof v === 'string');
+            // Header row: multiple non-empty cells, mostly short strings
+            if (nonEmpty.length >= 3 && strings.length >= Math.floor(nonEmpty.length * 0.6)) {
+              const avgLen = strings.reduce((s, v) => s + String(v).length, 0) / strings.length;
+              if (avgLen < 40) {
+                headerRowIndex = i;
+                break;
+              }
+            }
+          }
+
+          if (headerRowIndex > 0) {
+            const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+            range.s.r = headerRowIndex;
+            jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+              range,
+              defval: null,
+            });
+            console.log(`[Reconciliation] Header detection: row 1 had ${emptyKeyCount} __EMPTY keys. Re-parsed from row ${headerRowIndex + 1}. New keys: ${jsonData.length > 0 ? Object.keys(jsonData[0]).join(', ') : 'NONE'}`);
+          }
+        }
+
+        const headers = Object.keys(jsonData[0] ?? {});
         const parsed: ParsedFile = {
           fileName: file.name,
           headers,
