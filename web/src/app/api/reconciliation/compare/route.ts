@@ -121,13 +121,14 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Reconciliation] VL results loaded: ${vlResults.length} entities, total=$${vlResults.reduce((s, r) => s + r.totalIncentive, 0).toFixed(2)}`);
 
-    // OB-189: Log sample file row keys to diagnose column mismatch
+    // HF-178: Enhanced diagnostic for column mismatch
+    console.log('[Reconciliation][DIAG] totalAmountField passed to engine:', JSON.stringify(totalAmountField));
+    console.log('[Reconciliation][DIAG] filteredRows count:', filteredRows.length);
     if (filteredRows.length > 0) {
       const sampleRow = filteredRows[0];
       const keys = Object.keys(sampleRow);
-      console.log(`[Reconciliation] File row keys (${keys.length}): ${keys.slice(0, 8).join(', ')}${keys.length > 8 ? '...' : ''}`);
-      const rawVal = sampleRow[totalAmountField];
-      console.log(`[Reconciliation] Sample row[${totalAmountField}] = ${JSON.stringify(rawVal)} (${typeof rawVal})`);
+      console.log(`[Reconciliation][DIAG] filteredRows[0] keys (${keys.length}):`, JSON.stringify(keys));
+      console.log(`[Reconciliation][DIAG] filteredRows[0] full:`, JSON.stringify(sampleRow));
     }
 
     // Step 3: Build period labels for the comparison

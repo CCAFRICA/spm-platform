@@ -115,6 +115,30 @@ export function runComparison(
     }
   }
 
+  // === HF-178 DIAGNOSTIC: Trace benchmark value extraction ===
+  if (fileRows.length > 0) {
+    const sampleRow = fileRows[0];
+    const allKeys = Object.keys(sampleRow);
+    console.log('[Reconciliation][DIAG] File row keys:', JSON.stringify(allKeys));
+    console.log('[Reconciliation][DIAG] totalAmountField:', JSON.stringify(totalAmountField));
+    console.log('[Reconciliation][DIAG] Key match exists:', allKeys.includes(totalAmountField));
+
+    // Show raw value for first row
+    const rawValue = sampleRow[totalAmountField];
+    console.log('[Reconciliation][DIAG] First row raw value:', JSON.stringify(rawValue), 'type:', typeof rawValue);
+
+    // Show all values from first row for inspection
+    console.log('[Reconciliation][DIAG] First row all values:', JSON.stringify(sampleRow));
+
+    // Check if totalAmountField has whitespace or encoding differences
+    for (const key of allKeys) {
+      if (key.toLowerCase().includes('commission') || key.toLowerCase().includes('total') || key.toLowerCase().includes('payout') || key.toLowerCase().includes('incentive')) {
+        console.log(`[Reconciliation][DIAG] Candidate key: "${key}" (length=${key.length}), value=${JSON.stringify(sampleRow[key])}`);
+      }
+    }
+  }
+  // === END DIAGNOSTIC ===
+
   const vlByEmployee = new Map<string, CalculationResult>();
   for (const result of vlResults) {
     const empId = normalizeId(result.entityId);
