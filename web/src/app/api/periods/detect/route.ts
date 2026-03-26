@@ -1,7 +1,7 @@
-// OB-187: Intelligent Period Detection API
-// Detects needed periods from committed_data date ranges + plan cadences.
-// Returns detected periods with exists/new status and plan associations.
-// Korean Test: zero field-name matching — uses source_date column and cadence_config JSONB.
+// OB-187 + OB-188: Intelligent Period Detection API
+// Data-driven detection: committed_data.source_date is PRIMARY input.
+// Plan cadences enrich suggestions. Both are optional (dependency independence).
+// Korean Test: zero field-name matching.
 
 export const runtime = 'nodejs';
 
@@ -13,71 +13,46 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-interface DetectedPeriod {
+function lastDayOfMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+interface PeriodCandidate {
   label: string;
   period_type: string;
   start_date: string;
   end_date: string;
   canonical_key: string;
-  exists: boolean;
-  used_by_plans: string[];
 }
 
-function lastDayOfMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate();
-}
-
-function generateMonthlyPeriods(minDate: Date, maxDate: Date): Array<Omit<DetectedPeriod, 'exists' | 'used_by_plans'>> {
-  const periods: Array<Omit<DetectedPeriod, 'exists' | 'used_by_plans'>> = [];
+function generateMonthlyPeriods(minDate: Date, maxDate: Date): PeriodCandidate[] {
+  const periods: PeriodCandidate[] = [];
   const current = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
   while (current <= maxDate) {
     const y = current.getFullYear();
     const m = current.getMonth() + 1;
-    const lastDay = lastDayOfMonth(y, m);
-    const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
-    const endDate = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    periods.push({
-      label: `${MONTH_NAMES[m - 1]} ${y}`,
-      period_type: 'monthly',
-      start_date: startDate,
-      end_date: endDate,
-      canonical_key: `monthly_${startDate}_${endDate}`,
-    });
+    const ld = lastDayOfMonth(y, m);
+    const sd = `${y}-${String(m).padStart(2, '0')}-01`;
+    const ed = `${y}-${String(m).padStart(2, '0')}-${String(ld).padStart(2, '0')}`;
+    periods.push({ label: `${MONTH_NAMES[m - 1]} ${y}`, period_type: 'monthly', start_date: sd, end_date: ed, canonical_key: `monthly_${sd}_${ed}` });
     current.setMonth(current.getMonth() + 1);
   }
   return periods;
 }
 
-function generateBiweeklyPeriods(minDate: Date, maxDate: Date): Array<Omit<DetectedPeriod, 'exists' | 'used_by_plans'>> {
-  const periods: Array<Omit<DetectedPeriod, 'exists' | 'used_by_plans'>> = [];
+function generateBiweeklyPeriods(minDate: Date, maxDate: Date): PeriodCandidate[] {
+  const periods: PeriodCandidate[] = [];
   const current = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
   while (current <= maxDate) {
     const y = current.getFullYear();
     const m = current.getMonth() + 1;
-    const lastDay = lastDayOfMonth(y, m);
-
-    // First half: 1st-15th
-    const start1 = `${y}-${String(m).padStart(2, '0')}-01`;
-    const end1 = `${y}-${String(m).padStart(2, '0')}-15`;
-    periods.push({
-      label: `${MONTH_NAMES[m - 1]} 1-15, ${y}`,
-      period_type: 'biweekly',
-      start_date: start1,
-      end_date: end1,
-      canonical_key: `biweekly_${start1}_${end1}`,
-    });
-
-    // Second half: 16th-last day
-    const start2 = `${y}-${String(m).padStart(2, '0')}-16`;
-    const end2 = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    periods.push({
-      label: `${MONTH_NAMES[m - 1]} 16-${lastDay}, ${y}`,
-      period_type: 'biweekly',
-      start_date: start2,
-      end_date: end2,
-      canonical_key: `biweekly_${start2}_${end2}`,
-    });
-
+    const ld = lastDayOfMonth(y, m);
+    const s1 = `${y}-${String(m).padStart(2, '0')}-01`;
+    const e1 = `${y}-${String(m).padStart(2, '0')}-15`;
+    periods.push({ label: `${MONTH_NAMES[m - 1]} 1-15, ${y}`, period_type: 'biweekly', start_date: s1, end_date: e1, canonical_key: `biweekly_${s1}_${e1}` });
+    const s2 = `${y}-${String(m).padStart(2, '0')}-16`;
+    const e2 = `${y}-${String(m).padStart(2, '0')}-${String(ld).padStart(2, '0')}`;
+    periods.push({ label: `${MONTH_NAMES[m - 1]} 16-${ld}, ${y}`, period_type: 'biweekly', start_date: s2, end_date: e2, canonical_key: `biweekly_${s2}_${e2}` });
     current.setMonth(current.getMonth() + 1);
   }
   return periods;
@@ -85,142 +60,130 @@ function generateBiweeklyPeriods(minDate: Date, maxDate: Date): Array<Omit<Detec
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
+    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { tenantId } = await req.json();
-    if (!tenantId) {
-      return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
-    }
+    if (!tenantId) return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
 
-    // 1. Get plan cadences
-    const { data: plans } = await supabase
-      .from('rule_sets')
-      .select('id, name, cadence_config')
-      .eq('tenant_id', tenantId);
+    // Query 1: Data range (PRIMARY — always runs)
+    const { data: minRow } = await supabase.from('committed_data').select('source_date').eq('tenant_id', tenantId).not('source_date', 'is', null).order('source_date', { ascending: true }).limit(1);
+    const { data: maxRow } = await supabase.from('committed_data').select('source_date').eq('tenant_id', tenantId).not('source_date', 'is', null).order('source_date', { ascending: false }).limit(1);
+    const { count: totalTxns } = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId);
 
-    const cadenceToPlanNames = new Map<string, string[]>();
-    for (const plan of plans || []) {
-      const cc = plan.cadence_config as Record<string, unknown> | null;
-      const cadence = (cc?.period_type as string) || 'monthly';
-      const existing = cadenceToPlanNames.get(cadence) || [];
-      existing.push(plan.name || 'Unnamed Plan');
-      cadenceToPlanNames.set(cadence, existing);
-    }
+    const hasData = !!(minRow?.length && maxRow?.length);
+    const dataRange = hasData ? { min_date: minRow![0].source_date, max_date: maxRow![0].source_date, total_transactions: totalTxns || 0, has_data: true } : { min_date: null, max_date: null, total_transactions: 0, has_data: false };
 
-    // Default to monthly if no plans exist
-    if (cadenceToPlanNames.size === 0) {
-      cadenceToPlanNames.set('monthly', []);
-    }
-
-    // 2. Get source_date range from committed_data
-    const { data: minRow } = await supabase
-      .from('committed_data')
-      .select('source_date')
-      .eq('tenant_id', tenantId)
-      .not('source_date', 'is', null)
-      .order('source_date', { ascending: true })
-      .limit(1);
-
-    const { data: maxRow } = await supabase
-      .from('committed_data')
-      .select('source_date')
-      .eq('tenant_id', tenantId)
-      .not('source_date', 'is', null)
-      .order('source_date', { ascending: false })
-      .limit(1);
-
-    if (!minRow?.length || !maxRow?.length) {
-      return NextResponse.json({
-        detected: [],
-        summary: { total_detected: 0, already_exist: 0, new_needed: 0, cadences_found: [], data_range: null },
-      });
-    }
-
-    const minDate = new Date(minRow[0].source_date);
-    const maxDate = new Date(maxRow[0].source_date);
-
-    // 3. Generate periods for each cadence
-    const allDetected: DetectedPeriod[] = [];
-    const cadences = Array.from(cadenceToPlanNames.keys());
-
-    for (const cadence of cadences) {
-      const planNames = cadenceToPlanNames.get(cadence) || [];
-      let generated: Array<Omit<DetectedPeriod, 'exists' | 'used_by_plans'>> = [];
-
-      switch (cadence) {
-        case 'monthly':
-          generated = generateMonthlyPeriods(minDate, maxDate);
-          break;
-        case 'biweekly':
-          generated = generateBiweeklyPeriods(minDate, maxDate);
-          break;
-        case 'quarterly': {
-          // Quarter-aligned periods
-          const qStart = new Date(minDate.getFullYear(), Math.floor(minDate.getMonth() / 3) * 3, 1);
-          while (qStart <= maxDate) {
-            const y = qStart.getFullYear();
-            const qm = qStart.getMonth();
-            const qEnd = new Date(y, qm + 3, 0);
-            const q = Math.floor(qm / 3) + 1;
-            generated.push({
-              label: `Q${q} ${y}`,
-              period_type: 'quarterly',
-              start_date: `${y}-${String(qm + 1).padStart(2, '0')}-01`,
-              end_date: `${y}-${String(qm + 3).padStart(2, '0')}-${String(qEnd.getDate()).padStart(2, '0')}`,
-              canonical_key: `quarterly_${y}-${String(qm + 1).padStart(2, '0')}-01_${y}-${String(qm + 3).padStart(2, '0')}-${String(qEnd.getDate()).padStart(2, '0')}`,
-            });
-            qStart.setMonth(qStart.getMonth() + 3);
-          }
-          break;
-        }
-        default:
-          generated = generateMonthlyPeriods(minDate, maxDate);
-          break;
-      }
-
-      for (const p of generated) {
-        allDetected.push({ ...p, exists: false, used_by_plans: planNames });
-      }
-    }
-
-    // 4. Check which periods already exist (match by start_date + end_date + period_type)
-    const { data: existingPeriods } = await supabase
-      .from('periods')
-      .select('id, start_date, end_date, period_type, canonical_key')
-      .eq('tenant_id', tenantId);
-
-    for (const det of allDetected) {
-      const match = (existingPeriods || []).find(ep =>
-        ep.start_date === det.start_date &&
-        ep.end_date === det.end_date &&
-        ep.period_type === det.period_type
-      );
-      if (match) {
-        det.exists = true;
-      }
-    }
-
-    // Sort: existing first, then by start_date
-    allDetected.sort((a, b) => {
-      if (a.period_type !== b.period_type) return a.period_type.localeCompare(b.period_type);
-      return a.start_date.localeCompare(b.start_date);
+    // Query 2: Plan cadences (ENRICHMENT — always runs independently)
+    const { data: plans } = await supabase.from('rule_sets').select('id, name, cadence_config').eq('tenant_id', tenantId);
+    const planCadences = (plans || []).map(p => {
+      const cc = p.cadence_config as Record<string, unknown> | null;
+      return { plan_id: p.id, plan_name: p.name || 'Unnamed Plan', cadence: (cc?.period_type as string) || 'monthly' };
     });
+    const hasPlans = planCadences.length > 0;
 
-    const alreadyExist = allDetected.filter(d => d.exists).length;
-    const newNeeded = allDetected.filter(d => !d.exists).length;
+    // Build cadence-to-plans map
+    const cadenceToPlanNames = new Map<string, string[]>();
+    for (const pc of planCadences) {
+      const arr = cadenceToPlanNames.get(pc.cadence) || [];
+      arr.push(pc.plan_name);
+      cadenceToPlanNames.set(pc.cadence, arr);
+    }
+    if (cadenceToPlanNames.size === 0) cadenceToPlanNames.set('monthly', []);
+
+    // Generate suggested periods
+    const suggestedPeriods: Array<PeriodCandidate & { exists: boolean; transaction_count: number; matching_plans: string[] }> = [];
+
+    if (hasData) {
+      const minDate = new Date(dataRange.min_date!);
+      const maxDate = new Date(dataRange.max_date!);
+      const cadences = Array.from(cadenceToPlanNames.keys());
+
+      for (const cadence of cadences) {
+        const matchingPlans = cadenceToPlanNames.get(cadence) || [];
+        let generated: PeriodCandidate[] = [];
+        switch (cadence) {
+          case 'monthly': generated = generateMonthlyPeriods(minDate, maxDate); break;
+          case 'biweekly': generated = generateBiweeklyPeriods(minDate, maxDate); break;
+          default: generated = generateMonthlyPeriods(minDate, maxDate); break;
+        }
+        for (const p of generated) {
+          suggestedPeriods.push({ ...p, exists: false, transaction_count: 0, matching_plans: matchingPlans });
+        }
+      }
+
+      // Query 3: Transaction counts per suggested period
+      for (const sp of suggestedPeriods) {
+        const { count } = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).gte('source_date', sp.start_date).lte('source_date', sp.end_date);
+        sp.transaction_count = count || 0;
+      }
+    }
+
+    // Query 4: Existing periods (match by start_date + end_date + period_type)
+    const { data: existingPeriods } = await supabase.from('periods').select('id, start_date, end_date, period_type').eq('tenant_id', tenantId);
+    for (const sp of suggestedPeriods) {
+      const match = (existingPeriods || []).find(ep => ep.start_date === sp.start_date && ep.end_date === sp.end_date && ep.period_type === sp.period_type);
+      if (match) sp.exists = true;
+    }
+
+    // Orphaned data detection
+    let orphanedCount = 0;
+    let orphanedMin: string | null = null;
+    let orphanedMax: string | null = null;
+    if (hasData && existingPeriods && existingPeriods.length > 0) {
+      // Build a query that excludes rows covered by existing periods
+      // Simplified: count rows outside ALL existing period ranges
+      const allPeriodRanges = existingPeriods.map(ep => ({ start: ep.start_date, end: ep.end_date }));
+      // For simplicity, check if data range extends beyond period coverage
+      const coveredStart = allPeriodRanges.reduce((min, r) => r.start < min ? r.start : min, allPeriodRanges[0].start);
+      const coveredEnd = allPeriodRanges.reduce((max, r) => r.end > max ? r.end : max, allPeriodRanges[0].end);
+
+      if (dataRange.min_date! < coveredStart || dataRange.max_date! > coveredEnd) {
+        // There may be orphaned data
+        const { count: beforeCount } = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).not('source_date', 'is', null).lt('source_date', coveredStart);
+        const { count: afterCount } = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).not('source_date', 'is', null).gt('source_date', coveredEnd);
+        orphanedCount = (beforeCount || 0) + (afterCount || 0);
+        if (beforeCount && beforeCount > 0) orphanedMin = dataRange.min_date;
+        if (afterCount && afterCount > 0) orphanedMax = dataRange.max_date;
+      }
+    }
+
+    // Commentary engine
+    const commentary: string[] = [];
+    if (hasData) {
+      commentary.push(`Data spans ${dataRange.min_date} to ${dataRange.max_date} (${dataRange.total_transactions} transactions)`);
+    } else {
+      commentary.push('No transaction data imported yet — import data or create periods manually');
+    }
+    if (hasPlans) {
+      const cadenceSummary = Array.from(cadenceToPlanNames.entries()).map(([c, p]) => `${c} (${p.length} plan${p.length !== 1 ? 's' : ''})`).join(', ');
+      commentary.push(`Plan cadences: ${cadenceSummary}`);
+    } else {
+      commentary.push('No plans imported yet — periods suggested based on data range only');
+    }
+    if (suggestedPeriods.length > 0) {
+      const newCount = suggestedPeriods.filter(sp => !sp.exists).length;
+      const existCount = suggestedPeriods.filter(sp => sp.exists).length;
+      if (newCount > 0 && existCount > 0) {
+        commentary.push(`${suggestedPeriods.length} periods suggested — ${existCount} already exist, ${newCount} new`);
+      } else if (newCount > 0) {
+        commentary.push(`${newCount} new periods suggested`);
+      } else {
+        commentary.push('All suggested periods already exist');
+      }
+    }
+    if (orphanedCount > 0) {
+      commentary.push(`⚠ ${orphanedCount} transactions fall outside existing periods`);
+    }
+
+    // Sort by period_type then start_date
+    suggestedPeriods.sort((a, b) => a.period_type !== b.period_type ? a.period_type.localeCompare(b.period_type) : a.start_date.localeCompare(b.start_date));
 
     return NextResponse.json({
-      detected: allDetected,
-      summary: {
-        total_detected: allDetected.length,
-        already_exist: alreadyExist,
-        new_needed: newNeeded,
-        cadences_found: cadences,
-        data_range: { min: minRow[0].source_date, max: maxRow[0].source_date },
-      },
+      data_range: dataRange,
+      plan_cadences: planCadences,
+      has_plans: hasPlans,
+      suggested_periods: suggestedPeriods,
+      orphaned_data: { count: orphanedCount, min_date: orphanedMin, max_date: orphanedMax },
+      commentary,
     });
   } catch (err) {
     console.error('[Periods/Detect] Error:', err);
