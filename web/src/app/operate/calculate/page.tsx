@@ -68,17 +68,18 @@ function CalculatePageInner() {
   const [storeFilter, setStoreFilter] = useState<string | null>(null);
   const [isCreatingPeriods, setIsCreatingPeriods] = useState(false);
   const [periodCreateError, setPeriodCreateError] = useState<string | null>(null);
-  // OB-187: Period detection panel state
+  // OB-187 + OB-188: Period detection panel state
   const [showDetectionPanel, setShowDetectionPanel] = useState(false);
   const [detectionLoading, setDetectionLoading] = useState(false);
   const [detectedPeriods, setDetectedPeriods] = useState<Array<{
     label: string; period_type: string; start_date: string; end_date: string;
-    canonical_key: string; exists: boolean; used_by_plans: string[]; selected: boolean;
+    canonical_key: string; exists: boolean; transaction_count: number;
+    matching_plans: string[]; selected: boolean;
   }>>([]);
-  const [detectionSummary, setDetectionSummary] = useState<{
-    total_detected: number; already_exist: number; new_needed: number;
-    cadences_found: string[]; data_range: { min: string; max: string } | null;
-  } | null>(null);
+  const [planCadences, setPlanCadences] = useState<Array<{
+    plan_id: string; plan_name: string; cadence: string;
+  }>>([]);
+  const [detectionCommentary, setDetectionCommentary] = useState<string[]>([]);
   const [priorPeriodTotals, setPriorPeriodTotals] = useState<Record<string, number>>({});
   const [dataStatus, setDataStatus] = useState<{ hasData: boolean; sourceDateRange?: { min: string; max: string } } | null>(null);
 
@@ -333,11 +334,12 @@ function CalculatePageInner() {
   }, [tenantId, selectedPeriodId, periods, activePlans]);
 
   // OB-153: Create periods from committed_data source dates
-  // OB-187: Intelligent period detection
+  // OB-187 + OB-188: Intelligent period detection
   const handleDetectPeriods = async () => {
     if (!tenantId) return;
     setShowDetectionPanel(true);
     setDetectionLoading(true);
+    setPeriodCreateError(null);
     try {
       const res = await fetch('/api/periods/detect', {
         method: 'POST',
@@ -345,15 +347,32 @@ function CalculatePageInner() {
         body: JSON.stringify({ tenantId }),
       });
       const data = await res.json();
-      if (data.detected) {
-        setDetectedPeriods(data.detected.map((d: Record<string, unknown>) => ({ ...d, selected: !d.exists })));
-        setDetectionSummary(data.summary);
+      if (data.suggested_periods) {
+        setDetectedPeriods(data.suggested_periods.map((d: Record<string, unknown>) => ({ ...d, selected: !d.exists })));
       }
+      if (data.plan_cadences) setPlanCadences(data.plan_cadences);
+      if (data.commentary) setDetectionCommentary(data.commentary);
     } catch (err) {
       setPeriodCreateError(err instanceof Error ? err.message : 'Detection failed');
     } finally {
       setDetectionLoading(false);
     }
+  };
+
+  // OB-188: Inline cadence update
+  const handleCadenceChange = async (planId: string, newCadence: string) => {
+    if (!tenantId) return;
+    try {
+      const res = await fetch('/api/rule-sets/update-cadence', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ruleSetId: planId, tenantId, cadence: newCadence }),
+      });
+      if (res.ok) {
+        // Re-run detection to update suggestions
+        handleDetectPeriods();
+      }
+    } catch { /* non-blocking */ }
   };
 
   const handleCreateDetectedPeriods = async () => {
@@ -486,7 +505,7 @@ function CalculatePageInner() {
                   </div>
                 </CardContent>
               </Card>
-              {/* OB-187: Period Detection Panel */}
+              {/* OB-188: Enhanced Period Detection Panel */}
               {showDetectionPanel && (
                 <Card className="border-zinc-700 mt-3">
                   <CardContent className="py-4">
@@ -495,54 +514,78 @@ function CalculatePageInner() {
                         <Loader2 className="w-4 h-4 animate-spin" />
                         Analyzing data and plan cadences...
                       </div>
-                    ) : detectionSummary ? (
-                      <div className="space-y-3">
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Header + Dismiss */}
                         <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-zinc-200">
-                              {detectionSummary.total_detected} periods detected
-                            </p>
-                            {detectionSummary.data_range && (
-                              <p className="text-xs text-zinc-500 mt-0.5">
-                                Data: {detectionSummary.data_range.min} to {detectionSummary.data_range.max} | Cadences: {detectionSummary.cadences_found.join(', ')}
-                              </p>
-                            )}
-                          </div>
+                          <p className="text-sm font-medium text-zinc-200">{detectedPeriods.length} periods suggested</p>
                           <button onClick={() => setShowDetectionPanel(false)} className="text-xs text-zinc-500 hover:text-zinc-300">Dismiss</button>
                         </div>
-                        <div className="space-y-1">
-                          {detectedPeriods.map((p, i) => (
-                            <div key={p.canonical_key} className="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-zinc-800/50">
-                              {p.exists ? (
-                                <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
-                              ) : (
-                                <button
-                                  onClick={() => setDetectedPeriods(prev => prev.map((dp, j) => j === i ? { ...dp, selected: !dp.selected } : dp))}
-                                  className="flex-shrink-0"
+
+                        {/* Plan Cadences — inline editable */}
+                        {planCadences.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Plan Cadences</p>
+                            {planCadences.map(pc => (
+                              <div key={pc.plan_id} className="flex items-center gap-2 py-1">
+                                <span className="text-xs text-zinc-300 flex-1 truncate">{pc.plan_name}</span>
+                                <select
+                                  value={pc.cadence}
+                                  onChange={(e) => handleCadenceChange(pc.plan_id, e.target.value)}
+                                  className="text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-zinc-300 cursor-pointer"
                                 >
-                                  {p.selected ? (
-                                    <CheckCircle2 className="w-4 h-4 text-indigo-400" />
-                                  ) : (
-                                    <Circle className="w-4 h-4 text-zinc-600" />
-                                  )}
-                                </button>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <span className="text-sm text-zinc-200">{p.label}</span>
-                                <span className="text-xs text-zinc-500 ml-2">({p.period_type})</span>
+                                  <option value="monthly">monthly</option>
+                                  <option value="biweekly">biweekly</option>
+                                  <option value="weekly">weekly</option>
+                                  <option value="quarterly">quarterly</option>
+                                </select>
                               </div>
-                              {p.exists ? (
-                                <span className="text-xs text-green-500/80">Already exists</span>
-                              ) : (
-                                <span className="text-xs text-indigo-400">NEW</span>
-                              )}
-                              {p.used_by_plans.length > 0 && (
-                                <span className="text-xs text-zinc-600 truncate max-w-48">{p.used_by_plans.join(', ')}</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                        {detectionSummary.new_needed > 0 && (
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Suggested Periods */}
+                        {detectedPeriods.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Periods</p>
+                            {detectedPeriods.map((p, i) => (
+                              <div key={p.canonical_key} className="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-zinc-800/50">
+                                {p.exists ? (
+                                  <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                                ) : (
+                                  <button
+                                    onClick={() => setDetectedPeriods(prev => prev.map((dp, j) => j === i ? { ...dp, selected: !dp.selected } : dp))}
+                                    className="flex-shrink-0"
+                                  >
+                                    {p.selected ? <CheckCircle2 className="w-4 h-4 text-indigo-400" /> : <Circle className="w-4 h-4 text-zinc-600" />}
+                                  </button>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-sm text-zinc-200">{p.label}</span>
+                                  <span className="text-xs text-zinc-500 ml-2">({p.period_type})</span>
+                                </div>
+                                <span className="text-xs text-zinc-500 tabular-nums">{p.transaction_count} txns</span>
+                                {p.exists ? (
+                                  <span className="text-xs text-green-500/80">Exists</span>
+                                ) : (
+                                  <span className="text-xs text-indigo-400">NEW</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Commentary */}
+                        {detectionCommentary.length > 0 && (
+                          <div className="space-y-1 border-t border-zinc-800 pt-3">
+                            {detectionCommentary.map((c, i) => (
+                              <p key={i} className={`text-xs ${c.startsWith('⚠') ? 'text-amber-400' : 'text-zinc-500'}`}>{c}</p>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Create button */}
+                        {detectedPeriods.some(p => !p.exists) ? (
                           <Button
                             onClick={handleCreateDetectedPeriods}
                             disabled={isCreatingPeriods || detectedPeriods.filter(p => p.selected && !p.exists).length === 0}
@@ -554,14 +597,12 @@ function CalculatePageInner() {
                               <>Create {detectedPeriods.filter(p => p.selected && !p.exists).length} New Periods</>
                             )}
                           </Button>
-                        )}
-                        {detectionSummary.new_needed === 0 && (
-                          <p className="text-xs text-green-500/80 text-center">All detected periods already exist.</p>
-                        )}
+                        ) : detectedPeriods.length > 0 ? (
+                          <p className="text-xs text-green-500/80 text-center">All periods already exist</p>
+                        ) : null}
+
+                        {periodCreateError && <p className="text-xs text-red-400 mt-2">{periodCreateError}</p>}
                       </div>
-                    ) : null}
-                    {periodCreateError && (
-                      <p className="text-xs text-red-400 mt-2">{periodCreateError}</p>
                     )}
                   </CardContent>
                 </Card>
