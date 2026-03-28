@@ -71,6 +71,8 @@ export interface PeriodDiscovery {
 export interface PeriodValue {
   month: number | null;
   year: number | null;
+  startDay: number | null; // OB-193: biweekly/date-range support
+  endDay: number | null;   // OB-193: biweekly/date-range support
   label: string;
   rawValues: unknown[];
 }
@@ -275,9 +277,11 @@ export async function analyzeBenchmark(
  *
  * Korean Test: uses Intl.DateTimeFormat for language-agnostic month name resolution.
  */
-export function resolvePeriodValue(values: unknown[]): { month: number | null; year: number | null } {
+export function resolvePeriodValue(values: unknown[]): { month: number | null; year: number | null; startDay: number | null; endDay: number | null } {
   let month: number | null = null;
   let year: number | null = null;
+  let startDay: number | null = null;
+  let endDay: number | null = null;
 
   for (const val of values) {
     if (val == null) continue;
@@ -309,9 +313,23 @@ export function resolvePeriodValue(values: unknown[]): { month: number | null; y
     const quarterMatch = s.match(/[QqTt](\d)\s*(\d{4})/);
     if (quarterMatch) {
       const q = parseInt(quarterMatch[1]);
-      month = month ?? ((q - 1) * 3 + 1); // Q1→1, Q2→4, Q3→7, Q4→10
+      month = month ?? ((q - 1) * 3 + 1);
       year = year ?? parseInt(quarterMatch[2]);
       continue;
+    }
+
+    // OB-193: 3b. Period range pattern: "Jan 1-15 2026", "January 1-15, 2026", "Feb 16-28 2026"
+    // Must come BEFORE generic month-year pattern (pattern 4) to avoid partial matches.
+    const rangeMatch = s.match(/^(\w+)\s+(\d{1,2})\s*[-–]\s*(\d{1,2})[,.]?\s+(\d{4})$/);
+    if (rangeMatch) {
+      const rm = resolveMonthName(rangeMatch[1]);
+      if (rm) {
+        month = month ?? rm;
+        startDay = startDay ?? parseInt(rangeMatch[2]);
+        endDay = endDay ?? parseInt(rangeMatch[3]);
+        year = year ?? parseInt(rangeMatch[4]);
+        continue;
+      }
     }
 
     // 4. Pattern: "Jan-2024", "January 2024", "2024-01", "01/2024"
@@ -348,7 +366,7 @@ export function resolvePeriodValue(values: unknown[]): { month: number | null; y
     }
   }
 
-  return { month, year };
+  return { month, year, startDay, endDay };
 }
 
 /**
@@ -389,15 +407,18 @@ export function matchPeriods(
   for (const bp of benchmarkPeriods) {
     let found = false;
     for (const vp of vlPeriods) {
-      const vpDate = new Date(vp.startDate);
-      const vpMonth = vpDate.getMonth() + 1;
-      const vpYear = vpDate.getFullYear();
+      // OB-193: Parse date parts directly to avoid UTC/local timezone mismatch
+      const [vpYear, vpMonth, vpStartDay] = vp.startDate.split('-').map(Number);
+      const vpEndDay = parseInt(vp.endDate.split('-')[2]);
 
-      // Match: month+year, or year-only if benchmark has no month
-      const monthMatch = bp.month === null || bp.month === vpMonth;
-      const yearMatch = bp.year === null || bp.year === vpYear;
+      // OB-193: Strict matching — require month when available, require day range for biweekly
+      const yearMatch = bp.year !== null && bp.year === vpYear;
+      const monthMatch = bp.month !== null ? bp.month === vpMonth : true;
+      const dayMatch = (bp.startDay !== null && bp.endDay !== null)
+        ? (bp.startDay === vpStartDay && bp.endDay === vpEndDay)
+        : true; // No day range in benchmark → match any day range within month
 
-      if (monthMatch && yearMatch && (bp.month !== null || bp.year !== null)) {
+      if (yearMatch && monthMatch && dayMatch) {
         matched.push({ benchmarkPeriod: bp, vlPeriod: { id: vp.id, label: vp.label } });
         vlMatched.add(vp.id);
         found = true;
@@ -556,16 +577,19 @@ function discoverPeriods(
     };
   }
 
-  // Group rows by period key
-  const periodKeys = new Map<string, { count: number; rawValues: unknown[]; month: number | null; year: number | null }>();
+  // OB-193: Group rows by period key including day range for biweekly discrimination
+  const periodKeys = new Map<string, { count: number; rawValues: unknown[]; month: number | null; year: number | null; startDay: number | null; endDay: number | null }>();
 
   for (const row of rows) {
     const periodValues = periodColumns.map(pc => row[pc.sourceColumn]);
     const resolved = resolvePeriodValue(periodValues);
-    const key = `${resolved.year ?? '?'}-${resolved.month != null ? String(resolved.month).padStart(2, '0') : '??'}`;
+    const y = resolved.year ?? '?';
+    const m = resolved.month != null ? String(resolved.month).padStart(2, '0') : '??';
+    const d = (resolved.startDay != null && resolved.endDay != null) ? `-${resolved.startDay}-${resolved.endDay}` : '';
+    const key = `${y}-${m}${d}`;
 
     if (!periodKeys.has(key)) {
-      periodKeys.set(key, { count: 0, rawValues: periodValues, month: resolved.month, year: resolved.year });
+      periodKeys.set(key, { count: 0, rawValues: periodValues, month: resolved.month, year: resolved.year, startDay: resolved.startDay, endDay: resolved.endDay });
     }
     const entry = periodKeys.get(key)!;
     entry.count++;
@@ -575,10 +599,12 @@ function discoverPeriods(
   const rowsPerPeriod: Record<string, number> = {};
 
   for (const [, data] of Array.from(periodKeys.entries())) {
-    const label = formatPeriodLabel(data.month, data.year);
+    const label = formatPeriodLabel(data.month, data.year, data.startDay, data.endDay);
     distinctPeriods.push({
       month: data.month,
       year: data.year,
+      startDay: data.startDay,
+      endDay: data.endDay,
       label,
       rawValues: data.rawValues,
     });
@@ -599,10 +625,13 @@ function discoverPeriods(
   };
 }
 
-function formatPeriodLabel(month: number | null, year: number | null): string {
+function formatPeriodLabel(month: number | null, year: number | null, startDay?: number | null, endDay?: number | null): string {
   if (month && year) {
     const date = new Date(year, month - 1, 15);
     const monthName = date.toLocaleString('en', { month: 'long' });
+    if (startDay != null && endDay != null) {
+      return `${monthName} ${startDay}-${endDay}, ${year}`;
+    }
     return `${monthName} ${year}`;
   }
   if (year) return `${year}`;
@@ -721,14 +750,20 @@ export function filterRowsByPeriod(
     return { filteredRows: rows, originalCount: rows.length, filteredCount: rows.length };
   }
 
-  const targetKeys = new Set(
-    targetPeriods.map(tp => `${tp.year ?? '?'}-${tp.month != null ? String(tp.month).padStart(2, '0') : '??'}`)
-  );
+  // OB-193: Include day range in key for biweekly period discrimination
+  const periodKey = (p: { year: number | null; month: number | null; startDay: number | null; endDay: number | null }) => {
+    const y = p.year ?? '?';
+    const m = p.month != null ? String(p.month).padStart(2, '0') : '??';
+    const d = (p.startDay != null && p.endDay != null) ? `-${p.startDay}-${p.endDay}` : '';
+    return `${y}-${m}${d}`;
+  };
+
+  const targetKeys = new Set(targetPeriods.map(periodKey));
 
   const filteredRows = rows.filter(row => {
     const periodValues = periodColumns.map(pc => row[pc.sourceColumn]);
     const resolved = resolvePeriodValue(periodValues);
-    const key = `${resolved.year ?? '?'}-${resolved.month != null ? String(resolved.month).padStart(2, '0') : '??'}`;
+    const key = periodKey(resolved);
     return targetKeys.has(key);
   });
 
