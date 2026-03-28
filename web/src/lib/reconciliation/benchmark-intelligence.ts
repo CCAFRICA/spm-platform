@@ -407,12 +407,9 @@ export function matchPeriods(
   for (const bp of benchmarkPeriods) {
     let found = false;
     for (const vp of vlPeriods) {
-      const vpStart = new Date(vp.startDate);
-      const vpEnd = new Date(vp.endDate);
-      const vpMonth = vpStart.getMonth() + 1;
-      const vpYear = vpStart.getFullYear();
-      const vpStartDay = vpStart.getDate();
-      const vpEndDay = vpEnd.getDate();
+      // OB-193: Parse date parts directly to avoid UTC/local timezone mismatch
+      const [vpYear, vpMonth, vpStartDay] = vp.startDate.split('-').map(Number);
+      const vpEndDay = parseInt(vp.endDate.split('-')[2]);
 
       // OB-193: Strict matching — require month when available, require day range for biweekly
       const yearMatch = bp.year !== null && bp.year === vpYear;
