@@ -38,6 +38,60 @@ import {
 } from '@/lib/calculation/calculation-lifecycle-service';
 
 // ──────────────────────────────────────────────
+// HF-179: Detect header row from raw worksheet cells BEFORE parsing
+// ──────────────────────────────────────────────
+
+/**
+ * Detect the correct header row in a worksheet by examining raw cells.
+ * Returns the 0-based row index of the header row.
+ * Uses STRUCTURAL heuristics only (Korean Test compliant):
+ *   - A header row has many non-empty cells (more than title/description rows)
+ *   - Most cells in a header row are strings
+ *   - Header strings are short (< 40 chars avg)
+ * Returns 0 if no better header row is found (row 1 IS the header).
+ */
+function detectHeaderRow(sheet: XLSX.WorkSheet): number {
+  const ref = sheet['!ref'];
+  if (!ref) return 0;
+  const range = XLSX.utils.decode_range(ref);
+  const maxScanRow = Math.min(range.e.r, 14); // scan first 15 rows
+
+  let bestRow = 0;
+  let bestScore = 0;
+
+  for (let r = 0; r <= maxScanRow; r++) {
+    let nonEmpty = 0;
+    let stringCount = 0;
+    let totalLen = 0;
+
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r, c });
+      const cell = sheet[cellRef];
+      if (cell && cell.v != null && cell.v !== '') {
+        nonEmpty++;
+        if (cell.t === 's' || typeof cell.v === 'string') {
+          stringCount++;
+          totalLen += String(cell.v).length;
+        }
+      }
+    }
+
+    if (nonEmpty < 3) continue; // headers need at least 3 columns
+
+    const stringRatio = nonEmpty > 0 ? stringCount / nonEmpty : 0;
+    const avgLen = stringCount > 0 ? totalLen / stringCount : 999;
+
+    // Header row: mostly strings, short average length, most columns of any candidate
+    if (stringRatio >= 0.6 && avgLen < 40 && nonEmpty > bestScore) {
+      bestRow = r;
+      bestScore = nonEmpty;
+    }
+  }
+
+  return bestRow;
+}
+
+// ──────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────
 
@@ -325,51 +379,29 @@ export default function ReconciliationPage() {
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheet = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheet];
-        let jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
+        // HF-179: Detect header row BEFORE parsing — one parse, correct from the start.
+        // Previous detect-then-reparse approach failed 3 times (OB-190, OB-192×2).
+        // New approach: scan raw worksheet cells to find the actual header row,
+        // then call sheet_to_json ONCE with the correct range.
+        const headerRowIndex = detectHeaderRow(worksheet);
+        const parseRange = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
+        if (headerRowIndex > 0) {
+          parseRange.s.r = headerRowIndex;
+          console.log(`[Reconciliation] Header detection: actual headers on row ${headerRowIndex + 1} (skipping ${headerRowIndex} title/description rows)`);
+        }
+
+        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+          range: parseRange,
+          defval: null,
+        });
+
         if (jsonData.length === 0) {
           setError('File contains no data rows');
           return;
         }
 
-        // OB-190/OB-192: Detect __EMPTY pattern — header row is NOT row 1
-        // SheetJS uses row 1 as headers by default. If the file has a title row,
-        // the keys will be the title text + __EMPTY, __EMPTY_1, etc.
-        // Fix: find the row with the MOST non-empty short string cells (the actual header).
-        const firstRowKeys = Object.keys(jsonData[0]);
-        const emptyKeyCount = firstRowKeys.filter(k => k.startsWith('__EMPTY')).length;
-
-        if (emptyKeyCount > 0 && firstRowKeys.length > 1) {
-          // Scan first 15 rows to find actual header row (structural detection — Korean Test safe)
-          const rawRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1 });
-
-          let headerRowIndex = 0;
-          let bestScore = 0;
-          for (let i = 1; i < Math.min(rawRows.length, 15); i++) {
-            const row = rawRows[i] as unknown[];
-            if (!row || row.length === 0) continue;
-            const nonEmpty = row.filter(v => v != null && v !== '');
-            const strings = nonEmpty.filter(v => typeof v === 'string');
-            // Header row: many non-empty cells, mostly short strings, more cells than any prior row
-            if (nonEmpty.length >= 4 && strings.length >= Math.floor(nonEmpty.length * 0.5)) {
-              const avgLen = strings.length > 0 ? strings.reduce((s, v) => s + String(v).length, 0) / strings.length : 999;
-              if (avgLen < 40 && nonEmpty.length > bestScore) {
-                bestScore = nonEmpty.length;
-                headerRowIndex = i;
-              }
-            }
-          }
-
-          if (headerRowIndex > 0) {
-            const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-            range.s.r = headerRowIndex;
-            jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
-              range,
-              defval: null,
-            });
-            console.log(`[Reconciliation] Header detection: row 1 had ${emptyKeyCount} __EMPTY keys. Re-parsed from row ${headerRowIndex + 1} (score=${bestScore}). New keys: ${jsonData.length > 0 ? Object.keys(jsonData[0]).join(', ') : 'NONE'}`);
-          } else {
-            console.log(`[Reconciliation] Header detection: ${emptyKeyCount} __EMPTY keys found but no header row detected in first 15 rows`);
-          }
+        if (jsonData.length > 0) {
+          console.log(`[Reconciliation] Parsed with header row ${headerRowIndex + 1}: ${Object.keys(jsonData[0]).join(', ')}`);
         }
 
         const headers = Object.keys(jsonData[0] ?? {});
