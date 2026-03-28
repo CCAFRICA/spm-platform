@@ -13,7 +13,6 @@ import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useOperate } from '@/contexts/operate-context';
 import { isVLAdmin } from '@/types/auth';
 import { RequireCapability } from '@/components/auth/RequireCapability';
-import { OperateSelector } from '@/components/operate/OperateSelector';
 import { PlanCard, type PlanReadiness } from '@/components/calculate/PlanCard';
 import { loadResultsPageData, type ResultsPageData } from '@/lib/data/results-loader';
 import { createClient } from '@/lib/supabase/client';
@@ -443,7 +442,8 @@ function CalculatePageInner() {
 
   return (
     <div>
-      <OperateSelector />
+      {/* OB-192: OperateSelector removed — Calculate page uses body period selector as sole control.
+          Plan cards are the plan selector. Period dropdown is inline below. */}
 
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
         {/* Header */}

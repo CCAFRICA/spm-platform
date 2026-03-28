@@ -331,28 +331,30 @@ export default function ReconciliationPage() {
           return;
         }
 
-        // OB-190: Detect __EMPTY pattern — header row is NOT row 1
+        // OB-190/OB-192: Detect __EMPTY pattern — header row is NOT row 1
         // SheetJS uses row 1 as headers by default. If the file has a title row,
         // the keys will be the title text + __EMPTY, __EMPTY_1, etc.
+        // Fix: find the row with the MOST non-empty short string cells (the actual header).
         const firstRowKeys = Object.keys(jsonData[0]);
         const emptyKeyCount = firstRowKeys.filter(k => k.startsWith('__EMPTY')).length;
 
         if (emptyKeyCount > 0 && firstRowKeys.length > 1) {
-          // Scan first 10 rows to find actual header row (structural detection — Korean Test safe)
+          // Scan first 15 rows to find actual header row (structural detection — Korean Test safe)
           const rawRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1 });
 
           let headerRowIndex = 0;
-          for (let i = 1; i < Math.min(rawRows.length, 10); i++) {
+          let bestScore = 0;
+          for (let i = 1; i < Math.min(rawRows.length, 15); i++) {
             const row = rawRows[i] as unknown[];
             if (!row || row.length === 0) continue;
             const nonEmpty = row.filter(v => v != null && v !== '');
             const strings = nonEmpty.filter(v => typeof v === 'string');
-            // Header row: multiple non-empty cells, mostly short strings
-            if (nonEmpty.length >= 3 && strings.length >= Math.floor(nonEmpty.length * 0.6)) {
-              const avgLen = strings.reduce((s, v) => s + String(v).length, 0) / strings.length;
-              if (avgLen < 40) {
+            // Header row: many non-empty cells, mostly short strings, more cells than any prior row
+            if (nonEmpty.length >= 4 && strings.length >= Math.floor(nonEmpty.length * 0.5)) {
+              const avgLen = strings.length > 0 ? strings.reduce((s, v) => s + String(v).length, 0) / strings.length : 999;
+              if (avgLen < 40 && nonEmpty.length > bestScore) {
+                bestScore = nonEmpty.length;
                 headerRowIndex = i;
-                break;
               }
             }
           }
@@ -364,7 +366,9 @@ export default function ReconciliationPage() {
               range,
               defval: null,
             });
-            console.log(`[Reconciliation] Header detection: row 1 had ${emptyKeyCount} __EMPTY keys. Re-parsed from row ${headerRowIndex + 1}. New keys: ${jsonData.length > 0 ? Object.keys(jsonData[0]).join(', ') : 'NONE'}`);
+            console.log(`[Reconciliation] Header detection: row 1 had ${emptyKeyCount} __EMPTY keys. Re-parsed from row ${headerRowIndex + 1} (score=${bestScore}). New keys: ${jsonData.length > 0 ? Object.keys(jsonData[0]).join(', ') : 'NONE'}`);
+          } else {
+            console.log(`[Reconciliation] Header detection: ${emptyKeyCount} __EMPTY keys found but no header row detected in first 15 rows`);
           }
         }
 
@@ -911,7 +915,7 @@ export default function ReconciliationPage() {
               {isSpanish ? 'Confirmar Mapeos' : 'Confirm Mappings'}
             </h4>
             <div className="space-y-3">
-              {/* Entity ID */}
+              {/* Entity ID — with sample value preview */}
               <div className="flex items-center gap-3">
                 <span className={entityIdCol ? 'text-emerald-400' : 'text-red-400'}>{entityIdCol ? '✓' : '○'}</span>
                 <span className="text-xs text-zinc-400 w-32">{isSpanish ? 'ID Empleado:' : 'Employee ID:'}</span>
@@ -919,8 +923,11 @@ export default function ReconciliationPage() {
                   <option value="">-- {isSpanish ? 'Seleccionar' : 'Select'} --</option>
                   {parsedFile?.headers.map(h => <option key={h} value={h}>{h}</option>)}
                 </select>
+                {entityIdCol && parsedFile?.rows[0] && (
+                  <span className="text-[10px] text-zinc-500 font-mono">{isSpanish ? 'ej.' : 'e.g.'} {String(parsedFile.rows[0][entityIdCol] ?? '').substring(0, 20)}</span>
+                )}
               </div>
-              {/* Total Payout */}
+              {/* Total Payout — with sample value preview */}
               <div className="flex items-center gap-3">
                 <span className={totalPayoutCol ? 'text-emerald-400' : 'text-red-400'}>{totalPayoutCol ? '✓' : '○'}</span>
                 <span className="text-xs text-zinc-400 w-32">{isSpanish ? 'Pago Total:' : 'Total Payout:'}</span>
@@ -928,6 +935,9 @@ export default function ReconciliationPage() {
                   <option value="">-- {isSpanish ? 'Seleccionar' : 'Select'} --</option>
                   {parsedFile?.headers.map(h => <option key={h} value={h}>{h}</option>)}
                 </select>
+                {totalPayoutCol && parsedFile?.rows[0] && (
+                  <span className="text-[10px] text-zinc-500 font-mono">{isSpanish ? 'ej.' : 'e.g.'} {String(parsedFile.rows[0][totalPayoutCol] ?? '').substring(0, 20)}</span>
+                )}
               </div>
               {/* Period columns (read-only display) */}
               {analysis.periodColumns.length > 0 && (
