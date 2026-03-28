@@ -22,7 +22,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useOperate } from '@/contexts/operate-context';
 import { isVLAdmin } from '@/types/auth';
 import { loadReconciliationPageData, type ReconciliationPageData } from '@/lib/data/page-loaders';
-import { OperateSelector } from '@/components/operate/OperateSelector';
+// OB-193: OperateSelector removed — Reconciliation page has its own selectors
 import * as XLSX from 'xlsx';
 import {
   generateReconciliationReport,
@@ -678,8 +678,7 @@ export default function ReconciliationPage() {
   // ── MAIN LAYOUT ──
   return (
     <div>
-      {/* OB-92: Shared selector bar */}
-      <OperateSelector />
+      {/* OB-193: OperateSelector removed — Reconciliation has its own batch/period selectors */}
 
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       {/* OB-102 Phase 7: Reference frame */}
@@ -1030,6 +1029,13 @@ export default function ReconciliationPage() {
                 ? `Periodo filtrado: ${periodFilter.filteredCount} de ${periodFilter.originalCount} filas comparadas`
                 : `Period filtered: ${periodFilter.filteredCount} of ${periodFilter.originalCount} rows compared`}
               {compResult.periodsCompared.length > 0 && ` (${compResult.periodsCompared.join(', ')})`}
+              {periodFilter.originalCount > periodFilter.filteredCount && (
+                <span className="text-zinc-500 ml-1">
+                  {isSpanish
+                    ? ` — ${periodFilter.originalCount - periodFilter.filteredCount} filas de otros periodos excluidas`
+                    : ` — ${periodFilter.originalCount - periodFilter.filteredCount} rows from other periods excluded`}
+                </span>
+              )}
             </div>
           )}
 
