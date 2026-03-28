@@ -1172,14 +1172,23 @@ export async function POST(request: NextRequest) {
         .single();
       const asOfDate = period?.end_date || new Date().toISOString().split('T')[0];
 
-      // Fetch entities with temporal_attributes for this tenant
-      const { data: entitiesWithAttrs } = await supabase
-        .from('entities')
-        .select('id, temporal_attributes, metadata')
-        .eq('tenant_id', tenantId)
-        .in('id', calculationEntityIds);
+      // OB-190: Batch entity fetch to avoid Supabase .in() URL length limits
+      const entitiesWithAttrs: Array<{ id: string; temporal_attributes: Json; metadata: Json }> = [];
+      const MAT_BATCH = 200;
+      for (let i = 0; i < calculationEntityIds.length; i += MAT_BATCH) {
+        const batch = calculationEntityIds.slice(i, i + MAT_BATCH);
+        const { data: page, error: matFetchErr } = await supabase
+          .from('entities')
+          .select('id, temporal_attributes, metadata')
+          .eq('tenant_id', tenantId)
+          .in('id', batch);
+        if (matFetchErr) {
+          console.warn(`[OB-190] Materialization batch ${i}-${i + batch.length} error:`, matFetchErr.message);
+        }
+        if (page) entitiesWithAttrs.push(...page);
+      }
 
-      if (entitiesWithAttrs) {
+      if (entitiesWithAttrs.length > 0) {
         for (const ent of entitiesWithAttrs) {
           const attrs = (ent.temporal_attributes || []) as Array<{ key: string; value: Json; effective_from: string; effective_to: string | null }>;
           const resolved: Record<string, unknown> = {};
@@ -1223,6 +1232,40 @@ export async function POST(request: NextRequest) {
     } catch (matErr) {
       console.warn('[OB-177] Materialization failed (non-blocking):', matErr);
     }
+  }
+
+  // OB-190: VARIANT-DIAG — trace why variant matching fails for first 3 entities
+  if (variants.length > 1) {
+    let diagCount = 0;
+    for (const eid of calculationEntityIds) {
+      if (diagCount >= 3) break;
+      diagCount++;
+      const resolvedAttrs = materializedState.get(eid);
+      const eInfo = entityMap.get(eid);
+      const eRowsFlat = flatDataByEntity.get(eid) || [];
+      const eName = eInfo?.display_name ?? eid;
+
+      addLog(`[VARIANT-DIAG] ${eName}: materializedState=${JSON.stringify(resolvedAttrs || {})}`);
+      const eMeta = (eInfo as { metadata?: Record<string, unknown> })?.metadata;
+      addLog(`[VARIANT-DIAG] ${eName}: metadata.role=${JSON.stringify(eMeta?.role || 'NONE')}`);
+      const sampleRd = eRowsFlat.length > 0 ? (eRowsFlat[0] as { row_data?: Record<string, unknown> })?.row_data : null;
+      addLog(`[VARIANT-DIAG] ${eName}: flatDataRows=${eRowsFlat.length}, sampleRowKeys=${sampleRd ? Object.keys(sampleRd).join(',') : 'NONE'}`);
+
+      // Show what tokens would be generated from materializedState
+      const testTokens = new Set<string>();
+      if (resolvedAttrs) {
+        for (const val of Object.values(resolvedAttrs)) {
+          if (typeof val === 'string' && val.length > 1) {
+            for (const token of variantTokenize(val)) {
+              testTokens.add(token);
+            }
+          }
+        }
+      }
+      addLog(`[VARIANT-DIAG] ${eName}: generated tokens=[${Array.from(testTokens).join(',')}]`);
+      addLog(`[VARIANT-DIAG] ${eName}: V0 disc=[${Array.from(variantDiscriminants[0] || []).join(',')}], V1 disc=[${Array.from(variantDiscriminants[1] || []).join(',')}]`);
+    }
+    addLog(`[VARIANT-DIAG] materializedState.size=${materializedState.size}, calculationEntityIds.length=${calculationEntityIds.length}`);
   }
 
   for (const entityId of calculationEntityIds) {

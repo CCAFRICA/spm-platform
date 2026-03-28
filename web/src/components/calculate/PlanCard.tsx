@@ -151,12 +151,14 @@ export function PlanCard({
             variant="outline"
             className={cn(
               'text-[10px] shrink-0',
-              isReady
+              (calcSuccess || plan.lastBatchDate)
                 ? 'text-emerald-400 border-emerald-600'
-                : 'text-amber-400 border-amber-600'
+                : isReady
+                  ? 'text-indigo-400 border-indigo-600'
+                  : 'text-amber-400 border-amber-600'
             )}
           >
-            {isReady ? 'Ready' : 'Partial'}
+            {(calcSuccess || plan.lastBatchDate) ? 'Calculated' : isReady ? 'Ready' : 'Partial'}
           </Badge>
         </div>
 
@@ -267,7 +269,7 @@ export function PlanCard({
           ) : (
             <>
               <Play className="w-3.5 h-3.5" />
-              Calculate
+              {(calcSuccess || plan.lastBatchDate) ? 'Recalculate' : 'Calculate'}
             </>
           )}
         </Button>
