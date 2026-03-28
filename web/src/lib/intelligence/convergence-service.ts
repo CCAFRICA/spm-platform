@@ -33,6 +33,23 @@ interface PlanComponent {
   calculationIntent?: Record<string, unknown>;
 }
 
+// OB-191: Enriched metric context for Pass 4 AI prompt
+interface MetricContext {
+  name: string;          // Programmatic metric name (e.g., "period_equipment_revenue")
+  label: string;         // Human-readable label (e.g., "Period Equipment Revenue")
+  componentName: string; // Owning component name for additional context
+  operation: string;     // Calculation operation (e.g., "linear_function")
+  scope?: string;        // Scope level for scope_aggregate (e.g., "district")
+}
+
+/** Convert programmatic metric name to human-readable label */
+function humanizeMetricName(name: string): string {
+  return name
+    .replace(/^(period|monthly|weekly|biweekly|quarterly|annual)_/i, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // HF-111: Per-column value statistics for boundary matching
 interface ColumnValueStats {
   min: number;
@@ -378,10 +395,31 @@ export async function convergeBindings(
   const unresolvedForAI = allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
 
   if (unresolvedForAI.length > 0 && capabilities.length > 0) {
+    // OB-191: Build enriched metric context from calculationIntent
+    const metricContexts: MetricContext[] = unresolvedForAI.map(metricName => {
+      const ownerComp = components.find(c => c.expectedMetrics.includes(metricName));
+      const intent = ownerComp?.calculationIntent;
+      let scope: string | undefined;
+      if (intent) {
+        const inputSpec = (intent.input as Record<string, unknown> | undefined)?.sourceSpec as Record<string, unknown> | undefined;
+        if (inputSpec?.scope) scope = String(inputSpec.scope);
+      }
+      return {
+        name: metricName,
+        label: humanizeMetricName(metricName),
+        componentName: ownerComp?.name || 'Unknown',
+        operation: ownerComp?.calculationOp || 'unknown',
+        scope,
+      };
+    });
+
     console.log(`[Convergence] OB-185 Pass 4: ${unresolvedForAI.length} unresolved metrics — invoking AI semantic derivation`);
+    for (const mc of metricContexts) {
+      console.log(`[Convergence] Pass 4 metric: ${mc.name} (label: "${mc.label}", op: ${mc.operation}${mc.scope ? ', scope: ' + mc.scope : ''})`);
+    }
     try {
       const aiResult = await generateAISemanticDerivations(
-        unresolvedForAI, capabilities, supabase, tenantId
+        metricContexts, capabilities, supabase, tenantId
       );
       derivations.push(...aiResult.derivations);
       for (const g of aiResult.gaps) {
@@ -395,6 +433,9 @@ export async function convergeBindings(
         });
       }
       console.log(`[Convergence] OB-185 Pass 4: ${aiResult.derivations.length} derivations, ${aiResult.gaps.length} gaps`);
+      for (const d of aiResult.derivations) {
+        console.log(`[Convergence] Pass 4 derivation: ${d.metric} → ${d.operation}(${d.source_field || ''}) filters=${JSON.stringify(d.filters || [])}`);
+      }
     } catch (aiErr) {
       console.error('[Convergence] OB-185 Pass 4 AI call failed:', aiErr);
       // Non-blocking — gaps will be detected below
@@ -1784,7 +1825,7 @@ function generateFilteredCountDerivations(
 // ──────────────────────────────────────────────
 
 async function generateAISemanticDerivations(
-  unresolvedMetrics: string[],
+  metricContexts: MetricContext[],
   capabilities: DataCapability[],
   supabase: SupabaseClient,
   tenantId: string,
@@ -1792,7 +1833,8 @@ async function generateAISemanticDerivations(
   const derivations: MetricDerivationRule[] = [];
   const gaps: Array<{ metric: string; reason: string; resolution: string }> = [];
 
-  if (unresolvedMetrics.length === 0) return { derivations, gaps };
+  if (metricContexts.length === 0) return { derivations, gaps };
+  const unresolvedMetrics = metricContexts.map(mc => mc.name);
 
   // 1. Build column inventory for AI
   const columnDescriptions: string[] = [];
@@ -1820,20 +1862,33 @@ async function generateAISemanticDerivations(
 
   const sampleData = (sampleRows || []).map(r => r.row_data);
 
-  // 3. Build AI prompt — system instructions folded into user content
-  // (AI service selects system prompt by task type; we use 'natural_language_query'
-  //  which has a generic system prompt, and include our instructions in user content)
-  const userPrompt = `You are a data analyst. You receive:
-1. A list of metric names that a calculation plan requires
-2. A description of available data columns with types and sample values
+  // 3. Build AI prompt — enriched with metric labels and component context (OB-191)
+  // Korean Test: No hardcoded field names. AI receives column metadata and sample values at runtime.
+  const metricDescriptions = metricContexts.map(mc => {
+    let desc = `- ${mc.name} (label: "${mc.label}", used in: ${mc.operation}, component: "${mc.componentName}")`;
+    if (mc.scope) desc += `\n  NOTE: This metric should be aggregated at the ${mc.scope} scope level`;
+    return desc;
+  }).join('\n');
 
-Your task: For each required metric, determine if it can be derived from the available data using these operations:
+  const userPrompt = `You are a data analyst bridging calculation plan metrics to available data columns.
+
+You receive:
+1. Required metrics with semantic labels describing what each metric represents
+2. Available data columns with types, statistics, and categorical values
+
+Your task: For each required metric, determine how to derive it from the available data.
+
+IMPORTANT RULES:
+- Match the metric's semantic label to available data fields. If the label suggests a subset of a broader numeric field (e.g., "Equipment Revenue" from a general "total_amount"), identify the categorical field and value that filters to the correct subset.
+- Use the categorical field's distinct values to find exact filter matches. The filter value must be one of the listed distinct values.
+- For count metrics (e.g., "Deal Count", "Cross Sell Count"), use the "count" operation with appropriate filters.
+- For metrics with a scope note, the derivation defines how to compute the metric per entity — the platform handles scope aggregation separately.
+
+Operations:
 - sum: SUM a numeric field, optionally filtered by a categorical field value
 - count: COUNT rows, optionally filtered by a categorical field value
 - ratio: Divide one derived metric by another
 - delta: Difference between two values
-
-If a metric CANNOT be derived from the available data, mark it as a gap with an explanation of what data is missing.
 
 Respond with ONLY valid JSON, no markdown, no explanation:
 {
@@ -1856,7 +1911,8 @@ Respond with ONLY valid JSON, no markdown, no explanation:
   ]
 }
 
-Required metrics: ${unresolvedMetrics.join(', ')}
+Required metrics:
+${metricDescriptions}
 
 Available data columns:
 ${columnDescriptions.join('\n')}
@@ -1864,7 +1920,7 @@ ${columnDescriptions.join('\n')}
 Data sample (first ${sampleData.length} rows):
 ${JSON.stringify(sampleData, null, 2)}
 
-Generate derivation rules for each required metric, or mark as a gap if not derivable.`;
+Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category.`;
 
   // 4. Call AI
   try {
