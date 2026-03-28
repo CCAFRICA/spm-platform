@@ -138,7 +138,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
           .from('periods')
           .select('id, label, canonical_key, start_date, end_date, status, period_type')
           .eq('tenant_id', tenantId)
-          .order('start_date', { ascending: false }),
+          .order('start_date', { ascending: true }),
       ]);
 
       if (cancelled) return;
@@ -198,7 +198,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
       .from('periods')
       .select('id, label, canonical_key, start_date, end_date, status, period_type')
       .eq('tenant_id', tenantId)
-      .order('start_date', { ascending: false });
+      .order('start_date', { ascending: true });
 
     const loaded: PeriodOption[] = (data ?? []).map(p => ({
       id: p.id,
