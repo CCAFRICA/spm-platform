@@ -476,8 +476,20 @@ export default function ReconciliationPage() {
         }
       }
 
-      // Determine target periods from period matching
-      const targetPeriods = periodMatch?.matched?.map(m => m.benchmarkPeriod) ?? [];
+      // HF-180: Send ONLY the period matching the selected batch, not all matched periods.
+      // Bug: previously sent ALL matched periods → Map.set() overwrote entity values with wrong period.
+      const allMatchedPeriods = periodMatch?.matched ?? [];
+      const selectedPeriodLabel = selectedBatch?.label ?? '';
+      const targetPeriods = allMatchedPeriods
+        .filter(m => selectedPeriodLabel.startsWith(m.vlPeriod.label))
+        .map(m => m.benchmarkPeriod);
+
+      // Fallback: if no match found, send all matched periods rather than nothing
+      if (targetPeriods.length === 0 && allMatchedPeriods.length > 0) {
+        console.warn('[Reconciliation] HF-180: Could not match selected batch label to a VL period. Falling back to all matched periods.');
+        targetPeriods.push(...allMatchedPeriods.map(m => m.benchmarkPeriod));
+      }
+      console.log(`[Reconciliation] HF-180: Selected period: "${selectedPeriodLabel}", target periods: ${targetPeriods.length}`, targetPeriods.map(tp => tp.label));
 
       const resp = await fetch('/api/reconciliation/compare', {
         method: 'POST',
