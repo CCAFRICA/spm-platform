@@ -447,6 +447,12 @@ export default function ReconciliationPage() {
       setEntityIdCol(data.analysis.entityIdColumn?.sourceColumn ?? null);
       setTotalPayoutCol(data.analysis.totalPayoutColumn?.sourceColumn ?? null);
       setStep('analysis');
+
+      // HF-180: Diagnostic — log discovered periods
+      if (data.analysis?.periodDiscovery?.distinctPeriods) {
+        console.log('[Reconciliation][DIAG] Discovered periods:', JSON.stringify(data.analysis.periodDiscovery.distinctPeriods.map((p: { label: string; month: number | null; year: number | null; startDay: number | null; endDay: number | null }) => ({ label: p.label, month: p.month, year: p.year, startDay: p.startDay, endDay: p.endDay }))));
+        console.log('[Reconciliation][DIAG] Rows per period:', JSON.stringify(data.analysis.periodDiscovery.rowsPerPeriod));
+      }
     } catch (err) {
       setError(`Analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -696,7 +702,7 @@ export default function ReconciliationPage() {
       {/* OB-102 Phase 7: Reference frame */}
       {selectedBatch && (
         <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
-          <span>{isSpanish ? 'Lote' : 'Batch'}: <span className="text-zinc-200 font-mono">{selectedBatch.id.slice(0, 8)}</span></span>
+          <span className="text-zinc-200">{selectedBatch.ruleSetName ?? (isSpanish ? 'Lote' : 'Batch') + ': ' + selectedBatch.id.slice(0, 8)}</span>
           <span className="text-zinc-600">|</span>
           <span>{selectedBatch.entityCount} {isSpanish ? 'entidades' : 'entities'}</span>
           <span className="text-zinc-600">|</span>
@@ -1394,7 +1400,7 @@ export default function ReconciliationPage() {
                   </h5>
                   <div className="text-xs text-zinc-400 max-h-[120px] overflow-y-auto space-y-0.5">
                     {compResult.employees.filter(e => e.population === 'vl_only').slice(0, 20).map((e, i) => (
-                      <p key={i} className="font-mono">{e.entityId}</p>
+                      <p key={i}><span className="font-mono">{e.entityId}</span>{e.entityName && e.entityName !== e.entityId && <span className="text-zinc-500 ml-2">{e.entityName}</span>}</p>
                     ))}
                     {compResult.summary.vlOnly > 20 && <p>... +{compResult.summary.vlOnly - 20} more</p>}
                   </div>
@@ -1407,7 +1413,7 @@ export default function ReconciliationPage() {
                   </h5>
                   <div className="text-xs text-zinc-400 max-h-[120px] overflow-y-auto space-y-0.5">
                     {compResult.employees.filter(e => e.population === 'file_only').slice(0, 20).map((e, i) => (
-                      <p key={i} className="font-mono">{e.entityId}</p>
+                      <p key={i}><span className="font-mono">{e.entityId}</span>{e.entityName && e.entityName !== e.entityId && <span className="text-zinc-500 ml-2">{e.entityName}</span>}</p>
                     ))}
                     {compResult.summary.fileOnly > 20 && <p>... +{compResult.summary.fileOnly - 20} more</p>}
                   </div>
