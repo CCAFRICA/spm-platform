@@ -13,6 +13,8 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { resolveEntitiesFromCommittedData } from '@/lib/sci/entity-resolution';
 import { writeClassificationSignal, aggregateToFoundational, aggregateToDomain } from '@/lib/sci/classification-signal-service';
+import { writeFingerprint } from '@/lib/sci/fingerprint-flywheel';
+import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
 import type { StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import type { Json } from '@/lib/supabase/database.types';
@@ -422,6 +424,35 @@ export async function POST(req: NextRequest) {
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
         ).catch(() => {});
+
+        // HF-181 Layer 2: Update fingerprint with CONFIRMED bindings (fire-and-forget)
+        // The analyze route wrote the fingerprint from pre-LLM structural-only bindings.
+        // After user confirmation, update with the confirmed roles so future Tier 1 lookups
+        // have correct semantic roles (especially entity_identifier).
+        if (unit.confirmedBindings && unit.confirmedBindings.length > 0 && unit.rawData && unit.rawData.length > 0) {
+          const cols = Object.keys(unit.rawData[0]);
+          const hash = computeFingerprintHashSync(cols, unit.rawData.slice(0, 5));
+          const confirmedColumnRoles: Record<string, string> = {};
+          for (const binding of unit.confirmedBindings) {
+            if (binding.sourceField && binding.semanticRole) {
+              confirmedColumnRoles[binding.sourceField] = binding.semanticRole;
+            }
+          }
+          writeFingerprint(
+            tenantId,
+            hash,
+            {
+              classification: unit.confirmedClassification,
+              confidence: 1.0,
+              fieldBindings: unit.confirmedBindings,
+              tabName: unit.tabName || '',
+            },
+            confirmedColumnRoles,
+            unit.sourceFile || '',
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          ).catch(() => {});
+        }
       }
     } catch {
       // Flywheel signal failure must NEVER block import

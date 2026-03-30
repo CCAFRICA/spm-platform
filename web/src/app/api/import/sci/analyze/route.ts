@@ -134,6 +134,43 @@ export async function POST(req: NextRequest) {
             tenantId,
           );
 
+      // HF-181 Layer 1: For Tier 1 matches, inject flywheel fieldBindings as synthetic headerComprehension
+      // Without this, generateSemanticBindings() runs on structural heuristics only → entity_identifier lost
+      if (skipHC && flywheelResult?.classificationResult) {
+        const flywheelBindings = (flywheelResult.classificationResult as Record<string, unknown>)?.fieldBindings as Array<{ sourceField: string; semanticRole: string; confidence: number; displayContext?: string }> | undefined;
+        if (flywheelBindings && flywheelBindings.length > 0) {
+          const primaryProfile = profileMap.get(file.sheets[0]?.sheetName);
+          if (primaryProfile) {
+            // Map semanticRole → ColumnRole for HeaderInterpretation
+            const roleMap: Record<string, 'identifier' | 'name' | 'temporal' | 'measure' | 'attribute' | 'reference_key' | 'unknown'> = {
+              entity_identifier: 'identifier', entity_name: 'name',
+              transaction_date: 'temporal', period: 'temporal',
+              transaction_amount: 'measure', transaction_count: 'measure',
+              category_code: 'attribute', entity_attribute: 'attribute',
+            };
+            const interpretations = new Map<string, import('@/lib/sci/sci-types').HeaderInterpretation>();
+            for (const fb of flywheelBindings) {
+              const columnRole = roleMap[fb.semanticRole] ?? 'unknown';
+              interpretations.set(fb.sourceField, {
+                columnName: fb.sourceField,
+                semanticMeaning: fb.displayContext || fb.semanticRole,
+                dataExpectation: '',
+                columnRole,
+                confidence: fb.confidence,
+              });
+            }
+            primaryProfile.headerComprehension = {
+              interpretations,
+              crossSheetInsights: [],
+              llmCallDuration: 0,
+              llmModel: 'flywheel-tier1',
+              fromVocabularyBinding: false,
+            };
+            console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${file.sheets[0].sheetName}`);
+          }
+        }
+      }
+
       // ── HF-096: HC Diagnostic Logging (visible in Vercel Runtime Logs) ──
       console.log(`[SCI-HC-DIAG] file=${file.fileName} llmCalled=${hcMetrics.llmCalled} duration=${hcMetrics.llmCallDuration}ms avgConf=${hcMetrics.averageConfidence.toFixed(2)} cols=${hcMetrics.columnsInterpreted} insights=${hcMetrics.crossSheetInsightCount}`);
       for (const [sheetName, profile] of Array.from(profileMap.entries())) {

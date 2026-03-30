@@ -464,6 +464,32 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // HF-181 Layer 3: Fallback — discover entity identifier from data when metadata missing
+  // Korean Test: discovers by VALUE matching (entity external_ids), not by field name
+  if (!entityIdFieldFromMeta && extIdToUuid.size > 0 && committedData.length > 0) {
+    const sampleRow = committedData[0].row_data as Record<string, unknown> | null;
+    if (sampleRow) {
+      for (const [field, value] of Object.entries(sampleRow)) {
+        if (typeof value !== 'string' || !value.trim()) continue;
+        if (!extIdToUuid.has(value.trim())) continue;
+        // Found a candidate — verify across a sample
+        const sampleSize = Math.min(committedData.length, 20);
+        let matchCount = 0;
+        for (let s = 0; s < sampleSize; s++) {
+          const rd = committedData[s].row_data as Record<string, unknown> | null;
+          const val = rd?.[field];
+          if (typeof val === 'string' && extIdToUuid.has(val.trim())) matchCount++;
+        }
+        const matchRate = matchCount / sampleSize;
+        if (matchRate >= 0.8) {
+          entityIdFieldFromMeta = field;
+          addLog(`HF-181: entity_id_field not in metadata — discovered '${field}' from data (${matchCount}/${sampleSize} rows matched, ${(matchRate * 100).toFixed(0)}%)`);
+          break;
+        }
+      }
+    }
+  }
+
   let calcTimeResolved = 0;
   for (const row of committedData) {
     let resolvedEntityId = row.entity_id; // Use FK if populated (backward compat for BCL)
