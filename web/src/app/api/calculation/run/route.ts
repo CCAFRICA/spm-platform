@@ -1268,6 +1268,9 @@ export async function POST(request: NextRequest) {
     addLog(`[VARIANT-DIAG] materializedState.size=${materializedState.size}, calculationEntityIds.length=${calculationEntityIds.length}`);
   }
 
+  // OB-194: Track excluded entities
+  const excludedEntities: Array<{ entityId: string; entityName: string; externalId: string; reason: string; tokens: string }> = [];
+
   for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entitySheetData = dataByEntity.get(entityId) || new Map();
@@ -1363,6 +1366,32 @@ export async function POST(request: NextRequest) {
         const entityName = entityInfo?.display_name ?? entityId;
         console.log(`[VARIANT] ${entityName}: disc=[${discScores.map(s =>
           `V${s.index}:${s.matches}`).join(',')}] → variant_${selectedVariantIndex} (${method})`);
+      }
+
+      // OB-194: Variant Eligibility Gate
+      // When a plan defines 2+ variants (explicit population segments) and an entity
+      // matches NONE with score > 0, the entity is excluded from calculation.
+      // Architecture: "An entity matching NO variant is an explicit error, not a silent zero."
+      if (method === 'default_last') {
+        const bestDiscScore = discScores[0]?.matches ?? 0;
+        const bestOverlap = variantTokenSets.reduce((best, tokens) => {
+          const overlap = Array.from(tokens).filter(t => entityTokens.has(t)).length;
+          return Math.max(best, overlap);
+        }, 0);
+
+        if (bestDiscScore === 0 && bestOverlap === 0) {
+          const entityName = entityInfo?.display_name ?? entityId;
+          const tokenList = Array.from(entityTokens).slice(0, 10).join(',');
+          console.log(`[VARIANT] ${entityName}: NO MATCH — excluded (disc=0, overlap=0, variants=${variants.length}, tokens=[${tokenList}])`);
+          excludedEntities.push({
+            entityId,
+            entityName,
+            externalId: entityInfo?.external_id ?? entityId,
+            reason: 'no_qualifying_variant',
+            tokens: tokenList,
+          });
+          continue; // Skip calculation for this entity
+        }
       }
     }
 
@@ -1682,6 +1711,17 @@ export async function POST(request: NextRequest) {
 
   addLog(`Grand total: ${grandTotal.toLocaleString()}`);
 
+  // OB-194: Log exclusion summary
+  if (excludedEntities.length > 0) {
+    addLog(`OB-194: ${entityResults.length} calculated, ${excludedEntities.length} excluded (no qualifying variant)`);
+    for (const ex of excludedEntities.slice(0, 5)) {
+      addLog(`  Excluded: ${ex.entityName} (${ex.externalId}) — ${ex.reason}`);
+    }
+    if (excludedEntities.length > 5) {
+      addLog(`  ... +${excludedEntities.length - 5} more excluded`);
+    }
+  }
+
   // ── SYNAPTIC: Consolidate surface + persist density updates ──
   const { densityUpdates, signalBatch } = consolidateSurface(surface);
   const synapticEndTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -1815,6 +1855,7 @@ export async function POST(request: NextRequest) {
       summary: {
         total_payout: grandTotal,
         entity_count: entityResults.length,
+        excluded_count: excludedEntities.length,
         component_count: defaultComponents.length,
         rule_set_name: ruleSet.name,
         intentLayer: {
@@ -1973,6 +2014,7 @@ export async function POST(request: NextRequest) {
     success: true,
     batchId: batch.id,
     entityCount: entityResults.length,
+    excludedCount: excludedEntities.length,
     totalPayout: grandTotal,
     intentLayer: {
       matchCount: intentMatchCount,
