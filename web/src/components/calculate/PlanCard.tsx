@@ -63,6 +63,7 @@ export function PlanCard({
   const [calcSuccess, setCalcSuccess] = useState<string | null>(null);
   const [componentBreakdown, setComponentBreakdown] = useState<ComponentSummary[] | null>(null);
   const [calcTotal, setCalcTotal] = useState<number | null>(null);
+  const [excludedCount, setExcludedCount] = useState<number>(0);
 
   const isReady = plan.entityCount > 0 && plan.hasBindings && plan.dataRowCount > 0;
 
@@ -94,8 +95,10 @@ export function PlanCard({
       } else {
         const count = result.entityCount || 0;
         const total = result.totalPayout || 0;
+        const excluded = result.excludedCount || 0;
         setCalcSuccess(`${count} entities processed — ${formatCurrency(total)}`);
         setCalcTotal(total);
+        setExcludedCount(excluded);
 
         // Extract component totals from results
         if (result.results && Array.isArray(result.results)) {
@@ -292,6 +295,9 @@ export function PlanCard({
         )}
         {calcSuccess && !componentBreakdown && (
           <p className="text-xs text-emerald-400 mt-2">{calcSuccess}</p>
+        )}
+        {excludedCount > 0 && (
+          <p className="text-[10px] text-zinc-500 mt-1">{excludedCount} entities excluded (no qualifying variant)</p>
         )}
 
         {/* OB-176: Post-calculation guidance */}
