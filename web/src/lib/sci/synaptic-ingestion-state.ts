@@ -20,6 +20,7 @@ import { generateProposalIntelligence } from './proposal-intelligence';
 import { checkPromotedPatterns } from './promoted-patterns';
 import { computeStructuralFingerprint, fingerprintToSignature } from './classification-signal-service';
 import type { PriorSignal } from './classification-signal-service';
+import type { EntityIdOverlap } from './tenant-context';
 
 // ============================================================
 // SYNAPTIC INGESTION STATE
@@ -47,6 +48,9 @@ export interface SynapticIngestionState {
 
   // OB-160L: Promoted patterns from foundational signals (loaded once before scoring)
   promotedPatterns?: Map<string, import('./promoted-patterns').PromotedPattern>;
+
+  // HF-183: Entity ID overlap per content unit (computed before classification)
+  entityIdOverlaps?: Map<string, EntityIdOverlap>;
 
   // Classification traces (one per content unit — THE FLYWHEEL'S RAW MATERIAL)
   traces: Map<string, ClassificationTrace>;

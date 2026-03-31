@@ -453,20 +453,20 @@ export async function POST(request: NextRequest) {
     if (e.external_id) extIdToUuid.set(String(e.external_id).trim(), e.id);
   }
 
-  // OB-183: Detect entity identifier column from committed_data metadata
-  // This was set by OB-182 at import time: metadata.entity_id_field
-  let entityIdFieldFromMeta: string | null = null;
+  // HF-183: Build fallback entity_id_field from the FIRST row that has one.
+  // Used only when a row's own metadata lacks entity_id_field (pre-OB-195 imports).
+  let fallbackEntityIdField: string | null = null;
   for (const row of committedData) {
     const meta = row.metadata as Record<string, unknown> | null;
     if (meta?.entity_id_field && typeof meta.entity_id_field === 'string') {
-      entityIdFieldFromMeta = meta.entity_id_field;
+      fallbackEntityIdField = meta.entity_id_field;
       break;
     }
   }
 
   // HF-181 Layer 3: Fallback — discover entity identifier from data when metadata missing
   // Korean Test: discovers by VALUE matching (entity external_ids), not by field name
-  if (!entityIdFieldFromMeta && extIdToUuid.size > 0 && committedData.length > 0) {
+  if (!fallbackEntityIdField && extIdToUuid.size > 0 && committedData.length > 0) {
     const sampleRow = committedData[0].row_data as Record<string, unknown> | null;
     if (sampleRow) {
       for (const [field, value] of Object.entries(sampleRow)) {
@@ -482,7 +482,7 @@ export async function POST(request: NextRequest) {
         }
         const matchRate = matchCount / sampleSize;
         if (matchRate >= 0.8) {
-          entityIdFieldFromMeta = field;
+          fallbackEntityIdField = field;
           addLog(`HF-181: entity_id_field not in metadata — discovered '${field}' from data (${matchCount}/${sampleSize} rows matched, ${(matchRate * 100).toFixed(0)}%)`);
           break;
         }
@@ -494,13 +494,20 @@ export async function POST(request: NextRequest) {
   for (const row of committedData) {
     let resolvedEntityId = row.entity_id; // Use FK if populated (backward compat for BCL)
 
-    // OB-183: If entity_id is NULL, resolve from row_data at calc time
-    if (!resolvedEntityId && entityIdFieldFromMeta) {
-      const rd = row.row_data as Record<string, unknown> | null;
-      const extId = rd?.[entityIdFieldFromMeta];
-      if (extId != null) {
-        resolvedEntityId = extIdToUuid.get(String(extId).trim()) || null;
-        if (resolvedEntityId) calcTimeResolved++;
+    // HF-183: Per-row entity_id_field resolution.
+    // Each row uses its OWN metadata.entity_id_field first, then falls back to global.
+    // This fixes mixed-source resolution (transaction rows use sales_rep_id, quota rows use entity_id).
+    if (!resolvedEntityId) {
+      const rowMeta = row.metadata as Record<string, unknown> | null;
+      const rowEntityIdField = (rowMeta?.entity_id_field as string) || fallbackEntityIdField;
+
+      if (rowEntityIdField) {
+        const rd = row.row_data as Record<string, unknown> | null;
+        const extId = rd?.[rowEntityIdField];
+        if (extId != null) {
+          resolvedEntityId = extIdToUuid.get(String(extId).trim()) || null;
+          if (resolvedEntityId) calcTimeResolved++;
+        }
       }
     }
 

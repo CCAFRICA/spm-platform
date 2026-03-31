@@ -20,6 +20,7 @@ import { computeStructuralFingerprint, lookupPriorSignals, computeClassification
 import type { ClassificationDensity, StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
 import { lookupFingerprint, writeFingerprint, type FlywheelLookupResult } from '@/lib/sci/fingerprint-flywheel';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
+import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
 import type { SCIProposal, ContentProfile, ContentUnitProposal, AgentType } from '@/lib/sci/sci-types';
 
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -218,6 +219,35 @@ export async function POST(req: NextRequest) {
           );
           densityMap.set(profile.contentUnitId, density);
         }
+      }
+
+      // HF-183: Compute entity ID overlap per sheet before classification
+      // Korean Test: uses VALUE matching (entity external_ids), not column names
+      try {
+        const tenantCtx = await queryTenantContext(
+          tenantId,
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
+        if (tenantCtx.existingEntityExternalIds.size > 0) {
+          const overlapMap = new Map<string, import('@/lib/sci/tenant-context').EntityIdOverlap>();
+          for (let tabIndex = 0; tabIndex < file.sheets.length; tabIndex++) {
+            const sheet = file.sheets[tabIndex];
+            const profile = profileMap.get(sheet.sheetName);
+            if (profile) {
+              const overlap = computeEntityIdOverlap(profile, sheet.rows, tenantCtx.existingEntityExternalIds);
+              if (overlap) {
+                overlapMap.set(profile.contentUnitId, overlap);
+                console.log(`[SCI-OVERLAP] sheet=${sheet.sheetName} column=${overlap.sheetIdentifierColumn} overlap=${Math.round(overlap.overlapPercentage * 100)}% signal=${overlap.overlapSignal} (${overlap.matchingEntityIds.size}/${overlap.sheetUniqueValues.size})`);
+              }
+            }
+          }
+          if (overlapMap.size > 0) {
+            state.entityIdOverlaps = overlapMap;
+          }
+        }
+      } catch (overlapErr) {
+        console.warn(`[SCI-OVERLAP] Computation failed (non-blocking):`, overlapErr instanceof Error ? overlapErr.message : 'unknown');
       }
 
       await resolveClassification(
