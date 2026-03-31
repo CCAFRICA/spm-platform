@@ -462,7 +462,7 @@ function CalculatePageInner() {
           <span className="text-sm font-medium text-zinc-300">Period:</span>
           {/* OB-186: Use filteredPeriods (cadence-aware) instead of all periods */}
           {filteredPeriods.length > 0 ? (
-            <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); }}>
+            <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); setResultsData(null); setSelectedPlanId(null); }}>
               <SelectTrigger className="w-64 h-10 text-sm font-semibold text-zinc-100">
                 <SelectValue placeholder="Select period" />
               </SelectTrigger>
