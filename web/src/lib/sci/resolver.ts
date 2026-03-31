@@ -24,6 +24,8 @@ import { contextualReliabilityLookup, resetCRLCache } from './contextual-reliabi
 import { getClassificationPrior, CLASSIFICATION_TYPES } from './seed-priors';
 import type { SignalSourceType } from './seed-priors';
 import type { CRLResult } from './contextual-reliability';
+import { computeTenantContextAdjustments } from './tenant-context';
+import type { TenantContext } from './tenant-context';
 
 // ============================================================
 // CLASSIFICATION SIGNAL — normalized input to Bayesian resolver
@@ -114,6 +116,31 @@ export async function resolveClassification(
         confidence: s.confidence,
         source: s.source,
       }));
+    }
+
+    // 1f: HF-183 — Entity ID overlap adjustments (presence-based, AP-31)
+    // Korean Test: uses VALUE matching (entity external_ids), not column names
+    const overlap = state.entityIdOverlaps?.get(unitId);
+    if (overlap) {
+      // Build a minimal TenantContext — only overlap signal is used
+      const minimalTenantContext: TenantContext = {
+        existingEntityCount: 0, existingEntityExternalIds: new Set(),
+        existingPlanCount: 0, existingPlanComponentNames: [],
+        existingPlanInputRequirements: [], committedDataRowCount: 0,
+        committedDataTypes: [], referenceDataExists: false,
+      };
+      const overlapAdjustments = computeTenantContextAdjustments(minimalTenantContext, overlap, profile);
+      for (const adj of overlapAdjustments) {
+        const agentScore = scores.find(s => s.agent === adj.agent);
+        if (agentScore) {
+          agentScore.confidence = Math.max(0, Math.min(1, agentScore.confidence + adj.adjustment));
+          agentScore.signals.push({
+            signal: adj.signal,
+            weight: adj.adjustment,
+            evidence: adj.evidence,
+          });
+        }
+      }
     }
 
     // Record pre-resolution scores

@@ -24,6 +24,7 @@ import { computeStructuralFingerprint, lookupPriorSignals, writeClassificationSi
 import type { ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
+import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
 import { lookupFingerprint, writeFingerprint } from '@/lib/sci/fingerprint-flywheel';
 import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
 import type { ContentProfile } from '@/lib/sci/sci-types';
@@ -192,6 +193,33 @@ export async function POST(req: NextRequest) {
       if (priors.length > 0) {
         state.priorSignals.set(profile.contentUnitId, priors);
       }
+    }
+
+    // HF-183: Compute entity ID overlap per sheet before classification
+    try {
+      const tenantCtx = await queryTenantContext(
+        tenantId,
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
+      if (tenantCtx.existingEntityExternalIds.size > 0) {
+        const overlapMap = new Map<string, import('@/lib/sci/tenant-context').EntityIdOverlap>();
+        for (const sheet of sheets) {
+          const profile = profileMap.get(sheet.sheetName);
+          if (profile) {
+            const overlap = computeEntityIdOverlap(profile, sheet.rows, tenantCtx.existingEntityExternalIds);
+            if (overlap) {
+              overlapMap.set(profile.contentUnitId, overlap);
+              console.log(`[SCI-OVERLAP] sheet=${sheet.sheetName} overlap=${Math.round(overlap.overlapPercentage * 100)}% signal=${overlap.overlapSignal}`);
+            }
+          }
+        }
+        if (overlapMap.size > 0) {
+          state.entityIdOverlaps = overlapMap;
+        }
+      }
+    } catch (overlapErr) {
+      console.warn(`[SCI-OVERLAP] Computation failed (non-blocking):`, overlapErr instanceof Error ? overlapErr.message : 'unknown');
     }
 
     await resolveClassification(

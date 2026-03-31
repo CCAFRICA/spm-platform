@@ -212,6 +212,12 @@ export function computeTenantContextAdjustments(
       evidence: `${Math.round(overlap.overlapPercentage * 100)}% of identifier values (${overlap.matchingEntityIds.size}/${overlap.sheetUniqueValues.size}) match existing entity external_ids`,
     });
     adjustments.push({
+      agent: 'target',
+      adjustment: +0.15,
+      signal: 'entity_id_overlap_high',
+      evidence: `${Math.round(overlap.overlapPercentage * 100)}% of identifier values (${overlap.matchingEntityIds.size}/${overlap.sheetUniqueValues.size}) match existing entities — references existing roster`,
+    });
+    adjustments.push({
       agent: 'entity',
       adjustment: -0.10,
       signal: 'entity_id_overlap_high',

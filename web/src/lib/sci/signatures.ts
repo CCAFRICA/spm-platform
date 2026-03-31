@@ -134,6 +134,42 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   }
 
   // ────────────────────────────────────────────────────────
+  // TARGET: "Entity-referencing file with temporal dimension"
+  // Fires on structural signals alone. HC boosts confidence.
+  // Captures quota/target files that have a temporal column (effective_date)
+  // and low numeric ratio — structurally similar to entity rosters but
+  // with a temporal dimension that rosters lack.
+  // Korean Test: ALL conditions use structural properties. Zero field-name matching.
+  // ────────────────────────────────────────────────────────
+  const hasNonIdNumericField = profile.fields.some(f =>
+    (f.dataType === 'integer' || f.dataType === 'decimal' || f.dataType === 'currency') &&
+    !f.nameSignals.containsId &&
+    !f.distribution.isSequential
+  );
+  const isSmallDataset = structure.rowCount < 200;
+
+  if (hasLowRepeat && hasId && hasTemporalDimension && hasNonIdNumericField && isSmallDataset) {
+    let confidence = 0.80;
+    const conditions = [
+      `identifierRepeatRatio: ${structure.identifierRepeatRatio.toFixed(1)} (<=1.5)`,
+      `hasEntityIdentifier: true`,
+      `hasTemporalDimension: true`,
+      `hasNonIdNumericField: true`,
+      `rowCount: ${structure.rowCount} (<200)`,
+    ];
+    if (hcTemporalCount >= 1 && hcMeasureCount >= 1) {
+      confidence += 0.05;
+      conditions.push(`HC confirms: ${hcTemporalCount} temporal + ${hcMeasureCount} measure columns`);
+    }
+    matches.push({
+      agent: 'target',
+      confidence: Math.min(0.90, confidence),
+      signatureName: 'entity_referencing_with_temporal',
+      matchedConditions: conditions,
+    });
+  }
+
+  // ────────────────────────────────────────────────────────
   // PLAN: "Sparse rule structure with mixed types and low row count"
   // Fires on structural signals alone. No HC reinforcement (plan data rarely has meaningful headers).
   // ────────────────────────────────────────────────────────
