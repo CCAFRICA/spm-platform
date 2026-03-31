@@ -186,7 +186,8 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       // Store admin's tenant selection in sessionStorage + cookie
       if (isAdmin && typeof window !== 'undefined') {
         sessionStorage.setItem('vialuce_admin_tenant', tenantId);
-        document.cookie = `vialuce-tenant-id=${tenantId}; path=/; max-age=${60 * 60 * 24}; SameSite=Lax`;
+        // HF-182 Fix 11: Session-scoped cookie (no max-age) — expires on browser close
+        document.cookie = `vialuce-tenant-id=${tenantId}; path=/; SameSite=Lax`;
       }
       // HF-057: VL Admin navigates to /operate (admin landing).
       // Non-admin navigates to / (persona dashboard).
