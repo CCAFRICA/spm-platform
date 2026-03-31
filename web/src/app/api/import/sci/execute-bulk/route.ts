@@ -612,6 +612,19 @@ async function processDataUnit(
 
   console.log(`[SCI Bulk] ${classification}: ${totalInserted} rows committed, data_type=${dataType}`);
 
+  // OB-195 Layer 4: Invalidate cached convergence bindings so engine re-derives with new data
+  if (totalInserted > 0) {
+    const { data: clearedRuleSets } = await supabase
+      .from('rule_sets')
+      .update({ input_bindings: {} })
+      .eq('tenant_id', tenantId)
+      .in('status', ['active', 'draft'])
+      .select('id');
+    if ((clearedRuleSets?.length ?? 0) > 0) {
+      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
+    }
+  }
+
   // OB-182: postCommitConstruction REMOVED from import pipeline.
   // Entity assignment and entity_id binding deferred to calculation time.
   // Entity creation for roster imports still handled by processEntityUnit (separate path).
@@ -729,6 +742,19 @@ async function processReferenceUnit(
 
   const sourceDates = insertRows.filter(r => r.source_date).map(r => r.source_date);
   console.log(`[SCI Bulk] Reference → committed_data: ${totalInserted} rows, data_type="${dataType}", entity_id_field="${entityIdField || 'none'}", source_dates=${sourceDates.length > 0 ? sourceDates.slice(0, 3).join(',') : 'none'}`);
+
+  // OB-195 Layer 4: Invalidate cached convergence bindings (same as processDataUnit)
+  if (totalInserted > 0) {
+    const { data: clearedRuleSets } = await supabase
+      .from('rule_sets')
+      .update({ input_bindings: {} })
+      .eq('tenant_id', tenantId)
+      .in('status', ['active', 'draft'])
+      .select('id');
+    if ((clearedRuleSets?.length ?? 0) > 0) {
+      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (reference data imported — convergence will re-derive)`);
+    }
+  }
 
   return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: totalInserted, pipeline: 'reference' };
 }
