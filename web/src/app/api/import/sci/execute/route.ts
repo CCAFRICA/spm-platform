@@ -878,6 +878,14 @@ async function executeEntityPipeline(
     unit.classificationTrace as Record<string, unknown> | undefined
   ) || buildFieldIdentitiesFromBindings(unit.confirmedBindings);
 
+  // HF-184: Unified committed_data writes — same extraction as target/transaction pipelines.
+  // Classification is a hint, not a gate. All pipelines carry source_date + entity_id_field.
+  const entityIdBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
+  const entityIdField = entityIdBinding?.sourceField;
+  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
+  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+  const periodMarkerHint = detectPeriodMarkerColumns(rows);
+
   // HF-109: Write ALL entity rows to committed_data ONLY (DS-009 3.3)
   // Entity creation + entity_id backfill handled post-import by resolveEntitiesFromCommittedData
   const insertRows = rows.map((row, i) => ({
@@ -885,7 +893,7 @@ async function executeEntityPipeline(
     import_batch_id: batchId,
     entity_id: null as string | null,
     period_id: null as string | null,
-    source_date: null as string | null,
+    source_date: extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint),
     data_type: dataType,
     row_data: { ...row, _sheetName: tabName, _rowIndex: i },
     metadata: {
@@ -895,6 +903,7 @@ async function executeEntityPipeline(
       resolved_data_type: dataType,
       field_identities: entityFieldIdentities,
       informational_label: 'entity',
+      entity_id_field: entityIdField || null,
     },
   }));
 
@@ -1000,6 +1009,14 @@ async function executeReferencePipeline(
     unit.classificationTrace as Record<string, unknown> | undefined
   ) || buildFieldIdentitiesFromBindings(unit.confirmedBindings);
 
+  // HF-184: Unified committed_data writes — same extraction as target/transaction pipelines.
+  // Classification is a hint, not a gate. All pipelines carry source_date + entity_id_field.
+  const refEntityIdBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
+  const refEntityIdField = refEntityIdBinding?.sourceField;
+  const refDateHint = findDateColumnFromBindings(unit.confirmedBindings);
+  const refSemanticMap = buildSemanticRolesMap(unit.confirmedBindings);
+  const refPeriodHint = detectPeriodMarkerColumns(rows);
+
   // OB-162: Decision 111 — store ALL data in committed_data with field_identities
   // No writes to reference_data or reference_items tables
   const insertRows = rows.map((row, i) => ({
@@ -1007,7 +1024,7 @@ async function executeReferencePipeline(
     import_batch_id: batchId,
     entity_id: null as string | null,
     period_id: null as string | null,
-    source_date: null as string | null,
+    source_date: extractSourceDate(row, refDateHint, refSemanticMap, refPeriodHint),
     data_type: dataType,
     row_data: { ...row, _sheetName: tabName, _rowIndex: i },
     metadata: {
@@ -1017,6 +1034,7 @@ async function executeReferencePipeline(
       resolved_data_type: dataType,
       field_identities: refFieldIdentities,
       informational_label: 'reference',
+      entity_id_field: refEntityIdField || null,
     },
   }));
 
