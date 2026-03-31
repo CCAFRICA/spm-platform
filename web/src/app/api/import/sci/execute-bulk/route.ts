@@ -654,6 +654,7 @@ async function processReferenceUnit(
   rows: Record<string, unknown>[],
   fileName: string,
   tabName: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _userId: string,
 ): Promise<ContentUnitResult> {
   // OB-195 Layer 1: Reference pipeline → committed_data (Decision 111)
