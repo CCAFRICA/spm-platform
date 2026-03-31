@@ -287,17 +287,29 @@ export function applyHeaderComprehensionSignals(
         evidence: `LLM identified ${temporalCount} temporal columns — rosters don't have multiple temporal dimensions`,
       });
     }
+    // OB-195 Layer 2: Penalize entity when file has temporal + numeric measure + few attributes
+    // This is reference/target data (quota with effective_date), not a roster/entity definition
+    if (temporalCount >= 1 && measureCount >= 1 && attributeCount < 5) {
+      entity.confidence -= 0.15;
+      entity.signals.push({
+        signal: 'hc_reference_structure',
+        weight: -0.15,
+        evidence: `${temporalCount} temporal + ${measureCount} measure + ${attributeCount} attributes — reference/target data, not roster`,
+      });
+    }
   }
 
   // --- Target Agent signals from header comprehension ---
   const target = scores.find(s => s.agent === 'target');
   if (target) {
-    if (temporalCount >= 1) {
-      target.confidence -= 0.10;
+    // OB-195 Layer 2: Boost target when file has identifier + temporal + measure
+    // This is the reference/quota data pattern (entity_id + effective_date + numeric value)
+    if (identifierCount >= 1 && temporalCount >= 1 && measureCount >= 1) {
+      target.confidence += 0.15;
       target.signals.push({
-        signal: 'hc_temporal_not_targets',
-        weight: -0.10,
-        evidence: `LLM identified ${temporalCount} temporal column(s) — targets are static reference data`,
+        signal: 'hc_reference_structure',
+        weight: 0.15,
+        evidence: `${identifierCount} identifier + ${temporalCount} temporal + ${measureCount} measure — reference/target data pattern`,
       });
     }
   }

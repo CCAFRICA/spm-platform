@@ -612,6 +612,19 @@ async function processDataUnit(
 
   console.log(`[SCI Bulk] ${classification}: ${totalInserted} rows committed, data_type=${dataType}`);
 
+  // OB-195 Layer 4: Invalidate cached convergence bindings so engine re-derives with new data
+  if (totalInserted > 0) {
+    const { data: clearedRuleSets } = await supabase
+      .from('rule_sets')
+      .update({ input_bindings: {} })
+      .eq('tenant_id', tenantId)
+      .in('status', ['active', 'draft'])
+      .select('id');
+    if ((clearedRuleSets?.length ?? 0) > 0) {
+      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
+    }
+  }
+
   // OB-182: postCommitConstruction REMOVED from import pipeline.
   // Entity assignment and entity_id binding deferred to calculation time.
   // Entity creation for roster imports still handled by processEntityUnit (separate path).
@@ -641,8 +654,13 @@ async function processReferenceUnit(
   rows: Record<string, unknown>[],
   fileName: string,
   tabName: string,
-  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _userId: string,
 ): Promise<ContentUnitResult> {
+  // OB-195 Layer 1: Reference pipeline → committed_data (Decision 111)
+  // Previously wrote to reference_data + reference_items (deprecated).
+  // Now follows processDataUnit pattern: all data → committed_data.
+  // Engine aggregates all numeric fields at calc time (aggregateMetrics sums across all rows).
   if (rows.length === 0) {
     return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: 0, pipeline: 'reference' };
   }
@@ -658,71 +676,62 @@ async function processReferenceUnit(
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
   });
 
-  const referenceName = tabName !== 'Sheet1' && tabName !== 'Hoja1'
-    ? tabName
-    : fileName.replace(/\.[^.]+$/, '');
+  // Resolve data_type (same pattern as processDataUnit)
+  const normalized = normalizeFileNameToDataType(fileName);
+  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
+  const dataType = !isGenericTab && normalized.length > 2
+    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
+    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
 
-  const keyBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
-  const keyFieldName = keyBinding?.sourceField || null;
-
-  const schemaDefinition: Record<string, string> = {};
-  for (const b of unit.confirmedBindings) {
-    schemaDefinition[b.sourceField] = b.semanticRole;
+  // Build semantic_roles map
+  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
+  for (const binding of unit.confirmedBindings) {
+    semanticRoles[binding.sourceField] = {
+      role: binding.semanticRole,
+      confidence: binding.confidence,
+      claimedBy: binding.claimedBy,
+    };
   }
 
-  const refDataId = crypto.randomUUID();
-  const { error: refDataErr } = await supabase.from('reference_data').insert({
-    id: refDataId,
-    tenant_id: tenantId,
-    reference_type: 'catalog',
-    name: referenceName,
-    version: 1,
-    status: 'active',
-    key_field: keyFieldName,
-    schema_definition: schemaDefinition as unknown as Json,
-    import_batch_id: batchId,
-    metadata: { proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
-    created_by: userId,
-  });
+  // Entity identifier for calc-time resolution (OB-182/OB-183)
+  const entityIdBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
+  const entityIdField = entityIdBinding?.sourceField;
 
-  if (refDataErr) {
-    return { contentUnitId: unit.contentUnitId, classification: 'reference', success: false, rowsProcessed: 0, pipeline: 'reference', error: refDataErr.message };
-  }
+  // Source date extraction (Decision 92)
+  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
+  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+  const periodMarkerHint = detectPeriodMarkerColumns(rows);
 
-  const nameBinding = unit.confirmedBindings.find(b =>
-    b.semanticRole === 'descriptive_label' || b.semanticRole === 'entity_name'
-  );
-  const catBinding = unit.confirmedBindings.find(b => b.semanticRole === 'category_code');
-
-  const items = rows.map(row => {
-    const externalKey = keyFieldName && row[keyFieldName] != null
-      ? String(row[keyFieldName]).trim()
-      : crypto.randomUUID();
-    const displayName = nameBinding && row[nameBinding.sourceField] != null
-      ? String(row[nameBinding.sourceField]).trim()
-      : externalKey;
-    const category = catBinding && row[catBinding.sourceField] != null
-      ? String(row[catBinding.sourceField]).trim()
-      : null;
-
+  // Build committed_data rows (same structure as processDataUnit)
+  const insertRows = rows.map((row, i) => {
+    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
     return {
       tenant_id: tenantId,
-      reference_data_id: refDataId,
-      external_key: externalKey,
-      display_name: displayName,
-      category,
-      attributes: row as unknown as Json,
-      status: 'active',
+      import_batch_id: batchId,
+      entity_id: null, // OB-182: deferred to calculation time
+      period_id: null,  // Decision 92: engine binds at calc time
+      source_date: sourceDate,
+      data_type: dataType,
+      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
+      metadata: {
+        source: 'sci-bulk',
+        proposalId,
+        semantic_roles: semanticRoles,
+        resolved_data_type: dataType,
+        entity_id_field: entityIdField || null,
+        informational_label: 'reference',
+      },
     };
   });
 
-  const CHUNK = 5000;
+  // Insert in chunks (same as processDataUnit)
+  const CHUNK = 2000;
   let totalInserted = 0;
-  for (let i = 0; i < items.length; i += CHUNK) {
-    const slice = items.slice(i, i + CHUNK);
-    const { error: itemErr } = await supabase.from('reference_items').insert(slice);
-    if (itemErr) {
-      return { contentUnitId: unit.contentUnitId, classification: 'reference', success: false, rowsProcessed: totalInserted, pipeline: 'reference', error: itemErr.message };
+  for (let i = 0; i < insertRows.length; i += CHUNK) {
+    const slice = insertRows.slice(i, i + CHUNK);
+    const { error: insertErr } = await supabase.from('committed_data').insert(slice as unknown as Json[]);
+    if (insertErr) {
+      return { contentUnitId: unit.contentUnitId, classification: 'reference', success: false, rowsProcessed: totalInserted, pipeline: 'reference', error: insertErr.message };
     }
     totalInserted += slice.length;
   }
@@ -732,7 +741,21 @@ async function processReferenceUnit(
     row_count: totalInserted,
   }).eq('id', batchId);
 
-  console.log(`[SCI Bulk] Reference: ${totalInserted} items in "${referenceName}"`);
+  const sourceDates = insertRows.filter(r => r.source_date).map(r => r.source_date);
+  console.log(`[SCI Bulk] Reference → committed_data: ${totalInserted} rows, data_type="${dataType}", entity_id_field="${entityIdField || 'none'}", source_dates=${sourceDates.length > 0 ? sourceDates.slice(0, 3).join(',') : 'none'}`);
+
+  // OB-195 Layer 4: Invalidate cached convergence bindings (same as processDataUnit)
+  if (totalInserted > 0) {
+    const { data: clearedRuleSets } = await supabase
+      .from('rule_sets')
+      .update({ input_bindings: {} })
+      .eq('tenant_id', tenantId)
+      .in('status', ['active', 'draft'])
+      .select('id');
+    if ((clearedRuleSets?.length ?? 0) > 0) {
+      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (reference data imported — convergence will re-derive)`);
+    }
+  }
 
   return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: totalInserted, pipeline: 'reference' };
 }

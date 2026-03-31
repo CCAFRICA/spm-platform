@@ -27,8 +27,10 @@ export function extractSourceDate(
 
   // Strategy 2: Semantic role tagged as temporal
   if (semanticRoles) {
+    // OB-195 Layer 3: Comprehensive temporal role set (aligned with findDateColumnFromBindings)
     const temporalRoles = new Set([
       'date', 'transaction_date', 'event_date', 'cutoff_date', 'period_marker',
+      'event_timestamp', 'temporal', 'timestamp', 'effective_date',
     ]);
     for (const [field, role] of Object.entries(semanticRoles)) {
       if (temporalRoles.has(role) && rowData[field] != null) {
