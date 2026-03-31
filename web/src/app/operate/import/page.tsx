@@ -358,13 +358,14 @@ export default function OperateImportPage() {
           }> | undefined;
 
           if (plans && plans.length > 0) {
-            // DIAG-002: Prefer active plan for entity count display.
-            // Draft plans may have 0 assignments even when active has 85.
-            const activePlan = plans.find((p: { status?: string }) => p.status === 'active') || plans[0];
+            // HF-182 Fix 6: Show all plan names for context, not just the first active one
+            const activePlans = plans.filter((p: { status?: string }) => p.status === 'active' || p.status === 'draft');
+            const planNames = activePlans.map((p: { planName: string }) => p.planName).join(', ');
+            const totalEntities = activePlans.reduce((s: number, p: { entityCount: number }) => Math.max(s, p.entityCount), 0);
             setPostImportData(prev => prev ? {
               ...prev,
-              planName: activePlan.planName,
-              entityCount: activePlan.entityCount,
+              planName: planNames || plans[0].planName,
+              entityCount: totalEntities,
             } : prev);
           }
         }
