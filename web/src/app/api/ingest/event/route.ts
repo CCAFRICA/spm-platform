@@ -102,7 +102,48 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ events: data });
+    // HF-182 Fix 9: Also include import_batches for SCI imports
+    // SCI pipeline writes to import_batches, not ingestion_events.
+    // Merge both sources so import history shows all imports.
+    let allEvents: Record<string, unknown>[] = (data || []) as Record<string, unknown>[];
+    if (allEvents.length < limit) {
+      const { data: batches } = await supabase
+        .from('import_batches')
+        .select('id, tenant_id, file_name, file_type, status, row_count, created_at, metadata')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (batches && batches.length > 0) {
+        const batchEvents = batches.map(b => {
+          const meta = (b.metadata || {}) as Record<string, unknown>;
+          return {
+            id: b.id,
+            tenant_id: b.tenant_id,
+            status: b.status === 'completed' ? 'committed' : b.status,
+            file_name: (meta.sourceFileName as string) || b.file_name || 'SCI Import',
+            file_size_bytes: null,
+            file_type: b.file_type,
+            file_hash_sha256: null,
+            storage_path: null,
+            uploaded_by_email: null,
+            uploaded_at: b.created_at,
+            created_at: b.created_at,
+            record_count: b.row_count,
+            supersedes_event_id: null,
+            classification_result: (meta.classification as unknown) || null,
+            validation_result: null,
+          };
+        });
+        // Merge and dedup by id, sort by created_at desc
+        const existingIds = new Set(allEvents.map(e => String(e.id)));
+        const merged = [...allEvents, ...batchEvents.filter(be => !existingIds.has(be.id))];
+        merged.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+        allEvents = merged.slice(0, limit);
+      }
+    }
+
+    return NextResponse.json({ events: allEvents });
   } catch (err) {
     console.error('[Ingest Event GET] Error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
