@@ -86,7 +86,16 @@ function CalculatePageInner() {
   const tenantId = currentTenant?.id || '';
   // OB-184: Include both active AND draft plans. Draft plans are calculable
   // (DRAFT → PREVIEW lifecycle: calculate first, then review).
-  const activePlans = useMemo(() => plans.filter(p => p.status === 'active' || p.status === 'draft'), [plans]);
+  const activePlans = useMemo(() => {
+    // HF-182 Fixes 7-8: Dedup by plan name — keep most recent per name
+    const filtered = plans.filter(p => p.status === 'active' || p.status === 'draft');
+    const seen = new Set<string>();
+    return filtered.filter(p => {
+      if (seen.has(p.name)) return false;
+      seen.add(p.name);
+      return true;
+    });
+  }, [plans]);
 
   // OB-186: Filter periods by selected plan's cadence_config
   // If a plan has cadence_config.period_type, only show matching periods.
@@ -462,7 +471,7 @@ function CalculatePageInner() {
           <span className="text-sm font-medium text-zinc-300">Period:</span>
           {/* OB-186: Use filteredPeriods (cadence-aware) instead of all periods */}
           {filteredPeriods.length > 0 ? (
-            <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); }}>
+            <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); setResultsData(null); setSelectedPlanId(null); }}>
               <SelectTrigger className="w-64 h-10 text-sm font-semibold text-zinc-100">
                 <SelectValue placeholder="Select period" />
               </SelectTrigger>

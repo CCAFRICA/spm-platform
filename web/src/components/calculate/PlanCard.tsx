@@ -64,6 +64,7 @@ export function PlanCard({
   const [componentBreakdown, setComponentBreakdown] = useState<ComponentSummary[] | null>(null);
   const [calcTotal, setCalcTotal] = useState<number | null>(null);
   const [excludedCount, setExcludedCount] = useState<number>(0);
+  const [calcEntityCount, setCalcEntityCount] = useState<number | null>(null);
 
   const isReady = plan.entityCount > 0 && plan.hasBindings && plan.dataRowCount > 0;
 
@@ -99,6 +100,7 @@ export function PlanCard({
         setCalcSuccess(`${count} entities processed — ${formatCurrency(total)}`);
         setCalcTotal(total);
         setExcludedCount(excluded);
+        setCalcEntityCount(count);
 
         // Extract component totals from results
         if (result.results && Array.isArray(result.results)) {
@@ -118,6 +120,7 @@ export function PlanCard({
         }
 
         onCalculateComplete();
+        onSelect(plan.planId); // HF-182 Fix 1: auto-select plan to show results
       }
     } catch (err) {
       setCalcError(err instanceof Error ? err.message : 'Calculation failed');
@@ -168,12 +171,12 @@ export function PlanCard({
         {/* Stats row */}
         <div className="flex items-center gap-4 text-xs text-zinc-500 mb-3">
           <span className="flex items-center gap-1">
-            {plan.entityCount > 0 ? (
+            {(calcEntityCount ?? plan.entityCount) > 0 ? (
               <CheckCircle2 className="w-3 h-3 text-emerald-500" />
             ) : (
               <AlertTriangle className="w-3 h-3 text-amber-500" />
             )}
-            {plan.entityCount} entities
+            {calcEntityCount ?? plan.entityCount} entities{excludedCount > 0 && ` (${excludedCount} excl.)`}
           </span>
           <span className="flex items-center gap-1">
             {plan.hasBindings ? (
@@ -277,11 +280,11 @@ export function PlanCard({
           )}
         </Button>
 
-        {/* Verify Results link */}
+        {/* Verify Results link — HF-182 Fix 4: styled as visible button */}
         {plan.lastBatchDate && (
           <Link
             href={`/operate/reconciliation?planId=${plan.planId}`}
-            className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-violet-400 mt-2 transition-colors"
+            className="flex items-center justify-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 mt-2 px-3 py-1.5 rounded-md border border-violet-500/30 hover:border-violet-500/50 transition-colors"
             onClick={(e) => e.stopPropagation()}
           >
             <ClipboardCheck className="w-3.5 h-3.5" />
@@ -300,11 +303,11 @@ export function PlanCard({
           <p className="text-[10px] text-zinc-500 mt-1">{excludedCount} entities excluded (no qualifying variant)</p>
         )}
 
-        {/* OB-176: Post-calculation guidance */}
+        {/* OB-176: Post-calculation guidance — HF-182 Fix 4: styled as visible button */}
         {calcSuccess && componentBreakdown && (
           <Link
             href="/stream"
-            className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 mt-2 transition-colors"
+            className="flex items-center justify-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 mt-2 px-3 py-1.5 rounded-md border border-indigo-500/30 hover:border-indigo-500/50 transition-colors"
             onClick={(e) => e.stopPropagation()}
           >
             View Intelligence

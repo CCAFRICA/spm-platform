@@ -377,8 +377,20 @@ export default function ReconciliationPage() {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheet = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheet];
+        // HF-182 Fix 12: Auto-select sheet matching the plan being reconciled
+        // For multi-sheet GT files (one sheet per plan), match by plan name similarity
+        let selectedSheet = workbook.SheetNames[0];
+        if (workbook.SheetNames.length > 1 && selectedBatch?.ruleSetName) {
+          const planNameLower = selectedBatch.ruleSetName.toLowerCase();
+          const matched = workbook.SheetNames.find(s =>
+            planNameLower.includes(s.toLowerCase()) || s.toLowerCase().includes(planNameLower.split(' ')[0]?.toLowerCase() ?? '')
+          );
+          if (matched) {
+            selectedSheet = matched;
+            console.log(`[Reconciliation] Sheet selection: matched "${matched}" to plan "${selectedBatch.ruleSetName}" (${workbook.SheetNames.length} sheets available)`);
+          }
+        }
+        const worksheet = workbook.Sheets[selectedSheet];
         // HF-179: Detect header row BEFORE parsing — one parse, correct from the start.
         // Previous detect-then-reparse approach failed 3 times (OB-190, OB-192×2).
         // New approach: scan raw worksheet cells to find the actual header row,
@@ -411,7 +423,7 @@ export default function ReconciliationPage() {
           rows: jsonData,
           format: file.name.endsWith('.csv') ? 'csv' : 'xlsx',
           sheetNames: workbook.SheetNames,
-          activeSheet: firstSheet,
+          activeSheet: selectedSheet,
           totalRows: jsonData.length,
         };
         setParsedFile(parsed);
