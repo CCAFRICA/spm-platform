@@ -35,6 +35,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Strategy 1: Use source_date column (OB-152 temporal binding)
+    // HF-185: Period creation from transactional data only (OB-107 principle).
+    // Entity/roster dates (hire_date) and reference dates are not performance boundaries.
     const periodMap = new Map<string, { year: number; month: number; count: number }>();
 
     const { data: sourceDateSample } = await supabase
@@ -42,6 +44,7 @@ export async function POST(req: NextRequest) {
       .select('source_date')
       .eq('tenant_id', tenantId)
       .not('source_date', 'is', null)
+      .or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target')
       .limit(1);
 
     if (sourceDateSample && sourceDateSample.length > 0) {
@@ -53,6 +56,7 @@ export async function POST(req: NextRequest) {
           .select('source_date')
           .eq('tenant_id', tenantId)
           .not('source_date', 'is', null)
+          .or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target')
           .range(offset, offset + 4999);
 
         if (!rows || rows.length === 0) break;
