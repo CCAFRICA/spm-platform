@@ -13,6 +13,19 @@
  *
  * OB-157: Added periodMarkerHint for year+month column composition.
  */
+// HF-185: Semantic roles that indicate a date field is NOT a business event date.
+// Entity attributes that happen to be dates (hire_date, birth_date) must not become source_date.
+// Korean Test: uses SEMANTIC ROLES from SCI classification, not field names.
+const NON_TEMPORAL_ROLES = new Set([
+  'entity_attribute',
+  'entity_identifier',
+  'entity_name',
+  'transaction_identifier',
+  'category_code',
+  'descriptive_label',
+  'entity_license',
+]);
+
 export function extractSourceDate(
   rowData: Record<string, unknown>,
   dateColumnHint: string | null,
@@ -21,8 +34,15 @@ export function extractSourceDate(
 ): string | null {
   // Strategy 1: Content Profile identified date column
   if (dateColumnHint && rowData[dateColumnHint] != null) {
-    const parsed = parseAnyDateValue(rowData[dateColumnHint]);
-    if (parsed) return parsed;
+    // HF-185: Check if semantic roles classify this field as non-temporal.
+    // Entity attributes that happen to be dates (hire_date, birth_date) are NOT source_dates.
+    const hintRole = semanticRoles?.[dateColumnHint];
+    if (hintRole && NON_TEMPORAL_ROLES.has(hintRole)) {
+      // Skip — fall through to Strategy 2+ to find an actual temporal column
+    } else {
+      const parsed = parseAnyDateValue(rowData[dateColumnHint]);
+      if (parsed) return parsed;
+    }
   }
 
   // Strategy 2: Semantic role tagged as temporal
@@ -56,10 +76,13 @@ export function extractSourceDate(
 
   // Strategy 4: Structural scan — string/Date values only (OB-157: skip numbers)
   // Numbers are too ambiguous (financial values, IDs, quantities can look like serial dates)
-  for (const value of Object.values(rowData)) {
+  // HF-185: Object.entries (not Object.values) so we can check semantic roles per field
+  for (const [key, value] of Object.entries(rowData)) {
     if (value == null) continue;
     if (typeof value === 'number') continue; // OB-157: skip numeric values
     if (typeof value === 'object' && !(value instanceof Date)) continue;
+    // HF-185: Skip fields with non-temporal semantic roles
+    if (semanticRoles?.[key] && NON_TEMPORAL_ROLES.has(semanticRoles[key])) continue;
     const parsed = parseAnyDateValue(value);
     if (parsed) {
       const y = new Date(parsed).getFullYear();
