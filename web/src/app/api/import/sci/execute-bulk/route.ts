@@ -292,7 +292,7 @@ async function processContentUnit(
 ): Promise<ContentUnitResult> {
   switch (unit.confirmedClassification) {
     case 'entity':
-      return processEntityUnit(supabase, tenantId, unit, rows);
+      return processEntityUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName);
     case 'target':
       return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'target');
     case 'transaction':
@@ -316,8 +316,11 @@ async function processContentUnit(
 async function processEntityUnit(
   supabase: SupabaseClient,
   tenantId: string,
+  proposalId: string,
   unit: BulkContentUnit,
   rows: Record<string, unknown>[],
+  fileName: string,
+  tabName: string,
 ): Promise<ContentUnitResult> {
   if (rows.length === 0) {
     return { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: 0, pipeline: 'entity' };
@@ -484,6 +487,93 @@ async function processEntityUnit(
   }
 
   console.log(`[SCI Bulk] Entity: ${created} new, ${existingMap.size} existing, ${enriched} enriched`);
+
+  // HF-184: Unified committed_data write — entity pipeline also writes to committed_data.
+  // Classification is a hint, not a gate. All pipelines carry everything.
+  // Entity creation above is a side effect. committed_data is the uniform data store.
+  const cdBatchId = crypto.randomUUID();
+  await supabase.from('import_batches').insert({
+    id: cdBatchId,
+    tenant_id: tenantId,
+    file_name: `sci-bulk-${proposalId}`,
+    file_type: 'sci',
+    status: 'processing',
+    row_count: rows.length,
+    metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'entity' } as unknown as Json,
+  });
+
+  const normalized = normalizeFileNameToDataType(fileName);
+  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
+  const dataType = !isGenericTab && normalized.length > 2
+    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
+    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+
+  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
+  for (const binding of unit.confirmedBindings) {
+    semanticRoles[binding.sourceField] = {
+      role: binding.semanticRole,
+      confidence: binding.confidence,
+      claimedBy: binding.claimedBy,
+    };
+  }
+
+  const entityIdField = idBinding.sourceField;
+  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
+  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+  const periodMarkerHint = detectPeriodMarkerColumns(rows);
+
+  const insertRows = rows.map((row, i) => {
+    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
+    return {
+      tenant_id: tenantId,
+      import_batch_id: cdBatchId,
+      entity_id: null,
+      period_id: null,
+      source_date: sourceDate,
+      data_type: dataType,
+      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
+      metadata: {
+        source: 'sci-bulk',
+        proposalId,
+        semantic_roles: semanticRoles,
+        resolved_data_type: dataType,
+        entity_id_field: entityIdField || null,
+        informational_label: 'entity',
+      },
+    };
+  });
+
+  const CD_CHUNK = 2000;
+  let cdInserted = 0;
+  for (let i = 0; i < insertRows.length; i += CD_CHUNK) {
+    const slice = insertRows.slice(i, i + CD_CHUNK);
+    const { error: insertErr } = await supabase.from('committed_data').insert(slice as unknown as Json[]);
+    if (insertErr) {
+      console.warn(`[SCI Bulk] Entity→committed_data insert failed (non-blocking): ${insertErr.message}`);
+      break;
+    }
+    cdInserted += slice.length;
+  }
+
+  await supabase.from('import_batches').update({
+    status: 'completed',
+    row_count: cdInserted,
+  }).eq('id', cdBatchId);
+
+  console.log(`[SCI Bulk] Entity→committed_data: ${cdInserted} rows, entity_id_field="${entityIdField || 'none'}"`);
+
+  // OB-195 Layer 4: Invalidate cached convergence bindings
+  if (cdInserted > 0) {
+    const { data: clearedRuleSets } = await supabase
+      .from('rule_sets')
+      .update({ input_bindings: {} })
+      .eq('tenant_id', tenantId)
+      .in('status', ['active', 'draft'])
+      .select('id');
+    if ((clearedRuleSets?.length ?? 0) > 0) {
+      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (entity data imported — convergence will re-derive)`);
+    }
+  }
 
   return { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: rows.length, pipeline: 'entity' };
 }
