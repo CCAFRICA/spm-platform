@@ -1454,9 +1454,12 @@ export async function POST(request: NextRequest) {
       ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
       : {};
 
-    // ── CURRENT ENGINE PATH ──
+    // ── LEGACY ENGINE PATH (concordance shadow — HF-188) ──
+    if (entityResults.length === 0) {
+      addLog('HF-188: Intent executor is sole authority — legacy engine is concordance shadow');
+    }
     const componentResults: ComponentResult[] = [];
-    let entityTotalDecimal = ZERO;
+    let legacyTotalDecimal = ZERO;
     const perComponentMetrics: Record<string, number>[] = [];
     const entityRoundingTraces: RoundingTrace[] = [];
 
@@ -1565,19 +1568,18 @@ export async function POST(request: NextRequest) {
 
       componentResults.push(result);
       perComponentMetrics.push(metrics);
-      entityTotalDecimal = entityTotalDecimal.plus(rounded);
+      legacyTotalDecimal = legacyTotalDecimal.plus(rounded);
     }
 
-    // HF-122: Entity total from rounded components (GAAP line-item presentation)
-    const entityTotal = toNumber(entityTotalDecimal);
+    // HF-188: Legacy total preserved for concordance comparison only
+    const legacyTotal = toNumber(legacyTotalDecimal);
 
-    // ── OB-76 INTENT ENGINE PATH (parallel execution) ──
+    // ── HF-188 INTENT ENGINE PATH (authoritative) ──
     // HF-119: Use selected variant's intents, not always defaultComponents
     const entityIntents = selectedVariantIndex === 0
       ? componentIntents
       : transformVariant(selectedComponents);
     const intentTraces: unknown[] = [];
-    let intentTotal = 0;
     const priorResults: number[] = [];
 
     // HF-155 Item 1: Populate crossDataCounts from entity's committed_data
@@ -1656,6 +1658,8 @@ export async function POST(request: NextRequest) {
     if (entityDistrict) aggregateScopeRows('district', entityDistrict, 'district');
     if (entityRegion) aggregateScopeRows('region', entityRegion, 'region');
 
+    // HF-188: Intent executor is sole authority. Rounding applied here.
+    let intentTotalDecimal = ZERO;
     for (const ci of entityIntents) {
       const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
       const entityData: EntityData = {
@@ -1669,12 +1673,34 @@ export async function POST(request: NextRequest) {
       };
       const intentResult = executeIntent(ci, entityData);
       intentTraces.push(intentResult.trace);
-      intentTotal += intentResult.outcome;
-      priorResults[ci.componentIndex] = intentResult.outcome;
+
+      // HF-188: Apply Decision 122 rounding to intent executor results
+      const comp = selectedComponents[ci.componentIndex];
+      const compIntent = comp?.calculationIntent as Record<string, unknown> | undefined;
+      const compConfig = (comp?.tierConfig || comp?.matrixConfig ||
+        comp?.percentageConfig || comp?.conditionalConfig) as Record<string, unknown> | undefined;
+      const precision = inferOutputPrecision(compIntent, compConfig);
+      const { rounded, trace: roundingTrace } = roundComponentOutput(
+        intentResult.outcome, ci.componentIndex, ci.label, precision
+      );
+      const roundedValue = toNumber(rounded);
+
+      // Override componentResults payout with intent-authority value
+      if (componentResults[ci.componentIndex]) {
+        componentResults[ci.componentIndex].payout = roundedValue;
+      }
+      entityRoundingTraces[ci.componentIndex] = roundingTrace;
+
+      intentTotalDecimal = intentTotalDecimal.plus(rounded);
+      priorResults[ci.componentIndex] = roundedValue;
     }
 
+    // HF-188: Intent executor is authoritative — legacy is concordance shadow
+    const intentTotal = toNumber(intentTotalDecimal);
+    const entityTotal = intentTotal;
+
     // ── DUAL-PATH COMPARISON ──
-    const entityMatch = Math.abs(entityTotal - intentTotal) < 0.01;
+    const entityMatch = Math.abs(legacyTotal - intentTotal) < 0.01;
     if (entityMatch) {
       intentMatchCount++;
     } else {
@@ -1708,6 +1734,7 @@ export async function POST(request: NextRequest) {
         externalId: entityInfo?.external_id ?? '',
         intentTraces,
         intentTotal,
+        legacyTotal,
         intentMatch: entityMatch,
         roundingTrace: {
           rawTotal: entityRoundingTraces.reduce((s, t) => s + t.rawValue, 0),
