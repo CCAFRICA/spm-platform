@@ -316,8 +316,14 @@ function inferRoleForAgent(
     return { role: 'entity_identifier', context: `${field.fieldName} — identifier (cardinality fallback, uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.85 };
   }
 
-  // HC reference_key → LLM-primary then cardinality
+  // HC reference_key → agent-aware mapping
   if (hcRole === 'reference_key') {
+    // HF-186: For entity agent, reference_key means hierarchical link (e.g., reports_to → manager).
+    // NOT this row's own identifier. Maps to entity_relationship instead.
+    if (agent === 'entity') {
+      return { role: 'entity_relationship', context: `${field.fieldName} — hierarchical reference`, confidence: 0.75 };
+    }
+    // For target/transaction/reference agents, reference_key IS the entity link
     if (identifiesWhat) {
       const iw = identifiesWhat.toLowerCase();
       if (ENTITY_TYPES.some(t => iw.includes(t))) {
