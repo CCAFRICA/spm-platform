@@ -383,6 +383,66 @@ function buildComponentIntent(
 // for types that don't fit the legacy PlanComponent config structure.
 // ──────────────────────────────────────────────
 
+/**
+ * HF-187: Normalize an AI-produced source reference into a valid IntentSource or IntentOperation.
+ *
+ * AI format for metrics:  { source: "metric", sourceSpec: { field: "X" } }  → pass through
+ * AI format for ratios:   { source: "ratio", sourceSpec: { numerator: "X", denominator: "Y" } }
+ *                         → { operation: "ratio", numerator: IntentSource, denominator: IntentSource }
+ * AI format for constants: { source: "constant", value: N } → pass through
+ * String shorthand:       "field_name" → { source: "metric", sourceSpec: { field: "field_name" } }
+ */
+function normalizeIntentInput(raw: unknown): IntentSource | IntentOperation {
+  if (raw == null) return { source: 'constant', value: 0 };
+
+  // String shorthand → metric source
+  if (typeof raw === 'string') {
+    return { source: 'metric', sourceSpec: { field: raw } };
+  }
+
+  // Number → constant
+  if (typeof raw === 'number') {
+    return { source: 'constant', value: raw };
+  }
+
+  const obj = raw as Record<string, unknown>;
+
+  // Already a valid IntentOperation (has 'operation' field) → recurse nested inputs
+  if ('operation' in obj && typeof obj.operation === 'string') {
+    if (obj.operation === 'ratio') {
+      const spec = (obj.sourceSpec || {}) as Record<string, unknown>;
+      return {
+        operation: 'ratio',
+        numerator: normalizeIntentInput(obj.numerator || spec.numerator),
+        denominator: normalizeIntentInput(obj.denominator || spec.denominator),
+        zeroDenominatorBehavior: (obj.zeroDenominatorBehavior as string) || 'zero',
+      } as IntentOperation;
+    }
+    return obj as unknown as IntentOperation;
+  }
+
+  // source: "ratio" → convert to RatioOp (IntentOperation)
+  if (obj.source === 'ratio') {
+    const spec = (obj.sourceSpec || {}) as Record<string, unknown>;
+    return {
+      operation: 'ratio',
+      numerator: normalizeIntentInput(spec.numerator),
+      denominator: normalizeIntentInput(spec.denominator),
+      zeroDenominatorBehavior: 'zero',
+    } as IntentOperation;
+  }
+
+  // Valid IntentSource types — pass through
+  if (obj.source === 'metric' || obj.source === 'constant' || obj.source === 'entity_attribute'
+    || obj.source === 'prior_component' || obj.source === 'cross_data'
+    || obj.source === 'scope_aggregate' || obj.source === 'aggregate') {
+    return obj as unknown as IntentSource;
+  }
+
+  // Unknown format — constant 0 fallback
+  return { source: 'constant', value: 0 };
+}
+
 function transformFromMetadata(
   component: PlanComponent,
   componentIndex: number
@@ -400,36 +460,65 @@ function transformFromMetadata(
     // Linear function: rate * input + constant
     operation = {
       operation: 'linear_function',
-      input: rawIntent.input as IntentSource,
+      input: normalizeIntentInput(rawIntent.input),
       slope: Number(rawIntent.rate),
       intercept: Number(rawIntent.additionalConstant),
     } as IntentOperation;
   } else if (rawIntent.operation === 'scalar_multiply' && rawIntent.rate != null) {
     operation = {
       operation: 'scalar_multiply',
-      input: rawIntent.input as IntentSource,
+      input: normalizeIntentInput(rawIntent.input),
       rate: Number(rawIntent.rate),
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'piecewise_linear') {
+    // HF-187: Typed transformation for piecewise_linear
+    const calcMethod = (component as unknown as Record<string, unknown>).calculationMethod as Record<string, unknown> | undefined;
+    const tv = rawIntent.targetValue ?? calcMethod?.targetValue ?? meta?.targetValue;
+    operation = {
+      operation: 'piecewise_linear',
+      ratioInput: normalizeIntentInput(rawIntent.ratioInput),
+      baseInput: normalizeIntentInput(rawIntent.baseInput),
+      ...(tv != null && Number(tv) > 0 ? { targetValue: Number(tv) } : {}),
+      segments: Array.isArray(rawIntent.segments) ? rawIntent.segments.map((seg: Record<string, unknown>) => ({
+        min: Number(seg.min ?? 0),
+        max: seg.max != null ? Number(seg.max) : null,
+        rate: Number(seg.rate ?? 0),
+      })) : [],
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'conditional_gate') {
+    // HF-187: Typed transformation for conditional_gate
+    const cond = (rawIntent.condition || {}) as Record<string, unknown>;
+    operation = {
+      operation: 'conditional_gate',
+      condition: {
+        left: normalizeIntentInput(cond.left),
+        operator: String(cond.operator || '>='),
+        right: normalizeIntentInput(cond.right),
+      },
+      onTrue: normalizeIntentInput(rawIntent.onTrue) as IntentOperation,
+      onFalse: normalizeIntentInput(rawIntent.onFalse) as IntentOperation,
     } as IntentOperation;
   } else {
     // Use as-is if it's already a proper IntentOperation
     operation = rawIntent as unknown as IntentOperation;
   }
 
-  // OB-186: For piecewise_linear, propagate targetValue from component definition
-  // The AI extracts quota/target from the plan PDF and stores it in calculationMethod.
-  // If the intent doesn't have targetValue but the component does, copy it through.
-  if (operation.operation === 'piecewise_linear') {
-    const pwOp = operation as import('./intent-types').PiecewiseLinearOp;
-    if (!pwOp.targetValue) {
-      const calcMethod = (component as unknown as Record<string, unknown>).calculationMethod as Record<string, unknown> | undefined;
-      const tv = calcMethod?.targetValue ?? meta?.targetValue;
-      if (tv != null && Number(tv) > 0) {
-        (pwOp as unknown as Record<string, unknown>).targetValue = Number(tv);
+  const modifiers: IntentModifier[] = [];
+
+  // HF-187: Extract modifiers from inside the intent object (AI places them there)
+  if (Array.isArray(rawIntent.modifiers)) {
+    for (const mod of rawIntent.modifiers) {
+      const m = mod as Record<string, unknown>;
+      if (m.modifier === 'cap' && m.maxValue != null) {
+        modifiers.push({ modifier: 'cap', maxValue: Number(m.maxValue), scope: 'per_period' });
+      }
+      if (m.modifier === 'floor' && m.minValue != null) {
+        modifiers.push({ modifier: 'floor', minValue: Number(m.minValue), scope: 'per_period' });
       }
     }
   }
 
-  const modifiers: IntentModifier[] = [];
+  // Also check component-level metadata (legacy path)
   if (meta.cap != null && Number(meta.cap) > 0) {
     modifiers.push({ modifier: 'cap', maxValue: Number(meta.cap), scope: 'per_period' });
   }
