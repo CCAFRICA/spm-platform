@@ -268,11 +268,11 @@ export async function POST(request: NextRequest) {
   // HF-078: Deduplicate entity IDs to prevent UNIQUE constraint violations
   let entityIds = Array.from(new Set(assignments.map(a => a.entity_id)));
 
-  // HF-126: Self-healing — if zero assignments, auto-create from all entities
-  if (entityIds.length === 0) {
-    addLog('Zero assignments found — auto-creating from tenant entities');
-
-    const allEntities: string[] = [];
+  // HF-126 + HF-189: Self-healing — ensure ALL tenant entities are assigned
+  // HF-126 original: fires when zero assignments exist
+  // HF-189 expansion: also fires when some entities are missing (import timing gap)
+  {
+    const allTenantEntityIds: string[] = [];
     let entPage = 0;
     while (true) {
       const { data: ep } = await supabase
@@ -281,26 +281,35 @@ export async function POST(request: NextRequest) {
         .eq('tenant_id', tenantId)
         .range(entPage * PAGE_SIZE, (entPage + 1) * PAGE_SIZE - 1);
       if (!ep || ep.length === 0) break;
-      allEntities.push(...ep.map(e => e.id));
+      allTenantEntityIds.push(...ep.map(e => e.id));
       if (ep.length < PAGE_SIZE) break;
       entPage++;
     }
 
-    if (allEntities.length > 0) {
-      const INSERT_BATCH = 5000;
-      const newAssignments = allEntities.map(eid => ({
-        tenant_id: tenantId,
-        rule_set_id: ruleSetId,
-        entity_id: eid,
-        assignment_type: 'direct',
-        metadata: {},
-      }));
-      for (let i = 0; i < newAssignments.length; i += INSERT_BATCH) {
-        const slice = newAssignments.slice(i, i + INSERT_BATCH);
-        await supabase.from('rule_set_assignments').insert(slice);
+    if (allTenantEntityIds.length > 0) {
+      const assignedSet = new Set(entityIds);
+      const missingEntityIds = allTenantEntityIds.filter(id => !assignedSet.has(id));
+
+      if (missingEntityIds.length > 0) {
+        const INSERT_BATCH = 5000;
+        const newAssignments = missingEntityIds.map(eid => ({
+          tenant_id: tenantId,
+          rule_set_id: ruleSetId,
+          entity_id: eid,
+          assignment_type: 'direct',
+          metadata: {},
+        }));
+        for (let i = 0; i < newAssignments.length; i += INSERT_BATCH) {
+          const slice = newAssignments.slice(i, i + INSERT_BATCH);
+          await supabase.from('rule_set_assignments').insert(slice);
+        }
+        entityIds = [...entityIds, ...missingEntityIds];
+        if (assignedSet.size === 0) {
+          addLog(`HF-126: Auto-created ${missingEntityIds.length} assignments (zero existed)`);
+        } else {
+          addLog(`HF-189: Assigned ${missingEntityIds.length} missing entities to rule set (import timing gap)`);
+        }
       }
-      entityIds = allEntities;
-      addLog(`HF-126: Auto-created ${newAssignments.length} assignments`);
     }
 
     if (entityIds.length === 0) {
