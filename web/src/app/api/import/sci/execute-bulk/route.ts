@@ -417,6 +417,7 @@ async function processEntityUnit(
         status: 'active' as const,
         temporal_attributes: buildTemporalAttrs(meta?.enrichment || {}) as Json[],
         metadata: {
+          ...(meta?.enrichment || {}),  // HF-190: All enrichment fields in metadata for scope resolution
           ...(meta?.role ? { role: meta.role } : {}),
           ...(meta?.licenses ? { product_licenses: meta.licenses } : {}),
         } as Record<string, Json>,
@@ -464,26 +465,27 @@ async function processEntityUnit(
       newAttrs.push({ key, value, effective_from: importDate, effective_to: null });
     }
 
-    // Also update metadata.role if detected
-    if (meta.role) {
+    // HF-190: Spread ALL enrichment fields into metadata (not just role)
+    {
       const { data: entData } = await supabase.from('entities').select('metadata').eq('id', entityId).single();
       const existingMeta = (entData?.metadata ?? {}) as Record<string, unknown>;
-      if (existingMeta.role !== meta.role) {
+      const mergedMeta = {
+        ...existingMeta,
+        ...meta.enrichment,  // HF-190: All enrichment fields in metadata for scope resolution
+        ...(meta.role ? { role: meta.role } : {}),
+      };
+      const metaChanged = JSON.stringify(existingMeta) !== JSON.stringify(mergedMeta);
+      if (metaChanged || newAttrs.length !== existingAttrs.length) {
         await supabase.from('entities').update({
           temporal_attributes: newAttrs as unknown as Json[],
-          metadata: { ...existingMeta, role: meta.role } as unknown as Json,
+          metadata: mergedMeta as unknown as Json,
         }).eq('id', entityId);
         enriched++;
         continue;
       }
     }
 
-    if (newAttrs.length !== existingAttrs.length) {
-      await supabase.from('entities').update({
-        temporal_attributes: newAttrs as unknown as Json[],
-      }).eq('id', entityId);
-      enriched++;
-    }
+    // HF-190: temporal-only update path removed — unified update above handles both metadata + temporal
   }
 
   console.log(`[SCI Bulk] Entity: ${created} new, ${existingMap.size} existing, ${enriched} enriched`);
