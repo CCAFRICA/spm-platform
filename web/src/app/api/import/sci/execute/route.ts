@@ -237,6 +237,10 @@ export async function POST(req: NextRequest) {
             if (currentBindings.metric_mappings) {
               updatedBindings.metric_mappings = currentBindings.metric_mappings;
             }
+            // Decision 147: Preserve plan_agent_seeds across convergence updates
+            if (currentBindings.plan_agent_seeds) {
+              updatedBindings.plan_agent_seeds = currentBindings.plan_agent_seeds;
+            }
 
             await supabase
               .from('rule_sets')
