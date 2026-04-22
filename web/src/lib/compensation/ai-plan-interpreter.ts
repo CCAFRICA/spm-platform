@@ -137,40 +137,6 @@ export interface AIInterpreterConfig {
   maxTokens?: number;
 }
 
-/**
- * HF-193-A Phase 2.2b: L2 Comprehension signal-write specification.
- *
- * Produced by bridgeAIToEngineFormat; consumed by caller's fn_bridge_persistence RPC call.
- * Each spec represents one metric-comprehension signal to persist on classification_signals.
- *
- * tenant_id and signal_type are populated by the stored procedure (not by caller).
- * rule_set_id is derived from p_rule_set.id in the RPC payload.
- */
-export interface SignalWriteSpec {
-  /** AI-determined metric identifier; stored as classification_signals.metric_name */
-  metric_name: string;
-  /** Sequential position in bridge's validSemantics array, 0-indexed */
-  component_index: number;
-  /** Full validSemantics entry for this signal; stored as classification_signals.signal_value */
-  signal_value: Record<string, unknown>;
-}
-
-/**
- * HF-193-A Phase 2.2b: Extended bridge function return shape.
- *
- * Previous fields (name, description, components, inputBindings) unchanged.
- * New field l2ComprehensionSignals added per IRA Consultation 1 Option C.
- * Additive extension — seeds-path via inputBindings.plan_agent_seeds preserved per D13.
- */
-export interface BridgeOutput {
-  name: string;
-  description: string;
-  components: { variants: unknown[] };
-  inputBindings: Record<string, unknown>;
-  /** HF-193-A: L2 Comprehension signal-write specifications (additive; populated when validSemantics.length > 0) */
-  l2ComprehensionSignals: SignalWriteSpec[];
-}
-
 // ============================================
 // AI INTERPRETER CLASS (uses AIService for provider abstraction)
 // ============================================
@@ -760,7 +726,12 @@ export function bridgeAIToEngineFormat(
   rawResult: Record<string, unknown>,
   tenantId: string,
   userId: string,
-): BridgeOutput {
+): {
+  name: string;
+  description: string;
+  components: { variants: Array<{ variantId: string; variantName: string; description?: string; components: PlanComponent[] }> };
+  inputBindings: Record<string, unknown>;
+} {
   // Step 1: Normalize the raw AI output through the same pipeline as the plan import page
   const interpreter = new AIPlainInterpreter();
   const normalized = interpreter.validateAndNormalizePublic(rawResult);
@@ -780,14 +751,6 @@ export function bridgeAIToEngineFormat(
     );
   });
 
-  // HF-193-A Phase 2.2b: derive L2 Comprehension signal specs additively
-  // (seeds-path via inputBindings preserved per additive policy D13)
-  const l2ComprehensionSignals: SignalWriteSpec[] = validSemantics.map((sem, index) => ({
-    metric_name: sem.metric as string,
-    component_index: index,
-    signal_value: sem,
-  }));
-
   return {
     name: normalized.ruleSetName,
     description: normalized.description,
@@ -795,8 +758,6 @@ export function bridgeAIToEngineFormat(
     inputBindings: validSemantics.length > 0
       ? { plan_agent_seeds: validSemantics }
       : {},
-    // HF-193-A Phase 2.2b: additive L2 Comprehension signal surface
-    l2ComprehensionSignals,
   };
 }
 
