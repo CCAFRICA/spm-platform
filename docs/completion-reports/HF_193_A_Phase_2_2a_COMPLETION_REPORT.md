@@ -363,3 +363,255 @@ Phase 2.2b directive drafted after Phase 2.2a completion-report review.
 ---
 
 *HF-193-A Phase 2.2a Completion Report · fn_bridge_persistence stored procedure · Path β atomicity primitive locked · Branch hf-193-signal-surface · Evidence durable-committed · 2026-04-21 · Awaiting Phase 2.2b directive*
+
+---
+
+## Refinement (2026-04-21 post-initial-verification)
+
+### Rationale
+
+CC's initial verification (original Phase 2.2a commit `378ff092`) surfaced that `jsonb_populate_record(NULL::rule_sets, p_rule_set)` does not invoke column DEFAULTs — fields absent from `p_rule_set` became NULL in the resulting record, and the INSERT then overrode DEFAULT `now()` with NULL, failing NOT NULL constraints on `created_at` / `updated_at`.
+
+CC worked around this inline by populating timestamps explicitly in the verification test payload. Verification PASSED with the workaround, but the workaround implied a Phase 2.2b caller contract ("must populate created_at / updated_at") that did not exist in the existing `.upsert()` caller at `execute/route.ts:1278`, `:1514` (which relies on PostgREST omitting unsupplied columns so DB defaults fire).
+
+Architect step-back interrogation of the fix recommendation (after two prior self-corrections on this sub-question) surfaced that an explicit-column-list INSERT pattern in the function body is architecturally cleaner: business-semantic columns are named and COALESCE-protected; audit-timestamp columns are OMITTED from the column list, letting DB defaults fire automatically. This preserves the existing caller contract — no new timestamp-population responsibility pushed to Phase 2.2b callers.
+
+### Refined migration
+
+**File path:** `web/supabase/migrations/20260421050000_hf_193_a_bridge_persistence_function_refinement.sql`
+
+**Refinement SQL (Option X — explicit column list INSERT):**
+```sql
+BEGIN;
+
+CREATE OR REPLACE FUNCTION fn_bridge_persistence(
+  p_rule_set jsonb,
+  p_signals  jsonb
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+  v_rule_set_id uuid;
+  v_tenant_id   uuid;
+BEGIN
+  v_rule_set_id := (p_rule_set->>'id')::uuid;
+  v_tenant_id   := (p_rule_set->>'tenant_id')::uuid;
+
+  IF v_rule_set_id IS NULL THEN
+    RAISE EXCEPTION 'fn_bridge_persistence: p_rule_set.id is required (caller must pre-generate UUID)';
+  END IF;
+  IF v_tenant_id IS NULL THEN
+    RAISE EXCEPTION 'fn_bridge_persistence: p_rule_set.tenant_id is required';
+  END IF;
+
+  INSERT INTO rule_sets (
+    id,
+    tenant_id,
+    name,
+    description,
+    status,
+    version,
+    effective_from,
+    effective_to,
+    population_config,
+    input_bindings,
+    components,
+    cadence_config,
+    outcome_config,
+    metadata,
+    created_by,
+    approved_by
+  )
+  VALUES (
+    v_rule_set_id,
+    v_tenant_id,
+    p_rule_set->>'name',
+    p_rule_set->>'description',
+    COALESCE(p_rule_set->>'status', 'draft'),
+    COALESCE((p_rule_set->>'version')::integer, 1),
+    (p_rule_set->>'effective_from')::date,
+    (p_rule_set->>'effective_to')::date,
+    COALESCE(p_rule_set->'population_config', '{}'::jsonb),
+    COALESCE(p_rule_set->'input_bindings', '{}'::jsonb),
+    COALESCE(p_rule_set->'components', '[]'::jsonb),
+    COALESCE(p_rule_set->'cadence_config', '{}'::jsonb),
+    COALESCE(p_rule_set->'outcome_config', '{}'::jsonb),
+    COALESCE(p_rule_set->'metadata', '{}'::jsonb),
+    (p_rule_set->>'created_by')::uuid,
+    (p_rule_set->>'approved_by')::uuid
+  );
+
+  INSERT INTO classification_signals (
+    tenant_id,
+    signal_type,
+    signal_value,
+    rule_set_id,
+    metric_name,
+    component_index
+  )
+  SELECT
+    v_tenant_id,
+    'metric_comprehension',
+    (sig->>'signal_value')::jsonb,
+    v_rule_set_id,
+    sig->>'metric_name',
+    (sig->>'component_index')::integer
+  FROM jsonb_array_elements(p_signals) AS sig;
+
+  RETURN v_rule_set_id;
+END;
+$$;
+
+COMMIT;
+```
+
+**Commit:** `b812d956` — "HF-193-A Phase 2.2a refinement: fn_bridge_persistence body → Option X explicit column list pattern"
+
+### Architect-applied refinement
+
+**Applied via:** Supabase Dashboard SQL Editor (VP dev project)
+**Architect-reported output:**
+```
+Success. No rows returned
+```
+No errors. `fn_bridge_persistence` Option X body is live in VP dev Supabase. Function signature unchanged. Callers transition cleanly.
+
+### Verification script update
+
+**Change:** remove explicit `created_at` / `updated_at` from `testRuleSet` payload. Removed `nowIso` variable declaration. Updated comment. Extended rule_sets readback SELECT to include `created_at` / `updated_at` so the DB-default-fired evidence is explicit in verification output.
+
+**Diff:**
+```diff
+diff --git a/web/scripts/hf-193-a-phase-2-2a-rpc-verification.ts b/web/scripts/hf-193-a-phase-2-2a-rpc-verification.ts
+index fdfac94c..e88a69ff 100644
+--- a/web/scripts/hf-193-a-phase-2-2a-rpc-verification.ts
++++ b/web/scripts/hf-193-a-phase-2-2a-rpc-verification.ts
+@@ -50,12 +50,7 @@ async function main(): Promise<void> {
+   // Caller pre-generates the rule_set UUID (B1 disposition)
+   const ruleSetId = randomUUID();
+ 
+-  // jsonb_populate_record does not invoke column DEFAULTs — caller must populate
+-  // created_at / updated_at explicitly (existing .upsert() caller relies on DEFAULT NOW()
+-  // because PostgREST omits unsupplied columns from the INSERT).
+-  const nowIso = new Date().toISOString();
+-
+-  // Structurally complete test payload — mirrors execute/route.ts:1285 upsert shape
++  // Option X refinement: created_at / updated_at omitted — DB defaults fire automatically
+   const testRuleSet = {
+     id: ruleSetId,
+     tenant_id: tenantId,
+@@ -70,8 +65,6 @@ async function main(): Promise<void> {
+     outcome_config: {},
+     metadata: { plan_type: 'additive_lookup', source: 'phase_2_2a_verification' },
+     created_by: createdBy,
+-    created_at: nowIso,
+-    updated_at: nowIso,
+   };
+ 
+   const testSignals = [
+@@ -116,7 +109,7 @@ async function main(): Promise<void> {
+ 
+   const { data: ruleSetRow } = await sb
+     .from('rule_sets')
+-    .select('id, name, status, version')
++    .select('id, name, status, version, created_at, updated_at')
+     .eq('id', ruleSetId)
+     .maybeSingle();
+   console.log('rule_sets row:', JSON.stringify(ruleSetRow, null, 2));
+```
+
+**Commit:** `f69b8d38` — "HF-193-A Phase 2.2a refinement: verification script — remove explicit timestamps (DB defaults fire via Option X)"
+
+### Re-run verification output
+
+```
+HF-193-A Phase 2.2a verification: fn_bridge_persistence stored procedure
+
+Test rule_set UUID (pre-generated by caller): c52d0b2e-0a39-4260-9eb1-e273cfd036ed
+Test tenant_id: 5035b1e8-0754-4527-b7ec-9f93f85e4c79
+Test created_by: b5a8374d-6210-4314-a995-5cebd8d4a745
+Signal count: 2
+
+Invoking fn_bridge_persistence via sb.rpc()...
+RPC returned rule_set_id: c52d0b2e-0a39-4260-9eb1-e273cfd036ed
+Round-trip check: returned ID matches pre-generated: true
+
+rule_sets row: {
+  "id": "c52d0b2e-0a39-4260-9eb1-e273cfd036ed",
+  "name": "__hf_193_a_phase_2_2a_rpc_verification__",
+  "status": "active",
+  "version": 1,
+  "created_at": "2026-04-22T03:58:30.221085+00:00",
+  "updated_at": "2026-04-22T03:58:30.221085+00:00"
+}
+classification_signals rows count: 2
+Signal rows: [
+  {
+    "id": "a08f28fa-55d1-4a18-a650-4e84d0861755",
+    "metric_name": "__hf_193_a_phase_2_2a_rpc_verification___signal_0",
+    "component_index": 0,
+    "rule_set_id": "c52d0b2e-0a39-4260-9eb1-e273cfd036ed",
+    "signal_type": "metric_comprehension",
+    "tenant_id": "5035b1e8-0754-4527-b7ec-9f93f85e4c79"
+  },
+  {
+    "id": "7f56d4c0-eb58-409f-a050-6c301782195d",
+    "metric_name": "__hf_193_a_phase_2_2a_rpc_verification___signal_1",
+    "component_index": 1,
+    "rule_set_id": "c52d0b2e-0a39-4260-9eb1-e273cfd036ed",
+    "signal_type": "metric_comprehension",
+    "tenant_id": "5035b1e8-0754-4527-b7ec-9f93f85e4c79"
+  }
+]
+
+Structural assertions:
+  PASS  RPC returned non-null UUID
+  PASS  Returned UUID matches pre-generated
+  PASS  rule_set row persisted
+  PASS  rule_set row name matches input
+  PASS  Signal rows count equals input
+  PASS  Signal rows reference correct rule_set_id
+  PASS  Signal signal_type is metric_comprehension
+  PASS  Signal tenant_id populated from rule_set
+  PASS  Signal metric_name matches input
+  PASS  Signal component_index populated (not null)
+
+Cleanup complete (test rows deleted).
+
+VERIFICATION: PASS — fn_bridge_persistence executes atomically; signals persist correctly.
+```
+
+**Structural assertions:** 10/10 PASS (unchanged from original verification).
+
+Additional confirmations:
+- `rule_sets.created_at` populated by DB DEFAULT `now()` → `2026-04-22T03:58:30.221085+00:00` (not by test payload — payload no longer supplies it)
+- `rule_sets.updated_at` populated by DB DEFAULT `now()` → `2026-04-22T03:58:30.221085+00:00` (not by test payload)
+- Caller contract preserved: test payload now matches the shape of the existing `.upsert()` caller
+
+### Updated decisions
+
+- **D1 (refined):** Option X — explicit column list INSERT with COALESCE on NOT NULL-with-default business columns; timestamps omitted from column list.
+- D2–D9: unchanged.
+
+### Phase 2.2b forward handoff (refined)
+
+Phase 2.2b scope — UNCHANGED from original; refinement did not shift Phase 2.2b scope:
+- Modify `bridgeAIToEngineFormat` return shape to include `l2ComprehensionSignals: SignalWriteSpec[]`
+- Modify caller sites (`execute/route.ts:1265`, `:1501`) to pre-generate rule_set UUID, call `sb.rpc('fn_bridge_persistence', {p_rule_set, p_signals})` instead of direct `rule_sets.upsert()` INSERT
+- **Caller contract: port the existing `.upsert()` payload shape into `p_rule_set` (no new timestamp-population responsibility — refined function delegates audit timestamps to DB defaults)**
+- Preserve existing seeds-path write per HF-193-A additive policy (D13)
+- Sample end-to-end test
+- Phase 2.2b completion report at `docs/completion-reports/HF_193_A_Phase_2_2b_COMPLETION_REPORT.md`
+
+### CWA audit (refinement)
+
+- **CWA-Premise:** Option X grounded in the explicit-column-list INSERT pattern (schema-audit output earlier in this session + PostgreSQL DEFAULT-propagation semantics). Timestamps-omitted-from-column-list is the load-bearing mechanism. Reasoning traced explicitly in architect session history.
+- **CWA-Schema:** Refined function body audited against `rule_sets` schema (verified earlier this session): 16 columns named in explicit list; 2 NOT NULL-with-default columns (created_at, updated_at) omitted to let DB defaults fire; all references match schema.
+- **CWA-Parent:** Refinement migration at VP canonical path; amendment appended to existing completion report (not new report — this is Phase 2.2a refinement, not a new phase).
+- **CWA-Procedural:** Amendment authored and committed BEFORE chat summary per CWA-Durability gate.
+
+---
+
+*HF-193-A Phase 2.2a Completion Report — Refinement appended 2026-04-21 · Option X explicit column list pattern · Function signature unchanged · Phase 2.2b caller contract simplified (no new timestamp responsibility) · Evidence durable-committed*
