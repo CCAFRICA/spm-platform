@@ -50,12 +50,7 @@ async function main(): Promise<void> {
   // Caller pre-generates the rule_set UUID (B1 disposition)
   const ruleSetId = randomUUID();
 
-  // jsonb_populate_record does not invoke column DEFAULTs — caller must populate
-  // created_at / updated_at explicitly (existing .upsert() caller relies on DEFAULT NOW()
-  // because PostgREST omits unsupplied columns from the INSERT).
-  const nowIso = new Date().toISOString();
-
-  // Structurally complete test payload — mirrors execute/route.ts:1285 upsert shape
+  // Option X refinement: created_at / updated_at omitted — DB defaults fire automatically
   const testRuleSet = {
     id: ruleSetId,
     tenant_id: tenantId,
@@ -70,8 +65,6 @@ async function main(): Promise<void> {
     outcome_config: {},
     metadata: { plan_type: 'additive_lookup', source: 'phase_2_2a_verification' },
     created_by: createdBy,
-    created_at: nowIso,
-    updated_at: nowIso,
   };
 
   const testSignals = [
@@ -116,7 +109,7 @@ async function main(): Promise<void> {
 
   const { data: ruleSetRow } = await sb
     .from('rule_sets')
-    .select('id, name, status, version')
+    .select('id, name, status, version, created_at, updated_at')
     .eq('id', ruleSetId)
     .maybeSingle();
   console.log('rule_sets row:', JSON.stringify(ruleSetRow, null, 2));
