@@ -6,6 +6,7 @@
  */
 
 import { getAIService } from '@/lib/ai';
+import type { SignalData } from '@/lib/ai/signal-persistence';
 
 // ============================================
 // TYPES
@@ -731,6 +732,7 @@ export function bridgeAIToEngineFormat(
   description: string;
   components: { variants: Array<{ variantId: string; variantName: string; description?: string; components: PlanComponent[] }> };
   inputBindings: Record<string, unknown>;
+  signals: SignalData[];
 } {
   // Step 1: Normalize the raw AI output through the same pipeline as the plan import page
   const interpreter = new AIPlainInterpreter();
@@ -751,13 +753,24 @@ export function bridgeAIToEngineFormat(
     );
   });
 
+  // HF-193: Build metric_comprehension signals from validSemantics.
+  // ruleSetId is stamped by the caller after rule_set INSERT.
+  const signals: SignalData[] = validSemantics.map((semantic, i) => ({
+    tenantId,
+    signalType: 'metric_comprehension',
+    signalValue: semantic,
+    confidence: typeof semantic.confidence === 'number' ? semantic.confidence : undefined,
+    source: 'ai_prediction',
+    metricName: semantic.metric as string,
+    componentIndex: i,
+  }));
+
   return {
     name: normalized.ruleSetName,
     description: normalized.description,
     components: { variants: additiveLookup.variants },
-    inputBindings: validSemantics.length > 0
-      ? { plan_agent_seeds: validSemantics }
-      : {},
+    inputBindings: {},
+    signals,
   };
 }
 
