@@ -1005,12 +1005,7 @@ export async function POST(request: NextRequest) {
               merged.push(d as unknown as Record<string, unknown>);
             }
           }
-          // Decision 147: Preserve plan_agent_seeds across convergence updates
-          const rsBindings = (rs.input_bindings as Record<string, unknown>) ?? {};
           const commitBindings: Record<string, unknown> = { metric_derivations: merged };
-          if (rsBindings.plan_agent_seeds) {
-            commitBindings.plan_agent_seeds = rsBindings.plan_agent_seeds;
-          }
           await supabase
             .from('rule_sets')
             .update({ input_bindings: commitBindings as unknown as Json })

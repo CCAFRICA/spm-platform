@@ -149,11 +149,6 @@ export async function POST(request: NextRequest) {
             updatedBindings.metric_derivations = convResult.derivations;
           }
 
-          // Decision 147: Preserve plan_agent_seeds across convergence updates
-          if (rawBindings?.plan_agent_seeds) {
-            updatedBindings.plan_agent_seeds = rawBindings.plan_agent_seeds;
-          }
-
           // Persist to rule_set for reuse on subsequent calculations
           await supabase
             .from('rule_sets')

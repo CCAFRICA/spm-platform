@@ -565,7 +565,6 @@ async function processEntityUnit(
   console.log(`[SCI Bulk] Entity→committed_data: ${cdInserted} rows, entity_id_field="${entityIdField || 'none'}"`);
 
   // OB-195 Layer 4: Invalidate cached convergence bindings
-  // Decision 147: Preserve plan_agent_seeds across convergence invalidation
   if (cdInserted > 0) {
     const { data: affectedRS } = await supabase
       .from('rule_sets')
@@ -573,13 +572,12 @@ async function processEntityUnit(
       .eq('tenant_id', tenantId)
       .in('status', ['active', 'draft']);
     for (const rs of affectedRS || []) {
-      const seeds = (rs.input_bindings as Record<string, unknown>)?.plan_agent_seeds;
       await supabase.from('rule_sets').update({
-        input_bindings: seeds ? { plan_agent_seeds: seeds } : {},
+        input_bindings: {},
       }).eq('id', rs.id);
     }
     if ((affectedRS?.length ?? 0) > 0) {
-      console.log(`[SCI Bulk] Cleared input_bindings on ${affectedRS?.length ?? 0} rule_sets (entity data imported — convergence will re-derive, seeds preserved)`);
+      console.log(`[SCI Bulk] Cleared input_bindings on ${affectedRS?.length ?? 0} rule_sets (entity data imported — convergence will re-derive)`);
     }
   }
 
@@ -711,7 +709,6 @@ async function processDataUnit(
   console.log(`[SCI Bulk] ${classification}: ${totalInserted} rows committed, data_type=${dataType}`);
 
   // OB-195 Layer 4: Invalidate cached convergence bindings so engine re-derives with new data
-  // Decision 147: Preserve plan_agent_seeds across convergence invalidation
   if (totalInserted > 0) {
     const { data: affectedRS } = await supabase
       .from('rule_sets')
@@ -719,13 +716,12 @@ async function processDataUnit(
       .eq('tenant_id', tenantId)
       .in('status', ['active', 'draft']);
     for (const rs of affectedRS || []) {
-      const seeds = (rs.input_bindings as Record<string, unknown>)?.plan_agent_seeds;
       await supabase.from('rule_sets').update({
-        input_bindings: seeds ? { plan_agent_seeds: seeds } : {},
+        input_bindings: {},
       }).eq('id', rs.id);
     }
     if ((affectedRS?.length ?? 0) > 0) {
-      console.log(`[SCI Bulk] Cleared input_bindings on ${affectedRS?.length ?? 0} rule_sets (new data imported — convergence will re-derive, seeds preserved)`);
+      console.log(`[SCI Bulk] Cleared input_bindings on ${affectedRS?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
     }
   }
 
@@ -849,7 +845,6 @@ async function processReferenceUnit(
   console.log(`[SCI Bulk] Reference → committed_data: ${totalInserted} rows, data_type="${dataType}", entity_id_field="${entityIdField || 'none'}", source_dates=${sourceDates.length > 0 ? sourceDates.slice(0, 3).join(',') : 'none'}`);
 
   // OB-195 Layer 4: Invalidate cached convergence bindings (same as processDataUnit)
-  // Decision 147: Preserve plan_agent_seeds across convergence invalidation
   if (totalInserted > 0) {
     const { data: affectedRS } = await supabase
       .from('rule_sets')
@@ -857,13 +852,12 @@ async function processReferenceUnit(
       .eq('tenant_id', tenantId)
       .in('status', ['active', 'draft']);
     for (const rs of affectedRS || []) {
-      const seeds = (rs.input_bindings as Record<string, unknown>)?.plan_agent_seeds;
       await supabase.from('rule_sets').update({
-        input_bindings: seeds ? { plan_agent_seeds: seeds } : {},
+        input_bindings: {},
       }).eq('id', rs.id);
     }
     if ((affectedRS?.length ?? 0) > 0) {
-      console.log(`[SCI Bulk] Cleared input_bindings on ${affectedRS?.length ?? 0} rule_sets (reference data imported — convergence will re-derive, seeds preserved)`);
+      console.log(`[SCI Bulk] Cleared input_bindings on ${affectedRS?.length ?? 0} rule_sets (reference data imported — convergence will re-derive)`);
     }
   }
 
