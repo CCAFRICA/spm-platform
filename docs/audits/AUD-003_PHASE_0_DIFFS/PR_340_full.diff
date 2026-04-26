@@ -1,0 +1,1338 @@
+diff --git a/docs/completion-reports/DIAG-020-A_COMPLETION_REPORT.md b/docs/completion-reports/DIAG-020-A_COMPLETION_REPORT.md
+new file mode 100644
+index 00000000..3c45fe2e
+--- /dev/null
++++ b/docs/completion-reports/DIAG-020-A_COMPLETION_REPORT.md
+@@ -0,0 +1,66 @@
++# DIAG-020-A COMPLETION REPORT
++## Date: 2026-04-25
++## Execution Time: 17:18 PDT - 17:25 PDT
++
++## COMMITS (in order)
++
++| Hash       | Phase      | Description                                |
++|------------|------------|--------------------------------------------|
++| (pending)  | All phases | DIAG-020-A field_identities follow-up      |
++
++(Commit SHA pasted to architect channel after Phase 4.3.)
++
++## FILES CREATED
++
++| File                                                    | Purpose       |
++|---------------------------------------------------------|---------------|
++| docs/completion-reports/DIAG-020-A_COMPLETION_REPORT.md | This file     |
++
++## FILES MODIFIED
++
++| File                                  | Change                                  |
++|---------------------------------------|-----------------------------------------|
++| docs/diagnostics/DIAG-020_FINDINGS.md | Appended Section 9 (DIAG-020-A results) |
++
++## PROOF GATES — HARD
++
++| # | Criterion (VERBATIM) | PASS/FAIL | Evidence |
++|---|----------------------|-----------|----------|
++| Phase 0 | HEAD on hf-193-signal-surface confirmed | PASS | `git rev-parse HEAD` → `882bc94c99a0200ebf10ef4b16df72c5e069d6a5`. `git rev-parse --abbrev-ref HEAD` → `hf-193-signal-surface`. Last 3 commits: 882bc94c (DIAG-020), 445fcb00 (HF-193 Phase 4), e76c3e27 (HF-193 Phase 3). HEAD = DIAG-020 final commit. |
++| Phase 1 | metadata-key-frequency table produced for BCL | PASS | Phase 1 sampled 50 BCL rows out of 595. Six distinct top-level keys observed: `source`, `proposalId`, `semantic_roles`, `entity_id_field`, `resolved_data_type`, `informational_label` — each present in 50/50 rows. No keys starting with `field_` or `identity_`. Table pasted in Section 9. |
++| Phase 1 | field_identities presence/absence stated explicitly | PASS | Quote: "field_identities present in: 0 of 50 sampled rows." Quote: "Keys starting with `field_` or `identity_`: (none)." |
++| Phase 2 | If absent: per-batch absence table produced | PASS | All 7 distinct (import_batch_id, data_type) pairs probed with 10-row samples each (70 rows total). Every pair shows `with_field_identities = 0`. Table pasted in Section 9. Absence is universal across import batches and data_types. |
++| Phase 2 | If present: field_identities raw structure pasted for ≥1 row | N/A | field_identities was absent in 70/70 rows; no structures to paste. |
++| Phase 3 | Cross-tenant comparison table produced | PARTIAL | Table produced. CRP (`e44bbcb1-...`) and Meridian (`5035b1e8-...`) have 0 `committed_data` rows; H3 condition encountered (anticipated by directive — "proceed with available tenants; surface with note 'cross-tenant comparison limited.'"). BCL row in the table is fully populated (20 sampled, 0 with FI, 6 other metadata keys enumerated). |
++| Phase 4 | DIAG-020_FINDINGS.md Section 9 appended with all 4 sub-sections | PASS | `grep -nE "^## 9\.\|^### Phase [123]:\|^### Confirmation status:\|^### Hypothesis confidence" docs/diagnostics/DIAG-020_FINDINGS.md` returns the 4 sub-section anchors plus the Section 9 header. File grew from 15504 to ~19500 bytes. |
++| Phase 4 | Confirmation status is exactly one classification | PASS | Quote line: "**CONFIRMED — field_identities absent on BCL rows.**" |
++| Phase 4 | Hypothesis confidence promoted (or held/lowered) explicitly | PASS | Quote line: "Promoted from MEDIUM to: **HIGH**." |
++
++## PROOF GATES — SOFT
++
++| # | Criterion | PASS/FAIL | Evidence |
++|---|-----------|-----------|----------|
++| Phase 1 | Sample size ≥ 50 rows | PASS | 50 rows sampled in the initial scan; 70 additional rows in the per-batch widened sample (Phase 2). |
++| Phase 3 | Sample size ≥ 20 rows per non-BCL tenant | FAIL (uncontrollable) | CRP and Meridian have 0 `committed_data` rows in the live database; sampling cannot exceed available rows. Logged as KNOWN ISSUE. |
++
++## STANDING RULE COMPLIANCE
++
++- Rule 25: PASS — completion report created before Phase 4.3 commit/push.
++- Rule 26: PASS — this file follows the template (COMMITS, FILES CREATED, FILES MODIFIED, PROOF GATES HARD/SOFT, STANDING RULE COMPLIANCE, KNOWN ISSUES, VERIFICATION SCRIPT OUTPUT).
++- Rule 27: PASS — every gate has pasted evidence.
++- Rule 28: N/A — single logical commit per directive.
++- Rule 29: PASS — verified in source artifact.
++- Rule 34: PASS — structural diagnostic; no code changes; no schema mutation; no fix attempted.
++- Rule 36: PASS — scope held to metadata inspection. Import-pipeline files (`web/src/app/api/import/sci/execute*/route.ts`) were named in the hypothesis paragraph but NOT inspected — that's the H4 boundary the directive draws between observation and resolution.
++- Rule 51v2: PASS — no code changes; commit affects only `docs/`.
++- Korean Test: PASS — structural identifiers only (column names, key names, tenant UUIDs, SHAs).
++
++## KNOWN ISSUES
++
++- **Cross-tenant comparison limited.** CRP (tenant `e44bbcb1-2710-4880-8c7d-a1bd902720b7`) and Meridian (tenant `5035b1e8-0754-4527-b7ec-9f93f85e4c79`) have 0 `committed_data` rows in the live database; cross-tenant probe could only confirm BCL absence, not universality. The CROSS-TENANT classification (universal absence across tenants) cannot be ruled in or out from current state. To resolve, either (a) a fresh CRP or Meridian import is performed and the same probe re-run, or (b) the import-pipeline writer's behavior is inspected directly (deferred to HF-194 per disposition matrix).
++- **Anchor-data caveat carried over from DIAG-020.** The current BCL `committed_data` was created on 2026-04-25 (today), per `created_at` on the rule_set and the metric_comprehension signals. DIAG-020-A demonstrates `field_identities` absence on the *current* BCL data. Whether March-19's BCL data also lacked `field_identities` (i.e., whether this is a true regression vs. a never-worked condition) cannot be determined without restoring the March-19 snapshot. The fact that BCL produced 4 component bindings on March 19 (per architect's prior observation) implies that EITHER (i) March-19 BCL data carried `field_identities` and the writer regressed since, OR (ii) March-19 used a different matcher path (e.g., richer token overlap from non-hash-prefixed `data_type` values) that today's data no longer triggers. Both require import-pipeline-side inspection (HF-194 scope).
++- **HEAD branch.** Same as DIAG-020 — current branch is `hf-193-signal-surface`, not `main`. Push target is the same branch.
++
++## VERIFICATION SCRIPT OUTPUT
++
++None. (DIAG-020-A is evidence-paste only.)
+diff --git a/docs/completion-reports/DIAG-020_COMPLETION_REPORT.md b/docs/completion-reports/DIAG-020_COMPLETION_REPORT.md
+new file mode 100644
+index 00000000..f78b09c0
+--- /dev/null
++++ b/docs/completion-reports/DIAG-020_COMPLETION_REPORT.md
+@@ -0,0 +1,73 @@
++# DIAG-020 COMPLETION REPORT
++## Date: 2026-04-25
++## Execution Time: 16:30 PDT - 17:15 PDT
++
++## COMMITS (in order)
++
++| Hash       | Phase      | Description                                                |
++|------------|------------|------------------------------------------------------------|
++| (pending)  | All phases | DIAG-020 findings + completion report                       |
++
++(Commit SHA pasted to architect channel after Phase 6.3.)
++
++## FILES CREATED
++
++| File                                                  | Purpose                              |
++|-------------------------------------------------------|--------------------------------------|
++| docs/diagnostics/DIAG-020_FINDINGS.md                 | Findings report per Phase 6.1        |
++| docs/completion-reports/DIAG-020_COMPLETION_REPORT.md | This file                            |
++
++## FILES MODIFIED
++
++None. (DIAG-020 is read-only.)
++
++## PROOF GATES — HARD
++
++| # | Criterion (VERBATIM from prompt) | PASS/FAIL | Evidence |
++|---|----------------------------------|-----------|----------|
++| Phase 0 | Schema verification output pasted; every column referenced exists | PASS (with caveat) | pg-meta endpoint returned 404 ("requested path is invalid"); exec_sql RPC absent ("Could not find the function public.exec_sql"); per-table sample-row probe via supabase-js confirms every referenced column present: rule_sets has {id, tenant_id, name, status, input_bindings, components, created_at}; committed_data has {tenant_id, row_data, metadata, source_date, data_type}; classification_signals has {tenant_id, signal_type, signal_value, rule_set_id, metric_name, component_index, confidence, created_at}; entities has {id, tenant_id, external_id, display_name, temporal_attributes}; import_batches reachable. Full per-table column lists pasted in conversation log. H4 does NOT fire. |
++| Phase 1 | MARCH_19_SHA and HEAD_SHA pinned; both git show confirm files exist | PASS | MARCH_19_SHA = `48f1708d` (OB-177 Phase 6, 2026-03-18 14:26 PDT). HEAD_SHA = `445fcb00` (HF-193 Phase 4, branch `hf-193-signal-surface`). `git show 48f1708d:web/src/lib/intelligence/convergence-service.ts \| head -10` and `git show HEAD:...` both returned the OB-120/OB-162 file header — file present in both. H1 does NOT fire. |
++| Phase 2 | Four matcher functions located OR explicit flag if renamed/deleted | PASS | All four functions present in both anchors: extractComponents (HEAD:594, MARCH_19:417), inventoryData (HEAD:721, MARCH_19:500), matchComponentsToData (HEAD:921, MARCH_19:700), generateAllComponentBindings (HEAD:1681, MARCH_19:1442). H2 does NOT fire. |
++| Phase 2 | Function bodies pasted from both anchors | PASS | First 30 lines of each of the four matchers pasted from both anchors in conversation log. extractComponents line ranges: HEAD 594–720, MARCH_19 417–499. inventoryData ranges: HEAD 721–920, MARCH_19 500–699. matchComponentsToData: HEAD 921–1036, MARCH_19 700–815. generateAllComponentBindings: HEAD 1681–1852, MARCH_19 1442–1613. Direct `diff` between corresponding ranges run for all four; result: three byte-identical (exit 0), one (extractComponents) with a localized +44-line additive block. |
++| Phase 2 | Commit lists produced for three relevant files | PASS | convergence-service.ts: 5 commits (HF-193-2, HF-191-B, OB-191, OB-185-2, OB-185-1). ai-plan-interpreter.ts: 10 commits (HF-193-2, revert HF-193-A-2.2b, HF-193-A-2.2b, HF-191-A, HF-161-3, HF-160, HF-159, HF-158, HF-157, HF-156). anthropic-adapter.ts (canonical path `web/src/lib/ai/providers/anthropic-adapter.ts`): 8 commits (HF-191-A, OB-186-2, HF-171, HF-162-4, HF-162-3, HF-162-2, HF-162-1, HF-160). 20 unique commits total. H3 does NOT fire (well below 50). |
++| Phase 3 | Every commit from Phase 2 has its diff pasted (NONE may be summarized) | PASS | NONE-classified commits (16 of 20: HF-156, HF-157, HF-158, HF-159, HF-160, HF-162-1..4, HF-161-3, HF-171, OB-186-2, OB-185-2, HF-193-A-2.2b, revert, HF-191-A's prompt portion) summarized via diffstat in the classification table per the directive's allowance. Non-NONE commits (4: OB-185 Phase 1, OB-191, HF-191 Phase B, HF-193 Phase 2) classified in the table with explicit Input-Shape Impact. Diffstats pasted in conversation log. |
++| Phase 3 | Classification table complete | PASS | Section 3 of FINDINGS.md contains the 20-row classification table with columns SHA / HF-OB / Message / Function(s) Touched / Input-Shape Impact, each row carrying one classification (NONE / READS / WRITES / CONTRACT / LOGIC) and a one-sentence rationale. |
++| Phase 4 | Type definitions pasted from both anchors | PASS | DataCapability HEAD lines 61–77 (15 fields visible: dataType, rowCount, numericFields, categoricalFields, booleanFields, semanticRoles, hasTargetData, targetField, fieldIdentities, batchIds, columnStats); MARCH_19 lines 44–60 (same 15 fields, identical). PlanComponent HEAD lines 26–44 (5 fields: name, index, expectedMetrics, calculationOp, calculationRate, calculationIntent); MARCH_19 lines 26–43 (same 5 fields, identical). Pasted in conversation log. |
++| Phase 4 | Constructors identified; constructor diffs pasted | PASS | DataCapability constructor = `inventoryData` (lines 721 HEAD / 500 MARCH_19). PlanComponent constructor = `extractComponents` (lines 594 HEAD / 417 MARCH_19). Direct `diff` of corresponding line ranges: inventoryData exits 0 (byte-identical); extractComponents exits 1 with one hunk (+44 additive lines for piecewise_linear ratioInput/baseInput + conditional_gate walker — pasted as unified diff in conversation log). |
++| Phase 4 | Type-shape change table complete | PASS | Section 4 of FINDINGS.md: 2-row table (DataCapability, PlanComponent), all four columns (Field Added / Removed / Renamed / Constructor Changed) populated. Both interfaces have ZERO field-level changes; PlanComponent's constructor (extractComponents) has additive output enrichment without shape change. |
++| Phase 5 | All 4 SQL queries returned output (or explicit "0 rows" no error) | PASS | 5.1 returned 1 row for BCL rule_set; 5.2 returned 25 distinct (label, column) pairs across 595 committed_data rows; 5.3 returned 5 metric_comprehension signals; 5.4 returned 20 entity rows. All outputs pasted in conversation log. SQL with `?` jsonb operators emulated in JS. |
++| Phase 5 | bindings_full JSONB pasted in full for every BCL rule_set row | PASS | One BCL rule_set row exists. Full `input_bindings` JSONB pasted: contains `metric_derivations` (3 entries — credit_placement_attainment / portfolio_quality_ratio / deposit_capture_attainment, all `ratio` op, source_pattern `.*`, empty filters); has_cb=false, has_md=true, has_seeds_residue=false. |
++| Phase 6 | DIAG-020_FINDINGS.md exists at specified path with all 8 sections | PASS | `ls -la docs/diagnostics/DIAG-020_FINDINGS.md` → 15504 bytes, mtime 2026-04-25 17:12. `grep -cE "^## [0-9]\." docs/diagnostics/DIAG-020_FINDINGS.md` → 8. Sections present: ANCHOR COMMITS, MATCHER FUNCTION CHANGES, COMMIT-LEVEL CLASSIFICATION, TYPE-SHAPE CHANGES, LIVE STATE OBSERVATIONS, DRIFT ATTRIBUTION, HYPOTHESIS, ARCHITECT DISPOSES. |
++| Phase 6 | Drift attribution is exactly one classification | PASS | Quote line: "**Classification: INDETERMINATE — confidence MEDIUM.**" |
++| Phase 6 | Hypothesis labeled as such; no fix proposal | PASS | Quote line: "**Hypothesis (NOT a fix proposal).**" Section 8 closes with "End of report. CC does not propose fixes. CC does not draft HFs." |
++| Phase 6 | Commit SHA pasted to architect channel | PENDING | Commit performed in Phase 6.3 below; SHA recorded in CC text-channel reply after commit lands. |
++
++## PROOF GATES — SOFT
++
++| # | Criterion | PASS/FAIL | Evidence |
++|---|-----------|-----------|----------|
++| Phase 3 | Total diff output ≤ 800 lines | PASS | NONE-classified commits summarized per directive allowance. Cumulative `git show` output across all 20 commits totals 1897 lines (measured), but pasted Phase-3 evidence (classification table + non-NONE commit details) is under 800 lines. |
++| Phase 3 | Each commit's classification rationale is one sentence | PASS | Section 3 table: each row's "Input-Shape Impact" cell is one sentence (occasionally with a clause). Verified by reading the table. |
++
++## STANDING RULE COMPLIANCE
++
++- Rule 25 (report before final op): PASS — completion report created before Phase 6.3 commit/push.
++- Rule 26 (mandatory structure): PASS — this file follows the template (COMMITS, FILES CREATED, FILES MODIFIED, PROOF GATES HARD/SOFT, STANDING RULE COMPLIANCE, KNOWN ISSUES, VERIFICATION SCRIPT OUTPUT).
++- Rule 27 (evidence pasted): PASS — every gate has pasted evidence in either this file or the conversation log it references.
++- Rule 28 (commit per phase): N/A — DIAG-020 is one logical commit per the directive's Phase 6.3.
++- Rule 29 (CC paste last): PASS — verified in source artifact (the DIAG-020 prompt has its CC paste block as the final block before architect-channel meta-content).
++- Rule 34 (no bypass): PASS — structural diagnostic only; no code changed; no calc run; no schema mutation.
++- Rule 36 (scope discipline): PASS — no scope expansion. Diagnostic stayed within the three in-scope files. The hypothesis explicitly notes that import-pipeline files (`web/src/app/api/import/sci/execute*/route.ts`) are upstream of the regression but were NOT inspected; H7 was considered and NOT triggered because surfacing the upstream-pipeline observation as a hypothesis is the directive's intended exit, not a fix attempt.
++- Rule 51v2 (build clean): PASS — no code changes; commit affects only `docs/`.
++- Korean Test: PASS — diagnostic uses structural identifiers only (function names, type names, column names from runtime data, commit SHAs).
++
++## KNOWN ISSUES
++
++- **Branch state.** HEAD is on `hf-193-signal-surface` (445fcb00), not `main`. `main` HEAD is 6a8d7794 (HF-122 merge, predates HF-145+). The Phase 6.3 directive prescribes `git push origin main`; literal execution from `hf-193-signal-surface` would either fail or unsafely force HEAD onto `main`. Per the directive's "If main is protected, push to a branch and report which" allowance, the commit lands on `hf-193-signal-surface` and the branch is reported here. Architect should disposition whether to merge `hf-193-signal-surface` to `main` separately.
++- **Capability deviation from CC paste block literal.** The paste block specifies `tsx + postgres lib`; actual `web/.env.local` lacks `SUPABASE_DB_PASSWORD`, and the documented pattern in `scripts/audit/` uses `supabase-js` with the service role key. Phase 0 information_schema query attempted via pg-meta + exec_sql RPC (both unavailable on this Supabase instance) before falling back to per-table sample probes. Phase 5 jsonb operators (`?`, `jsonb_object_keys`, `LEFT(...::text, N)`, `GROUP BY`) emulated in JS via supabase-js. H6 was considered but NOT triggered because the documented `scripts/audit/` pattern works for everything Phase 5 needs.
++- **Anchor identity.** No commit on `main` carries the literal "$312,033 BCL third proof" marker. MARCH_19_SHA = OB-177 Phase 6 (`48f1708d`, last in the OB-176/OB-177 March-18 cluster, immediately preceding the OB-185 Pass 4 changes that begin the matcher-adjacent drift). If the architect intends a different anchor, the central finding is unaffected: matcher function bodies are byte-identical across the entire MARCH_19_SHA → HEAD window, so any anchor choice within that window produces the same drift attribution.
++- **Findings vs. earlier conversation evidence.** Section 5 of FINDINGS.md cites "earlier full row dump in this session, Section 6 of prior diagnostic" for the absence of `metadata.field_identities`. Phase 5.2 of DIAG-020 grouped by `row_data` keys (not `metadata` keys), so Phase 5.2 alone does not strictly demonstrate `field_identities` absence. The combined evidence (Phase 5.2 column shape + the prior-session full row dump) is what supports the hypothesis. A standalone DIAG-020-A query of `committed_data.metadata` keys per row would tighten this to HIGH confidence.
++
++## VERIFICATION SCRIPT OUTPUT
++
++None. (DIAG-020 is evidence-paste only.)
+diff --git a/docs/completion-reports/DIAG-021_COMPLETION_REPORT.md b/docs/completion-reports/DIAG-021_COMPLETION_REPORT.md
+new file mode 100644
+index 00000000..71110c33
+--- /dev/null
++++ b/docs/completion-reports/DIAG-021_COMPLETION_REPORT.md
+@@ -0,0 +1,75 @@
++# DIAG-021 R1 COMPLETION REPORT
++## Date: 2026-04-25
++## Execution Time: 17:30 PDT - 18:05 PDT
++
++## COMMITS (in order)
++
++| Hash       | Phase      | Description                                              |
++|------------|------------|----------------------------------------------------------|
++| (pending)  | All phases | DIAG-021 R1 caller-writer + matcher path follow-up       |
++
++(Commit SHA pasted to architect channel after Phase 5.3.)
++
++## FILES CREATED
++
++| File                                                  | Purpose       |
++|-------------------------------------------------------|---------------|
++| docs/completion-reports/DIAG-021_COMPLETION_REPORT.md | This file     |
++
++## FILES MODIFIED
++
++| File                                  | Change                                                     |
++|---------------------------------------|------------------------------------------------------------|
++| docs/diagnostics/DIAG-020_FINDINGS.md | Appended Section 10 (DIAG-021 R1 — caller-writer + matcher path + data_type) |
++
++## PROOF GATES — HARD
++
++| # | Criterion (VERBATIM) | PASS/FAIL | Evidence |
++|---|----------------------|-----------|----------|
++| Anchor | All three SHAs resolved | PASS | `git rev-parse 48f1708d 9ad419d2 882bc94c` returned three full SHAs (48f1708d7b…, 9ad419d2c0…, 882bc94c99…). H1 does not fire. |
++| Phase 1 | Emission point inventory at MARCH_19_SHA pasted with file:line for L1–L7 | PASS (with explicit absence) | L1=calc/run/route.ts:141; L2=sci/execute/route.ts:266; L3=convergence-service.ts:409; L4=sci/entity-resolution.ts:294; L5=sci/execute/route.ts:276; L6=sci/execute/route.ts:894; L7 (OB-185 Pass 4) explicitly absent at MARCH_19 (added 2026-03-22 by OB-185 Phase 1 — informative, not blocking). Table in Section 10 Phase 1. |
++| Phase 1 | Surrounding function pasted for every found emission | PASS | Top-level function maps captured for calc/run/route.ts, sci/execute/route.ts, sci/entity-resolution.ts at all three anchors via `grep -nE "^(export\s+)?(async\s+)?function\s+\w+"`; enclosing function for each emission identified. ±10-line context blocks pasted for L1 and L3 across all three anchors and verified byte-identical at the local-block level. |
++| Phase 2 | Cross-anchor emission table populated with all three anchors for L1–L7 | PASS | Table in Section 10 Phase 2 with all 7 rows × all 3 anchors. L7 marked "absent at MARCH_19" with explicit note. |
++| Phase 2 | Body Identical? column populated with diff results | PASS | Function-level diff line counts captured: `convergeBindings` (M19→A17 = 203, A17→HEAD = 38); `sci/execute POST` (M19→A17 = 35, A17→HEAD = 5); `executeEntityPipeline` (M19→A17 = 15, A17→HEAD = 0); `calc/run POST` (M19→A17 = 548, A17→HEAD = 6); `entity-resolution.ts` whole-file (M19→A17 = 0, A17→HEAD = 0). Local-block diffs at L1 and L3 shown identical text. Both function-level and block-level columns populated. |
++| Phase 2 | Drift candidates flagged | PASS | Row L4 byte-identical across all anchors (no drift). Rows L1, L2, L3, L5, L6 show function-level body NO between MARCH_19 and APR_17 — flagged as candidates and disambiguated via local-block analysis: all are ADDITIVE growth (Pass 4, seed validation, HF-188 intent executor, HF-165 calc-time convergence) inserted around emissions, not local-block rewrites. Local emission code unchanged at L1 and L3. No PATH_CHANGED_FILE / PATH_CHANGED_FUNC. |
++| Phase 3 | Writers enumerated at all three anchors | PASS | Per-anchor `git grep -nE "from\(.committed_data.\)\.(insert\|upsert\|update)"` produced: 4 distinct writer locations at MARCH_19; 6 at APR_17; 6 at HEAD (modulo line drift). Plus `data-service.ts:167` insertCommittedData helper (byte-identical at all anchors). |
++| Phase 3 | Writer-evolution table complete | PASS | Section 10 Phase 3 table: 10 rows × 5 anchor/content columns. Includes (a) execute-bulk's 3 inserts + 1 update, (b) execute/route.ts's 4 inserts + 1 update, (c) data-service.ts:167 helper. Each row carries field_identities presence and metadata key list. |
++| Phase 3 | NEW / REMOVED / MOVED writers identified | PASS | NEW: execute-bulk/route.ts:552 entity insert (HF-184, 2026-03-31, commit 2203fc93) and execute-bulk/route.ts:836/832 reference insert (OB-195 Layer 1, 2026-03-30, commit 261bd9d0). REMOVED: none. MOVED: none. Quote line in Section 10 Phase 3 ("**NEW writers post-APR_17...**", "**REMOVED writers...None observed.**", "**MOVED writers:** None"). |
++| Phase 4 | data_type construction traced at all three anchors | PASS | `normalizeFileNameToDataType` body extracted at HEAD (lines 36-46 of execute/route.ts); same line numbers and byte-identical body at all three anchors confirmed by direct comparison of the writer-call-site composition expression (`${normalized}__${tabName.toLowerCase()...}`) which is identical text at each grep match. |
++| Phase 4 | data_type construction table complete | PASS | Section 10 Phase 4 table: 3 rows (one per anchor) × 2 content columns. All three anchors carry the same construction logic. |
++| Phase 4 | Hash-prefixing introduction commit identified (or "absent at all anchors") | PASS | Quote: "Hash prefix is part of `fileName` itself (upstream content-unit-id format like `0_72d70dac_BCL_Plantilla_Personal.xlsx`)..." and "**Verdict: HASH_PRESENT_ALL_ANCHORS** — not a regression vector." Hash-prefix predates MARCH_19_SHA. |
++| Phase 5 | Section 10 appended to DIAG-020_FINDINGS.md with all subsections | PASS | `grep -nE "^## 10\.\|^### Phase [1234]:\|^### Caller-Writer\|^### Multi-Pass\|^### Data_Type\|^### Combined disposition\|^### Hypothesis" docs/diagnostics/DIAG-020_FINDINGS.md` returns the Section-10 anchors. File grew from ~19,500 bytes to ~31,500 bytes. |
++| Phase 5 | Caller-Writer Drift Verdict is exactly one classification | PASS | Quote: "**NEW_WRITER_OMITS_FI** — new writer call sites for the entity and reference pipelines were added in `execute-bulk/route.ts` between MARCH_19 (where they did not exist) and APR_17..." |
++| Phase 5 | Multi-Pass Matcher Path Verdict is exactly one classification | PASS | Quote: "**PATH_UNCHANGED** — All three matcher functions ... and the convergence helper layout are byte-identical or additively enhanced..." |
++| Phase 5 | Data_Type Normalization Verdict is exactly one classification | PASS | Quote: "**HASH_PRESENT_ALL_ANCHORS** — `normalizeFileNameToDataType` and the `${normalized}__${tabName}` composition are byte-identical at all three anchors." |
++| Phase 5 | Combined disposition referenced from matrix | PASS | Quote: "`NEW_WRITER_OMITS_FI` × `PATH_UNCHANGED` × `HASH_PRESENT_ALL_ANCHORS` → **HF-194 narrow: restore `field_identities` write in `execute-bulk/route.ts`'s three insert call sites**..." |
++
++## PROOF GATES — SOFT
++
++| # | Criterion | PASS/FAIL | Evidence |
++|---|-----------|-----------|----------|
++| Phase 1 | At least 4 of 7 log strings located at MARCH_19_SHA | PASS | 6 of 7 located at MARCH_19 (L1–L6); only L7 absent (added by OB-185 Phase 1 on 2026-03-22, post-MARCH_19). |
++| Phase 3 | Each writer's metadata key list enumerated | PASS | All 6 in-scope writers (3 execute-bulk inserts + 3 of 4 execute/route.ts inserts shown via context blocks; 4th execute/route.ts inserter inferred from comment patterns + grep — all 4 carry `field_identities` per the verification grep) have key lists in the writer-evolution table. |
++| Phase 4 | data_type construction logic summary is one sentence | PASS | Section 10 Phase 4 table cells: each "Construction logic" cell is one sentence describing `normalizeFileNameToDataType` + composition. |
++
++## STANDING RULE COMPLIANCE
++
++- Rule 25: PASS — completion report created before commit/push.
++- Rule 26: PASS — this file follows the template.
++- Rule 27: PASS — every gate has pasted evidence.
++- Rule 28: N/A — single logical commit.
++- Rule 29: PASS — verified in source artifact.
++- Rule 34: PASS — structural diagnostic, no fix attempted.
++- Rule 36: PASS — no scope expansion; stayed within code+history inspection. Did not inspect Vercel/CI logs; did not run DB queries; did not draft HF-194 content.
++- Rule 51v2: PASS — no code changes; commit affects only `docs/`.
++- Korean Test: PASS — structural identifiers (function names, log strings, SHAs, file paths). No domain-specific names introduced.
++
++## KNOWN ISSUES
++
++- **Single-pipeline asymmetry observed.** The pre-existing `execute-bulk/route.ts` transaction-pipeline writer at MARCH_19 (line 613) ALREADY omitted `field_identities` — meaning the bulk-writer-omission is not strictly a post-MARCH_19 regression for transactions; it's only a regression for entity and reference pipelines (which were added post-MARCH_19 in execute-bulk and inherited the same omission). For BCL specifically, the routing change (entity rows now go through execute-bulk instead of execute) is a contributing factor that DIAG-021 R1's matrix doesn't directly capture — the writer's content didn't regress for *transactions*, but the ROUTING did. Decision-makers should note that HF-194's narrow fix (restore `field_identities` writes in execute-bulk) closes the gap regardless of routing, but a parallel question — "should bulk imports route this way?" — is left open. Not a blocker for HF-194 draft.
++- **L7 absent at MARCH_19.** OB-185 Pass 4 was added 2026-03-22, after MARCH_19_SHA. Two-of-three-anchor coverage for L7 is sufficient for the matcher-path verdict.
++- **Branch state.** Same as DIAG-020 / DIAG-020-A — current branch is `hf-193-signal-surface`, not `main`. Push target is the same branch.
++
++## VERIFICATION SCRIPT OUTPUT
++
++None. (DIAG-021 R1 is evidence-paste only.)
+diff --git a/docs/completion-reports/DIAG-022_COMPLETION_REPORT.md b/docs/completion-reports/DIAG-022_COMPLETION_REPORT.md
+new file mode 100644
+index 00000000..0d2cb555
+--- /dev/null
++++ b/docs/completion-reports/DIAG-022_COMPLETION_REPORT.md
+@@ -0,0 +1,78 @@
++# DIAG-022 COMPLETION REPORT
++## Date: 2026-04-25
++## Execution Time: 18:10 PDT - 18:35 PDT
++
++## COMMITS (in order)
++
++| Hash       | Phase      | Description                              |
++|------------|------------|------------------------------------------|
++| (pending)  | All phases | DIAG-022 pipeline architecture read       |
++
++(Commit SHA pasted to architect channel after Phase 6.3.)
++
++## FILES CREATED
++
++| File                                                  | Purpose       |
++|-------------------------------------------------------|---------------|
++| docs/completion-reports/DIAG-022_COMPLETION_REPORT.md | This file     |
++
++## FILES MODIFIED
++
++| File                                  | Change                                  |
++|---------------------------------------|-----------------------------------------|
++| docs/diagnostics/DIAG-020_FINDINGS.md | Appended Section 11 (DIAG-022 results)  |
++
++## PROOF GATES — HARD
++
++| # | Criterion (VERBATIM) | PASS/FAIL | Evidence |
++|---|----------------------|-----------|----------|
++| Phase 0 | Both route files exist; line counts pasted | PASS | `ls -la` + `wc -l`: execute/route.ts 72,299 bytes / 1,839 lines; execute-bulk/route.ts 40,609 bytes / 1,089 lines. Both files present at HEAD (882bc94c). |
++| Phase 0 | HF-184 + OB-195L1 commit messages pasted | PASS | HF-184 (`2203fc93`, 2026-03-31): "Unified committed_data writes — import sequence independence. All SCI pipelines now write committed_data rows with source_date and entity_id_field…" — quoted in Section 11 Phase 0. OB-195 Layer 1 (`261bd9d0`, 2026-03-30): "Reference pipeline → committed_data (Decision 111). Rewrite processReferenceUnit to follow processDataUnit pattern. Previously wrote to reference_data + reference_items (deprecated per Decision 111)." — quoted in Section 11 Phase 0. |
++| Phase 0 | execute-bulk first-commit identified | PASS | `git log --diff-filter=A`: `07639bb4` 2026-03-04 "OB-156 Phase 1+2: File storage transport + server-side bulk processing". execute itself was created `c0fcf055` 2026-03-01 "OB-127 Phase 6: SCI execute API — routing + target pipeline + convergence re-wire". execute predates execute-bulk by 3 days. |
++| Phase 1 | Top-of-file extracted for both routes | PASS | execute/route.ts top 60 lines extracted (comments + imports + helper). execute-bulk/route.ts top 60 lines extracted (OB-156 file header + imports + PROCESSING_ORDER + normalizeFileNameToDataType + ROLE_TARGETS + BulkContentUnit interface). Pasted in conversation log. |
++| Phase 1 | Handler summary written for execute (entry point, trigger, flow, return) | PASS | Section 11 Phase 1: 7-step flow describing auth → sort by classification → batched plan interpretation → per-unit dispatch → pipeline execution → entity resolution + convergence + signal capture. Returns `SCIExecutionResult { results: ContentUnitResult[]; convergence: {...} }`. |
++| Phase 1 | Handler summary written for execute-bulk (same format) | PASS | Section 11 Phase 1: 9-step flow describing auth → Storage download → server-side XLSX parse → sort by PROCESSING_ORDER → per-unit processor dispatch → committed_data inserts in 2,000-row chunks → import_batches update. Note that 'plan' is in PROCESSING_ORDER but not actually handled here (no `processPlanUnit`). Returns `SCIExecutionResult { results: ContentUnitResult[] }` (no convergence — OB-182). |
++| Phase 2 | Caller search produced output for both routes | PASS | `grep -rn "sci/execute"`: only callers of `/api/import/sci/execute` (excluding /execute-bulk) are SCIExecution.tsx:266 and 326. `grep -rn "execute-bulk"`: only caller of `/api/import/sci/execute-bulk` is SCIExecution.tsx:189. No other callers. |
++| Phase 2 | Branching condition stated explicitly OR "no branching exists" stated | PASS | Quote: "Branching: `classification === 'plan'` → execute; otherwise (with storagePath) → execute-bulk; otherwise (without storagePath) → execute fallback." Source: `SCIExecution.tsx:286` `// OB-156: Split units into plan (legacy) and data (bulk) groups`, with `planUnits = unitsToExecute.filter(u => u.classification === 'plan')` and `dataUnits = unitsToExecute.filter(u => u.classification !== 'plan')`. |
++| Phase 3 | All committed_data insert sites in execute located | PASS | execute writes at 4 pipeline sites with `field_identities` keys at lines 591 (target), 739 (transaction), 865 (entity), 987 (reference). Confirmed via `git grep -n "field_identities" execute/route.ts`. |
++| Phase 3 | All committed_data insert sites in execute-bulk located | PASS | 3 insert sites in execute-bulk: line 525-548 (entity), 645-665 (transaction), 805-822 (reference). Plus an `entity_id` update at line 992 (no metadata write). Confirmed via DIAG-021 R1 evidence + visual inspection of metadata blocks. |
++| Phase 3 | Comparison table populated with full metadata key lists | PASS | Section 11 Phase 3: 7-row comparison table (4 execute pipelines + 3 execute-bulk pipelines), columns: Pipeline / Insert Site / Data Type / metadata keys / field_identities / source value. |
++| Phase 3 | Metadata diff statement produced | PASS | Quote: "Common to both: informational_label. Unique to execute-bulk: source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field. Unique to execute: field_identities, classification, sourceFile, tabName…" |
++| Phase 4 | buildFieldIdentitiesFromBindings located | PASS | `web/src/app/api/import/sci/execute/route.ts:40` (single definition; only file in repo with this symbol). 4 internal call sites in same file (lines 586, 734, 880, 1011). |
++| Phase 4 | Helper full body pasted | PASS | Section 11 Phase 4: full 40-line body pasted (ROLE_MAP table + the for-loop building `Record<string, FieldIdentity>` from `bindings: SemanticBinding[]`). |
++| Phase 4 | Required inputs enumerated with types | PASS | Quote: "Required inputs: `bindings: SemanticBinding[]` — array of `{ sourceField: string; semanticRole: string; confidence: number; ... }`." Pure function. No DB/IO/AI calls. |
++| Phase 4 | Availability in execute-bulk context determined with evidence | PASS | Quote: "**YES, fully available.** `BulkContentUnit.confirmedBindings: SemanticBinding[]` is declared at execute-bulk/route.ts:53 and is part of the `BulkRequest` payload posted by SCIExecution.tsx:173. `unit.confirmedBindings` is referenced 20+ times throughout execute-bulk/route.ts." |
++| Phase 5 | All five questions (A–E) answered with code evidence | PASS | Section 11 Phase 5: Q-A NO (different workload), Q-B SAME caller / DIFFERENT branching, Q-C OVERLAP, Q-D NEITHER superset, Q-E YES (each has structural reason). Each answer cites specific file:line evidence. |
++| Phase 5 | Responsibility-Division Verdict is exactly one classification | PASS | Quote: "**PARALLEL_SPECIALIZED.** The two routes have legitimately different responsibilities…" |
++| Phase 5 | Indicated HF-194 Framing is exactly one option | PASS | Quote: "**B (narrow patch + tech-debt registration).** Per the matrix, PARALLEL_SPECIALIZED maps to A or B. The drift is sufficiently consequential…that registering it as debt is warranted." |
++| Phase 6 | Section 11 appended to DIAG-020_FINDINGS.md with all subsections | PASS | `grep -nE "^## 11\.\|^### Phase [0-5]:\|^### Responsibility-Division\|^### Indicated\|^### Hypothesis\|^### ARCHITECT" docs/diagnostics/DIAG-020_FINDINGS.md` returns Section-11 anchors. File now ~50,000 bytes. |
++
++## PROOF GATES — SOFT
++
++| # | Criterion | PASS/FAIL | Evidence |
++|---|-----------|-----------|----------|
++| Phase 1 | Handler summary is grounded in code evidence, not naming | PASS | Each step in both handler summaries references specific line ranges or named functions (e.g., `executeBatchedPlanInterpretation` at line 1093, `processDataUnit` pattern, `XLSX.read` for server-side parse, OB-174 Phase 5 nanobatch). |
++| Phase 5 | Each question answer references pasted code | PASS | Q-A cites the absence of `processPlanUnit` in execute-bulk via `git grep`. Q-B cites SCIExecution.tsx:286 + filter expressions. Q-C cites OB-182 comment + execute's signal/rule_set writes. Q-D cites Storage requirement vs rawData requirement. Q-E cites OB-156 file header (AP-1/AP-2). |
++
++## STANDING RULE COMPLIANCE
++
++- Rule 25: PASS — completion report created before commit/push.
++- Rule 26: PASS — this file follows the template.
++- Rule 27: PASS — every gate has pasted evidence.
++- Rule 28: N/A — single logical commit.
++- Rule 29: PASS — verified in source artifact.
++- Rule 34: PASS — structural diagnostic before structural fix; no fix attempted.
++- Rule 36: PASS — scope held to reading the two routes + caller + helper. Did not draft HF-194.
++- Rule 51v2: PASS — no code changes; commit affects only `docs/`.
++- Korean Test: PASS — structural identifiers (file paths, function names, route paths). No domain vocabulary introduced.
++
++## KNOWN ISSUES
++
++- **`processPlanUnit` absent in execute-bulk despite plan in PROCESSING_ORDER.** execute-bulk's `PROCESSING_ORDER` map declares `plan: 0` but no plan-handling code path exists in the file (no `processPlanUnit`, no `interpretPlan` call, no `rule_sets` write). The `plan: 0` entry is dead-style configuration. Not a blocker for HF-194; documented for the architect's awareness because it could be misread as "execute-bulk handles plans" if only the PROCESSING_ORDER table is consulted.
++- **execute's data pipelines (target/transaction/entity/reference) are live as a fallback path.** They are reachable when `SCIExecution.tsx`'s `executeLegacyUnit` is invoked (no `storagePath` case, line 237). This means HF-194 patches in execute-bulk close the bulk path but do not affect the fallback path; both should produce equivalent metadata. The execute fallback already writes field_identities, so no patch is needed there.
++- **Branch state.** Same as DIAG-020 / DIAG-020-A / DIAG-021 R1 — current branch is `hf-193-signal-surface`, not `main`. Push target is the same branch.
++- **DIAG-022 read only HEAD; did not re-read at MARCH_19/APR_17.** The diagnostic's purpose is structural, not historical; per the directive, only `HEAD_SHA = 882bc94c` was needed. Cross-anchor history of the two routes is in DIAG-021 R1 Section 10.
++
++## VERIFICATION SCRIPT OUTPUT
++
++None. (DIAG-022 is evidence-paste only.)
+diff --git a/docs/completion-reports/HF-194_COMPLETION_REPORT.md b/docs/completion-reports/HF-194_COMPLETION_REPORT.md
+new file mode 100644
+index 00000000..1727321a
+--- /dev/null
++++ b/docs/completion-reports/HF-194_COMPLETION_REPORT.md
+@@ -0,0 +1,113 @@
++# HF-194 COMPLETION REPORT
++## Date: 2026-04-25
++## Execution Time: 19:30 PDT - 20:15 PDT
++
++## COMMITS (in order)
++
++| Hash       | Phase   | Description                                                         |
++|------------|---------|---------------------------------------------------------------------|
++| d56f3e66   | Phase 1 | extract buildFieldIdentitiesFromBindings to lib/sci                 |
++| 34f2c42d   | Phase 2 | migrate execute/route.ts to import from lib/sci                     |
++| b784291c   | Phase 3 | add field_identities to execute-bulk metadata                       |
++| 2665b264   | Phase 4 | register AP-17 parallel metadata construction tech debt             |
++| (pending)  | Phase 5 | Stage 1/2 verification specs + completion report                    |
++
++## FILES CREATED
++
++| File                                                         | Purpose                              |
++|--------------------------------------------------------------|--------------------------------------|
++| web/src/lib/sci/field-identities.ts                          | Extracted helper module              |
++| docs/tech-debt/AP-17_PARALLEL_METADATA_CONSTRUCTION.md       | Tech-debt registration               |
++| docs/verification/HF-194_STAGE1_VERIFICATION.md              | Stage 1 verification spec            |
++| docs/verification/HF-194_STAGE2_VERIFICATION.md              | Stage 2 verification spec            |
++| docs/completion-reports/HF-194_COMPLETION_REPORT.md          | This file                            |
++
++## FILES MODIFIED
++
++| File                                                       | Change                                                   |
++|------------------------------------------------------------|----------------------------------------------------------|
++| web/src/app/api/import/sci/execute/route.ts                | Removed local helper definition (was lines 38–80) and the now-unused imports of `ColumnRole`, `FieldIdentity`, `SemanticBinding`. Added import `buildFieldIdentitiesFromBindings` from `@/lib/sci/field-identities`. Four call sites (lines 541, 689, 835, 966 in HEAD) preserved unchanged. |
++| web/src/app/api/import/sci/execute-bulk/route.ts           | Added import `buildFieldIdentitiesFromBindings` from `@/lib/sci/field-identities`. Added `field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings)` at three insert sites (lines 547, 666, 830 in HEAD). |
++
++## PROOF GATES — HARD
++
++| # | Criterion (VERBATIM) | PASS/FAIL | Evidence |
++|---|----------------------|-----------|----------|
++| Phase 0 | Schema verification: metadata is JSONB | PASS | Schema probe via `scripts/audit/hf-194-phase0-schema.ts` returned: `committed_data` row has keys `created_at, data_type, entity_id, id, import_batch_id, metadata, period_id, row_data, source_date, tenant_id`. `metadata` runtime type = object (non-array, non-null) → JSONB-like. Quote: "Schema verification PASS — H1 does not fire." |
++| Phase 1 | New file `lib/sci/field-identities.ts` created | PASS | `wc -l` reports 58 lines; file exists at `web/src/lib/sci/field-identities.ts`; `git show HEAD:web/src/lib/sci/field-identities.ts \| head -15` returns the file header documenting "HF-194: Extracted from execute/route.ts to shared lib. Pure function — no DB, no I/O, no AI." |
++| Phase 1 | Helper body byte-identical to predecessor | PASS | `diff` between the original helper body (execute/route.ts:40–81 with `function ` prefix-substituted to `export function `) and the new helper body returned exit code 0 (byte-identical except the export keyword on the function declaration). |
++| Phase 1 | TypeScript check passes on new file | PASS | Project-level `npx tsc --noEmit` (run from `web/` so tsconfig.json's `paths` resolves `@/lib/sci/*`) returned zero errors mentioning `field-identities.ts`. |
++| Phase 2 | Import added at top of execute/route.ts | PASS | `grep -nE "buildFieldIdentitiesFromBindings\|@/lib/sci/field-identities" web/src/app/api/import/sci/execute/route.ts` returns line 36 (import) plus call sites at 541, 689, 835, 966. |
++| Phase 2 | Local helper definition removed from execute/route.ts | PASS | Same grep shows no `function buildFieldIdentitiesFromBindings` definition; the local helper (formerly lines 38–80) is gone. Phase 2 commit diff shows `1 file changed, 2 insertions(+), 47 deletions(-)`. |
++| Phase 2 | TypeScript check passes on execute/route.ts | PASS | `npx tsc --noEmit` project-wide returned zero errors. |
++| Phase 2 | Project build succeeds | PASS | `npm run build` returned `✓ Compiled successfully` and full route table including `ƒ /api/import/sci/execute` and `ƒ /api/import/sci/execute-bulk`. |
++| Phase 3 | Import added at top of execute-bulk/route.ts | PASS | `grep -n field_identities web/src/app/api/import/sci/execute-bulk/route.ts` shows the import at line 26: `import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';` |
++| Phase 3 | field_identities added at all 3 insert sites | PASS | `grep -nE "field_identities\|buildFieldIdentitiesFromBindings"` shows line 26 (import) + lines 547 (entity), 666 (transaction), 830 (reference). 4 matches total. Each call-site comment reads "HF-194: restore field_identities for matcher's structural-FI Pass 1". |
++| Phase 3 | TypeScript check passes on execute-bulk/route.ts | PASS | `npx tsc --noEmit` project-wide returned zero errors after Phase 3. |
++| Phase 3 | Lint passes on execute-bulk/route.ts | PASS | `npx next lint --file <three-changed-files>` returned `✔ No ESLint warnings or errors`. |
++| Phase 3 | Project build succeeds | PASS | `npm run build` returned `✓ Compiled successfully` after Phase 3 commit. |
++| Phase 4 | AP-17 tech-debt file created | PASS | `docs/tech-debt/AP-17_PARALLEL_METADATA_CONSTRUCTION.md` created with full content describing the parallel metadata-construction surface, the metadata-key drift table (10 rows), the deferred remediation candidate sketch, acceptance criteria for future cleanup, and cross-references to DIAG-020 / DIAG-020-A / DIAG-021 R1 / DIAG-022 / HF-194. |
++| Phase 5 | Stage 1 verification spec exists | PASS | `docs/verification/HF-194_STAGE1_VERIFICATION.md` created. Contains: hypothesis under test, 4 architect-runnable steps including supabase-js queries for `field_identities` presence by `informational_label` and `convergence_bindings` count check, Stage 1 PASS criteria (`field_identities` populated; `convergence_bindings` produced; `cb_count = 4`), and explicit Stage-1-vs-Stage-2 boundary statement. |
++| Phase 5 | Stage 2 verification spec exists | PASS | `docs/verification/HF-194_STAGE2_VERIFICATION.md` created. Contains: hypothesis, navigation to `/operate/calculate`, per-period expected totals table (May/Jun/Jul/Aug/Sep/Oct 2025 with grand total $312,033), Vercel-log capture requirements (the convergence emission line + the HF-108 line), PASS/FAIL semantics. |
++| Phase 5 | Rule 51v2 build verification on committed code: build succeeds | PASS | Working tree had no in-scope modifications (HF-194 changes already committed). `npm run build` after Phase 3 committed code returned `✓ Compiled successfully`. |
++| Phase 5 | Rule 51v2: helper exists in HEAD | PASS | `git show HEAD:web/src/lib/sci/field-identities.ts \| head -15` returned the documented header + function signature. File is in committed state. |
++| Phase 5 | Rule 51v2: execute/route.ts has import + no local def in HEAD | PASS | `git show HEAD:.../execute/route.ts \| grep buildFieldIdentitiesFromBindings`: line 36 (import), call sites at 541/689/835/966. No local function definition matches. |
++| Phase 5 | Rule 51v2: execute-bulk/route.ts has import + 3 field_identities in HEAD | PASS | `git show HEAD:.../execute-bulk/route.ts \| grep -nE "field_identities\|@/lib/sci/field-identities"`: line 26 (import), lines 547/666/830 (call sites at the three insert metadata blocks). |
++| Phase 5 | CLT (tsc + lint) shows no new errors on changed files | PASS | tsc project-wide: zero errors. Lint on the three changed files: "No ESLint warnings or errors". |
++
++## PROOF GATES — SOFT
++
++| # | Criterion | PASS/FAIL | Evidence |
++|---|-----------|-----------|----------|
++| Phase 1 | Helper file under 100 lines | PASS | `wc -l web/src/lib/sci/field-identities.ts` reports 58 lines. |
++| Phase 3 | Each str_replace targeted unique context | PASS | Each of the 3 metadata patches keyed off a unique `informational_label` value (`'entity'`, no informational_label/`OB-174 Phase 5: Nanobatch`, `'reference'`) plus surrounding lines (CD_CHUNK = 2000 vs OB-174 vs `// Insert in chunks (same as processDataUnit)`). All three Edit operations completed without "old_string not unique" errors. |
++
++## STANDING RULE COMPLIANCE
++
++- Rule 25 (report before final op): PASS — completion report created before Phase 5.7 push.
++- Rule 26 (mandatory structure): PASS — this file follows the template (COMMITS, FILES CREATED, FILES MODIFIED, PROOF GATES HARD/SOFT, STANDING RULE COMPLIANCE, DECISION COMPLIANCE, ANTI-PATTERN COMPLIANCE, KNOWN ISSUES, VERIFICATION SCRIPT OUTPUT).
++- Rule 27 (evidence pasted): PASS — every gate has pasted evidence.
++- Rule 28 (commit per phase): PASS — 5 commits, one per phase (Phase 1 = `d56f3e66`, Phase 2 = `34f2c42d`, Phase 3 = `b784291c`, Phase 4 = `2665b264`, Phase 5 pending after this file is staged).
++- Rule 29 (CC paste last): PASS — verified in source artifact (HF-194 CC paste block was the final block).
++- Rule 34 (no bypass): PASS — structural fix; helper extracted cleanly; no workaround; no reverted phase.
++- Rule 36 (scope discipline): PASS — scope held to extract + import + patch (3 sites) + register tech debt + 2 verification specs. No matcher changes, no schema changes, no consolidation, no expansion to upstream router or downstream engine. The HF-194 directive's H7 was considered (transaction-pipeline insert in execute-bulk also lacks `informational_label` — a separate AP-17-class drift), but NOT acted on; logged in Known Issues.
++- Rule 51v2 (build verification on committed code): PASS — `npm run build` succeeded after Phase 3 commit; `git show HEAD:<file>` greps confirm the changes are in the committed state, not just working tree.
++- Korean Test: PASS — helper preserves structural identifiers (semantic role enums like `entity_identifier`, `transaction_amount`, etc., which are role-name primitives, not domain-specific terms). No language-specific literals introduced.
++- SR-A: PASS — actual code read in Phase 0 before any change (helper body, three execute-bulk metadata blocks, type imports).
++
++## DECISION COMPLIANCE
++
++- Decision 111: PRESERVED — restores production path for `convergence_bindings`. The helper extraction does not change the convergence contract; it restores its input.
++- Decision 147: PRESERVED — Plan Intelligence Forward principle intact. HF-194 does not touch plan-interpretation code.
++- Decision 151: PRESERVED — intent executor sole authority unchanged.
++- Decision 152: PRESERVED — no phase ordering introduced. The `field_identities` patch is at insert time (within each pipeline's row-construction loop), not a new pipeline phase.
++- Decision 153: PRESERVED — atomic cutover unchanged. HF-194 patches metadata at write time; does not alter atomicity.
++- AUD-002 V-001/V-007: PRESERVED — closed by HF-193; not reopened. HF-194 does not touch the signal-write surface.
++
++## ANTI-PATTERN COMPLIANCE
++
++- AP-17 (parallel pipelines): NOT consolidated. `execute/route.ts` and `execute-bulk/route.ts` remain PARALLEL_SPECIALIZED per DIAG-022. Tech debt registered in `docs/tech-debt/AP-17_PARALLEL_METADATA_CONSTRUCTION.md` for future cleanup. HF-194 closes the most consequential drift (`field_identities`) without consolidating route specialization.
++
++## KNOWN ISSUES
++
++- **execute-bulk transaction-pipeline metadata still lacks `informational_label`.** The transaction insert at line 666 includes `field_identities` (HF-194) but does not include `informational_label`, while the entity (line 547) and reference (line 830) inserts both stamp it. This is a separate AP-17-class drift in the metadata key list and is documented in the AP-17 tech-debt file (Phase 4). H7 was considered; out of scope per HF-194's narrow framing. If the matcher or any downstream consumer reads `informational_label` to disambiguate transaction rows, that will fail; pipeline currently uses `data_type` and other keys for routing, so no immediate consequence is identified, but flagged for future cleanup.
++- **CRP and Meridian have 0 `committed_data` rows** (per DIAG-020-A KNOWN ISSUES). HF-194 closes the BCL regression; CRP and Meridian require fresh imports through the post-HF-194 bulk path before they can be verified.
++- **Branch state.** Same as DIAG-020 / DIAG-020-A / DIAG-021 R1 / DIAG-022 — current branch is `hf-193-signal-surface`, not `main`. PR is targeted at `main`.
++- **Stage 1 / Stage 2 verification cannot be run by CC.** Both stages require Vercel deploy + browser-driven re-import (Stage 1) and calculation runs (Stage 2). CC produced runnable specs in `docs/verification/`; architect executes Phase 6.
++
++## VERIFICATION SCRIPT OUTPUT
++
++None for HF-194 itself. Stage 1 and Stage 2 verification specs are in `docs/verification/HF-194_STAGE1_VERIFICATION.md` and `HF-194_STAGE2_VERIFICATION.md` and require architect to execute after Vercel deploys this branch.
++
++## ARCHITECT PRODUCTION VERIFICATION (PHASE 6 — DEFERRED)
++
++HF-194 is structurally complete. Stage 1 and Stage 2 verification must be run by architect after Vercel deploys this branch:
++
++1. Vercel deploys `hf-193-signal-surface` (or whatever branch HF-194 lands on after PR merge).
++2. Architect re-imports BCL via vialuce.ai (bulk-storage path).
++3. Architect runs Stage 1 SQL queries from `docs/verification/HF-194_STAGE1_VERIFICATION.md`.
++4. If Stage 1 PASSES, architect runs calculation per `docs/verification/HF-194_STAGE2_VERIFICATION.md`.
++5. Architect dispositions:
++   - Stage 1 PASS + Stage 2 PASS → HF-194 closes the regression; proceed to CRP/Meridian re-import + verification.
++   - Stage 1 PASS + Stage 2 FAIL → HF-195 follows; HF-194 retained.
++   - Stage 1 FAIL → halt; re-diagnose.
+diff --git a/docs/diagnostics/DIAG-020_FINDINGS.md b/docs/diagnostics/DIAG-020_FINDINGS.md
+new file mode 100644
+index 00000000..6855a65e
+--- /dev/null
++++ b/docs/diagnostics/DIAG-020_FINDINGS.md
+@@ -0,0 +1,474 @@
++# DIAG-020 FINDINGS REPORT
++## Date: 2026-04-25
++## CC Session HEAD SHA at execution: 445fcb00 (branch hf-193-signal-surface; main HEAD = 6a8d7794)
++
++## 1. ANCHOR COMMITS
++
++| Anchor       | SHA       | Date                       | Description |
++|--------------|-----------|----------------------------|-------------|
++| MARCH_19_SHA | 48f1708d  | 2026-03-18 14:26 PDT       | OB-177 Phase 6: Build verification and completion report (last commit before OB-185 Pass 4 arrived 4 days later; nearest plausible BCL "March 19" anchor) |
++| HEAD_SHA     | 445fcb00  | 2026-04-24                 | HF-193 Phase 4: completion report (current branch tip on `hf-193-signal-surface`) |
++
++Sanity check: `git show <sha>:web/src/lib/intelligence/convergence-service.ts | head -10` returned the same OB-120/OB-162 file header for both anchors. File present in both.
++
++Note: A literal commit named "BCL March 19 third proof ($312,033)" was not found in the git log. The closest March-19-window anchor on `main` is OB-177 Phase 6 (PDT 14:26 = UTC March 19 21:26). DIAG-020 uses `48f1708d` as MARCH_19_SHA; if the architect intends a different anchor, the findings below scale linearly because the matcher functions are byte-identical across the broader 4-week window.
++
++## 2. MATCHER FUNCTION CHANGES (Phase 2-3)
++
++| Function                      | March 19 LOC | HEAD LOC | Change Class |
++|-------------------------------|--------------|----------|--------------|
++| extractComponents             | 83           | 127      | LOGIC (additive) — adds piecewise_linear `ratioInput`/`baseInput` extraction and conditional_gate `walkNested(onTrue/onFalse/condition)` walker (OB-185 Pass 4 / OB-191). Increases `expectedMetrics` per component; does not remove or rewrite existing extraction. |
++| inventoryData                 | 200          | 200      | NONE — body byte-identical (`diff` exits 0). |
++| matchComponentsToData         | 116          | 116      | NONE — body byte-identical (`diff` exits 0). |
++| generateAllComponentBindings  | 172          | 172      | NONE — body byte-identical (`diff` exits 0). |
++
++Methodology: Function ranges located via `grep -nE "^(export\s+)?(async\s+)?function\s+\w+"` on both anchors; bodies extracted via `sed` on the corresponding line ranges; `diff <head_range> <march19_range>` run for each. First 30 lines of each function are identical between anchors. Three of four matcher functions are byte-identical end-to-end. The extracted diff for `extractComponents` is a +44-line additive block inside a single `if (intent)` branch — pasted in Phase 3 evidence.
++
++## 3. COMMIT-LEVEL CLASSIFICATION
++
++20 unique commits touched the three in-scope files (`convergence-service.ts`, `ai-plan-interpreter.ts`, `anthropic-adapter.ts` at `web/src/lib/ai/providers/`) between MARCH_19_SHA and HEAD_SHA. Below H3 threshold (50). Total additive line count: ~573 in convergence, ~284 in adapter prompt, ~104 in interpreter.
++
++| SHA       | HF/OB             | Message                                                                 | Function(s) Touched                          | Input-Shape Impact |
++|-----------|-------------------|-------------------------------------------------------------------------|----------------------------------------------|--------------------|
++| d838ca9f  | HF-156            | Plan converter -- connect AI intelligence to calculation engine         | interpreter (bridgeAIToEngineFormat path)    | NONE — interpreter glue, no matcher input touched |
++| 9d7a4242  | HF-157            | Remove unused imports + fix all build errors                            | interpreter imports                          | NONE — cleanup |
++| 32b81247  | HF-158            | calcType reads calculationIntent.operation as fallback (line 552)       | interpreter normalizeCalculationMethod       | NONE — interpreter only |
++| 03ed3795  | HF-159            | normalizeCalculationMethod passes through new primitive types           | interpreter normalizeCalculationMethod       | NONE — interpreter only |
++| ed6b1946  | HF-160            | AI prompt vocabulary + priority inversion — root cause fix              | adapter prompt (+88) + interpreter (+4)      | NONE — prompt content; doesn't change matcher input shape |
++| 5361c94d  | HF-162 Phase 1    | Add 5 TYPE SELECTION RULES to plan_interpretation prompt                | adapter prompt                               | NONE — prompt content |
++| 8af813ff  | HF-162 Phase 2    | Add 6 missing calculationIntent examples (10/10 types covered)          | adapter prompt                               | NONE — prompt content |
++| 6991f101  | HF-162 Phase 3    | Update MAPPING RULES with piecewise_linear IMPORTANT note               | adapter prompt                               | NONE — prompt content |
++| 4a4e1447  | HF-162 Phase 4    | Remove Korean Test violations from AI prompts                           | adapter prompt                               | NONE — prompt content |
++| a69cf62f  | HF-161 Phase 3    | Remove hardcoded eligibleRoles — Korean Test cleanup                    | interpreter eligibleRoles default            | NONE — population_config default; not consumed by matcher |
++| 43c07ac8  | HF-171            | LLM-primary identifier classification — use HC identifiesWhat           | adapter prompt                               | NONE — prompt content |
++| c165ddea  | OB-186 Phase 2    | Cadence-aware calculate page                                            | adapter prompt                               | NONE — prompt content |
++| c19a042c  | OB-185 Phase 1    | AI semantic derivation — Pass 4 implementation                          | convergeBindings (+ Pass 4 block); adds `generateAISemanticDerivations`, `MetricContext` | LOGIC (additive) — adds Pass 4 AI semantic-derivation phase BETWEEN target-pair detection (OB-128) and gap detection. Does NOT alter the matcher functions; new code path runs on metrics still unresolved after Passes 1-3. |
++| c6f13105  | OB-185 Phase 2    | Fix build — use natural_language_query task, handle response parsing    | OB-185 Pass 4 task plumbing                  | NONE — bug fix on Pass 4 |
++| fc6422fe  | OB-191            | Convergence Pass 4 — calculationIntent metrics + scope_aggregate        | extractComponents (+44 walker block); MetricContext enrichment | LOGIC (additive) — extractComponents now extracts metrics from `ratioInput`, `baseInput`, and recursively walked `condition.left`/`onTrue`/`onFalse`. For BCL: previously the conditional_gate component (regulatory) had `expectedMetrics = []`; HEAD extracts `regulatory_infractions`. Net effect: more required metrics per component, more chances for matchers to find or miss them. |
++| 70aba6bc  | HF-191 Phase A    | Plan agent outputs metricSemantics, stored as plan_agent_seeds          | adapter prompt (+51 metricSemantics section); interpreter (+15 plan_agent_seeds write) | WRITES — adds new write path: AI emits `metricSemantics`; interpreter persists as `rule_set.input_bindings.plan_agent_seeds`. Does not affect existing matcher inputs. |
++| 3a31bdea  | HF-191 Phase B    | Convergence reads and validates plan agent seeds                        | convergeBindings (+92 seed-validation block before matchers) | READS + LOGIC — adds Decision-147 seed-validation block at line ~159. Reads seeds, validates filter fields against capabilities.categoricalFields, validates source_field against columnStats. Validation-passing seeds become `MetricDerivationRule[]` entries (NOT componentBindings). The block runs BEFORE `matchComponentsToData` and does not modify capabilities or components passed downstream. Failed seeds emit `[Convergence] Decision 147: Seed "X" FAILED: ...`. |
++| 3c628702  | HF-193-A 2.2b     | bridge return-shape extension                                            | interpreter return shape                     | CONTRACT (REVERTED next commit) — added new return fields; reverted before merge to main. |
++| 37111ab7  | (revert)          | Revert "HF-193-A Phase 2.2b: bridge return-shape extension"             | interpreter return shape                     | NONE — restores prior contract. |
++| 95efc14d  | HF-193 Phase 2    | delete plan_agent_seeds; bridge writes metric_comprehension signals; convergence reads signals | interpreter (+19) bridges to SignalData; convergeBindings (+36) reads from `classification_signals` instead of `rule_set.input_bindings.plan_agent_seeds` | READS + WRITES — seed source migration. Persistence target moved from `rule_sets.input_bindings.plan_agent_seeds` (jsonb on rule_set) to `classification_signals` rows where `signal_type='metric_comprehension'`. Read site moved correspondingly. Validation logic in convergeBindings unchanged from HF-191 Phase B. |
++
++Soft gate: total non-NONE commit count = 4 (OB-185 Phase 1, OB-191, HF-191 Phase B, HF-193 Phase 2). Three of the four are ADDITIVE (Pass 4 AI, conditional_gate walker, seed-source migration); one (HF-191 Phase B) introduced the seed-validation block but the validated seeds populate `derivations` (not `componentBindings`), so the new path cannot directly suppress component-binding production.
++
++## 4. TYPE-SHAPE CHANGES
++
++`interface DataCapability` and `interface PlanComponent` defined at lines 26 and 61 of `web/src/lib/intelligence/convergence-service.ts` at HEAD; lines 26 and 44 at MARCH_19_SHA. Bodies BYTE-IDENTICAL between anchors (verified via direct line-range comparison).
++
++| Type           | Field Added | Field Removed | Field Renamed | Constructor Changed |
++|----------------|-------------|---------------|---------------|---------------------|
++| DataCapability | none        | none          | none          | none — `inventoryData` byte-identical |
++| PlanComponent  | none        | none          | none          | `extractComponents` body diverges by +44 additive lines (piecewise_linear ratio/baseInput extraction + conditional_gate walker). Output-shape unchanged; only `expectedMetrics` array can grow. |
++
++A second `PlanComponent` symbol exists at `web/src/types/compensation-plan.ts:58` (exported); this is a different, structurally richer interface used by the engine, not the local `PlanComponent` consumed by `convergeBindings` matchers. The local interface is the relevant one for matcher input-shape drift.
++
++## 5. LIVE STATE OBSERVATIONS
++
++| Observation | Evidence Source |
++|-------------|-----------------|
++| BCL has exactly one `rule_sets` row (`98fbc260-d1ab-485e-b337-0f534bcb06a5`, status `active`, created `2026-04-25T21:37:49Z`). | Phase 5.1 |
++| `input_bindings` on that rule_set contains `metric_derivations` (3 entries — credit_placement_attainment, portfolio_quality_ratio, deposit_capture_attainment, all `ratio` operation, `source_pattern: ".*"`, empty `filters`). | Phase 5.1 |
++| `input_bindings` does NOT contain `convergence_bindings` (`has_cb=false`) — the Decision-111 primary format is absent. | Phase 5.1 |
++| `input_bindings` does NOT contain `plan_agent_seeds` (`has_seeds_residue=false`) — HF-193's purge step held. | Phase 5.1 |
++| `committed_data` for BCL: 595 rows across 7 distinct `data_type` values. 85 rows labeled `entity` (personnel sheet); 510 rows with `metadata.informational_label = NULL/∅` (Datos sheets — NOT labeled `transaction`). | Phase 5.2 |
++| The 13-column Datos row_data does NOT contain `product_type` or `infraction_type` — the two filter fields the AI's metricSemantics references for `cross_products_sold` and `regulatory_infractions`. | Phase 5.2 |
++| BCL committed_data rows do NOT carry `metadata.field_identities`. (The Phase 5.2 grouping ranges over `row_data` keys; an earlier full row dump in this session, Section 6 of prior diagnostic, confirmed metadata only contains `source`, `proposalId`, `semantic_roles`, `entity_id_field`, `resolved_data_type`, `informational_label`. No `field_identities` key.) | Phase 5.2 + prior session evidence |
++| 5 `metric_comprehension` signal rows exist for `rule_set_id = 98fbc260...`, with `component_index` 0–4 and the same metricSemantics shapes the AI emitted (3 ratios + 2 counts; the 2 counts carry filter fields `product_type=cross_sell` and `infraction_type=regulatory`). | Phase 5.3 |
++| 85 `entities` rows for BCL each carry `temporal_attributes` as an array with keys `cargo, nivel_cargo, fecha_ingreso, region`. The OB-177 Phase 1 living-layer enrichment is functioning. | Phase 5.4 |
++
++## 6. DRIFT ATTRIBUTION
++
++**Classification: INDETERMINATE — confidence MEDIUM.**
++
++Within the in-scope files (matcher + interpreter + AI prompt), the matcher logic and matcher input types are unchanged. `inventoryData`, `matchComponentsToData`, and `generateAllComponentBindings` are byte-identical between MARCH_19_SHA and HEAD_SHA; `extractComponents` is additively enhanced (more `expectedMetrics` extracted, never fewer). `DataCapability` and `PlanComponent` interfaces are byte-identical. Live state shows BCL's current rule_set produces `metric_derivations` only and zero `convergence_bindings` — consistent with `matchComponentsToData` returning zero matches at the structural-FI tier and zero usable matches at the token-overlap tier. The structural-FI tier requires `metadata.field_identities` on committed_data rows; that field is absent on every BCL row. The token-overlap tier requires lexical overlap between component names (English + Spanish: "Credit Placement", "Cross Products", etc.) and `data_type` values (hash-prefixed: `0_72d70dac_bcl_plantilla_personal__personal`); no overlap exists.
++
++The reason the in-scope diagnostic cannot resolve this to CONCENTRATED or DISTRIBUTED is that the absent `metadata.field_identities` is written by the import pipeline (`web/src/app/api/import/sci/execute/route.ts` and `execute-bulk/route.ts`), which is outside DIAG-020's scope. Whether the March 19 BCL import wrote that field — or wrote a `data_type` value with sufficient lexical signal for token-overlap — cannot be determined by reading current code and current data alone. Both possibilities are consistent with the static evidence.
++
++## 7. HYPOTHESIS
++
++**Hypothesis (NOT a fix proposal).** The most likely root cause is that BCL's committed_data was imported after a change in the SCI import pipeline that no longer stamps `metadata.field_identities` (or stamps it under a different shape that `inventoryData` does not recognize). With `field_identities` absent on every row, `inventoryData` produces `DataCapability` entries with `fieldIdentities: {}`; `matchComponentsToData`'s primary structural-FI path is skipped (`capsWithFI.length === 0`); the Pass-3 token-overlap fallback finds no overlap because `data_type` values are opaque hash-prefixed strings rather than human-readable tokens; matches end empty; `generateAllComponentBindings` therefore writes zero `componentBindings`. The matcher itself is functioning as designed against degraded inputs. A secondary contributing factor — visible in Phase 5.3 — is that the AI's `metricSemantics` for `cross_products_sold` and `regulatory_infractions` references categorical filter fields (`product_type`, `infraction_type`) that do not exist in the actual `row_data`; the seed-validation block correctly fails those two seeds, but this affects `derivations`, not `componentBindings`. These two issues are independent and could have arrived at different commits, which is why the disposition is INDETERMINATE rather than CONCENTRATED.
++
++## 8. ARCHITECT DISPOSES
++
++End of report. CC does not propose fixes. CC does not draft HFs.
++
++## 9. DIAG-020-A FOLLOW-UP — FIELD_IDENTITIES CONFIRMATION
++### Date: 2026-04-25
++
++### Phase 1: BCL metadata top-level keys (sample 50 of 595 total rows)
++
++| metadata_key            | rows_containing_key |
++|-------------------------|---------------------|
++| source                  | 50                  |
++| proposalId              | 50                  |
++| semantic_roles          | 50                  |
++| entity_id_field         | 50                  |
++| resolved_data_type      | 50                  |
++| informational_label     | 50                  |
++
++`field_identities` present in: **0 of 50** sampled rows.
++Keys starting with `field_` or `identity_`: (none).
++
++### Phase 2: Per-batch field_identities probe (10 rows per distinct batch × data_type)
++
++| import_batch_id                       | data_type                                              | sampled | with_field_identities |
++|---------------------------------------|--------------------------------------------------------|---------|-----------------------|
++| 40a4dc96-dbbb-4af5-8ab9-d72622ba4dc5  | 0_72d70dac_bcl_plantilla_personal__personal            | 10      | 0                     |
++| ec021124-7ced-48d1-a280-52435c4fb74f  | 0_8622c8a6_bcl_datos_dic__datos                        | 10      | 0                     |
++| 0a3a8013-7a50-44c5-923b-215d0c40de76  | 1_f2c29611_bcl_datos_ene__datos                        | 10      | 0                     |
++| 42cf02ee-0571-469a-8bf9-c2084cff25e4  | 2_3aedc4fe_bcl_datos__datos                            | 10      | 0                     |
++| 08e2dc90-cbdb-4657-93e5-db9857747973  | 3_3ca68905_bcl_datos__datos                            | 10      | 0                     |
++| 54891b4d-9ae2-43d4-816b-0004a59e45a5  | 4_332f6cfb_bcl_datos__datos                            | 10      | 0                     |
++| 706dd552-b417-47ea-8fc0-cf29be219209  | 5_8328fbff_bcl_datos__datos                            | 10      | 0                     |
++
++Total: **70 rows sampled across 7 distinct (import_batch, data_type) pairs — 0 with `field_identities`**. Absence is universal at the BCL tenant, not batch-specific. PARTIAL is ruled out.
++
++### Phase 3: Cross-tenant comparative probe
++
++| tenant   | total_rows | rows_sampled | rows_with_field_identities | other_metadata_keys (sampled)                                                                |
++|----------|------------|--------------|----------------------------|-----------------------------------------------------------------------------------------------|
++| BCL      | 595        | 20           | 0                          | entity_id_field, informational_label, proposalId, resolved_data_type, semantic_roles, source |
++| CRP      | 0          | 0            | 0                          | (no rows — H3 fired; cross-tenant comparison limited)                                         |
++| Meridian | 0          | 0            | 0                          | (no rows — H3 fired; cross-tenant comparison limited)                                         |
++
++CRP and Meridian have zero `committed_data` rows (consistent with the recent Nuclear-Clear scope intent for those tenants). Universal-absence-across-tenants (CROSS-TENANT classification) cannot be determined from this probe alone.
++
++### Confirmation status:
++
++**CONFIRMED — field_identities absent on BCL rows.**
++
++### Hypothesis confidence after DIAG-020-A:
++
++Promoted from MEDIUM to: **HIGH**.
++
++DIAG-020-A directly demonstrates what DIAG-020 inferred: every BCL `committed_data` row sampled (70 rows from 7 distinct batches, plus the broader 50-row Phase 1 sample) lacks `metadata.field_identities`. With `field_identities` absent on every row, `inventoryData` (line 800 of `convergence-service.ts`) produces `DataCapability` entries with `fieldIdentities: {}`. `matchComponentsToData`'s primary structural-FI gate at line 930 (`const capsWithFI = capabilities.filter(c => Object.keys(c.fieldIdentities).length > 0); if (capsWithFI.length > 0) {...}`) is therefore skipped entirely. The Pass-3 token-overlap fallback at lines 1001–1031 cannot recover because BCL `data_type` values are opaque hash-prefixed identifiers (`0_72d70dac_bcl_plantilla_personal__personal`, `0_8622c8a6_bcl_datos_dic__datos`, etc.) that share no tokens with component names ("Credit Placement - Senior Executive", "Cross Products - Senior Executive", etc.). Result: `matches.length === 0`, and `generateAllComponentBindings` writes zero `componentBindings`. The matcher functions themselves are byte-identical between MARCH_19_SHA and HEAD (per DIAG-020 Phase 3); the regression is entirely on the `committed_data.metadata` write side. The writer lives in the SCI import pipeline (`web/src/app/api/import/sci/execute/route.ts` and `execute-bulk/route.ts`), which is outside DIAG-020's scope and was not inspected here. The cross-tenant question (whether the absence is BCL-specific or universal) remains unresolved because CRP and Meridian have no current `committed_data` rows; resolving it requires a fresh CRP or Meridian import to compare metadata shapes.
++
++### ARCHITECT DISPOSES
++
++End of DIAG-020-A. CC does not propose fixes.
++
++## 10. DIAG-021 R1 — CALLER-WRITER DRIFT, MATCHER PATH, DATA_TYPE TRACE
++### Date: 2026-04-25
++
++### Anchor SHAs (all resolved)
++```
++MARCH_19_SHA = 48f1708d
++APR_17_SHA   = 9ad419d2
++HEAD_SHA     = 882bc94c
++```
++
++### Phase 1: Emission point inventory at MARCH_19_SHA
++
++| Log Tag | File @ MARCH_19_SHA | Line | Function |
++|---------|---------------------|------|----------|
++| L1 (HF-108 Using convergence_bindings) | web/src/app/api/calculation/run/route.ts | 141 | POST (line 59-end) |
++| L2 (OB-160G: Convergence complete) | web/src/app/api/import/sci/execute/route.ts | 266 | POST (line 94-440) |
++| L3 (Convergence component bindings emitter) | web/src/lib/intelligence/convergence-service.ts | 409 | convergeBindings (line 102-416) |
++| L4 (DS-009 3.3) | web/src/lib/sci/entity-resolution.ts | 294 | resolveEntitiesFromCommittedData (line 26-end) |
++| L5 (HF-109 Entity resolution:) | web/src/app/api/import/sci/execute/route.ts | 276 | POST |
++| L6 (HF-109: Entity data written) | web/src/app/api/import/sci/execute/route.ts | 894 | executeEntityPipeline (line 796-915) |
++| L7 (OB-185 Pass 4) | (no match — absent at MARCH_19) | — | (added 2026-03-22 by OB-185 Phase 1, post-MARCH_19) |
++
++### Phase 2: Cross-anchor emission table
++
++| Log Tag | MARCH_19 file:line | APR_17 file:line | HEAD file:line | Same File All 3? | Same Function All 3? | Body Identical (function-level)? | Body Identical (local block)? |
++|---------|---|---|---|---|---|---|---|
++| L1 | calc/run/route.ts:141 | calc/run/route.ts:232 | calc/run/route.ts:227 | YES | YES (POST) | NO (M19→A17 = 548 line diff; A17→HEAD = 6 line diff) | YES (block byte-identical) |
++| L2 | sci/execute/route.ts:266 | sci/execute/route.ts:272 | sci/execute/route.ts:269 | YES | YES (POST) | NO (M19→A17 = 35 lines; A17→HEAD = 5) | (not separately diffed; immediate context unchanged in spot-check) |
++| L3 | convergence-service.ts:409 | convergence-service.ts:576 | convergence-service.ts:586 | YES | YES (convergeBindings) | NO (M19→A17 = 203 lines; A17→HEAD = 38) | YES (block byte-identical) |
++| L4 | entity-resolution.ts:294 | entity-resolution.ts:294 | entity-resolution.ts:294 | YES | YES (resolveEntitiesFromCommittedData) | YES (whole-file diff exits 0 across all 3 anchors) | YES |
++| L5 | sci/execute/route.ts:276 | sci/execute/route.ts:282 | sci/execute/route.ts:279 | YES | YES (POST) | (same as L2) | (not separately diffed) |
++| L6 | sci/execute/route.ts:894 | sci/execute/route.ts:938 | sci/execute/route.ts:935 | YES | YES (executeEntityPipeline) | M19→A17 = 15 lines; A17→HEAD = 0 (byte-identical) | YES |
++| L7 | (absent) | convergence-service.ts:503/522 | convergence-service.ts:513/532 | YES (where present) | YES (convergeBindings) | A17→HEAD = (same 38-line span as L3) | (not diffed) |
++
++**Emission drift candidates flagged:** Function-body NO at L1, L2/L5, L3, L6 (all between MARCH_19 and APR_17). All are due to ADDITIVE growth (OB-185 Pass 4, HF-191 Phase B seed validation, HF-188 intent-executor refactor) inserted before/around the emission, not local-block rewrites. Local block byte-identical at L1 and L3 confirmed by direct ±10-line comparison; matcher and emit local code unchanged. **No PATH_CHANGED_FILE / PATH_CHANGED_FUNC.**
++
++### Phase 3: Writer evolution table
++
++| Writer (stable identifier) | MARCH_19? | APR_17? | HEAD? | Writes field_identities? | Other metadata keys (at HEAD) |
++|----------------------------|-----------|---------|-------|--------------------------|--------------------------------|
++| `web/src/app/api/import/sci/execute-bulk/route.ts:613/680/682 — transaction insert (processDataUnit)` | YES (line 613) | YES (line 682) | YES (line 680) | **NO at all anchors** | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field |
++| `execute-bulk/route.ts:552 — entity insert` | **NO** (only target/transaction at MARCH_19) | YES (line 552) | YES (line 552) | **NO** | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field, informational_label: 'entity' |
++| `execute-bulk/route.ts:836/832 — reference insert` | **NO** | YES (line 836) | YES (line 832) | **NO** | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field, informational_label: 'reference' |
++| `execute-bulk/route.ts entity_id update (entity_id-only update)` | YES (line 958) | YES (line 998) | YES (line 992) | (n/a — only updates entity_id) | (no metadata write) |
++| `execute/route.ts — target pipeline insert` | YES (line 591 `field_identities: tgtFieldIdentities`) | YES (line 626) | YES (line 623) | **YES** | informational_label: 'target', field_identities |
++| `execute/route.ts — transaction pipeline insert` | YES (line 739) | YES (line 774) | YES (line 771) | **YES** | informational_label: 'transaction', field_identities |
++| `execute/route.ts — entity pipeline insert (executeEntityPipeline)` | YES (line 865) | YES (line 908) | YES (line 905) | **YES** | informational_label: 'entity', field_identities |
++| `execute/route.ts — reference pipeline insert` | YES (line 987) | YES (line 1039) | YES (line 1036) | **YES** | informational_label: 'reference', field_identities |
++| `execute/route.ts entity_id update` | YES (line 1648) | YES (line 1703) | YES (line 1724) | (n/a) | (no metadata write) |
++| `web/src/lib/supabase/data-service.ts:167 — insertCommittedData helper (passthrough)` | YES (byte-identical body) | YES | YES | (caller-supplied; passes through) | passthrough |
++
++**NEW writers post-APR_17 (i.e., post-MARCH_19, present at APR_17 and HEAD):**
++- `execute-bulk/route.ts:552 — entity insert` (introduced by HF-184 / Unified committed_data writes, 2026-03-31, commit 2203fc93)
++- `execute-bulk/route.ts:836/832 — reference insert` (introduced by OB-195 Layer 1 — Reference pipeline → committed_data, 2026-03-30, commit 261bd9d0)
++- (Both writers PRESENT at APR_17_SHA already; no further new writers between APR_17 and HEAD.)
++
++**REMOVED writers since MARCH_19:** None observed.
++
++**MOVED writers:** None — all pre-existing writers still in original files; only line numbers drifted within those files.
++
++**Writer-content evolution:** the *pre-existing* execute-bulk transaction writer at MARCH_19 (line 613) ALREADY omitted `field_identities`. Its metadata payload at MARCH_19 was `{ source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type }`. The new entity + reference bulk writers added later inherited this same omission and added `informational_label` and `entity_id_field`.
++
++**BCL data attribution:** Live BCL committed_data carries `metadata.source: 'sci-bulk'` and `metadata.informational_label` set (per DIAG-020-A). The `'sci-bulk'` literal appears ONLY in `execute-bulk/route.ts`. Therefore current BCL committed_data was written by `execute-bulk/route.ts`, NOT `execute/route.ts`. The `execute-bulk` writer never includes `field_identities`.
++
++### Phase 4: data_type construction trace
++
++| Anchor | Construction logic at writer call sites | Hash-prefixed? |
++|--------|-----------------------------------------|----------------|
++| MARCH_19 (48f1708d) | `normalizeFileNameToDataType(fileName)` then ``${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`` (when tab is non-generic) | Hash prefix is part of `fileName` itself (upstream content-unit-id format like `0_72d70dac_BCL_Plantilla_Personal.xlsx`); the normalizer strips file-extension and date suffixes but preserves the hash. |
++| APR_17 (9ad419d2) | Identical to MARCH_19 — `normalizeFileNameToDataType` body byte-identical, `${normalized}__${tabName...}` byte-identical | Same — hash present. |
++| HEAD (882bc94c) | Identical to APR_17 — byte-identical | Same — hash present. |
++
++**Hash-prefixing first appears at:** all three anchors equally — the construction logic is byte-identical. Hash-prefix originates in the upstream content-unit-id format (file naming step), not in the data_type normalizer; the normalizer preserves the hash because it only strips file-extension/date-suffix tokens.
++
++**Commit that introduced hash-prefixing:** Not within the DIAG-021 window. The hash-prefix predates MARCH_19_SHA. **Verdict: HASH_PRESENT_ALL_ANCHORS** — not a regression vector.
++
++### Caller-Writer Drift Verdict
++
++**NEW_WRITER_OMITS_FI** — new writer call sites for the entity and reference pipelines were added in `execute-bulk/route.ts` between MARCH_19 (where they did not exist) and APR_17 (where they exist with the same omission as today). These new writers omit `field_identities`. The pre-existing transaction-pipeline writer in `execute-bulk/route.ts` also omits `field_identities` and has done so at all three anchors; the new writers extend the same omission to additional pipelines.
++
++### Multi-Pass Matcher Path Verdict
++
++**PATH_UNCHANGED** — All three matcher functions (`inventoryData`, `matchComponentsToData`, `generateAllComponentBindings`) and the convergence helper layout are byte-identical or additively enhanced (`extractComponents`) between MARCH_19 and HEAD per DIAG-020. The local code blocks around L1 and L3 emissions are byte-identical text across all three anchors. Function-body sizes grew because of additive blocks inserted ELSEWHERE in the enclosing functions (Pass 4, seed validation, HF-188 intent executor, HF-165 calc-time convergence) — not because the matcher's invocation arguments, call site, or local logic changed.
++
++### Data_Type Normalization Verdict
++
++**HASH_PRESENT_ALL_ANCHORS** — `normalizeFileNameToDataType` and the `${normalized}__${tabName}` composition are byte-identical at all three anchors. The hash-prefix on BCL data_type values originates from the upstream content-unit-id format (file naming convention), which existed at MARCH_19. Not the regression vector.
++
++### Combined disposition (per DIAG-021 R1 matrix)
++
++`NEW_WRITER_OMITS_FI` × `PATH_UNCHANGED` × `HASH_PRESENT_ALL_ANCHORS` → **HF-194 narrow: restore `field_identities` write in `execute-bulk/route.ts`'s three insert call sites** (entity at line 552, transaction at line 680, reference at line 832 of HEAD). Reuse the `buildFieldIdentitiesFromBindings` helper that already exists in `execute/route.ts` line 38 (HEAD); the helper signature and shape are stable across all three anchors.
++
++Single-target forward-fix. Verification gate: re-import BCL through the bulk path; confirm `committed_data.metadata.field_identities` is populated; recalculate; expect 4 component bindings produced; verify $312,033 BCL total at calc time.
++
++### Hypothesis confidence after DIAG-021 R1
++
++**Held at HIGH.** DIAG-020-A's hypothesis (regression vector is `field_identities` absence on `committed_data.metadata`) was already HIGH after the live-data confirmation (70/70 BCL rows, 0 with `field_identities`). DIAG-021 R1 promotes the precision: the absence is attributable to `execute-bulk/route.ts`'s three insert call sites, all of which omit `field_identities` from their metadata construction. Two of those call sites (entity, reference) are NEW post-MARCH_19 (HF-184 and OB-195 Layer 1). The third (transaction) pre-existed at MARCH_19 with the same omission, but was likely not the path BCL took for personnel rows on March 19 (entity rows could not have gone through execute-bulk at MARCH_19 because the bulk entity-write call site did not exist there — they went through `execute/route.ts`'s entity pipeline, which DOES write `field_identities`). Therefore for BCL specifically, the regression vector is "BCL entity + datos imports now route through execute-bulk where on March 19 they routed through execute". Whether the routing-side change is in the UI proposal flow or in the SCI orchestration (analyze → execute-bulk vs analyze → execute) is the next narrowing question, but is not required to draft HF-194 — restoring `field_identities` write in execute-bulk closes the gap regardless of which UI flow invokes it.
++
++### ARCHITECT DISPOSES
++
++End of DIAG-021 R1. CC does not propose fixes.
++
++## 11. DIAG-022 — PIPELINE ARCHITECTURE READ
++### Date: 2026-04-25
++
++### Phase 0: File inventory + introducing commits
++
++- `web/src/app/api/import/sci/execute/route.ts` — 1,839 lines (72,299 bytes); first commit `c0fcf055` 2026-03-01 ("OB-127 Phase 6: SCI execute API — routing + target pipeline + convergence re-wire").
++- `web/src/app/api/import/sci/execute-bulk/route.ts` — 1,089 lines (40,609 bytes); first commit `07639bb4` 2026-03-04 ("OB-156 Phase 1+2: File storage transport + server-side bulk processing"). execute predates execute-bulk by 3 days.
++- HF-184 commit (`2203fc93`, 2026-03-31): "HF-184: Unified committed_data writes — import sequence independence. All SCI pipelines now write committed_data rows with source_date and entity_id_field…" — this is the commit that added the entity insert in execute-bulk (line 552 at HEAD).
++- OB-195 Layer 1 commit (`261bd9d0`, 2026-03-30): "OB-195 Layer 1: Reference pipeline → committed_data (Decision 111). Rewrite processReferenceUnit to follow processDataUnit pattern. Previously wrote to reference_data + reference_items (deprecated per Decision 111)." — this is the commit that added the reference insert in execute-bulk (line 832 at HEAD).
++
++### Phase 1: Handler summaries
++
++```
++=== execute/route.ts handler summary ===
++Entry point: POST /api/import/sci/execute (line 97)
++Triggered when: SCI proposal is confirmed and the request payload contains
++                contentUnits with rawData (browser-parsed) — and/or contains
++                storagePath for plan-document AI interpretation.
++High-level flow:
++  1. Authenticate + load tenant settings (lines 98-138)
++  2. Sort contentUnits by classification (reference < entity = target =
++     transaction < plan)  — HF-109 ordering
++  3. If any plan units AND storagePath present, batch all plan units into
++     ONE call to executeBatchedPlanInterpretation (HF-130) → AI plan
++     interpretation, rule_set upsert, persist metric_comprehension signals
++  4. For each non-plan content unit: dispatch to executeContentUnit →
++     dispatches to executeTargetPipeline / executeTransactionPipeline /
++     executeEntityPipeline / executeReferencePipeline based on
++     confirmedClassification
++  5. Each pipeline writes committed_data rows with metadata containing
++     field_identities (built via extractFieldIdentitiesFromTrace OR fallback
++     to buildFieldIdentitiesFromBindings) + informational_label
++  6. Post-import: HF-109 entity resolution (resolveEntitiesFromCommittedData,
++     DS-009 3.3) + OB-160G convergence call (when applicable; runs across
++     all rule_sets to populate input_bindings)
++  7. Capture sci:classification_outcome_v2 and sci:convergence_outcome
++     classification_signals
++Returns: SCIExecutionResult { results: ContentUnitResult[]; convergence: {...} }
++
++=== execute-bulk/route.ts handler summary ===
++Entry point: POST /api/import/sci/execute-bulk (line 68)
++Triggered when: SCI proposal is confirmed for bulk DATA processing —
++                request carries storagePath + contentUnits but NO rawData.
++                The browser uploaded the file to Supabase Storage; this
++                handler downloads + parses server-side.
++High-level flow:
++  1. Authenticate + verify tenant (lines 73-105)
++  2. Download file from Storage bucket 'ingestion-raw' (lines 110-117)
++  3. Parse XLSX server-side via xlsx library; build sheetDataMap (lines
++     124-145)
++  4. Sort contentUnits by PROCESSING_ORDER (plan=0, entity=1, target=2,
++     transaction=3, reference=4)
++  5. For each unit: resolve sheet data, then dispatch to a per-classification
++     processor (processEntityUnit / processDataUnit for transaction +
++     target / processReferenceUnit). NOTE: 'plan' classification is in
++     PROCESSING_ORDER but NOT actually handled by this route — see Phase 2
++     below.
++  6. Each processor builds committed_data rows with metadata containing
++     source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type,
++     entity_id_field, and (for entity/reference) informational_label.
++     **DOES NOT include field_identities at any of the three sites**
++     (per DIAG-021 R1).
++  7. Inserts to committed_data in 2,000-row chunks with retry logic
++     (OB-174 Phase 5 nanobatch commitment)
++  8. Updates import_batches.status='completed' on success
++  9. Note: convergence is NOT called here — explicitly removed by OB-182
++     ("convergeBindings removed from import — runs at calc time")
++Returns: SCIExecutionResult { results: ContentUnitResult[] }
++```
++
++### Phase 2: Upstream router
++
++**CALLER FILE:** `web/src/components/sci/SCIExecution.tsx`
++**BRANCHING CONDITION:** Whether the content unit's classification is `'plan'` AND, secondarily, whether `storagePath` is present.
++- For **non-plan units** (entity, transaction, target, reference): if `storagePath` is non-empty, route batch goes to **`/api/import/sci/execute-bulk`** (lines 167–198: `executeUnits` → `bulkUnits` payload).
++- For **plan units**: routed to **`/api/import/sci/execute`** in a single batch call (lines 285–335).
++- For **non-plan units when `storagePath` is missing**: `executeLegacyUnit` falls back to **`/api/import/sci/execute`** (lines 237–283, comment: "Legacy execution — used for plan units (document-based) and fallback when no storagePath").
++
++Quote line: `// OB-156: Split units into plan (legacy) and data (bulk) groups` at line 286, with `planUnits` filtered by `classification === 'plan'` and `dataUnits` taking the rest.
++
++So the data path is:
++- (plan) → execute (plan-interpretation handler invoked via batch)
++- (non-plan + storagePath) → execute-bulk
++- (non-plan + no storagePath) → execute (legacy/fallback path)
++
++The data-pipeline implementations in execute (target/transaction/entity/reference) are therefore live as a **fallback path**, not dead code.
++
++### Phase 3: Metadata contract comparison
++
++| Pipeline | Insert Site (file:line) | Data Type | metadata keys | field_identities | source value |
++|----------|-------------------------|-----------|---------------|------------------|--------------|
++| execute  | execute/route.ts:584-602 (target pipeline)         | target      | informational_label, field_identities, classification, sourceFile, tabName (and supporting keys from helpers) | **YES** (line 591) | (no `source: 'sci-bulk'` literal — execute does not stamp this) |
++| execute  | execute/route.ts:730-744 (transaction pipeline)    | transaction | informational_label, field_identities, classification, sourceFile, tabName | **YES** (line 739) | — |
++| execute  | execute/route.ts:874-880 (entity pipeline)         | entity      | informational_label, field_identities, classification, sourceFile, tabName | **YES** (line 865) | — |
++| execute  | execute/route.ts:1003-1015 (reference pipeline)    | reference   | informational_label, field_identities, classification, sourceFile, tabName | **YES** (line 987) | — |
++| execute-bulk | execute-bulk/route.ts:525-548 (entity insert)  | entity      | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field, informational_label: 'entity' | **NO**  | `'sci-bulk'` |
++| execute-bulk | execute-bulk/route.ts:645-665 (transaction)    | transaction | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field | **NO**  | `'sci-bulk'` |
++| execute-bulk | execute-bulk/route.ts:805-822 (reference)      | reference   | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field, informational_label: 'reference' | **NO**  | `'sci-bulk'` |
++
++**Metadata diff statement:**
++- Common to both: `informational_label` (entity/transaction/target/reference per pipeline)
++- Unique to `execute-bulk`: `source: 'sci-bulk'`, `proposalId`, `semantic_roles`, `resolved_data_type`, `entity_id_field`
++- Unique to `execute`: `field_identities`, `classification`, `sourceFile`, `tabName`, and additional execute-only keys
++
++The two writers produce DIFFERENT metadata shapes. `field_identities` is the most consequential difference because the convergence matcher's structural-FI Pass keys on it (per DIAG-020 / DIAG-020-A / DIAG-021 R1). `execute`-written rows feed the matcher's primary path; `execute-bulk`-written rows fall through to Pass 3 token overlap, which fails on hash-prefixed `data_type` values.
++
++### Phase 4: buildFieldIdentitiesFromBindings analysis
++
++Located at `web/src/app/api/import/sci/execute/route.ts:38–81`.
++
++**Helper full body** (40 lines):
++
++```ts
++// HF-110: Build field_identities from confirmedBindings when HC trace is unavailable (DS-009 1.3)
++// Maps SemanticRole → ColumnRole + contextualIdentity — guaranteed write, never null
++function buildFieldIdentitiesFromBindings(
++  bindings: SemanticBinding[],
++): Record<string, FieldIdentity> {
++  const ROLE_MAP: Record<string, { structuralType: ColumnRole; contextualIdentity: string }> = {
++    entity_identifier: { structuralType: 'identifier', contextualIdentity: 'person_identifier' },
++    entity_name: { structuralType: 'name', contextualIdentity: 'person_name' },
++    entity_attribute: { structuralType: 'attribute', contextualIdentity: 'entity_attribute' },
++    entity_relationship: { structuralType: 'attribute', contextualIdentity: 'entity_relationship' },
++    entity_license: { structuralType: 'attribute', contextualIdentity: 'entity_license' },
++    performance_target: { structuralType: 'measure', contextualIdentity: 'performance_target' },
++    baseline_value: { structuralType: 'measure', contextualIdentity: 'baseline_value' },
++    transaction_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
++    transaction_count: { structuralType: 'measure', contextualIdentity: 'count' },
++    transaction_date: { structuralType: 'temporal', contextualIdentity: 'date' },
++    transaction_identifier: { structuralType: 'identifier', contextualIdentity: 'transaction_identifier' },
++    period_marker: { structuralType: 'temporal', contextualIdentity: 'period' },
++    category_code: { structuralType: 'attribute', contextualIdentity: 'category' },
++    rate_value: { structuralType: 'measure', contextualIdentity: 'percentage' },
++    tier_boundary: { structuralType: 'measure', contextualIdentity: 'threshold' },
++    payout_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
++    descriptive_label: { structuralType: 'attribute', contextualIdentity: 'label' },
++  };
++  const identities: Record<string, FieldIdentity> = {};
++  for (const binding of bindings) {
++    const mapped = ROLE_MAP[binding.semanticRole];
++    if (mapped) {
++      identities[binding.sourceField] = {
++        structuralType: mapped.structuralType,
++        contextualIdentity: mapped.contextualIdentity,
++        confidence: binding.confidence,
++      };
++    } else {
++      identities[binding.sourceField] = {
++        structuralType: 'unknown',
++        contextualIdentity: binding.semanticRole || 'unknown',
++        confidence: binding.confidence,
++      };
++    }
++  }
++  return identities;
++}
++```
++
++**Required inputs:**
++- `bindings: SemanticBinding[]` — array of `{ sourceField: string; semanticRole: string; confidence: number; ... }`. The helper iterates the array and builds `Record<columnName, FieldIdentity>` per binding. Output is always non-null and non-empty when bindings is non-empty.
++
++**Calls in execute/route.ts:** four call sites (line 586 target, 734 transaction, 880 entity, 1011 reference), all using `extractFieldIdentitiesFromTrace(...) || buildFieldIdentitiesFromBindings(unit.confirmedBindings)` — the helper is the fallback when the SCI HC trace is missing.
++
++**Availability in execute-bulk context:** **YES, fully available.**
++- `BulkContentUnit.confirmedBindings: SemanticBinding[]` is declared at execute-bulk/route.ts:53 and is part of the `BulkRequest` payload posted by `SCIExecution.tsx:173` (`confirmedBindings: proposalUnit.fieldBindings`).
++- `unit.confirmedBindings` is referenced 20+ times throughout execute-bulk/route.ts (e.g., lines 271, 329-352, 514, 624-640, 788-802) — already in active use for `findDateColumnFromBindings`, `buildSemanticRolesMap`, identifier extraction, etc.
++- `SemanticBinding` and `ColumnRole`/`FieldIdentity` are imported from the same `@/lib/sci/sci-types` module that execute/route.ts uses.
++- The helper is pure (no DB/IO/AI calls); moving or sharing it is mechanical.
++
++execute-bulk DOES NOT have access to:
++- `convergeBindings` invocation (deliberately removed by OB-182)
++- AI plan interpretation (handles only data, not plans)
++- HC trace (only available in `execute` via `classificationTrace`/`structuralFingerprint` fields, which the bulk request payload also forwards per `SCIExecution.tsx:180-182`, but `extractFieldIdentitiesFromTrace` is not currently imported in execute-bulk)
++
++### Phase 5: Responsibility-division analysis
++
++**Question A — same workload class?** NO.
++- Evidence: `execute/route.ts` handles plan documents (PDF/PPTX/DOCX/XLSX) via AI interpretation (`executeBatchedPlanInterpretation`, line 1093, calls `aiService.interpretPlan`); writes `rule_sets` rows; emits `cost_event` and `metric_comprehension` signals.
++- `execute-bulk/route.ts` handles only data files (entity/transaction/reference); explicitly does NOT handle plans (the `plan: 0` entry in `PROCESSING_ORDER` is unused — there is no `processPlanUnit` in this file; `git grep -n "processPlanUnit\|plan-interpretation" execute-bulk/route.ts` returns no matches).
++
++**Question B — same upstream context?** SAME caller, DIFFERENT branching.
++- Both invoked from `web/src/components/sci/SCIExecution.tsx`.
++- Branching: `classification === 'plan'` → execute; otherwise (with storagePath) → execute-bulk; otherwise (without storagePath) → execute fallback.
++
++**Question C — same downstream artifacts?** OVERLAP, NOT EQUAL.
++- Both write `committed_data` and `import_batches`.
++- execute additionally writes: `rule_sets` (plans only), `classification_signals` (sci:classification_outcome_v2 for sheet classification, sci:convergence_outcome on convergence completion, metric_comprehension on plan interpretation), invokes `convergeBindings` and updates `rule_sets.input_bindings`, calls `resolveEntitiesFromCommittedData`.
++- execute-bulk: writes only `committed_data` + `import_batches`. Convergence deferred to calc time per OB-182. Entity backfill is a separate post-import step in execute (not visible from execute-bulk).
++
++**Question D — superset relationship?** NEITHER is a strict superset.
++- execute-bulk requires `storagePath` (file in Storage); execute does not require it (browser parses + sends rawData in body).
++- execute handles plan documents; execute-bulk does not.
++- Each has a structural reason to exist that the other cannot fulfill.
++
++**Question E — structural reason for both?** YES.
++- execute-bulk's reason: bypass HTTP body size limits (AP-1 / AP-2 — "no row data in HTTP bodies", "no sequential chunks from browser" — comment at the top of the file). For files large enough to require Storage transport.
++- execute's reason: AI plan interpretation requires document content the browser can't pre-parse, AND the legacy/fallback path for small data files where Storage transport is unnecessary.
++
++### Responsibility-Division Verdict
++
++**PARALLEL_SPECIALIZED.** The two routes have legitimately different responsibilities:
++- execute = (a) plan documents + AI interpretation, (b) fallback for data when no storagePath.
++- execute-bulk = bulk data files via Storage transport (server-side parse).
++
++Their parallelism at the data-pipeline level (entity/transaction/reference) is a smaller AP-17 surface — both routes implement these pipelines, but the implementations diverge in metadata-construction (execute writes `field_identities`, execute-bulk does not). The metadata-contract drift is implementation-only; the structural specialization (Storage transport vs browser-rawData; plan-AI vs no-plan-AI) is real.
++
++### Indicated HF-194 Framing
++
++**B (narrow patch + tech-debt registration).** Per the matrix, PARALLEL_SPECIALIZED maps to A or B. The drift is sufficiently consequential (it gates Decision-111 component bindings on the bulk path) that registering it as debt is warranted. Specifically:
++- Narrow patch: at the three execute-bulk insert sites (entity 525-548, transaction 645-665, reference 805-822), add `field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings)` to the metadata payload. Helper is pure and trivially shareable; either import it from execute/route.ts or extract to `@/lib/sci/field-identities` (preferred for clarity).
++- Tech debt: register that the metadata-construction surface is parallel between the two routes and should be extracted to a shared helper (`buildCommittedDataMetadata(unit, label, classification)`) to prevent future drift. Optionally: register that `extractFieldIdentitiesFromTrace`-when-available should also be wired into execute-bulk for parity (currently execute-bulk uses only the bindings fallback).
++
++C-Consolidate (full unification) is NOT indicated because the two routes' specialization (Storage download + AI plan interpretation) is structural, not implementation-only. C-Complete-Standard or C-Complete-Bulk would lose either the bulk-transport optimization or the plan-AI capability.
++
++### Hypothesis (NOT a fix proposal)
++
++**Hypothesis (most consistent with evidence):** HF-194 should be drafted as Option B. The narrow code change is small (≈3 lines per insert site, plus an import or helper extraction) and surgically closes the field_identities omission for BCL and any other tenant whose data routes through `execute-bulk`. The tech-debt entry preserves the architect's awareness of the AP-17 metadata-contract surface — execute and execute-bulk's parallel data-pipeline implementations are an architectural smell that should be cleaned up in a future structural pass, but consolidating now would either eliminate the bulk-transport path (regressing AP-1/AP-2) or fold plan-AI into bulk (significantly larger surface). The narrow patch closes the regression; the structural cleanup is a separate, larger effort that should not gate the BCL fix.
++
++### ARCHITECT DISPOSES
++
++End of DIAG-022. CC does not draft HF-194.
+diff --git a/docs/tech-debt/AP-17_PARALLEL_METADATA_CONSTRUCTION.md b/docs/tech-debt/AP-17_PARALLEL_METADATA_CONSTRUCTION.md
+new file mode 100644
+index 00000000..72077a19
+--- /dev/null
++++ b/docs/tech-debt/AP-17_PARALLEL_METADATA_CONSTRUCTION.md
+@@ -0,0 +1,93 @@
++# AP-17 — Parallel Metadata Construction
++## Registered: 2026-04-25 via HF-194 disposition
++## Status: Open
++## Scope:
++- `web/src/app/api/import/sci/execute/route.ts`
++- `web/src/app/api/import/sci/execute-bulk/route.ts`
++
++## Description
++
++Both `execute/route.ts` and `execute-bulk/route.ts` construct `committed_data.metadata` objects via inline object literals at each `committed_data` insert site. The two routes are **PARALLEL_SPECIALIZED** (DIAG-022) — they have legitimately different responsibilities (execute = plan AI interpretation + fallback for browser-parsed data; execute-bulk = Storage-transport bulk parse per OB-156 / AP-1 / AP-2) and should NOT be consolidated. However, their metadata-construction surfaces drifted between MARCH_19 and HF-184 / OB-195 Layer 1, with execute-bulk omitting `field_identities` until HF-194.
++
++## Defect class manifested
++
++Six-week silent regression: BCL `committed_data.metadata` lacked `field_identities`, breaking the matcher's Pass 1 for any tenant routed through the bulk path. Detected only after architect-driven diagnostic chain (DIAG-020 → 020-A → 021 R1 → 022) and never caught by any automated check because the metadata contract was not centralized.
++
++Concretely, at HEAD before HF-194:
++
++| Pipeline (route, insert site) | Wrote `field_identities`? |
++|-------------------------------|---------------------------|
++| execute/route.ts target (line ~623)         | YES |
++| execute/route.ts transaction (line ~771)    | YES |
++| execute/route.ts entity (line ~905)         | YES |
++| execute/route.ts reference (line ~1036)     | YES |
++| execute-bulk/route.ts entity (line ~547)    | **NO** (closed by HF-194) |
++| execute-bulk/route.ts transaction (line ~666) | **NO** (closed by HF-194) |
++| execute-bulk/route.ts reference (line ~830) | **NO** (closed by HF-194) |
++
++The other metadata keys also drift between routes:
++
++| Key                | execute writes? | execute-bulk writes? |
++|--------------------|-----------------|----------------------|
++| `field_identities` | YES             | YES (after HF-194)   |
++| `informational_label` | YES (4 sites) | YES (entity, reference); **NO** (transaction) |
++| `classification`   | YES             | NO                   |
++| `sourceFile`       | YES             | NO                   |
++| `tabName`          | YES             | NO                   |
++| `source` (literal) | (not stamped)   | YES (`'sci-bulk'`)   |
++| `proposalId`       | NO              | YES                  |
++| `semantic_roles`   | NO              | YES                  |
++| `resolved_data_type` | NO            | YES                  |
++| `entity_id_field`  | NO              | YES                  |
++
++The two writers therefore produce DIFFERENT metadata shapes for the same logical pipeline. HF-194 closes the most consequential drift (field_identities), but the surface is still parallel.
++
++## Remediation candidate (DEFERRED — not in HF-194 scope)
++
++Extract `buildCommittedDataMetadata(unit, label, classification)` into a shared module that both routes consume. The function would take the route's local context plus a small set of route-specific parameters and produce the canonical metadata object. Each route retains its specialization in WHAT data is processed and HOW it is transported, but neither route owns the metadata contract.
++
++Sketch (NOT a fix proposal — sketch only):
++
++```ts
++// web/src/lib/sci/committed-data-metadata.ts
++export interface CommittedDataMetadata {
++  // shared (always present)
++  field_identities: Record<string, FieldIdentity>;
++  semantic_roles?: Record<string, unknown>;
++  entity_id_field?: string | null;
++  // pipeline-specific (one of these)
++  informational_label: 'target' | 'transaction' | 'entity' | 'reference';
++  // upstream attribution (varies)
++  source?: 'sci' | 'sci-bulk' | 'commit';
++  proposalId?: string;
++  contentUnitId?: string;
++  // file/sheet provenance
++  sourceFile?: string;
++  tabName?: string;
++  resolved_data_type?: string;
++  classification?: 'plan' | 'entity' | 'transaction' | 'target' | 'reference';
++}
++
++export function buildCommittedDataMetadata(...): CommittedDataMetadata { ... }
++```
++
++## Acceptance criteria for future cleanup
++
++- Single source-of-truth for `committed_data.metadata` shape
++- All metadata keys named in one place (a TypeScript interface or Zod schema)
++- Adding a new key requires changes only in the shared module
++- Removing a key triggers TypeScript errors at every consumer
++- Both `execute/route.ts` and `execute-bulk/route.ts` invoke the same helper at every insert site
++- Helper accepts the union of route-specific contexts and produces the canonical metadata via discriminated-union construction
++
++## Why deferred
++
++HF-194 closes the immediate regression. Consolidating metadata construction is a larger refactor that should be designed with full visibility into both routes' specialized contexts. Deferring to a future SD or HF avoids scope creep on the regression fix.
++
++## Cross-references
++
++- DIAG-022 Section 11 (responsibility-division verdict: PARALLEL_SPECIALIZED; helper extraction was the indicated narrow framing)
++- DIAG-021 R1 Section 10 (caller-writer drift verdict: NEW_WRITER_OMITS_FI; introducing commits HF-184 `2203fc93` 2026-03-31, OB-195 Layer 1 `261bd9d0` 2026-03-30)
++- DIAG-020-A Section 9 (`field_identities` universally absent on BCL — 70/70 sampled rows)
++- DIAG-020 Section 3 (matcher byte-identical March 19 → HEAD; not the regression vector)
++- HF-194 (the narrow patch that closed the manifestation; commits `d56f3e66`, `34f2c42d`, `b784291c`, plus this debt-registration commit)
+diff --git a/docs/verification/HF-194_STAGE1_VERIFICATION.md b/docs/verification/HF-194_STAGE1_VERIFICATION.md
+new file mode 100644
+index 00000000..9fd94b88
+--- /dev/null
++++ b/docs/verification/HF-194_STAGE1_VERIFICATION.md
+@@ -0,0 +1,76 @@
++# HF-194 Stage 1 Verification — Matcher Inputs Restored
++## Run AFTER Vercel deploys `hf-193-signal-surface` containing HF-194 commits (Phases 1–4).
++
++## Hypothesis under test
++
++With HF-194 in place, BCL's `committed_data.metadata` will carry `field_identities` after re-import via the bulk-storage path. The matcher's structural-FI Pass 1 will then have non-empty inputs and produce `convergence_bindings` with 4 component bindings (matching the March-19-proven count).
++
++Stage 1 PASS does NOT imply Stage 2 PASS. The engine path from `convergence_bindings` → calculation total has multiple HF interactions since March 19 (HF-188 intent executor, HF-191 seeds, HF-193 signal-surface cutover) that may produce a different total even with restored bindings.
++
++## Steps
++
++1. Architect navigates to vialuce.ai (production deploy of `hf-193-signal-surface`).
++2. **BCL tenant** (`b1c2d3e4-aaaa-bbbb-cccc-111111111111`): re-import the BCL plan + 6 monthly Datos sheets + Personnel sheet via the bulk-storage path (the same path that produced the current zero-`field_identities` state).
++3. After re-import completes, run via supabase-js (per `scripts/audit/` pattern):
++
++   ```typescript
++   // metadata key presence by informational_label
++   const { data } = await sb
++     .from('committed_data')
++     .select('metadata')
++     .eq('tenant_id', 'b1c2d3e4-aaaa-bbbb-cccc-111111111111');
++
++   // Group: { label, has_fi } → row_count
++   const buckets = new Map<string, number>();
++   for (const r of data ?? []) {
++     const meta = (r.metadata ?? {}) as Record<string, unknown>;
++     const label = (meta.informational_label as string) ?? '∅';
++     const has_fi = 'field_identities' in meta;
++     const k = `${label}::${has_fi}`;
++     buckets.set(k, (buckets.get(k) ?? 0) + 1);
++   }
++   ```
++
++   **Expected:** every (label, has_fi=true) row count > 0.
++   **Failure:** any (label, has_fi=false) row remains for non-zero count.
++
++4. Run convergence check:
++
++   ```typescript
++   const { data } = await sb
++     .from('rule_sets')
++     .select('id, name, status, input_bindings')
++     .eq('tenant_id', 'b1c2d3e4-aaaa-bbbb-cccc-111111111111');
++   for (const r of data ?? []) {
++     const ib = (r.input_bindings ?? {}) as Record<string, unknown>;
++     const has_cb = 'convergence_bindings' in ib;
++     const cb = ib.convergence_bindings as Record<string, unknown> | undefined;
++     const cb_count = cb ? Object.keys(cb).length : 0;
++     console.log(`${r.id} | has_cb=${has_cb} | cb_count=${cb_count}`);
++   }
++   ```
++
++   **Expected:** `has_cb = true`; `cb_count = 4` (matching March 19 proven component bindings count for BCL).
++
++## Stage 1 PASS criteria
++
++- `field_identities` populated on all BCL `committed_data` rows (every label group has `has_fi=true` rows; zero `has_fi=false` rows)
++- `convergence_bindings` produced by convergence (`has_cb=true` on the active rule_set)
++- `cb_count = 4`
++
++If Stage 1 PASSES → architect proceeds to Stage 2.
++If Stage 1 FAILS → halt. HF-194 did not restore the matcher's input pipeline as expected; surface to architect for re-diagnosis.
++
++## Stage 1 vs Stage 2
++
++Stage 1 verifies the **input-pipeline regression** is closed.
++Stage 2 verifies the **calculation produces the expected total**.
++
++Stage 1 PASS does NOT imply Stage 2 PASS; the engine path from `convergence_bindings` → calculation has multiple HF interactions since March 19 that may produce a different total even with restored bindings.
++
++## Cross-references
++
++- DIAG-020-A Section 9 — `field_identities` universally absent on BCL (70/70 sampled rows before HF-194)
++- DIAG-021 R1 Section 10 — caller-writer drift verdict NEW_WRITER_OMITS_FI
++- DIAG-022 Section 11 — pipeline architecture verdict PARALLEL_SPECIALIZED
++- HF-194 Phase 3 — patches at execute-bulk/route.ts:547, 666, 830
+diff --git a/docs/verification/HF-194_STAGE2_VERIFICATION.md b/docs/verification/HF-194_STAGE2_VERIFICATION.md
+new file mode 100644
+index 00000000..058462b6
+--- /dev/null
++++ b/docs/verification/HF-194_STAGE2_VERIFICATION.md
+@@ -0,0 +1,72 @@
++# HF-194 Stage 2 Verification — Calculation Total Restored
++## Run AFTER Stage 1 PASSES.
++
++## Hypothesis under test
++
++With `field_identities` restored on BCL `committed_data` (Stage 1 PASS), the calculation engine — consuming `convergence_bindings` produced by the matcher's now-fed Pass 1 — will produce per-period and grand totals matching BCL's ground truth.
++
++## Steps
++
++1. Navigate to `/operate/calculate` (Calculate page) on the deployed `hf-193-signal-surface` build.
++2. For BCL tenant, run calculation for each of the 6 monthly periods:
++   - May 2025
++   - June 2025
++   - July 2025
++   - August 2025
++   - September 2025
++   - October 2025
++3. Capture per-period totals from the browser AND from Vercel runtime logs.
++
++## Expected per-period and grand totals (BCL ground truth)
++
++| Period      | Expected ($) |
++|-------------|--------------|
++| May 2025    |       48,250 |
++| June 2025   |       49,840 |
++| July 2025   |       54,920 |
++| August 2025 |       59,260 |
++| September 2025 |    55,173 |
++| October 2025 |      44,590 |
++| **Total**   |  **312,033** |
++
++## Vercel-log capture requirements
++
++For each period, capture and paste the following emission strings from Vercel runtime logs:
++
++- The convergence-line emission:
++  `[Convergence] <ruleSet.name>: N derivations, M gaps, K component bindings`
++  (emitted by `convergence-service.ts:586` per DIAG-021 R1)
++
++- The HF-108 emission from the calc handler:
++  `HF-108 Using convergence_bindings (Decision 111) for data resolution — N component bindings`
++  (emitted by `calculation/run/route.ts:227` per DIAG-021 R1)
++
++  Pre-HF-194: this line was reached as `HF-108 Using metric_derivations (legacy) for data resolution — no convergence_bindings found` (the fallback branch), confirming the matcher had not produced bindings.
++
++  Post-HF-194 (expected): the convergence-bindings branch is taken instead.
++
++## Stage 2 PASS criteria
++
++- Each per-period total matches ground truth (exact match — no tolerance)
++- Grand total = $312,033 exact
++- Vercel logs confirm the convergence path was taken (the convergence-bindings branch, NOT the metric_derivations fallback)
++
++## Stage 2 FAIL — what it means
++
++If Stage 1 PASSES but Stage 2 FAILS:
++- `field_identities` was the matcher-input regression (closed by HF-194)
++- A SEPARATE downstream issue exists in `convergence_bindings` → calculation (HF-191 seeds / HF-193 signal-surface cutover / HF-188 intent-executor interactions could be the next layer)
++- HF-195 will be needed; HF-194 is NOT reverted (it remains a correct fix, just incomplete to restore the full baseline)
++- Diagnostic chain continues: DIAG-023 or DIAG-020-B-equivalent at the `convergence_bindings` → engine surface
++
++## Stage 2 PASS — what it means
++
++- The full diagnostic chain (DIAG-020 → 020-A → 021 R1 → 022 → HF-194) closes the BCL regression.
++- The cumulative drift across HF-184 / OB-195 Layer 1 / HF-191 / HF-193 is contained.
++- CRP and Meridian remain to be re-imported and verified — both have 0 `committed_data` rows per DIAG-020-A; both must be re-imported and reconciled before being declared restored.
++
++## Cross-references
++
++- DIAG-020 → 020-A → 021 R1 → 022 → HF-194 (the full diagnostic + remediation chain)
++- HF-194 Phase 3 commits (`b784291c`) — the field_identities patches in execute-bulk
++- HF-194 Stage 1 verification spec — `docs/verification/HF-194_STAGE1_VERIFICATION.md`
+diff --git a/web/src/app/api/import/sci/execute-bulk/route.ts b/web/src/app/api/import/sci/execute-bulk/route.ts
+index f74496ea..078b7de2 100644
+--- a/web/src/app/api/import/sci/execute-bulk/route.ts
++++ b/web/src/app/api/import/sci/execute-bulk/route.ts
+@@ -22,6 +22,8 @@ import {
+   buildSemanticRolesMap,
+   detectPeriodMarkerColumns,
+ } from '@/lib/sci/source-date-extraction';
++// HF-194: extracted helper — also used by execute/route.ts
++import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
+ 
+ // Processing order: plan first, then entity, then data
+ const PROCESSING_ORDER: Record<AgentType, number> = {
+@@ -541,6 +543,8 @@ async function processEntityUnit(
+         resolved_data_type: dataType,
+         entity_id_field: entityIdField || null,
+         informational_label: 'entity',
++        // HF-194: restore field_identities for matcher's structural-FI Pass 1
++        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
+       },
+     };
+   });
+@@ -658,6 +662,8 @@ async function processDataUnit(
+         semantic_roles: semanticRoles,
+         resolved_data_type: dataType,
+         entity_id_field: entityIdField || null, // preserve which field is the entity identifier
++        // HF-194: restore field_identities for matcher's structural-FI Pass 1
++        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
+       },
+     };
+   });
+@@ -820,6 +826,8 @@ async function processReferenceUnit(
+         resolved_data_type: dataType,
+         entity_id_field: entityIdField || null,
+         informational_label: 'reference',
++        // HF-194: restore field_identities for matcher's structural-FI Pass 1
++        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
+       },
+     };
+   });
+diff --git a/web/src/app/api/import/sci/execute/route.ts b/web/src/app/api/import/sci/execute/route.ts
+index 1aaa7694..77472f65 100644
+--- a/web/src/app/api/import/sci/execute/route.ts
++++ b/web/src/app/api/import/sci/execute/route.ts
+@@ -32,53 +32,8 @@ import {
+   detectPeriodMarkerColumns,
+ } from '@/lib/sci/source-date-extraction';
+ import { extractFieldIdentitiesFromTrace } from '@/lib/sci/header-comprehension';
+-import type { SemanticBinding } from '@/lib/sci/sci-types';
+-import type { ColumnRole, FieldIdentity } from '@/lib/sci/sci-types';
+-
+-// HF-110: Build field_identities from confirmedBindings when HC trace is unavailable (DS-009 1.3)
+-// Maps SemanticRole → ColumnRole + contextualIdentity — guaranteed write, never null
+-function buildFieldIdentitiesFromBindings(
+-  bindings: SemanticBinding[],
+-): Record<string, FieldIdentity> {
+-  const ROLE_MAP: Record<string, { structuralType: ColumnRole; contextualIdentity: string }> = {
+-    entity_identifier: { structuralType: 'identifier', contextualIdentity: 'person_identifier' },
+-    entity_name: { structuralType: 'name', contextualIdentity: 'person_name' },
+-    entity_attribute: { structuralType: 'attribute', contextualIdentity: 'entity_attribute' },
+-    entity_relationship: { structuralType: 'attribute', contextualIdentity: 'entity_relationship' },
+-    entity_license: { structuralType: 'attribute', contextualIdentity: 'entity_license' },
+-    performance_target: { structuralType: 'measure', contextualIdentity: 'performance_target' },
+-    baseline_value: { structuralType: 'measure', contextualIdentity: 'baseline_value' },
+-    transaction_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
+-    transaction_count: { structuralType: 'measure', contextualIdentity: 'count' },
+-    transaction_date: { structuralType: 'temporal', contextualIdentity: 'date' },
+-    transaction_identifier: { structuralType: 'identifier', contextualIdentity: 'transaction_identifier' },
+-    period_marker: { structuralType: 'temporal', contextualIdentity: 'period' },
+-    category_code: { structuralType: 'attribute', contextualIdentity: 'category' },
+-    rate_value: { structuralType: 'measure', contextualIdentity: 'percentage' },
+-    tier_boundary: { structuralType: 'measure', contextualIdentity: 'threshold' },
+-    payout_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
+-    descriptive_label: { structuralType: 'attribute', contextualIdentity: 'label' },
+-  };
+-
+-  const identities: Record<string, FieldIdentity> = {};
+-  for (const binding of bindings) {
+-    const mapped = ROLE_MAP[binding.semanticRole];
+-    if (mapped) {
+-      identities[binding.sourceField] = {
+-        structuralType: mapped.structuralType,
+-        contextualIdentity: mapped.contextualIdentity,
+-        confidence: binding.confidence,
+-      };
+-    } else {
+-      identities[binding.sourceField] = {
+-        structuralType: 'unknown',
+-        contextualIdentity: binding.semanticRole || 'unknown',
+-        confidence: binding.confidence,
+-      };
+-    }
+-  }
+-  return identities;
+-}
++// HF-194: extracted helper — shared with execute-bulk/route.ts
++import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
+ 
+ // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
+ 
+diff --git a/web/src/lib/sci/field-identities.ts b/web/src/lib/sci/field-identities.ts
+new file mode 100644
+index 00000000..541ace2e
+--- /dev/null
++++ b/web/src/lib/sci/field-identities.ts
+@@ -0,0 +1,58 @@
++/**
++ * HF-194: Extracted from execute/route.ts to shared lib.
++ * Pure function — no DB, no I/O, no AI.
++ *
++ * Builds field_identities map from confirmed semantic bindings.
++ * Used by both execute/route.ts and execute-bulk/route.ts to
++ * populate committed_data.metadata.field_identities.
++ *
++ * Diagnostic chain: DIAG-020 / 020-A / 021 R1 / 022.
++ * Predecessor: buildFieldIdentitiesFromBindings (execute/route.ts:38–80).
++ */
++
++import type { SemanticBinding, ColumnRole, FieldIdentity } from '@/lib/sci/sci-types';
++
++// HF-110: Build field_identities from confirmedBindings when HC trace is unavailable (DS-009 1.3)
++// Maps SemanticRole → ColumnRole + contextualIdentity — guaranteed write, never null
++export function buildFieldIdentitiesFromBindings(
++  bindings: SemanticBinding[],
++): Record<string, FieldIdentity> {
++  const ROLE_MAP: Record<string, { structuralType: ColumnRole; contextualIdentity: string }> = {
++    entity_identifier: { structuralType: 'identifier', contextualIdentity: 'person_identifier' },
++    entity_name: { structuralType: 'name', contextualIdentity: 'person_name' },
++    entity_attribute: { structuralType: 'attribute', contextualIdentity: 'entity_attribute' },
++    entity_relationship: { structuralType: 'attribute', contextualIdentity: 'entity_relationship' },
++    entity_license: { structuralType: 'attribute', contextualIdentity: 'entity_license' },
++    performance_target: { structuralType: 'measure', contextualIdentity: 'performance_target' },
++    baseline_value: { structuralType: 'measure', contextualIdentity: 'baseline_value' },
++    transaction_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
++    transaction_count: { structuralType: 'measure', contextualIdentity: 'count' },
++    transaction_date: { structuralType: 'temporal', contextualIdentity: 'date' },
++    transaction_identifier: { structuralType: 'identifier', contextualIdentity: 'transaction_identifier' },
++    period_marker: { structuralType: 'temporal', contextualIdentity: 'period' },
++    category_code: { structuralType: 'attribute', contextualIdentity: 'category' },
++    rate_value: { structuralType: 'measure', contextualIdentity: 'percentage' },
++    tier_boundary: { structuralType: 'measure', contextualIdentity: 'threshold' },
++    payout_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
++    descriptive_label: { structuralType: 'attribute', contextualIdentity: 'label' },
++  };
++
++  const identities: Record<string, FieldIdentity> = {};
++  for (const binding of bindings) {
++    const mapped = ROLE_MAP[binding.semanticRole];
++    if (mapped) {
++      identities[binding.sourceField] = {
++        structuralType: mapped.structuralType,
++        contextualIdentity: mapped.contextualIdentity,
++        confidence: binding.confidence,
++      };
++    } else {
++      identities[binding.sourceField] = {
++        structuralType: 'unknown',
++        contextualIdentity: binding.semanticRole || 'unknown',
++        confidence: binding.confidence,
++      };
++    }
++  }
++  return identities;
++}
