@@ -538,54 +538,6 @@ EXAMPLE calculationIntent for a linear_function with cap modifier:
 
 CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
 
-METRIC SEMANTICS (required for EVERY metric referenced in components):
-For each metric label used in your components (in calculationMethod or calculationIntent), output a top-level "metricSemantics" array that describes HOW each metric is derived from raw transactional data.
-
-This tells the platform how to compute each metric from imported data — which field to aggregate, how to filter, what operation to use.
-
-Example:
-{
-  "metricSemantics": [
-    {
-      "metric": "equipment_revenue",
-      "operation": "sum",
-      "source_field": "total_amount",
-      "filters": [
-        { "field": "product_category", "operator": "eq", "value": "Capital Equipment" }
-      ],
-      "confidence": 0.95,
-      "reasoning": "Equipment revenue is the sum of total_amount for transactions where product_category is Capital Equipment"
-    },
-    {
-      "metric": "deal_count",
-      "operation": "count",
-      "filters": [
-        { "field": "product_category", "operator": "eq", "value": "Capital Equipment" }
-      ],
-      "confidence": 0.90,
-      "reasoning": "Count of Capital Equipment transactions"
-    },
-    {
-      "metric": "quota_attainment",
-      "operation": "ratio",
-      "numerator_metric": "consumable_revenue",
-      "denominator_metric": "monthly_quota",
-      "confidence": 0.90,
-      "reasoning": "Ratio of consumable revenue to monthly quota target"
-    }
-  ]
-}
-
-RULES for metricSemantics:
-- Every metric label referenced in ANY component's calculationMethod or calculationIntent MUST have a metricSemantics entry
-- Use field names and values as described in the plan document (e.g., "total_amount", "product_category", "Capital Equipment")
-- operation must be one of: "sum", "count", "delta", "ratio"
-- source_field is required for "sum" and "delta" (the numeric field to aggregate)
-- For "ratio", use numerator_metric and denominator_metric referencing other metric names
-- filters may be empty if the metric uses ALL rows without filtering
-- The filters describe categorical constraints: which subset of rows contribute to this metric
-- confidence reflects how clearly the plan document specifies this derivation (0.0-1.0)
-
 Return your analysis as valid JSON.`,
 
   workbook_analysis: `You are an expert at analyzing compensation data workbooks for a Sales Performance Management (SPM) platform. Your task is to analyze ALL sheets in a workbook together to understand how they relate and feed into compensation calculations.
@@ -1041,9 +993,6 @@ Return a JSON object with:
   ],
   "requiredInputs": [
     { "field": "field_name", "description": "what it measures", "scope": "employee|store", "dataType": "number|percentage|currency" }
-  ],
-  "metricSemantics": [
-    { "metric": "field_name", "operation": "sum|count|delta|ratio", "source_field": "field_to_aggregate", "filters": [{ "field": "category_field", "operator": "eq", "value": "category_value" }], "confidence": 0.95, "reasoning": "explanation" }
   ],
   "workedExamples": [
     { "employeeType": "certified", "inputs": {...}, "expectedTotal": 2335, "componentBreakdown": {...} }

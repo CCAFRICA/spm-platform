@@ -740,24 +740,11 @@ export function bridgeAIToEngineFormat(
   const config = interpretationToPlanConfig(normalized, tenantId, userId);
   const additiveLookup = config.configuration as AdditiveLookupConfig;
 
-  // Decision 147: Extract and validate metricSemantics from raw AI response
-  // Must use rawResult (not normalized) — validateAndNormalizePublic strips unknown fields
-  const rawSemantics = rawResult.metricSemantics as Array<Record<string, unknown>> | undefined;
-  const validSemantics = (rawSemantics ?? []).filter((s) => {
-    return (
-      typeof s.metric === 'string' &&
-      typeof s.operation === 'string' &&
-      ['sum', 'count', 'delta', 'ratio'].includes(s.operation as string)
-    );
-  });
-
   return {
     name: normalized.ruleSetName,
     description: normalized.description,
     components: { variants: additiveLookup.variants },
-    inputBindings: validSemantics.length > 0
-      ? { plan_agent_seeds: validSemantics }
-      : {},
+    inputBindings: {},
   };
 }
 
