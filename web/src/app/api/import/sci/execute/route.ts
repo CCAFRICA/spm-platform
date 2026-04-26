@@ -13,7 +13,6 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { resolveEntitiesFromCommittedData } from '@/lib/sci/entity-resolution';
 import { writeClassificationSignal, aggregateToFoundational, aggregateToDomain } from '@/lib/sci/classification-signal-service';
-import { persistSignalBatch } from '@/lib/ai/signal-persistence';
 import { writeFingerprint } from '@/lib/sci/fingerprint-flywheel';
 import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
 import type { StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
@@ -1271,18 +1270,6 @@ async function executeBatchedPlanInterpretation(
     }));
   }
 
-  // HF-193: Write metric_comprehension signals via persistSignalBatch (non-blocking)
-  if (engineFormat.signals.length > 0) {
-    const signalsToWrite = engineFormat.signals.map(s => ({ ...s, ruleSetId }));
-    persistSignalBatch(
-      signalsToWrite,
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    ).catch(err => {
-      console.warn('[SCI Execute] Signal persist failed (non-blocking):', err instanceof Error ? err.message : String(err));
-    });
-  }
-
   const variants = engineFormat.components.variants || [];
   const componentCount = variants.reduce((sum: number, v: { components?: unknown[] }) => sum + (v.components?.length || 0), 0);
   console.log(`[SCI Execute] Batched plan saved: ${planName} (${ruleSetId}), ${variants.length} variants, ${componentCount} components from ${planUnits.length} sheets`);
@@ -1516,18 +1503,6 @@ async function executePlanPipeline(
       pipeline: 'plan-interpretation',
       error: upsertError.message,
     };
-  }
-
-  // HF-193: Write metric_comprehension signals via persistSignalBatch (non-blocking)
-  if (engineFormat.signals.length > 0) {
-    const signalsToWrite = engineFormat.signals.map(s => ({ ...s, ruleSetId }));
-    persistSignalBatch(
-      signalsToWrite,
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    ).catch(err => {
-      console.warn('[SCI Execute] Signal persist failed (non-blocking):', err instanceof Error ? err.message : String(err));
-    });
   }
 
   const variants = engineFormat.components.variants || [];

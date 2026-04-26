@@ -1005,10 +1005,9 @@ export async function POST(request: NextRequest) {
               merged.push(d as unknown as Record<string, unknown>);
             }
           }
-          const commitBindings: Record<string, unknown> = { metric_derivations: merged };
           await supabase
             .from('rule_sets')
-            .update({ input_bindings: commitBindings as unknown as Json })
+            .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
             .eq('id', rs.id);
           console.log(`[ImportCommit] OB-120 converged "${rs.name}": ${result.derivations.length} new derivations`);
         }

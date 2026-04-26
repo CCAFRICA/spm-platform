@@ -570,18 +570,14 @@ async function processEntityUnit(
 
   // OB-195 Layer 4: Invalidate cached convergence bindings
   if (cdInserted > 0) {
-    const { data: affectedRS } = await supabase
+    const { data: clearedRuleSets } = await supabase
       .from('rule_sets')
-      .select('id, input_bindings')
+      .update({ input_bindings: {} })
       .eq('tenant_id', tenantId)
-      .in('status', ['active', 'draft']);
-    for (const rs of affectedRS || []) {
-      await supabase.from('rule_sets').update({
-        input_bindings: {},
-      }).eq('id', rs.id);
-    }
-    if ((affectedRS?.length ?? 0) > 0) {
-      console.log(`[SCI Bulk] Cleared input_bindings on ${affectedRS?.length ?? 0} rule_sets (entity data imported — convergence will re-derive)`);
+      .in('status', ['active', 'draft'])
+      .select('id');
+    if ((clearedRuleSets?.length ?? 0) > 0) {
+      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (entity data imported — convergence will re-derive)`);
     }
   }
 
@@ -716,18 +712,14 @@ async function processDataUnit(
 
   // OB-195 Layer 4: Invalidate cached convergence bindings so engine re-derives with new data
   if (totalInserted > 0) {
-    const { data: affectedRS } = await supabase
+    const { data: clearedRuleSets } = await supabase
       .from('rule_sets')
-      .select('id, input_bindings')
+      .update({ input_bindings: {} })
       .eq('tenant_id', tenantId)
-      .in('status', ['active', 'draft']);
-    for (const rs of affectedRS || []) {
-      await supabase.from('rule_sets').update({
-        input_bindings: {},
-      }).eq('id', rs.id);
-    }
-    if ((affectedRS?.length ?? 0) > 0) {
-      console.log(`[SCI Bulk] Cleared input_bindings on ${affectedRS?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
+      .in('status', ['active', 'draft'])
+      .select('id');
+    if ((clearedRuleSets?.length ?? 0) > 0) {
+      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
     }
   }
 
@@ -854,18 +846,14 @@ async function processReferenceUnit(
 
   // OB-195 Layer 4: Invalidate cached convergence bindings (same as processDataUnit)
   if (totalInserted > 0) {
-    const { data: affectedRS } = await supabase
+    const { data: clearedRuleSets } = await supabase
       .from('rule_sets')
-      .select('id, input_bindings')
+      .update({ input_bindings: {} })
       .eq('tenant_id', tenantId)
-      .in('status', ['active', 'draft']);
-    for (const rs of affectedRS || []) {
-      await supabase.from('rule_sets').update({
-        input_bindings: {},
-      }).eq('id', rs.id);
-    }
-    if ((affectedRS?.length ?? 0) > 0) {
-      console.log(`[SCI Bulk] Cleared input_bindings on ${affectedRS?.length ?? 0} rule_sets (reference data imported — convergence will re-derive)`);
+      .in('status', ['active', 'draft'])
+      .select('id');
+    if ((clearedRuleSets?.length ?? 0) > 0) {
+      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (reference data imported — convergence will re-derive)`);
     }
   }
 

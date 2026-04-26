@@ -156,103 +156,6 @@ export async function convergeBindings(
     return { derivations, matchReport, signals, gaps, componentBindings };
   }
 
-  // HF-193: Read L2 metric_comprehension signals written by bridgeAIToEngineFormat.
-  // Composite-key lookup by (signal_type, rule_set_id) — supported by partial index
-  // idx_classification_signals_l2_lookup WHERE signal_type = 'metric_comprehension'.
-  const { data: signalRows } = await supabase
-    .from('classification_signals')
-    .select('metric_name, component_index, signal_value, confidence')
-    .eq('signal_type', 'metric_comprehension')
-    .eq('rule_set_id', ruleSetId)
-    .order('component_index', { ascending: true });
-
-  const planAgentSeeds = (signalRows ?? []).map(row => {
-    const semantic = (row.signal_value ?? {}) as Record<string, unknown>;
-    return {
-      metric: (semantic.metric as string) ?? (row.metric_name as string) ?? '',
-      operation: semantic.operation as string,
-      source_field: semantic.source_field as string | undefined,
-      filters: semantic.filters as Array<{ field: string; operator: string; value: string | number }> | undefined,
-      numerator_metric: semantic.numerator_metric as string | undefined,
-      denominator_metric: semantic.denominator_metric as string | undefined,
-      confidence: (typeof semantic.confidence === 'number' ? semantic.confidence : (row.confidence as number)) ?? 0,
-      reasoning: semantic.reasoning as string | undefined,
-    };
-  });
-
-  const seededMetrics = new Set<string>();
-
-  if (planAgentSeeds.length > 0) {
-    console.log(`[Convergence] Decision 147: ${planAgentSeeds.length} plan agent seeds found`);
-
-    for (const seed of planAgentSeeds) {
-      let seedValid = true;
-      const validationReasons: string[] = [];
-
-      // Validate filter fields and values against data capabilities
-      if (seed.filters && seed.filters.length > 0) {
-        for (const filter of seed.filters) {
-          const fieldCap = capabilities.find(dc =>
-            dc.categoricalFields.some(cf => cf.field === filter.field)
-          );
-          if (!fieldCap) {
-            seedValid = false;
-            validationReasons.push(`Filter field "${filter.field}" not found in committed_data categorical fields`);
-            continue;
-          }
-          const valueExists = fieldCap.categoricalFields.some(cf =>
-            cf.field === filter.field &&
-            cf.distinctValues.some(dv => dv === String(filter.value))
-          );
-          if (!valueExists) {
-            seedValid = false;
-            validationReasons.push(`Filter value "${filter.value}" not found in field "${filter.field}" (values: ${
-              fieldCap.categoricalFields.find(cf => cf.field === filter.field)?.distinctValues.join(', ') ?? 'none'
-            })`);
-          }
-        }
-      }
-
-      // Validate source_field exists as numeric (for sum/delta)
-      if (seed.source_field && ['sum', 'delta'].includes(seed.operation)) {
-        const fieldExists = capabilities.some(dc =>
-          dc.columnStats[seed.source_field!] !== undefined
-        );
-        if (!fieldExists) {
-          seedValid = false;
-          validationReasons.push(`Source field "${seed.source_field}" not found as numeric in committed_data`);
-        }
-      }
-
-      if (seedValid) {
-        const derivation: MetricDerivationRule = {
-          metric: seed.metric,
-          operation: seed.operation as MetricDerivationRule['operation'],
-          source_pattern: '.*',
-          filters: (seed.filters ?? []).map(f => ({
-            field: f.field,
-            operator: f.operator as MetricDerivationRule['filters'][0]['operator'],
-            value: f.value,
-          })),
-          source_field: seed.source_field,
-          numerator_metric: seed.numerator_metric,
-          denominator_metric: seed.denominator_metric,
-        };
-        derivations.push(derivation);
-        seededMetrics.add(seed.metric);
-        matchReport.push({
-          component: seed.metric,
-          dataType: 'plan_agent_seed',
-          confidence: seed.confidence,
-          reason: `Decision 147: Plan agent seed validated — ${seed.reasoning ?? 'plan interpretation'}`,
-        });
-        console.log(`[Convergence] Decision 147: Seed "${seed.metric}" VALIDATED → MetricDerivationRule`);
-      } else {
-        console.log(`[Convergence] Decision 147: Seed "${seed.metric}" FAILED: ${validationReasons.join('; ')}`);
-      }
-    }
-  }
-
   // 4. OB-162: 3-pass matching — field identities first, token overlap fallback
   const matches = matchComponentsToData(components, capabilities);
 
@@ -549,11 +452,6 @@ export async function convergeBindings(
     const unresolvedMetrics = comp.expectedMetrics.filter(m => !finalResolvedMetrics.has(m));
     // Also skip if gap already recorded by Pass 4
     const alreadyGapped = gaps.some(g => g.componentIndex === comp.index);
-
-    // Decision 147: Log when seeds fully cover a component
-    if (unresolvedMetrics.length === 0 && comp.expectedMetrics.some(m => seededMetrics.has(m))) {
-      console.log(`[Convergence] Decision 147: Component "${comp.name}" fully covered by seeds — no gaps`);
-    }
 
     if (unresolvedMetrics.length > 0 && !alreadyGapped) {
       if (matchedComponentIndices.has(comp.index)) {
