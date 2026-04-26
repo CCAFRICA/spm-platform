@@ -93,3 +93,58 @@ The reason the in-scope diagnostic cannot resolve this to CONCENTRATED or DISTRI
 ## 8. ARCHITECT DISPOSES
 
 End of report. CC does not propose fixes. CC does not draft HFs.
+
+## 9. DIAG-020-A FOLLOW-UP — FIELD_IDENTITIES CONFIRMATION
+### Date: 2026-04-25
+
+### Phase 1: BCL metadata top-level keys (sample 50 of 595 total rows)
+
+| metadata_key            | rows_containing_key |
+|-------------------------|---------------------|
+| source                  | 50                  |
+| proposalId              | 50                  |
+| semantic_roles          | 50                  |
+| entity_id_field         | 50                  |
+| resolved_data_type      | 50                  |
+| informational_label     | 50                  |
+
+`field_identities` present in: **0 of 50** sampled rows.
+Keys starting with `field_` or `identity_`: (none).
+
+### Phase 2: Per-batch field_identities probe (10 rows per distinct batch × data_type)
+
+| import_batch_id                       | data_type                                              | sampled | with_field_identities |
+|---------------------------------------|--------------------------------------------------------|---------|-----------------------|
+| 40a4dc96-dbbb-4af5-8ab9-d72622ba4dc5  | 0_72d70dac_bcl_plantilla_personal__personal            | 10      | 0                     |
+| ec021124-7ced-48d1-a280-52435c4fb74f  | 0_8622c8a6_bcl_datos_dic__datos                        | 10      | 0                     |
+| 0a3a8013-7a50-44c5-923b-215d0c40de76  | 1_f2c29611_bcl_datos_ene__datos                        | 10      | 0                     |
+| 42cf02ee-0571-469a-8bf9-c2084cff25e4  | 2_3aedc4fe_bcl_datos__datos                            | 10      | 0                     |
+| 08e2dc90-cbdb-4657-93e5-db9857747973  | 3_3ca68905_bcl_datos__datos                            | 10      | 0                     |
+| 54891b4d-9ae2-43d4-816b-0004a59e45a5  | 4_332f6cfb_bcl_datos__datos                            | 10      | 0                     |
+| 706dd552-b417-47ea-8fc0-cf29be219209  | 5_8328fbff_bcl_datos__datos                            | 10      | 0                     |
+
+Total: **70 rows sampled across 7 distinct (import_batch, data_type) pairs — 0 with `field_identities`**. Absence is universal at the BCL tenant, not batch-specific. PARTIAL is ruled out.
+
+### Phase 3: Cross-tenant comparative probe
+
+| tenant   | total_rows | rows_sampled | rows_with_field_identities | other_metadata_keys (sampled)                                                                |
+|----------|------------|--------------|----------------------------|-----------------------------------------------------------------------------------------------|
+| BCL      | 595        | 20           | 0                          | entity_id_field, informational_label, proposalId, resolved_data_type, semantic_roles, source |
+| CRP      | 0          | 0            | 0                          | (no rows — H3 fired; cross-tenant comparison limited)                                         |
+| Meridian | 0          | 0            | 0                          | (no rows — H3 fired; cross-tenant comparison limited)                                         |
+
+CRP and Meridian have zero `committed_data` rows (consistent with the recent Nuclear-Clear scope intent for those tenants). Universal-absence-across-tenants (CROSS-TENANT classification) cannot be determined from this probe alone.
+
+### Confirmation status:
+
+**CONFIRMED — field_identities absent on BCL rows.**
+
+### Hypothesis confidence after DIAG-020-A:
+
+Promoted from MEDIUM to: **HIGH**.
+
+DIAG-020-A directly demonstrates what DIAG-020 inferred: every BCL `committed_data` row sampled (70 rows from 7 distinct batches, plus the broader 50-row Phase 1 sample) lacks `metadata.field_identities`. With `field_identities` absent on every row, `inventoryData` (line 800 of `convergence-service.ts`) produces `DataCapability` entries with `fieldIdentities: {}`. `matchComponentsToData`'s primary structural-FI gate at line 930 (`const capsWithFI = capabilities.filter(c => Object.keys(c.fieldIdentities).length > 0); if (capsWithFI.length > 0) {...}`) is therefore skipped entirely. The Pass-3 token-overlap fallback at lines 1001–1031 cannot recover because BCL `data_type` values are opaque hash-prefixed identifiers (`0_72d70dac_bcl_plantilla_personal__personal`, `0_8622c8a6_bcl_datos_dic__datos`, etc.) that share no tokens with component names ("Credit Placement - Senior Executive", "Cross Products - Senior Executive", etc.). Result: `matches.length === 0`, and `generateAllComponentBindings` writes zero `componentBindings`. The matcher functions themselves are byte-identical between MARCH_19_SHA and HEAD (per DIAG-020 Phase 3); the regression is entirely on the `committed_data.metadata` write side. The writer lives in the SCI import pipeline (`web/src/app/api/import/sci/execute/route.ts` and `execute-bulk/route.ts`), which is outside DIAG-020's scope and was not inspected here. The cross-tenant question (whether the absence is BCL-specific or universal) remains unresolved because CRP and Meridian have no current `committed_data` rows; resolving it requires a fresh CRP or Meridian import to compare metadata shapes.
+
+### ARCHITECT DISPOSES
+
+End of DIAG-020-A. CC does not propose fixes.
