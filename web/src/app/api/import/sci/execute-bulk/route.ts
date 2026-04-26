@@ -22,6 +22,8 @@ import {
   buildSemanticRolesMap,
   detectPeriodMarkerColumns,
 } from '@/lib/sci/source-date-extraction';
+// HF-194: extracted helper — also used by execute/route.ts
+import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
 
 // Processing order: plan first, then entity, then data
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -541,6 +543,8 @@ async function processEntityUnit(
         resolved_data_type: dataType,
         entity_id_field: entityIdField || null,
         informational_label: 'entity',
+        // HF-194: restore field_identities for matcher's structural-FI Pass 1
+        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
       },
     };
   });
@@ -654,6 +658,8 @@ async function processDataUnit(
         semantic_roles: semanticRoles,
         resolved_data_type: dataType,
         entity_id_field: entityIdField || null, // preserve which field is the entity identifier
+        // HF-194: restore field_identities for matcher's structural-FI Pass 1
+        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
       },
     };
   });
@@ -812,6 +818,8 @@ async function processReferenceUnit(
         resolved_data_type: dataType,
         entity_id_field: entityIdField || null,
         informational_label: 'reference',
+        // HF-194: restore field_identities for matcher's structural-FI Pass 1
+        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
       },
     };
   });
