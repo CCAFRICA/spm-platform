@@ -156,29 +156,19 @@ export async function convergeBindings(
     return { derivations, matchReport, signals, gaps, componentBindings };
   }
 
-  // HF-193: Read L2 metric_comprehension signals written by bridgeAIToEngineFormat.
-  // Composite-key lookup by (signal_type, rule_set_id) — supported by partial index
-  // idx_classification_signals_l2_lookup WHERE signal_type = 'metric_comprehension'.
-  const { data: signalRows } = await supabase
-    .from('classification_signals')
-    .select('metric_name, component_index, signal_value, confidence')
-    .eq('signal_type', 'metric_comprehension')
-    .eq('rule_set_id', ruleSetId)
-    .order('component_index', { ascending: true });
-
-  const planAgentSeeds = (signalRows ?? []).map(row => {
-    const semantic = (row.signal_value ?? {}) as Record<string, unknown>;
-    return {
-      metric: (semantic.metric as string) ?? (row.metric_name as string) ?? '',
-      operation: semantic.operation as string,
-      source_field: semantic.source_field as string | undefined,
-      filters: semantic.filters as Array<{ field: string; operator: string; value: string | number }> | undefined,
-      numerator_metric: semantic.numerator_metric as string | undefined,
-      denominator_metric: semantic.denominator_metric as string | undefined,
-      confidence: (typeof semantic.confidence === 'number' ? semantic.confidence : (row.confidence as number)) ?? 0,
-      reasoning: semantic.reasoning as string | undefined,
-    };
-  });
+  // ── Decision 147: Plan Intelligence Forward — seed derivation consumption ──
+  const planAgentSeeds = (
+    (ruleSet.input_bindings as Record<string, unknown>)?.plan_agent_seeds ?? []
+  ) as Array<{
+    metric: string;
+    operation: string;
+    source_field?: string;
+    filters?: Array<{ field: string; operator: string; value: string | number }>;
+    numerator_metric?: string;
+    denominator_metric?: string;
+    confidence: number;
+    reasoning?: string;
+  }>;
 
   const seededMetrics = new Set<string>();
 
