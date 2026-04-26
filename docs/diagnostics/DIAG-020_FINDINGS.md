@@ -250,3 +250,225 @@ Single-target forward-fix. Verification gate: re-import BCL through the bulk pat
 ### ARCHITECT DISPOSES
 
 End of DIAG-021 R1. CC does not propose fixes.
+
+## 11. DIAG-022 — PIPELINE ARCHITECTURE READ
+### Date: 2026-04-25
+
+### Phase 0: File inventory + introducing commits
+
+- `web/src/app/api/import/sci/execute/route.ts` — 1,839 lines (72,299 bytes); first commit `c0fcf055` 2026-03-01 ("OB-127 Phase 6: SCI execute API — routing + target pipeline + convergence re-wire").
+- `web/src/app/api/import/sci/execute-bulk/route.ts` — 1,089 lines (40,609 bytes); first commit `07639bb4` 2026-03-04 ("OB-156 Phase 1+2: File storage transport + server-side bulk processing"). execute predates execute-bulk by 3 days.
+- HF-184 commit (`2203fc93`, 2026-03-31): "HF-184: Unified committed_data writes — import sequence independence. All SCI pipelines now write committed_data rows with source_date and entity_id_field…" — this is the commit that added the entity insert in execute-bulk (line 552 at HEAD).
+- OB-195 Layer 1 commit (`261bd9d0`, 2026-03-30): "OB-195 Layer 1: Reference pipeline → committed_data (Decision 111). Rewrite processReferenceUnit to follow processDataUnit pattern. Previously wrote to reference_data + reference_items (deprecated per Decision 111)." — this is the commit that added the reference insert in execute-bulk (line 832 at HEAD).
+
+### Phase 1: Handler summaries
+
+```
+=== execute/route.ts handler summary ===
+Entry point: POST /api/import/sci/execute (line 97)
+Triggered when: SCI proposal is confirmed and the request payload contains
+                contentUnits with rawData (browser-parsed) — and/or contains
+                storagePath for plan-document AI interpretation.
+High-level flow:
+  1. Authenticate + load tenant settings (lines 98-138)
+  2. Sort contentUnits by classification (reference < entity = target =
+     transaction < plan)  — HF-109 ordering
+  3. If any plan units AND storagePath present, batch all plan units into
+     ONE call to executeBatchedPlanInterpretation (HF-130) → AI plan
+     interpretation, rule_set upsert, persist metric_comprehension signals
+  4. For each non-plan content unit: dispatch to executeContentUnit →
+     dispatches to executeTargetPipeline / executeTransactionPipeline /
+     executeEntityPipeline / executeReferencePipeline based on
+     confirmedClassification
+  5. Each pipeline writes committed_data rows with metadata containing
+     field_identities (built via extractFieldIdentitiesFromTrace OR fallback
+     to buildFieldIdentitiesFromBindings) + informational_label
+  6. Post-import: HF-109 entity resolution (resolveEntitiesFromCommittedData,
+     DS-009 3.3) + OB-160G convergence call (when applicable; runs across
+     all rule_sets to populate input_bindings)
+  7. Capture sci:classification_outcome_v2 and sci:convergence_outcome
+     classification_signals
+Returns: SCIExecutionResult { results: ContentUnitResult[]; convergence: {...} }
+
+=== execute-bulk/route.ts handler summary ===
+Entry point: POST /api/import/sci/execute-bulk (line 68)
+Triggered when: SCI proposal is confirmed for bulk DATA processing —
+                request carries storagePath + contentUnits but NO rawData.
+                The browser uploaded the file to Supabase Storage; this
+                handler downloads + parses server-side.
+High-level flow:
+  1. Authenticate + verify tenant (lines 73-105)
+  2. Download file from Storage bucket 'ingestion-raw' (lines 110-117)
+  3. Parse XLSX server-side via xlsx library; build sheetDataMap (lines
+     124-145)
+  4. Sort contentUnits by PROCESSING_ORDER (plan=0, entity=1, target=2,
+     transaction=3, reference=4)
+  5. For each unit: resolve sheet data, then dispatch to a per-classification
+     processor (processEntityUnit / processDataUnit for transaction +
+     target / processReferenceUnit). NOTE: 'plan' classification is in
+     PROCESSING_ORDER but NOT actually handled by this route — see Phase 2
+     below.
+  6. Each processor builds committed_data rows with metadata containing
+     source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type,
+     entity_id_field, and (for entity/reference) informational_label.
+     **DOES NOT include field_identities at any of the three sites**
+     (per DIAG-021 R1).
+  7. Inserts to committed_data in 2,000-row chunks with retry logic
+     (OB-174 Phase 5 nanobatch commitment)
+  8. Updates import_batches.status='completed' on success
+  9. Note: convergence is NOT called here — explicitly removed by OB-182
+     ("convergeBindings removed from import — runs at calc time")
+Returns: SCIExecutionResult { results: ContentUnitResult[] }
+```
+
+### Phase 2: Upstream router
+
+**CALLER FILE:** `web/src/components/sci/SCIExecution.tsx`
+**BRANCHING CONDITION:** Whether the content unit's classification is `'plan'` AND, secondarily, whether `storagePath` is present.
+- For **non-plan units** (entity, transaction, target, reference): if `storagePath` is non-empty, route batch goes to **`/api/import/sci/execute-bulk`** (lines 167–198: `executeUnits` → `bulkUnits` payload).
+- For **plan units**: routed to **`/api/import/sci/execute`** in a single batch call (lines 285–335).
+- For **non-plan units when `storagePath` is missing**: `executeLegacyUnit` falls back to **`/api/import/sci/execute`** (lines 237–283, comment: "Legacy execution — used for plan units (document-based) and fallback when no storagePath").
+
+Quote line: `// OB-156: Split units into plan (legacy) and data (bulk) groups` at line 286, with `planUnits` filtered by `classification === 'plan'` and `dataUnits` taking the rest.
+
+So the data path is:
+- (plan) → execute (plan-interpretation handler invoked via batch)
+- (non-plan + storagePath) → execute-bulk
+- (non-plan + no storagePath) → execute (legacy/fallback path)
+
+The data-pipeline implementations in execute (target/transaction/entity/reference) are therefore live as a **fallback path**, not dead code.
+
+### Phase 3: Metadata contract comparison
+
+| Pipeline | Insert Site (file:line) | Data Type | metadata keys | field_identities | source value |
+|----------|-------------------------|-----------|---------------|------------------|--------------|
+| execute  | execute/route.ts:584-602 (target pipeline)         | target      | informational_label, field_identities, classification, sourceFile, tabName (and supporting keys from helpers) | **YES** (line 591) | (no `source: 'sci-bulk'` literal — execute does not stamp this) |
+| execute  | execute/route.ts:730-744 (transaction pipeline)    | transaction | informational_label, field_identities, classification, sourceFile, tabName | **YES** (line 739) | — |
+| execute  | execute/route.ts:874-880 (entity pipeline)         | entity      | informational_label, field_identities, classification, sourceFile, tabName | **YES** (line 865) | — |
+| execute  | execute/route.ts:1003-1015 (reference pipeline)    | reference   | informational_label, field_identities, classification, sourceFile, tabName | **YES** (line 987) | — |
+| execute-bulk | execute-bulk/route.ts:525-548 (entity insert)  | entity      | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field, informational_label: 'entity' | **NO**  | `'sci-bulk'` |
+| execute-bulk | execute-bulk/route.ts:645-665 (transaction)    | transaction | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field | **NO**  | `'sci-bulk'` |
+| execute-bulk | execute-bulk/route.ts:805-822 (reference)      | reference   | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field, informational_label: 'reference' | **NO**  | `'sci-bulk'` |
+
+**Metadata diff statement:**
+- Common to both: `informational_label` (entity/transaction/target/reference per pipeline)
+- Unique to `execute-bulk`: `source: 'sci-bulk'`, `proposalId`, `semantic_roles`, `resolved_data_type`, `entity_id_field`
+- Unique to `execute`: `field_identities`, `classification`, `sourceFile`, `tabName`, and additional execute-only keys
+
+The two writers produce DIFFERENT metadata shapes. `field_identities` is the most consequential difference because the convergence matcher's structural-FI Pass keys on it (per DIAG-020 / DIAG-020-A / DIAG-021 R1). `execute`-written rows feed the matcher's primary path; `execute-bulk`-written rows fall through to Pass 3 token overlap, which fails on hash-prefixed `data_type` values.
+
+### Phase 4: buildFieldIdentitiesFromBindings analysis
+
+Located at `web/src/app/api/import/sci/execute/route.ts:38–81`.
+
+**Helper full body** (40 lines):
+
+```ts
+// HF-110: Build field_identities from confirmedBindings when HC trace is unavailable (DS-009 1.3)
+// Maps SemanticRole → ColumnRole + contextualIdentity — guaranteed write, never null
+function buildFieldIdentitiesFromBindings(
+  bindings: SemanticBinding[],
+): Record<string, FieldIdentity> {
+  const ROLE_MAP: Record<string, { structuralType: ColumnRole; contextualIdentity: string }> = {
+    entity_identifier: { structuralType: 'identifier', contextualIdentity: 'person_identifier' },
+    entity_name: { structuralType: 'name', contextualIdentity: 'person_name' },
+    entity_attribute: { structuralType: 'attribute', contextualIdentity: 'entity_attribute' },
+    entity_relationship: { structuralType: 'attribute', contextualIdentity: 'entity_relationship' },
+    entity_license: { structuralType: 'attribute', contextualIdentity: 'entity_license' },
+    performance_target: { structuralType: 'measure', contextualIdentity: 'performance_target' },
+    baseline_value: { structuralType: 'measure', contextualIdentity: 'baseline_value' },
+    transaction_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
+    transaction_count: { structuralType: 'measure', contextualIdentity: 'count' },
+    transaction_date: { structuralType: 'temporal', contextualIdentity: 'date' },
+    transaction_identifier: { structuralType: 'identifier', contextualIdentity: 'transaction_identifier' },
+    period_marker: { structuralType: 'temporal', contextualIdentity: 'period' },
+    category_code: { structuralType: 'attribute', contextualIdentity: 'category' },
+    rate_value: { structuralType: 'measure', contextualIdentity: 'percentage' },
+    tier_boundary: { structuralType: 'measure', contextualIdentity: 'threshold' },
+    payout_amount: { structuralType: 'measure', contextualIdentity: 'currency_amount' },
+    descriptive_label: { structuralType: 'attribute', contextualIdentity: 'label' },
+  };
+  const identities: Record<string, FieldIdentity> = {};
+  for (const binding of bindings) {
+    const mapped = ROLE_MAP[binding.semanticRole];
+    if (mapped) {
+      identities[binding.sourceField] = {
+        structuralType: mapped.structuralType,
+        contextualIdentity: mapped.contextualIdentity,
+        confidence: binding.confidence,
+      };
+    } else {
+      identities[binding.sourceField] = {
+        structuralType: 'unknown',
+        contextualIdentity: binding.semanticRole || 'unknown',
+        confidence: binding.confidence,
+      };
+    }
+  }
+  return identities;
+}
+```
+
+**Required inputs:**
+- `bindings: SemanticBinding[]` — array of `{ sourceField: string; semanticRole: string; confidence: number; ... }`. The helper iterates the array and builds `Record<columnName, FieldIdentity>` per binding. Output is always non-null and non-empty when bindings is non-empty.
+
+**Calls in execute/route.ts:** four call sites (line 586 target, 734 transaction, 880 entity, 1011 reference), all using `extractFieldIdentitiesFromTrace(...) || buildFieldIdentitiesFromBindings(unit.confirmedBindings)` — the helper is the fallback when the SCI HC trace is missing.
+
+**Availability in execute-bulk context:** **YES, fully available.**
+- `BulkContentUnit.confirmedBindings: SemanticBinding[]` is declared at execute-bulk/route.ts:53 and is part of the `BulkRequest` payload posted by `SCIExecution.tsx:173` (`confirmedBindings: proposalUnit.fieldBindings`).
+- `unit.confirmedBindings` is referenced 20+ times throughout execute-bulk/route.ts (e.g., lines 271, 329-352, 514, 624-640, 788-802) — already in active use for `findDateColumnFromBindings`, `buildSemanticRolesMap`, identifier extraction, etc.
+- `SemanticBinding` and `ColumnRole`/`FieldIdentity` are imported from the same `@/lib/sci/sci-types` module that execute/route.ts uses.
+- The helper is pure (no DB/IO/AI calls); moving or sharing it is mechanical.
+
+execute-bulk DOES NOT have access to:
+- `convergeBindings` invocation (deliberately removed by OB-182)
+- AI plan interpretation (handles only data, not plans)
+- HC trace (only available in `execute` via `classificationTrace`/`structuralFingerprint` fields, which the bulk request payload also forwards per `SCIExecution.tsx:180-182`, but `extractFieldIdentitiesFromTrace` is not currently imported in execute-bulk)
+
+### Phase 5: Responsibility-division analysis
+
+**Question A — same workload class?** NO.
+- Evidence: `execute/route.ts` handles plan documents (PDF/PPTX/DOCX/XLSX) via AI interpretation (`executeBatchedPlanInterpretation`, line 1093, calls `aiService.interpretPlan`); writes `rule_sets` rows; emits `cost_event` and `metric_comprehension` signals.
+- `execute-bulk/route.ts` handles only data files (entity/transaction/reference); explicitly does NOT handle plans (the `plan: 0` entry in `PROCESSING_ORDER` is unused — there is no `processPlanUnit` in this file; `git grep -n "processPlanUnit\|plan-interpretation" execute-bulk/route.ts` returns no matches).
+
+**Question B — same upstream context?** SAME caller, DIFFERENT branching.
+- Both invoked from `web/src/components/sci/SCIExecution.tsx`.
+- Branching: `classification === 'plan'` → execute; otherwise (with storagePath) → execute-bulk; otherwise (without storagePath) → execute fallback.
+
+**Question C — same downstream artifacts?** OVERLAP, NOT EQUAL.
+- Both write `committed_data` and `import_batches`.
+- execute additionally writes: `rule_sets` (plans only), `classification_signals` (sci:classification_outcome_v2 for sheet classification, sci:convergence_outcome on convergence completion, metric_comprehension on plan interpretation), invokes `convergeBindings` and updates `rule_sets.input_bindings`, calls `resolveEntitiesFromCommittedData`.
+- execute-bulk: writes only `committed_data` + `import_batches`. Convergence deferred to calc time per OB-182. Entity backfill is a separate post-import step in execute (not visible from execute-bulk).
+
+**Question D — superset relationship?** NEITHER is a strict superset.
+- execute-bulk requires `storagePath` (file in Storage); execute does not require it (browser parses + sends rawData in body).
+- execute handles plan documents; execute-bulk does not.
+- Each has a structural reason to exist that the other cannot fulfill.
+
+**Question E — structural reason for both?** YES.
+- execute-bulk's reason: bypass HTTP body size limits (AP-1 / AP-2 — "no row data in HTTP bodies", "no sequential chunks from browser" — comment at the top of the file). For files large enough to require Storage transport.
+- execute's reason: AI plan interpretation requires document content the browser can't pre-parse, AND the legacy/fallback path for small data files where Storage transport is unnecessary.
+
+### Responsibility-Division Verdict
+
+**PARALLEL_SPECIALIZED.** The two routes have legitimately different responsibilities:
+- execute = (a) plan documents + AI interpretation, (b) fallback for data when no storagePath.
+- execute-bulk = bulk data files via Storage transport (server-side parse).
+
+Their parallelism at the data-pipeline level (entity/transaction/reference) is a smaller AP-17 surface — both routes implement these pipelines, but the implementations diverge in metadata-construction (execute writes `field_identities`, execute-bulk does not). The metadata-contract drift is implementation-only; the structural specialization (Storage transport vs browser-rawData; plan-AI vs no-plan-AI) is real.
+
+### Indicated HF-194 Framing
+
+**B (narrow patch + tech-debt registration).** Per the matrix, PARALLEL_SPECIALIZED maps to A or B. The drift is sufficiently consequential (it gates Decision-111 component bindings on the bulk path) that registering it as debt is warranted. Specifically:
+- Narrow patch: at the three execute-bulk insert sites (entity 525-548, transaction 645-665, reference 805-822), add `field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings)` to the metadata payload. Helper is pure and trivially shareable; either import it from execute/route.ts or extract to `@/lib/sci/field-identities` (preferred for clarity).
+- Tech debt: register that the metadata-construction surface is parallel between the two routes and should be extracted to a shared helper (`buildCommittedDataMetadata(unit, label, classification)`) to prevent future drift. Optionally: register that `extractFieldIdentitiesFromTrace`-when-available should also be wired into execute-bulk for parity (currently execute-bulk uses only the bindings fallback).
+
+C-Consolidate (full unification) is NOT indicated because the two routes' specialization (Storage download + AI plan interpretation) is structural, not implementation-only. C-Complete-Standard or C-Complete-Bulk would lose either the bulk-transport optimization or the plan-AI capability.
+
+### Hypothesis (NOT a fix proposal)
+
+**Hypothesis (most consistent with evidence):** HF-194 should be drafted as Option B. The narrow code change is small (≈3 lines per insert site, plus an import or helper extraction) and surgically closes the field_identities omission for BCL and any other tenant whose data routes through `execute-bulk`. The tech-debt entry preserves the architect's awareness of the AP-17 metadata-contract surface — execute and execute-bulk's parallel data-pipeline implementations are an architectural smell that should be cleaned up in a future structural pass, but consolidating now would either eliminate the bulk-transport path (regressing AP-1/AP-2) or fold plan-AI into bulk (significantly larger surface). The narrow patch closes the regression; the structural cleanup is a separate, larger effort that should not gate the BCL fix.
+
+### ARCHITECT DISPOSES
+
+End of DIAG-022. CC does not draft HF-194.
