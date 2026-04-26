@@ -148,3 +148,105 @@ DIAG-020-A directly demonstrates what DIAG-020 inferred: every BCL `committed_da
 ### ARCHITECT DISPOSES
 
 End of DIAG-020-A. CC does not propose fixes.
+
+## 10. DIAG-021 R1 — CALLER-WRITER DRIFT, MATCHER PATH, DATA_TYPE TRACE
+### Date: 2026-04-25
+
+### Anchor SHAs (all resolved)
+```
+MARCH_19_SHA = 48f1708d
+APR_17_SHA   = 9ad419d2
+HEAD_SHA     = 882bc94c
+```
+
+### Phase 1: Emission point inventory at MARCH_19_SHA
+
+| Log Tag | File @ MARCH_19_SHA | Line | Function |
+|---------|---------------------|------|----------|
+| L1 (HF-108 Using convergence_bindings) | web/src/app/api/calculation/run/route.ts | 141 | POST (line 59-end) |
+| L2 (OB-160G: Convergence complete) | web/src/app/api/import/sci/execute/route.ts | 266 | POST (line 94-440) |
+| L3 (Convergence component bindings emitter) | web/src/lib/intelligence/convergence-service.ts | 409 | convergeBindings (line 102-416) |
+| L4 (DS-009 3.3) | web/src/lib/sci/entity-resolution.ts | 294 | resolveEntitiesFromCommittedData (line 26-end) |
+| L5 (HF-109 Entity resolution:) | web/src/app/api/import/sci/execute/route.ts | 276 | POST |
+| L6 (HF-109: Entity data written) | web/src/app/api/import/sci/execute/route.ts | 894 | executeEntityPipeline (line 796-915) |
+| L7 (OB-185 Pass 4) | (no match — absent at MARCH_19) | — | (added 2026-03-22 by OB-185 Phase 1, post-MARCH_19) |
+
+### Phase 2: Cross-anchor emission table
+
+| Log Tag | MARCH_19 file:line | APR_17 file:line | HEAD file:line | Same File All 3? | Same Function All 3? | Body Identical (function-level)? | Body Identical (local block)? |
+|---------|---|---|---|---|---|---|---|
+| L1 | calc/run/route.ts:141 | calc/run/route.ts:232 | calc/run/route.ts:227 | YES | YES (POST) | NO (M19→A17 = 548 line diff; A17→HEAD = 6 line diff) | YES (block byte-identical) |
+| L2 | sci/execute/route.ts:266 | sci/execute/route.ts:272 | sci/execute/route.ts:269 | YES | YES (POST) | NO (M19→A17 = 35 lines; A17→HEAD = 5) | (not separately diffed; immediate context unchanged in spot-check) |
+| L3 | convergence-service.ts:409 | convergence-service.ts:576 | convergence-service.ts:586 | YES | YES (convergeBindings) | NO (M19→A17 = 203 lines; A17→HEAD = 38) | YES (block byte-identical) |
+| L4 | entity-resolution.ts:294 | entity-resolution.ts:294 | entity-resolution.ts:294 | YES | YES (resolveEntitiesFromCommittedData) | YES (whole-file diff exits 0 across all 3 anchors) | YES |
+| L5 | sci/execute/route.ts:276 | sci/execute/route.ts:282 | sci/execute/route.ts:279 | YES | YES (POST) | (same as L2) | (not separately diffed) |
+| L6 | sci/execute/route.ts:894 | sci/execute/route.ts:938 | sci/execute/route.ts:935 | YES | YES (executeEntityPipeline) | M19→A17 = 15 lines; A17→HEAD = 0 (byte-identical) | YES |
+| L7 | (absent) | convergence-service.ts:503/522 | convergence-service.ts:513/532 | YES (where present) | YES (convergeBindings) | A17→HEAD = (same 38-line span as L3) | (not diffed) |
+
+**Emission drift candidates flagged:** Function-body NO at L1, L2/L5, L3, L6 (all between MARCH_19 and APR_17). All are due to ADDITIVE growth (OB-185 Pass 4, HF-191 Phase B seed validation, HF-188 intent-executor refactor) inserted before/around the emission, not local-block rewrites. Local block byte-identical at L1 and L3 confirmed by direct ±10-line comparison; matcher and emit local code unchanged. **No PATH_CHANGED_FILE / PATH_CHANGED_FUNC.**
+
+### Phase 3: Writer evolution table
+
+| Writer (stable identifier) | MARCH_19? | APR_17? | HEAD? | Writes field_identities? | Other metadata keys (at HEAD) |
+|----------------------------|-----------|---------|-------|--------------------------|--------------------------------|
+| `web/src/app/api/import/sci/execute-bulk/route.ts:613/680/682 — transaction insert (processDataUnit)` | YES (line 613) | YES (line 682) | YES (line 680) | **NO at all anchors** | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field |
+| `execute-bulk/route.ts:552 — entity insert` | **NO** (only target/transaction at MARCH_19) | YES (line 552) | YES (line 552) | **NO** | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field, informational_label: 'entity' |
+| `execute-bulk/route.ts:836/832 — reference insert` | **NO** | YES (line 836) | YES (line 832) | **NO** | source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type, entity_id_field, informational_label: 'reference' |
+| `execute-bulk/route.ts entity_id update (entity_id-only update)` | YES (line 958) | YES (line 998) | YES (line 992) | (n/a — only updates entity_id) | (no metadata write) |
+| `execute/route.ts — target pipeline insert` | YES (line 591 `field_identities: tgtFieldIdentities`) | YES (line 626) | YES (line 623) | **YES** | informational_label: 'target', field_identities |
+| `execute/route.ts — transaction pipeline insert` | YES (line 739) | YES (line 774) | YES (line 771) | **YES** | informational_label: 'transaction', field_identities |
+| `execute/route.ts — entity pipeline insert (executeEntityPipeline)` | YES (line 865) | YES (line 908) | YES (line 905) | **YES** | informational_label: 'entity', field_identities |
+| `execute/route.ts — reference pipeline insert` | YES (line 987) | YES (line 1039) | YES (line 1036) | **YES** | informational_label: 'reference', field_identities |
+| `execute/route.ts entity_id update` | YES (line 1648) | YES (line 1703) | YES (line 1724) | (n/a) | (no metadata write) |
+| `web/src/lib/supabase/data-service.ts:167 — insertCommittedData helper (passthrough)` | YES (byte-identical body) | YES | YES | (caller-supplied; passes through) | passthrough |
+
+**NEW writers post-APR_17 (i.e., post-MARCH_19, present at APR_17 and HEAD):**
+- `execute-bulk/route.ts:552 — entity insert` (introduced by HF-184 / Unified committed_data writes, 2026-03-31, commit 2203fc93)
+- `execute-bulk/route.ts:836/832 — reference insert` (introduced by OB-195 Layer 1 — Reference pipeline → committed_data, 2026-03-30, commit 261bd9d0)
+- (Both writers PRESENT at APR_17_SHA already; no further new writers between APR_17 and HEAD.)
+
+**REMOVED writers since MARCH_19:** None observed.
+
+**MOVED writers:** None — all pre-existing writers still in original files; only line numbers drifted within those files.
+
+**Writer-content evolution:** the *pre-existing* execute-bulk transaction writer at MARCH_19 (line 613) ALREADY omitted `field_identities`. Its metadata payload at MARCH_19 was `{ source: 'sci-bulk', proposalId, semantic_roles, resolved_data_type }`. The new entity + reference bulk writers added later inherited this same omission and added `informational_label` and `entity_id_field`.
+
+**BCL data attribution:** Live BCL committed_data carries `metadata.source: 'sci-bulk'` and `metadata.informational_label` set (per DIAG-020-A). The `'sci-bulk'` literal appears ONLY in `execute-bulk/route.ts`. Therefore current BCL committed_data was written by `execute-bulk/route.ts`, NOT `execute/route.ts`. The `execute-bulk` writer never includes `field_identities`.
+
+### Phase 4: data_type construction trace
+
+| Anchor | Construction logic at writer call sites | Hash-prefixed? |
+|--------|-----------------------------------------|----------------|
+| MARCH_19 (48f1708d) | `normalizeFileNameToDataType(fileName)` then ``${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`` (when tab is non-generic) | Hash prefix is part of `fileName` itself (upstream content-unit-id format like `0_72d70dac_BCL_Plantilla_Personal.xlsx`); the normalizer strips file-extension and date suffixes but preserves the hash. |
+| APR_17 (9ad419d2) | Identical to MARCH_19 — `normalizeFileNameToDataType` body byte-identical, `${normalized}__${tabName...}` byte-identical | Same — hash present. |
+| HEAD (882bc94c) | Identical to APR_17 — byte-identical | Same — hash present. |
+
+**Hash-prefixing first appears at:** all three anchors equally — the construction logic is byte-identical. Hash-prefix originates in the upstream content-unit-id format (file naming step), not in the data_type normalizer; the normalizer preserves the hash because it only strips file-extension/date-suffix tokens.
+
+**Commit that introduced hash-prefixing:** Not within the DIAG-021 window. The hash-prefix predates MARCH_19_SHA. **Verdict: HASH_PRESENT_ALL_ANCHORS** — not a regression vector.
+
+### Caller-Writer Drift Verdict
+
+**NEW_WRITER_OMITS_FI** — new writer call sites for the entity and reference pipelines were added in `execute-bulk/route.ts` between MARCH_19 (where they did not exist) and APR_17 (where they exist with the same omission as today). These new writers omit `field_identities`. The pre-existing transaction-pipeline writer in `execute-bulk/route.ts` also omits `field_identities` and has done so at all three anchors; the new writers extend the same omission to additional pipelines.
+
+### Multi-Pass Matcher Path Verdict
+
+**PATH_UNCHANGED** — All three matcher functions (`inventoryData`, `matchComponentsToData`, `generateAllComponentBindings`) and the convergence helper layout are byte-identical or additively enhanced (`extractComponents`) between MARCH_19 and HEAD per DIAG-020. The local code blocks around L1 and L3 emissions are byte-identical text across all three anchors. Function-body sizes grew because of additive blocks inserted ELSEWHERE in the enclosing functions (Pass 4, seed validation, HF-188 intent executor, HF-165 calc-time convergence) — not because the matcher's invocation arguments, call site, or local logic changed.
+
+### Data_Type Normalization Verdict
+
+**HASH_PRESENT_ALL_ANCHORS** — `normalizeFileNameToDataType` and the `${normalized}__${tabName}` composition are byte-identical at all three anchors. The hash-prefix on BCL data_type values originates from the upstream content-unit-id format (file naming convention), which existed at MARCH_19. Not the regression vector.
+
+### Combined disposition (per DIAG-021 R1 matrix)
+
+`NEW_WRITER_OMITS_FI` × `PATH_UNCHANGED` × `HASH_PRESENT_ALL_ANCHORS` → **HF-194 narrow: restore `field_identities` write in `execute-bulk/route.ts`'s three insert call sites** (entity at line 552, transaction at line 680, reference at line 832 of HEAD). Reuse the `buildFieldIdentitiesFromBindings` helper that already exists in `execute/route.ts` line 38 (HEAD); the helper signature and shape are stable across all three anchors.
+
+Single-target forward-fix. Verification gate: re-import BCL through the bulk path; confirm `committed_data.metadata.field_identities` is populated; recalculate; expect 4 component bindings produced; verify $312,033 BCL total at calc time.
+
+### Hypothesis confidence after DIAG-021 R1
+
+**Held at HIGH.** DIAG-020-A's hypothesis (regression vector is `field_identities` absence on `committed_data.metadata`) was already HIGH after the live-data confirmation (70/70 BCL rows, 0 with `field_identities`). DIAG-021 R1 promotes the precision: the absence is attributable to `execute-bulk/route.ts`'s three insert call sites, all of which omit `field_identities` from their metadata construction. Two of those call sites (entity, reference) are NEW post-MARCH_19 (HF-184 and OB-195 Layer 1). The third (transaction) pre-existed at MARCH_19 with the same omission, but was likely not the path BCL took for personnel rows on March 19 (entity rows could not have gone through execute-bulk at MARCH_19 because the bulk entity-write call site did not exist there — they went through `execute/route.ts`'s entity pipeline, which DOES write `field_identities`). Therefore for BCL specifically, the regression vector is "BCL entity + datos imports now route through execute-bulk where on March 19 they routed through execute". Whether the routing-side change is in the UI proposal flow or in the SCI orchestration (analyze → execute-bulk vs analyze → execute) is the next narrowing question, but is not required to draft HF-194 — restoring `field_identities` write in execute-bulk closes the gap regardless of which UI flow invokes it.
+
+### ARCHITECT DISPOSES
+
+End of DIAG-021 R1. CC does not propose fixes.
