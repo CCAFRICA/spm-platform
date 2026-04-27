@@ -2804,5 +2804,61 @@ The intent-executor's external API is `executeIntent` (line 554), not `executeOp
 
 The legacy fallback at run-calculation.ts:456 is the only place where `executeOperation`'s return is locally caught (try/catch at lines 415-471).
 
+---
+
+## Phase 0 — Closing
+
+### Step 0.CLOSE.1 — Report Completeness Check
+
+Sections present (verified by `grep "^##\\|^### "`):
+
+- [x] Frontmatter — present at top
+- [x] Phase 0 — Initialization (Step 0.0, 0.1, 0.2)
+- [x] Phase 0A — Vocabulary Inventory (Boundary 1, 2, 3, 4, 5, 6, 0A.7 intersection table)
+- [x] Phase 0B — Default-Branch Behavior (Boundary 1-6 + constraint note)
+- [x] Phase 0C — Per-Primitive Shape Contract (Primitive 1-17 + summary)
+- [x] Phase 0D — Signal Surface Inventory (Step 0D.1-0D.7)
+- [x] Phase 0E — Production Rule_Set Inventory (Step 0E.1-0E.7 + additional observations)
+- [x] Phase 0F — Authority Routing Inventory (Step 0F.1-0F.4)
+- [ ] Phase 0G — NOT created. HALT-A was NOT triggered (Boundary 1's prompt source is `web/src/lib/ai/providers/anthropic-adapter.ts:134-541`, single source-code-resident location, runtime-authoritative via `task: 'plan_interpretation'` invocation).
+
+### Step 0.CLOSE.2 — HALT contingency summary
+
+**HALT-A (Plan-agent prompt source ambiguity):** **NOT triggered.** Prompt source identified at `web/src/lib/ai/providers/anthropic-adapter.ts:134-541`. Source-code-resident only (no DB load, no env-var, no remote fetch). Runtime authority confirmed via `ai-service.ts:257` invocation with `task: 'plan_interpretation'`.
+
+**HALT-B (Rule_set shape gaps):** **TRIGGERED for CRP and Meridian.**
+- BCL: 2 active rule_sets matching the post-DIAG-024 shape (4 components × 2 variants, vocabulary `tier_lookup` componentType + `bounded_lookup_2d`/`bounded_lookup_1d` calcIntent + `scalar_multiply` + `conditional_gate`). Shape consistent with documented post-DIAG-024 substrate.
+- CRP (Cascade Revenue Partners, `e44bbcb1-...`): 2 active rule_sets, both NAMED "Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026", with the BCL shape — NOT the proven CRP baseline (10 periods × 4 OB-180/181 primitives `linear_function`/`piecewise_linear`/`scope_aggregate`/`conditional_gate`). The proven CRP baseline shape is NOT retrievable from `origin/main` substrate. Architect provision needed for shape comparison.
+- Meridian Logistics Group (`5035b1e8-...`): 0 rule_sets (active or otherwise). Proven Meridian baseline (MX$185,063) NOT retrievable from this substrate.
+
+### Step 0.CLOSE.3 — Anomalies recorded as evidence
+
+Counts of distinct evidentiary items recorded (not classified) in this report:
+
+1. Substrate SHA divergence: directive's DIAG-024 anchor `6504b7cf...` vs current `origin/main` HEAD `6bc005e6...` (merge commit of PR #344).
+2. SCHEMA_REFERENCE_LIVE.md (2026-03-18) lists 20 columns on `classification_signals`; live PostgREST sample shows 23 columns (`rule_set_id`, `metric_name`, `component_index` added post-snapshot).
+3. `foundational_classification_signals` and `domain_classification_signals` referenced by directive but do not exist as tables in PostgREST cache or in SCHEMA_REFERENCE_LIVE.md.
+4. `level` column referenced by directive's 0D.5 query but does not exist on `classification_signals`.
+5. Plan prompt declares "7 PRIMITIVE OPERATIONS" at line 357; mapping rules and examples introduce 3 additional operation strings (`linear_function`, `piecewise_linear`, `scope_aggregate`).
+6. `weighted_blend` and `temporal_window` are intent-executor cases without prompt or importer recognition.
+7. `scope_aggregate` is in prompt + importer 5-tuple but NOT in intent-executor switch (top-level case).
+8. Legacy switch (Boundary 5) and intent-executor switch (Boundary 6) have NO explicit `default:` keyword — fall through with implicit behavior (legacy: `payout` stays 0; intent: function returns `undefined`).
+9. `convertComponent`'s default branch writes `componentType: 'tier_lookup'` regardless of the `calcType` that triggered it — overwriting input.
+10. String-name divergence: `'tiered_lookup'` (importer-side) vs `'tier_lookup'` (engine-side); `convertComponent` bridges by re-emitting.
+11. 16 component instances (4 × 2 BCL rule_sets + 4 × 2 CRP rule_sets) exhibit `componentType: 'tier_lookup'` paired with `calculationIntent.operation` of `bounded_lookup_1d`/`bounded_lookup_2d` — Boundary 4 default-branch fingerprint.
+12. CRP (Cascade Revenue Partners) has 2 active rule_sets both NAMED for BCL plan — name/shape mismatch with proven CRP baseline.
+13. Meridian Logistics Group has 0 rule_sets — proven Meridian baseline absent.
+14. `plan_agent_seeds` string absent from web/src/ TypeScript codebase (0 grep matches); absent from all 4 active rule_sets' `input_bindings`.
+15. No row in `classification_signals` has `signal_type` matching `metric_comprehension` or `agent_activity:plan_interpretation` (Decision 153 forms). Existing close-match: `signal_type='training:plan_interpretation'` (4 rows, source='ai_prediction').
+16. `convergence_calculation_validation` has 1 write site in `convergence-service.ts:253-274` and 0 read sites — the directive's V-006 observation is structurally consistent with this substrate.
+17. `calculationIntent` is duplicated in every persisted component: identical content in both `component.calculationIntent` (top-level) and `component.metadata.intent`.
+18. The `components` JSONB shape is `{ variants: [{ components: [...] }] }` — an object wrapping arrays — NOT a flat array. The directive's SQL queries assumed `jsonb_array_length(components)` would work; the corrected traversal is via `variants[].components[]`.
+19. `postgres` library (named in directive's 0D.1 / 0E.2 as preferred client) is not installed; queries used `@supabase/supabase-js` instead — the project's standard pattern.
+20. Substrate observation: All 4 active rule_sets are dated 2026-04-26 / 2026-04-27 (recent imports), all post-DIAG-024 merge.
+
+### Step 0.CLOSE.4 — Final commit (this section)
+
+To be committed by the closing commit step below.
+
 
 
