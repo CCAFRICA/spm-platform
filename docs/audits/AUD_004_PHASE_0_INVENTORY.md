@@ -1160,5 +1160,233 @@ export function executeOperation(
 
 **Note on `tier_lookup` vs `tiered_lookup`:** These are two distinct strings. Boundaries 1, 2, 3 use `'tiered_lookup'`. Boundary 5 uses `'tier_lookup'`. Boundary 4 reads `'tiered_lookup'` (line 600) but writes `componentType: 'tier_lookup'` (lines 616, 686, 701) — it bridges the names by re-emitting.
 
+---
+
+## Phase 0B — Default-Branch Behavior Characterization
+
+### Boundary 1 (Plan-Agent Prompt) — default-equivalent behavior
+
+**Q1 — Output shape:** A prompt has no programmatic output shape; the AI's response is JSON whose shape is constrained by the prompt's instructions. The prompt does not enumerate a shape for the case where the AI emits an operation outside the declared/exemplified set.
+
+**Q2 — Operation/type name handling:** The prompt instructs (line 539) `The calculationIntent must be valid against the 7 primitives above`. The "7 primitives" list (lines 358-364) names: `bounded_lookup_1d`, `bounded_lookup_2d`, `scalar_multiply`, `conditional_gate`, `aggregate`, `ratio`, `constant`. Examples and mapping rules introduce additional strings (`linear_function`, `piecewise_linear`, `scope_aggregate`) that the line-539 constraint does not list. PRESERVED for the 7 declared + 3 example-introduced. No instruction governs strings outside that union.
+
+**Q3 — Error throwing:** No error mechanism. The AI returns whatever JSON it emits. The prompt has no failure mode.
+
+**Q4 — Logging:** No log emission from the prompt itself.
+
+**Q5 — Downstream consumer:** The AI response is JSON parsed and passed to `validateAndNormalize` (in `web/src/lib/compensation/ai-plan-interpreter.ts`), which calls `normalizeComponents` (line 245), which invokes Boundary 2 (`normalizeComponentType`, line 253) and Boundary 3 (`normalizeCalculationMethod`, line 257). Any operation string the prompt produces enters the boundary chain at B2/B3.
+
+### Boundary 2 (`normalizeComponentType`) — default branch behavior
+
+**Q1 — Output shape:** Returns the literal string `'tiered_lookup'` (line 284). Single string field; no object structure.
+
+**Q2 — Operation/type name handling:** OVERWRITTEN. Line 284: `validTypes.includes(typeStr) ? (typeStr as ...) : 'tiered_lookup'` — when input is not in `validTypes`, the returned value is `'tiered_lookup'`, regardless of what was passed in. The original input string is lost.
+
+**Q3 — Error throwing:** No error thrown.
+
+**Q4 — Logging:** No log emitted.
+
+**Q5 — Downstream consumer:** The returned string is consumed inside the same module:
+- Line 253: assigned to `comp.type` on the `InterpretedComponent` shape
+- Line 288: re-passed to `normalizeCalculationMethod` (Boundary 3) as the first argument
+
+```ts
+// web/src/lib/compensation/ai-plan-interpreter.ts:253
+type: this.normalizeComponentType(c.type),
+```
+
+Then `comp.type` flows into `convertComponent` (Boundary 4) at line 547 via the `interpretationToPlanConfig` loop (lines 466-477):
+
+```ts
+// web/src/lib/compensation/ai-plan-interpreter.ts:476
+return convertComponent(compCopy, index);
+```
+
+### Boundary 3 (`normalizeCalculationMethod`) — default branch behavior
+
+**Q1 — Output shape:** Returns an object (lines 351-355):
+
+```ts
+return {
+  type: 'tiered_lookup',
+  metric: 'metric',
+  tiers: [],
+};
+```
+
+Three fields assigned: `type` (literal `'tiered_lookup'`), `metric` (literal `'metric'`), `tiers` (empty array).
+
+**Q2 — Operation/type name handling:** OVERWRITTEN to `'tiered_lookup'` (line 352). The original `typeStr` (which itself was already passed through B2 at line 288) is dropped. As noted in 0A, this default branch is unreachable in practice given B2's output range — but is structurally present.
+
+**Q3 — Error throwing:** No error thrown.
+
+**Q4 — Logging:** No log emitted.
+
+**Q5 — Downstream consumer:** The returned object is assigned to `comp.calculationMethod` (line 257):
+
+```ts
+// web/src/lib/compensation/ai-plan-interpreter.ts:257
+calculationMethod: this.normalizeCalculationMethod(c.type, c.calculationMethod),
+```
+
+Then read by `convertComponent` (Boundary 4) at line 563: `const calcMethod = comp?.calculationMethod;` — the `tiers: []` value flows into `convertComponent`'s `'tiered_lookup'` case (line 600), producing `tierConfig.tiers = []`.
+
+### Boundary 4 (`convertComponent`) — default branch behavior (HF-156 fallback)
+
+**Q1 — Output shape:** Two return-shape variants depending on whether `base.calculationIntent` exists:
+
+**Variant 1 (with calculationIntent, lines 684-697):** Six fields assigned:
+- `...base` — spreads id, name, description, order, enabled, measurementLevel, calculationIntent
+- `componentType: 'tier_lookup'` (literal)
+- `metadata: { ...(base.metadata || {}), intent: base.calculationIntent }`
+- `tierConfig: { metric: 'unknown', metricLabel: 'Unknown', tiers: [], currency: 'MXN' }`
+
+**Variant 2 (without calculationIntent, lines 699-708):** Five fields assigned:
+- `...base` — spreads same set as above (calculationIntent will be undefined here)
+- `componentType: 'tier_lookup'` (literal)
+- `tierConfig: { metric: 'unknown', metricLabel: 'Unknown', tiers: [], currency: 'MXN' }`
+- (no metadata override)
+
+Verbatim assignment lines:
+
+```ts
+componentType: 'tier_lookup',
+metadata: {
+  ...(base.metadata || {}),
+  intent: base.calculationIntent,
+},
+tierConfig: {
+  metric: 'unknown',
+  metricLabel: 'Unknown',
+  tiers: [],
+  currency: 'MXN',
+},
+```
+
+**Q2 — Operation/type name handling:** OVERWRITTEN. Line 686 and line 701 both set `componentType: 'tier_lookup'`, regardless of the input `calcType`. The pre-switch `calcType` value (computed at line 566 as `(base.calculationIntent?.operation as string) || calcMethod?.type || 'tiered_lookup'`) is preserved ONLY in `metadata.intent.operation` — and only via Variant 1, which copies the full `calculationIntent` object into `metadata.intent`. Variant 2 (no intent present) loses all type information.
+
+**Q3 — Error throwing:** No error thrown.
+
+**Q4 — Logging:** No log emitted within the default branch itself. (The pre-switch line 569 emits a `console.log` showing `calcType` for every component, including ones routing to default.)
+
+**Q5 — Downstream consumer:** The returned `PlanComponent` flows into `RuleSetConfig.configuration.variants[].components[]` (lines 491, 506) which is persisted into the `rule_sets.components` JSONB column. At calculation time, the persisted shape is read by:
+- **Legacy switch (B5)** — receives `componentType: 'tier_lookup'`, matches `case 'tier_lookup'` at line 363, calls `evaluateTierLookup(component.tierConfig, metrics)` with `tierConfig.tiers = []`. The evaluator processes an empty tiers array and returns `payout: 0`.
+- **Intent executor path** — reads `metadata.intent.operation` (Variant 1) or `calculationIntent.operation` (preserved on `base`), passes to `executeOperation` (B6). Whether B6 has a case for that operation determines the rest.
+
+The downstream code at `run/route.ts:1572-1580` rounds `payout: 0` and pushes into `componentResults`. If the intent path subsequently produces a non-zero value, line 1699 overrides:
+
+```ts
+// web/src/app/api/calculation/run/route.ts:1697-1699
+// Override componentResults payout with intent-authority value
+if (componentResults[ci.componentIndex]) {
+  componentResults[ci.componentIndex].payout = roundedValue;
+}
+```
+
+### Boundary 5 (Legacy Engine Switch) — default-equivalent behavior
+
+**Q1 — Output shape:** No `default:` keyword. With no case match, the switch falls through to its closing brace at line 408. `payout` and `details` retain their initial values from the function scope above the switch (the function initializes `payout: 0` before the switch). The function then proceeds to the post-switch fallback at line 414.
+
+**Q2 — Operation/type name handling:** PRESERVED. The original `component.componentType` is never overwritten by the switch's no-match path. The unrecognized string is preserved in the `componentType` field of the returned `ComponentResult` (run-calculation.ts:477, lines 474-480 of the function):
+
+```ts
+// web/src/lib/calculation/run-calculation.ts:474-480
+return {
+  componentId: component.id,
+  componentName: component.name,
+  componentType: component.componentType,
+  payout,
+  metricValues: metrics,
+```
+
+**Q3 — Error throwing:** No error thrown by the switch itself. The post-switch fallback wraps `executeOperation` in a `try { ... } catch { /* silent */ }` block (lines 414-471):
+
+```ts
+// web/src/lib/calculation/run-calculation.ts:469-471
+} catch {
+  // Fallback failed silently — use original $0 payout
+}
+```
+
+**Q4 — Logging:** No log emitted on no-match. The post-switch fallback's `catch` is intentionally empty per the comment at line 470.
+
+**Q5 — Downstream consumer:** `componentResult.payout` (which is 0 from the no-match fall-through, possibly updated by the post-switch fallback if `calculationIntent` is present) is consumed at `web/src/app/api/calculation/run/route.ts:1578`:
+
+```ts
+// web/src/app/api/calculation/run/route.ts:1572-1580
+const { rounded, trace: roundingTrace } = roundComponentOutput(
+  result.payout, compIdx, component.name, precision
+);
+result.payout = toNumber(rounded);
+entityRoundingTraces.push(roundingTrace);
+
+componentResults.push(result);
+perComponentMetrics.push(metrics);
+legacyTotalDecimal = legacyTotalDecimal.plus(rounded);
+```
+
+Then HF-188 routing (run/route.ts:1697-1709) may override the payout with the intent-engine value:
+
+```ts
+// web/src/app/api/calculation/run/route.ts:1697-1709
+// Override componentResults payout with intent-authority value
+if (componentResults[ci.componentIndex]) {
+  componentResults[ci.componentIndex].payout = roundedValue;
+}
+entityRoundingTraces[ci.componentIndex] = roundingTrace;
+
+intentTotalDecimal = intentTotalDecimal.plus(rounded);
+priorResults[ci.componentIndex] = roundedValue;
+}
+
+// HF-188: Intent executor is authoritative — legacy is concordance shadow
+const intentTotal = toNumber(intentTotalDecimal);
+const entityTotal = intentTotal;
+```
+
+So `total_payout` for the entity equals `intentTotal`, not the legacy total. The legacy `payout: 0` from a no-match fall-through is the value pushed into `componentResults[i].payout` ONLY IF the intent path does not produce its own value for that component index.
+
+### Boundary 6 (Intent Executor Switch) — default-equivalent behavior
+
+**Q1 — Output shape:** No `default:` keyword. With no case match, control falls through past line 449 to the function's closing brace at line 451. Function declares return type `Decimal` but with no fall-through return statement, the function returns `undefined`. TypeScript's compile-time exhaustiveness check normally prevents this, but only if `op.operation` is constrained to the discriminated union of the 11 case strings. Any value outside that union (e.g., from a JSONB-derived runtime input) reaches this fall-through and returns `undefined`.
+
+**Q2 — Operation/type name handling:** PRESERVED in the input `op` parameter (the function does not mutate `op.operation`). DROPPED from the return value, since the function returns `undefined` rather than a `Decimal` containing the operation string.
+
+**Q3 — Error throwing:** No error thrown by the switch itself. The function returns `undefined` silently.
+
+**Q4 — Logging:** No log emitted.
+
+**Q5 — Downstream consumer:** `executeOperation`'s return value flows to two distinct categories of caller:
+
+**(a) Internal recursive callers within `intent-executor.ts`:**
+- Line 154: `return executeOperation(sourceOrOp, data, inputLog, trace);` — return value cascades to `resolveValue`'s caller.
+- Line 291: `return executeOperation(branch, data, inputLog, trace);` — used in `executeConditionalGate` for onTrue/onFalse branches.
+- Line 589, 594, 607: assigned to `outcome` in `runComponentIntent` (the orchestrator).
+
+In path (a), an `undefined` return propagates as `undefined` for the variable assignment. At line 611, `applyModifiers(outcome, intent.modifiers, entityData, modifierLog)` would receive `undefined`. At line 614, `toNumber(outcome)` calls `value.toNumber()` on `undefined` → TypeError.
+
+**(b) External caller in `run-calculation.ts` (the legacy fallback path):**
+
+```ts
+// web/src/lib/calculation/run-calculation.ts:456-457
+const intentPayoutDecimal = executeOperation(intentOp, entityData, inputLog, {});
+const intentPayout = toNumber(intentPayoutDecimal);
+```
+
+If `executeOperation` returns `undefined`, line 457 calls `.toNumber()` on `undefined` → TypeError. The TypeError is caught by the outer `try { ... } catch { /* silent */ }` (lines 415-471), and `payout` retains its prior value (0 if from a fall-through legacy switch).
+
+```ts
+// web/src/lib/calculation/run-calculation.ts:469-471
+} catch {
+  // Fallback failed silently — use original $0 payout
+}
+```
+
+The `runComponentIntent` orchestrator's call sites at intent-executor.ts:589/594/607 are NOT wrapped in try/catch within that function. Whether the TypeError is caught depends on the orchestrator's caller — to be inventoried in Phase 0F.
+
+### Phase 0B — Constraint observed
+
+The boundaries' default-branch behaviors range from "OVERWRITE input to a fixed fallback string" (B2, B3, B4 with intent, B4 without intent) to "PRESERVE input but emit zero-payout" (B5) to "DROP input by returning undefined" (B6). No boundary's default branch throws an error or emits a log identifying the unrecognized input. The post-switch try/catch at run-calculation.ts:469-471 is the only error-handling layer between the dispatch and the persisted result.
+
 
 
