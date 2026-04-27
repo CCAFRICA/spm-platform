@@ -1388,5 +1388,628 @@ The `runComponentIntent` orchestrator's call sites at intent-executor.ts:589/594
 
 The boundaries' default-branch behaviors range from "OVERWRITE input to a fixed fallback string" (B2, B3, B4 with intent, B4 without intent) to "PRESERVE input but emit zero-payout" (B5) to "DROP input by returning undefined" (B6). No boundary's default branch throws an error or emits a log identifying the unrecognized input. The post-switch try/catch at run-calculation.ts:469-471 is the only error-handling layer between the dispatch and the persisted result.
 
+---
+
+## Phase 0C — Per-Primitive Shape Contract Inventory
+
+The directive's working set names 17 primitives. Each sub-section below has four parts: importer write shape (from Boundary 4 `convertComponent`), intent-executor read shape (from `intent-executor.ts`), legacy-engine read shape (if applicable), and field-name alignment table.
+
+**Note on importer routing:** Most legacy primitives have explicit `case` arms in `convertComponent` that produce *typed* config shapes (`tierConfig`, `matrixConfig`, `percentageConfig`, `conditionalConfig`). The five "new primitives" (`linear_function`, `piecewise_linear`, `scope_aggregate`, `scalar_multiply`, `conditional_gate`) share a single fall-through 5-tuple branch (lines 667-679) that writes `componentType: calcType` and copies `base.calculationIntent` into `metadata.intent`. The intent-executor reads from `op.*` where `op` is the `calculationIntent` object (which is preserved on `base` at line 557 and copied to `metadata.intent`).
+
+### Primitive 1 — `bounded_lookup_1d` (new primitive)
+
+**Part 1 — Importer Write Shape:** No explicit case in `convertComponent`. The string `bounded_lookup_1d` does not appear as a `case` in Boundary 4. When the AI emits `calculationIntent.operation === 'bounded_lookup_1d'` (the typical mapping for `tiered_lookup` per prompt line 378), `calcType` (computed at line 566) is `'bounded_lookup_1d'`. None of the 5-tuple new-primitive cases (linear_function, piecewise_linear, scope_aggregate, scalar_multiply, conditional_gate) match `'bounded_lookup_1d'`. Routes to **default branch** (line 681-708), HF-156 fallback. The default branch writes:
+
+```ts
+componentType: 'tier_lookup',
+metadata: { ...(base.metadata || {}), intent: base.calculationIntent },
+tierConfig: { metric: 'unknown', metricLabel: 'Unknown', tiers: [], currency: 'MXN' },
+```
+
+So the `bounded_lookup_1d` calculationIntent is stored in `metadata.intent` and on `base.calculationIntent`. The `componentType` at top level is the literal `'tier_lookup'`.
+
+**Part 2 — Intent-Executor Read Shape:** `executeBoundedLookup1D` (lines 197-225). Reads:
+- `op.input` (line 203) — IntentSource
+- `op.boundaries` (line 205) — Boundary[]
+- `op.outputs[idx]` (line 212) — number array indexed by boundary match
+- `op.isMarginal` (line 214) — boolean flag
+
+```ts
+const inputValue = resolveValue(op.input, data, inputLog, trace);
+const idx = findBoundaryIndex(op.boundaries, toNumber(inputValue));
+// ...
+const rawOutput = toDecimal(op.outputs[idx] ?? 0);
+const output = op.isMarginal ? rawOutput.mul(inputValue) : rawOutput;
+```
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable — no legacy case for `bounded_lookup_1d`. (The `tier_lookup` componentType written by Boundary 4's default branch routes to `evaluateTierLookup`, which reads `tierConfig.tiers` — empty array per the default branch — producing $0; the post-switch fallback then re-routes to the intent executor.)
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (default branch)        |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+metadata.intent.input                    |  op.input            ✓ (via metadata.intent)
+metadata.intent.boundaries               |  op.boundaries       ✓ (via metadata.intent)
+metadata.intent.outputs                  |  op.outputs          ✓ (via metadata.intent)
+metadata.intent.isMarginal               |  op.isMarginal       ✓ (via metadata.intent)
+componentType: 'tier_lookup' (literal)   |  (not read by executor)  ABSENT — primitive routes through default branch
+tierConfig.tiers: []                     |  (not read by executor)  ABSENT — empty per default branch
+```
+
+The intent shape is preserved verbatim through `metadata.intent`. The top-level `componentType` and `tierConfig` are misleading scaffolding written by the default branch.
+
+### Primitive 2 — `bounded_lookup_2d` (new primitive)
+
+**Part 1 — Importer Write Shape:** No explicit case in `convertComponent`. Routes to default branch when `calcType === 'bounded_lookup_2d'`. Same default-branch shape as Primitive 1: `componentType: 'tier_lookup'`, `metadata.intent` preserves the intent.
+
+Note: there IS a `case 'matrix_lookup'` (line 572) that writes a fully-populated `matrixConfig`. But that case fires only when `calcType === 'matrix_lookup'` (the `calculationMethod.type` string), not when `calcType === 'bounded_lookup_2d'` (the calculationIntent.operation string). Per line 566, `calcType` prefers `calculationIntent.operation` over `calculationMethod.type` — so when both are present, `calcType === 'bounded_lookup_2d'` wins, the matrix_lookup case does not fire, and the default branch runs.
+
+**Part 2 — Intent-Executor Read Shape:** `executeBoundedLookup2D` (lines 227-255). Reads:
+- `op.inputs.row` (line 233) — IntentSource
+- `op.inputs.column` (line 234) — IntentSource
+- `op.rowBoundaries` (line 236) — Boundary[]
+- `op.columnBoundaries` (line 237) — Boundary[]
+- `op.outputGrid[rowIdx][colIdx]` (line 248) — number[][]
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable — no legacy case for `bounded_lookup_2d`. The legacy `case 'matrix_lookup'` reads `component.matrixConfig.{rowMetric, rowBands, columnMetric, columnBands, values}` — a different shape. (Matrix-named legacy.)
+
+**Part 4 — Field-Name Alignment (intent path through `metadata.intent`):**
+
+```
+Importer writes (default branch)        |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+metadata.intent.inputs.row              |  op.inputs.row        ✓
+metadata.intent.inputs.column           |  op.inputs.column     ✓
+metadata.intent.rowBoundaries           |  op.rowBoundaries     ✓
+metadata.intent.columnBoundaries        |  op.columnBoundaries  ✓
+metadata.intent.outputGrid              |  op.outputGrid        ✓
+componentType: 'tier_lookup' (literal)  |  (not read)           ABSENT — primitive routes through default branch
+```
+
+### Primitive 3 — `scalar_multiply` (new primitive, on intent + legacy importer paths)
+
+**Part 1 — Importer Write Shape:** Boundary 4 has `case 'scalar_multiply'` at line 670 (in the 5-tuple fall-through, lines 667-679). Writes:
+
+```ts
+return {
+  ...base,
+  componentType: calcType as 'linear_function' | 'piecewise_linear' | 'scope_aggregate',
+  metadata: {
+    ...(base.metadata || {}),
+    intent: base.calculationIntent,
+  },
+};
+```
+
+So `componentType: 'scalar_multiply'` (the literal string from `calcType`). `metadata.intent` holds the calculationIntent. No `tierConfig`/`matrixConfig`/etc.
+
+**Part 2 — Intent-Executor Read Shape:** `executeScalarMultiply` (lines 257-268). Reads:
+- `op.input` (line 263) — IntentSource
+- `op.rate` (line 264-266) — number OR IntentSource (resolved via `resolveValue` if not a plain number)
+
+```ts
+const inputValue = resolveValue(op.input, data, inputLog, trace);
+const rateValue = typeof op.rate === 'number'
+  ? toDecimal(op.rate)
+  : resolveValue(op.rate, data, inputLog, trace);
+return inputValue.mul(rateValue);
+```
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable — no legacy case for `scalar_multiply`. (Legacy switch only has `tier_lookup`, `percentage`, `matrix_lookup`, `conditional_percentage`. The componentType `'scalar_multiply'` falls through.)
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (5-tuple branch)        |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+componentType: 'scalar_multiply'        |  (not read by executor)
+metadata.intent.input                   |  op.input        ✓
+metadata.intent.rate                    |  op.rate         ✓
+```
+
+### Primitive 4 — `conditional_gate` (new primitive)
+
+**Part 1 — Importer Write Shape:** Boundary 4 case at line 671 (5-tuple fall-through). Same shape as Primitive 3: `componentType: 'conditional_gate'`, `metadata.intent` holds the intent, no typed config.
+
+**Part 2 — Intent-Executor Read Shape:** `executeConditionalGate` (lines 270-292). Reads:
+- `op.condition.left` (line 276) — IntentSource
+- `op.condition.right` (line 277) — IntentSource
+- `op.condition.operator` (line 280) — string (`>=`, `>`, `<=`, `<`, `=`, `==`, `!=`)
+- `op.onTrue` (line 290) — IntentOperation
+- `op.onFalse` (line 290) — IntentOperation
+
+```ts
+const leftVal = resolveSource(op.condition.left, data, inputLog);
+const rightVal = resolveSource(op.condition.right, data, inputLog);
+// ... operator switch ...
+const branch = conditionMet ? op.onTrue : op.onFalse;
+return executeOperation(branch, data, inputLog, trace);
+```
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable directly. However, legacy `case 'conditional_percentage'` (line 384) DOES check `gateIntent?.operation === 'conditional_gate'` (line 390) and dispatches to `executeOperation` with the gate intent. So when a `conditional_percentage` componentType has a `calculationIntent` whose `operation === 'conditional_gate'`, the gate path takes over (HF-120). Fields read in that path are the same `op.condition.{left,right,operator}`, `op.onTrue`, `op.onFalse`.
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (5-tuple branch)        |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+componentType: 'conditional_gate'       |  (not read by executor)
+metadata.intent.condition.left          |  op.condition.left      ✓
+metadata.intent.condition.right         |  op.condition.right     ✓
+metadata.intent.condition.operator      |  op.condition.operator  ✓
+metadata.intent.onTrue                  |  op.onTrue              ✓
+metadata.intent.onFalse                 |  op.onFalse             ✓
+```
+
+### Primitive 5 — `aggregate` (intent-only)
+
+**Part 1 — Importer Write Shape:** No explicit case in `convertComponent`. Routes to default branch (HF-156 fallback). Writes `componentType: 'tier_lookup'`, `metadata.intent` preserves intent.
+
+**Part 2 — Intent-Executor Read Shape:** `executeAggregateOp` (lines 294-300). Reads:
+- `op.source` (line 299) — IntentSource
+
+```ts
+return resolveSource(op.source, data, inputLog);
+```
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable — no legacy case.
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (default branch)        |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+componentType: 'tier_lookup' (literal)  |  (not read)             ABSENT — primitive routes through default branch
+metadata.intent.source                  |  op.source              ✓
+```
+
+### Primitive 6 — `ratio` (intent-only)
+
+**Part 1 — Importer Write Shape:** No explicit case in `convertComponent`. Routes to default branch.
+
+**Part 2 — Intent-Executor Read Shape:** `executeRatioOp` (lines 302-313). Reads:
+- `op.numerator` (line 307) — IntentSource
+- `op.denominator` (line 308) — IntentSource
+
+```ts
+const num = resolveSource(op.numerator, data, inputLog);
+const den = resolveSource(op.denominator, data, inputLog);
+if (den.isZero()) { return ZERO; }
+return num.div(den);
+```
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable.
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (default branch)        |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+componentType: 'tier_lookup' (literal)  |  (not read)             ABSENT — primitive routes through default branch
+metadata.intent.numerator               |  op.numerator           ✓
+metadata.intent.denominator             |  op.denominator         ✓
+```
+
+### Primitive 7 — `constant` (intent-only)
+
+**Part 1 — Importer Write Shape:** No explicit case in `convertComponent`. Routes to default branch.
+
+**Part 2 — Intent-Executor Read Shape:** `executeConstantOp` (lines 315-317). Reads:
+- `op.value` (line 316) — number
+
+```ts
+function executeConstantOp(op: ConstantOp): Decimal {
+  return toDecimal(op.value);
+}
+```
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable.
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (default branch)        |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+componentType: 'tier_lookup' (literal)  |  (not read)             ABSENT — primitive routes through default branch
+metadata.intent.value                   |  op.value               ✓
+```
+
+### Primitive 8 — `weighted_blend` (intent-only)
+
+**Part 1 — Importer Write Shape:** No explicit case in `convertComponent`. The string `weighted_blend` does NOT appear in the prompt (Boundary 1) at all, nor in normalizeComponentType's validTypes (Boundary 2), nor in any of B3/B4's switch cases. Routes to default branch only if the AI somehow emits it (per prompt, the AI should not emit it).
+
+**Part 2 — Intent-Executor Read Shape:** `executeWeightedBlend` (lines 323-351). Reads:
+- `op.inputs[].source` (line 341) — IntentSource per element
+- `op.inputs[].weight` (line 329, 342) — number per element
+
+```ts
+const totalWeight = op.inputs.reduce((s, i) => s + i.weight, 0);
+// ...
+for (let i = 0; i < op.inputs.length; i++) {
+  const input = op.inputs[i];
+  const value = resolveValue(input.source, data, inputLog, trace);
+  const weighted = value.mul(toDecimal(input.weight));
+  result = result.plus(weighted);
+}
+```
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable.
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes                         |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+(prompt does not produce this)          |  op.inputs[].source      ABSENT — prompt does not emit weighted_blend
+                                        |  op.inputs[].weight      ABSENT
+```
+
+`weighted_blend` is callable by the executor but not produced by the importer chain that originates with the AI prompt.
+
+### Primitive 9 — `temporal_window` (intent-only)
+
+**Part 1 — Importer Write Shape:** No explicit case in `convertComponent`. The string `temporal_window` does NOT appear in the prompt, nor in B2/B3/B4. Same status as Primitive 8 — only the executor recognizes it. Plan agent does not emit it.
+
+**Part 2 — Intent-Executor Read Shape:** `executeTemporalWindow` (lines 357-425). Reads:
+- `op.input` (line 363) — IntentSource
+- `op.windowSize` (line 367) — number
+- `op.includeCurrentPeriod` (line 370) — boolean
+- `op.aggregation` (line 385) — string (`sum`, `average`, `min`, `max`, `trend`)
+
+Also reads `data.periodHistory` (entity-level state, line 366) — pre-loaded from prior batches.
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable.
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes                         |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+(prompt does not produce this)          |  op.input                ABSENT — prompt does not emit temporal_window
+                                        |  op.windowSize           ABSENT
+                                        |  op.includeCurrentPeriod ABSENT
+                                        |  op.aggregation          ABSENT
+```
+
+### Primitive 10 — `linear_function` (new primitive on importer + intent paths)
+
+**Part 1 — Importer Write Shape:** Boundary 4 case at line 667 (5-tuple fall-through). Writes `componentType: 'linear_function'`, `metadata.intent` holds the intent. No typed config.
+
+**Part 2 — Intent-Executor Read Shape:** `executeLinearFunction` (lines 457-466). Reads:
+- `op.input` (line 463) — IntentSource
+- `op.slope` (line 464) — number
+- `op.intercept` (line 464) — number
+
+```ts
+const inputValue = resolveValue(op.input, data, inputLog, trace);
+const result = inputValue.mul(op.slope).plus(op.intercept);
+return result;
+```
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable — no legacy case for `linear_function`. The legacy switch falls through (componentType `'linear_function'` matches no case), `payout` stays 0; the post-switch fallback (`run-calculation.ts:414`) runs `executeOperation(component.calculationIntent)`.
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (5-tuple branch)        |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+componentType: 'linear_function'        |  (not read by executor)
+metadata.intent.input                   |  op.input                ✓
+metadata.intent.slope                   |  op.slope                ✓
+metadata.intent.intercept               |  op.intercept            ✓
+metadata.intent.modifiers (optional)    |  (handled by applyModifiers in runComponentIntent path, not in executeLinearFunction itself)
+```
+
+### Primitive 11 — `piecewise_linear` (new primitive)
+
+**Part 1 — Importer Write Shape:** Boundary 4 case at line 668 (5-tuple fall-through). Writes `componentType: 'piecewise_linear'`, `metadata.intent` holds the intent.
+
+**Part 2 — Intent-Executor Read Shape:** `executePiecewiseLinear` (lines 472-503). Reads:
+- `op.ratioInput` (line 478) — IntentSource
+- `op.baseInput` (line 479) — IntentSource
+- `op.targetValue` (line 484) — number (optional)
+- `op.segments[]` — `seg.min`, `seg.max`, `seg.rate` per segment (line 494-498)
+
+```ts
+let ratio = toNumber(resolveValue(op.ratioInput, data, inputLog, trace));
+const baseValue = resolveValue(op.baseInput, data, inputLog, trace);
+// OB-186: target-value fallback ...
+if (ratio === 0 && op.targetValue && op.targetValue > 0 && toNumber(baseValue) > 0) { ... }
+for (const seg of op.segments) {
+  const inRange = ratio >= seg.min && (seg.max === null || ratio < seg.max);
+  if (inRange) { return baseValue.mul(seg.rate); }
+}
+return ZERO;
+```
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable.
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (5-tuple branch)        |  Executor reads (op.*)
+──────────────────────────────────────  |  ──────────────────────────
+componentType: 'piecewise_linear'       |  (not read by executor)
+metadata.intent.ratioInput              |  op.ratioInput          ✓
+metadata.intent.baseInput               |  op.baseInput           ✓
+metadata.intent.segments[].min          |  op.segments[].min      ✓
+metadata.intent.segments[].max          |  op.segments[].max      ✓
+metadata.intent.segments[].rate         |  op.segments[].rate     ✓
+metadata.intent.targetValue (optional)  |  op.targetValue         ✓
+```
+
+### Primitive 12 — `tier_lookup` / `tiered_lookup` (legacy)
+
+**Part 1 — Importer Write Shape:** Boundary 4 case at line 600 (`case 'tiered_lookup'`). Writes:
+
+```ts
+return {
+  ...base,
+  componentType: 'tier_lookup',
+  tierConfig: {
+    metric: t?.metric || 'attainment',
+    metricLabel: t?.metricLabel || t?.metric || 'Attainment',
+    tiers,
+    currency: 'MXN',
+  },
+};
+```
+
+Note the string transformation: input case label is `'tiered_lookup'`, output `componentType` is `'tier_lookup'`. The `tiers` array is populated from `calcMethod.tiers` (lines 605-610) with `{min, max, label, value}` per tier (where `value` is read from `tier.payout`).
+
+**Part 2 — Intent-Executor Read Shape:** When the AI also emits `calculationIntent.operation === 'bounded_lookup_1d'` (the prompt's mapping for tiered_lookup), the executor reads `op.input`, `op.boundaries`, `op.outputs`, `op.isMarginal` — see Primitive 1. The `tierConfig.tiers` (legacy shape) is NOT read by the intent executor.
+
+**Part 3 — Legacy-Engine Read Shape:** `evaluateTierLookup` (run-calculation.ts:231-264). Reads:
+- `config.metric` (line 232) — string
+- `metrics[config.metric]` (line 232) — looked up in metrics map
+- `config.tiers[].value` (line 238, 247, 256) — number per tier
+- `config.tiers[].min` / `config.tiers[].max` / `config.tiers[].label` (line 245, 246, 253)
+
+```ts
+const metricValue = metrics[config.metric] ?? metrics['attainment'] ?? 0;
+const nonZeroValues = config.tiers.map(t => t.value).filter(v => v !== 0);
+const allRates = nonZeroValues.length > 0 && nonZeroValues.every(v => v > 0 && v < 1.0);
+const tierIdx = resolveBandIndex(config.tiers, metricValue);
+if (tierIdx >= 0) {
+  const tier = config.tiers[tierIdx];
+  // ...
+  const basePayout = allRates ? tier.value * metricValue : tier.value;
+  // ...
+}
+```
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (case 'tiered_lookup') |  Executor reads (intent path)              |  Legacy reads (config.*)
+─────────────────────────────────────  |  ──────────────────────────────────────────  |  ──────────────────────────
+componentType: 'tier_lookup'            |  (not read by intent executor)              |  switch case 'tier_lookup' ✓
+tierConfig.metric                       |  (intent uses op.input, not config.metric)  |  config.metric            ✓
+tierConfig.metricLabel                  |  —                                           |  (not read directly)
+tierConfig.tiers[].value (← payout)     |  intent uses op.outputs[]                    |  config.tiers[].value     ✓
+tierConfig.tiers[].min                  |  intent uses op.boundaries[].min             |  config.tiers[].min       ✓
+tierConfig.tiers[].max                  |  intent uses op.boundaries[].max             |  config.tiers[].max       ✓
+tierConfig.tiers[].label                |  —                                           |  config.tiers[].label     ✓
+tierConfig.currency: 'MXN' (literal)    |  —                                           |  (not read)
+```
+
+DIVERGE: The importer writes `tier.value` (legacy shape, populated from `tier.payout`); the intent executor reads `op.outputs[idx]` (intent shape — a flat number array). The two are populated from the same AI source (`tier.payout`) but stored in different fields. Fields match within each path; the divergence is between the two paths.
+
+### Primitive 13 — `matrix_lookup` (legacy)
+
+**Part 1 — Importer Write Shape:** Boundary 4 case at line 572. Writes:
+
+```ts
+return {
+  ...base,
+  componentType: 'matrix_lookup',
+  matrixConfig: {
+    rowMetric: rowAxis.metric || 'attainment',
+    rowMetricLabel: rowAxis.label || 'Attainment',
+    rowBands: (rowAxis.ranges || []).map((r) => ({
+      min: r?.min ?? 0,
+      max: r?.max ?? 100,
+      label: r?.label || '',
+    })),
+    columnMetric: colAxis.metric || 'sales',
+    columnMetricLabel: colAxis.label || 'Sales',
+    columnBands: (colAxis.ranges || []).map((r) => ({ /* same shape */ })),
+    values: m?.values || [[0]],
+    currency: 'MXN',
+  },
+};
+```
+
+**Part 2 — Intent-Executor Read Shape:** When AI emits `calculationIntent.operation === 'bounded_lookup_2d'` (prompt mapping for matrix_lookup, line 379), the executor reads `op.inputs.row`, `op.inputs.column`, `op.rowBoundaries`, `op.columnBoundaries`, `op.outputGrid` — see Primitive 2. The legacy `matrixConfig.{rowBands, columnBands, values}` shape is NOT read by the intent executor.
+
+**Part 3 — Legacy-Engine Read Shape:** `evaluateMatrixLookup` (run-calculation.ts:288-312). Reads:
+- `config.rowMetric` (line 289) → `metrics[config.rowMetric]`
+- `config.columnMetric` (line 290) → `metrics[config.columnMetric]`
+- `config.rowBands[]` (line 295) — for `resolveBandIndex`
+- `config.columnBands[]` (line 296)
+- `config.values[rowIdx][colIdx]` (line 298)
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (case 'matrix_lookup')  |  Executor reads (intent path)         |  Legacy reads (config.*)
+─────────────────────────────────────   |  ──────────────────────────────────  |  ──────────────────────────
+componentType: 'matrix_lookup'          |  (not read)                           |  switch case 'matrix_lookup' ✓
+matrixConfig.rowMetric                  |  intent uses op.inputs.row            |  config.rowMetric          ✓
+matrixConfig.rowBands                   |  intent uses op.rowBoundaries         |  config.rowBands           ✓
+matrixConfig.columnMetric               |  intent uses op.inputs.column         |  config.columnMetric       ✓
+matrixConfig.columnBands                |  intent uses op.columnBoundaries      |  config.columnBands        ✓
+matrixConfig.values                     |  intent uses op.outputGrid            |  config.values             ✓
+matrixConfig.currency: 'MXN' (literal)  |  —                                    |  (not read)
+```
+
+DIVERGE between paths: `matrixConfig.values` (legacy nested array) vs `op.outputGrid` (intent nested array) — same shape, different field name. `matrixConfig.rowBands[].min/max` vs `op.rowBoundaries[].min/max/minInclusive/maxInclusive` — legacy uses 3 fields per band, intent uses 4 fields with explicit inclusivity.
+
+### Primitive 14 — `percentage` (legacy)
+
+**Part 1 — Importer Write Shape:** Boundary 4 case at line 626 (`case 'percentage'` / `case 'flat_percentage'` fall-through). Writes:
+
+```ts
+return {
+  ...base,
+  componentType: 'percentage',
+  measurementLevel: 'individual',
+  percentageConfig: {
+    rate: p?.rate ?? 0,
+    appliedTo: p?.metric || 'sales',
+    appliedToLabel: p?.metricLabel || p?.metric || 'Sales',
+  },
+};
+```
+
+`measurementLevel` is overridden from `'store'` (the default in `base`) to `'individual'`.
+
+**Part 2 — Intent-Executor Read Shape:** Per prompt (line 380), `flat_percentage → scalar_multiply`. So when the AI emits `calculationIntent.operation === 'scalar_multiply'`, the executor reads `op.input` and `op.rate` — see Primitive 3.
+
+**Part 3 — Legacy-Engine Read Shape:** `evaluatePercentage` (run-calculation.ts:266-286). Reads:
+- `config.appliedTo` → `metrics[config.appliedTo]` (line 267)
+- `config.rate` (line 268, 282)
+- `config.minThreshold` (line 270) — optional gate
+- `config.maxPayout` (line 273) — optional cap
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (case 'percentage')     |  Executor reads (intent path)    |  Legacy reads (config.*)
+─────────────────────────────────────   |  ───────────────────────────────  |  ──────────────────────────
+componentType: 'percentage'             |  (not read)                      |  switch case 'percentage'   ✓
+percentageConfig.rate                   |  intent uses op.rate             |  config.rate                ✓
+percentageConfig.appliedTo              |  intent uses op.input.sourceSpec.field  |  config.appliedTo    ✓
+percentageConfig.appliedToLabel         |  —                                |  (not read)
+(no minThreshold/maxPayout written)     |  —                                |  config.minThreshold       ABSENT — importer doesn't write
+                                         |                                   |  config.maxPayout          ABSENT — importer doesn't write
+```
+
+DIVERGE: legacy `evaluatePercentage` reads `config.minThreshold` and `config.maxPayout`, but the importer's `case 'percentage'` block does NOT write either field. They will be `undefined` at evaluation time. Per legacy code (lines 270, 273), the `if` guards check truthiness — so `undefined` is treated as "no threshold" / "no cap". This is intentional (the AI prompt's flat_percentage example doesn't include those modifiers either).
+
+### Primitive 15 — `flat_percentage` (legacy alias for `percentage`)
+
+**Part 1 — Importer Write Shape:** Boundary 4 case at line 627 (fall-through with `'percentage'`). Same shape as Primitive 14 — `componentType: 'percentage'`. So `flat_percentage` is import-time aliased to `percentage`.
+
+**Part 2 — Intent-Executor Read Shape:** Same as Primitive 14 — intent path uses `scalar_multiply`.
+
+**Part 3 — Legacy-Engine Read Shape:** Same as Primitive 14 — `evaluatePercentage` via the `case 'percentage'` branch. There is NO `case 'flat_percentage'` in the legacy switch (Boundary 5).
+
+**Part 4 — Field-Name Alignment:** Identical to Primitive 14. Note: the prompt's RULE 5 (line 337) says `flat_percentage is a LEGACY ALIAS for scalar_multiply: Always prefer "scalar_multiply"`. Importer treats it as alias for legacy `percentage`. Executor never sees `flat_percentage` — it sees `scalar_multiply` (via calculationIntent).
+
+### Primitive 16 — `conditional_percentage` (legacy)
+
+**Part 1 — Importer Write Shape:** Boundary 4 case at line 641. Writes:
+
+```ts
+return {
+  ...base,
+  componentType: 'conditional_percentage',
+  measurementLevel: 'individual',
+  conditionalConfig: {
+    conditions: (c?.conditions || []).map((cond) => ({
+      metric: c?.conditionMetric || 'attainment',
+      metricLabel: c?.conditionMetricLabel || c?.conditionMetric || 'Attainment',
+      min: cond?.operator === '<' || cond?.operator === '<=' ? 0 : (cond?.threshold ?? 0),
+      max:
+        cond?.operator === '<' || cond?.operator === '<='
+          ? (cond?.threshold ?? 100)
+          : (cond?.maxThreshold ?? Infinity),
+      rate: cond?.rate ?? 0,
+      label: cond?.label || '',
+    })),
+    appliedTo: c?.metric || 'sales',
+    appliedToLabel: c?.metricLabel || c?.metric || 'Sales',
+  },
+};
+```
+
+The importer transforms the AI's conditions (with `operator`/`threshold`/`maxThreshold`) into bands with `min`/`max`. The operator/threshold information is destroyed in the transform.
+
+**Part 2 — Intent-Executor Read Shape:** Per prompt (line 381), `conditional_percentage → nested conditional_gate chain`. The executor's `executeConditionalGate` reads `op.condition.{left,right,operator}`, `op.onTrue`, `op.onFalse` — see Primitive 4. The intent shape preserves the operator/threshold structure that the legacy import-side discards.
+
+Additionally, the legacy `case 'conditional_percentage'` (run-calculation.ts:384-407) checks `gateIntent?.operation === 'conditional_gate'` (line 390); if true, it dispatches to `executeOperation` with the gate intent — bypassing `evaluateConditionalPercentage`.
+
+**Part 3 — Legacy-Engine Read Shape:** `evaluateConditionalPercentage` (run-calculation.ts:314-344). Reads:
+- `config.appliedTo` → `metrics[config.appliedTo]` (line 315)
+- `config.conditions[].metric` → `metrics[condition.metric]` (line 318)
+- `config.conditions[].min`, `condition.max` (line 319, 320, 322)
+- `config.conditions[].rate` (line 326, 335)
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes                         |  Intent path (conditional_gate)            |  Legacy reads (config.*)
+─────────────────────────────────────   |  ──────────────────────────────────────────  |  ──────────────────────────
+componentType: 'conditional_percentage' |  (not read; HF-120 routing in legacy switch detects gate intent and delegates) |  switch case 'conditional_percentage' ✓
+conditionalConfig.appliedTo             |  intent uses op.condition.left.sourceSpec  |  config.appliedTo            ✓
+conditionalConfig.conditions[].metric   |  intent uses op.condition.left.sourceSpec.field  |  condition.metric        ✓
+conditionalConfig.conditions[].min/max  |  intent uses op.condition.right.value (threshold) + operator  |  condition.min/max ✓
+conditionalConfig.conditions[].rate     |  intent uses op.onTrue (scalar_multiply.rate) |  condition.rate            ✓
+```
+
+DIVERGE: importer collapses `(operator, threshold, maxThreshold)` into `(min, max)` bands; intent-path preserves operator/threshold via `condition.operator` + `condition.right.value`. Same source data, different stored shape.
+
+### Primitive 17 — `scope_aggregate` (named in 7 + importer + intent prompt mapping; ABSENT from intent-executor switch)
+
+**Part 1 — Importer Write Shape:** Boundary 4 case at line 669 (5-tuple fall-through). Writes:
+
+```ts
+return {
+  ...base,
+  componentType: 'scope_aggregate',
+  metadata: {
+    ...(base.metadata || {}),
+    intent: base.calculationIntent,
+  },
+};
+```
+
+**Part 2 — Intent-Executor Read Shape:** **NO HANDLER.** The `executeOperation` switch (intent-executor.ts:438-450) has no `case 'scope_aggregate'`. Per Phase 0A Boundary 6, the recognized cases are `bounded_lookup_1d`, `bounded_lookup_2d`, `scalar_multiply`, `conditional_gate`, `aggregate`, `ratio`, `constant`, `weighted_blend`, `temporal_window`, `linear_function`, `piecewise_linear`. When `op.operation === 'scope_aggregate'`, the switch falls through and `executeOperation` returns `undefined` (per Phase 0B Boundary 6 analysis).
+
+However, NOTE: there IS a separate `case 'scope_aggregate'` inside `resolveSource` at line 132 (lines 132-138), which handles `IntentSource` of type `scope_aggregate` (a *value source*, not a *top-level operation*):
+
+```ts
+case 'scope_aggregate': {
+  const { field, scope, aggregation } = src.sourceSpec;
+  const key = `${scope}:${field}:${aggregation}`;
+  const val = data.scopeAggregates?.[key] ?? 0;
+  inputLog[`scope_aggregate:${key}`] = { source: 'scope_aggregate', rawValue: val, resolvedValue: val };
+  return toDecimal(val);
+}
+```
+
+This is dispatched by `resolveSource` when an `IntentSource.source === 'scope_aggregate'` — a different switch. The prompt's `scope_aggregate` calculationIntent example (line 490-497) wraps the scope_aggregate inside a `scalar_multiply` whose `input.source === 'scope_aggregate'`:
+
+```json
+{
+  "operation": "scope_aggregate",
+  "input": { "source": "scope_aggregate", "sourceSpec": { "scope": "district", "field": "equipment_revenue", "aggregation": "sum" } },
+  "rate": 0.015
+}
+```
+
+The TOP-LEVEL operation in this example is `'scope_aggregate'`. The executor switch has NO case for that string, so the operation falls through. The nested `input.source === 'scope_aggregate'` would be reachable IF the top-level operation were e.g. `'scalar_multiply'` (which has cases at line 441) and the input source resolution reached `resolveSource`. Per the prompt example, the top-level operation IS `'scope_aggregate'`, so resolution never reaches the nested source.
+
+**Part 3 — Legacy-Engine Read Shape:** Not applicable — no legacy case for `scope_aggregate`.
+
+**Part 4 — Field-Name Alignment:**
+
+```
+Importer writes (5-tuple branch)         |  Executor reads (op.*)
+──────────────────────────────────────   |  ──────────────────────────
+componentType: 'scope_aggregate'         |  (not read)
+metadata.intent.operation === 'scope_aggregate'  |  switch falls through — no case      ABSENT — primitive routes to switch fall-through (B6 default)
+metadata.intent.input.source === 'scope_aggregate'  |  resolveSource case at line 132  ✓ (only reachable if top-level op recognized)
+metadata.intent.rate                     |  (would be read by scalar_multiply if that were the top-level op)
+```
+
+### Phase 0C — Summary observations (no classification)
+
+Cases routed through `convertComponent`'s default branch (Primitives 1, 2, 5, 6, 7) write `componentType: 'tier_lookup'` regardless of the underlying intent operation. Cases routed through the 5-tuple branch (Primitives 3, 4, 10, 11, 17) write `componentType: <calcType>` matching the intent operation string. Cases with explicit case arms (Primitives 12-16) write the legacy-shaped configs (`tierConfig`, `matrixConfig`, etc.) and lose direct visibility of `calculationIntent` from the legacy evaluator path (intent is preserved on `base.calculationIntent` but the legacy evaluators never read it).
+
+`scope_aggregate` is the only string named as both a prompt example operation (line 493) and an importer 5-tuple case (line 669) without a corresponding intent-executor case. `weighted_blend` and `temporal_window` are the inverse: present as executor cases without prompt or importer recognition.
+
 
 
