@@ -2305,5 +2305,331 @@ $ grep -n "classification_signals\|signal_type\|lookupPriorSignals\|readSignals"
 
 CC enumerates: convergence-service.ts has 1 WRITE site to `classification_signals` (line 253-274 block) and 0 READ sites against `classification_signals`.
 
+---
+
+## Phase 0E — Production Rule_Set Shape Inventory
+
+### Step 0E.1 — Tenant Identification
+
+Query (executed via `web/scripts/aud004-phase0e-inventory.ts` against the live DB; no `exec_sql` RPC):
+
+```
+Reference-pattern matches:
+  5035b1e8-0754-4527-b7ec-9f93f85e4c79 | Meridian Logistics Group | meridian-logistics-group | 2026-03-05T04:40:50.646185+00:00
+  b1c2d3e4-aaaa-bbbb-cccc-111111111111 | Banco Cumbre del Litoral | banco-cumbre-litoral | 2026-03-10T18:31:50.239187+00:00
+  e44bbcb1-2710-4880-8c7d-a1bd902720b7 | Cascade Revenue Partners | cascade-revenue-partners | 2026-03-21T03:26:37.741923+00:00
+
+All tenants in DB (total 3):
+  e44bbcb1-2710-4880-8c7d-a1bd902720b7 | Cascade Revenue Partners | cascade-revenue-partners | 2026-03-21T03:26:37.741923+00:00 [REF]
+  b1c2d3e4-aaaa-bbbb-cccc-111111111111 | Banco Cumbre del Litoral | banco-cumbre-litoral | 2026-03-10T18:31:50.239187+00:00 [REF]
+  5035b1e8-0754-4527-b7ec-9f93f85e4c79 | Meridian Logistics Group | meridian-logistics-group | 2026-03-05T04:40:50.646185+00:00 [REF]
+```
+
+**Confirmed tenant_ids:**
+- BCL = `b1c2d3e4-aaaa-bbbb-cccc-111111111111` (Banco Cumbre del Litoral)
+- CRP (per directive) = `e44bbcb1-2710-4880-8c7d-a1bd902720b7` (Cascade Revenue Partners — slug `cascade-revenue-partners`; the directive's name "CRP" maps to "Cascade Revenue Partners" in this DB, NOT to a separate "Cumbre Revenue Partners" tenant. Recorded as evidence; CC does not infer authoritative naming intent.)
+- Meridian = `5035b1e8-0754-4527-b7ec-9f93f85e4c79` (Meridian Logistics Group)
+
+The DB has exactly 3 tenants. There are no "OTHER tenants currently in the database" beyond the three reference tenants. Per architect approval 1, the audit reasons over the full tenant universe — which is the three reference tenants and no others.
+
+### Step 0E.2 — JSONB SQL Gate (Raw column dump)
+
+Query result for one active rule_set verbatim:
+
+```
+id=26cb1efd-b949-47c8-a7a8-d3b56eb3c3b7
+tenant_id=b1c2d3e4-aaaa-bbbb-cccc-111111111111
+name="Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"
+status=active
+
+components is array: false
+```
+
+**JSONB shape confirmation:** `components` is a JSON OBJECT, not an array. Top-level shape:
+
+```json
+{
+  "variants": [
+    {
+      "variantId": "ejecutivo_senior",
+      "components": [ /* component objects */ ]
+    },
+    /* ... more variants */
+  ]
+}
+```
+
+This is the `AdditiveLookupConfig` shape per `interpretationToPlanConfig` at `web/src/lib/compensation/ai-plan-interpreter.ts:510-513`:
+
+```ts
+const config: AdditiveLookupConfig = {
+  type: 'additive_lookup',
+  variants,
+};
+```
+
+**Implication for the directive's SQL:** the directive's queries `jsonb_array_length(components)` and `jsonb_array_elements(components)` would fail on this JSONB shape (would produce errors or empty results). Components must be reached via `components.variants[].components[]`. The corrected traversal is implemented in `web/scripts/aud004-phase0e-inventory-v2.ts` and used for all subsequent steps.
+
+### Step 0E.3 — Per-Tenant Rule_Set Shape (BCL)
+
+Query results for tenant `b1c2d3e4-aaaa-bbbb-cccc-111111111111`:
+
+```
+--- BCL (Banco Cumbre del Litoral) (b1c2d3e4-aaaa-bbbb-cccc-111111111111) ---
+  Total rule_sets: 2, active: 2
+
+  RuleSet f7b82b93-b2f6-44c6-8a20-317eec182ce7
+    name="Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"
+    status=active, v1, created=2026-04-27T00:39:32.659944+00:00
+    flattened components: 8, plan_agent_seeds: absent
+    variants: ejecutivo_senior, ejecutivo
+      [ejecutivo_senior|0] name="Credit Placement - Senior Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_2d" metaIntentOp="bounded_lookup_2d" tierCount=0
+      [ejecutivo_senior|1] name="Deposit Capture - Senior Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_1d" metaIntentOp="bounded_lookup_1d" tierCount=0
+      [ejecutivo_senior|2] name="Cross Products - Senior Executive" componentType="scalar_multiply" calcIntentOp="scalar_multiply" metaIntentOp="scalar_multiply" tierCount=—
+      [ejecutivo_senior|3] name="Regulatory Compliance - Senior Executive" componentType="conditional_gate" calcIntentOp="conditional_gate" metaIntentOp="conditional_gate" tierCount=—
+      [ejecutivo|4] name="Credit Placement - Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_2d" metaIntentOp="bounded_lookup_2d" tierCount=0
+      [ejecutivo|5] name="Deposit Capture - Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_1d" metaIntentOp="bounded_lookup_1d" tierCount=0
+      [ejecutivo|6] name="Cross Products - Executive" componentType="scalar_multiply" calcIntentOp="scalar_multiply" metaIntentOp="scalar_multiply" tierCount=—
+      [ejecutivo|7] name="Regulatory Compliance - Executive" componentType="conditional_gate" calcIntentOp="conditional_gate" metaIntentOp="conditional_gate" tierCount=—
+
+  RuleSet 26cb1efd-b949-47c8-a7a8-d3b56eb3c3b7
+    name="Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"
+    status=active, v1, created=2026-04-27T00:38:33.193184+00:00
+    flattened components: 8, plan_agent_seeds: absent
+    variants: ejecutivo_senior, ejecutivo
+      [ejecutivo_senior|0] name="Credit Placement - Senior Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_2d" metaIntentOp="bounded_lookup_2d" tierCount=0
+      [ejecutivo_senior|1] name="Deposit Capture - Senior Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_1d" metaIntentOp="bounded_lookup_1d" tierCount=0
+      [ejecutivo_senior|2] name="Cross Products - Senior Executive" componentType="scalar_multiply" calcIntentOp="scalar_multiply" metaIntentOp="scalar_multiply" tierCount=—
+      [ejecutivo_senior|3] name="Regulatory Compliance - Senior Executive" componentType="conditional_gate" calcIntentOp="conditional_gate" metaIntentOp="conditional_gate" tierCount=—
+      [ejecutivo|4] name="Credit Placement - Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_2d" metaIntentOp="bounded_lookup_2d" tierCount=0
+      [ejecutivo|5] name="Deposit Capture - Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_1d" metaIntentOp="bounded_lookup_1d" tierCount=0
+      [ejecutivo|6] name="Cross Products - Executive" componentType="scalar_multiply" calcIntentOp="scalar_multiply" metaIntentOp="scalar_multiply" tierCount=—
+      [ejecutivo|7] name="Regulatory Compliance - Executive" componentType="conditional_gate" calcIntentOp="conditional_gate" metaIntentOp="conditional_gate" tierCount=—
+```
+
+**HALT-B check for BCL:** Two active rule_sets exist. The 4-component-per-variant structure (Credit Placement / Deposit Capture / Cross Products / Regulatory Compliance) corresponds to the proven $312,033 baseline shape recorded in conversation history (4 components: tier_lookup/Credit, tier_lookup/Deposit, scalar_multiply/Cross, conditional_gate/Compliance). Two variants are present (`ejecutivo_senior`, `ejecutivo`) — 8 flattened components per rule_set. Per the rebuilt-substrate equivalent shape per DIAG-024, BCL's componentType `tier_lookup` paired with calculationIntent.operation `bounded_lookup_2d` / `bounded_lookup_1d` is the importer-default-branch outcome (see DIAG-024 finding). HALT-B NOT triggered for BCL — shape matches the documented post-DIAG-024 substrate.
+
+**Sample component dumps from RuleSet `f7b82b93-b2f6-44c6-8a20-317eec182ce7` (one per primitive):**
+
+#### BCL component 0 (variant ejecutivo_senior, "Credit Placement"):
+
+```json
+{
+  "id": "c1_colocacion_credito_senior",
+  "name": "Credit Placement - Senior Executive",
+  "order": 1,
+  "enabled": true,
+  "metadata": {
+    "intent": {
+      "inputs": {
+        "row": { "source": "metric", "sourceSpec": { "field": "credit_placement_attainment" } },
+        "column": { "source": "metric", "sourceSpec": { "field": "portfolio_quality_ratio" } }
+      },
+      "operation": "bounded_lookup_2d",
+      "outputGrid": [
+        [0, 80, 120, 160, 200],
+        [80, 120, 180, 240, 300],
+        [120, 180, 260, 340, 420],
+        [180, 260, 360, 460, 560],
+        [240, 360, 480, 600, 700],
+        [300, 420, 560, 680, 700]
+      ],
+      "rowBoundaries": [
+        { "max": 69.999, "min": 0, "maxInclusive": true, "minInclusive": true },
+        { "max": 79.999, "min": 70, "maxInclusive": true, "minInclusive": true },
+        { "max": 89.999, "min": 80, "maxInclusive": true, "minInclusive": true },
+        { "max": 99.999, "min": 90, "maxInclusive": true, "minInclusive": true },
+        { "max": 119.999, "min": 100, "maxInclusive": true, "minInclusive": true },
+        { "max": null, "min": 120, "maxInclusive": true, "minInclusive": true }
+      ],
+      "noMatchBehavior": "zero",
+      "columnBoundaries": [
+        { "max": 0.699, "min": 0, "maxInclusive": true, "minInclusive": true },
+        { "max": 0.799, "min": 0.7, "maxInclusive": true, "minInclusive": true },
+        { "max": 0.899, "min": 0.8, "maxInclusive": true, "minInclusive": true },
+        { "max": 0.949, "min": 0.9, "maxInclusive": true, "minInclusive": true },
+        { "max": 1, "min": 0.95, "maxInclusive": true, "minInclusive": true }
+      ]
+    }
+  },
+  "tierConfig": { "tiers": [], "metric": "unknown", "currency": "MXN", "metricLabel": "Unknown" },
+  "description": "Colocación de Crédito — Ejecutivo Senior",
+  "componentType": "tier_lookup",
+  "measurementLevel": "store",
+  "calculationIntent": { /* same shape as metadata.intent — duplicated */ }
+}
+```
+
+Observe: `componentType: 'tier_lookup'`, `tierConfig.tiers: []`, while `metadata.intent.operation: 'bounded_lookup_2d'` with a fully-populated `outputGrid` and boundaries. This is the HF-156 default-branch fingerprint.
+
+#### BCL component 1 (variant ejecutivo_senior, "Deposit Capture"):
+
+```json
+{
+  "id": "c2_captacion_depositos_senior",
+  "name": "Deposit Capture - Senior Executive",
+  "metadata": {
+    "intent": {
+      "input": { "source": "metric", "sourceSpec": { "field": "deposit_capture_attainment" } },
+      "outputs": [0, 120, 250, 400, 550],
+      "operation": "bounded_lookup_1d",
+      "boundaries": [
+        { "max": 59.999, "min": 0, "maxInclusive": true, "minInclusive": true },
+        { "max": 79.999, "min": 60, "maxInclusive": true, "minInclusive": true },
+        { "max": 99.999, "min": 80, "maxInclusive": true, "minInclusive": true },
+        { "max": 129.999, "min": 100, "maxInclusive": true, "minInclusive": true },
+        { "max": null, "min": 130, "maxInclusive": true, "minInclusive": true }
+      ],
+      "noMatchBehavior": "zero"
+    }
+  },
+  "tierConfig": { "tiers": [], "metric": "unknown", "currency": "MXN", "metricLabel": "Unknown" },
+  "componentType": "tier_lookup",
+  "calculationIntent": { /* duplicated */ }
+}
+```
+
+Same pattern: `componentType: 'tier_lookup'` with empty `tierConfig.tiers`, while `metadata.intent.operation: 'bounded_lookup_1d'` with populated `outputs` and `boundaries`.
+
+#### BCL component 2 (variant ejecutivo_senior, "Cross Products"):
+
+```json
+{
+  "id": "c3_productos_cruzados_senior",
+  "name": "Cross Products - Senior Executive",
+  "metadata": {
+    "intent": {
+      "rate": 25,
+      "input": { "source": "metric", "sourceSpec": { "field": "cross_products_sold" } },
+      "operation": "scalar_multiply"
+    }
+  },
+  "componentType": "scalar_multiply",
+  "calculationIntent": { /* duplicated */ }
+}
+```
+
+`componentType: 'scalar_multiply'` matches `calcIntentOp: 'scalar_multiply'`. No `tierConfig` written. This is the 5-tuple branch (Boundary 4 lines 667-679).
+
+#### BCL component 3 (variant ejecutivo_senior, "Regulatory Compliance"):
+
+```json
+{
+  "id": "c4_cumplimiento_regulatorio_senior",
+  "name": "Regulatory Compliance - Senior Executive",
+  "metadata": {
+    "intent": {
+      "onTrue": { "value": 150, "operation": "constant" },
+      "onFalse": { "value": 0, "operation": "constant" },
+      "condition": {
+        "left": { "source": "metric", "sourceSpec": { "field": "regulatory_infractions" } },
+        "right": { "value": 0, "source": "constant" },
+        "operator": "="
+      },
+      "operation": "conditional_gate"
+    }
+  },
+  "componentType": "conditional_gate",
+  "calculationIntent": { /* duplicated */ }
+}
+```
+
+`componentType: 'conditional_gate'` matches `calcIntentOp: 'conditional_gate'`. The condition uses operator `'='` (single-equals) — supported by the executor's case at intent-executor.ts:285-286. No `tierConfig`.
+
+### Step 0E.4 — Per-Tenant Rule_Set Shape (CRP — Cascade Revenue Partners)
+
+```
+--- CRP (Cascade Revenue Partners) (e44bbcb1-2710-4880-8c7d-a1bd902720b7) ---
+  Total rule_sets: 2, active: 2
+
+  RuleSet 8cea7486-7304-419e-84fa-dc00b9ef4b04
+    name="Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"
+    status=active, v1, created=2026-04-26T23:40:09.948975+00:00
+    flattened components: 8, plan_agent_seeds: absent
+    variants: ejecutivo_senior, ejecutivo
+      [ejecutivo_senior|0] name="Credit Placement - Senior Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_2d" metaIntentOp="bounded_lookup_2d" tierCount=0
+      [ejecutivo_senior|1] name="Deposit Capture - Senior Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_1d" metaIntentOp="bounded_lookup_1d" tierCount=0
+      [ejecutivo_senior|2] name="Cross Products - Senior Executive" componentType="scalar_multiply" calcIntentOp="scalar_multiply" metaIntentOp="scalar_multiply" tierCount=—
+      [ejecutivo_senior|3] name="Regulatory Compliance - Senior Executive" componentType="conditional_gate" calcIntentOp="conditional_gate" metaIntentOp="conditional_gate" tierCount=—
+      [ejecutivo|4] name="Credit Placement - Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_2d" metaIntentOp="bounded_lookup_2d" tierCount=0
+      [ejecutivo|5] name="Deposit Capture - Executive" componentType="tier_lookup" calcIntentOp="bounded_lookup_1d" metaIntentOp="bounded_lookup_1d" tierCount=0
+      [ejecutivo|6] name="Cross Products - Executive" componentType="scalar_multiply" calcIntentOp="scalar_multiply" metaIntentOp="scalar_multiply" tierCount=—
+      [ejecutivo|7] name="Regulatory Compliance - Executive" componentType="conditional_gate" calcIntentOp="conditional_gate" metaIntentOp="conditional_gate" tierCount=—
+
+  RuleSet 1591f450-c226-4173-adfe-d63b8c19eec3
+    name="Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"
+    status=active, v1, created=2026-04-26T23:39:09.73493+00:00
+    [identical 8-component structure to 8cea7486]
+```
+
+**HALT-B check for CRP:** Both active rule_sets in tenant `e44bbcb1-...` are NAMED `"Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"`. Their component structure (4 components × 2 variants: Credit Placement, Deposit Capture, Cross Products, Regulatory Compliance) is the BCL shape, NOT the proven CRP baseline (10 periods × 4 primitives `linear_function` / `piecewise_linear` / `scope_aggregate` / `conditional_gate` per the directive's reference shape). Vocabulary present in CRP's rule_sets: `bounded_lookup_2d`, `bounded_lookup_1d`, `scalar_multiply`, `conditional_gate`. `linear_function`, `piecewise_linear`, `scope_aggregate` — NOT present.
+
+**HALT-B IS TRIGGERED for CRP:** What was found in the CRP tenant on this substrate is a duplicate of the BCL plan (same name, same 4 components, same 2 variants). The proven CRP baseline shape ($566,728.97 pre-clawback, 10 periods × 4 distinct OB-180/181 primitives) is NOT retrievable from the current `origin/main` substrate. Architect provision of the proven baseline shape from conversation history would be needed for shape-comparison analysis.
+
+### Step 0E.5 — Per-Tenant Rule_Set Shape (Meridian)
+
+```
+--- Meridian Logistics Group (5035b1e8-0754-4527-b7ec-9f93f85e4c79) ---
+  (zero rule_sets)
+```
+
+**HALT-B IS TRIGGERED for Meridian:** Tenant exists, but has zero rule_sets (active or otherwise). Proven Meridian baseline (MX$185,063 per directive) is NOT retrievable from this substrate.
+
+### Step 0E.6 — Cross-Tenant Operation-Vocabulary Aggregation
+
+Aggregated across all 4 active rule_sets (BCL × 2, CRP × 2):
+
+```
+tenant | component_type | calc_intent_op | count
+--------------------------------------------------
+BCL (Banco Cumbre del Litoral) | tier_lookup | bounded_lookup_2d | 4
+BCL (Banco Cumbre del Litoral) | tier_lookup | bounded_lookup_1d | 4
+BCL (Banco Cumbre del Litoral) | scalar_multiply | scalar_multiply | 4
+BCL (Banco Cumbre del Litoral) | conditional_gate | conditional_gate | 4
+CRP (Cascade Revenue Partners) | tier_lookup | bounded_lookup_2d | 4
+CRP (Cascade Revenue Partners) | tier_lookup | bounded_lookup_1d | 4
+CRP (Cascade Revenue Partners) | scalar_multiply | scalar_multiply | 4
+CRP (Cascade Revenue Partners) | conditional_gate | conditional_gate | 4
+```
+
+**Vocabulary observations:**
+
+- The set of `componentType` values actually persisted in production: `{tier_lookup, scalar_multiply, conditional_gate}` (3 distinct strings).
+- The set of `calculationIntent.operation` values actually persisted: `{bounded_lookup_2d, bounded_lookup_1d, scalar_multiply, conditional_gate}` (4 distinct strings).
+- Vocabulary in the working set per directive (17 primitives) but NOT present in any active rule_set: `matrix_lookup`, `tiered_lookup`, `percentage`, `flat_percentage`, `conditional_percentage`, `linear_function`, `piecewise_linear`, `scope_aggregate`, `aggregate`, `ratio`, `constant`, `weighted_blend`, `temporal_window`. (The `constant` operation does appear nested inside `conditional_gate.onTrue/onFalse` per the BCL component 3 dump above, but never as a top-level component operation.)
+
+### Step 0E.7 — Components where componentType ≠ calc_intent_op
+
+```
+tenant | component_type | calc_intent_op | count
+--------------------------------------------------
+BCL (Banco Cumbre del Litoral) | tier_lookup | bounded_lookup_2d | 4
+BCL (Banco Cumbre del Litoral) | tier_lookup | bounded_lookup_1d | 4
+CRP (Cascade Revenue Partners) | tier_lookup | bounded_lookup_2d | 4
+CRP (Cascade Revenue Partners) | tier_lookup | bounded_lookup_1d | 4
+```
+
+**16 component instances across 4 active rule_sets exhibit `componentType ≠ calculationIntent.operation`.** All 16 share the pattern:
+- `componentType: 'tier_lookup'` (legacy switch's recognized string)
+- `calculationIntent.operation: 'bounded_lookup_1d'` or `'bounded_lookup_2d'` (intent executor's recognized string)
+- `tierConfig.tiers: []` (empty)
+- `metadata.intent` contains the fully-populated intent shape (per BCL component 0/1 dumps in 0E.3)
+
+This corresponds to the DIAG-024 finding: per Boundary 4's 5-tuple branch (lines 667-679), `bounded_lookup_1d` and `bounded_lookup_2d` are NOT among the 5 strings recognized by the case fall-through (`linear_function`, `piecewise_linear`, `scope_aggregate`, `scalar_multiply`, `conditional_gate`). Components whose `calcType` is `bounded_lookup_*` route through the **default branch**, which writes `componentType: 'tier_lookup'`, `metadata.intent: base.calculationIntent`, and an empty `tierConfig.tiers: []`.
+
+CC reports the divergence and its frequency. CC does NOT classify "violation".
+
+### Step 0E — Additional observations (recorded as evidence)
+
+1. The `calculationIntent` field is duplicated on every component: identical content appears in both `component.calculationIntent` (top-level) and `component.metadata.intent`. This is consistent with `convertComponent`'s default branch (line 689: `intent: base.calculationIntent` — copies the top-level intent into metadata) and the 5-tuple branch (line 677: same copy). The duplication is intentional per the HF-156 comments at lines 665-666 and 682.
+
+2. All 4 active rule_sets are dated 2026-04-26 / 2026-04-27 — recent imports, post-DIAG-024 merge.
+
+3. Plan-agent seeds (`input_bindings.plan_agent_seeds`) are absent from all 4 active rule_sets, consistent with the codebase grep in Step 0D.6 (zero source-code references to `plan_agent_seeds`).
+
+4. `noMatchBehavior: "zero"` is universally set on all `bounded_lookup_*` intents — the AI consistently emits the same boundary-overflow policy.
+
+5. The `condition.operator` value `"="` (single-equals) appears in BCL component 3. Per intent-executor.ts:285-286, the executor recognizes both `'='` and `'=='` as equality operators.
+
 
 
