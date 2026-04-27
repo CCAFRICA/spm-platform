@@ -1896,4 +1896,67 @@ No code persists or traces the prompt sent at runtime. The Anthropic API call (l
 
 **Note:** `signal-persistence.ts` and `training-signal-service.ts` (Phase 0D inventory) write rows about *AI predictions / classifications* but do not write rows containing the raw prompt text. The DB has 4 `training:plan_interpretation` rows (Phase 0D.5 evidence) — these are AI predictions, not prompt traces.
 
+---
+
+### Section 0G.8 — `executeIntent` Orchestrator
+
+This section is folded into Section 0G.2.4. See Section 0G.2.4 for `executeIntent` body inventory.
+
+---
+
+## Phase 0G — Closing
+
+### Step 0G.CLOSE.1 — Section completeness check
+
+Verified by `grep "^##\\|^### "` on the report file:
+
+- [x] Frontmatter — present at top
+- [x] Phase 0G — Initialization (Step 0G.0, 0G.1, 0G.2)
+- [x] Section 0G.1 — Proven CRP $566,728.97 Substrate Recovery (Step 0G.1.1-0G.1.6, **HALT-C TRIGGERED at 0G.1.6**)
+- [x] Section 0G.2 — `executeIntent` Outer-Scope Error Containment (Step 0G.2.1-0G.2.4; folds 0G.8 / Gap 6 at 0G.2.4)
+- [x] Section 0G.3 — HF-193 Landing State on `main` (Step 0G.3.1-0G.3.6)
+- [x] Section 0G.4 — Rule_Set Selection Logic + Concordance Counter Consumers (Step 0G.4.1-0G.4.4)
+- [x] Section 0G.5 — Helper Function Shape Inventory (Step 0G.5.1-0G.5.5)
+- [x] Section 0G.6 — Variant-Routing Intent Path (Step 0G.6.1-0G.6.3)
+- [x] Section 0G.7 — Plan-Agent Prompt Construction Path (Step 0G.7.1-0G.7.2)
+- [x] Section 0G.8 — Folded reference to 0G.2.4
+
+No section missing or empty.
+
+### Step 0G.CLOSE.2 — HALT contingency summary
+
+**HALT-C (Proven CRP $566,728.97 substrate not retrievable):** **TRIGGERED.** No branch, tag, migration, seed script, fixture, JSON export, git diff, or DB archive accessible to CC carries the proven CRP rule_set shape. The vocabulary (`linear_function`, `piecewise_linear`, `conditional_gate`, `scope_aggregate`) is preserved in `CLT-183_CRP_PLAN_IMPORT_VERIFICATION.md`, but the JSONB structure is not. **Architect verbatim provision is required for the AUD-004 remediation conversation.** This gap remains open after Phase 0G.
+
+**HALT-D (Branch state ambiguity):** **NOT TRIGGERED.** Predecessor branch state determined cleanly: `aud-004-phase-0` is unmerged on `origin/main`; the Phase 0 inventory file lives only on `origin/aud-004-phase-0`. Branch `aud-004-phase-0g` cut from `origin/aud-004-phase-0` at SHA `5a02e8c13f6a9851db125e98fe216a2bde438bb1`.
+
+### Step 0G.CLOSE.3 — Anomalies recorded as evidence (selected items)
+
+Counts of distinct evidentiary items recorded in this report (additional to the 20 items recorded in Phase 0):
+
+1. CRP rule_set shape vocabulary preserved in `CLT-183_CRP_PLAN_IMPORT_VERIFICATION.md` (4 primitive operation strings, no JSONB shape).
+2. CRP test fixtures `CRP_Plan_1_Capital_Equipment.pdf` and `CRP_Resultados_Esperados.xlsx` referenced by build prompts but absent from disk.
+3. Pickaxe search `git log -S "566728"` returns zero matches across all branches; no commit ever introduced the value.
+4. The POST function at `web/src/app/api/calculation/run/route.ts:61` has NO outer try/catch wrapping the entity loop (line 1316) or the intent loop (line 1672).
+5. The `executeIntent` call site at run/route.ts:1683 is NOT in any try/catch. A throw from `executeIntent` propagates to the route's caller (Next.js framework default 500 handler).
+6. PR #339 (HF-193) was merged on a date prior to 2026-04-26 and REVERTED via PR #342 (`be2e5321`) on 2026-04-26 16:28:16 PDT, with explicit revert commit `314e8db0`.
+7. PR #338 (HF-191 seeds-introduction) was merged then REVERTED via the same PR #342, with explicit revert commit `13dc698e`.
+8. PR #340 (`a2921fbb`, `Merge pull request #340 from CCAFRICA/hf-193-signal-surface`) cherry-picked HF-194 (field_identities) BACK onto main after the HF-193 revert. The branch `hf-193-signal-surface` was reused as the source branch for both #339 (reverted) and #340 (still in main).
+9. CLN-001 (PR #343, commit `16ba3bea`) made repo-housekeeping changes only — `.gitignore`, removed `.DS_Store`, removed `.claude/settings.local.json`, added two markdown VP-prompts. CLN-001 did NOT remove `plan_agent_seeds` source code; the seeds source absence on `main` is from the `13dc698e` revert.
+10. The `/api/calculation/run` route accepts a specific `ruleSetId` from the request body; it does NOT auto-select among multiple active rule_sets. With 2 identically-named active rule_sets per tenant, the UI shows two identical PlanCards and the user picks one.
+11. The `dual_path_concordance` signal has 1 write site (run/route.ts:1842) and 0 read sites. The DB has 2 rows — pure write-only telemetry.
+12. The concordance counters (`intentMatchCount`/`intentMismatchCount`) gate no decision. They are logged, embedded in the `dual_path_concordance` signal, and embedded in the API response — but no `if` branch reads them.
+13. `resolveSource` (intent-executor.ts:61), `applyModifiers` (line 509), and `executeOperation` (line 432) all have NO `default:` keyword. Each falls through to `undefined` return on a runtime input outside the discriminated-union compile-time guarantee.
+14. The `'error'` case at executeIntent:600-602 is BEHAVIORALLY IDENTICAL to `'skip'` (both set `outcome = ZERO`). It does not throw or log despite the discriminator name.
+15. `IntentOperation` (intent-types.ts:52-63) declares 11 union members; the doc comment at line 49 says "The 7 Primitive Operations" and at line 8 says "9 primitive operations". Both comment counts are stale relative to the OB-180/181 additions.
+16. `EntityData.attributes` is passed as an empty object (`{}`) at run/route.ts:1677. The `'entity_attribute'` source resolution and `executeIntent` variant-routing's entity_attribute branch always read empty/zero on this code path.
+17. Variant selection in run/route.ts uses STRUCTURAL token-overlap matching (HF-119) — accent-stripped, alphanumeric-only, length-3+ tokens. The OB-194 eligibility gate excludes entities with zero discriminant matches AND zero overlap.
+18. Two variant-routing layers exist: rule_set-level (run/route.ts:1316-1411, token-overlap) and per-component (executeIntent:569-604, exact-string match). Per-component variants are not populated in BCL/CRP rule_sets; only the rule_set-level layer is exercised in production.
+19. `SYSTEM_PROMPTS['plan_interpretation']` is fetched at line 805 and passed at line 841 with NO mutation between. The runtime system prompt is identical to the static lines 134-541 template literal.
+20. The user-side prompt template (`buildUserPrompt` for `plan_interpretation`, lines 951-1003) ALSO contains operation vocabulary at line 980 (`"type": "matrix_lookup | tiered_lookup | percentage | flat_percentage | conditional_percentage | linear_function | piecewise_linear | scope_aggregate | scalar_multiply | conditional_gate"`). This is a second prompt surface naming the operation vocabulary; Phase 0A inventoried only the system prompt.
+21. No code in `web/src/lib/ai/` logs, persists, or traces the actual prompt sent at runtime.
+
+### Step 0G.CLOSE.4 — Final commit
+
+To be committed by the closing commit step.
+
 
