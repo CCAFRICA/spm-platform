@@ -1793,4 +1793,107 @@ export interface VariantRouting {
 
 The `/api/calculation/run` route (Section 0G.6.1) selects a *variant of the rule_set* (e.g., `ejecutivo_senior` vs `ejecutivo`) and chooses `selectedComponents` accordingly. Each component within the chosen variant may have its OWN `intent.variants` field (per `ComponentIntent` interface at intent-types.ts:206-225). The `executeIntent` variant-routing branch handles per-component variants. Both layers exist; per the BCL/CRP rule_set evidence (Phase 0E.3), neither rule_set in production has `intent.variants` populated on individual components — variant selection happens entirely at the run/route.ts layer, and `executeIntent` enters its `else if (intent.intent)` branch (line 605) for these components.
 
+---
+
+## Section 0G.7 — Plan-Agent Prompt Construction Path (Gap 9, soft)
+
+### Step 0G.7.1 — Prompt construction trace
+
+```
+$ grep -n "SYSTEM_PROMPTS\[\|systemPrompt =\|system: systemPrompt\|\.messages.*system" \
+    web/src/lib/ai/providers/anthropic-adapter.ts
+805:    const systemPrompt = SYSTEM_PROMPTS[request.task];
+841:      system: systemPrompt,
+```
+
+**Two references only — fetch (line 805) and API-pass (line 841).** No mutation between them.
+
+**Verbatim region (lines 800-848):**
+
+```ts
+  ): Promise<Omit<AIResponse, 'requestId' | 'provider' | 'model' | 'latencyMs' | 'timestamp' | 'signalId'>> {
+    if (!this.apiKey) {
+      throw new Error('Anthropic API key not configured');
+    }
+
+    const systemPrompt = SYSTEM_PROMPTS[request.task];
+
+    // Build message content — supports both plain text and document blocks (PDF)
+    const pdfBase64 = request.input.pdfBase64 as string | undefined;
+    const pdfMediaType = (request.input.pdfMediaType as string) || 'application/pdf';
+    let messageContent: unknown;
+
+    if (pdfBase64 && (request.task === 'plan_interpretation' || request.task === 'document_analysis')) {
+      // PDF document block — send directly to Claude for native reading
+      // HF-064: Strip data URI prefix if present (safety net)
+      const cleanBase64 = pdfBase64.replace(/^data:[^;]+;base64,/, '');
+      const textPrompt = this.buildUserPrompt(request);
+      messageContent = [
+        {
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: pdfMediaType,
+            data: cleanBase64,
+          },
+        },
+        {
+          type: 'text',
+          text: textPrompt,
+        },
+      ];
+    } else {
+      messageContent = this.buildUserPrompt(request);
+    }
+
+    // OB-155: Retry with backoff — fetch() can fail transiently in Next.js dev server
+    const MAX_RETRIES = 3;
+    const requestBody = JSON.stringify({
+      model: this.config.model || 'claude-sonnet-4-20250514',
+      max_tokens: request.options?.maxTokens || 8192,
+      temperature: request.options?.temperature ?? 0.1,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: messageContent,
+        },
+      ],
+    });
+```
+
+**Construction trace (factual, no interpretation):**
+
+1. **Line 805:** `const systemPrompt = SYSTEM_PROMPTS[request.task];` — `systemPrompt` receives the static string indexed by `request.task` (for `'plan_interpretation'`, this is the lines 134-541 template literal inventoried in Phase 0A Boundary 1).
+2. **Lines 806-833:** the user `messageContent` is built dynamically. For `plan_interpretation` with PDF input, an array of `[document, text]` content blocks; otherwise the user-text built by `buildUserPrompt`. **The `systemPrompt` variable is not modified anywhere in this region.**
+3. **Line 841:** `system: systemPrompt` — passed verbatim to the API.
+
+**No code in this region:**
+- Concatenates additional text to `systemPrompt`.
+- Replaces template tokens within `systemPrompt`.
+- Injects per-tenant or per-task content into `systemPrompt`.
+- Reads `systemPrompt` from any source other than the static `SYSTEM_PROMPTS` table.
+
+**The runtime system prompt for `plan_interpretation` is identical to the static lines 134-541 template literal Phase 0A inventoried.** F-005 (prompt internal inconsistency) is therefore authoritative against the runtime prompt.
+
+**The user-side prompt (built by `buildUserPrompt`, line 914) DOES contain operation vocabulary too — visible at lines 980 of the user-prompt template:**
+
+```ts
+"type": "matrix_lookup | tiered_lookup | percentage | flat_percentage | conditional_percentage | linear_function | piecewise_linear | scope_aggregate | scalar_multiply | conditional_gate",
+```
+
+This user-side enumeration lists 10 operation strings (the `calculationMethod.type` vocabulary, NOT the `calculationIntent.operation` vocabulary). The user-side prompt is dynamic — built per request — but the operation list within it is static. **This is a second prompt surface naming the operation vocabulary; Phase 0A inventoried only the system prompt at Boundary 1.** The user-side enumeration matches Boundary 2 (`normalizeComponentType` validTypes) string-for-string.
+
+### Step 0G.7.2 — Prompt-related signal types and tracing
+
+```
+$ grep -n "prompt.*log\|log.*prompt\|persistPrompt\|trace.*prompt" \
+    web/src/lib/ai/ --include="*.ts" -r | grep -v "node_modules\|.next"
+(empty result)
+```
+
+No code persists or traces the prompt sent at runtime. The Anthropic API call (line 868 area, omitted) sends `requestBody` (containing `system: systemPrompt` and `messages: [{...}]`) via fetch; the request body itself is not logged or persisted by the codebase. Server-side runtime logs would capture only the response body and request metadata, not the prompt strings.
+
+**Note:** `signal-persistence.ts` and `training-signal-service.ts` (Phase 0D inventory) write rows about *AI predictions / classifications* but do not write rows containing the raw prompt text. The DB has 4 `training:plan_interpretation` rows (Phase 0D.5 evidence) — these are AI predictions, not prompt traces.
+
 
