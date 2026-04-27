@@ -1,0 +1,6 @@
+# OS noise (CLN-001)
+.DS_Store
+**/.DS_Store
+
+# Claude Code session-local state (CLN-001)
+.claude/settings.local.json
