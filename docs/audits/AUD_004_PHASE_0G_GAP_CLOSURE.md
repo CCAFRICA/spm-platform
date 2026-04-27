@@ -1536,4 +1536,261 @@ The shape passed in by run/route.ts:1674-1682 supplies all 8 (or all 8 minus `gr
 
 **Note:** `attributes: {}` empty object passed at run/route.ts:1677 means `'entity_attribute'` source resolution always returns `0` (line 113: `data.attributes[attr]` → `undefined`, coerced to `0`). Variant routing at executeIntent:576 (`entityData.attributes[attrSrc.sourceSpec.attribute] ?? ''`) always returns `''` for the same reason — variants will never match by entity attribute on this code path.
 
+---
+
+## Section 0G.6 — Variant-Routing Intent Path (Gap 8, soft)
+
+### Step 0G.6.1 — Variant selection in run/route.ts
+
+```
+$ grep -n "selectedVariantIndex\|variant.*index\|variants\[" \
+    web/src/app/api/calculation/run/route.ts | head -10
+109:      defaultComponents = (variants[0]?.components as PlanComponent[]) ?? [];
+1342:    let selectedVariantIndex = 0;
+1384:        selectedVariantIndex = discScores[0].index;
+1395:          selectedVariantIndex = overlapScores[0].index;
+1399:          selectedVariantIndex = variants.length - 1;
+1404:    selectedComponents = (variants[selectedVariantIndex]?.components as PlanComponent[]) ?? defaultComponents;
+1410:          `V${s.index}:${s.matches}`).join(',')}] → variant_${selectedVariantIndex} (${method})`);
+1588:    const entityIntents = selectedVariantIndex === 0
+```
+
+**Pre-loop variant token-set construction (lines 1175-1203) — verbatim:**
+
+```ts
+  // HF-119: Token overlap variant matching — build token sets once before entity loop
+  const variantTokenize = (text: string): string[] =>
+    text
+      .toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove accents
+      .replace(/[^a-z0-9\s_]/g, ' ')
+      .split(/[\s_]+/)
+      .filter(t => t.length > 2);
+
+  const variantTokenSets = variants.map(v => {
+    const text = [
+      String(v.variantName ?? ''),
+      String(v.description ?? ''),
+      String(v.variantId ?? ''),
+    ].join(' ');
+    return new Set(variantTokenize(text));
+  });
+
+  // Discriminant tokens: tokens unique to each variant (not in any other variant)
+  const variantDiscriminants = variantTokenSets.map((tokens, i) => {
+    const otherTokens = new Set<string>();
+    variantTokenSets.forEach((t, j) => { if (j !== i) t.forEach(tok => otherTokens.add(tok)); });
+    return new Set(Array.from(tokens).filter(t => !otherTokens.has(t)));
+  });
+
+  if (variants.length > 1) {
+    addLog(`HF-119 Variant discriminants: ${variantDiscriminants.map((d, i) =>
+      `V${i}=[${Array.from(d).join(',')}]`).join(' ')}`);
+  }
+```
+
+**Per-entity variant selection (lines 1338-1411) — verbatim:**
+
+```ts
+    // HF-119: Token overlap variant matching — cross-language, structural
+    // OB-177: PRIMARY source is materializedState (period_entity_state resolved_attributes)
+    // FALLBACK: flatDataByEntity (committed_data entity_id FK path)
+    let selectedComponents = defaultComponents;
+    let selectedVariantIndex = 0;
+    if (variants.length > 1) {
+      // Build entity token set
+      const entityTokens = new Set<string>();
+
+      // OB-177: Read from materialized state FIRST (Living → Materialized layer)
+      const resolvedAttrs = materializedState.get(entityId);
+      if (resolvedAttrs && Object.keys(resolvedAttrs).length > 0) {
+        for (const val of Object.values(resolvedAttrs)) {
+          if (typeof val === 'string' && val.length > 1) {
+            for (const token of variantTokenize(val)) {
+              entityTokens.add(token);
+            }
+          }
+        }
+      }
+
+      // Fallback: also read from flatDataByEntity (committed_data rows)
+      if (entityTokens.size === 0) {
+        for (const row of entityRowsFlat) {
+          const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+            ? row.row_data as Record<string, unknown> : {};
+          for (const val of Object.values(rd)) {
+            if (typeof val === 'string' && val.length > 1) {
+              for (const token of variantTokenize(val)) {
+                entityTokens.add(token);
+              }
+            }
+          }
+        }
+      }
+
+      // Score by discriminant token matches
+      const discScores = variantDiscriminants.map((disc, i) => {
+        const matched = Array.from(disc).filter(t => entityTokens.has(t));
+        return { index: i, matches: matched.length, tokens: matched };
+      });
+      discScores.sort((a, b) => b.matches - a.matches);
+
+      let method = 'default_last';
+      if (discScores[0].matches > (discScores[1]?.matches ?? 0)) {
+        // Clear discriminant winner
+        selectedVariantIndex = discScores[0].index;
+        method = 'discriminant_token';
+      } else {
+        // Tie on discriminants — try total overlap
+        const overlapScores = variantTokenSets.map((tokens, i) => ({
+          index: i,
+          overlap: Array.from(tokens).filter(t => entityTokens.has(t)).length,
+        }));
+        overlapScores.sort((a, b) => b.overlap - a.overlap);
+
+        if (overlapScores[0].overlap > (overlapScores[1]?.overlap ?? 0)) {
+          selectedVariantIndex = overlapScores[0].index;
+          method = 'total_overlap';
+        } else {
+          // Still tied — default to last variant (less-specific / Standard)
+          selectedVariantIndex = variants.length - 1;
+          method = 'default_last';
+        }
+      }
+
+      selectedComponents = (variants[selectedVariantIndex]?.components as PlanComponent[]) ?? defaultComponents;
+```
+
+**OB-194 eligibility gate (lines 1413-1437) — verbatim:**
+
+```ts
+      // OB-194: Variant Eligibility Gate
+      // When a plan defines 2+ variants (explicit population segments) and an entity
+      // matches NONE with score > 0, the entity is excluded from calculation.
+      // Architecture: "An entity matching NO variant is an explicit error, not a silent zero."
+      if (method === 'default_last') {
+        const bestDiscScore = discScores[0]?.matches ?? 0;
+        const bestOverlap = variantTokenSets.reduce((best, tokens) => {
+          const overlap = Array.from(tokens).filter(t => entityTokens.has(t)).length;
+          return Math.max(best, overlap);
+        }, 0);
+
+        if (bestDiscScore === 0 && bestOverlap === 0) {
+          const entityName = entityInfo?.display_name ?? entityId;
+          const tokenList = Array.from(entityTokens).slice(0, 10).join(',');
+          console.log(`[VARIANT] ${entityName}: NO MATCH — excluded (disc=0, overlap=0, variants=${variants.length}, tokens=[${tokenList}])`);
+          excludedEntities.push({
+            entityId,
+            entityName,
+            externalId: entityInfo?.external_id ?? entityId,
+            reason: 'no_qualifying_variant',
+            tokens: tokenList,
+          });
+          continue; // Skip calculation for this entity
+        }
+      }
+    }
+```
+
+**Selection algorithm — factual summary (no interpretation):**
+
+1. If only one variant exists, `selectedVariantIndex` stays `0` and the lone variant is used.
+2. If 2+ variants exist:
+   - Build `entityTokens` set from materialized attributes (OB-177 primary) or flat row data (fallback).
+   - Token normalization is structural: lowercased, accent-stripped, non-alphanumeric stripped, length-3+ tokens, underscore/space-split.
+   - Score each variant by `discriminant` token matches (tokens unique to that variant). Highest score wins.
+   - Tie-breaker: total overlap with the variant's token set. Highest overlap wins.
+   - Tie remains: pick `variants[length - 1]` (the last variant — assumed less-specific / "Standard" per comment line 1399-1400).
+3. If `method === 'default_last'` AND best discriminant score is 0 AND best total overlap is 0, the entity is **excluded** from calculation (OB-194 eligibility gate).
+
+The variant-selection code uses STRUCTURAL token matching against entity-data string values — it does NOT match against `entity.metadata.role` directly. (`metadata.role` may be one of the string values that gets tokenized along with everything else, but no special path reads it.)
+
+### Step 0G.6.2 — Variant matching against entity attributes
+
+```
+$ grep -n "variantMatcher\|matchVariant\|variant.*condition\|variant.*criteria\|variantTokenize\|variantDiscriminants\|variantTokenSets" \
+    web/src/ --include="*.ts" -r | grep -v "node_modules\|.next" | head -25
+[truncated; relevant non-route hits below]
+web/src/lib/reconciliation/employee-reconciliation-trace.ts:356:          reason = `isCertified mismatch: employee=${isCertified}, variant=${criteria.isCertified}`;
+web/src/lib/compensation/plan-interpreter.ts:335:   * Find variant matching employee criteria
+web/src/lib/compensation/calculation-engine.ts:144:  // Find matching variant based on eligibility criteria
+web/src/lib/compensation/calculation-engine.ts:239:  // Fallback: return first variant with no criteria (universal) or just first variant
+```
+
+**Two distinct variant-matching paths exist in the codebase:**
+
+1. **Token-overlap path (run/route.ts:1316-1411)** — used by `/api/calculation/run` (the live calculation endpoint). HF-119 implementation. Scores by structural token matching.
+2. **Eligibility-criteria path (`web/src/lib/compensation/calculation-engine.ts:144`, `plan-interpreter.ts:335`)** — older path, predicate-based (`criteria.isCertified === employeeCertified`, etc.). NOT invoked by `/api/calculation/run` per the route's actual code path; appears to be a parallel/legacy path or subroutine called from elsewhere.
+
+`employee-reconciliation-trace.ts:356` shows criteria-based matching is still expressed in some downstream tracing code, but it operates on different inputs (`isCertified` field).
+
+The `/api/calculation/run` route uses ONLY the token-overlap path. The criteria-based path is not on the hot path for live calculation.
+
+### Step 0G.6.3 — Variant-routing in `executeIntent`
+
+The intent-executor's variant-routing branch (intent-executor.ts:569-604) was inventoried in Section 0G.2.4. Re-paste with annotations:
+
+```ts
+  // 1. Resolve variant routing (if present)
+  if (intent.variants) {
+    const routing = intent.variants;
+    const attrSrc = routing.routingAttribute;
+
+    // For entity_attribute source, resolve as string for matching
+    let attrValue: string | number | boolean = '';
+    if (attrSrc.source === 'entity_attribute') {
+      attrValue = entityData.attributes[attrSrc.sourceSpec.attribute] ?? '';
+    } else {
+      attrValue = toNumber(resolveSource(attrSrc, entityData, inputLog));
+    }
+
+    const matchedRoute = routing.routes.find(r => String(r.matchValue) === String(attrValue));
+
+    if (matchedRoute) {
+      trace.variantRoute = { /* ... */ };
+      outcome = executeOperation(matchedRoute.intent, entityData, inputLog, trace);
+    } else {
+      switch (routing.noMatchBehavior) {
+        case 'first':
+          if (routing.routes.length > 0) {
+            outcome = executeOperation(routing.routes[0].intent, entityData, inputLog, trace);
+          }
+          break;
+        case 'skip':
+          outcome = ZERO;
+          break;
+        case 'error':
+          outcome = ZERO;
+          break;
+      }
+    }
+  } else if (intent.intent) { /* single-op path */ }
+```
+
+**`VariantRouting` shape (intent-types.ts:193-200):**
+
+```ts
+export interface VariantRouting {
+  routingAttribute: IntentSource;
+  routes: Array<{
+    matchValue: string | number | boolean;
+    intent: IntentOperation;
+  }>;
+  noMatchBehavior: 'error' | 'skip' | 'first';
+}
+```
+
+- `routingAttribute`: an `IntentSource` (`entity_attribute`, `metric`, etc.). Resolved to a value at execution time.
+- `routes`: array of `{ matchValue, intent }` pairs. `matchValue` is compared via `String(matchValue) === String(attrValue)` (line 581) — string-coerced comparison.
+- `noMatchBehavior`: one of `'error'`, `'skip'`, `'first'`.
+
+**`noMatchBehavior` settings:**
+- `'first'` (line 592-596): use the FIRST route's intent if no match (line 593: `routing.routes[0].intent`). If `routes` is empty, `outcome` stays at the initial `ZERO` (line 566).
+- `'skip'` (line 597-599): set `outcome = ZERO`. No-op fall-through with zero outcome.
+- `'error'` (line 600-602): set `outcome = ZERO`. **Critical: despite the name `'error'`, the case does NOT throw, log, or signal an error — it's behaviorally identical to `'skip'`.**
+
+**Two variant-routing layers (factual statement):**
+
+The `/api/calculation/run` route (Section 0G.6.1) selects a *variant of the rule_set* (e.g., `ejecutivo_senior` vs `ejecutivo`) and chooses `selectedComponents` accordingly. Each component within the chosen variant may have its OWN `intent.variants` field (per `ComponentIntent` interface at intent-types.ts:206-225). The `executeIntent` variant-routing branch handles per-component variants. Both layers exist; per the BCL/CRP rule_set evidence (Phase 0E.3), neither rule_set in production has `intent.variants` populated on individual components — variant selection happens entirely at the run/route.ts layer, and `executeIntent` enters its `else if (intent.intent)` branch (line 605) for these components.
+
 
