@@ -705,4 +705,246 @@ export function executeIntent(
 
 The function declares no try/catch; any throw propagates to the call site at run/route.ts:1683.
 
+---
+
+## Section 0G.3 — HF-193 Landing State on `main` (Gap 3, hard)
+
+### Step 0G.3.1 — HF-193 branch state
+
+**HF-193 branch existence:**
+
+```
+$ git branch -a | grep -iE "hf-193|hf_193|signal-surface"
+  hf-193-signal-surface
+  remotes/origin/hf-193-signal-surface
+```
+
+The `hf-193-signal-surface` branch exists locally and on origin.
+
+**HF-193 commits visible from `origin/main` history (not necessarily landed):**
+
+```
+$ git log origin/main --oneline --grep="HF-193\|hf_193"
+be2e5321 Merge pull request #342 from CCAFRICA/cutover-revert-338-339
+c9f2015a HF-194 Phase 5: verification specs + completion report
+882bc94c DIAG-020: component bindings drift diagnostic
+3a3351eb Merge pull request #339 from CCAFRICA/hf-193-signal-surface
+445fcb00 HF-193 Phase 4: completion report
+e76c3e27 HF-193 Phase 3: BCL post-cutover path verified; seeds JSONB purged from 4 rule_sets
+95efc14d HF-193 Phase 2: delete plan_agent_seeds; bridge writes metric_comprehension signals; convergence reads signals
+30e79eeb HF-193 Phase 1: persistSignal accepts A2 columns (ruleSetId, metricName, componentIndex)
+8fae55e9 HF-193 Gate B preflight: Decision 30 v1 violation investigation directive
+3c07a126 HF-193: design artifact + Gate A directive
+[+ multiple HF-193-A Phase 2.2a/b commits and HF-193-A Phase 1.x commits]
+```
+
+**Recent commits on `origin/main` since 2026-04-20:**
+
+```
+$ git log origin/main --oneline --since="2026-04-20"
+6bc005e6 Merge pull request #344 from CCAFRICA/diag-024-importer-engine-alignment
+6d942de7 DIAG-024: importer-engine alignment diagnostic — evidence pack only
+6504b7cf Merge pull request #343 from CCAFRICA/cln-001-repo-cleanup
+16ba3bea CLN-001: gitignore .DS_Store and .claude/settings.local.json; commit orphaned CLT-197 vp-prompt
+be2e5321 Merge pull request #342 from CCAFRICA/cutover-revert-338-339
+13dc698e Revert "Merge pull request #338 from CCAFRICA/dev"           # ← HF-191 reverted
+314e8db0 Revert "Merge pull request #339 from CCAFRICA/hf-193-signal-surface"   # ← HF-193 reverted
+a2921fbb Merge pull request #340 from CCAFRICA/hf-193-signal-surface  # ← cherry-pick of HF-194 only
+c9f2015a HF-194 Phase 5: verification specs + completion report
+2665b264 HF-194 Phase 4: register AP-17 parallel metadata construction tech debt
+b784291c HF-194 Phase 3: add field_identities to execute-bulk metadata
+34f2c42d HF-194 Phase 2: migrate execute/route.ts to import from lib/sci
+d56f3e66 HF-194 Phase 1: extract buildFieldIdentitiesFromBindings to lib/sci
+cf84ee4e DIAG-022: pipeline architecture read
+966c2abe DIAG-021 R1: caller-writer + matcher path + data_type drift diagnostic
+4750e857 DIAG-020-A: field_identities absence confirmation
+882bc94c DIAG-020: component bindings drift diagnostic
+3a3351eb Merge pull request #339 from CCAFRICA/hf-193-signal-surface  # ← original HF-193 merge (later reverted)
+[...]
+```
+
+### Step 0G.3.2 — CLN-001 commit trace
+
+```
+$ git log origin/main --oneline --grep="CLN-001\|cln_001\|plan_agent_seeds"
+6504b7cf Merge pull request #343 from CCAFRICA/cln-001-repo-cleanup
+16ba3bea CLN-001: gitignore .DS_Store and .claude/settings.local.json; commit orphaned CLT-197 vp-prompt
+3a3351eb Merge pull request #339 from CCAFRICA/hf-193-signal-surface
+95efc14d HF-193 Phase 2: delete plan_agent_seeds; bridge writes metric_comprehension signals; convergence reads signals
+3a31bdea HF-191 Phase B: Convergence reads and validates plan agent seeds
+70aba6bc HF-191 Phase A: Plan agent outputs metricSemantics, stored as plan_agent_seeds
+```
+
+CLN-001's diff:
+
+```
+$ git show 16ba3bea --stat
+commit 16ba3beac07686806b082a2f148bb65922a2294b
+Author: Andrew Africa <259441702+CCAFRICA@users.noreply.github.com>
+Date:   Sun Apr 26 19:40:12 2026 -0700
+
+    CLN-001: gitignore .DS_Store and .claude/settings.local.json; commit orphaned CLT-197 vp-prompt
+
+ .DS_Store                                          | Bin 8196 -> 0 bytes
+ .claude/settings.local.json                        | 299 ------------
+ .gitignore                                         |   6 +
+ docs/.DS_Store                                     | Bin 6148 -> 0 bytes
+ docs/vp-prompts/CLN-001_REPO_CLEANUP.md            | 233 +++++++++
+ .../vp-prompts/CLT-197_BCL_BROWSER_VERIFICATION.md | 533 +++++++++++++++++++++
+ 6 files changed, 772 insertions(+), 299 deletions(-)
+```
+
+CLN-001 changed only repo-housekeeping files (`.gitignore`, removed `.DS_Store`, removed `.claude/settings.local.json`, added two markdown VP-prompts). **CLN-001 did NOT touch `plan_agent_seeds` source code.**
+
+The seeds-removal happened earlier at `95efc14d HF-193 Phase 2: delete plan_agent_seeds...` — but the merge that brought it (PR #339) was REVERTED by `314e8db0`.
+
+**Critical revert chain:**
+
+```
+$ git show be2e5321 --stat | head -12
+commit be2e532146c9d5174627f7ae508d1399bc792adb
+Merge: a2921fbb 13dc698e
+Author: CCAFRICA <259441702+CCAFRICA@users.noreply.github.com>
+Date:   Sun Apr 26 16:28:16 2026 -0700
+
+    Merge pull request #342 from CCAFRICA/cutover-revert-338-339
+    
+    CLT-197: revert PRs #338 (HF-191 seeds) and #339 (HF-193 partial eradication)
+```
+
+PR #342 (`cutover-revert-338-339`) explicitly reverted BOTH PR #338 (HF-191 seeds-introduction) AND PR #339 (HF-193 seeds-removal + signal-surface introduction). Net effect on `origin/main`:
+
+- The HF-191 seeds-introduction was undone (the seeds code was removed by the revert).
+- The HF-193 signal-surface introduction was undone (the metric_comprehension / agent_activity signal-write code was removed by the revert).
+- The substrate is back to its pre-PR-#338 state for this code path, EXCEPT HF-194 (field_identities) which was cherry-picked back via PR #340 (`a2921fbb`).
+
+```
+$ git show 13dc698e --stat | head -8
+commit 13dc698e13b92729a20639b1fead540b41ce1169
+Author: Andrew Africa <259441702+CCAFRICA@users.noreply.github.com>
+Date:   Sun Apr 26 16:13:23 2026 -0700
+
+    Revert "Merge pull request #338 from CCAFRICA/dev"
+    
+    This reverts commit 1277becccb3a7b82f4b34a97fb02590a5e27ab28, reversing
+    changes made to 283d4c24ec196b7f45052292367af895dbaabb1e.
+```
+
+```
+$ git show 314e8db0 --stat | head -8
+commit 314e8db08ad44c2871ef16316e17e778305324fe
+Author: Andrew Africa <259441702+CCAFRICA@users.noreply.github.com>
+Date:   Sun Apr 26 16:13:14 2026 -0700
+
+    Revert "Merge pull request #339 from CCAFRICA/hf-193-signal-surface"
+    
+    This reverts commit 3a3351eb91e3d752ea77a3d02d4aa375e774ae43, reversing
+    changes made to 1277becccb3a7b82f4b34a97fb02590a5e27ab28.
+```
+
+### Step 0G.3.3 — Recent file change archaeology — convergence service
+
+```
+$ git log origin/main --oneline -- web/src/lib/intelligence/convergence-service.ts
+13dc698e Revert "Merge pull request #338 from CCAFRICA/dev"
+314e8db0 Revert "Merge pull request #339 from CCAFRICA/hf-193-signal-surface"
+95efc14d HF-193 Phase 2: delete plan_agent_seeds; bridge writes metric_comprehension signals; convergence reads signals
+3a31bdea HF-191 Phase B: Convergence reads and validates plan agent seeds
+fc6422fe OB-191: Convergence Pass 4 — calculationIntent metrics + scope_aggregate
+c6f13105 OB-185 Phase 2: Fix build — use natural_language_query task, handle response parsing
+c19a042c OB-185 Phase 1: AI semantic derivation — Pass 4 implementation
+dea9df9a HF-115 Phase 3: Apply scale correction + classification signal capture
+7996bb2a HF-115 Phase 2: Cross-component plausibility check + scale anomaly detection
+934d7b26 HF-115 Phase 1: Value distribution profiling with scale inference
+```
+
+The most recent commits affecting `convergence-service.ts` are the two revert commits (`13dc698e`, `314e8db0`). After those reverts, the file has not been modified.
+
+**Excerpt from the HF-191 revert (`13dc698e`) effect on `convergence-service.ts`:**
+
+```
+$ git show 13dc698e -- web/src/lib/intelligence/convergence-service.ts | head -50
+[...]
+diff --git a/web/src/lib/intelligence/convergence-service.ts b/web/src/lib/intelligence/convergence-service.ts
+index 36405e7c..852e5d2e 100644
+--- a/web/src/lib/intelligence/convergence-service.ts
++++ b/web/src/lib/intelligence/convergence-service.ts
+@@ -156,93 +156,6 @@ export async function convergeBindings(
+     return { derivations, matchReport, signals, gaps, componentBindings };
+   }
+
+-  // ── Decision 147: Plan Intelligence Forward — seed derivation consumption ──
+-  const planAgentSeeds = (
+-    (ruleSet.input_bindings as Record<string, unknown>)?.plan_agent_seeds ?? []
+-  ) as Array<{
+-    metric: string;
+-    operation: string;
+-    source_field?: string;
+-    [...]
+```
+
+The revert removed 93 lines of seeds-consumption logic from `convergence-service.ts`. Combined with the HF-193 revert (which would have removed the signal-surface bridge code), the net state is: no seeds, no signal-surface in `convergence-service.ts`.
+
+### Step 0G.3.4 — Migration file scan for signal-flow infrastructure
+
+```
+$ grep -rln "metric_comprehension\|agent_activity\|comprehension" \
+    web/supabase/migrations/ supabase/migrations/
+(empty result)
+
+$ ls -la web/supabase/migrations/ | grep "2026.*04"
+-rw-r--r--   1 AndrewAfrica  staff   1487 Apr 26 19:38 20260320_hf149_platform_events_tenant_nullable.sql
+```
+
+No migration in `web/supabase/migrations/` references `metric_comprehension`, `agent_activity`, or `comprehension`. The only April-dated file is a re-touched March-20 migration (timestamp on file, not filename — touched April 26 19:38 by CLN-001). No signal-surface infrastructure migration exists on `main`.
+
+### Step 0G.3.5 — HF-193-A and HF-193-B status
+
+```
+$ git log --all --oneline --grep="HF-193-A\|hf_193_a\|HF-193 Phase"
+[truncated; see partial output below]
+445fcb00 HF-193 Phase 4: completion report
+e76c3e27 HF-193 Phase 3: BCL post-cutover path verified; seeds JSONB purged from 4 rule_sets
+95efc14d HF-193 Phase 2: delete plan_agent_seeds; bridge writes metric_comprehension signals; convergence reads signals
+30e79eeb HF-193 Phase 1: persistSignal accepts A2 columns (ruleSetId, metricName, componentIndex)
+8fae55e9 HF-193 Gate B preflight: Decision 30 v1 violation investigation directive
+3c07a126 HF-193: design artifact + Gate A directive
+37111ab7 Revert "HF-193-A Phase 2.2b: bridge return-shape extension (+ l2ComprehensionSignals, SignalWriteSpec, BridgeOutput)"
+3c628702 HF-193-A Phase 2.2b: bridge return-shape extension (+ l2ComprehensionSignals, SignalWriteSpec, BridgeOutput)
+c8c9a655 HF-193-A Phase 2.2a refinement: completion report amendment (Option X refined body + re-verification PASS)
+[+ multiple HF-193-A Phase 2.2a refinement commits and HF-193-A Phase 1.x commits]
+```
+
+HF-193-A had numerous internal-iteration commits during development (multiple Phase 2.2a refinements, a Phase 2.2b that was reverted internally, etc.). All of these landed in PR #339, which was then reverted by PR #342.
+
+**Codebase signal_type literal check:**
+
+```
+$ grep -rln "signal_type.*metric_comprehension\|signal_type.*agent_activity" \
+    web/src/ | grep -v "node_modules\|.next"
+(empty result)
+
+$ grep -rln "metric_comprehension\|agent_activity" web/src/ | grep -v "node_modules\|.next"
+(empty result)
+```
+
+Zero references to either signal type on `origin/main` substrate. Consistent with PR #339 having been reverted.
+
+### Step 0G.3.6 — Landing state determination
+
+Factual summary based on Steps 0G.3.1-0G.3.5:
+
+- **HF-193-A status on `origin/main`:** **MERGED THEN REVERTED.** Originally merged via PR #339 (commit `3a3351eb`, 2026-04-25 or earlier), reverted via PR #342 (commit `be2e5321`, 2026-04-26 16:28:16 PDT) which contained `314e8db0 Revert "Merge pull request #339..."`. HF-193-A's signal-surface infrastructure (`metric_comprehension` writes, A2 typed columns wiring) is NOT live on `main`.
+- **HF-193-B status on `origin/main`:** No HF-193-B commits surface in the search. The directive notes HF-193 was split into A (Phases 0-5, infrastructure) and B (Phases 6-10, atomic cutover); the `git log` shows only HF-193 Phase 1, 2, 3, 4 commits and HF-193-A Phase 1.x / 2.2a / 2.2b commits. **HF-193-B does not appear in main's history (neither merged nor reverted; never landed).**
+- **CLN-001 status on `origin/main`:** **MERGED.** PR #343 merged via commit `6504b7cf`, contents in `16ba3bea`. CLN-001 made repo-housekeeping changes only — it did NOT remove plan_agent_seeds source code. The seeds source is absent on `main` because PR #338 (which introduced seeds) was reverted by `13dc698e`.
+- **The branch `hf-193-signal-surface`:** EXISTS at `origin/hf-193-signal-surface`. It is the source branch of both PR #339 (signal-surface introduction, merged then reverted) AND PR #340 (HF-194 cherry-pick, still merged). The branch was reused for the HF-194 cherry-pick after PR #339 was reverted.
+- **Plan-comprehension signal types present in `classification_signals`:** From Phase 0D.5 — confirmed absent. No row has `signal_type` containing `comprehension` or starting with `agent_activity:`. Consistent with HF-193-A being reverted.
+- **`plan_agent_seeds` codebase references:** From Phase 0D.6 — confirmed zero. Consistent with PR #338 (HF-191) being reverted.
+
+**Net `main` substrate state for the seeds/signal-surface flow:**
+
+The substrate at `origin/main` HEAD `6bc005e6...` represents the **pre-HF-191 baseline** (no seeds, no signal-surface) PLUS HF-194 (field_identities, cherry-picked via PR #340) PLUS DIAG-024 (read-only diagnostic, PR #344) PLUS CLN-001 (repo housekeeping, PR #343).
+
+The two things Phase 0 noted as seemingly contradictory (V-001 absence + Decision 153 absence) are not contradictory — both flow from a single explicit revert of both HF-191 and HF-193. Neither HF-193 nor HF-191 exists on this substrate; both were explicitly reverted by PR #342 ("CLT-197: revert PRs #338 (HF-191 seeds) and #339 (HF-193 partial eradication)").
+
 
