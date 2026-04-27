@@ -947,4 +947,218 @@ The substrate at `origin/main` HEAD `6bc005e6...` represents the **pre-HF-191 ba
 
 The two things Phase 0 noted as seemingly contradictory (V-001 absence + Decision 153 absence) are not contradictory — both flow from a single explicit revert of both HF-191 and HF-193. Neither HF-193 nor HF-191 exists on this substrate; both were explicitly reverted by PR #342 ("CLT-197: revert PRs #338 (HF-191 seeds) and #339 (HF-193 partial eradication)").
 
+---
+
+## Section 0G.4 — Rule_Set Selection Logic + Active-Duplicate Behavior (Gap 4, hard) + Concordance Counter Consumers (Gap 7, soft)
+
+### Step 0G.4.1 — Rule_set selection logic in run/route.ts
+
+```
+$ grep -n "rule_sets\|ruleSet\|rule_set_id" web/src/app/api/calculation/run/route.ts | head -10
+9: * Body: { tenantId, periodId, ruleSetId }
+63:  const { tenantId, periodId, ruleSetId } = body;
+65:  if (!tenantId || !periodId || !ruleSetId) {
+67:      { error: 'Missing required fields: tenantId, periodId, ruleSetId' },
+76:  addLog(`Starting: tenant=${tenantId}, period=${periodId}, ruleSet=${ruleSetId}`);
+79:  const { data: ruleSet, error: rsErr } = await supabase
+80:    .from('rule_sets')
+82:    .eq('id', ruleSetId)
+85:  if (rsErr || !ruleSet) {
+```
+
+**Verbatim selection block (lines 79-89):**
+
+```ts
+  const { data: ruleSet, error: rsErr } = await supabase
+    .from('rule_sets')
+    .select('id, name, components, input_bindings, population_config, metadata')
+    .eq('id', ruleSetId)
+    .single();
+
+  if (rsErr || !ruleSet) {
+    return NextResponse.json(
+      { error: `Rule set not found: ${rsErr?.message}`, log },
+      { status: 404 }
+    );
+```
+
+**Selection logic factually stated:**
+
+The route does NOT select a rule_set by status, name, recency, or any other criteria. It accepts a **specific `ruleSetId`** in the request body (line 63) and queries `rule_sets` with `.eq('id', ruleSetId)` (line 82). The CALLER decides which rule_set to calculate against. With multiple active rule_sets per tenant, the caller must supply one specific id.
+
+### Step 0G.4.2 — Rule_set selection in upstream services
+
+**API endpoints that read `rule_sets`:**
+
+```
+$ grep -rn "from('rule_sets')\|from(\"rule_sets\")" web/src/ --include="*.ts" \
+    | grep -v "node_modules\|.next" | head -25
+web/src/app/api/reconciliation/analyze/route.ts:92
+web/src/app/api/periods/detect/route.ts:79
+web/src/app/api/rule-sets/update-cadence/route.ts:26, 41
+web/src/app/api/intelligence/wire/route.ts:72, 80, 215, 366, 389
+web/src/app/api/intelligence/converge/route.ts:38, 54, 78
+web/src/app/api/plan/import/route.ts:98, 110, 118
+web/src/app/api/calculation/run/route.ts:80, 154, 160, 198
+web/src/app/api/platform/observatory/route.ts:640
+web/src/app/api/import/sci/execute-bulk/route.ts:574, 716, 850, 898
+web/src/app/api/import/commit/route.ts:882
+web/src/app/api/plan-readiness/route.ts:28
+```
+
+**The user-facing selection path is `/api/plan-readiness` (the calculate page's plan list source), lines 27-32:**
+
+```ts
+  const { data: ruleSets } = await supabase
+    .from('rule_sets')
+    .select('id, name, input_bindings, status')
+    .eq('tenant_id', tenantId)
+    .in('status', ['active', 'draft'])
+    .order('status', { ascending: true });
+```
+
+It returns ALL rule_sets with `status IN ('active', 'draft')` for the tenant, sorted only by status (active first, then draft). With 2 active rule_sets per tenant, BOTH are returned. The endpoint does NOT deduplicate by name.
+
+**The UI surfaces these as `PlanCard` components on `web/src/app/operate/calculate/page.tsx`. Each card shows a single rule_set; user clicks to calculate. The fetch payload (from `web/src/components/calculate/PlanCard.tsx:82-90`):**
+
+```ts
+      const response = await fetch('/api/calculation/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          periodId,
+          ruleSetId: plan.planId,
+        }),
+      });
+```
+
+The user picks a card; the card's `plan.planId` becomes the `ruleSetId` in the request. With 2 identically-named active rule_sets, the user sees TWO IDENTICAL CARDS and chooses one.
+
+### Step 0G.4.3 — DB query: active rule_sets per tenant ordered by created_at DESC
+
+Executed via `web/scripts/aud004-phase0g4-ruleset.ts` (supabase-js client):
+
+```
+Active rule_sets per tenant (ordered tenant_id, created_at DESC):
+
+  tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 (BCL)
+  id=f7b82b93-b2f6-44c6-8a20-317eec182ce7
+  name="Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"
+  status=active v1
+  created_at=2026-04-27T00:39:32.659944+00:00
+  updated_at=2026-04-27T00:42:25.726084+00:00
+
+  tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 (BCL)
+  id=26cb1efd-b949-47c8-a7a8-d3b56eb3c3b7
+  name="Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"
+  status=active v1
+  created_at=2026-04-27T00:38:33.193184+00:00
+  updated_at=2026-04-27T00:42:02.85362+00:00
+
+  tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 (CRP / Cascade)
+  id=8cea7486-7304-419e-84fa-dc00b9ef4b04
+  name="Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"
+  status=active v1
+  created_at=2026-04-26T23:40:09.948975+00:00
+  updated_at=2026-04-27T00:31:07.450342+00:00
+
+  tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 (CRP / Cascade)
+  id=1591f450-c226-4173-adfe-d63b8c19eec3
+  name="Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026"
+  status=active v1
+  created_at=2026-04-26T23:39:09.73493+00:00
+  updated_at=2026-04-27T00:30:40.931453+00:00
+```
+
+**Per tenant, both active rule_sets share status, version, and name. They differ only in `id`, `created_at`, and `updated_at`. There is no winner-by-default rule in the route logic — the request must pass a specific `ruleSetId`. If the UI sorts by `created_at` (or any consistent default) the most recent one likely wins for an interactive user, but the route itself does not impose this.**
+
+### Step 0G.4.4 — Concordance counter consumers
+
+```
+$ grep -rn "intentMatchCount\|intentMismatchCount" web/src/ --include="*.ts" \
+    | grep -v "node_modules\|.next"
+web/src/app/api/calculation/run/route.ts:1172:  let intentMatchCount = 0;
+web/src/app/api/calculation/run/route.ts:1173:  let intentMismatchCount = 0;
+web/src/app/api/calculation/run/route.ts:1714:      intentMatchCount++;
+web/src/app/api/calculation/run/route.ts:1716:      intentMismatchCount++;
+web/src/app/api/calculation/run/route.ts:1778:  const concordanceRate = (intentMatchCount / calculationEntityIds.length) * 100;
+web/src/app/api/calculation/run/route.ts:1779:  addLog(`OB-76 Dual-path: ${intentMatchCount} match, ${intentMismatchCount} mismatch (${concordanceRate.toFixed(1)}% concordance)`);
+web/src/app/api/calculation/run/route.ts:1844:      matchCount: intentMatchCount,
+web/src/app/api/calculation/run/route.ts:1845:      mismatchCount: intentMismatchCount,
+web/src/app/api/calculation/run/route.ts:1931:          matchCount: intentMatchCount,
+web/src/app/api/calculation/run/route.ts:1932:          mismatchCount: intentMismatchCount,
+```
+
+**Counter write sites (Phase 0F.3 cross-reference):**
+- Line 1714: `intentMatchCount++` (when `entityMatch` is true at line 1713)
+- Line 1716: `intentMismatchCount++` (when not matched)
+
+Per Phase 0F.3, `entityMatch = Math.abs(legacyTotal - intentTotal) < 0.01` (line 1712).
+
+**Counter read sites (4 read sites):**
+
+1. **Line 1778-1779:** `addLog` log message and console output:
+
+```ts
+const concordanceRate = (intentMatchCount / calculationEntityIds.length) * 100;
+addLog(`OB-76 Dual-path: ${intentMatchCount} match, ${intentMismatchCount} mismatch (${concordanceRate.toFixed(1)}% concordance)`);
+```
+
+2. **Lines 1840-1862:** `persistSignal` to write a `training:dual_path_concordance` row to `classification_signals`:
+
+```ts
+  // ── OB-77: Training signal — dual-path concordance (fire-and-forget) ──
+  persistSignal({
+    tenantId,
+    signalType: 'training:dual_path_concordance',
+    signalValue: {
+      matchCount: intentMatchCount,
+      mismatchCount: intentMismatchCount,
+      concordanceRate: parseFloat(concordanceRate.toFixed(2)),
+      entityCount: calculationEntityIds.length,
+      componentCount: defaultComponents.length,
+      intentsTransformed: componentIntents.length,
+      totalPayout: grandTotal,
+      ruleSetId,
+      periodId,
+    },
+    confidence: concordanceRate / 100,
+    source: 'ai_prediction',
+    context: { ruleSetName: ruleSet.name, trigger: 'calculation_run' },
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
+    console.warn('[CalcAPI] Training signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+  });
+```
+
+3. **Lines 1931-1933:** included in the API response body's `intentLayer` object:
+
+```ts
+        intentLayer: {
+          matchCount: intentMatchCount,
+          mismatchCount: intentMismatchCount,
+          concordance: ((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1) + '%',
+          intentsTransformed: componentIntents.length,
+        },
+```
+
+**Consumers of the `dual_path_concordance` signal in the codebase:**
+
+```
+$ grep -rn "dual_path_concordance\|training:dual_path" web/src/ --include="*.ts" \
+    | grep -v "node_modules\|.next"
+web/src/app/api/calculation/run/route.ts:1842:    signalType: 'training:dual_path_concordance',
+```
+
+**Single match — the write site only.** No code in the codebase reads the `training:dual_path_concordance` signal type by name. Per Phase 0D.4 evidence, the DB has 2 rows of this signal type — they are persisted but unread.
+
+**Counter behavior summary (factual, no interpretation):**
+
+The counters are written incrementally during the entity loop at lines 1714/1716 based on `Math.abs(legacyTotal - intentTotal) < 0.01`. They are read in three places:
+1. Logged via `addLog` (visible to the API caller in the response's `log` array, and to server stdout).
+2. Embedded in a `training:dual_path_concordance` signal row written to `classification_signals`.
+3. Embedded in the success-response body's `intentLayer` object.
+
+**The counters do NOT gate any decision in the route.** No `if (intentMismatchCount > 0)` branch exists. Per Phase 0F.3 (line 1709), `entityTotal = intentTotal` is set unconditionally — the legacy total is preserved only for comparison and reporting. No alert is emitted, no signal triggers a different code path, no UI surface consumes the signal.
+
 
