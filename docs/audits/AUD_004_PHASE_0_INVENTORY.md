@@ -2631,5 +2631,178 @@ CC reports the divergence and its frequency. CC does NOT classify "violation".
 
 5. The `condition.operator` value `"="` (single-equals) appears in BCL component 3. Per intent-executor.ts:285-286, the executor recognizes both `'='` and `'=='` as equality operators.
 
+---
+
+## Phase 0F — Authority Routing Inventory
+
+### Step 0F.1 — HF-188 Authority Routing Locations
+
+```
+$ grep -n "HF-188\|sole authority\|concordance shadow\|INTENT_AUTHORITATIVE" \
+    web/src/app/api/calculation/run/route.ts
+1466:    // ── LEGACY ENGINE PATH (concordance shadow — HF-188) ──
+1468:      addLog('HF-188: Intent executor is sole authority — legacy engine is concordance shadow');
+1583:    // HF-188: Legacy total preserved for concordance comparison only
+1586:    // ── HF-188 INTENT ENGINE PATH (authoritative) ──
+1670:    // HF-188: Intent executor is sole authority. Rounding applied here.
+1686:      // HF-188: Apply Decision 122 rounding to intent executor results
+1707:    // HF-188: Intent executor is authoritative — legacy is concordance shadow
+```
+
+**Verbatim code blocks (±15 lines context):**
+
+#### Lines 1466-1473 (LEGACY ENGINE PATH header):
+
+```ts
+    // ── LEGACY ENGINE PATH (concordance shadow — HF-188) ──
+    if (entityResults.length === 0) {
+      addLog('HF-188: Intent executor is sole authority — legacy engine is concordance shadow');
+    }
+    const componentResults: ComponentResult[] = [];
+    let legacyTotalDecimal = ZERO;
+    const perComponentMetrics: Record<string, number>[] = [];
+    const entityRoundingTraces: RoundingTrace[] = [];
+```
+
+#### Lines 1582-1590 (legacy total preserved for concordance):
+
+```ts
+    }
+
+    // HF-188: Legacy total preserved for concordance comparison only
+    const legacyTotal = toNumber(legacyTotalDecimal);
+
+    // ── HF-188 INTENT ENGINE PATH (authoritative) ──
+    // HF-119: Use selected variant's intents, not always defaultComponents
+    const entityIntents = selectedVariantIndex === 0
+      ? componentIntents
+```
+
+#### Lines 1668-1710 (intent execution loop, override, authoritative total):
+
+```ts
+    if (entityDistrict) aggregateScopeRows('district', entityDistrict, 'district');
+    if (entityRegion) aggregateScopeRows('region', entityRegion, 'region');
+
+    // HF-188: Intent executor is sole authority. Rounding applied here.
+    let intentTotalDecimal = ZERO;
+    for (const ci of entityIntents) {
+      const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
+      const entityData: EntityData = {
+        entityId,
+        metrics,
+        attributes: {},
+        priorResults: [...priorResults],
+        periodHistory: periodHistoryMap.get(entityId),
+        crossDataCounts: entityCrossData,
+        scopeAggregates: entityScopeAgg,
+      };
+      const intentResult = executeIntent(ci, entityData);
+      intentTraces.push(intentResult.trace);
+
+      // HF-188: Apply Decision 122 rounding to intent executor results
+      const comp = selectedComponents[ci.componentIndex];
+      const compIntent = comp?.calculationIntent as Record<string, unknown> | undefined;
+      const compConfig = (comp?.tierConfig || comp?.matrixConfig ||
+        comp?.percentageConfig || comp?.conditionalConfig) as Record<string, unknown> | undefined;
+      const precision = inferOutputPrecision(compIntent, compConfig);
+      const { rounded, trace: roundingTrace } = roundComponentOutput(
+        intentResult.outcome, ci.componentIndex, ci.label, precision
+      );
+      const roundedValue = toNumber(rounded);
+
+      // Override componentResults payout with intent-authority value
+      if (componentResults[ci.componentIndex]) {
+        componentResults[ci.componentIndex].payout = roundedValue;
+      }
+      entityRoundingTraces[ci.componentIndex] = roundingTrace;
+
+      intentTotalDecimal = intentTotalDecimal.plus(rounded);
+      priorResults[ci.componentIndex] = roundedValue;
+    }
+
+    // HF-188: Intent executor is authoritative — legacy is concordance shadow
+    const intentTotal = toNumber(intentTotalDecimal);
+    const entityTotal = intentTotal;
+```
+
+### Step 0F.2 — Per-ComponentType Allow-List Verification
+
+```
+$ grep -rn "INTENT_AUTHORITATIVE_TYPES\|isIntentAuthoritative\|authoritativeTypes" \
+    web/src/ --include="*.ts" | grep -v "node_modules\|.next"
+(no output — zero matches)
+```
+
+**Empty result.** No per-componentType allow-list constants or membership-check function names appear in the source. Consistent with Decision 151 (no per-componentType allow-list).
+
+### Step 0F.3 — Authority-Routing Trace Through One Sample Component
+
+The intent loop iterating components and writing `total_payout` is at run/route.ts:1672-1709.
+
+**Trace (factual, no interpretation):**
+
+- **Line 1471:** `let legacyTotalDecimal = ZERO;` — initializes the legacy total accumulator.
+- **Line 1475-1581:** the legacy loop runs over `selectedComponents`, calling the legacy `evaluateComponent`/switch dispatch (run-calculation.ts:362-408) and accumulating `legacyTotalDecimal = legacyTotalDecimal.plus(rounded);` (line 1580). At the end of this loop, `componentResults[i].payout` holds the legacy result for each component.
+- **Line 1584:** `const legacyTotal = toNumber(legacyTotalDecimal);` — legacy total computed.
+- **Line 1671:** `let intentTotalDecimal = ZERO;` — initializes the intent total accumulator.
+- **Line 1672-1705:** the intent loop runs over `entityIntents`, calling `executeIntent(ci, entityData)` (line 1683). For each component:
+  - Line 1683: `intentResult = executeIntent(ci, entityData)` produces `intentResult.outcome` (a Decimal converted to number internally).
+  - Line 1692-1694: the result is rounded per Decision 122 precision: `const { rounded, trace: roundingTrace } = roundComponentOutput(intentResult.outcome, ci.componentIndex, ci.label, precision);`
+  - Line 1695: `const roundedValue = toNumber(rounded);`
+  - Line 1697-1700: **`componentResults[ci.componentIndex].payout = roundedValue;`** — the intent-engine value OVERRIDES the legacy value previously written by the legacy loop.
+  - Line 1703: `intentTotalDecimal = intentTotalDecimal.plus(rounded);` — intent total accumulator.
+- **Line 1708:** `const intentTotal = toNumber(intentTotalDecimal);` — intent total computed.
+- **Line 1709:** `const entityTotal = intentTotal;` — `entityTotal` is the intent total. `legacyTotal` is NOT mixed in.
+- **Line 1737:** the entity result row writes `total_payout: entityTotal` — i.e., the intent total.
+- **Line 1738:** `components: componentResults` — the components array (with intent-overridden `payout` values).
+
+**Concordance comparison (lines 1711-1717):**
+
+```ts
+// ── DUAL-PATH COMPARISON ──
+const entityMatch = Math.abs(legacyTotal - intentTotal) < 0.01;
+if (entityMatch) {
+  intentMatchCount++;
+} else {
+  intentMismatchCount++;
+}
+```
+
+The legacy total is compared to the intent total per entity (tolerance 0.01). Match/mismatch counters are incremented; the comparison itself does NOT alter `entityTotal` (which was already set to `intentTotal` at line 1709).
+
+### Step 0F.4 — `executeOperation` Invocation Trace
+
+```
+$ grep -rn "executeOperation" web/src/lib/calculation/ web/src/app/api/calculation/ \
+    --include="*.ts" | grep -v "node_modules\|.next"
+web/src/lib/calculation/intent-executor.ts:154:    return executeOperation(sourceOrOp, data, inputLog, trace);
+web/src/lib/calculation/intent-executor.ts:291:  return executeOperation(branch, data, inputLog, trace);
+web/src/lib/calculation/intent-executor.ts:432:export function executeOperation(
+web/src/lib/calculation/intent-executor.ts:589:      outcome = executeOperation(matchedRoute.intent, entityData, inputLog, trace);
+web/src/lib/calculation/intent-executor.ts:594:            outcome = executeOperation(routing.routes[0].intent, entityData, inputLog, trace);
+web/src/lib/calculation/intent-executor.ts:607:    outcome = executeOperation(intent.intent, entityData, inputLog, trace);
+web/src/lib/calculation/run-calculation.ts:28:import { executeOperation, type EntityData } from '@/lib/calculation/intent-executor';
+web/src/lib/calculation/run-calculation.ts:393:        const gatePayout = toNumber(executeOperation(gateIntent as unknown as IntentOperation, entityData, inputLog, {}));
+web/src/lib/calculation/run-calculation.ts:456:        const intentPayoutDecimal = executeOperation(intentOp, entityData, inputLog, {});
+```
+
+**Call site enumeration (8 sites: 1 declaration + 7 callers):**
+
+1. **Line 432** — `export function executeOperation(...)` — the declaration, not a call site.
+2. **Line 154** (intent-executor.ts) — internal recursive call from `resolveValue`. Reached when an `IntentSource` is itself an `IntentOperation` (composable nesting).
+3. **Line 291** (intent-executor.ts) — internal recursive call from `executeConditionalGate`. Executes `op.onTrue` or `op.onFalse` branch.
+4. **Line 589** (intent-executor.ts) — call from `executeIntent`'s variant-routing branch when a route matches.
+5. **Line 594** (intent-executor.ts) — call from `executeIntent`'s variant-routing branch when no route matches and `noMatchBehavior === 'first'`.
+6. **Line 607** (intent-executor.ts) — call from `executeIntent`'s "single operation" branch (no variants).
+7. **Line 393** (run-calculation.ts) — call from the legacy switch's `case 'conditional_percentage'`. Reached when `gateIntent?.operation === 'conditional_gate'`. The result is wrapped: `toNumber(executeOperation(...))`. If `executeOperation` returned `undefined` (per B6 default analysis), `toNumber(undefined)` throws TypeError. This call site has NO try/catch wrapper — the exception would propagate to the run/route.ts loop.
+8. **Line 456** (run-calculation.ts) — call from the OB-117 calculationIntent fallback (post-switch fallback). The result is wrapped: `const intentPayoutDecimal = executeOperation(intentOp, ...); const intentPayout = toNumber(intentPayoutDecimal);`. This call IS inside a try/catch (lines 415-471); a TypeError from `toNumber(undefined)` is silently swallowed at line 469-471.
+
+**executeOperation's external entry points:**
+
+The intent-executor's external API is `executeIntent` (line 554), not `executeOperation` directly. Run/route.ts at line 1683 calls `executeIntent(ci, entityData)` — which dispatches internally to `executeOperation` at lines 589/594/607. There is no try/catch around the line-1683 call site in run/route.ts; a TypeError from a fall-through `executeOperation` would propagate up the entity loop.
+
+The legacy fallback at run-calculation.ts:456 is the only place where `executeOperation`'s return is locally caught (try/catch at lines 415-471).
+
 
 
