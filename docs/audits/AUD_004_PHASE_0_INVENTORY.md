@@ -2011,5 +2011,299 @@ Cases routed through `convertComponent`'s default branch (Primitives 1, 2, 5, 6,
 
 `scope_aggregate` is the only string named as both a prompt example operation (line 493) and an importer 5-tuple case (line 669) without a corresponding intent-executor case. `weighted_blend` and `temporal_window` are the inverse: present as executor cases without prompt or importer recognition.
 
+---
+
+## Phase 0D — Signal Surface Inventory
+
+### Step 0D.1 — Schema Verification
+
+Schema verification was performed via `web/scripts/aud004-phase0d-inventory.ts` (a tsx script using `@supabase/supabase-js` with the service role key — the project's standard pattern; the `postgres` library named in the directive is not installed). The script attempts to read each named table; PostgREST returns "Could not find the table" if the table is not exposed in the schema cache. Output verbatim:
+
+```
+TABLE classification_signals: EXISTS (total_rows=60)
+  Columns from sample row:
+    id: string
+    tenant_id: string
+    entity_id: null
+    signal_type: string
+    signal_value: object
+    confidence: number
+    source: string
+    context: object
+    created_at: string
+    source_file_name: string
+    sheet_name: string
+    structural_fingerprint: object
+    classification: string
+    decision_source: string
+    classification_trace: object
+    header_comprehension: null
+    vocabulary_bindings: null
+    agent_scores: object
+    human_correction_from: null
+    scope: string
+    rule_set_id: null
+    metric_name: null
+    component_index: null
+
+TABLE foundational_classification_signals: NOT EXISTS or NOT EXPOSED — error="Could not find the table 'public.foundational_classification_signals' in the schema cache"
+
+TABLE domain_classification_signals: NOT EXISTS or NOT EXPOSED — error="Could not find the table 'public.domain_classification_signals' in the schema cache"
+
+TABLE rule_sets: EXISTS (total_rows=4)
+  Columns from sample row:
+    id: string
+    tenant_id: string
+    name: string
+    description: string
+    status: string
+    version: number
+    effective_from: null
+    effective_to: null
+    population_config: object
+    input_bindings: object
+    components: object
+    cadence_config: object
+    outcome_config: object
+    metadata: object
+    created_by: string
+    approved_by: null
+    created_at: string
+    updated_at: string
+
+TABLE synaptic_density: EXISTS (total_rows=6)
+  Columns from sample row:
+    id: string
+    tenant_id: string
+    signature: string
+    confidence: number
+    execution_mode: string
+    total_executions: number
+    last_anomaly_rate: number
+    last_correction_count: number
+    learned_behaviors: object
+    created_at: string
+    updated_at: string
+```
+
+**Schema observations (recorded as evidence, not classified):**
+
+1. `classification_signals` exposes 23 columns in the live sample. SCHEMA_REFERENCE_LIVE.md (generated 2026-03-18) lists 20 columns. Three additional columns appear in the live row: `rule_set_id`, `metric_name`, `component_index`. These columns post-date the 2026-03-18 schema snapshot.
+
+2. `foundational_classification_signals` and `domain_classification_signals` do NOT exist as tables, neither in SCHEMA_REFERENCE_LIVE.md nor in the live PostgREST schema cache. The `classification_signals` table includes a `scope` column (default `'tenant'` per SCHEMA_REFERENCE_LIVE.md line 155) — flywheel-scope partitioning is implemented as a column rather than as separate tables.
+
+3. There is no `level` column on `classification_signals` — the directive's Step 0D.5 query template referenced `level`, but the column does not exist on the substrate. The query was adapted to omit `level` (results in 0D.5 below).
+
+4. `rule_sets`, `synaptic_density` schemas match SCHEMA_REFERENCE_LIVE.md.
+
+### Step 0D.2 — Signal_Type Write Inventory (Codebase Grep)
+
+```
+$ grep -rn "signal_type" web/src/ --include="*.ts" \
+  | grep -v "node_modules\|.next" \
+  | grep -v "SELECT\|select \|interface "
+```
+
+Output (41 lines, full):
+
+```
+web/src/app/api/signals/route.ts:4: * GET /api/signals?tenant_id=...&signal_type=...&limit=...
+web/src/app/api/signals/route.ts:13: *   id, tenant_id, entity_id, signal_type, signal_value, confidence, source, context, created_at
+web/src/app/api/signals/route.ts:23:    const signalType = searchParams.get('signal_type');
+web/src/app/api/signals/route.ts:38:      .select('id, tenant_id, entity_id, signal_type, signal_value, confidence, source, context, created_at')
+web/src/app/api/signals/route.ts:44:      query = query.eq('signal_type', signalType);
+web/src/app/api/signals/route.ts:65:      typeBreakdown[signal.signal_type] = (typeBreakdown[signal.signal_type] || 0) + 1;
+web/src/app/api/signals/route.ts:103:        signal_type: string;
+web/src/app/api/signals/route.ts:119:      signal_type: s.signal_type,
+web/src/app/api/platform/observatory/route.ts:390:    .select('id, tenant_id, signal_type, confidence')
+web/src/app/api/platform/observatory/route.ts:410:    if (!byType[s.signal_type]) byType[s.signal_type] = { count: 0, totalConf: 0 };
+web/src/app/api/platform/observatory/route.ts:411:    byType[s.signal_type].count++;
+web/src/app/api/platform/observatory/route.ts:412:    byType[s.signal_type].totalConf += conf;
+web/src/app/api/platform/observatory/route.ts:429:    safeSignals.some(s => s.tenant_id === tid && s.signal_type.startsWith('sci:'))
+web/src/lib/intelligence/ai-metrics-service.ts:8: * - computeAccuracyMetrics: per signal_type acceptance/correction/rejection rates
+web/src/lib/intelligence/ai-metrics-service.ts:72:  signal_type: string;
+web/src/lib/intelligence/ai-metrics-service.ts:97:    .select('id, tenant_id, signal_type, confidence, source, created_at')
+web/src/lib/intelligence/ai-metrics-service.ts:153:    if (!byType[s.signal_type]) {
+web/src/lib/intelligence/ai-metrics-service.ts:154:      byType[s.signal_type] = { total: 0, accepted: 0, corrected: 0, rejected: 0, confSum: 0, confCount: 0 };
+web/src/lib/intelligence/ai-metrics-service.ts:156:    const t = byType[s.signal_type];
+web/src/lib/intelligence/convergence-service.ts:255:          signal_type: 'convergence_calculation_validation',
+web/src/lib/signals/stream-signals.ts:49:      signal_type: 'stream_interaction',
+web/src/lib/signals/briefing-signals.ts:48:      signal_type: 'briefing_interaction',
+web/src/lib/sci/signal-capture-service.ts:15: * Returns signal_type on success, null on failure. NEVER throws.
+web/src/lib/sci/classification-signal-service.ts:92:        signal_type: 'sci:classification_outcome_v2',
+web/src/lib/agents/agent-memory.ts:188:      .select('signal_type, signal_value, confidence, created_at')
+web/src/lib/agents/agent-memory.ts:212:    const signalType = row.signal_type as string;
+web/src/lib/supabase/database.types.ts:764:          signal_type: string;
+web/src/lib/supabase/database.types.ts:775:          signal_type: string;
+web/src/lib/supabase/data-service.ts:407:    signal_type: signal.signalType,
+web/src/lib/supabase/data-service.ts:433:  if (options?.signalType) query = query.eq('signal_type', options.signalType);
+web/src/lib/ai/signal-persistence.ts:10: *   id, tenant_id, entity_id, signal_type, signal_value, confidence, source, context, created_at
+web/src/lib/ai/signal-persistence.ts:52:        signal_type: signal.signalType,
+web/src/lib/ai/signal-persistence.ts:60:      console.error('[SignalPersistence] Failed to persist signal:', error.message, '| signal_type:', signal.signalType, '| tenant:', signal.tenantId);
+web/src/lib/ai/signal-persistence.ts:65:    console.error('[SignalPersistence] Exception:', err, '| signal_type:', signal.signalType, '| tenant:', signal.tenantId);
+web/src/lib/ai/signal-persistence.ts:88:      signal_type: s.signalType,
+web/src/lib/ai/signal-persistence.ts:137:      query = query.eq('signal_type', signalType);
+web/src/lib/ai/signal-persistence.ts:149:      signalType: row.signal_type,
+web/src/lib/data/platform-queries.ts:391:    .select('id, tenant_id, signal_type, confidence')
+web/src/lib/data/platform-queries.ts:417:    if (!byType[s.signal_type]) byType[s.signal_type] = { count: 0, totalConf: 0 };
+web/src/lib/data/platform-queries.ts:418:    byType[s.signal_type].count++;
+web/src/lib/data/platform-queries.ts:419:    byType[s.signal_type].totalConf += conf;
+```
+
+**Distinct `signal_type` string literals written by code (where the literal is on the same line):**
+
+- `'sci:classification_outcome_v2'` — `web/src/lib/sci/classification-signal-service.ts:92`
+- `'convergence_calculation_validation'` — `web/src/lib/intelligence/convergence-service.ts:255`
+- `'stream_interaction'` — `web/src/lib/signals/stream-signals.ts:49`
+- `'briefing_interaction'` — `web/src/lib/signals/briefing-signals.ts:48`
+
+**Other writes via dynamic `signal.signalType` (call-site dependent):**
+- `data-service.ts:407` — writes `signal_type: signal.signalType` (whatever the caller passes)
+- `signal-persistence.ts:52, 88` — writes `signal_type: signal.signalType` / `s.signalType`
+
+CC does NOT enumerate which strings are passed at runtime. The DB universe (Step 0D.4) shows the actually-persisted set.
+
+### Step 0D.3 — Signal_Type Read Inventory (Codebase Grep)
+
+```
+$ grep -rn "classification_signals\|signal_type" web/src/ --include="*.ts" \
+  | grep -i "select\|from\|query\|fetch\|read\|get\|.eq(" \
+  | grep -v "node_modules\|.next"
+```
+
+Output (44 lines, full):
+
+```
+web/src/app/api/ingest/classification/route.ts:38:      .from('classification_signals')
+web/src/app/api/signals/route.ts:23:    const signalType = searchParams.get('signal_type');
+web/src/app/api/signals/route.ts:37:      .from('classification_signals')
+web/src/app/api/signals/route.ts:38:      .select('id, tenant_id, entity_id, signal_type, signal_value, confidence, source, context, created_at')
+web/src/app/api/signals/route.ts:44:      query = query.eq('signal_type', signalType);
+web/src/app/api/signals/route.ts:127:      .from('classification_signals')
+web/src/app/api/platform/observatory/route.ts:223:    supabase.from('classification_signals').select('confidence').limit(1000),
+web/src/app/api/platform/observatory/route.ts:389:    .from('classification_signals')
+web/src/app/api/platform/observatory/route.ts:390:    .select('id, tenant_id, signal_type, confidence')
+web/src/app/api/platform/observatory/route.ts:710:    supabase.from('classification_signals')
+web/src/app/api/import/sci/trace/route.ts:27:      .from('classification_signals')
+web/src/lib/intelligence/ai-metrics-service.ts:96:    .from('classification_signals')
+web/src/lib/intelligence/ai-metrics-service.ts:97:    .select('id, tenant_id, signal_type, confidence, source, created_at')
+web/src/lib/intelligence/convergence-service.ts:253:        await supabase.from('classification_signals').insert({
+web/src/lib/signals/stream-signals.ts:64:    await supabase.from('classification_signals').insert(rows);
+web/src/lib/signals/briefing-signals.ts:60:    await supabase.from('classification_signals').insert(rows);
+web/src/lib/sci/contextual-reliability.ts:67:      .from('classification_signals')
+web/src/lib/sci/classification-signal-service.ts:89:      .from('classification_signals')
+web/src/lib/sci/classification-signal-service.ts:146:      .from('classification_signals')
+web/src/lib/sci/classification-signal-service.ts:349:      .from('classification_signals')
+web/src/lib/sci/classification-signal-service.ts:539:      .from('classification_signals')
+web/src/lib/agents/agent-memory.ts:187:      .from('classification_signals')
+web/src/lib/agents/agent-memory.ts:188:      .select('signal_type, signal_value, confidence, created_at')
+web/src/lib/supabase/data-service.ts:414:    .from('classification_signals')
+web/src/lib/supabase/data-service.ts:429:    .from('classification_signals')
+web/src/lib/supabase/data-service.ts:433:  if (options?.signalType) query = query.eq('signal_type', options.signalType);
+web/src/lib/ai/signal-persistence.ts:48:      .from('classification_signals')
+web/src/lib/ai/signal-persistence.ts:96:      .from('classification_signals')
+web/src/lib/ai/signal-persistence.ts:130:      .from('classification_signals')
+web/src/lib/ai/signal-persistence.ts:137:      query = query.eq('signal_type', signalType);
+web/src/lib/data/persona-queries.ts:679:      .from('classification_signals')
+web/src/lib/data/platform-queries.ts:390:    .from('classification_signals')
+web/src/lib/data/platform-queries.ts:391:    .select('id, tenant_id, signal_type, confidence')
+```
+
+**Read sites with explicit `signal_type` filters:**
+- `web/src/app/api/signals/route.ts:44` — `query = query.eq('signal_type', signalType)` (signalType from query string param, line 23)
+- `web/src/lib/supabase/data-service.ts:433` — `query = query.eq('signal_type', options.signalType)` (caller-supplied)
+- `web/src/lib/ai/signal-persistence.ts:137` — `query = query.eq('signal_type', signalType)` (caller-supplied)
+
+**Read sites without a `signal_type` filter (read all signal types for the queried tenant):**
+- `web/src/app/api/platform/observatory/route.ts:223, 389-390` — observatory dashboard
+- `web/src/lib/intelligence/ai-metrics-service.ts:96-97` — metrics aggregation
+- `web/src/lib/agents/agent-memory.ts:187-188` — agent memory loader
+- `web/src/lib/sci/classification-signal-service.ts:89, 146, 349, 539` — classification signal service (these reads filter on `entity_id` / `structural_fingerprint`, not `signal_type`)
+- `web/src/lib/sci/contextual-reliability.ts:67` — contextual reliability
+- `web/src/lib/data/persona-queries.ts:679` — persona queries
+- `web/src/lib/data/platform-queries.ts:390-391` — platform queries
+
+CC does NOT classify these as correct or incorrect.
+
+### Step 0D.4 — Production Signal_Type Universe (DB)
+
+The directive's SQL was executed via supabase-js client-side aggregation (no `exec_sql` RPC). Output verbatim:
+
+```
+signal_type | rows | distinct_tenants
+-----------|------|-----------------
+sci:classification_outcome_v2 | 41 | 2
+training:synaptic_density | 6 | 2
+sci:cost_event | 4 | 2
+training:plan_interpretation | 4 | 2
+stream_interaction | 2 | 2
+training:dual_path_concordance | 2 | 2
+convergence_calculation_validation | 1 | 1
+
+Total rows: 60, distinct signal_type: 7
+```
+
+**Observation:** Of the 7 distinct `signal_type` strings present in the database, 4 are NOT directly emitted as string literals by codebase grep (Step 0D.2): `training:synaptic_density`, `sci:cost_event`, `training:plan_interpretation`, `training:dual_path_concordance`. These are written via dynamic `signal.signalType` paths (e.g., training-signal-service, sci/cost-event service). 1 IS emitted as literal: `sci:classification_outcome_v2`, `convergence_calculation_validation`, `stream_interaction`. (`briefing_interaction` literal is emitted in code but not present in DB.)
+
+### Step 0D.5 — Plan-Comprehension Signal Check
+
+The directive's SQL referenced a `level` column (which doesn't exist — see 0D.1 evidence). Adapted query: select `signal_type` and `source` filtered by ILIKE on signal_type fragments and source equality. Output:
+
+```
+Found 4 rows across 1 (signal_type, source) pairs:
+  signal_type='training:plan_interpretation', source='ai_prediction' -> 4 rows
+```
+
+**Observation:** No row has `signal_type` containing the substring `comprehension`. No row has `signal_type` starting with `agent_activity:`. No row has `signal_type` exactly `plan_interpretation` (the prefix-renamed form per HF-193-A). The 4 rows match `training:plan_interpretation` (legacy training-signal naming).
+
+### Step 0D.6 — Seeds Path Inventory
+
+```
+$ grep -rn "plan_agent_seeds" web/src/ --include="*.ts" | grep -v "node_modules\|.next"
+(no output — zero matches)
+```
+
+**Codebase observation:** The string `plan_agent_seeds` appears NOWHERE in the TypeScript source of `web/src/`. V-001's documented code locations are absent from this substrate.
+
+DB query:
+
+```
+Active rule_sets returned: 4
+Rule sets with input_bindings.plan_agent_seeds present: 0 of 4
+Shape distribution (— = absent):
+  —: 4
+
+Detailed list (id | name | status | seeds_state | seeds_shape | created_at):
+  f7b82b93-b2f6-44c6-8a20-317eec182ce7 | Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026 | active | absent | absent | 2026-04-27T00:39:32.659944+00:00
+  26cb1efd-b949-47c8-a7a8-d3b56eb3c3b7 | Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026 | active | absent | absent | 2026-04-27T00:38:33.193184+00:00
+  8cea7486-7304-419e-84fa-dc00b9ef4b04 | Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026 | active | absent | absent | 2026-04-26T23:40:09.948975+00:00
+  1591f450-c226-4173-adfe-d63b8c19eec3 | Banco Cumbre del Litoral - Retail Banking Commission Plan 2025-2026 | active | absent | absent | 2026-04-26T23:39:09.73493+00:00
+```
+
+**DB observation:** All 4 active rule_sets are for the BCL tenant. None have `input_bindings.plan_agent_seeds` set. V-001 is structurally absent from both code and active data on this substrate.
+
+### Step 0D.7 — Convergence One-Way-Door State
+
+```
+$ grep -n "classification_signals\|signal_type\|lookupPriorSignals\|readSignals" \
+    web/src/lib/intelligence/convergence-service.ts
+253:        await supabase.from('classification_signals').insert({
+255:          signal_type: 'convergence_calculation_validation',
+```
+
+**Convergence service write/read enumeration on `classification_signals`:**
+
+- Line 253: **WRITE** — `await supabase.from('classification_signals').insert({...})`. Writes a `convergence_calculation_validation` row with confidence 0.85, source `'convergence_validation'`, decision_source `'structural_anomaly'`.
+- Line 255: write content (not a separate operation; line is the `signal_type` field within the line-253 insert).
+
+**No reads on `classification_signals` from convergence-service.ts.** The function names `lookupPriorSignals` and `readSignals` named in the directive's grep do not appear in this file.
+
+`grep "select\|from" /Users/AndrewAfrica/spm-platform/web/src/lib/intelligence/convergence-service.ts` returned other selects, all on different tables:
+- Line 133: `.select('id, name, components, input_bindings')` — on `rule_sets`
+- Line 628, 636: `.select('data_type, row_data, metadata, import_batch_id')` — on `committed_data`
+- Line 1858: `.select('row_data')` — on `committed_data`
+
+CC enumerates: convergence-service.ts has 1 WRITE site to `classification_signals` (line 253-274 block) and 0 READ sites against `classification_signals`.
+
 
 
