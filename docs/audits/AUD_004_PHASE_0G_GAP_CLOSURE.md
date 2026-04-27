@@ -1161,4 +1161,379 @@ The counters are written incrementally during the entity loop at lines 1714/1716
 
 **The counters do NOT gate any decision in the route.** No `if (intentMismatchCount > 0)` branch exists. Per Phase 0F.3 (line 1709), `entityTotal = intentTotal` is set unconditionally — the legacy total is preserved only for comparison and reporting. No alert is emitted, no signal triggers a different code path, no UI surface consumes the signal.
 
+---
+
+## Section 0G.5 — Helper Function Shape Inventory (Gap 5, soft)
+
+### Step 0G.5.1 — `resolveValue` and `resolveSource`
+
+```
+$ grep -n "function resolveValue\|function resolveSource\|export.*resolveValue\|export.*resolveSource" \
+    web/src/lib/calculation/intent-executor.ts
+61:function resolveSource(
+146:function resolveValue(
+```
+
+**`resolveSource` body verbatim (lines 61-140):**
+
+```ts
+function resolveSource(
+  src: IntentSource,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
+): Decimal {
+  switch (src.source) {
+    case 'metric': {
+      const field = src.sourceSpec.field;
+      // Strip "metric:" prefix if present
+      const key = field.startsWith('metric:') ? field.slice(7) : field;
+      const raw = data.metrics[key] ?? 0;
+      inputLog[field] = { source: 'metric', rawValue: data.metrics[key], resolvedValue: raw };
+      return toDecimal(raw);
+    }
+    case 'ratio': {
+      const numKey = src.sourceSpec.numerator.startsWith('metric:')
+        ? src.sourceSpec.numerator.slice(7) : src.sourceSpec.numerator;
+      const denKey = src.sourceSpec.denominator.startsWith('metric:')
+        ? src.sourceSpec.denominator.slice(7) : src.sourceSpec.denominator;
+      const num = toDecimal(data.metrics[numKey] ?? 0);
+      const den = toDecimal(data.metrics[denKey] ?? 0);
+      const val = den.isZero() ? ZERO : num.div(den);
+      inputLog[`ratio(${numKey}/${denKey})`] = {
+        source: 'ratio',
+        rawValue: { numerator: toNumber(num), denominator: toNumber(den) },
+        resolvedValue: toNumber(val),
+      };
+      return val;
+    }
+    case 'aggregate': {
+      const field = src.sourceSpec.field;
+      const key = field.startsWith('metric:') ? field.slice(7) : field;
+      if (src.sourceSpec.scope === 'group' && data.groupMetrics) {
+        const raw = data.groupMetrics[key] ?? 0;
+        inputLog[`aggregate:group:${key}`] = { source: 'aggregate:group', rawValue: raw, resolvedValue: raw };
+        return toDecimal(raw);
+      }
+      const raw = data.metrics[key] ?? 0;
+      inputLog[`aggregate:${src.sourceSpec.scope}:${key}`] = {
+        source: `aggregate:${src.sourceSpec.scope}`,
+        rawValue: raw,
+        resolvedValue: raw,
+      };
+      return toDecimal(raw);
+    }
+    case 'constant': {
+      inputLog[`constant:${src.value}`] = { source: 'constant', rawValue: src.value, resolvedValue: src.value };
+      return toDecimal(src.value);
+    }
+    case 'entity_attribute': {
+      const attr = src.sourceSpec.attribute;
+      const raw = data.attributes[attr];
+      const val = typeof raw === 'number' ? raw : (typeof raw === 'string' ? parseFloat(raw) || 0 : 0);
+      inputLog[`attr:${attr}`] = { source: 'entity_attribute', rawValue: raw, resolvedValue: val };
+      return toDecimal(val);
+    }
+    case 'prior_component': {
+      const idx = src.sourceSpec.componentIndex;
+      const val = data.priorResults?.[idx] ?? 0;
+      inputLog[`prior:${idx}`] = { source: 'prior_component', rawValue: val, resolvedValue: val };
+      return toDecimal(val);
+    }
+    // OB-181: Cross-data count — reads pre-computed count/sum from crossDataCounts
+    case 'cross_data': {
+      const { dataType, field, aggregation } = src.sourceSpec;
+      const key = field ? `${dataType}:${aggregation}:${field}` : `${dataType}:${aggregation}`;
+      const val = data.crossDataCounts?.[key] ?? 0;
+      inputLog[`cross_data:${key}`] = { source: 'cross_data', rawValue: val, resolvedValue: val };
+      return toDecimal(val);
+    }
+    // OB-181: Scope aggregate — reads pre-computed hierarchical aggregate from scopeAggregates
+    case 'scope_aggregate': {
+      const { field, scope, aggregation } = src.sourceSpec;
+      const key = `${scope}:${field}:${aggregation}`;
+      const val = data.scopeAggregates?.[key] ?? 0;
+      inputLog[`scope_aggregate:${key}`] = { source: 'scope_aggregate', rawValue: val, resolvedValue: val };
+      return toDecimal(val);
+    }
+  }
+}
+```
+
+**Recognized cases:**
+- `'metric'` — line 67
+- `'ratio'` — line 75
+- `'aggregate'` — line 90
+- `'constant'` — line 106
+- `'entity_attribute'` — line 110
+- `'prior_component'` — line 117
+- `'cross_data'` — line 124
+- `'scope_aggregate'` — line 132
+
+**Default branch:** **NO `default:` keyword.** The switch covers exactly the 8 string literals above. Function declares return type `Decimal`. With no fall-through return after the switch, if `src.source` is none of the 8, the function reaches the closing brace at line 140 and returns `undefined`. TypeScript exhaustiveness on the discriminated union `IntentSource` (8 members) prevents this at compile-time only.
+
+**`op.<field>` / `src.<field>` accesses:**
+- Every case reads `src.sourceSpec.<field>` for fields named in the discriminated union members (`field`, `numerator`, `denominator`, `scope`, `aggregation`, `attribute`, `componentIndex`, `dataType`).
+- `'constant'` reads `src.value` directly (no sourceSpec).
+- All cases write to `inputLog[<key>]` and return a `Decimal` via `toDecimal()`.
+
+**Recursive calls to `executeOperation`:** None inside `resolveSource`. (Recursion happens in `resolveValue`.)
+
+**`resolveValue` body verbatim (lines 146-158):**
+
+```ts
+function resolveValue(
+  sourceOrOp: IntentSource | IntentOperation,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  if (isIntentOperation(sourceOrOp)) {
+    // Recursive: execute the nested operation to get a value
+    return executeOperation(sourceOrOp, data, inputLog, trace);
+  }
+  // Existing: resolve from entity data
+  return resolveSource(sourceOrOp, data, inputLog);
+}
+```
+
+**Branch behavior:**
+- If `sourceOrOp` is an `IntentOperation` (per `isIntentOperation` predicate), calls `executeOperation` recursively.
+- Otherwise, calls `resolveSource`.
+- No default branch — the type is a union of `IntentSource | IntentOperation`, and `isIntentOperation` discriminates them.
+
+If `executeOperation` returns `undefined` (per Phase 0B Boundary 6 / Phase 0F.4), `resolveValue` returns `undefined` — and any caller using arithmetic on the result throws.
+
+### Step 0G.5.2 — `findBoundaryIndex`
+
+```
+$ grep -n "function findBoundaryIndex" web/src/lib/calculation/intent-executor.ts
+165:export function findBoundaryIndex(boundaries: Boundary[], value: number): number {
+```
+
+**Function body verbatim (lines 165-191):**
+
+```ts
+export function findBoundaryIndex(boundaries: Boundary[], value: number): number {
+  for (let i = 0; i < boundaries.length; i++) {
+    const b = boundaries[i];
+    const minOk = b.min === null || (b.minInclusive !== false ? value >= b.min : value > b.min);
+
+    // OB-169: Handle .999 approximation in AI-extracted boundaries.
+    // When maxInclusive is true and max has a fractional part within 0.01
+    // of the next integer (e.g., 79.999), the AI meant the boundary to be
+    // exclusive at the ceiling value. Snap to ceiling and use strict less-than.
+    let maxOk: boolean;
+    if (b.max === null) {
+      maxOk = true;
+    } else {
+      let effectiveMax = b.max;
+      let effectiveInclusive = b.maxInclusive === true;
+      const frac = effectiveMax % 1;
+      if (frac > 0 && (1 - frac) < 0.01 && effectiveInclusive) {
+        effectiveMax = Math.ceil(effectiveMax);
+        effectiveInclusive = false;
+      }
+      maxOk = effectiveInclusive ? value <= effectiveMax : value < effectiveMax;
+    }
+
+    if (minOk && maxOk) return i;
+  }
+  return -1;
+}
+```
+
+**Inputs:**
+- `boundaries: Boundary[]` — array of `Boundary` (each with `min: number | null`, `max: number | null`, `minInclusive?: boolean`, `maxInclusive?: boolean` per `intent-types.ts:41-46`).
+- `value: number` — native number for comparison.
+
+**Return:** `number` — the index of the matching boundary, or `-1` if no boundary matches.
+
+**Behavior:** First-match-wins iteration. OB-169 quirk: when `maxInclusive === true` and `max` has a fractional part within 0.01 of the next integer (e.g., `79.999`), snap to `Math.ceil(max)` and treat as exclusive (`< 80` instead of `<= 79.999`).
+
+### Step 0G.5.3 — `applyModifiers`
+
+```
+$ grep -n "function applyModifiers" web/src/lib/calculation/intent-executor.ts
+509:function applyModifiers(
+```
+
+**Function body verbatim (lines 509-547):**
+
+```ts
+function applyModifiers(
+  value: Decimal,
+  modifiers: IntentModifier[],
+  data: EntityData,
+  modifierLog: Array<{ modifier: string; before: number; after: number }>
+): Decimal {
+  let result = value;
+
+  for (const mod of modifiers) {
+    const before = toNumber(result);
+
+    switch (mod.modifier) {
+      case 'cap': {
+        const cap = toDecimal(mod.maxValue);
+        result = result.gt(cap) ? cap : result;
+        break;
+      }
+      case 'floor': {
+        const floor = toDecimal(mod.minValue);
+        result = result.lt(floor) ? floor : result;
+        break;
+      }
+      case 'proration': {
+        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
+        const num = resolveSource(mod.numerator, data, inputLog);
+        const den = resolveSource(mod.denominator, data, inputLog);
+        result = den.isZero() ? ZERO : result.mul(num.div(den));
+        break;
+      }
+      case 'temporal_adjustment':
+        // Temporal adjustment requires historical data — not applied in single-period execution
+        break;
+    }
+
+    modifierLog.push({ modifier: mod.modifier, before, after: toNumber(result) });
+  }
+
+  return result;
+}
+```
+
+**Recognized cases:**
+- `'cap'` — line 521 (reads `mod.maxValue`)
+- `'floor'` — line 526 (reads `mod.minValue`)
+- `'proration'` — line 531 (reads `mod.numerator`, `mod.denominator`)
+- `'temporal_adjustment'` — line 538 (no-op; reads nothing)
+
+**Default branch:** **NO `default:` keyword.** Per `IntentModifier` discriminated union (`intent-types.ts:182-186`), the four members above are the entire union. If `mod.modifier` is none of them, no case fires and `result` is unchanged for that iteration.
+
+**Behavior on `value === undefined`:** If the input `value` parameter is `undefined` (per a fall-through `executeOperation` per Phase 0F.4), then:
+- Line 518 `toNumber(result)` calls `.toNumber()` on `undefined` → TypeError.
+
+So `applyModifiers(undefined, ...)` throws on the first iteration's `before` calculation, IF `modifiers` is non-empty. If `modifiers` is empty (the for loop body never runs), the function returns `undefined` without throwing.
+
+**Modifier shape required:**
+- `IntentModifier` discriminated union per `intent-types.ts:182-186`:
+  - `{ modifier: 'cap'; maxValue: number; scope: 'per_period' | 'per_entity' | 'total' }`
+  - `{ modifier: 'floor'; minValue: number; scope: 'per_period' | 'per_entity' | 'total' }`
+  - `{ modifier: 'proration'; numerator: IntentSource; denominator: IntentSource }`
+  - `{ modifier: 'temporal_adjustment'; lookbackPeriods: number; triggerCondition: IntentSource; adjustmentType: 'full_reversal' | 'partial' | 'prorated' }`
+
+The `scope` field (cap/floor) is declared in the type but not read by the implementation (lines 522-528 only reference `mod.maxValue` / `mod.minValue`).
+
+### Step 0G.5.4 — `IntentOperation` and `IntentSource` discriminated unions
+
+```
+$ grep -rn "type IntentOperation\|interface IntentOperation\|type IntentSource\|interface IntentSource" \
+    web/src/ --include="*.ts" | grep -v "node_modules\|.next"
+web/src/lib/calculation/intent-types.ts:15:export type IntentSource =
+web/src/lib/calculation/intent-types.ts:52:export type IntentOperation =
+```
+
+**`IntentSource` — 8 variants (verbatim, intent-types.ts:15-33):**
+
+```ts
+export type IntentSource =
+  | { source: 'metric'; sourceSpec: { field: string } }
+  | { source: 'ratio'; sourceSpec: { numerator: string; denominator: string } }
+  | { source: 'aggregate'; sourceSpec: { field: string; scope: 'entity' | 'group' | 'global'; aggregation: AggregationType } }
+  | { source: 'constant'; value: number }
+  | { source: 'entity_attribute'; sourceSpec: { attribute: string } }
+  | { source: 'prior_component'; sourceSpec: { componentIndex: number } }
+  // OB-181: Cross-plan data count — counts/sums committed_data rows matching criteria
+  | { source: 'cross_data'; sourceSpec: {
+      dataType: string;     // structural filter on committed_data.data_type (e.g., 'equipment_sales')
+      field?: string;       // field to aggregate (for sum). If absent, counts rows.
+      aggregation: 'count' | 'sum';
+    }}
+  // OB-181: Hierarchical aggregate — sums a metric across all entities in scope
+  | { source: 'scope_aggregate'; sourceSpec: {
+      field: string;        // metric field to aggregate
+      scope: 'district' | 'region';  // hierarchy level
+      aggregation: AggregationType;
+    }};
+```
+
+8 discriminator strings: `metric`, `ratio`, `aggregate`, `constant`, `entity_attribute`, `prior_component`, `cross_data`, `scope_aggregate`. **Match: every IntentSource variant has a corresponding `case` in `resolveSource` (Step 0G.5.1).**
+
+**`IntentOperation` — 11 variants (verbatim, intent-types.ts:52-63):**
+
+```ts
+export type IntentOperation =
+  | BoundedLookup1D
+  | BoundedLookup2D
+  | ScalarMultiply
+  | ConditionalGate
+  | AggregateOp
+  | RatioOp
+  | ConstantOp
+  | WeightedBlendOp
+  | TemporalWindowOp
+  | LinearFunctionOp
+  | PiecewiseLinearOp;
+```
+
+The `operation` discriminator strings (one per interface):
+- `BoundedLookup1D.operation: 'bounded_lookup_1d'` — line 67
+- `BoundedLookup2D.operation: 'bounded_lookup_2d'` — line 80
+- `ScalarMultiply.operation: 'scalar_multiply'` — line 93
+- `ConditionalGate.operation: 'conditional_gate'` — line 100
+- `AggregateOp.operation: 'aggregate'` — line 112
+- `RatioOp.operation: 'ratio'` — line 118
+- `ConstantOp.operation: 'constant'` — line 126
+- `WeightedBlendOp.operation: 'weighted_blend'` — line 132
+- `TemporalWindowOp.operation: 'temporal_window'` — line 142
+- `LinearFunctionOp.operation: 'linear_function'` — line 153
+- `PiecewiseLinearOp.operation: 'piecewise_linear'` — line 161
+
+**Match against executor switch (Phase 0A Boundary 6):** All 11 union members have a corresponding `case` in `executeOperation` (intent-executor.ts:438-450). **Compile-time exhaustive.**
+
+**`scope_aggregate` divergence:** `scope_aggregate` is a member of `IntentSource` (line 29 — a value source), NOT `IntentOperation`. The plan-agent prompt's example at anthropic-adapter.ts:493 (per Phase 0A Boundary 1) writes `"operation": "scope_aggregate"` — a top-level operation discriminator that does NOT exist in the `IntentOperation` union. This is consistent with Phase 0A Boundary 6's finding: `scope_aggregate` has no executor case (because it isn't a valid `IntentOperation`).
+
+**Comment-claim divergence:** `intent-types.ts:8` declares the file holds "9 primitive operations". `intent-types.ts:49` declares "The 7 Primitive Operations" as a section header. The actual `IntentOperation` union has 11 members. The doc comments are stale relative to OB-180/181 additions.
+
+### Step 0G.5.5 — `EntityData` shape
+
+```
+$ grep -rn "type EntityData\|interface EntityData" web/src/ --include="*.ts" \
+    | grep -v "node_modules\|.next"
+web/src/lib/calculation/intent-executor.ts:37:export interface EntityData {
+```
+
+**Type definition verbatim (intent-executor.ts:37-48):**
+
+```ts
+export interface EntityData {
+  entityId: string;
+  metrics: Record<string, number>;
+  attributes: Record<string, string | number | boolean>;
+  groupMetrics?: Record<string, number>;
+  priorResults?: number[];    // outcomes of previously calculated components
+  periodHistory?: number[];   // prior period values for temporal_window (loaded in batch, not per-entity)
+  // OB-181: Cross-data counts — pre-computed counts/sums of committed_data by data_type
+  crossDataCounts?: Record<string, number>;  // key: "dataType:count" or "dataType:sum:field" → value
+  // OB-181: Scope aggregates — pre-computed sums across entities in hierarchical scope
+  scopeAggregates?: Record<string, number>;  // key: "scope:field:aggregation" → value
+}
+```
+
+**Fields (8 total):**
+
+| Field | Type | Optional | Used by which `resolveSource` case |
+|---|---|---|---|
+| `entityId` | `string` | required | (executeIntent trace, not value resolution) |
+| `metrics` | `Record<string, number>` | required | `'metric'`, `'ratio'`, `'aggregate'` (entity scope) |
+| `attributes` | `Record<string, string\|number\|boolean>` | required | `'entity_attribute'` |
+| `groupMetrics` | `Record<string, number>` | optional | `'aggregate'` (group scope) |
+| `priorResults` | `number[]` | optional | `'prior_component'` |
+| `periodHistory` | `number[]` | optional | `executeTemporalWindow` (line 366) |
+| `crossDataCounts` | `Record<string, number>` | optional | `'cross_data'` |
+| `scopeAggregates` | `Record<string, number>` | optional | `'scope_aggregate'` |
+
+The shape passed in by run/route.ts:1674-1682 supplies all 8 (or all 8 minus `groupMetrics`, which the route doesn't populate). The route does populate `priorResults`, `periodHistory`, `crossDataCounts`, and `scopeAggregates`, with `attributes: {}` (empty).
+
+**Note:** `attributes: {}` empty object passed at run/route.ts:1677 means `'entity_attribute'` source resolution always returns `0` (line 113: `data.attributes[attr]` → `undefined`, coerced to `0`). Variant routing at executeIntent:576 (`entityData.attributes[attrSrc.sourceSpec.attribute] ?? ''`) always returns `''` for the same reason — variants will never match by entity attribute on this code path.
+
 
