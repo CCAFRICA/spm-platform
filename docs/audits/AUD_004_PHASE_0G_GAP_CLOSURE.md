@@ -428,4 +428,281 @@ The shape **vocabulary** (the four operation strings) is preserved in `CLT-183_C
 
 **Architect verbatim provision of proven baseline shape is required for AUD-004 remediation conversation.** This gap remains open after Phase 0G.
 
+---
+
+## Section 0G.2 — `executeIntent` Outer-Scope Error Containment (Gap 2, hard) + `executeIntent` Orchestrator (Gap 6, soft)
+
+### Step 0G.2.1 — Outer-scope error trace
+
+```
+$ grep -n "for (\|try {\|} catch\|throw\|console\.error\|addLog" \
+    web/src/app/api/calculation/run/route.ts
+```
+
+Relevant entries (filtered to error-path context):
+
+```
+61:export async function POST(request: NextRequest) {
+74:  const addLog = (msg: string) => { log.push(msg); console.log(`[CalcAPI] ${msg}`); };
+133:    try {                                              # HF-165 convergence (non-blocking)
+176:  } catch (convErr) {
+178:    addLog(`HF-165: Convergence failed (non-blocking): ${convErr instanceof Error ? convErr.message : String(convErr)}`);
+889:  try {                                                # AI context fetch
+920:  } catch (aiErr) {
+921:    addLog(`AI context fetch failed (non-blocking): ${aiErr instanceof Error ? aiErr.message : 'unknown'}`);
+930:  try {                                                # Agent memory load
+934:  } catch (memErr) {
+935:    console.error('[CalcAPI] Agent memory load failed, falling back to direct density:', memErr);
+936:    try {
+939:    } catch {
+941:      addLog('Fallback: Synaptic density load failed (non-blocking) — starting fresh');
+995:  try {                                                # Period history (temporal_window)
+1016:  } catch (histErr) {
+1017:    addLog(`Period history load failed (temporal_window will degrade gracefully): ...`);
+1209:  try {                                                # Materialization (period_entity_state)
+1274:  } catch (matErr) {
+1316:  for (const entityId of calculationEntityIds) {       # ← OUTER ENTITY LOOP START
+1672:    for (const ci of entityIntents) {                  # ← INTENT LOOP (executeIntent at 1683)
+1759:      try {                                            # Inline insight checkpoint
+1764:      } catch {
+1765:        // Never block calculation for insight failure
+1766:      }
+1776:  }                                                    # ← OUTER ENTITY LOOP END
+1808:    try {                                              # Flywheel updates
+1819:  } catch (fwErr) {
+1949:    addLog(`WARNING: Failed to transition batch: ${transErr.message}`);
+1955:  try {                                                # Insights generation
+1993:  } catch (insightErr) {
+1995:    addLog('Insight analysis failed (non-blocking)');
+2040:    addLog(`WARNING: Failed to materialize outcomes: ${outcomeWriteErr}`);
+2048:  try {                                                # Metering
+2064:  } catch {
+2065:    addLog('Metering failed (non-blocking)');
+```
+
+**Key structural facts (no interpretation):**
+
+- The outer entity loop runs from **line 1316 (`for (const entityId of calculationEntityIds)`)** to **line 1776 (closing brace)**.
+- The intent loop (which calls `executeIntent` at line 1683) runs from line 1672 to line 1705 — entirely INSIDE the entity loop body.
+- **No `try { ... } catch (...)` block wraps either the entity loop or the intent loop.**
+- The only try/catch *inside* the entity loop body is at lines 1759-1766, around the optional inline insight checkpoint — far from the `executeIntent` call site.
+- Earlier-in-route try/catch blocks (lines 133-178, 889-921, 930-941, 995-1017, 1209-1274) all wrap NON-CRITICAL pre-loop operations and are explicitly annotated "(non-blocking)".
+- `executeIntent` at line 1683 is NOT wrapped in any catch.
+
+### Step 0G.2.2 — `executeIntent` call site context (lines 1640-1740)
+
+The full code block was captured at Phase 0F evidence and Step 0G.2.1's grep. Annotation of error-flow paths:
+
+```ts
+    // line 1670-1705: HF-188 intent loop
+    let intentTotalDecimal = ZERO;
+    for (const ci of entityIntents) {
+      const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
+      const entityData: EntityData = { entityId, metrics, attributes: {}, priorResults: [...priorResults], periodHistory: ..., crossDataCounts: ..., scopeAggregates: ... };
+      const intentResult = executeIntent(ci, entityData);  // ← line 1683: NO try/catch
+      intentTraces.push(intentResult.trace);
+
+      // line 1687-1695: rounding
+      const comp = selectedComponents[ci.componentIndex];
+      const compIntent = comp?.calculationIntent as Record<string, unknown> | undefined;
+      const compConfig = (comp?.tierConfig || comp?.matrixConfig || comp?.percentageConfig || comp?.conditionalConfig) as Record<string, unknown> | undefined;
+      const precision = inferOutputPrecision(compIntent, compConfig);
+      const { rounded, trace: roundingTrace } = roundComponentOutput(
+        intentResult.outcome, ci.componentIndex, ci.label, precision
+      );
+      const roundedValue = toNumber(rounded);
+
+      if (componentResults[ci.componentIndex]) {
+        componentResults[ci.componentIndex].payout = roundedValue;
+      }
+      entityRoundingTraces[ci.componentIndex] = roundingTrace;
+
+      intentTotalDecimal = intentTotalDecimal.plus(rounded);
+      priorResults[ci.componentIndex] = roundedValue;
+    }
+```
+
+**Code-path analysis (factual, no interpretation):**
+
+- **Line 1683:** `const intentResult = executeIntent(ci, entityData);` — the result is destructured below for `.outcome` and `.trace`.
+- **Line 1684:** `intentTraces.push(intentResult.trace);` — accesses `intentResult.trace`. If `executeIntent` threw, line 1684 is never reached.
+- **Line 1693:** `roundComponentOutput(intentResult.outcome, ...)` — accesses `intentResult.outcome`. If `executeIntent` threw, line 1693 is never reached.
+- **Line 1695:** `const roundedValue = toNumber(rounded);` — `toNumber` is called on `rounded` (the Decimal output of `roundComponentOutput`). If `roundComponentOutput` returns a `Decimal`, this is safe.
+- **Throwable spots between line 1683 and the line-1737 `entityResults.push`:** `executeIntent` (line 1683), `roundComponentOutput` (line 1692-1694), `toNumber` (line 1695, 1708), `intentTotalDecimal.plus(rounded)` (line 1703 — Decimal arithmetic, can throw on invalid input).
+- **None of these spots have try/catch.** A throw propagates to the entity-loop scope, exits the entity loop, exits the POST function (line 61), and surfaces to Next.js's runtime.
+
+### Step 0G.2.3 — Top-level route error handler
+
+```
+$ grep -n "export async function POST\|return NextResponse" \
+    web/src/app/api/calculation/run/route.ts
+61:export async function POST(request: NextRequest) {
+66:    return NextResponse.json(  # missing-fields 400
+86:    return NextResponse.json(  # rule_set not found 404
+114:    return NextResponse.json(  # also rule_set not found
+257:    return NextResponse.json(  # also error path (HF-165 convergence)
+316:    return NextResponse.json(
+352:    return NextResponse.json(
+981:    return NextResponse.json(
+1873:    return NextResponse.json(
+1907:    return NextResponse.json(
+2082:  return NextResponse.json({  # final SUCCESS response
+```
+
+The POST function signature (line 61) opens the function; lines 62-2128 run sequentially. **No `try { ... } catch (error)` wraps the function body.**
+
+Verbatim opening lines:
+
+```ts
+export async function POST(request: NextRequest) {
+  const body = await request.json();
+  const { tenantId, periodId, ruleSetId } = body;
+
+  if (!tenantId || !periodId || !ruleSetId) {
+    return NextResponse.json(
+      { error: 'Missing required fields: tenantId, periodId, ruleSetId' },
+      { status: 400 }
+    );
+  }
+
+  const supabase = await createServiceRoleClient();
+  const log: string[] = [];
+  const addLog = (msg: string) => { log.push(msg); console.log(`[CalcAPI] ${msg}`); };
+
+  addLog(`Starting: tenant=${tenantId}, period=${periodId}, ruleSet=${ruleSetId}`);
+```
+
+The POST function returns explicit `NextResponse.json(...)` for known error conditions (missing fields, rule-set not found, period not found, etc., at the early-validation lines), but the body of the function — including the entity loop — has no surrounding try/catch.
+
+**Behavior of an exception thrown inside the entity loop:**
+- Throw occurs at line 1683 (or later in the intent loop body).
+- No catch within the entity loop body. Throw exits the loop iteration unfinished.
+- Exits the entity loop entirely (skipping `addLog`, `entityResults.push`, etc., for the affected entity AND all subsequent entities).
+- Exits all subsequent post-loop processing (synaptic flush, calculation_results write, outcomes materialization, insights, metering).
+- Exits the POST function. Returns to the Next.js framework's default error handler, which serializes a 500 response (no custom body, no `log` array, no partial `entityResults` published to the caller).
+
+**`addLog` and `log` array fate:** if a throw aborts the function, the `log` array is never returned (the success response at line 2082 is the only path that includes `log`). The console.log inside `addLog` (line 74) WILL have already flushed to stdout for entries written before the throw, so server logs preserve a partial trace.
+
+### Step 0G.2.4 — `executeIntent` orchestrator inventory (Gap 6, folded)
+
+```
+$ grep -n "function executeIntent\|export.*executeIntent" \
+    web/src/lib/calculation/intent-executor.ts
+554:export function executeIntent(
+```
+
+Single declaration. **`executeIntent` body verbatim (lines 554-634):**
+
+```ts
+export function executeIntent(
+  intent: ComponentIntent,
+  entityData: EntityData
+): ExecutionResult {
+  const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
+  const modifierLog: Array<{ modifier: string; before: number; after: number }> = [];
+  const trace: Partial<ExecutionTrace> = {
+    entityId: entityData.entityId,
+    componentIndex: intent.componentIndex,
+    confidence: intent.confidence,
+  };
+
+  let outcome = ZERO;
+
+  // 1. Resolve variant routing (if present)
+  if (intent.variants) {
+    const routing = intent.variants;
+    const attrSrc = routing.routingAttribute;
+
+    // For entity_attribute source, resolve as string for matching
+    let attrValue: string | number | boolean = '';
+    if (attrSrc.source === 'entity_attribute') {
+      attrValue = entityData.attributes[attrSrc.sourceSpec.attribute] ?? '';
+    } else {
+      attrValue = toNumber(resolveSource(attrSrc, entityData, inputLog));
+    }
+
+    const matchedRoute = routing.routes.find(r => String(r.matchValue) === String(attrValue));
+
+    if (matchedRoute) {
+      trace.variantRoute = {
+        attribute: attrSrc.source === 'entity_attribute' ? attrSrc.sourceSpec.attribute : 'resolved',
+        value: attrValue,
+        matched: String(matchedRoute.matchValue),
+      };
+      outcome = executeOperation(matchedRoute.intent, entityData, inputLog, trace);
+    } else {
+      switch (routing.noMatchBehavior) {
+        case 'first':
+          if (routing.routes.length > 0) {
+            outcome = executeOperation(routing.routes[0].intent, entityData, inputLog, trace);
+          }
+          break;
+        case 'skip':
+          outcome = ZERO;
+          break;
+        case 'error':
+          outcome = ZERO;
+          break;
+      }
+    }
+  } else if (intent.intent) {
+    // 2. Execute single operation (no variants)
+    outcome = executeOperation(intent.intent, entityData, inputLog, trace);
+  }
+
+  // 3. Apply modifiers
+  outcome = applyModifiers(outcome, intent.modifiers, entityData, modifierLog);
+
+  // 4. Convert to native number at output boundary (Decision 122)
+  const outcomeNumber = toNumber(outcome);
+
+  // 5. Build complete trace
+  const executionTrace: ExecutionTrace = {
+    entityId: entityData.entityId,
+    componentIndex: intent.componentIndex,
+    variantRoute: trace.variantRoute,
+    inputs: inputLog,
+    lookupResolution: trace.lookupResolution,
+    modifiers: modifierLog,
+    finalOutcome: outcomeNumber,
+    confidence: intent.confidence,
+  };
+
+  return {
+    entityId: entityData.entityId,
+    componentIndex: intent.componentIndex,
+    outcome: outcomeNumber,
+    trace: executionTrace,
+  };
+}
+```
+
+**Branch inventory:**
+
+1. **Variant-routing branch (lines 569-604):** entered when `intent.variants` is present.
+   - 1a: `matchedRoute` found (line 583) → `executeOperation(matchedRoute.intent, ...)` at line 589.
+   - 1b: no match — `noMatchBehavior` switch at line 591:
+     - `'first'` → `executeOperation(routes[0].intent, ...)` at line 594.
+     - `'skip'` → `outcome = ZERO` at line 598.
+     - `'error'` → `outcome = ZERO` at line 601. **Note:** the `'error'` case does NOT throw or log; it produces zero just like `'skip'`.
+     - The switch has no `default:` keyword. If `noMatchBehavior` is some other string, none of the three cases fires; `outcome` retains its initial `ZERO` value from line 566.
+2. **Single-operation branch (lines 605-608):** entered via `else if (intent.intent)` when no variants exist. Calls `executeOperation(intent.intent, ...)` at line 607.
+3. **Else (no variants AND no `intent.intent`):** no branch matches. `outcome` stays at the initial `ZERO` (line 566).
+
+**Default behavior when no branch matches:** `outcome = ZERO`. No log emitted, no error thrown.
+
+**Steps 3-5 (lines 610-633) run unconditionally:**
+- Line 611: `outcome = applyModifiers(outcome, intent.modifiers, entityData, modifierLog);` — if `outcome` is `undefined` (per a fall-through `executeOperation` per Phase 0F.4), `applyModifiers` is called with `undefined`. To be inventoried in Section 0G.5.3.
+- Line 614: `const outcomeNumber = toNumber(outcome);` — calls `.toNumber()` on `outcome`. If `outcome` is `undefined`, throws `TypeError: Cannot read properties of undefined (reading 'toNumber')`.
+
+**Return shape (lines 628-633):** `{ entityId, componentIndex, outcome: outcomeNumber, trace: executionTrace }`. The `outcome` is a native number (Decision 122 boundary conversion).
+
+**Throw paths within `executeIntent`:**
+- Line 578: `toNumber(resolveSource(attrSrc, ...))` — `resolveSource` returns a `Decimal`; if it throws (e.g., from internal access), propagates. `resolveSource`'s switch (Phase 0G.5 will inventory) is exhaustive on `IntentSource` discriminated union — TypeScript-compile-safe but not runtime-safe.
+- Line 589/594/607: `executeOperation` calls — per Phase 0F.4 / 0B Boundary 6 analysis, these may return `undefined` (no default branch in the switch).
+- Line 611: `applyModifiers(undefined, ...)` if outcome is undefined.
+- Line 614: `toNumber(undefined)` → TypeError.
+
+The function declares no try/catch; any throw propagates to the call site at run/route.ts:1683.
+
 
