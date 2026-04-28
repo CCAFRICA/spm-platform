@@ -78,7 +78,7 @@ export default function EmployeeTracePage() {
             components: traces.map((t) => ({
               componentId: t.id,
               componentName: t.component_name,
-              componentType: 'tier_lookup' as const,
+              componentType: 'bounded_lookup_1d' as const,
               measurementLevel: 'individual' as const,
               enabled: true,
               order: 0,

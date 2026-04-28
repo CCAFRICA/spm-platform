@@ -39,7 +39,6 @@ export type AppModule =
   | 'my_compensation'
   | 'insights'
   | 'performance'
-  | 'plans'
   | 'approvals'
   | 'payout_approvals'
   | 'personnel'
@@ -53,14 +52,12 @@ const MODULE_ACCESS: Record<string, AppModule[]> = {
   sales_rep: [
     'dashboard',
     'my_compensation',
-    'plans',
   ],
   manager: [
     'dashboard',
     'my_compensation',
     'insights',
     'performance',
-    'plans',
     'approvals',
     'personnel',
     'teams',
@@ -70,7 +67,6 @@ const MODULE_ACCESS: Record<string, AppModule[]> = {
     'my_compensation',
     'insights',
     'performance',
-    'plans',
     'approvals',
     'payout_approvals',
     'personnel',
@@ -85,7 +81,6 @@ const MODULE_ACCESS: Record<string, AppModule[]> = {
     'my_compensation',
     'insights',
     'performance',
-    'plans',
     'approvals',
     'payout_approvals',
     'personnel',
@@ -104,7 +99,6 @@ const ROUTE_TO_MODULE: Record<string, AppModule> = {
   '/insights/compensation': 'insights',
   '/insights/performance': 'insights',
   '/performance': 'performance',
-  '/performance/plans': 'plans',
   '/performance/approvals': 'approvals',
   '/performance/approvals/payouts': 'payout_approvals',
   '/workforce/personnel': 'personnel',

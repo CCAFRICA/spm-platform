@@ -192,16 +192,16 @@ function extractLookup(step: CalculationStep): LookupTrace {
     };
   }
 
-  if (step.componentType === 'percentage') {
+  if (step.componentType === 'scalar_multiply') {
     return {
       ...base,
-      type: 'percentage',
+      type: 'scalar_multiply',
       rate: step.inputs.additionalFactors?.['rate'],
       baseAmount: step.inputs.actual,
     };
   }
 
-  if (step.componentType === 'conditional_percentage') {
+  if (step.componentType === 'conditional_gate') {
     return {
       ...base,
       type: 'conditional',
@@ -286,13 +286,13 @@ function buildCalculationSentence(step: CalculationStep): string {
   if (step.calculation) return step.calculation;
 
   switch (step.componentType) {
-    case 'tier_lookup':
+    case 'bounded_lookup_1d':
       return `Attainment ${step.inputs.attainment}% maps to tier "${step.lookupDetails?.tierLabel || '?'}" = $${step.outputValue}`;
-    case 'matrix_lookup':
+    case 'bounded_lookup_2d':
       return `Row "${step.lookupDetails?.rowBand || '?'}" x Column "${step.lookupDetails?.colBand || '?'}" = $${step.outputValue}`;
-    case 'percentage':
+    case 'scalar_multiply':
       return `$${step.inputs.actual} x rate = $${step.outputValue}`;
-    case 'conditional_percentage':
+    case 'conditional_gate':
       return `Condition at ${step.inputs.attainment}% -> rate applied to $${step.inputs.actual} = $${step.outputValue}`;
     default:
       return step.calculation || `Output: $${step.outputValue}`;

@@ -37,7 +37,6 @@ export const PAGE_STATUS: Record<string, PageStatus> = {
   '/financial/timeline':           'preview',
   '/financial/staff':              'preview',
   '/financial/leakage':            'preview',
-  '/performance/plans':            'preview',
   '/operate/results':              'preview',
   '/operate/pay':                  'preview',
   '/operate/approve':              'preview',

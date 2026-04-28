@@ -10,11 +10,11 @@ interface LookupTableVisualizationProps {
 }
 
 export function LookupTableVisualization({ step, compact = false }: LookupTableVisualizationProps) {
-  if (step.componentType === 'matrix_lookup' && step.lookupDetails?.tableType === 'matrix') {
+  if (step.componentType === 'bounded_lookup_2d' && step.lookupDetails?.tableType === 'matrix') {
     return <MatrixVisualization step={step} compact={compact} />;
   }
 
-  if (step.componentType === 'tier_lookup' && step.lookupDetails?.tableType === 'tier') {
+  if (step.componentType === 'bounded_lookup_1d' && step.lookupDetails?.tableType === 'tier') {
     return <TierVisualization step={step} compact={compact} />;
   }
 

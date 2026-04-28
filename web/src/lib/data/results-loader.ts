@@ -248,7 +248,7 @@ export async function loadResultsPageData(
 
       // Determine gate status for conditional_percentage
       let gateStatus: 'passed' | 'failed' | 'none' = 'none';
-      if (compType === 'conditional_percentage') {
+      if (compType === 'conditional_gate') {
         const condVal = details.conditionValue as number | undefined;
         const baseAmt = details.baseAmount as number | undefined;
         if (baseAmt !== undefined && baseAmt > 0 && (c.payout as number) > 0) {

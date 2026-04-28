@@ -125,7 +125,7 @@ View your plan details in Performance > Plans. Contact your manager if you have 
 Vea los detalles de su plan en Rendimiento > Planes. Contacte a su gerente si tiene preguntas sobre la asignación de su plan.`,
       category: 'compensation',
       tags: ['plans', 'commission', 'compensation', 'earnings'],
-      relatedRoutes: ['/performance/plans', '/my-compensation'],
+      relatedRoutes: ['/my-compensation'],
       lastUpdated: '2024-01-12',
     },
     {

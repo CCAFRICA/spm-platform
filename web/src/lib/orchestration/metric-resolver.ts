@@ -160,8 +160,8 @@ export function buildComponentMetrics(
   const metricMap = resolveComponentMetrics(component);
   const result: Record<string, number> = {};
 
-  // OB-29 Phase 3B: tier_lookup expects ATTAINMENT PERCENTAGE, not raw amounts
-  const isTierLookup = componentType === 'tier_lookup';
+  // OB-29 Phase 3B: bounded_lookup_1d expects ATTAINMENT PERCENTAGE, not raw amounts
+  const isTierLookup = componentType === 'bounded_lookup_1d';
 
   for (const [metricName, semanticType] of Object.entries(metricMap)) {
     switch (semanticType) {
@@ -209,39 +209,64 @@ export function buildComponentMetrics(
 }
 
 /**
- * Extract metric configuration from a plan component
+ * Extract metric configuration from a plan component's foundational intent.
+ *
+ * OB-196 Phase 1.7: refactored to read metadata.intent (foundational shape) per
+ * Decision 151 (read-only projection). Reads intent.input.sourceSpec.field for 1D
+ * lookups + scalar_multiply, intent.inputs.row/column.sourceSpec.field for 2D
+ * lookups, intent.condition.left.sourceSpec.field for conditional gates.
  */
 export function extractMetricConfig(component: {
-  matrixConfig?: { rowMetric: string; columnMetric: string };
-  tierConfig?: { metric: string };
-  percentageConfig?: { appliedTo: string };
-  conditionalConfig?: { appliedTo: string; conditions?: Array<{ metric: string }> };
+  metadata?: Record<string, unknown>;
+  calculationIntent?: Record<string, unknown>;
 }): ComponentMetricConfig {
   const config: ComponentMetricConfig = {};
 
-  if (component.matrixConfig) {
-    config.rowMetric = component.matrixConfig.rowMetric;
-    config.columnMetric = component.matrixConfig.columnMetric;
+  const meta = (component.metadata || {}) as Record<string, unknown>;
+  const intent = (meta.intent || component.calculationIntent) as Record<string, unknown> | undefined;
+  if (!intent) return config;
+
+  const op = intent.operation as string | undefined;
+
+  // 2D lookup: intent.inputs.row + intent.inputs.column carry metric sources
+  if (op === 'bounded_lookup_2d') {
+    const inputs = (intent.inputs || {}) as Record<string, unknown>;
+    const rowField = readFieldFromSource(inputs.row);
+    const colField = readFieldFromSource(inputs.column);
+    if (rowField) config.rowMetric = rowField;
+    if (colField) config.columnMetric = colField;
+    return config;
   }
-  if (component.tierConfig) {
-    config.metric = component.tierConfig.metric;
-  }
-  if (component.percentageConfig) {
-    config.appliedTo = component.percentageConfig.appliedTo;
-  }
-  if (component.conditionalConfig) {
-    config.appliedTo = component.conditionalConfig.appliedTo;
-    // Also get condition metrics
-    const conditionMetrics = component.conditionalConfig.conditions
-      ?.map((c) => c.metric)
-      .filter(Boolean);
-    if (conditionMetrics && conditionMetrics.length > 0) {
-      // Store first condition metric in a way we can access it
-      config.metric = conditionMetrics[0];
+
+  // 1D lookup / scalar_multiply / piecewise_linear / linear_function: intent.input
+  const inputField = readFieldFromSource(intent.input);
+  if (inputField) {
+    if (op === 'bounded_lookup_1d') {
+      config.metric = inputField;
+    } else {
+      config.appliedTo = inputField;
     }
   }
 
+  // conditional_gate: also extract the condition's left-hand metric
+  if (op === 'conditional_gate') {
+    const cond = (intent.condition || {}) as Record<string, unknown>;
+    const condField = readFieldFromSource(cond.left);
+    if (condField && !config.metric) config.metric = condField;
+  }
+
   return config;
+}
+
+function readFieldFromSource(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  if (obj.source === 'metric') {
+    const spec = (obj.sourceSpec || {}) as Record<string, unknown>;
+    const field = spec.field;
+    return typeof field === 'string' ? field : undefined;
+  }
+  return undefined;
 }
 
 /**

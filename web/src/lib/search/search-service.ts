@@ -39,13 +39,6 @@ export function globalSearch(query: SearchQuery): SearchResult[] {
     results.push(...searchUsers(searchText));
   }
 
-  if (category === 'all' || category === 'plans') {
-    results.push(...searchPlans(searchText));
-  }
-
-  if (category === 'all' || category === 'disputes') {
-    results.push(...searchDisputes(searchText));
-  }
 
   if (category === 'all' || category === 'reports') {
     results.push(...searchReports(searchText));
@@ -107,58 +100,6 @@ function searchUsers(text: string): SearchResult[] {
       icon: 'User',
       route: `/workforce/personnel?user=${u.id}`,
       score: calculateScore(text, [u.name, u.email, u.role]),
-    }));
-}
-
-function searchPlans(text: string): SearchResult[] {
-  const plans = [
-    { id: 'plan-optivision', name: 'OptiVision Sales Plan', status: 'Active', type: 'Commission' },
-    { id: 'plan-enterprise', name: 'Enterprise Bonus Plan', status: 'Active', type: 'Bonus' },
-    { id: 'plan-q1-spiff', name: 'Q1 SPIFF Program', status: 'Draft', type: 'SPIFF' },
-  ];
-
-  return plans
-    .filter((p) =>
-      p.name.toLowerCase().includes(text) ||
-      p.type.toLowerCase().includes(text) ||
-      p.id.toLowerCase().includes(text)
-    )
-    .map((p) => ({
-      id: p.id,
-      type: 'plans' as SearchCategory,
-      title: p.name,
-      titleEs: p.name,
-      subtitle: `${p.type} - ${p.status}`,
-      subtitleEs: `${p.type} - ${p.status}`,
-      icon: 'FileText',
-      route: `/performance/plans/${p.id}`,
-      score: calculateScore(text, [p.name, p.type, p.id]),
-    }));
-}
-
-function searchDisputes(text: string): SearchResult[] {
-  const disputes = [
-    { id: 'dispute-001', title: 'Missing Commission - January', status: 'Open', rep: 'Maria Rodriguez' },
-    { id: 'dispute-002', title: 'Incorrect Rate Applied', status: 'Resolved', rep: 'James Wilson' },
-    { id: 'dispute-003', title: 'Transaction Not Credited', status: 'Under Review', rep: 'Sarah Chen' },
-  ];
-
-  return disputes
-    .filter((d) =>
-      d.title.toLowerCase().includes(text) ||
-      d.status.toLowerCase().includes(text) ||
-      d.rep.toLowerCase().includes(text)
-    )
-    .map((d) => ({
-      id: d.id,
-      type: 'disputes' as SearchCategory,
-      title: d.title,
-      titleEs: d.title,
-      subtitle: `${d.rep} - ${d.status}`,
-      subtitleEs: `${d.rep} - ${d.status}`,
-      icon: 'AlertTriangle',
-      route: `/transactions/disputes/${d.id}`,
-      score: calculateScore(text, [d.title, d.status, d.rep]),
     }));
 }
 

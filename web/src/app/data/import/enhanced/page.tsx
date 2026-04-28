@@ -754,76 +754,46 @@ function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] 
 
   if (firstVariant?.components) {
     firstVariant.components.forEach((comp: PlanComponent) => {
-      // Extract metrics from matrix configs
-      if (comp.matrixConfig) {
-        componentFields.push({
-          id: comp.matrixConfig.rowMetric,
-          label: comp.matrixConfig.rowMetricLabel,
-          labelEs: comp.matrixConfig.rowMetricLabel,
-          isRequired: true,
-          category: 'metric',
-          componentId: comp.id,
-          componentName: comp.name,
-        });
-        componentFields.push({
-          id: comp.matrixConfig.columnMetric,
-          label: comp.matrixConfig.columnMetricLabel,
-          labelEs: comp.matrixConfig.columnMetricLabel,
-          isRequired: true,
-          category: 'amount',
-          componentId: comp.id,
-          componentName: comp.name,
-        });
-      }
+      // OB-196 Phase 1.7: read metric names from foundational metadata.intent.
+      const meta = (comp.metadata || {}) as Record<string, unknown>;
+      const intent = (meta.intent || (comp as unknown as Record<string, unknown>).calculationIntent) as Record<string, unknown> | undefined;
+      if (!intent) return;
 
-      // Extract metrics from tier configs
-      if (comp.tierConfig) {
+      const op = intent.operation as string | undefined;
+      const pushField = (id: string | undefined, category: 'metric' | 'amount') => {
+        if (!id) return;
         componentFields.push({
-          id: comp.tierConfig.metric,
-          label: comp.tierConfig.metricLabel,
-          labelEs: comp.tierConfig.metricLabel,
+          id,
+          label: id,
+          labelEs: id,
           isRequired: true,
-          category: 'metric',
+          category,
           componentId: comp.id,
           componentName: comp.name,
         });
-      }
+      };
+      const readField = (raw: unknown): string | undefined => {
+        if (!raw || typeof raw !== 'object') return undefined;
+        const o = raw as Record<string, unknown>;
+        if (o.source === 'metric') {
+          const spec = (o.sourceSpec || {}) as Record<string, unknown>;
+          return typeof spec.field === 'string' ? spec.field : undefined;
+        }
+        return undefined;
+      };
 
-      // Extract metrics from percentage configs
-      if (comp.percentageConfig) {
-        componentFields.push({
-          id: comp.percentageConfig.appliedTo,
-          label: comp.percentageConfig.appliedToLabel || comp.percentageConfig.appliedTo,
-          labelEs: comp.percentageConfig.appliedToLabel || comp.percentageConfig.appliedTo,
-          isRequired: true,
-          category: 'amount',
-          componentId: comp.id,
-          componentName: comp.name,
-        });
-      }
-
-      // Extract metrics from conditional configs
-      if (comp.conditionalConfig) {
-        comp.conditionalConfig.conditions.forEach(cond => {
-          componentFields.push({
-            id: cond.metric,
-            label: cond.metricLabel,
-            labelEs: cond.metricLabel,
-            isRequired: true,
-            category: 'metric',
-            componentId: comp.id,
-            componentName: comp.name,
-          });
-        });
-        componentFields.push({
-          id: comp.conditionalConfig.appliedTo,
-          label: comp.conditionalConfig.appliedToLabel,
-          labelEs: comp.conditionalConfig.appliedToLabel,
-          isRequired: true,
-          category: 'amount',
-          componentId: comp.id,
-          componentName: comp.name,
-        });
+      if (op === 'bounded_lookup_2d') {
+        const inputs = (intent.inputs || {}) as Record<string, unknown>;
+        pushField(readField(inputs.row), 'metric');
+        pushField(readField(inputs.column), 'amount');
+      } else if (op === 'bounded_lookup_1d') {
+        pushField(readField(intent.input), 'metric');
+      } else if (op === 'scalar_multiply' || op === 'linear_function' || op === 'piecewise_linear') {
+        pushField(readField(intent.input), 'amount');
+      } else if (op === 'conditional_gate') {
+        const cond = (intent.condition || {}) as Record<string, unknown>;
+        pushField(readField(cond.left), 'metric');
+        pushField(readField(intent.input), 'amount');
       }
     });
   }
@@ -843,13 +813,13 @@ function extractTargetFieldsFromPlan(plan: RuleSetConfig | null): TargetField[] 
 // CLT-08 FIX 2: SECOND-PASS CLASSIFICATION
 // ============================================
 
-// Required metrics by calculation type
+// Required metrics by foundational primitive
 function getRequiredMetrics(calcType: string): string[] {
   switch (calcType?.toLowerCase()) {
-    case 'matrix_lookup': return ['attainment', 'amount', 'goal'];
-    case 'tier_lookup': return ['attainment'];
-    case 'percentage': return ['amount'];
-    case 'conditional_percentage': return ['attainment', 'amount', 'goal'];
+    case 'bounded_lookup_2d': return ['attainment', 'amount', 'goal'];
+    case 'bounded_lookup_1d': return ['attainment'];
+    case 'scalar_multiply': return ['amount'];
+    case 'conditional_gate': return ['attainment', 'amount', 'goal'];
     default: return ['attainment', 'amount', 'goal'];
   }
 }

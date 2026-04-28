@@ -13,14 +13,14 @@
  * NO HARDCODED VALUES - Uses AI semantic mappings throughout
  */
 
-import type { RuleSetConfig, CalculationResult, PlanComponent, Band, Tier } from '@/types/compensation-plan';
+import type { RuleSetConfig, CalculationResult, PlanComponent } from '@/types/compensation-plan';
 import { getRuleSets } from '@/lib/supabase/rule-set-service';
 // Stubs for deleted data-layer-service -- Supabase migration pending
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 function loadAggregatedData(_tenantId: string): any[] { return []; }
 function loadImportContext(_tenantId: string): { sheets?: Array<{ sheetName: string; classification?: string; matchedComponent?: string | null; fieldMappings?: Array<{ sourceColumn: string; semanticType: string }> }> } | null { return null; }
 /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
-import { findSheetForComponent, inferSemanticType } from '@/lib/orchestration/metric-resolver';
+import { findSheetForComponent, inferSemanticType, extractMetricConfig } from '@/lib/orchestration/metric-resolver';
 
 // ============================================
 // TYPES
@@ -412,24 +412,15 @@ function traceComponentCalculation(
   const metricMappings: ComponentTrace['metricMappings'] = [];
 
   if (rawSheetData) {
-    // Extract based on component type
+    // OB-196 Phase 1.7: read metric names from foundational metadata.intent (Decision 151).
+    // Legacy SHAPE fields (matrixConfig/tierConfig/percentageConfig/conditionalConfig)
+    // stripped from PlanComponent — extractMetricConfig now navigates intent.input.sourceSpec.field.
+    const metricConfig = extractMetricConfig(component);
     const metricsToExtract: string[] = [];
-
-    if (component.matrixConfig) {
-      metricsToExtract.push(component.matrixConfig.rowMetric, component.matrixConfig.columnMetric);
-    }
-    if (component.tierConfig) {
-      metricsToExtract.push(component.tierConfig.metric);
-    }
-    if (component.percentageConfig) {
-      metricsToExtract.push(component.percentageConfig.appliedTo);
-    }
-    if (component.conditionalConfig) {
-      metricsToExtract.push(component.conditionalConfig.appliedTo);
-      if (component.conditionalConfig.conditions?.[0]?.metric) {
-        metricsToExtract.push(component.conditionalConfig.conditions[0].metric);
-      }
-    }
+    if (metricConfig.rowMetric) metricsToExtract.push(metricConfig.rowMetric);
+    if (metricConfig.columnMetric) metricsToExtract.push(metricConfig.columnMetric);
+    if (metricConfig.metric) metricsToExtract.push(metricConfig.metric);
+    if (metricConfig.appliedTo) metricsToExtract.push(metricConfig.appliedTo);
 
     for (const metricName of metricsToExtract) {
       const semanticType = inferSemanticType(metricName);
@@ -459,108 +450,57 @@ function traceComponentCalculation(
     }
   }
 
-  // Build calculation formula and compute output value
+  // OB-196 Phase 1.7: build trace from foundational intent (Decision 151 read-only projection).
+  // Output value comes from intent-executor (single calculation authority); this block
+  // emits boundary/output projection for trace display only — no payout computation.
   let calculationFormula = '';
   let outputValue = 0;
   let lookupDetails: Record<string, unknown> | null = null;
 
-  switch (component.componentType) {
-    case 'matrix_lookup':
-      if (component.matrixConfig) {
-        const config = component.matrixConfig;
-        const rowValue = extractedMetrics[config.rowMetric] || 0;
-        const colValue = extractedMetrics[config.columnMetric] || 0;
+  const meta = (component.metadata || {}) as Record<string, unknown>;
+  const intent = (meta.intent || (component as unknown as Record<string, unknown>).calculationIntent) as Record<string, unknown> | undefined;
+  const op = intent?.operation as string | undefined;
 
-        // Perform actual matrix lookup
-        const rowBand = findBandForValue(config.rowBands, rowValue);
-        const colBand = findBandForValue(config.columnBands, colValue);
-        const rowIndex = config.rowBands.indexOf(rowBand);
-        const colIndex = config.columnBands.indexOf(colBand);
-        outputValue = config.values?.[rowIndex]?.[colIndex] ?? 0;
-
-        calculationFormula = `${config.rowMetricLabel || config.rowMetric}: ${rowValue.toFixed(1)}% (${rowBand.label}) × ${config.columnMetricLabel || config.columnMetric}: $${colValue.toLocaleString()} (${colBand.label}) = $${outputValue.toLocaleString()}`;
-        lookupDetails = {
-          rowMetric: config.rowMetric,
-          rowValue,
-          rowBand: rowBand.label,
-          rowIndex,
-          columnMetric: config.columnMetric,
-          columnValue: colValue,
-          colBand: colBand.label,
-          colIndex,
-          lookupValue: outputValue,
-        };
-      }
-      break;
-
-    case 'tier_lookup':
-      if (component.tierConfig) {
-        const config = component.tierConfig;
-        const value = extractedMetrics[config.metric] || 0;
-
-        // Perform actual tier lookup
-        const tier = findTierForValue(config.tiers, value);
-        outputValue = tier.value;
-
-        calculationFormula = `${config.metricLabel || config.metric}: ${value.toFixed(1)}% → ${tier.label} = $${outputValue.toLocaleString()}`;
-        lookupDetails = {
-          metric: config.metric,
-          value,
-          tierLabel: tier.label,
-          tierMin: tier.min,
-          tierMax: tier.max,
-          lookupValue: outputValue,
-        };
-      }
-      break;
-
-    case 'percentage':
-      if (component.percentageConfig) {
-        const config = component.percentageConfig;
-        const base = extractedMetrics[config.appliedTo] || 0;
-        outputValue = base * config.rate;
-        calculationFormula = `$${base.toLocaleString()} × ${(config.rate * 100).toFixed(1)}% = $${outputValue.toLocaleString()}`;
-        lookupDetails = {
-          appliedTo: config.appliedTo,
-          baseValue: base,
-          rate: config.rate,
-        };
-      }
-      break;
-
-    case 'conditional_percentage':
-      if (component.conditionalConfig) {
-        const config = component.conditionalConfig;
-        const base = extractedMetrics[config.appliedTo] || 0;
-
-        // Find matching condition rate based on metric value
-        let rate = 0;
-        let matchedCondition: { metric: string; value: number; label: string } | null = null;
-
-        for (const cond of config.conditions || []) {
-          const condValue = extractedMetrics[cond.metric] || 0;
-          if (condValue >= cond.min && condValue < cond.max) {
-            rate = cond.rate;
-            matchedCondition = { metric: cond.metric, value: condValue, label: cond.label };
-            break;
-          }
-        }
-
-        outputValue = base * rate;
-
-        const condMetric = matchedCondition?.metric || config.conditions?.[0]?.metric || 'unknown';
-        const condValue = matchedCondition?.value || 0;
-
-        calculationFormula = `Condition: ${condMetric}=${condValue.toFixed(1)}% (${matchedCondition?.label || 'no match'}) → rate=${(rate * 100).toFixed(1)}% × $${base.toLocaleString()} = $${outputValue.toLocaleString()}`;
-        lookupDetails = {
-          conditionMetric: condMetric,
-          conditionValue: condValue,
-          matchedLabel: matchedCondition?.label,
-          baseValue: base,
-          rate,
-        };
-      }
-      break;
+  if (intent && op) {
+    if (op === 'bounded_lookup_2d') {
+      const rowField = readSourceField((intent.inputs as Record<string, unknown> | undefined)?.row);
+      const colField = readSourceField((intent.inputs as Record<string, unknown> | undefined)?.column);
+      const rowValue = (rowField && extractedMetrics[rowField]) || 0;
+      const colValue = (colField && extractedMetrics[colField]) || 0;
+      const rowBoundaries = (intent.rowBoundaries as Array<{ min: number | null; max: number | null }>) || [];
+      const colBoundaries = (intent.columnBoundaries as Array<{ min: number | null; max: number | null }>) || [];
+      const outputGrid = (intent.outputGrid as number[][]) || [];
+      const rowIndex = findBoundaryIndex(rowBoundaries, rowValue);
+      const colIndex = findBoundaryIndex(colBoundaries, colValue);
+      outputValue = (rowIndex >= 0 && colIndex >= 0 ? (outputGrid[rowIndex]?.[colIndex] ?? 0) : 0);
+      calculationFormula = `${rowField}: ${rowValue} × ${colField}: ${colValue} → row[${rowIndex}] × col[${colIndex}] = $${outputValue}`;
+      lookupDetails = { rowMetric: rowField, rowValue, rowIndex, columnMetric: colField, columnValue: colValue, colIndex, lookupValue: outputValue };
+    } else if (op === 'bounded_lookup_1d') {
+      const field = readSourceField(intent.input);
+      const value = (field && extractedMetrics[field]) || 0;
+      const boundaries = (intent.boundaries as Array<{ min: number | null; max: number | null }>) || [];
+      const outputs = (intent.outputs as number[]) || [];
+      const idx = findBoundaryIndex(boundaries, value);
+      outputValue = idx >= 0 ? (outputs[idx] ?? 0) : 0;
+      calculationFormula = `${field}: ${value} → boundary[${idx}] = $${outputValue}`;
+      lookupDetails = { metric: field, value, boundaryIndex: idx, lookupValue: outputValue };
+    } else if (op === 'scalar_multiply') {
+      const field = readSourceField(intent.input);
+      const base = (field && extractedMetrics[field]) || 0;
+      const rate = Number(intent.rate ?? 0);
+      outputValue = base * rate;
+      calculationFormula = `$${base} × ${(rate * 100).toFixed(1)}% = $${outputValue}`;
+      lookupDetails = { appliedTo: field, baseValue: base, rate };
+    } else if (op === 'conditional_gate') {
+      const cond = (intent.condition || {}) as Record<string, unknown>;
+      const condField = readSourceField(cond.left);
+      const condValue = (condField && extractedMetrics[condField]) || 0;
+      calculationFormula = `Gate ${condField} ${cond.operator} ${readConstantValue(cond.right)}: condValue=${condValue}`;
+      lookupDetails = { conditionMetric: condField, conditionValue: condValue };
+    } else {
+      calculationFormula = `(${op})`;
+      lookupDetails = { operation: op };
+    }
   }
 
   if (warnings.length > 0) {
@@ -658,17 +598,34 @@ function sanitizeForTrace(obj: unknown): Record<string, unknown> {
 }
 
 // ============================================
-// LOOKUP HELPERS (same logic as calculation-engine)
+// FOUNDATIONAL INTENT HELPERS (Phase 1.7)
 // ============================================
 
-function findBandForValue(bands: Band[], value: number): Band {
-  const found = bands.find((b) => value >= b.min && value < b.max);
-  return found || bands[bands.length - 1] || { min: 0, max: 0, label: 'Unknown' };
+function findBoundaryIndex(boundaries: Array<{ min: number | null; max: number | null }>, value: number): number {
+  for (let i = 0; i < boundaries.length; i++) {
+    const b = boundaries[i];
+    const minOk = b.min == null || value >= b.min;
+    const maxOk = b.max == null || value <= b.max;
+    if (minOk && maxOk) return i;
+  }
+  return -1;
 }
 
-function findTierForValue(tiers: Tier[], value: number): Tier {
-  const found = tiers.find((t) => value >= t.min && value < t.max);
-  return found || tiers[tiers.length - 1] || { min: 0, max: 0, label: 'Unknown', value: 0 };
+function readSourceField(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  if (obj.source === 'metric') {
+    const spec = (obj.sourceSpec || {}) as Record<string, unknown>;
+    return typeof spec.field === 'string' ? spec.field : undefined;
+  }
+  return undefined;
+}
+
+function readConstantValue(raw: unknown): number | string {
+  if (!raw || typeof raw !== 'object') return '?';
+  const obj = raw as Record<string, unknown>;
+  if (obj.source === 'constant' && typeof obj.value === 'number') return obj.value;
+  return readSourceField(raw) || '?';
 }
 
 // ============================================

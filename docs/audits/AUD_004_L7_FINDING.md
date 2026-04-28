@@ -117,8 +117,8 @@ Recommendation: future audit specifications include a Phase L7 step that, after 
 - **Closure:** Cluster surfaces F-005-clean. Calc-side, validation, forensics, UI deferred to subsequent phases.
 
 ### Phase 1.6.5 (calc-side legacy disposition + demo-era wholesale sweep + service-layer FP-66 cleanup + disputes infrastructure removal)
-- **Commit:** [populated post-merge with merge SHA]
-- **PR:** [populated at PR creation]
+- **Commit:** `f6bea1a8` (merged via PR #347)
+- **PR:** https://github.com/CCAFRICA/spm-platform/pull/347 (merged)
 - **Per-engine dispositions applied:**
   - `web/src/lib/compensation/calculation-engine.ts` (801 lines, demo-era parallel-authority artifact): **DELETED** — disposition (a)
   - `web/src/lib/calculation/intent-resolver.ts` (119 lines, dead orphan): **DELETED**
@@ -168,14 +168,74 @@ Recommendation: future audit specifications include a Phase L7 step that, after 
 - **Closure:** F-005 calc-read path closed. Trajectory engine projection-only per Decision 151. Validation/forensics/UI consumers carrying legacy primitive vocabulary deferred to Phase 1.7 per the established phasing.
 - **Compliance:** tsc clean (`npx tsc --noEmit` exit 0). Lint clean (`npx next lint` zero errors; pre-existing warnings on files Phase 1.6.5 didn't touch).
 
-### Phase 1.7 (validation + forensics + UI consumers)
-[To be populated when Phase 1.7 commits — must include final platform-wide-zero-hit grep]
+### Phase 1.7 (validation + forensics + UI consumers + plan-management era-artifact wholesale)
+- **Commit:** [populated post-merge]
+- **PR:** [populated at PR creation]
+- **Mechanical vocabulary-only refactors (8 files, self-dispositioned per Standing Rule 34):**
+  - `lib/forensics/trace-builder.ts` (5 hits) — case arms renamed: `tier_lookup` → `bounded_lookup_1d`, `matrix_lookup` → `bounded_lookup_2d`, `percentage` → `scalar_multiply`, `conditional_percentage` → `conditional_gate`
+  - `lib/calculation/results-formatter.ts` (1 hit) — currency-formatting check renamed
+  - `lib/data/results-loader.ts` (1 hit) — gate-status inference renamed
+  - `app/investigate/trace/[entityId]/page.tsx` (1 hit) — fallback default `'tier_lookup' as const` → `'bounded_lookup_1d' as const`
+  - `app/perform/statements/page.tsx` (3 hits) — `formatComponentDetail()` switch arms renamed
+  - `components/results/NarrativeSpine.tsx` (1 hit) — gate marker conditional renamed
+  - `components/compensation/CalculationBreakdown.tsx` (1 hit) — JSX conditional renamed
+  - `components/compensation/LookupTableVisualization.tsx` (2 hits) — display routing renamed
+- **Architect-disposed refactors:**
+  - `lib/orchestration/metric-resolver.ts`: **REFACTORED (b)** — `extractMetricConfig()` rewritten to read `metadata.intent.input.sourceSpec.field` (1D) and `metadata.intent.inputs.row/column.sourceSpec.field` (2D). isTierLookup check renamed to `bounded_lookup_1d`.
+  - `lib/reconciliation/employee-reconciliation-trace.ts`: **REFACTORED (b)** — metric extraction reads `extractMetricConfig()`; output computation block rewritten to project from `metadata.intent.boundaries`/`outputs`/`outputGrid` (Decision 151 read-only projection). `findBandForValue`/`findTierForValue` legacy helpers replaced with `findBoundaryIndex`/`readSourceField`/`readConstantValue`.
+  - `app/data/import/enhanced/page.tsx`: **REFACTORED** — metric-extraction block (L758-820) rewritten to read foundational `metadata.intent`; required-fields lookup (L849-852) case arms renamed to foundational vocabulary.
+- **Architect-disposed deletions (orphan + era-artifact):**
+  - `lib/validation/plan-anomaly-registry.ts` (987 lines) — **DELETED** as orphan. Architect-dispositioned (α-hybrid) refactor superseded by zero-consumer finding (no in-tree consumers of validatePlanConfig/getAnomaliesForComponent/hasUnresolvedCriticals/anomalyKey/PlanAnomaly type). Future foundational anomaly surface reconstructs as new code.
+  - `components/forensics/PlanValidation.tsx` (366 lines) + `app/investigate/plan-validation/page.tsx` — **DELETED**. Architect-dispositioned (b) refactor superseded by era-artifact finding (UI not in nav, era-coupled to plan-management cluster). Future validation surface reconstructs on engine foundation.
+- **Plan-management cluster wholesale (Q-B3, rolled into Phase 1.7):**
+  - `app/performance/plans/page.tsx` (LIST) — DELETED
+  - `app/performance/plans/[id]/page.tsx` (DETAIL) — DELETED
+  - `app/performance/plans/` directory swept
+  - `components/compensation/plan-editors/` directory (5 files: MatrixEditor, TierEditor, PercentageEditor, ConditionalRateEditor, index barrel) — DELETED
+  - `components/compensation/PlanReferenceCard.tsx` (zero-consumer orphan) — DELETED
+  - `components/compensation/{ScenarioBuilder,ScenarioComparison,TeamImpactSummary}.tsx` (orphans post-Phase-1.6.5 scenarios deletion) — DELETED
+  - `app/design/plans/page.tsx` + `app/design/incentives/page.tsx` (re-export shims) — DELETED
+- **Plan-management cleanup cascade:**
+  - `app/admin/launch/page.tsx` — redirect target changed `/performance/plans` → `/stream`
+  - `components/compensation/QuickActionsCard.tsx` — "View My Plan" entry stripped
+  - `components/navigation/Sidebar.tsx` — "Plan Management" sidebar entry stripped
+  - `lib/access-control.ts` — `/performance/plans` ROUTE_TO_MODULE entry stripped + `'plans'` AppModule union member + MODULE_ACCESS allowlists
+  - `lib/navigation/page-status.ts` — `/performance/plans` entry stripped
+  - `lib/help/help-service.ts` — `/performance/plans` from relatedRoutes stripped
+  - `components/compensation/CalculationBreakdown.tsx` — Link wrapper around plan name stripped (Button + ExternalLink + Link + showPlanLink prop dropped); plan-name text preserved
+  - `components/compensation/index.ts` — PlanReferenceCard + Scenario* barrel re-exports stripped
+  - `lib/search/search-service.ts` — `searchPlans()` + `searchDisputes()` (had Maria/James demo data routing to deleted disputes) stripped + call sites
+- **Type narrowing:**
+  - `types/compensation-plan.ts`: `ComponentType` union narrowed to foundational identifiers only — `'bounded_lookup_1d' | 'bounded_lookup_2d' | 'scalar_multiply' | 'conditional_gate' | 'linear_function' | 'piecewise_linear' | 'scope_aggregate' | 'aggregate' | 'ratio' | 'constant' | 'weighted_blend' | 'temporal_window'`. `PlanComponent` interface stripped of `matrixConfig?`, `tierConfig?`, `percentageConfig?`, `conditionalConfig?` optional fields (Q-C1).
+  - `types/compensation-plan.ts`: New transitional type `LegacyShapedPlanComponent extends PlanComponent` added for Phase 2 callers (run-calculation.ts legacy switch arms + api/calculation/run band-normalization). Phase 2 will refactor those reads to foundational shape.
+  - `lib/compensation/ai-plan-interpreter.ts`: Phase 1.5 transitionally-retained interfaces `MatrixCalculation`, `TieredCalculation`, `PercentageCalculation`, `ConditionalPercentageCalculation`, `AxisRange` deleted. `ComponentCalculation` union narrowed to `GenericCalculation` only. Legacy tier_lookup runtime filter at L451 stripped. `GenericCalculation.type` admits foundational identifiers only.
+- **F-005 closure invariant grep result:**
+  ```
+  grep -rnE "'matrix_lookup'|'tier_lookup'|'tiered_lookup'|'flat_percentage'|'conditional_percentage'" web/src/ \
+    | grep -v 'run-calculation.ts' | grep -v '__tests__' | grep -v '\.md:' | grep -v 'primitive-registry.ts'
+  →
+  web/src/types/compensation-plan.ts:55:// Legacy strings ('matrix_lookup' | 'tier_lookup' | 'percentage' | 'conditional_percentage')
+  web/src/lib/compensation/ai-plan-interpreter.ts:429:  // `|| 'tiered_lookup'` silent-fallback; if neither is present the default
+  ```
+  Both hits are audit-trail comments documenting deletion history — within the architect's exempt categories. **F-005 platform-wide closure invariant holds.**
+- **Compliance:** tsc clean (`npx tsc --noEmit` exit 0). Lint clean (`npx next lint` zero errors; pre-existing warnings on files Phase 1.7 didn't touch).
 
 ### Phase 2 (legacy engine arms)
-[To be populated when Phase 2 commits]
+[To be populated when Phase 2 commits — E2 structured failure on run-calculation.ts legacy switch arms (lines 362-408) and api/calculation/run band-normalization legacy SHAPE reads]
 
 ---
 
 ## Closure marker
 
-[FINDING CLOSED YYYY-MM-DD — Phase 1.7 verification grep returned zero hits across `web/src/`. F-005 platform-wide closure invariant holds.]
+FINDING CLOSED 2026-04-28 — Phase 1.7 verification grep returned zero hits across `web/src/` (excluding `run-calculation.ts` Phase 2 scope, `__tests__`, `.md`, `primitive-registry.ts`, audit-trail comments). F-005 platform-wide closure invariant holds.
+
+Closure trajectory:
+- Phase 1.5 (PR #345): import boundary
+- Phase 1.6 (PR #346): Trial/GPV/landing cluster
+- Phase 1.6.5 (PR #347): calc-side + demo-era wholesale + service-layer + database
+- Phase 1.7 (this commit): validation/forensics/UI consumer surfaces + plan-management era-artifact wholesale
+- Phase 2 (separate work item): legacy engine arms in run-calculation.ts (E2 structured failure)
+
+Status: F-005 closed; F-007 closed (subsumed); L7 widening discovery captured for future audit specifications.
+
+Plan-management cluster note: Phase 1.7 included wholesale deletion of the plan-management UI cluster (LIST page, DETAIL page, 4 config editors, PlanReferenceCard orphan, ScenarioBuilder/ScenarioComparison/TeamImpactSummary orphans, design/plans + design/incentives shims) per architect direction — era-artifact predating AI plan interpretation. Future plan-editing surfaces reconstruct on engine foundation as new code.

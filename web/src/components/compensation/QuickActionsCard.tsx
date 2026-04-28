@@ -1,21 +1,11 @@
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Calculator,
-  Download,
-} from 'lucide-react';
+import { Download } from 'lucide-react';
 import Link from 'next/link';
 
 export function QuickActionsCard() {
   const actions = [
-    {
-      label: 'View My Plan',
-      description: 'See how your incentives are calculated',
-      icon: Calculator,
-      href: '/performance/plans',
-      color: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30',
-    },
     {
       label: 'Download Statement',
       description: 'Export your earnings report',

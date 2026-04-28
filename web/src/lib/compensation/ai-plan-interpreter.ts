@@ -32,79 +32,16 @@ import { isRegisteredPrimitive } from '@/lib/calculation/primitive-registry';
 // When the architect dispositions plan-interpreter.ts, this union narrows to
 // `GenericCalculation` and the legacy interfaces below are deleted entirely.
 
-export interface AxisRange {
-  min: number;
-  max: number;
-  label: string;
-  labelEs?: string;
-}
-
-export interface MatrixCalculation {
-  type: 'matrix_lookup';
-  rowAxis: {
-    metric: string;
-    label: string;
-    labelEs?: string;
-    ranges: AxisRange[];
-  };
-  columnAxis: {
-    metric: string;
-    label: string;
-    labelEs?: string;
-    ranges: AxisRange[];
-  };
-  values: number[][];
-}
-
-export interface TieredCalculation {
-  type: 'tiered_lookup';
-  metric: string;
-  metricLabel?: string;
-  tiers: {
-    min: number;
-    max: number;
-    label?: string;
-    payout: number;
-  }[];
-}
-
-export interface PercentageCalculation {
-  type: 'percentage' | 'flat_percentage';
-  metric: string;
-  metricLabel?: string;
-  rate: number;
-}
-
-export interface ConditionalPercentageCalculation {
-  type: 'conditional_percentage';
-  metric: string;
-  metricLabel?: string;
-  conditionMetric: string;
-  conditionMetricLabel?: string;
-  conditions: {
-    threshold: number;
-    operator: '<' | '<=' | '>' | '>=' | '==' | 'between';
-    maxThreshold?: number;
-    rate: number;
-    label?: string;
-  }[];
-}
-
-// Foundational-shape envelope. Phase 1.5 narrows runtime emission of this file's
-// importer to the discriminator subset below (no legacy types produced); Phase 2
-// will narrow ComponentCalculation = GenericCalculation when plan-interpreter.ts
-// is dispositioned.
+// OB-196 Phase 1.7: legacy interfaces (MatrixCalculation, TieredCalculation,
+// PercentageCalculation, ConditionalPercentageCalculation, AxisRange) deleted.
+// plan-interpreter.ts (the consumer that needed them) was deleted in Phase 1.6.
+// Foundational-only envelope post-narrowing.
 export interface GenericCalculation {
-  type: 'linear_function' | 'piecewise_linear' | 'scope_aggregate' | 'scalar_multiply' | 'conditional_gate';
+  type: 'bounded_lookup_1d' | 'bounded_lookup_2d' | 'scalar_multiply' | 'conditional_gate' | 'linear_function' | 'piecewise_linear' | 'scope_aggregate';
   [key: string]: unknown;
 }
 
-export type ComponentCalculation =
-  | MatrixCalculation
-  | TieredCalculation
-  | PercentageCalculation
-  | ConditionalPercentageCalculation
-  | GenericCalculation;
+export type ComponentCalculation = GenericCalculation;
 
 export interface InterpretedComponent {
   id: string;
@@ -444,15 +381,8 @@ export function interpretationToPlanConfig(
     variants,
   };
 
-  // Final summary log
+  // OB-196 Phase 1.7: legacy tier_lookup summary log stripped (filter dead post-foundational narrowing).
   console.log(`[interpretationToPlanConfig] ${variants.length} variants created`);
-  variants.forEach((v, vi) => {
-    const tierSummary = v.components
-      .filter(c => c.componentType === 'tier_lookup')
-      .map(c => `${c.name}:${(c.tierConfig as { tiers?: unknown[] })?.tiers?.length ?? 0}`)
-      .join(', ');
-    console.log(`  [${vi}] ${v.variantId}: ${tierSummary}`);
-  });
 
   return {
     id: ruleSetId,

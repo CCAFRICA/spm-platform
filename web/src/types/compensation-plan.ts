@@ -51,8 +51,22 @@ export interface PlanVariant {
   components: PlanComponent[];
 }
 
-// HF-156: Full primitive vocabulary (DIAG-013 fix)
-export type ComponentType = 'matrix_lookup' | 'tier_lookup' | 'percentage' | 'conditional_percentage' | 'linear_function' | 'piecewise_linear' | 'scope_aggregate' | 'scalar_multiply' | 'conditional_gate';
+// OB-196 Phase 1.7: foundational primitive vocabulary only.
+// Legacy strings ('matrix_lookup' | 'tier_lookup' | 'percentage' | 'conditional_percentage')
+// removed. F-005 platform-wide closure invariant.
+export type ComponentType =
+  | 'bounded_lookup_1d'
+  | 'bounded_lookup_2d'
+  | 'scalar_multiply'
+  | 'conditional_gate'
+  | 'linear_function'
+  | 'piecewise_linear'
+  | 'scope_aggregate'
+  | 'aggregate'
+  | 'ratio'
+  | 'constant'
+  | 'weighted_blend'
+  | 'temporal_window';
 export type MeasurementLevel = 'store' | 'individual' | 'team' | 'region';
 
 export interface PlanComponent {
@@ -67,16 +81,25 @@ export interface PlanComponent {
    * 'current' (default) = use period-specific data for this calculation period
    * 'cumulative' = use all-periods cumulative data (e.g., Collections) */
   measurementPeriod?: 'current' | 'cumulative';
+  /** OB-77: AI-produced structural intent for domain-agnostic execution.
+   * intent-executor reads this directly. */
+  calculationIntent?: Record<string, unknown>;
+  /** HF-156: AI metadata including intent for foundational primitive types */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * OB-196 Phase 1.7 transitional type. Phase 2 (E2 structured failure) will refactor
+ * the remaining legacy-shape read sites in run-calculation.ts and api/calculation/run
+ * band-normalization. Until then, those callers cast PlanComponent to this widened
+ * shape to access the legacy optional fields. New code MUST use foundational
+ * metadata.intent shapes (Decision 151).
+ */
+export interface LegacyShapedPlanComponent extends PlanComponent {
   matrixConfig?: MatrixConfig;
   tierConfig?: TierConfig;
   percentageConfig?: PercentageConfig;
   conditionalConfig?: ConditionalConfig;
-  /** OB-77: AI-produced structural intent for domain-agnostic execution.
-   * When present, the calculation engine can execute this directly
-   * instead of using the type-specific config above. */
-  calculationIntent?: Record<string, unknown>;
-  /** HF-156: AI metadata including intent for new primitive types */
-  metadata?: Record<string, unknown>;
 }
 
 // Matrix Lookup (e.g., Optical Sales with attainment x volume)
