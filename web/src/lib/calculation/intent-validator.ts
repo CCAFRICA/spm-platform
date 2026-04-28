@@ -5,28 +5,27 @@
  * Returns validation results with specific error messages.
  * If validation fails, the caller should fall back to the deterministic
  * transformer (OB-76 bridge).
+ *
+ * OB-196 E1 (Decision 155): operation vocabulary derives from the canonical
+ * primitive registry; the prior `VALID_OPERATIONS` private array (9 strings,
+ * stale relative to the registry's 12) is replaced by `isRegisteredPrimitive`
+ * + `getOperationPrimitives` from the registry. Closes one of the F-005
+ * declaration sites.
  */
 
 // Types referenced for documentation — validation uses runtime checks
 import type {} from './intent-types';
+import {
+  isRegisteredPrimitive,
+  getOperationPrimitives,
+  type FoundationalPrimitive,
+} from './primitive-registry';
 
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
 }
-
-const VALID_OPERATIONS = [
-  'bounded_lookup_1d',
-  'bounded_lookup_2d',
-  'scalar_multiply',
-  'conditional_gate',
-  'aggregate',
-  'ratio',
-  'constant',
-  'weighted_blend',
-  'temporal_window',
-] as const;
 
 const VALID_SOURCES = [
   'metric',
@@ -62,10 +61,19 @@ export function validateIntent(raw: unknown): ValidationResult {
     return { valid: false, errors, warnings };
   }
 
-  if (!VALID_OPERATIONS.includes(operation as typeof VALID_OPERATIONS[number])) {
-    errors.push(`Invalid operation: "${operation}". Must be one of: ${VALID_OPERATIONS.join(', ')}`);
+  if (!isRegisteredPrimitive(operation)) {
+    const validOps = getOperationPrimitives()
+      .map((p) => p.id)
+      .join(', ');
+    errors.push(`Invalid operation: "${operation}". Must be one of: ${validOps}`);
     return { valid: false, errors, warnings };
   }
+  // The intent-validator only validates EXECUTABLE operations (kind: 'operation'
+  // in the registry). `scope_aggregate` is registered as kind: 'source_only'; if
+  // it appears as a top-level operation, we defer to the dispatch surface
+  // (intent-executor) to surface as structured failure in Phase 2.
+  const opPrimitive = operation as FoundationalPrimitive;
+  void opPrimitive;
 
   // Validate based on operation type
   switch (operation) {

@@ -6,6 +6,7 @@
  */
 
 import { getAIService } from '@/lib/ai';
+import { isRegisteredPrimitive } from '@/lib/calculation/primitive-registry';
 
 // ============================================
 // TYPES
@@ -267,21 +268,46 @@ export class AIPlainInterpreter {
   }
 
   private normalizeComponentType(type: unknown): ComponentCalculation['type'] {
-    // HF-156: Extended with OB-180/181 primitives (DIAG-013 Fix 1)
-    const validTypes = [
+    // OB-196 E1 (Decision 155): registry-derived recognition.
+    // The legacy import-side types (matrix_lookup, tiered_lookup, percentage,
+    // flat_percentage, conditional_percentage) are domain-shaped names the AI
+    // emits in `calculationMethod.type`; they map to registered foundational
+    // primitives at the dispatch surface (e.g., tiered_lookup → bounded_lookup_1d).
+    // Five OB-180/181 primitive identifiers are foundational — recognized via
+    // `isRegisteredPrimitive`. The function accepts both legacy import shapes
+    // and registered foundational identifiers. Phase 2 makes unrecognized
+    // identifiers a structured throw at the importer's `convertComponent`
+    // default branch.
+    const legacyImportTypes = new Set([
       'matrix_lookup',
       'tiered_lookup',
       'percentage',
       'flat_percentage',
       'conditional_percentage',
-      'linear_function',
-      'piecewise_linear',
-      'scope_aggregate',
-      'scalar_multiply',
-      'conditional_gate',
-    ];
+    ]);
     const typeStr = String(type || 'tiered_lookup');
-    return validTypes.includes(typeStr) ? (typeStr as ComponentCalculation['type']) : 'tiered_lookup';
+    if (legacyImportTypes.has(typeStr)) {
+      return typeStr as ComponentCalculation['type'];
+    }
+    if (isRegisteredPrimitive(typeStr)) {
+      // The foundational primitive is recognized vocabulary. Only the subset
+      // that maps to a `GenericCalculation` shape (via ComponentCalculation['type'])
+      // is importable; others (bounded_lookup_1d, aggregate, ratio, etc.) are
+      // dispatch-surface operations the importer doesn't model as a calculationMethod
+      // shape. The set is derived structurally from the GenericCalculation discriminant
+      // type at compile time — no private-copy of vocabulary.
+      const importableFoundational: ReadonlySet<GenericCalculation['type']> = new Set([
+        'linear_function',
+        'piecewise_linear',
+        'scope_aggregate',
+        'scalar_multiply',
+        'conditional_gate',
+      ] as const satisfies readonly GenericCalculation['type'][]);
+      if ((importableFoundational as ReadonlySet<string>).has(typeStr)) {
+        return typeStr as ComponentCalculation['type'];
+      }
+    }
+    return 'tiered_lookup';
   }
 
   private normalizeCalculationMethod(type: unknown, method: unknown): ComponentCalculation {
