@@ -3,8 +3,9 @@
 /**
  * My Compensation - Personal Performance Dashboard
  *
- * OB-34 Phase 7: Enhanced with lifecycle visibility gate, AI personal
- * performance narrative, and inline dispute form.
+ * OB-34 Phase 7 / OB-196 Phase 1.6.5: Lifecycle visibility gate + AI personal
+ * performance narrative. Dispute UI removed pending future structured-dispute
+ * workflow build on engine foundation.
  *
  * Visibility: Results only shown when cycle state permits for user's role.
  * Korean Test: All component names, labels, and metrics come from plan data.
@@ -14,7 +15,6 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -31,8 +31,6 @@ import {
   Award,
   AlertCircle,
   Sparkles,
-  MessageCircle,
-  Send,
   ShieldCheck,
   Clock,
   TrendingUp,
@@ -44,11 +42,8 @@ import { ComponentStack } from '@/components/design-system/ComponentStack';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { usePersona } from '@/contexts/persona-context';
-import { getByEmployee } from '@/lib/disputes/dispute-service';
-import { createDraft, submitDispute } from '@/lib/disputes/dispute-service';
 import { EarningsSummaryCard } from '@/components/compensation/EarningsSummaryCard';
 import { ComponentBreakdownCard } from '@/components/compensation/ComponentBreakdownCard';
-import { RecentTransactionsCard } from '@/components/compensation/RecentTransactionsCard';
 import { QuickActionsCard } from '@/components/compensation/QuickActionsCard';
 import type { CalculationResult } from '@/types/compensation-plan';
 import {
@@ -96,7 +91,6 @@ export default function MyCompensationPage() {
   const { format: formatCurrency, symbol: currencySymbol } = useCurrency();
   const [period, setPeriod] = useState<Period>('current');
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
-  const [pendingDisputes, setPendingDisputes] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [hasResults, setHasResults] = useState(false);
 
@@ -108,11 +102,6 @@ export default function MyCompensationPage() {
   const [narrative, setNarrative] = useState<string | null>(null);
   const [narrativeLoading, setNarrativeLoading] = useState(false);
 
-  // OB-34: Inline dispute form
-  const [showDisputeForm, setShowDisputeForm] = useState(false);
-  const [disputeComponent, setDisputeComponent] = useState('');
-  const [disputeReason, setDisputeReason] = useState('');
-  const [disputeSubmitted, setDisputeSubmitted] = useState(false);
 
   // OB-34: Expanded component detail
   const [expandedComponent, setExpandedComponent] = useState<string | null>(null);
@@ -203,13 +192,6 @@ export default function MyCompensationPage() {
 
     loadData();
 
-    // Load pending disputes
-    if (entityId) {
-      const disputes = getByEmployee(entityId);
-      const pending = disputes.filter((d) => d.status === 'submitted' || d.status === 'in_review');
-      setPendingDisputes(pending.length);
-    }
-
     setIsLoading(false);
   }, [currentTenant, user]);
 
@@ -263,35 +245,6 @@ export default function MyCompensationPage() {
     }
   };
 
-  // OB-34: Handle inline dispute submission
-  const handleSubmitDispute = () => {
-    if (!currentTenant || !user || !calculationResult || !disputeComponent || !disputeReason.trim()) return;
-
-    const entityId = extractEmployeeId(user.email) || calculationResult.entityId;
-    const draft = createDraft(
-      currentTenant.id,
-      `comp-${calculationResult.period}-${disputeComponent}`,
-      entityId,
-      calculationResult.entityName,
-      calculationResult.storeId || '',
-      calculationResult.storeName || '',
-      disputeComponent
-    );
-    submitDispute(draft.id);
-
-    setDisputeSubmitted(true);
-    setDisputeReason('');
-    setDisputeComponent('');
-    setTimeout(() => {
-      setDisputeSubmitted(false);
-      setShowDisputeForm(false);
-    }, 3000);
-
-    // Refresh pending count
-    const disputes = getByEmployee(entityId);
-    const pending = disputes.filter((d) => d.status === 'submitted' || d.status === 'in_review');
-    setPendingDisputes(pending.length);
-  };
 
   if (isLoading) {
     return (
@@ -560,99 +513,9 @@ export default function MyCompensationPage() {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            <QuickActionsCard pendingDisputes={pendingDisputes} />
-
-            {/* Pending Items Alert */}
-            {pendingDisputes > 0 && (
-              <Card className="border-amber-200 bg-amber-50 dark:bg-amber-900/20">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                      <span className="text-amber-600 font-bold text-sm">{pendingDisputes}</span>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-amber-900 dark:text-amber-100">
-                        Pending Dispute{pendingDisputes > 1 ? 's' : ''}
-                      </h4>
-                      <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                        You have {pendingDisputes} dispute{pendingDisputes > 1 ? 's' : ''} awaiting review.
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            <QuickActionsCard />
           </div>
         </div>
-      )}
-
-      {/* OB-34: Inline Dispute Form */}
-      {hasResults && calculationResult && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <MessageCircle className="h-5 w-5 text-slate-500" />
-                Dispute a Component
-              </CardTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowDisputeForm(!showDisputeForm)}
-              >
-                {showDisputeForm ? 'Cancel' : 'File Dispute'}
-              </Button>
-            </div>
-          </CardHeader>
-          {showDisputeForm && (
-            <CardContent className="space-y-4">
-              {disputeSubmitted ? (
-                <div className="text-center py-4">
-                  <ShieldCheck className="h-8 w-8 text-green-500 mx-auto mb-2" />
-                  <p className="text-green-700 font-medium">Dispute submitted successfully!</p>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Component</label>
-                    <Select value={disputeComponent} onValueChange={setDisputeComponent}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select component to dispute" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {calculationResult.components.map(c => (
-                          <SelectItem key={c.componentId} value={c.componentName}>
-                            {c.componentName} ({formatCurrency(c.outputValue)})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Reason</label>
-                    <Textarea
-                      placeholder="Describe why you believe this component is incorrect..."
-                      value={disputeReason}
-                      onChange={(e) => setDisputeReason(e.target.value)}
-                    />
-                  </div>
-                  <Button
-                    onClick={handleSubmitDispute}
-                    disabled={!disputeComponent || !disputeReason.trim()}
-                  >
-                    <Send className="h-4 w-4 mr-1" />
-                    Submit Dispute
-                  </Button>
-                </>
-              )}
-            </CardContent>
-          )}
-        </Card>
-      )}
-
-      {/* Recent Transactions */}
-      {hasResults && calculationResult?.components && (
-        <RecentTransactionsCard transactions={[]} />
       )}
     </div>
   );

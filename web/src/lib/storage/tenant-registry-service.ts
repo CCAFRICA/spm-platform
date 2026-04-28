@@ -15,7 +15,7 @@ const STORAGE_KEYS = {
 } as const;
 
 // Static tenant IDs that cannot be deleted
-export const STATIC_TENANT_IDS = ['retailco', 'restaurantmx', 'techcorp'] as const;
+export const STATIC_TENANT_IDS = ['restaurantmx', 'techcorp'] as const;
 
 /**
  * Check if a tenant is dynamic (can be deleted)

@@ -1,23 +1,23 @@
 /**
- * Trajectory Engine — Rep Performance Trajectory
+ * Trajectory Engine — Rep Performance Trajectory (read-only projection)
  *
- * OB-98 Phase 5: Pure deterministic math. For a given entity's calculation results
- * and rule set, computes the trajectory to the next payout tier for each component.
+ * OB-98 Phase 5 / OB-196 Phase 1.6.5: Reads metadata.intent (foundational shapes)
+ * to project next-tier opportunity. Pure read-only — does NOT re-evaluate primitives,
+ * does NOT compute payouts (intent-executor is sole calculation authority per Decision 151).
  *
- * Input: calculation results (components array) + rule set configuration
- * Output: TrajectoryCard[] with current position, gap, and incremental value
+ * Inputs:
+ *   - calculation results per component (already-computed values from intent-executor)
+ *   - rule set with PlanComponents carrying metadata.intent or calculationIntent
+ *
+ * Output: TrajectoryCard[] with current position, next-boundary threshold, and
+ * incremental value (read straight from the foundational outputs array — not computed).
  *
  * Korean Test: Zero hardcoded component names, tier names, or currencies.
- * Reads all structure from rule_set component JSON — structural parsing only.
+ * Reads all structure from rule_set component intent — structural parsing only.
  */
-
 import type {
   PlanComponent,
   AdditiveLookupConfig,
-  MatrixConfig,
-  TierConfig,
-  Band,
-  Tier,
   WeightedKPIConfig,
 } from '@/types/compensation-plan';
 
@@ -27,16 +27,16 @@ import type {
 
 export interface TrajectoryCard {
   componentName: string;
-  componentType: string;
-  currentAttainment: number;       // 0.87 = 87%
-  currentTier: string;             // "Tier 2" or band label
-  nextTierThreshold: number;       // 0.95 = 95%
-  nextTierName: string;            // "Tier 3" or next band label
-  distanceToNextTier: number;      // 0.08 = 8% more needed
-  currentPayout: number;           // payout at current position
-  nextTierPayout: number;          // payout at next tier
-  incrementalValue: number;        // delta between next and current
-  progressPercent: number;         // 0-100 visual progress toward next tier
+  componentType: string;            // foundational primitive identifier
+  currentAttainment: number;
+  currentTier: string;
+  nextTierThreshold: number;
+  nextTierName: string;
+  distanceToNextTier: number;
+  currentPayout: number;
+  nextTierPayout: number;
+  incrementalValue: number;
+  progressPercent: number;
 }
 
 export interface RepTrajectory {
@@ -45,139 +45,148 @@ export interface RepTrajectory {
   totalPayout: number;
   trajectories: TrajectoryCard[];
   bestOpportunity: TrajectoryCard | null;
-  totalPotential: number;          // sum of all incremental values
+  totalPotential: number;
+}
+
+// Foundational boundary shape (mirrors intent-types.Boundary at runtime)
+interface Boundary {
+  min: number | null;
+  max: number | null;
+  minInclusive?: boolean;
+  maxInclusive?: boolean;
 }
 
 // ──────────────────────────────────────────────
-// Helpers
+// Helpers — foundational boundary navigation
 // ──────────────────────────────────────────────
 
-/**
- * Find which tier an attainment value falls in.
- * Returns the tier index, or -1 if below all tiers.
- */
-function findTierIndex(tiers: Tier[], attainment: number): number {
-  for (let i = 0; i < tiers.length; i++) {
-    if (attainment >= tiers[i].min && attainment < tiers[i].max) {
-      return i;
-    }
+function boundaryMatches(b: Boundary, value: number): boolean {
+  const minOk = b.min == null || (b.minInclusive !== false ? value >= b.min : value > b.min);
+  const maxOk = b.max == null || (b.maxInclusive !== false ? value <= b.max : value < b.max);
+  return minOk && maxOk;
+}
+
+function findBoundaryIndex(boundaries: Boundary[], value: number): number {
+  for (let i = 0; i < boundaries.length; i++) {
+    if (boundaryMatches(boundaries[i], value)) return i;
   }
-  // Check if at or above the last tier
-  if (tiers.length > 0 && attainment >= tiers[tiers.length - 1].min) {
-    return tiers.length - 1;
+  // If value sits at or above the highest boundary's min, treat as last
+  if (boundaries.length > 0) {
+    const last = boundaries[boundaries.length - 1];
+    if (last.min != null && value >= last.min) return boundaries.length - 1;
   }
   return -1;
 }
 
-/**
- * Find which band an attainment value falls in.
- */
-function findBandIndex(bands: Band[], value: number): number {
-  for (let i = 0; i < bands.length; i++) {
-    if (value >= bands[i].min && value < bands[i].max) {
-      return i;
-    }
-  }
-  if (bands.length > 0 && value >= bands[bands.length - 1].min) {
-    return bands.length - 1;
-  }
-  return -1;
+function boundaryLabel(b: Boundary, idx: number): string {
+  if (b.min == null && b.max == null) return `Tier ${idx + 1}`;
+  if (b.min == null) return `≤ ${b.max}`;
+  if (b.max == null) return `≥ ${b.min}`;
+  return `${b.min}–${b.max}`;
+}
+
+function readIntent(component: PlanComponent): Record<string, unknown> | null {
+  const meta = (component.metadata || {}) as Record<string, unknown>;
+  const intent = meta.intent || (component as unknown as Record<string, unknown>).calculationIntent;
+  return (intent as Record<string, unknown>) || null;
 }
 
 // ──────────────────────────────────────────────
-// Trajectory Computation per Component Type
+// Trajectory projection per foundational primitive
 // ──────────────────────────────────────────────
 
-function computeTierTrajectory(
+function projectBoundedLookup1D(
   componentName: string,
-  config: TierConfig,
+  intent: Record<string, unknown>,
   currentAttainment: number,
   currentPayout: number
 ): TrajectoryCard | null {
-  const tiers = config.tiers;
-  if (!tiers || tiers.length === 0) return null;
+  const boundaries = intent.boundaries as Boundary[] | undefined;
+  const outputs = intent.outputs as number[] | undefined;
+  if (!boundaries || !outputs || boundaries.length === 0) return null;
 
-  // Sort tiers by min ascending
-  const sorted = [...tiers].sort((a, b) => a.min - b.min);
-  const currentIdx = findTierIndex(sorted, currentAttainment);
+  const sortedIdx = boundaries
+    .map((b, i) => ({ b, i }))
+    .sort((a, b) => (a.b.min ?? -Infinity) - (b.b.min ?? -Infinity));
 
-  // If at the highest tier, no trajectory to show
-  if (currentIdx >= sorted.length - 1) return null;
+  const sortedBoundaries = sortedIdx.map(x => x.b);
+  const sortedOutputs = sortedIdx.map(x => outputs[x.i]);
 
-  const current = currentIdx >= 0 ? sorted[currentIdx] : null;
-  const next = sorted[currentIdx + 1];
+  const currentIdx = findBoundaryIndex(sortedBoundaries, currentAttainment);
+  if (currentIdx >= sortedBoundaries.length - 1) return null;
 
-  if (!next) return null;
+  const current = currentIdx >= 0 ? sortedBoundaries[currentIdx] : null;
+  const next = sortedBoundaries[currentIdx + 1];
+  if (!next || next.min == null) return null;
 
   const distance = next.min - currentAttainment;
   if (distance <= 0) return null;
 
-  // Progress within current band toward next tier
-  const currentMin = current ? current.min : 0;
+  const currentMin = current?.min ?? 0;
+  const bandWidth = next.min - currentMin;
+  const progress = bandWidth > 0 ? ((currentAttainment - currentMin) / bandWidth) * 100 : 0;
+
+  const nextPayout = sortedOutputs[currentIdx + 1] ?? 0;
+
+  return {
+    componentName,
+    componentType: 'bounded_lookup_1d',
+    currentAttainment,
+    currentTier: current ? boundaryLabel(current, currentIdx) : 'Below minimum',
+    nextTierThreshold: next.min,
+    nextTierName: boundaryLabel(next, currentIdx + 1),
+    distanceToNextTier: distance,
+    currentPayout,
+    nextTierPayout: nextPayout,
+    incrementalValue: nextPayout - currentPayout,
+    progressPercent: Math.min(100, Math.max(0, progress)),
+  };
+}
+
+function projectBoundedLookup2D(
+  componentName: string,
+  intent: Record<string, unknown>,
+  currentAttainment: number,
+  currentPayout: number
+): TrajectoryCard | null {
+  const rowBoundaries = intent.rowBoundaries as Boundary[] | undefined;
+  const columnBoundaries = intent.columnBoundaries as Boundary[] | undefined;
+  const outputGrid = intent.outputGrid as number[][] | undefined;
+  if (!rowBoundaries || rowBoundaries.length === 0 || !outputGrid || outputGrid.length === 0) return null;
+
+  const sortedRowIdx = rowBoundaries
+    .map((b, i) => ({ b, i }))
+    .sort((a, b) => (a.b.min ?? -Infinity) - (b.b.min ?? -Infinity));
+  const sortedRowBoundaries = sortedRowIdx.map(x => x.b);
+
+  const currentIdx = findBoundaryIndex(sortedRowBoundaries, currentAttainment);
+  if (currentIdx >= sortedRowBoundaries.length - 1) return null;
+
+  const current = currentIdx >= 0 ? sortedRowBoundaries[currentIdx] : null;
+  const next = sortedRowBoundaries[currentIdx + 1];
+  if (!next || next.min == null) return null;
+
+  const distance = next.min - currentAttainment;
+  if (distance <= 0) return null;
+
+  // Representative column: middle of the column boundary set (read-only — just sampling the table)
+  const colCount = columnBoundaries?.length ?? (outputGrid[0]?.length ?? 1);
+  const colIdx = Math.min(Math.floor(colCount / 2), (outputGrid[0]?.length ?? 1) - 1);
+
+  const nextRowOriginalIdx = sortedRowIdx[currentIdx + 1].i;
+  const nextPayout = outputGrid[nextRowOriginalIdx]?.[colIdx] ?? 0;
+
+  const currentMin = current?.min ?? 0;
   const bandWidth = next.min - currentMin;
   const progress = bandWidth > 0 ? ((currentAttainment - currentMin) / bandWidth) * 100 : 0;
 
   return {
     componentName,
-    componentType: 'tier_lookup',
+    componentType: 'bounded_lookup_2d',
     currentAttainment,
-    currentTier: current?.label || 'Below minimum',
+    currentTier: current ? boundaryLabel(current, currentIdx) : 'Below minimum',
     nextTierThreshold: next.min,
-    nextTierName: next.label,
-    distanceToNextTier: distance,
-    currentPayout,
-    nextTierPayout: next.value,
-    incrementalValue: next.value - currentPayout,
-    progressPercent: Math.min(100, Math.max(0, progress)),
-  };
-}
-
-function computeMatrixTrajectory(
-  componentName: string,
-  config: MatrixConfig,
-  currentAttainment: number,
-  currentPayout: number
-): TrajectoryCard | null {
-  const rowBands = config.rowBands;
-  const values = config.values;
-  if (!rowBands || rowBands.length === 0 || !values || values.length === 0) return null;
-
-  // Sort row bands by min ascending
-  const sorted = [...rowBands].sort((a, b) => a.min - b.min);
-  const currentRowIdx = findBandIndex(sorted, currentAttainment);
-
-  // If at the highest band, no trajectory
-  if (currentRowIdx >= sorted.length - 1) return null;
-
-  const current = currentRowIdx >= 0 ? sorted[currentRowIdx] : null;
-  const nextBand = sorted[currentRowIdx + 1];
-
-  if (!nextBand) return null;
-
-  const distance = nextBand.min - currentAttainment;
-  if (distance <= 0) return null;
-
-  // For the matrix, the payout at next tier depends on column position too.
-  // Use the middle column as a representative (or column 0 if only one).
-  const colIdx = Math.min(
-    Math.floor(config.columnBands.length / 2),
-    (values[0]?.length ?? 1) - 1
-  );
-  const nextRowIdx = currentRowIdx + 1;
-  const nextPayout = values[nextRowIdx]?.[colIdx] ?? 0;
-
-  // Progress
-  const currentMin = current ? current.min : 0;
-  const bandWidth = nextBand.min - currentMin;
-  const progress = bandWidth > 0 ? ((currentAttainment - currentMin) / bandWidth) * 100 : 0;
-
-  return {
-    componentName,
-    componentType: 'matrix_lookup',
-    currentAttainment,
-    currentTier: current?.label || 'Below minimum',
-    nextTierThreshold: nextBand.min,
-    nextTierName: nextBand.label,
+    nextTierName: boundaryLabel(next, currentIdx + 1),
     distanceToNextTier: distance,
     currentPayout,
     nextTierPayout: nextPayout,
@@ -187,7 +196,7 @@ function computeMatrixTrajectory(
 }
 
 // ──────────────────────────────────────────────
-// Main Trajectory Computation
+// Main trajectory computation
 // ──────────────────────────────────────────────
 
 interface ComponentResult {
@@ -196,14 +205,10 @@ interface ComponentResult {
 }
 
 /**
- * Compute trajectory for all components in a rule set.
+ * Compute trajectory projection for all components in a rule set.
  *
- * @param entityId - Entity identifier
- * @param entityName - Display name
- * @param totalPayout - Total payout from calculation results
- * @param componentResults - Array of {name, value} from calculation results
- * @param ruleSetConfig - The rule set configuration (AdditiveLookupConfig or WeightedKPIConfig)
- * @param attainments - Optional map of component name → attainment percentage (0-300)
+ * Read-only: consumes already-computed values from componentResults and projects
+ * to next-boundary outputs from the foundational intent. Does not evaluate primitives.
  */
 export function computeRepTrajectory(
   entityId: string,
@@ -219,55 +224,44 @@ export function computeRepTrajectory(
     return { entityId, entityName, totalPayout, trajectories, bestOpportunity: null, totalPotential: 0 };
   }
 
-  // Extract plan components based on config type
   let planComponents: PlanComponent[] = [];
 
   if ('type' in ruleSetConfig && ruleSetConfig.type === 'additive_lookup') {
-    // Flatten all variants' components
     const variants = (ruleSetConfig as AdditiveLookupConfig).variants || [];
     for (const variant of variants) {
       planComponents = planComponents.concat(variant.components || []);
     }
   } else if ('type' in ruleSetConfig && ruleSetConfig.type === 'weighted_kpi') {
-    // Weighted KPI has KPIs not traditional components — skip for now
     return { entityId, entityName, totalPayout, trajectories, bestOpportunity: null, totalPotential: 0 };
   }
 
-  // Match each component result to its plan definition
   for (const result of componentResults) {
     const planComp = planComponents.find(
       pc => pc.name.toLowerCase() === result.name.toLowerCase()
     );
     if (!planComp || !planComp.enabled) continue;
 
-    // Get the attainment for this component (from attainments map or estimate from result)
+    const intent = readIntent(planComp);
+    if (!intent) continue;
+
     const att = attainments?.[result.name] ?? 0;
+    const operation = intent.operation as string | undefined;
 
     let trajectory: TrajectoryCard | null = null;
 
-    if (planComp.componentType === 'tier_lookup' && planComp.tierConfig) {
-      trajectory = computeTierTrajectory(
-        result.name,
-        planComp.tierConfig,
-        att,
-        result.value
-      );
-    } else if (planComp.componentType === 'matrix_lookup' && planComp.matrixConfig) {
-      trajectory = computeMatrixTrajectory(
-        result.name,
-        planComp.matrixConfig,
-        att,
-        result.value
-      );
+    if (operation === 'bounded_lookup_1d') {
+      trajectory = projectBoundedLookup1D(result.name, intent, att, result.value);
+    } else if (operation === 'bounded_lookup_2d') {
+      trajectory = projectBoundedLookup2D(result.name, intent, att, result.value);
     }
-    // percentage and conditional_percentage are linear — no tiers to advance to
+    // Non-lookup primitives (scalar_multiply, linear_function, conditional_gate, etc.)
+    // have no discrete next-tier semantics — no projection card emitted.
 
     if (trajectory && trajectory.incrementalValue > 0) {
       trajectories.push(trajectory);
     }
   }
 
-  // Sort by incremental value descending — best opportunity first
   trajectories.sort((a, b) => b.incrementalValue - a.incrementalValue);
 
   const bestOpportunity = trajectories.length > 0 ? trajectories[0] : null;

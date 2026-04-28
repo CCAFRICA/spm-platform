@@ -9,10 +9,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { AlertTriangle, ExternalLink } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { PayoutEmployee } from '@/lib/payout-service';
-import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { useCurrency } from '@/contexts/tenant-context';
 
@@ -38,7 +36,6 @@ export function PayoutEmployeeTable({ employees }: PayoutEmployeeTableProps) {
             <TableHead className="text-right">Incentives</TableHead>
             <TableHead className="text-right">Adjustments</TableHead>
             <TableHead className="text-right">Total</TableHead>
-            <TableHead className="w-[80px]"></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -80,17 +77,6 @@ export function PayoutEmployeeTable({ employees }: PayoutEmployeeTableProps) {
               </TableCell>
               <TableCell className="text-right font-bold">
                 {formatCurrency(employee.total)}
-              </TableCell>
-              <TableCell>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  asChild
-                >
-                  <Link href={`/transactions?employee=${employee.id}`}>
-                    <ExternalLink className="h-4 w-4" />
-                  </Link>
-                </Button>
               </TableCell>
             </TableRow>
           ))}

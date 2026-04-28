@@ -51,7 +51,6 @@ import {
   Shield,
   FileText,
   Users,
-  Receipt,
   HelpCircle,
   History,
   Sparkles,
@@ -105,7 +104,6 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Shield,
   FileText,
   Users,
-  Receipt,
   HelpCircle,
   History,
   Sparkles,
@@ -348,14 +346,6 @@ export function CommandPalette() {
                 >
                   <Wallet className="h-4 w-4 text-muted-foreground" />
                   <span>{isSpanish ? 'Ver Mi Compensación' : 'View My Compensation'}</span>
-                </CommandUIItem>
-                <CommandUIItem
-                  value="transactions"
-                  onSelect={() => router.push('/perform/transactions')}
-                  className="flex items-center gap-3"
-                >
-                  <Receipt className="h-4 w-4 text-muted-foreground" />
-                  <span>{isSpanish ? 'Mis Transacciones' : 'My Transactions'}</span>
                 </CommandUIItem>
                 {(effectiveRole === 'admin' || effectiveRole === 'platform') && (
                   <CommandUIItem

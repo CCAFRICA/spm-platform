@@ -1,8 +1,8 @@
 # OB-196 — Completion Report (in-flight)
 
-**Substrate:** `CCAFRICA/spm-platform` `origin/main` HEAD (post-Phase-1.6 = TBD; pre-Phase-1.6 = `5ee967c1`)
+**Substrate:** `CCAFRICA/spm-platform` `origin/main` HEAD (post-Phase-1.6 = `6bc005e6`; post-Phase-1.6.5 = TBD)
 **Branch:** `dev`
-**Status:** IN FLIGHT — Phase 1.6 committing; Phases 1.6.5, 1.7, 2 remaining.
+**Status:** IN FLIGHT — Phase 1.6.5 committing; Phases 1.7, 2 remaining.
 
 ---
 
@@ -13,8 +13,8 @@
 | Phase 0 — Substrate sync + ADR | ✅ COMPLETE | `15fb3827` | merged via #345 |
 | Phase 1 — E1 primitive registry | ✅ COMPLETE | `ec0eceb9` + `7058ac40` | merged via #345 |
 | Phase 1.5 — Legacy alias elimination at import boundary | ✅ COMPLETE | `9ebc340e` | #345 (merged `5ee967c1`) |
-| Phase 1.6 — Trial/GPV/landing dead-code sweep + L7 capture | 🟡 COMMITTING | TBD | TBD |
-| Phase 1.6.5 — Calc-side legacy consumer disposition | ⏳ PENDING | — | — |
+| Phase 1.6 — Trial/GPV/landing dead-code sweep + L7 capture | ✅ COMPLETE | `7fa598f6` | merged via #346 |
+| Phase 1.6.5 — Calc-side legacy disposition + demo-era wholesale sweep + FP-66 cleanup + disputes drop | 🟡 COMMITTING | TBD (post-merge) | TBD |
 | Phase 1.7 — Validation + forensics + UI consumers | ⏳ PENDING | — | — |
 | Phase 2 — E2 dispatch errors (legacy engine arms in run-calculation.ts) | ⏳ PENDING | — | — |
 | Phase 3 — E4 round-trip closure | ⏳ PENDING | — | — |
@@ -93,7 +93,7 @@ Detailed phase-by-phase evidence is captured in the discrete artifact `docs/audi
 | Phase | Closure note |
 |---|---|
 | Phase 1.5 | F-005 closed at import boundary. Plan-agent prompt teaches AI to emit foundational identifiers directly. Importer accepts foundational only. Commit `9ebc340e`, PR #345 merged. |
-| Phase 1.6 | Trial/GPV/landing cluster deleted (~4,500+ lines, 6 directories). Cluster surfaces F-005-clean. Calc-side, validation, forensics, UI deferred to subsequent phases. |
-| Phase 1.6.5 | [populated when commits] |
+| Phase 1.6 | Trial/GPV/landing cluster deleted (~4,500+ lines, 6 directories). Cluster surfaces F-005-clean. Calc-side, validation, forensics, UI deferred to subsequent phases. Commit `7fa598f6`, PR #346 merged. |
+| Phase 1.6.5 | Calc-side wholesale: calculation-engine.ts (801 lines) + intent-resolver.ts (119 lines) deleted; intent-transformer legacy arms stripped; trajectory-engine refactored to read-only metadata.intent projection (Decision 151). Demo-era cluster wholesale sweep: transactions/* pages, performance/scenarios, design/modeling re-export, insights/disputes, investigate/disputes, components/disputes/* (7 files), api/disputes/* (3 routes), lib/disputes/, lib/scenarios/, lib/demo/ (8 files, ~2,969 lines), components/demo/ (4 plumbing components post-PersonaSwitcher carve-out), app/admin/demo, app/operate/normalization, lib/normalization/flywheel-verification, data/tenants/retailco/ (4 fixtures), resolution-agent.ts, types/dispute.ts, RecentTransactionsCard, SavedScenariosList, lib/reconciliation/reconciliation-bridge.ts (1,034-line orphan). Q-S1 carve-out: components/demo/DemoPersonaSwitcher.tsx → components/persona/PersonaSwitcher.tsx (production component move + rename). Service-layer FP-66 cleanup: payout-service (DEMO_EMPLOYEES + DEMO_BATCHES stripped), rbac-service (getDefaultAssignments + getDefaultAuditLogs stripped), search-service (4-user array stripped), workforce/permissions (DEMO_USERS stripped), alerts-service / quarantine-service / plan-approval-service (retailco demo blocks stripped), data/tenants/index.json (retailco entry removed), lib/storage/tenant-registry-service (retailco removed from STATIC_TENANT_IDS), app/configuration / app/operations/audits/logins (demo user/login records stripped). Navigation surfaces refactored: Sidebar (transactions parent + scenario modeling child + ICM_ONLY_HREFS), CommandPalette, QuickActionsCard, PayoutEmployeeTable, global-search, enhanced import page, notification-service (3 dispute helper functions removed), payouts/[id] (dispute warning block stripped), help-service (deletion-set relatedRoutes), acceleration-hints, access-control (4 union members + ROUTE_TO_MODULE entries + MODULE_ACCESS roles), page-status (deletion-set entries), role-permissions. my-compensation refactored (dispute imports + state + handler + UI block + RecentTransactionsCard stripped). Disputes Supabase table drop migration written (`web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql`); architect applies via Supabase SQL Editor (Standing Rule 7) post-merge. F-005 calc-read path closed. tsc clean. Lint clean. |
 | Phase 1.7 | [populated when commits — final platform-wide-zero-hit grep] |
 | Phase 2 | [populated when commits] |
