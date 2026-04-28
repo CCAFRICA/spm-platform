@@ -23,14 +23,11 @@ import { isRegisteredPrimitive } from '@/lib/calculation/primitive-registry';
 //
 // The TYPE-LEVEL union below is intentionally wider than the runtime
 // emission — `ComponentCalculation['type']` continues to admit the legacy
-// discriminator strings because `web/src/lib/compensation/plan-interpreter.ts`
-// (a separate heuristic interpreter consumed by GPVWizard and customer-launch
-// flow) still emits legacy types. That site is OUT of architect's explicit
-// Phase 1.5 Step 2 scope (which named only ai-plan-interpreter.ts).
-// Phase 1.5 closure of F-005 is therefore PARTIAL — closed at this file's
-// runtime emissions; plan-interpreter.ts remains a legacy-emission carry-forward
-// surfaced in the Phase 1.5 commit body and CR for architect disposition
-// (refactor inline as Phase 1.5 extension, or defer as separate work item).
+// discriminator strings because Phase 2 will delete the run-calculation.ts
+// legacy switch arms (which read these discriminators), and Phase 1.6.5/1.7
+// are still in flight for calc-side and UI consumers that depend on them.
+// When Phase 1.7 lands, the legacy interfaces below are deleted and
+// ComponentCalculation narrows to GenericCalculation.
 //
 // When the architect dispositions plan-interpreter.ts, this union narrows to
 // `GenericCalculation` and the legacy interfaces below are deleted entirely.

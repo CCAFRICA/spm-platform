@@ -20,15 +20,8 @@ interface PlatformSetting {
   created_at: string;
 }
 
+// OB-196 Phase 1.6: landing_page_enabled and gpv_enabled removed (cluster pathway deleted).
 const FLAG_CONFIG: Record<string, { label: string; description: string }> = {
-  landing_page_enabled: {
-    label: 'Public Landing Page',
-    description: 'When ON, unauthenticated visitors see the marketing landing page. When OFF, they go directly to login.',
-  },
-  gpv_enabled: {
-    label: 'Guided Proof of Value',
-    description: 'When ON, new tenants see the onboarding wizard. When OFF, all tenants see the normal dashboard.',
-  },
   public_signup_enabled: {
     label: 'Public Signup',
     description: 'When ON, the signup page allows new account creation. When OFF, it shows "coming soon."',

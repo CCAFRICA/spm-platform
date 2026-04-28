@@ -31,7 +31,6 @@ import { logAuthEvent } from '@/lib/auth/auth-logger';
 const PUBLIC_PATHS = [
   '/login',
   '/signup',
-  '/landing',
   '/auth/callback',
   '/auth/mfa',           // OB-178: MFA enrollment/verify (accessible post-login, pre-MFA)
   '/api/auth',           // Auth callback handlers
@@ -92,7 +91,7 @@ export async function middleware(request: NextRequest) {
     if (isPublicPath(pathname)) {
       return noCacheResponse(NextResponse.next({ request }));
     }
-    return noCacheResponse(NextResponse.redirect(new URL('/landing', request.url)));
+    return noCacheResponse(NextResponse.redirect(new URL('/login', request.url)));
   }
 
   // Response object for authenticated pass-through (carries cookie refresh).
@@ -148,21 +147,9 @@ export async function middleware(request: NextRequest) {
   // ── NOT AUTHENTICATED ──
   if (!user) {
     if (pathname === '/') {
-      let landingEnabled = false;
-      try {
-        const flagsResponse = await fetch(new URL('/api/platform/flags', request.url));
-        if (flagsResponse.ok) {
-          const flags = await flagsResponse.json();
-          landingEnabled = flags.landing_page_enabled === true;
-        }
-      } catch {
-        landingEnabled = false;
-      }
-
-      const targetUrl = landingEnabled
-        ? new URL('/landing', request.url)
-        : new URL('/login', request.url);
-      const redirectResponse = NextResponse.redirect(targetUrl);
+      // OB-196 Phase 1.6: landing-page pathway deleted (abandoned UI per architect direction).
+      // Anonymous-on-/ redirects directly to /login.
+      const redirectResponse = NextResponse.redirect(new URL('/login', request.url));
       clearAuthCookies(request, redirectResponse);
       return noCacheResponse(redirectResponse);
     }

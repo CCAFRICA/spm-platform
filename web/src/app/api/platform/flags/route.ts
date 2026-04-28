@@ -16,9 +16,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 let flagsCache: { flags: Record<string, boolean>; ts: number } | null = null;
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
+// OB-196 Phase 1.6: landing_page_enabled and gpv_enabled removed (cluster pathway deleted).
+// Route persists for public_signup_enabled and any future flag.
 const SAFE_DEFAULTS: Record<string, boolean> = {
-  landing_page_enabled: false,
-  gpv_enabled: false,
   public_signup_enabled: false,
 };
 

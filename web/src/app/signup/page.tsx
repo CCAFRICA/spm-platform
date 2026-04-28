@@ -439,10 +439,7 @@ export default function SignupPage() {
             {googleLoading ? 'Redirecting...' : 'Sign up with Google'}
           </button>
 
-          {/* Trial note */}
-          <p style={{ fontSize: '13px', color: '#94A3B8', textAlign: 'center', marginTop: '16px', marginBottom: 0 }}>
-            14-day free trial. No credit card required.
-          </p>
+          {/* OB-196 Phase 1.6: trial-cluster marketing copy removed (cluster pathway deleted). */}
         </div>
 
         {/* Login link */}
