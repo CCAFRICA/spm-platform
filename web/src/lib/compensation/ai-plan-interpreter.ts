@@ -12,6 +12,29 @@ import { isRegisteredPrimitive } from '@/lib/calculation/primitive-registry';
 // TYPES
 // ============================================
 
+// OB-196 Phase 1.5 (legacy alias elimination at the AI-plan-interpreter site):
+//
+// At the runtime level, this file's importer (normalizeComponentType +
+// normalizeCalculationMethod + convertComponent) accepts ONLY foundational
+// identifiers; legacy switch arms (matrix_lookup, tier_lookup, tiered_lookup,
+// percentage, flat_percentage, conditional_percentage) deleted; helper methods
+// for legacy shapes deleted. AI emits foundational identifiers directly per
+// the Phase 1.5 plan-agent prompt update.
+//
+// The TYPE-LEVEL union below is intentionally wider than the runtime
+// emission — `ComponentCalculation['type']` continues to admit the legacy
+// discriminator strings because `web/src/lib/compensation/plan-interpreter.ts`
+// (a separate heuristic interpreter consumed by GPVWizard and customer-launch
+// flow) still emits legacy types. That site is OUT of architect's explicit
+// Phase 1.5 Step 2 scope (which named only ai-plan-interpreter.ts).
+// Phase 1.5 closure of F-005 is therefore PARTIAL — closed at this file's
+// runtime emissions; plan-interpreter.ts remains a legacy-emission carry-forward
+// surfaced in the Phase 1.5 commit body and CR for architect disposition
+// (refactor inline as Phase 1.5 extension, or defer as separate work item).
+//
+// When the architect dispositions plan-interpreter.ts, this union narrows to
+// `GenericCalculation` and the legacy interfaces below are deleted entirely.
+
 export interface AxisRange {
   min: number;
   max: number;
@@ -70,7 +93,10 @@ export interface ConditionalPercentageCalculation {
   }[];
 }
 
-// HF-156: Generic type for new primitives (linear_function, piecewise_linear, etc.)
+// Foundational-shape envelope. Phase 1.5 narrows runtime emission of this file's
+// importer to the discriminator subset below (no legacy types produced); Phase 2
+// will narrow ComponentCalculation = GenericCalculation when plan-interpreter.ts
+// is dispositioned.
 export interface GenericCalculation {
   type: 'linear_function' | 'piecewise_linear' | 'scope_aggregate' | 'scalar_multiply' | 'conditional_gate';
   [key: string]: unknown;
@@ -268,165 +294,48 @@ export class AIPlainInterpreter {
   }
 
   private normalizeComponentType(type: unknown): ComponentCalculation['type'] {
-    // OB-196 E1 (Decision 155): registry-derived recognition.
-    // The legacy import-side types (matrix_lookup, tiered_lookup, percentage,
-    // flat_percentage, conditional_percentage) are domain-shaped names the AI
-    // emits in `calculationMethod.type`; they map to registered foundational
-    // primitives at the dispatch surface (e.g., tiered_lookup → bounded_lookup_1d).
-    // Five OB-180/181 primitive identifiers are foundational — recognized via
-    // `isRegisteredPrimitive`. The function accepts both legacy import shapes
-    // and registered foundational identifiers. Phase 2 makes unrecognized
-    // identifiers a structured throw at the importer's `convertComponent`
-    // default branch.
-    const legacyImportTypes = new Set([
-      'matrix_lookup',
-      'tiered_lookup',
-      'percentage',
-      'flat_percentage',
-      'conditional_percentage',
-    ]);
-    const typeStr = String(type || 'tiered_lookup');
-    if (legacyImportTypes.has(typeStr)) {
-      return typeStr as ComponentCalculation['type'];
+    // OB-196 Phase 1.5 (Decision 155 fully closed): every recognized identifier
+    // is sourced from primitive-registry.ts. No private alias lists. Foundational
+    // identifiers exclusively expected. Phase 2 replaces this throw with the
+    // typed UnconvertibleComponentError at the convertComponent default branch.
+    const typeStr = String(type ?? '');
+    if (!isRegisteredPrimitive(typeStr)) {
+      throw new Error(
+        `[ai-plan-interpreter] non-foundational componentType "${typeStr}". ` +
+          `Phase 1.5 expects foundational identifiers from primitive-registry.ts; ` +
+          `Phase 2 replaces this throw with UnconvertibleComponentError.`,
+      );
     }
-    if (isRegisteredPrimitive(typeStr)) {
-      // The foundational primitive is recognized vocabulary. Only the subset
-      // that maps to a `GenericCalculation` shape (via ComponentCalculation['type'])
-      // is importable; others (bounded_lookup_1d, aggregate, ratio, etc.) are
-      // dispatch-surface operations the importer doesn't model as a calculationMethod
-      // shape. The set is derived structurally from the GenericCalculation discriminant
-      // type at compile time — no private-copy of vocabulary.
-      const importableFoundational: ReadonlySet<GenericCalculation['type']> = new Set([
-        'linear_function',
-        'piecewise_linear',
-        'scope_aggregate',
-        'scalar_multiply',
-        'conditional_gate',
-      ] as const satisfies readonly GenericCalculation['type'][]);
-      if ((importableFoundational as ReadonlySet<string>).has(typeStr)) {
-        return typeStr as ComponentCalculation['type'];
-      }
+    // Only the GenericCalculation-importable subset is acceptable as a
+    // calculationMethod.type; others (bounded_lookup_1d, aggregate, ratio, etc.)
+    // are dispatch-surface operations the importer doesn't model as a shape.
+    const importable: ReadonlySet<GenericCalculation['type']> = new Set([
+      'linear_function',
+      'piecewise_linear',
+      'scope_aggregate',
+      'scalar_multiply',
+      'conditional_gate',
+    ] as const satisfies readonly GenericCalculation['type'][]);
+    if (!(importable as ReadonlySet<string>).has(typeStr)) {
+      throw new Error(
+        `[ai-plan-interpreter] foundational identifier "${typeStr}" recognized ` +
+          `by registry but is not importable as a calculationMethod shape. ` +
+          `Phase 2 replaces this throw with UnconvertibleComponentError.`,
+      );
     }
-    return 'tiered_lookup';
+    return typeStr as ComponentCalculation['type'];
   }
 
   private normalizeCalculationMethod(type: unknown, method: unknown): ComponentCalculation {
+    // OB-196 Phase 1.5: legacy switch arms (matrix_lookup, tier_lookup,
+    // tiered_lookup, percentage, flat_percentage, conditional_percentage)
+    // deleted entirely. Foundational 5-tuple expected exclusively.
+    // normalizeComponentType throws if the input falls outside the importable
+    // foundational subset, so by the time control reaches the spread below,
+    // typeStr is guaranteed to be one of the five canonical identifiers.
     const typeStr = this.normalizeComponentType(type);
     const m = (method || {}) as Record<string, unknown>;
-
-    switch (typeStr) {
-      case 'matrix_lookup': {
-        const rowAxis = (m.rowAxis || {}) as Record<string, unknown>;
-        const columnAxis = (m.columnAxis || {}) as Record<string, unknown>;
-        return {
-          type: 'matrix_lookup',
-          rowAxis: {
-            metric: String(rowAxis.metric || 'row_metric'),
-            label: String(rowAxis.label || 'Row'),
-            labelEs: rowAxis.labelEs ? String(rowAxis.labelEs) : undefined,
-            ranges: this.normalizeRanges(rowAxis.ranges),
-          },
-          columnAxis: {
-            metric: String(columnAxis.metric || 'column_metric'),
-            label: String(columnAxis.label || 'Column'),
-            labelEs: columnAxis.labelEs ? String(columnAxis.labelEs) : undefined,
-            ranges: this.normalizeRanges(columnAxis.ranges),
-          },
-          values: this.normalizeMatrix(m.values),
-        };
-      }
-
-      case 'tiered_lookup':
-        return {
-          type: 'tiered_lookup',
-          metric: String(m.metric || 'metric'),
-          metricLabel: m.metricLabel ? String(m.metricLabel) : undefined,
-          tiers: this.normalizeTiers(m.tiers),
-        };
-
-      case 'percentage':
-      case 'flat_percentage':
-        return {
-          type: typeStr,
-          metric: String(m.metric || 'base_amount'),
-          metricLabel: m.metricLabel ? String(m.metricLabel) : undefined,
-          rate: Number(m.rate) || 0,
-        };
-
-      case 'conditional_percentage':
-        return {
-          type: 'conditional_percentage',
-          metric: String(m.metric || 'base_amount'),
-          metricLabel: m.metricLabel ? String(m.metricLabel) : undefined,
-          conditionMetric: String(m.conditionMetric || 'condition_metric'),
-          conditionMetricLabel: m.conditionMetricLabel ? String(m.conditionMetricLabel) : undefined,
-          conditions: this.normalizeConditions(m.conditions),
-        };
-
-      // HF-159: Pass through new primitive types (DIAG-014 root cause)
-      // Without these cases, the default overwrites type to 'tiered_lookup' with empty tiers.
-      // This was the ACTUAL destroyer — 5 prior fixes missed it.
-      case 'linear_function':
-      case 'piecewise_linear':
-      case 'scope_aggregate':
-      case 'scalar_multiply':
-      case 'conditional_gate':
-        return { type: typeStr, ...m } as GenericCalculation;
-
-      default:
-        return {
-          type: 'tiered_lookup',
-          metric: 'metric',
-          tiers: [],
-        };
-    }
-  }
-
-  private normalizeRanges(ranges: unknown): AxisRange[] {
-    if (!Array.isArray(ranges)) return [];
-    return ranges.map((r) => ({
-      min: Number(r.min) || 0,
-      max: r.max === Infinity || r.max === 'Infinity' ? Infinity : Number(r.max) || 100,
-      label: String(r.label || ''),
-      labelEs: r.labelEs ? String(r.labelEs) : undefined,
-    }));
-  }
-
-  private normalizeMatrix(values: unknown): number[][] {
-    if (!Array.isArray(values)) return [];
-    return values.map((row) => {
-      if (!Array.isArray(row)) return [];
-      return row.map((v) => Number(v) || 0);
-    });
-  }
-
-  private normalizeTiers(tiers: unknown): TieredCalculation['tiers'] {
-    if (!Array.isArray(tiers)) return [];
-    return tiers.map((t) => ({
-      min: Number(t.min) || 0,
-      max: t.max === Infinity || t.max === 'Infinity' ? Infinity : Number(t.max) || 100,
-      payout: Number(t.payout) || 0,
-      label: t.label ? String(t.label) : undefined,
-    }));
-  }
-
-  private normalizeConditions(conditions: unknown): ConditionalPercentageCalculation['conditions'] {
-    if (!Array.isArray(conditions)) return [];
-    return conditions.map((c) => ({
-      threshold: Number(c.threshold) || 0,
-      operator: this.normalizeOperator(c.operator),
-      maxThreshold: c.maxThreshold !== undefined ? Number(c.maxThreshold) : undefined,
-      rate: Number(c.rate) || 0,
-      label: c.label ? String(c.label) : undefined,
-    }));
-  }
-
-  private normalizeOperator(op: unknown): ConditionalPercentageCalculation['conditions'][0]['operator'] {
-    const validOps = ['<', '<=', '>', '>=', '==', 'between'];
-    const opStr = String(op || '>=');
-    return validOps.includes(opStr)
-      ? (opStr as ConditionalPercentageCalculation['conditions'][0]['operator'])
-      : '>=';
+    return { type: typeStr, ...m } as GenericCalculation;
   }
 
   private normalizeRequiredInputs(inputs: unknown): RequiredInput[] {
@@ -571,7 +480,12 @@ export function interpretationToPlanConfig(
 }
 
 function convertComponent(comp: InterpretedComponent, order: number): PlanComponent {
-  // Null-safe base properties
+  // OB-196 Phase 1.5: legacy alias elimination + truncation. AI emits foundational
+  // identifiers directly; importer carries calculationIntent through without
+  // per-shape translation. Legacy case arms (matrix_lookup, tiered_lookup,
+  // percentage/flat_percentage, conditional_percentage) and the silent-fallback
+  // default branch deleted. Default branch throws (Phase 2 replaces with the
+  // typed UnconvertibleComponentError).
   const base: Omit<PlanComponent, 'componentType' | 'matrixConfig' | 'tierConfig' | 'percentageConfig' | 'conditionalConfig'> = {
     id: comp?.id || `component-${order}`,
     name: comp?.name || `Component ${order + 1}`,
@@ -583,113 +497,19 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
     calculationIntent: comp?.calculationIntent,
   };
 
-  // Null-safe calculation method access
-  // HF-158 / DIAG-014: Read calculationIntent.operation as fallback when calculationMethod is undefined.
-  // The AI produces calculationIntent (with operation, rate, etc) but NOT calculationMethod.
+  // calcType derives from calculationIntent.operation (primary) with
+  // calculationMethod.type as transitional fallback. Phase 1.5 removed the
+  // `|| 'tiered_lookup'` silent-fallback; if neither is present the default
+  // branch throws.
   const calcMethod = comp?.calculationMethod;
-  // HF-160: calculationIntent.operation checked FIRST (priority inversion safety net)
-  // Even if AI returns tiered_lookup in calcMethod, calculationIntent has the correct type
-  const calcType = (base.calculationIntent?.operation as string) || calcMethod?.type || 'tiered_lookup';
+  const calcType = (base.calculationIntent?.operation as string) || calcMethod?.type || '';
 
-  // DEBUG: Log exactly what type is being processed
-  console.log(`[convertComponent] "${base.name}" calcType="${calcType}" (from calcMethod.type="${calcMethod?.type}", calculationIntent.operation="${base.calculationIntent?.operation}")`);
+  console.log(
+    `[convertComponent] "${base.name}" calcType="${calcType}" ` +
+      `(from calcMethod.type="${calcMethod?.type}", calculationIntent.operation="${base.calculationIntent?.operation}")`,
+  );
 
   switch (calcType) {
-    case 'matrix_lookup': {
-      const m = calcMethod as MatrixCalculation;
-      const rowAxis = m?.rowAxis || { metric: 'attainment', label: 'Attainment', ranges: [] };
-      const colAxis = m?.columnAxis || { metric: 'sales', label: 'Sales', ranges: [] };
-      return {
-        ...base,
-        componentType: 'matrix_lookup',
-        matrixConfig: {
-          rowMetric: rowAxis.metric || 'attainment',
-          rowMetricLabel: rowAxis.label || 'Attainment',
-          rowBands: (rowAxis.ranges || []).map((r) => ({
-            min: r?.min ?? 0,
-            max: r?.max ?? 100,
-            label: r?.label || '',
-          })),
-          columnMetric: colAxis.metric || 'sales',
-          columnMetricLabel: colAxis.label || 'Sales',
-          columnBands: (colAxis.ranges || []).map((r) => ({
-            min: r?.min ?? 0,
-            max: r?.max ?? 100,
-            label: r?.label || '',
-          })),
-          values: m?.values || [[0]],
-          currency: 'MXN',
-        },
-      };
-    }
-
-    case 'tiered_lookup': {
-      const t = calcMethod as TieredCalculation;
-      const rawTiers = t?.tiers || [];
-
-      // Simple direct mapping - no transformation issues
-      const tiers = rawTiers.map((tier) => ({
-        min: tier?.min ?? 0,
-        max: tier?.max ?? 100,
-        label: tier?.label || '',
-        value: tier?.payout ?? 0,
-      }));
-
-      console.log(`[convertComponent] ${base.name}: ${rawTiers.length} input tiers -> ${tiers.length} output tiers`);
-
-      return {
-        ...base,
-        componentType: 'tier_lookup',
-        tierConfig: {
-          metric: t?.metric || 'attainment',
-          metricLabel: t?.metricLabel || t?.metric || 'Attainment',
-          tiers,
-          currency: 'MXN',
-        },
-      };
-    }
-
-    case 'percentage':
-    case 'flat_percentage': {
-      const p = calcMethod as PercentageCalculation;
-      return {
-        ...base,
-        componentType: 'percentage',
-        measurementLevel: 'individual',
-        percentageConfig: {
-          rate: p?.rate ?? 0,
-          appliedTo: p?.metric || 'sales',
-          appliedToLabel: p?.metricLabel || p?.metric || 'Sales',
-        },
-      };
-    }
-
-    case 'conditional_percentage': {
-      const c = calcMethod as ConditionalPercentageCalculation;
-      return {
-        ...base,
-        componentType: 'conditional_percentage',
-        measurementLevel: 'individual',
-        conditionalConfig: {
-          conditions: (c?.conditions || []).map((cond) => ({
-            metric: c?.conditionMetric || 'attainment',
-            metricLabel: c?.conditionMetricLabel || c?.conditionMetric || 'Attainment',
-            min: cond?.operator === '<' || cond?.operator === '<=' ? 0 : (cond?.threshold ?? 0),
-            max:
-              cond?.operator === '<' || cond?.operator === '<='
-                ? (cond?.threshold ?? 100)
-                : (cond?.maxThreshold ?? Infinity),
-            rate: cond?.rate ?? 0,
-            label: cond?.label || '',
-          })),
-          appliedTo: c?.metric || 'sales',
-          appliedToLabel: c?.metricLabel || c?.metric || 'Sales',
-        },
-      };
-    }
-
-    // HF-156 Fix 2: New primitive types — store calculationIntent in metadata.intent
-    // so transformFromMetadata can find it (DIAG-013 disconnect 2+3)
     case 'linear_function':
     case 'piecewise_linear':
     case 'scope_aggregate':
@@ -697,41 +517,19 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
     case 'conditional_gate':
       return {
         ...base,
-        componentType: calcType as 'linear_function' | 'piecewise_linear' | 'scope_aggregate',
+        componentType: calcType,
         metadata: {
           ...(base.metadata || {}),
-          intent: base.calculationIntent, // Copy to where transformFromMetadata reads
+          intent: base.calculationIntent, // copy for transformFromMetadata
         },
       };
 
     default:
-      // HF-156: If calculationIntent exists, use it as metadata.intent even for legacy types
-      if (base.calculationIntent) {
-        return {
-          ...base,
-          componentType: 'tier_lookup',
-          metadata: {
-            ...(base.metadata || {}),
-            intent: base.calculationIntent,
-          },
-          tierConfig: {
-            metric: 'unknown',
-            metricLabel: 'Unknown',
-            tiers: [],
-            currency: 'MXN',
-          },
-        };
-      }
-      return {
-        ...base,
-        componentType: 'tier_lookup',
-        tierConfig: {
-          metric: 'unknown',
-          metricLabel: 'Unknown',
-          tiers: [],
-          currency: 'MXN',
-        },
-      };
+      throw new Error(
+        `[convertComponent] non-foundational calcType "${calcType}" for component "${base.name}". ` +
+          `Phase 1.5 expects foundational identifiers from primitive-registry.ts; ` +
+          `Phase 2 replaces this throw with UnconvertibleComponentError.`,
+      );
   }
 }
 

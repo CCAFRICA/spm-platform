@@ -385,18 +385,6 @@ BOUNDARY FORMAT:
 { "min": number|null, "max": number|null, "minInclusive": true, "maxInclusive": true }
 Use null for unbounded (no lower/upper limit). Both inclusive to match >= min AND <= max.
 
-MAPPING RULES (type → calculationIntent operation):
-- tiered_lookup → bounded_lookup_1d with metric input, boundaries from tiers, outputs from tier values
-- matrix_lookup → bounded_lookup_2d with metric inputs, row/column boundaries, outputGrid
-- flat_percentage → scalar_multiply with metric input and rate (flat_percentage is a legacy alias)
-- conditional_percentage → nested conditional_gate chain (conditions in order, scalar_multiply on match)
-- linear_function → linear_function with slope, intercept, and metric input
-- piecewise_linear → piecewise_linear with ratioInput, baseInput, and segments array
-  IMPORTANT: piecewise_linear ALWAYS maps to piecewise_linear operation, NEVER to conditional_gate chain
-- scope_aggregate → scope_aggregate with scope, field, and aggregation
-- scalar_multiply → scalar_multiply with metric input and rate
-- conditional_gate → conditional_gate with condition, onTrue operation, onFalse operation
-
 EXAMPLE calculationIntent for a tiered_lookup:
 {
   "calculationIntent": {
