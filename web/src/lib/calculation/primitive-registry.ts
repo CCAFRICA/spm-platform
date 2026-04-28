@@ -218,7 +218,8 @@ export function getOperationPrimitives(): readonly PrimitiveEntry[] {
  * surfaces the surface as NotImplementedError so any premature consumer
  * fails loud.
  */
-export function registerDomainPrimitive(_owner: string, _entry: PrimitiveEntry): never {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function registerDomainPrimitive(owner: string, entry: PrimitiveEntry): never {
   throw new Error(
     '[primitive-registry] registerDomainPrimitive is not implemented. ' +
       'Decision 154 reserves a narrow domain-extension surface; the registration mechanism ' +
