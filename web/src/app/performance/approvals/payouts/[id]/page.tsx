@@ -159,8 +159,6 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
     );
   }
 
-  const hasDisputes = batch.employees.some(e => e.disputes > 0);
-  const totalDisputes = batch.employees.reduce((sum, e) => sum + e.disputes, 0);
 
   return (
     <div className="p-6 space-y-6">
@@ -264,31 +262,6 @@ export default function PayoutBatchDetailPage({ params }: PageProps) {
           </CardContent>
         </Card>
       </div>
-
-      {/* Warnings & Notes */}
-      {hasDisputes && batch.status === 'pending_approval' && (
-        <Card className="border-amber-200 bg-amber-50 dark:bg-amber-900/20">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
-              <div>
-                <h4 className="font-medium text-amber-800 dark:text-amber-200">
-                  {totalDisputes} Pending Dispute{totalDisputes > 1 ? 's' : ''}
-                </h4>
-                <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                  Some entities have pending disputes that may affect their outcome amounts.
-                  Consider reviewing disputes before approving this batch.
-                </p>
-                <Button variant="outline" size="sm" className="mt-3" asChild>
-                  <Link href="/transactions/disputes">
-                    Review Disputes
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Status Info */}
       {batch.status === 'approved' && batch.approvedAt && (

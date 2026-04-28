@@ -37,13 +37,9 @@ export type DataAccessLevel = 'own' | 'team' | 'region' | 'all';
 export type AppModule =
   | 'dashboard'
   | 'my_compensation'
-  | 'transactions'
-  | 'disputes'
-  | 'dispute_queue'
   | 'insights'
   | 'performance'
   | 'plans'
-  | 'scenarios'
   | 'approvals'
   | 'payout_approvals'
   | 'personnel'
@@ -57,20 +53,14 @@ const MODULE_ACCESS: Record<string, AppModule[]> = {
   sales_rep: [
     'dashboard',
     'my_compensation',
-    'transactions',
-    'disputes',
     'plans',
   ],
   manager: [
     'dashboard',
     'my_compensation',
-    'transactions',
-    'disputes',
-    'dispute_queue',
     'insights',
     'performance',
     'plans',
-    'scenarios',
     'approvals',
     'personnel',
     'teams',
@@ -78,13 +68,9 @@ const MODULE_ACCESS: Record<string, AppModule[]> = {
   admin: [
     'dashboard',
     'my_compensation',
-    'transactions',
-    'disputes',
-    'dispute_queue',
     'insights',
     'performance',
     'plans',
-    'scenarios',
     'approvals',
     'payout_approvals',
     'personnel',
@@ -97,13 +83,9 @@ const MODULE_ACCESS: Record<string, AppModule[]> = {
     // VL Admin has access to everything
     'dashboard',
     'my_compensation',
-    'transactions',
-    'disputes',
-    'dispute_queue',
     'insights',
     'performance',
     'plans',
-    'scenarios',
     'approvals',
     'payout_approvals',
     'personnel',
@@ -118,16 +100,11 @@ const MODULE_ACCESS: Record<string, AppModule[]> = {
 const ROUTE_TO_MODULE: Record<string, AppModule> = {
   '/': 'dashboard',
   '/my-compensation': 'my_compensation',
-  '/transactions': 'transactions',
-  '/transactions/inquiries': 'disputes',
-  '/transactions/disputes': 'dispute_queue',
   '/insights': 'insights',
   '/insights/compensation': 'insights',
   '/insights/performance': 'insights',
-  '/insights/disputes': 'insights',
   '/performance': 'performance',
   '/performance/plans': 'plans',
-  '/performance/scenarios': 'scenarios',
   '/performance/approvals': 'approvals',
   '/performance/approvals/payouts': 'payout_approvals',
   '/workforce/personnel': 'personnel',

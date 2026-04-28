@@ -3,12 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Building2, User, Receipt } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useDebounce } from '@/hooks/use-debounce';
-import { getFranquicias, getMeseros, getCheques } from '@/lib/restaurant-service';
+import { getFranquicias, getMeseros } from '@/lib/restaurant-service';
 import Link from 'next/link';
-import type { Franquicia, Mesero, Cheque } from '@/types/cheques';
+import type { Franquicia, Mesero } from '@/types/cheques';
 
 interface SearchResult {
   id: string;
@@ -24,7 +24,6 @@ export function GlobalSearch() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { currentTenant } = useTenant();
-  const { format: formatCurrency } = useCurrency();
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,10 +43,9 @@ export function GlobalSearch() {
 
     try {
       if (currentTenant?.industry === 'Hospitality') {
-        const [franquicias, meseros, cheques] = await Promise.all([
+        const [franquicias, meseros] = await Promise.all([
           getFranquicias(),
           getMeseros(),
-          getCheques(),
         ]);
 
         // Search franchises
@@ -83,19 +81,6 @@ export function GlobalSearch() {
             })
           );
 
-        // Search checks by number
-        cheques
-          .filter((c: Cheque) => c.numero_cheque.toString().includes(q))
-          .slice(0, 3)
-          .forEach((c: Cheque) =>
-            searchResults.push({
-              id: `${c.numero_franquicia}-${c.numero_cheque}`,
-              type: 'check',
-              title: `Cheque #${c.numero_cheque}`,
-              subtitle: `${c.numero_franquicia} • ${formatCurrency(c.total)}`,
-              href: `/transactions/${c.numero_cheque}`,
-            })
-          );
       }
     } catch (error) {
       console.error('Search error:', error);

@@ -34,133 +34,13 @@ export interface PayoutBatch {
   notes?: string;
 }
 
-// Demo data for January 2025 payout
-const DEMO_EMPLOYEES: PayoutEmployee[] = [
-  {
-    id: 'maria-rodriguez',
-    name: 'Maria Rodriguez',
-    role: 'Sales Associate',
-    location: 'Downtown Flagship',
-    baseEarnings: 0,
-    incentives: 1359.00,
-    adjustments: 0,
-    total: 1359.00,
-    transactions: 12,
-    disputes: 1,
-  },
-  {
-    id: 'james-wilson',
-    name: 'James Wilson',
-    role: 'Senior Sales Associate',
-    location: 'Downtown Flagship',
-    baseEarnings: 0,
-    incentives: 1842.50,
-    adjustments: 0,
-    total: 1842.50,
-    transactions: 18,
-    disputes: 0,
-  },
-  {
-    id: 'sarah-chen',
-    name: 'Sarah Chen',
-    role: 'Sales Associate',
-    location: 'Westside Mall',
-    baseEarnings: 0,
-    incentives: 1125.00,
-    adjustments: 75.00,
-    total: 1200.00,
-    transactions: 10,
-    disputes: 0,
-  },
-  {
-    id: 'david-kim',
-    name: 'David Kim',
-    role: 'Sales Associate',
-    location: 'Airport Location',
-    baseEarnings: 0,
-    incentives: 987.50,
-    adjustments: 0,
-    total: 987.50,
-    transactions: 8,
-    disputes: 0,
-  },
-  {
-    id: 'lisa-thompson',
-    name: 'Lisa Thompson',
-    role: 'Lead Sales Associate',
-    location: 'Downtown Flagship',
-    baseEarnings: 0,
-    incentives: 2156.00,
-    adjustments: -50.00,
-    total: 2106.00,
-    transactions: 22,
-    disputes: 0,
-  },
-];
-
-const DEMO_BATCHES: PayoutBatch[] = [
-  {
-    id: 'PAYOUT-2025-01',
-    periodLabel: 'January 2025',
-    periodStart: '2025-01-01',
-    periodEnd: '2025-01-31',
-    status: 'pending_approval',
-    createdAt: '2025-01-28T10:00:00Z',
-    createdBy: 'System',
-    employees: DEMO_EMPLOYEES,
-    totalAmount: DEMO_EMPLOYEES.reduce((sum, e) => sum + e.total, 0),
-    entityCount: DEMO_EMPLOYEES.length,
-    notes: 'Monthly incentive payout. Note: 1 pending dispute (TXN-2025-0147).',
-  },
-  {
-    id: 'PAYOUT-2024-12',
-    periodLabel: 'December 2024',
-    periodStart: '2024-12-01',
-    periodEnd: '2024-12-31',
-    status: 'completed',
-    createdAt: '2024-12-28T10:00:00Z',
-    createdBy: 'System',
-    approvedAt: '2024-12-29T14:30:00Z',
-    approvedBy: 'Mike Chen',
-    employees: DEMO_EMPLOYEES.map(e => ({
-      ...e,
-      incentives: e.incentives * 1.15,
-      total: e.total * 1.15,
-    })),
-    totalAmount: DEMO_EMPLOYEES.reduce((sum, e) => sum + e.total, 0) * 1.15,
-    entityCount: DEMO_EMPLOYEES.length,
-  },
-  {
-    id: 'PAYOUT-2024-11',
-    periodLabel: 'November 2024',
-    periodStart: '2024-11-01',
-    periodEnd: '2024-11-30',
-    status: 'completed',
-    createdAt: '2024-11-28T10:00:00Z',
-    createdBy: 'System',
-    approvedAt: '2024-11-29T09:15:00Z',
-    approvedBy: 'Mike Chen',
-    employees: DEMO_EMPLOYEES.map(e => ({
-      ...e,
-      incentives: e.incentives * 0.95,
-      total: e.total * 0.95,
-    })),
-    totalAmount: DEMO_EMPLOYEES.reduce((sum, e) => sum + e.total, 0) * 0.95,
-    entityCount: DEMO_EMPLOYEES.length,
-  },
-];
-
 class PayoutService {
-  private getStorageKey(): string {
-    return 'payout_batches';
-  }
-
   initialize(): void {
     // no-op: localStorage removed
   }
 
   getAllBatches(): PayoutBatch[] {
-    return DEMO_BATCHES;
+    return [];
   }
 
   getBatchById(id: string): PayoutBatch | null {
@@ -188,7 +68,6 @@ class PayoutService {
     batch.approvedAt = new Date().toISOString();
     batch.approvedBy = approverName;
 
-    // Create approval record
     approvalService.createRequest({
       requestType: 'payout_batch',
       tier: 2,
@@ -200,11 +79,6 @@ class PayoutService {
       },
       reason: comment || `Approved payout batch for ${batch.periodLabel}`,
     });
-
-    // Simulate processing and completion after approval
-    setTimeout(() => {
-      this.completeBatch(batchId);
-    }, 2000);
 
     return batch;
   }
@@ -223,11 +97,6 @@ class PayoutService {
     batch.rejectionReason = reason;
 
     return batch;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private completeBatch(_batchId: string): void {
-    // no-op: localStorage removed
   }
 
   getStats(): {
@@ -250,7 +119,6 @@ class PayoutService {
     };
   }
 
-  // For demo: update employee in batch
   updateEmployeeInBatch(batchId: string, entityId: string, updates: Partial<PayoutEmployee>): PayoutBatch | null {
     const batches = this.getAllBatches();
     const batch = batches.find(b => b.id === batchId);

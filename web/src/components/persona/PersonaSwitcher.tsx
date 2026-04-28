@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Demo Persona Switcher — Context-Only Impersonation (OB-89)
+ * Persona Switcher — Context-Only Impersonation (OB-89)
  *
  * Floating bar at the bottom of the screen for VL Admin to switch
  * between persona views using context override ONLY.
@@ -43,7 +43,7 @@ const PERSONA_CHIPS: PersonaChip[] = [
   { key: 'rep', label: 'Rep', icon: User, activeColor: 'bg-emerald-600 text-white' },
 ];
 
-export function DemoPersonaSwitcher() {
+export function PersonaSwitcher() {
   const router = useRouter();
   const pathname = usePathname();
   const { currentTenant, isVLAdmin } = useTenant();

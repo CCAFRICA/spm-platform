@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import {
   BarChart3,
-  Receipt,
   Target,
   Settings,
   Database,
@@ -60,7 +59,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
   const { locale } = useLocale();
-  const transactionTerm = useTerm("transaction", true);
   const locationTerm = useTerm("location", true);
   const salesFinanceEnabled = useFeature("salesFinance");
   const financialEnabled = useFeature("financial");
@@ -141,19 +139,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       ],
     },
     {
-      name: transactionTerm || (isSpanish ? "Transacciones" : "Transactions"),
-      href: "/transactions",
-      icon: Receipt,
-      module: "transactions",
-      moduleId: "transactions",
-      children: [
-        { name: transactionTerm || (isSpanish ? "Cheques" : "Orders"), href: "/transactions", module: "transactions" },
-        { name: isSpanish ? "Buscar Cheque" : "Find My Order", href: "/transactions/find", module: "transactions" },
-        { name: isSpanish ? "Consultas" : "Inquiries", href: "/transactions/inquiries", module: "disputes" },
-        { name: isSpanish ? "Cola de Disputas" : "Dispute Queue", href: "/transactions/disputes", module: "dispute_queue" },
-      ],
-    },
-    {
       name: isSpanish ? "Rendimiento" : "Performance",
       href: "/performance",
       icon: Target,
@@ -161,7 +146,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       moduleId: "performance",
       children: [
         { name: isSpanish ? "Gestión de Planes" : "Plan Management", href: "/performance/plans", module: "plans" },
-        { name: isSpanish ? "Modelado de Escenarios" : "Scenario Modeling", href: "/performance/scenarios", module: "scenarios" },
         { name: isSpanish ? "Metas" : "Goals", href: "/performance/goals", module: "performance" },
         { name: isSpanish ? "Ajustes" : "Adjustments", href: "/performance/adjustments", module: "approvals" },
         { name: isSpanish ? "Aprobaciones" : "Approvals", href: "/performance/approvals", module: "approvals" },
@@ -293,7 +277,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   };
 
   // OB-100: ICM-specific hrefs hidden for financial-only tenants (no ICM plans)
-  const ICM_ONLY_HREFS = new Set(['/my-compensation', '/insights', '/transactions', '/performance', '/approvals']);
+  const ICM_ONLY_HREFS = new Set(['/my-compensation', '/insights', '/performance', '/approvals']);
 
   // Filter top-level navigation items based on module access + financial-only
   const filterNavigation = (items: NavItem[]) => {

@@ -133,7 +133,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const tokens = PERSONA_TOKENS[persona];
 
   // Fetch scope from profile + override persona
-  // HF-060: Added `override` to deps so scope recalculates when DemoPersonaSwitcher changes persona.
+  // HF-060: Added `override` to deps so scope recalculates when PersonaSwitcher changes persona.
   // Uses effective persona (override ?? derived) instead of user.role so that demo
   // persona switching actually changes data scope, not just visual identity.
   useEffect(() => {

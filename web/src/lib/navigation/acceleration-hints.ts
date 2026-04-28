@@ -328,16 +328,6 @@ export function getRecommendedNextAction(
       label: 'Process approvals',
       labelEs: 'Procesar aprobaciones',
     },
-    '/perform/compensation': {
-      route: '/perform/transactions',
-      label: 'View transactions',
-      labelEs: 'Ver transacciones',
-    },
-    '/design/plans': {
-      route: '/design/modeling',
-      label: 'Test in sandbox',
-      labelEs: 'Probar en sandbox',
-    },
   };
 
   return patterns[currentPath] || null;

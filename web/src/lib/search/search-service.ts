@@ -90,13 +90,7 @@ function searchTransactions(text: string): SearchResult[] {
 }
 
 function searchUsers(text: string): SearchResult[] {
-  const users = [
-    { id: 'maria-rodriguez', name: 'Maria Rodriguez', email: 'maria@company.com', role: 'Sales Rep' },
-    { id: 'james-wilson', name: 'James Wilson', email: 'james@company.com', role: 'Sales Rep' },
-    { id: 'sarah-chen', name: 'Sarah Chen', email: 'sarah@company.com', role: 'Manager' },
-    { id: 'admin', name: 'System Admin', email: 'admin@company.com', role: 'Administrator' },
-  ];
-
+  const users: { id: string; name: string; email: string; role: string }[] = [];
   return users
     .filter((u) =>
       u.name.toLowerCase().includes(text) ||

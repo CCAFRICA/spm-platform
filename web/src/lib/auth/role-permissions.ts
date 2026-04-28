@@ -23,7 +23,6 @@ export const WORKSPACE_ACCESS: Record<string, string[]> = {
   '/insights':      ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
   '/my-compensation': ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
   '/financial':     ['platform', 'admin', 'tenant_admin', 'manager'],
-  '/transactions':  ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
   '/performance':   ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
 };
 

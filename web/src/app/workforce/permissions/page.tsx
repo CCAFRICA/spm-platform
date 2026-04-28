@@ -32,7 +32,6 @@ import {
 import { Label } from '@/components/ui/label';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
-import { useAuth } from '@/contexts/auth-context';
 import { toast } from 'sonner';
 /* eslint-disable @typescript-eslint/no-unused-vars */
 // Permission service not yet migrated to Supabase -- using empty defaults
@@ -47,17 +46,9 @@ import { UserPermissionCard } from '@/components/permissions/UserPermissionCard'
 import { PermissionMatrix } from '@/components/permissions/PermissionMatrix';
 
 // Demo users for assignment
-const DEMO_USERS = [
-  { id: 'maria-rodriguez', name: 'Maria Rodriguez', email: 'maria.rodriguez@retailco.com' },
-  { id: 'james-wilson', name: 'James Wilson', email: 'james.wilson@retailco.com' },
-  { id: 'carlos-mendez', name: 'Carlos Mendez', email: 'carlos.mendez@retailco.com' },
-  { id: 'sofia-chen', name: 'Sofia Chen', email: 'sofia.chen@retailco.com' },
-];
-
 export default function PermissionsPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
-  const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id;
 
@@ -94,36 +85,9 @@ export default function PermissionsPage() {
   }, [loadData]);
 
   const handleAssignRole = () => {
-    if (!selectedUserId || !selectedRoleId) return;
-
-    const selectedUser = DEMO_USERS.find((u) => u.id === selectedUserId);
-    if (!selectedUser) return;
-
-    try {
-      assignRole(
-        selectedUser.id,
-        selectedUser.name,
-        selectedUser.email,
-        selectedRoleId,
-        { type: selectedScopeType },
-        user?.id || 'admin'
-      );
-
-      toast.success(
-        isSpanish
-          ? `Rol asignado a ${selectedUser.name}`
-          : `Role assigned to ${selectedUser.name}`
-      );
-
-      setShowAssignDialog(false);
-      setSelectedUserId('');
-      setSelectedRoleId('');
-      setSelectedScopeType('own');
-      loadData();
-    } catch (error) {
-      console.error('Error assigning role:', error);
-      toast.error(isSpanish ? 'Error al asignar rol' : 'Error assigning role');
-    }
+    // OB-196 Phase 1.6.5: DEMO_USERS removed (FP-66). Real personnel-fetch path
+    // pending future build; until wired, role assignment is unavailable in this UI.
+    toast.error(isSpanish ? 'Asignación de rol no disponible' : 'Role assignment unavailable');
   };
 
   const handleRemoveAssignment = (userId: string) => {
@@ -174,9 +138,7 @@ export default function PermissionsPage() {
       a.roleName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const unassignedUsers = DEMO_USERS.filter(
-    (u) => !assignments.some((a) => a.userId === u.id)
-  );
+  const unassignedUsers: { id: string; name: string; email: string }[] = [];
 
   const systemRoles = roles.filter((r) => r.isSystem);
   const customRoles = roles.filter((r) => !r.isSystem);
@@ -445,7 +407,7 @@ export default function PermissionsPage() {
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {(selectedAssignment ? DEMO_USERS : unassignedUsers).map((u) => (
+                  {unassignedUsers.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name}
                     </SelectItem>

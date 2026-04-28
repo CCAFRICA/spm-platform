@@ -116,8 +116,57 @@ Recommendation: future audit specifications include a Phase L7 step that, after 
   - `events/emitter` `billing.trial_*` event vocabulary
 - **Closure:** Cluster surfaces F-005-clean. Calc-side, validation, forensics, UI deferred to subsequent phases.
 
-### Phase 1.6.5 (calc-side legacy consumer disposition)
-[To be populated when Phase 1.6.5 commits — must include per-engine disposition (a/b/c) and verification grep evidence]
+### Phase 1.6.5 (calc-side legacy disposition + demo-era wholesale sweep + service-layer FP-66 cleanup + disputes infrastructure removal)
+- **Commit:** [populated post-merge with merge SHA]
+- **PR:** [populated at PR creation]
+- **Per-engine dispositions applied:**
+  - `web/src/lib/compensation/calculation-engine.ts` (801 lines, demo-era parallel-authority artifact): **DELETED** — disposition (a)
+  - `web/src/lib/calculation/intent-resolver.ts` (119 lines, dead orphan): **DELETED**
+  - `web/src/lib/calculation/intent-transformer.ts`: **REFACTORED** — legacy case arms (`tier_lookup`, `matrix_lookup`, `percentage`, `conditional_percentage`) deleted; transformTierLookup/transformMatrixLookup/transformPercentage/transformConditionalPercentage internal functions removed; foundational + default arms persist
+  - `web/src/lib/intelligence/trajectory-engine.ts`: **REFACTORED** — read-only projection per Decision 151. Reads `metadata.intent` foundational shape (`bounded_lookup_1d`, `bounded_lookup_2d`); does NOT re-evaluate primitives, does NOT compute payouts, does NOT mirror primitive evaluation results. computeTierTrajectory/computeMatrixTrajectory replaced with projectBoundedLookup1D/projectBoundedLookup2D.
+  - `web/src/lib/agents/resolution-agent.ts`: **DELETED** — dispute-specific (sole consumer was deleted disputes/investigate API). Shared synaptic infrastructure (synaptic-density, synaptic-surface, synaptic-types, agent-memory, signal-persistence) PRESERVED — multi-consumer non-dispute infrastructure.
+- **Demo-era wholesale sweep:**
+  - **Cluster pages deleted:** `app/transactions/` (8 pages including [id], [id]/dispute, disputes, disputes/[id], inquiries, find, orders), `app/performance/scenarios/page.tsx`, `app/design/modeling/page.tsx`, `app/insights/disputes/page.tsx`, `app/investigate/disputes/page.tsx`, `app/perform/transactions/page.tsx`, `app/perform/inquiries/page.tsx`, `app/investigate/transactions/page.tsx`
+  - **Disputes implementation deleted:** `components/disputes/` (7 components + barrel), `app/api/disputes/` (3 routes), `lib/disputes/dispute-service.ts` + dir
+  - **Scenarios deleted:** `lib/scenarios/scenario-service.ts` + dir, `components/compensation/SavedScenariosList.tsx`
+  - **Demo plumbing deleted:** `lib/demo/` wholesale (8 files, ~2,969 lines), `components/demo/` (4 plumbing components post-PersonaSwitcher carve-out), `app/admin/demo/page.tsx`, `app/operate/normalization/page.tsx`, `lib/normalization/flywheel-verification.ts` (orphan verification test), `data/tenants/retailco/` (4 fixtures)
+  - **Other deletions:** `components/compensation/RecentTransactionsCard.tsx`, `types/dispute.ts`, `lib/reconciliation/reconciliation-bridge.ts` (1,034-line orphan parallel-implementation, zero consumers)
+- **Q-S1 carve-out (production component artifacted in demo dir):**
+  - `components/demo/DemoPersonaSwitcher.tsx` → `components/persona/PersonaSwitcher.tsx` (move + rename); auth-shell + persona-context comment updated
+- **Service-layer FP-66 cleanup (demo-id contamination stripped):**
+  - `lib/payout-service.ts` — DEMO_EMPLOYEES + DEMO_BATCHES blocks removed; getAllBatches() returns empty array
+  - `lib/rbac/rbac-service.ts` — getDefaultAssignments + getDefaultAuditLogs bodies stripped to empty arrays
+  - `lib/search/search-service.ts` — 4-user demo array stripped from searchUsers()
+  - `app/workforce/permissions/page.tsx` — DEMO_USERS const stripped; handleAssignRole stubbed
+  - `lib/alerts/alert-service.ts` — getDefaultAlertRules() stripped (4 retailco demo alerts)
+  - `lib/data-quality/quarantine-service.ts` — getDefaultQuarantineItems() stripped (5 retailco demo entries)
+  - `lib/plan-approval/plan-approval-service.ts` — getDefaultApprovalRequests() stripped (3 retailco demo requests)
+  - `data/tenants/index.json` — retailco tenant entry removed (3 tenants remain)
+  - `lib/storage/tenant-registry-service.ts` — STATIC_TENANT_IDS removed retailco
+  - `app/configuration/page.tsx` — personnel mock array stripped
+  - `app/operations/audits/logins/page.tsx` — mockLoginAudits + techCorpLoginAudits stripped
+- **Navigation/permission refactor:**
+  - `Sidebar.tsx` — transactions parent block + 4 children deleted, scenario modeling child deleted, ICM_ONLY_HREFS retailco entry removed, Receipt + transactionTerm imports stripped
+  - `CommandPalette.tsx` — transactions command entry removed, Receipt import stripped
+  - `QuickActionsCard.tsx` — Report an Issue + My Disputes entries stripped, pendingDisputes prop removed
+  - `PayoutEmployeeTable.tsx` — view-transactions action column stripped
+  - `global-search.tsx` — transactions search results stripped
+  - `enhanced/page.tsx` — View Transactions completion-screen card stripped
+  - `notification-service.ts` — 3 dispute notification helpers removed (notifyDisputeResolved, notifyDisputeSubmitted, notifyManagerNewDispute)
+  - `payouts/[id]/page.tsx` — pending-dispute warning block stripped
+  - `help-service.ts` — deletion-set relatedRoutes emptied
+  - `acceleration-hints.ts` — /perform/transactions + /design/modeling hints removed
+  - `access-control.ts` — 4 AppModule union members stripped (transactions, disputes, dispute_queue, scenarios), ROUTE_TO_MODULE entries removed, MODULE_ACCESS role allowlists cleaned
+  - `page-status.ts` — deletion-set entries removed
+  - `role-permissions.ts` — `/transactions` permission removed
+  - `compensation/index.ts` — calculation-engine barrel re-export removed
+  - `reconciliation/index.ts` — reconciliation-bridge barrel re-export stripped
+  - `approval-routing/approval-service.ts` — foundation-demo-data import + getSeededApprovalRequests usage removed
+- **My-compensation refactor (Q-MyComp):** dispute imports (L47-48), pendingDisputes/showDisputeForm/disputeComponent/disputeReason/disputeSubmitted state, handleSubmitDispute function, dispute form JSX block, RecentTransactionsCard import + JSX all stripped. Earnings, components, AI narrative, waterfall, calculation results all preserved.
+- **Disputes Supabase table drop:** Migration `web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql` written. Pre-migration verification: `disputes_row_count = 0`, audit_log dispute references = null, FK fan-in = zero. Architect applies via Supabase SQL Editor (Standing Rule 7) post-merge.
+- **Preserved (separate concern):** Stripe billing infrastructure (`auth/callback` `billing.trial_start`, `api/billing/webhook` `trial_end`, `events/emitter` `billing.trial_*`); shared synaptic + agent-memory + signal-persistence + reconciliation-agent + insight-agent + anomaly-detector infrastructure (multi-consumer, no demo coupling).
+- **Closure:** F-005 calc-read path closed. Trajectory engine projection-only per Decision 151. Validation/forensics/UI consumers carrying legacy primitive vocabulary deferred to Phase 1.7 per the established phasing.
+- **Compliance:** tsc clean (`npx tsc --noEmit` exit 0). Lint clean (`npx next lint` zero errors; pre-existing warnings on files Phase 1.6.5 didn't touch).
 
 ### Phase 1.7 (validation + forensics + UI consumers)
 [To be populated when Phase 1.7 commits — must include final platform-wide-zero-hit grep]

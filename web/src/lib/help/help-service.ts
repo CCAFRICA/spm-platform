@@ -73,7 +73,7 @@ Commission calculations are shown for each transaction based on your compensatio
 Los cálculos de comisión se muestran para cada transacción según su plan de compensación.`,
       category: 'transactions',
       tags: ['transactions', 'sales', 'orders', 'commission'],
-      relatedRoutes: ['/transactions', '/transactions/orders'],
+      relatedRoutes: [],
       lastUpdated: '2024-01-14',
     },
     {
@@ -100,7 +100,7 @@ You'll be notified when your dispute is reviewed. Most disputes are resolved wit
 Se le notificará cuando su disputa sea revisada. La mayoría de las disputas se resuelven en 3-5 días hábiles.`,
       category: 'transactions',
       tags: ['disputes', 'commission', 'errors'],
-      relatedRoutes: ['/transactions/disputes'],
+      relatedRoutes: [],
       lastUpdated: '2024-01-13',
     },
     {
@@ -152,7 +152,7 @@ This is useful for planning and forecasting, but does not change actual compensa
 Esto es útil para planificación y pronóstico, pero no cambia la compensación real.`,
       category: 'performance',
       tags: ['scenarios', 'modeling', 'planning', 'forecasting'],
-      relatedRoutes: ['/performance/scenarios'],
+      relatedRoutes: [],
       lastUpdated: '2024-01-11',
     },
     {

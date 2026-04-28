@@ -20,7 +20,6 @@ import {
   generateImpactDetails,
   generateRecommendation,
 } from './impact-calculator';
-import { getSeededApprovalRequests } from '../demo/foundation-demo-data';
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -58,13 +57,8 @@ export function initializeApprovalService(): void {
     seedDefaultRules();
   }
 
-  // Load seeded approval requests into memory cache if empty
-  if (requestsCache.size === 0) {
-    const seededRequests = getSeededApprovalRequests();
-    seededRequests.forEach((request) => {
-      requestsCache.set(request.id, request);
-    });
-  }
+  // OB-196 Phase 1.6.5: lib/demo/foundation-demo-data deleted (demo plumbing wholesale).
+  // Approval requests cache starts empty until real seed source is wired.
 }
 
 function persistRequests(): void {

@@ -46,27 +46,10 @@ interface LoginAudit {
 }
 
 // Mock login audit data
-const mockLoginAudits: LoginAudit[] = [
-  { id: '1', user: 'María García', email: 'maria.garcia@restaurantmx.com', dateTime: '2024-12-15 09:15:23', page: 'Dashboard', ipAddress: '192.168.1.101', status: 'success', region: 'CDMX', salesChannel: 'Dine-in' },
-  { id: '2', user: 'Carlos López', email: 'carlos.lopez@restaurantmx.com', dateTime: '2024-12-15 09:22:45', page: 'Transactions', ipAddress: '192.168.1.102', status: 'success', region: 'Guadalajara', salesChannel: 'Dine-in' },
-  { id: '3', user: 'Ana Martínez', email: 'ana.martinez@restaurantmx.com', dateTime: '2024-12-15 09:30:12', page: 'Insights', ipAddress: '192.168.1.103', status: 'failed', region: 'Monterrey', salesChannel: 'Delivery' },
-  { id: '4', user: 'Roberto Hernández', email: 'roberto.h@restaurantmx.com', dateTime: '2024-12-15 09:45:00', page: 'Personnel', ipAddress: '192.168.1.104', status: 'success', region: 'CDMX', salesChannel: 'Dine-in' },
-  { id: '5', user: 'Laura Sánchez', email: 'laura.s@restaurantmx.com', dateTime: '2024-12-15 10:00:33', page: 'Dashboard', ipAddress: '192.168.1.105', status: 'success', region: 'Puebla', salesChannel: 'Takeout' },
-  { id: '6', user: 'Miguel Torres', email: 'miguel.t@restaurantmx.com', dateTime: '2024-12-15 10:15:21', page: 'Compensation', ipAddress: '192.168.1.106', status: 'failed', region: 'CDMX', salesChannel: 'Dine-in' },
-  { id: '7', user: 'Patricia Ruiz', email: 'patricia.r@restaurantmx.com', dateTime: '2024-12-15 10:30:45', page: 'Transactions', ipAddress: '192.168.1.107', status: 'success', region: 'Guadalajara', salesChannel: 'Delivery' },
-  { id: '8', user: 'Fernando Díaz', email: 'fernando.d@restaurantmx.com', dateTime: '2024-12-15 10:45:12', page: 'Dashboard', ipAddress: '192.168.1.108', status: 'success', region: 'Monterrey', salesChannel: 'Dine-in' },
-  { id: '9', user: 'Carmen Flores', email: 'carmen.f@restaurantmx.com', dateTime: '2024-12-15 11:00:00', page: 'Insights', ipAddress: '192.168.1.109', status: 'success', region: 'CDMX', salesChannel: 'Takeout' },
-  { id: '10', user: 'José Morales', email: 'jose.m@restaurantmx.com', dateTime: '2024-12-15 11:15:33', page: 'Personnel', ipAddress: '192.168.1.110', status: 'failed', region: 'Puebla', salesChannel: 'Dine-in' },
-];
+const mockLoginAudits: LoginAudit[] = [];
 
 // TechCorp mock data
-const techCorpLoginAudits: LoginAudit[] = [
-  { id: '1', user: 'Sarah Chen', email: 'sarah.chen@techcorp.com', dateTime: '2024-12-15 09:15:23', page: 'Dashboard', ipAddress: '10.0.1.101', status: 'success', region: 'West', salesChannel: 'Enterprise' },
-  { id: '2', user: 'Mike Johnson', email: 'mike.j@techcorp.com', dateTime: '2024-12-15 09:22:45', page: 'Deals', ipAddress: '10.0.1.102', status: 'success', region: 'East', salesChannel: 'SMB' },
-  { id: '3', user: 'Emily Davis', email: 'emily.d@techcorp.com', dateTime: '2024-12-15 09:30:12', page: 'Insights', ipAddress: '10.0.1.103', status: 'failed', region: 'Central', salesChannel: 'Enterprise' },
-  { id: '4', user: 'James Wilson', email: 'james.w@techcorp.com', dateTime: '2024-12-15 09:45:00', page: 'Personnel', ipAddress: '10.0.1.104', status: 'success', region: 'West', salesChannel: 'Partner' },
-  { id: '5', user: 'Lisa Brown', email: 'lisa.b@techcorp.com', dateTime: '2024-12-15 10:00:33', page: 'Dashboard', ipAddress: '10.0.1.105', status: 'success', region: 'East', salesChannel: 'SMB' },
-];
+const techCorpLoginAudits: LoginAudit[] = [];
 
 export default function LoginAuditsPage() {
   return (

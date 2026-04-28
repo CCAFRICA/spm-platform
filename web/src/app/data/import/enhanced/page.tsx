@@ -4241,29 +4241,6 @@ function DataPackageImportPageInner() {
                       </div>
                     </a>
 
-                    {/* View Transactions */}
-                    <a
-                      href="/transactions"
-                      className="p-4 border rounded-lg hover:bg-zinc-800/50 transition-colors flex items-start gap-4"
-                    >
-                      <div className="p-3 bg-primary/10 rounded-lg">
-                        <Database className="h-6 w-6 text-primary" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold mb-1">
-                          {isSpanish ? 'Ver Transacciones' : 'View Transactions'}
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          {isSpanish
-                            ? 'Explorar los registros importados y verificar que los datos se cargaron correctamente.'
-                            : 'Explore imported records and verify that data was loaded correctly.'}
-                        </p>
-                        <Button variant="link" className="p-0 h-auto mt-2 text-primary">
-                          {isSpanish ? 'Ver Transacciones →' : 'View Transactions →'}
-                        </Button>
-                      </div>
-                    </a>
-
                     {/* Import More Data */}
                     <button
                       onClick={() => {

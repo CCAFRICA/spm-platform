@@ -10,7 +10,7 @@ import { NavigationProvider, useNavigation } from '@/contexts/navigation-context
 import { ChromeSidebar } from '@/components/navigation/ChromeSidebar';
 import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
 import { Navbar } from '@/components/navigation/Navbar';
-import { DemoPersonaSwitcher } from '@/components/demo/DemoPersonaSwitcher';
+import { PersonaSwitcher } from '@/components/persona/PersonaSwitcher';
 import { cn } from '@/lib/utils';
 import { isMfaRoute } from '@/lib/auth/mfa-route-guard';
 
@@ -192,7 +192,7 @@ function AuthShellProtected({ children }: AuthShellProps) {
 
   // Authenticated user - show with or without shell based on route
   if (!showShell) {
-    // OB-60: No DemoPersonaSwitcher on Observatory (/select-tenant).
+    // OB-60: No PersonaSwitcher on Observatory (/select-tenant).
     // The Observatory is exclusively for VL Platform Admin — persona
     // switching only makes sense inside a tenant context on regular pages.
     return <>{children}</>;
@@ -204,7 +204,7 @@ function AuthShellProtected({ children }: AuthShellProps) {
   const shell = (
     <NavigationProvider>
       <AuthShellInner>{children}</AuthShellInner>
-      <DemoPersonaSwitcher />
+      <PersonaSwitcher />
     </NavigationProvider>
   );
 
