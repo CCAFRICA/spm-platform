@@ -3,22 +3,18 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Button } from '@/components/ui/button';
-import { ExternalLink, Info } from 'lucide-react';
-import Link from 'next/link';
+import { Info } from 'lucide-react';
 import type { CalculationResult, CalculationStep } from '@/types/compensation-plan';
 import { LookupTableVisualization } from './LookupTableVisualization';
 import { cn } from '@/lib/utils';
 
 interface CalculationBreakdownProps {
   result: CalculationResult;
-  showPlanLink?: boolean;
   compact?: boolean;
 }
 
 export function CalculationBreakdown({
   result,
-  showPlanLink = false,
   compact = false,
 }: CalculationBreakdownProps) {
   const formatCurrency = (value: number) => {
@@ -52,14 +48,6 @@ export function CalculationBreakdown({
                 </div>
               </div>
             </div>
-            {showPlanLink && (
-              <Link href={`/performance/plans/${result.ruleSetId}`}>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <ExternalLink className="h-3 w-3" />
-                  View Plan
-                </Button>
-              </Link>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -168,7 +156,7 @@ function ComponentCard({ step, compact, formatCurrency, formatPercent }: Compone
         )}
 
         {/* Lookup Visualization */}
-        {(step.componentType === 'matrix_lookup' || step.componentType === 'tier_lookup') && (
+        {(step.componentType === 'bounded_lookup_2d' || step.componentType === 'bounded_lookup_1d') && (
           <LookupTableVisualization step={step} compact={compact} />
         )}
 

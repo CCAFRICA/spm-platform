@@ -30,7 +30,7 @@ import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
 import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
 import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-types';
-import type { PlanComponent } from '@/types/compensation-plan';
+import type { PlanComponent, LegacyShapedPlanComponent } from '@/types/compensation-plan';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
@@ -1529,7 +1529,10 @@ export async function POST(request: NextRequest) {
       if (!usedConvergenceBindings) {
         // Extract band thresholds from component config, keyed by metric name
         const bandMaxByMetric: Record<string, number> = {};
-        const mc = component.matrixConfig as {
+        // OB-196 Phase 1.7 transitional: Phase 2 (E2) will refactor band-normalization
+        // to read foundational metadata.intent.boundaries. Cast to legacy shape for now.
+        const legacyComp = component as LegacyShapedPlanComponent;
+        const mc = legacyComp.matrixConfig as {
           rowMetric?: string; columnMetric?: string;
           rowBands?: Array<{ max: number }>; columnBands?: Array<{ max: number }>;
         } | undefined;
@@ -1539,7 +1542,7 @@ export async function POST(request: NextRequest) {
         if (mc?.columnMetric && mc.columnBands && mc.columnBands.length > 0) {
           bandMaxByMetric[mc.columnMetric] = mc.columnBands[0].max;
         }
-        const tc = component.tierConfig as {
+        const tc = legacyComp.tierConfig as {
           metric?: string; tiers?: Array<{ max: number }>;
         } | undefined;
         if (tc?.metric && tc.tiers && tc.tiers.length > 0) {
@@ -1565,8 +1568,9 @@ export async function POST(request: NextRequest) {
       // HF-122: Per-component rounding (Decision 122)
       // Infer outputPrecision from plan structure — examines output VALUES, not currency
       const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
-      const componentConfig = (component.tierConfig || component.matrixConfig ||
-        component.percentageConfig || component.conditionalConfig) as Record<string, unknown> | undefined;
+      const legacyComp2 = component as LegacyShapedPlanComponent;
+      const componentConfig = (legacyComp2.tierConfig || legacyComp2.matrixConfig ||
+        legacyComp2.percentageConfig || legacyComp2.conditionalConfig) as Record<string, unknown> | undefined;
       const precision = inferOutputPrecision(componentIntent, componentConfig);
 
       const { rounded, trace: roundingTrace } = roundComponentOutput(
@@ -1686,8 +1690,9 @@ export async function POST(request: NextRequest) {
       // HF-188: Apply Decision 122 rounding to intent executor results
       const comp = selectedComponents[ci.componentIndex];
       const compIntent = comp?.calculationIntent as Record<string, unknown> | undefined;
-      const compConfig = (comp?.tierConfig || comp?.matrixConfig ||
-        comp?.percentageConfig || comp?.conditionalConfig) as Record<string, unknown> | undefined;
+      const legacyComp3 = comp as LegacyShapedPlanComponent | undefined;
+      const compConfig = (legacyComp3?.tierConfig || legacyComp3?.matrixConfig ||
+        legacyComp3?.percentageConfig || legacyComp3?.conditionalConfig) as Record<string, unknown> | undefined;
       const precision = inferOutputPrecision(compIntent, compConfig);
       const { rounded, trace: roundingTrace } = roundComponentOutput(
         intentResult.outcome, ci.componentIndex, ci.label, precision

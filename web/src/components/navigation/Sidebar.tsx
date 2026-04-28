@@ -145,7 +145,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       module: "performance",
       moduleId: "performance",
       children: [
-        { name: isSpanish ? "Gestión de Planes" : "Plan Management", href: "/performance/plans", module: "plans" },
         { name: isSpanish ? "Metas" : "Goals", href: "/performance/goals", module: "performance" },
         { name: isSpanish ? "Ajustes" : "Adjustments", href: "/performance/adjustments", module: "approvals" },
         { name: isSpanish ? "Aprobaciones" : "Approvals", href: "/performance/approvals", module: "approvals" },

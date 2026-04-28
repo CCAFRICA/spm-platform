@@ -1,14 +1,12 @@
 import { redirect } from 'next/navigation';
 
 /**
- * Customer Launch Dashboard — REDIRECTED (HF-072)
+ * Admin Launch — REDIRECTED
  *
- * This page was an abandoned 7-step sequential onboarding concept
- * that was superseded by the current import pipeline.
- * CLT-102 F-7, F-8: Dead page with "0 launches" undermines demo credibility.
- *
- * Redirects to Performance > Plans which shows the actual plan list.
+ * Original 7-step sequential onboarding concept superseded by the import pipeline (HF-072).
+ * Plan-management UI removed in OB-196 Phase 1.7 (era-artifact, future plan-editing
+ * reconstructs on engine foundation). Redirects to /stream — platform central command surface.
  */
 export default function LaunchPage() {
-  redirect('/performance/plans');
+  redirect('/stream');
 }

@@ -16,6 +16,7 @@ import {
 } from '@/lib/supabase/calculation-service';
 import type {
   PlanComponent,
+  LegacyShapedPlanComponent,
   TierConfig,
   MatrixConfig,
   PercentageConfig,
@@ -359,33 +360,34 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
     };
   }
 
-  switch (component.componentType) {
+  // OB-196 Phase 1.7 transitional: Phase 2 (E2 structured failure) refactors these
+  // legacy switch arms. Until then, cast to LegacyShapedPlanComponent for legacy
+  // SHAPE field access. componentType cast to string to admit legacy literal arms.
+  const legacy = component as LegacyShapedPlanComponent;
+  switch (legacy.componentType as string) {
     case 'tier_lookup':
-      if (component.tierConfig) {
-        const r = evaluateTierLookup(component.tierConfig, metrics);
+      if (legacy.tierConfig) {
+        const r = evaluateTierLookup(legacy.tierConfig, metrics);
         payout = r.payout;
         details = r.details;
       }
       break;
     case 'percentage':
-      if (component.percentageConfig) {
-        const r = evaluatePercentage(component.percentageConfig, metrics);
+      if (legacy.percentageConfig) {
+        const r = evaluatePercentage(legacy.percentageConfig, metrics);
         payout = r.payout;
         details = r.details;
       }
       break;
     case 'matrix_lookup':
-      if (component.matrixConfig) {
-        const r = evaluateMatrixLookup(component.matrixConfig, metrics);
+      if (legacy.matrixConfig) {
+        const r = evaluateMatrixLookup(legacy.matrixConfig, metrics);
         payout = r.payout;
         details = r.details;
       }
       break;
     case 'conditional_percentage': {
       // HF-120: If calculationIntent has a conditional_gate, use it as PRIMARY path.
-      // The intent structure has the correct condition (operator, left, right) and
-      // constant onTrue/onFalse values. The legacy evaluateConditionalPercentage
-      // multiplies base × rate, which is wrong for gate semantics.
       const gateIntent = component.calculationIntent as unknown as Record<string, unknown> | undefined;
       if (gateIntent?.operation === 'conditional_gate' && isIntentOperation(gateIntent as unknown as IntentOperation)) {
         const entityData: EntityData = { entityId: '', metrics, attributes: {} };
@@ -398,8 +400,8 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
           payout: gatePayout,
           inputs: inputLog,
         };
-      } else if (component.conditionalConfig) {
-        const r = evaluateConditionalPercentage(component.conditionalConfig, metrics);
+      } else if (legacy.conditionalConfig) {
+        const r = evaluateConditionalPercentage(legacy.conditionalConfig, metrics);
         payout = r.payout;
         details = r.details;
       }
@@ -562,13 +564,15 @@ export function findMatchingSheet(
  */
 export function getExpectedMetricNames(component: PlanComponent): string[] {
   const names: string[] = [];
-  if (component.tierConfig?.metric) names.push(component.tierConfig.metric);
-  if (component.matrixConfig?.rowMetric) names.push(component.matrixConfig.rowMetric);
-  if (component.matrixConfig?.columnMetric) names.push(component.matrixConfig.columnMetric);
-  if (component.percentageConfig?.appliedTo) names.push(component.percentageConfig.appliedTo);
-  if (component.conditionalConfig?.appliedTo) names.push(component.conditionalConfig.appliedTo);
-  if (component.conditionalConfig?.conditions) {
-    for (const c of component.conditionalConfig.conditions) {
+  // Phase 1.7 transitional: Phase 2 will refactor to read from foundational metadata.intent.
+  const legacy = component as LegacyShapedPlanComponent;
+  if (legacy.tierConfig?.metric) names.push(legacy.tierConfig.metric);
+  if (legacy.matrixConfig?.rowMetric) names.push(legacy.matrixConfig.rowMetric);
+  if (legacy.matrixConfig?.columnMetric) names.push(legacy.matrixConfig.columnMetric);
+  if (legacy.percentageConfig?.appliedTo) names.push(legacy.percentageConfig.appliedTo);
+  if (legacy.conditionalConfig?.appliedTo) names.push(legacy.conditionalConfig.appliedTo);
+  if (legacy.conditionalConfig?.conditions) {
+    for (const c of legacy.conditionalConfig.conditions) {
       if (c.metric) names.push(c.metric);
     }
   }
@@ -1487,8 +1491,9 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
       // HF-122: Per-component rounding (Decision 122)
       const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
-      const componentConfig = (component.tierConfig || component.matrixConfig ||
-        component.percentageConfig || component.conditionalConfig) as Record<string, unknown> | undefined;
+      const legacyShape = component as LegacyShapedPlanComponent;
+      const componentConfig = (legacyShape.tierConfig || legacyShape.matrixConfig ||
+        legacyShape.percentageConfig || legacyShape.conditionalConfig) as Record<string, unknown> | undefined;
       const precision = inferOutputPrecision(componentIntent, componentConfig);
       const { rounded } = roundComponentOutput(result.payout, componentResults.length, component.name, precision);
       result.payout = toNumber(rounded);

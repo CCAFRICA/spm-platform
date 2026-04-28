@@ -151,7 +151,7 @@ export function NarrativeSpine({
 
           // Gate marker position (for conditional_percentage)
           let gatePosition: number | null = null;
-          if (comp.componentType === 'conditional_percentage' && comp.details) {
+          if (comp.componentType === 'conditional_gate' && comp.details) {
             const condMetric = comp.details.conditionMetric;
             if (condMetric) {
               // Gate at 100% of condition metric

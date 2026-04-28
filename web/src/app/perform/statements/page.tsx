@@ -584,13 +584,13 @@ function formatComponentDetail(comp: ComponentResult): string {
   if (!d) return '';
 
   switch (comp.componentType) {
-    case 'matrix_lookup':
+    case 'bounded_lookup_2d':
       return `Row: ${d.rowBand || '—'} (${Number(d.rowValue || 0).toFixed(1)}%), Col: ${d.colBand || '—'}`;
-    case 'tier_lookup':
+    case 'bounded_lookup_1d':
       return `${d.matchedTier || '—'} (${Number(d.metricValue || 0).toFixed(1)})`;
-    case 'percentage':
+    case 'scalar_multiply':
       return `${d.baseAmount || 0} × ${d.rate || 0}`;
-    case 'conditional_percentage':
+    case 'conditional_gate':
       return d.gateSemantics ? `${d.matchedCondition || 'Qualified'}` : `${d.matchedCondition || '—'}`;
     default:
       if (d.source === 'calculationIntent' && d.operation === 'conditional_gate') {

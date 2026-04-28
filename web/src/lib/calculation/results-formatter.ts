@@ -517,7 +517,7 @@ function formatLabel(key: string): string {
 }
 
 function formatMetricValue(value: number, componentType: string): string {
-  if (componentType === 'percentage' || componentType === 'conditional_percentage') {
+  if (componentType === 'scalar_multiply' || componentType === 'conditional_gate') {
     return `$${value.toLocaleString()}`;
   }
 

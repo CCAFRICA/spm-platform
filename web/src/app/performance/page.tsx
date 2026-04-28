@@ -4,7 +4,7 @@
  * /performance — Redirect to /perform (OB-102 Phase 6: consolidation)
  *
  * Legacy route. The primary performance landing is /perform (persona-aware).
- * Sub-routes (/performance/approvals, /performance/plans, etc.) remain active.
+ * Sub-routes (/performance/approvals, etc.) remain active.
  */
 
 import { useEffect } from 'react';
