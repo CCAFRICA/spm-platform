@@ -30,7 +30,7 @@ import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
 import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
 import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-types';
-import type { PlanComponent, LegacyShapedPlanComponent } from '@/types/compensation-plan';
+import type { PlanComponent } from '@/types/compensation-plan';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
@@ -1527,26 +1527,43 @@ export async function POST(request: NextRequest) {
       // normalize ×100. Korean Test: uses plan structure, not metric name patterns.
       // HF-116: Still skip for convergence path (scale_factor handles it there).
       if (!usedConvergenceBindings) {
-        // Extract band thresholds from component config, keyed by metric name
+        // OB-196 Phase 2: band-normalization reads foundational metadata.intent (Decision 151
+        // read-only projection). 1D lookup → intent.boundaries[0].max keyed by intent.input
+        // metric field; 2D lookup → intent.rowBoundaries[0].max + intent.columnBoundaries[0].max
+        // keyed by intent.inputs.row/column metric fields.
         const bandMaxByMetric: Record<string, number> = {};
-        // OB-196 Phase 1.7 transitional: Phase 2 (E2) will refactor band-normalization
-        // to read foundational metadata.intent.boundaries. Cast to legacy shape for now.
-        const legacyComp = component as LegacyShapedPlanComponent;
-        const mc = legacyComp.matrixConfig as {
-          rowMetric?: string; columnMetric?: string;
-          rowBands?: Array<{ max: number }>; columnBands?: Array<{ max: number }>;
-        } | undefined;
-        if (mc?.rowMetric && mc.rowBands && mc.rowBands.length > 0) {
-          bandMaxByMetric[mc.rowMetric] = mc.rowBands[0].max;
-        }
-        if (mc?.columnMetric && mc.columnBands && mc.columnBands.length > 0) {
-          bandMaxByMetric[mc.columnMetric] = mc.columnBands[0].max;
-        }
-        const tc = legacyComp.tierConfig as {
-          metric?: string; tiers?: Array<{ max: number }>;
-        } | undefined;
-        if (tc?.metric && tc.tiers && tc.tiers.length > 0) {
-          bandMaxByMetric[tc.metric] = tc.tiers[0].max;
+        const meta = (component.metadata || {}) as Record<string, unknown>;
+        const intent = (meta.intent || component.calculationIntent) as Record<string, unknown> | undefined;
+        if (intent) {
+          const op = intent.operation as string | undefined;
+          const readField = (raw: unknown): string | undefined => {
+            if (!raw || typeof raw !== 'object') return undefined;
+            const o = raw as Record<string, unknown>;
+            if (o.source === 'metric') {
+              const spec = (o.sourceSpec || {}) as Record<string, unknown>;
+              return typeof spec.field === 'string' ? spec.field : undefined;
+            }
+            return undefined;
+          };
+          if (op === 'bounded_lookup_2d') {
+            const inputs = (intent.inputs || {}) as Record<string, unknown>;
+            const rowField = readField(inputs.row);
+            const colField = readField(inputs.column);
+            const rowBoundaries = intent.rowBoundaries as Array<{ max: number | null }> | undefined;
+            const colBoundaries = intent.columnBoundaries as Array<{ max: number | null }> | undefined;
+            if (rowField && rowBoundaries && rowBoundaries.length > 0 && rowBoundaries[0].max != null) {
+              bandMaxByMetric[rowField] = rowBoundaries[0].max;
+            }
+            if (colField && colBoundaries && colBoundaries.length > 0 && colBoundaries[0].max != null) {
+              bandMaxByMetric[colField] = colBoundaries[0].max;
+            }
+          } else if (op === 'bounded_lookup_1d') {
+            const field = readField(intent.input);
+            const boundaries = intent.boundaries as Array<{ max: number | null }> | undefined;
+            if (field && boundaries && boundaries.length > 0 && boundaries[0].max != null) {
+              bandMaxByMetric[field] = boundaries[0].max;
+            }
+          }
         }
 
         for (const [key, value] of Object.entries(metrics)) {
@@ -1565,13 +1582,11 @@ export async function POST(request: NextRequest) {
       }
       const result = evaluateComponent(component, metrics);
 
-      // HF-122: Per-component rounding (Decision 122)
-      // Infer outputPrecision from plan structure — examines output VALUES, not currency
+      // HF-122: Per-component rounding (Decision 122).
+      // OB-196 Phase 2: legacy SHAPE fields removed; precision derives from foundational
+      // intent only.
       const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
-      const legacyComp2 = component as LegacyShapedPlanComponent;
-      const componentConfig = (legacyComp2.tierConfig || legacyComp2.matrixConfig ||
-        legacyComp2.percentageConfig || legacyComp2.conditionalConfig) as Record<string, unknown> | undefined;
-      const precision = inferOutputPrecision(componentIntent, componentConfig);
+      const precision = inferOutputPrecision(componentIntent, undefined);
 
       const { rounded, trace: roundingTrace } = roundComponentOutput(
         result.payout, compIdx, component.name, precision
@@ -1690,10 +1705,7 @@ export async function POST(request: NextRequest) {
       // HF-188: Apply Decision 122 rounding to intent executor results
       const comp = selectedComponents[ci.componentIndex];
       const compIntent = comp?.calculationIntent as Record<string, unknown> | undefined;
-      const legacyComp3 = comp as LegacyShapedPlanComponent | undefined;
-      const compConfig = (legacyComp3?.tierConfig || legacyComp3?.matrixConfig ||
-        legacyComp3?.percentageConfig || legacyComp3?.conditionalConfig) as Record<string, unknown> | undefined;
-      const precision = inferOutputPrecision(compIntent, compConfig);
+      const precision = inferOutputPrecision(compIntent, undefined);
       const { rounded, trace: roundingTrace } = roundComponentOutput(
         intentResult.outcome, ci.componentIndex, ci.label, precision
       );
