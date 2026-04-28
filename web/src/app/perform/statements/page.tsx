@@ -596,7 +596,8 @@ function formatComponentDetail(comp: ComponentResult): string {
       if (d.source === 'calculationIntent' && d.operation === 'conditional_gate') {
         return d.payout ? 'Qualified' : 'Not qualified';
       }
-      return '';
+      // OB-196 Phase 3 (E4 / Q-A.5.4): graceful-with-explicit-label, never silent.
+      return `Component type ${comp.componentType ?? 'unknown'} not supported in statement display`;
   }
 }
 

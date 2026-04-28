@@ -428,6 +428,18 @@ function executeTemporalWindow(
 // Operation Dispatch (returns Decimal — Decision 122)
 // ──────────────────────────────────────────────
 
+/**
+ * OB-196 Phase 3 (E4 round-trip closure / Q-A.5.5): structured failure on
+ * unknown operation at intent-executor dispatch surface. Mirrors Phase 2's
+ * LegacyEngineUnknownComponentTypeError pattern at the next dispatch layer.
+ */
+export class IntentExecutorUnknownOperationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'IntentExecutorUnknownOperationError';
+  }
+}
+
 // OB-117: Exported for use by evaluateComponent's calculationIntent fallback
 export function executeOperation(
   op: IntentOperation,
@@ -447,6 +459,15 @@ export function executeOperation(
     case 'temporal_window':   return executeTemporalWindow(op, data, inputLog, trace);
     case 'linear_function':   return executeLinearFunction(op, data, inputLog, trace);
     case 'piecewise_linear':  return executePiecewiseLinear(op, data, inputLog, trace);
+    default: {
+      const operation = (op as { operation?: string }).operation ?? '<undefined>';
+      throw new IntentExecutorUnknownOperationError(
+        `[intent-executor] Unknown operation "${operation}" reached executeOperation. ` +
+        `Foundational IntentOperation union admits only registered primitives. An unknown ` +
+        `operation indicates either (1) an upstream cleanup gap producing a non-foundational ` +
+        `operation string, or (2) data corruption in the persisted intent shape.`
+      );
+    }
   }
 }
 
@@ -557,9 +578,18 @@ export function executeIntent(
 ): ExecutionResult {
   const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
   const modifierLog: Array<{ modifier: string; before: number; after: number }> = [];
+  // OB-196 Phase 3 (E4): trace carries foundational primitive identifier directly.
+  // Top-level operation is intent.intent.operation; variant-routed primitives carry
+  // identifier on the matched route's intent.operation, but the outer-shape op is
+  // the foundational primitive that defines the component.
+  const outerOp =
+    (intent.intent && (intent.intent as { operation?: string }).operation) ||
+    (intent.variants?.routes?.[0]?.intent && (intent.variants.routes[0].intent as { operation?: string }).operation) ||
+    'unknown';
   const trace: Partial<ExecutionTrace> = {
     entityId: entityData.entityId,
     componentIndex: intent.componentIndex,
+    componentType: outerOp,
     confidence: intent.confidence,
   };
 
@@ -617,6 +647,7 @@ export function executeIntent(
   const executionTrace: ExecutionTrace = {
     entityId: entityData.entityId,
     componentIndex: intent.componentIndex,
+    componentType: outerOp,
     variantRoute: trace.variantRoute,
     inputs: inputLog,
     lookupResolution: trace.lookupResolution,

@@ -12,6 +12,50 @@
 import { createClient } from '@/lib/supabase/client';
 import type { PeriodSnapshot, EntityPeriodData } from './trajectory-service';
 
+/**
+ * OB-196 Phase 3 (E4 / Q-A.5.5): structured failure on shape violation at
+ * state-reader internal dispatch surface. Reader assumes calculation_results
+ * row shape; violation surfaces as bug rather than silent data corruption.
+ */
+export class StateReaderShapeViolationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StateReaderShapeViolationError';
+  }
+}
+
+function validateCalculationResultRow(r: unknown, batchId: string): {
+  batch_id: string;
+  entity_id: string;
+  total_payout: number;
+  components: unknown;
+} {
+  if (!r || typeof r !== 'object') {
+    throw new StateReaderShapeViolationError(
+      `[state-reader] calculation_results row from batch ${batchId} is not an object`
+    );
+  }
+  const row = r as Record<string, unknown>;
+  if (typeof row.batch_id !== 'string' || typeof row.entity_id !== 'string') {
+    throw new StateReaderShapeViolationError(
+      `[state-reader] calculation_results row missing required string fields ` +
+      `batch_id/entity_id (got batch_id=${typeof row.batch_id}, entity_id=${typeof row.entity_id})`
+    );
+  }
+  if (typeof row.total_payout !== 'number') {
+    throw new StateReaderShapeViolationError(
+      `[state-reader] calculation_results row entity_id=${String(row.entity_id)} has ` +
+      `non-numeric total_payout (${typeof row.total_payout})`
+    );
+  }
+  return {
+    batch_id: row.batch_id,
+    entity_id: row.entity_id,
+    total_payout: row.total_payout,
+    components: row.components,
+  };
+}
+
 // ──────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────
@@ -310,7 +354,11 @@ export async function loadTrajectoryData(tenantId: string): Promise<{
       .select('batch_id, entity_id, total_payout, components')
       .eq('tenant_id', tenantId)
       .in('batch_id', chunk);
-    if (data) allResults.push(...data);
+    if (data) {
+      for (const row of data) {
+        allResults.push(validateCalculationResultRow(row, row.batch_id ?? chunk.join(',')));
+      }
+    }
   }
 
   // Get entity details for all entities in results
