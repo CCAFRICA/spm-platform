@@ -5,8 +5,16 @@
  * ZERO domain language in this file. The executor does not know
  * what domain it operates in. It processes structures.
  *
- * 9 primitive operations, 6 input sources, 4 modifier types.
+ * Per Decision 155 (LOCKED 2026-04-27), the canonical operation vocabulary
+ * lives in `primitive-registry.ts`. The shape interfaces in this file
+ * (BoundedLookup1D, BoundedLookup2D, etc.) carry the per-primitive
+ * structural shape; their `operation` discriminator references the
+ * `FoundationalPrimitive` union exported from the registry. The
+ * `IntentOperation` union enumerates the executable subset (those
+ * primitives with corresponding shape interfaces and dispatch handlers).
  */
+
+import type { FoundationalPrimitive } from './primitive-registry';
 
 // ──────────────────────────────────────────────
 // Input Sources — where a value comes from
@@ -46,8 +54,21 @@ export interface Boundary {
 }
 
 // ──────────────────────────────────────────────
-// The 7 Primitive Operations
+// Primitive Operations — registry-derived discriminators (Decision 155)
 // ──────────────────────────────────────────────
+//
+// Each shape interface's `operation` field references a member of
+// `FoundationalPrimitive` from `primitive-registry.ts` via `Op<T>`. If a
+// shape interface is added with a discriminator string not in the registry,
+// TypeScript rejects it at compile time — the structural enforcement
+// Decision 155 demands.
+
+/**
+ * Constrains the literal type T to be a member of FoundationalPrimitive.
+ * Acts as a compile-time check that every shape interface's `operation`
+ * discriminator is a registered foundational primitive.
+ */
+type Op<T extends FoundationalPrimitive> = T;
 
 export type IntentOperation =
   | BoundedLookup1D
@@ -64,7 +85,7 @@ export type IntentOperation =
 
 /** 1D threshold table — maps a single value to an output */
 export interface BoundedLookup1D {
-  operation: 'bounded_lookup_1d';
+  operation: Op<'bounded_lookup_1d'>;
   input: IntentSource | IntentOperation;   // Can be a computed value
   boundaries: Boundary[];
   outputs: number[];
@@ -77,7 +98,7 @@ export interface BoundedLookup1D {
 
 /** 2D grid lookup — maps two values to a grid output */
 export interface BoundedLookup2D {
-  operation: 'bounded_lookup_2d';
+  operation: Op<'bounded_lookup_2d'>;
   inputs: {
     row: IntentSource | IntentOperation;    // Can be computed
     column: IntentSource | IntentOperation;  // Can be computed
@@ -90,14 +111,14 @@ export interface BoundedLookup2D {
 
 /** Fixed rate multiplication — input × rate */
 export interface ScalarMultiply {
-  operation: 'scalar_multiply';
+  operation: Op<'scalar_multiply'>;
   input: IntentSource | IntentOperation;   // Can be a nested operation
   rate: number | IntentOperation;           // Can be a nested operation (e.g., lookup result)
 }
 
 /** Conditional branching — evaluate condition, execute one of two operations */
 export interface ConditionalGate {
-  operation: 'conditional_gate';
+  operation: Op<'conditional_gate'>;
   condition: {
     left: IntentSource;
     operator: '>=' | '>' | '<=' | '<' | '=' | '==' | '!=';
@@ -109,13 +130,13 @@ export interface ConditionalGate {
 
 /** Aggregation — return aggregated value */
 export interface AggregateOp {
-  operation: 'aggregate';
+  operation: Op<'aggregate'>;
   source: IntentSource;
 }
 
 /** Ratio — numerator / denominator with zero-guard */
 export interface RatioOp {
-  operation: 'ratio';
+  operation: Op<'ratio'>;
   numerator: IntentSource;
   denominator: IntentSource;
   zeroDenominatorBehavior: 'zero' | 'error' | 'null';
@@ -123,13 +144,13 @@ export interface RatioOp {
 
 /** Fixed value */
 export interface ConstantOp {
-  operation: 'constant';
+  operation: Op<'constant'>;
   value: number;
 }
 
 /** N-input weighted combination — weights must sum to 1.0 */
 export interface WeightedBlendOp {
-  operation: 'weighted_blend';
+  operation: Op<'weighted_blend'>;
   inputs: Array<{
     source: IntentSource | IntentOperation;   // composable — can be nested
     weight: number;                            // 0-1, all weights must sum to 1.0
@@ -139,7 +160,7 @@ export interface WeightedBlendOp {
 
 /** Rolling N-period aggregation over historical values */
 export interface TemporalWindowOp {
-  operation: 'temporal_window';
+  operation: Op<'temporal_window'>;
   input: IntentSource | IntentOperation;       // composable
   windowSize: number;                           // number of periods
   aggregation: TemporalAggregation;
@@ -150,7 +171,7 @@ export type TemporalAggregation = 'sum' | 'average' | 'min' | 'max' | 'trend';
 
 /** OB-180: Linear function — y = slope * x + intercept */
 export interface LinearFunctionOp {
-  operation: 'linear_function';
+  operation: Op<'linear_function'>;
   input: IntentSource | IntentOperation;
   slope: number;
   intercept: number;
@@ -158,7 +179,7 @@ export interface LinearFunctionOp {
 
 /** OB-180: Piecewise linear — attainment determines rate segment, applied to base input */
 export interface PiecewiseLinearOp {
-  operation: 'piecewise_linear';
+  operation: Op<'piecewise_linear'>;
   /** The ratio/attainment input that determines which segment applies */
   ratioInput: IntentSource | IntentOperation;
   /** The base value to multiply the rate by (e.g., revenue) */

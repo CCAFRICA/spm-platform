@@ -16,6 +16,24 @@ import {
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
+// === FOUNDATIONAL PRIMITIVE VOCABULARY (OB-196 E1 / Decision 155) ===
+//
+// The plan-agent prompt is the Domain Agent translation surface — Decision 154
+// permits domain language here for translation purposes. However, the LIST of
+// foundational primitives the AI may emit must derive from the canonical
+// registry, not be hardcoded in the prompt template (closes F-005:
+// prompt vocabulary drift). The prompt template carries the placeholder
+// `<<FOUNDATIONAL_PRIMITIVES>>`; at lookup time, the placeholder is replaced
+// with the registry-derived enumeration.
+
+import { getOperationPrimitives } from '@/lib/calculation/primitive-registry';
+
+function buildPrimitiveVocabularyForPrompt(): string {
+  const ops = getOperationPrimitives();
+  const lines = ops.map((p, i) => `${i + 1}. ${p.id} — ${p.description}`);
+  return `${ops.length} PRIMITIVE OPERATIONS:\n${lines.join('\n')}`;
+}
+
 // === SYSTEM PROMPTS BY TASK ===
 
 const SYSTEM_PROMPTS: Record<AITaskType, string> = {
@@ -354,14 +372,7 @@ IMPORTANT GUIDELINES:
 
 FOR EACH COMPONENT, also produce a "calculationIntent" field using this domain-agnostic structural vocabulary. This is the contract between the AI (Domain Agent) and the execution engine (Foundational Agent).
 
-7 PRIMITIVE OPERATIONS:
-1. bounded_lookup_1d — 1D threshold table. Maps a single input value to an output via boundaries.
-2. bounded_lookup_2d — 2D grid. Maps two input values (row, column) to a grid output.
-3. scalar_multiply — Fixed rate multiplication: input × rate.
-4. conditional_gate — If/then/else: evaluate condition, execute one of two operations.
-5. aggregate — Return an aggregated value from a source.
-6. ratio — Numerator / denominator with zero-guard.
-7. constant — Fixed literal value.
+<<FOUNDATIONAL_PRIMITIVES>>
 
 INPUT SOURCES (how values are resolved):
 - { "source": "metric", "sourceSpec": { "field": "metric_name" } } — from data row
@@ -373,18 +384,6 @@ INPUT SOURCES (how values are resolved):
 BOUNDARY FORMAT:
 { "min": number|null, "max": number|null, "minInclusive": true, "maxInclusive": true }
 Use null for unbounded (no lower/upper limit). Both inclusive to match >= min AND <= max.
-
-MAPPING RULES (type → calculationIntent operation):
-- tiered_lookup → bounded_lookup_1d with metric input, boundaries from tiers, outputs from tier values
-- matrix_lookup → bounded_lookup_2d with metric inputs, row/column boundaries, outputGrid
-- flat_percentage → scalar_multiply with metric input and rate (flat_percentage is a legacy alias)
-- conditional_percentage → nested conditional_gate chain (conditions in order, scalar_multiply on match)
-- linear_function → linear_function with slope, intercept, and metric input
-- piecewise_linear → piecewise_linear with ratioInput, baseInput, and segments array
-  IMPORTANT: piecewise_linear ALWAYS maps to piecewise_linear operation, NEVER to conditional_gate chain
-- scope_aggregate → scope_aggregate with scope, field, and aggregation
-- scalar_multiply → scalar_multiply with metric input and rate
-- conditional_gate → conditional_gate with condition, onTrue operation, onFalse operation
 
 EXAMPLE calculationIntent for a tiered_lookup:
 {
@@ -802,7 +801,14 @@ export class AnthropicAdapter implements AIProviderAdapter {
       throw new Error('Anthropic API key not configured');
     }
 
-    const systemPrompt = SYSTEM_PROMPTS[request.task];
+    // OB-196 E1: registry-derived vocabulary substitution at call time. The
+    // placeholder `<<FOUNDATIONAL_PRIMITIVES>>` (only present in plan_interpretation)
+    // is replaced with `buildPrimitiveVocabularyForPrompt()`'s output sourced
+    // from the canonical primitive registry. Closes F-005 (prompt vocabulary drift).
+    const rawPrompt = SYSTEM_PROMPTS[request.task];
+    const systemPrompt = rawPrompt.includes('<<FOUNDATIONAL_PRIMITIVES>>')
+      ? rawPrompt.replace('<<FOUNDATIONAL_PRIMITIVES>>', buildPrimitiveVocabularyForPrompt())
+      : rawPrompt;
 
     // Build message content — supports both plain text and document blocks (PDF)
     const pdfBase64 = request.input.pdfBase64 as string | undefined;
