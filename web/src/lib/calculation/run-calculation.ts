@@ -14,14 +14,7 @@ import {
   writeCalculationResults,
   transitionBatchLifecycle,
 } from '@/lib/supabase/calculation-service';
-import type {
-  PlanComponent,
-  LegacyShapedPlanComponent,
-  TierConfig,
-  MatrixConfig,
-  PercentageConfig,
-  ConditionalConfig,
-} from '@/types/compensation-plan';
+import type { PlanComponent } from '@/types/compensation-plan';
 import {
   inferSemanticType,
   findSheetForComponent,
@@ -226,122 +219,17 @@ export function resolveBandIndex(bands: Array<{ min: number; max: number }>, val
 }
 
 // ──────────────────────────────────────────────
-// Component Evaluators
+// E2 STRUCTURED FAILURE (OB-196 Phase 2 / Decision 151 / T2-E25)
 // ──────────────────────────────────────────────
+// Legacy component evaluators (evaluateTierLookup, evaluatePercentage,
+// evaluateMatrixLookup, evaluateConditionalPercentage) deleted in Phase 2.
+// Calculation flows through intent-executor (Decision 151 sole authority).
 
-export function evaluateTierLookup(config: TierConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
-  const metricValue = metrics[config.metric] ?? metrics['attainment'] ?? 0;
-
-  // OB-117: Rate detection heuristic — if all non-zero tier values are < 1.0,
-  // they represent rates (e.g., 0.002 = 0.2%) to multiply against the metric value,
-  // not flat payout amounts. This handles plans where tier values are
-  // rates applied to a volume metric.
-  const nonZeroValues = config.tiers.map(t => t.value).filter(v => v !== 0);
-  const allRates = nonZeroValues.length > 0 && nonZeroValues.every(v => v > 0 && v < 1.0);
-
-  // OB-169: Use shared half-open interval resolution
-  const tierIdx = resolveBandIndex(config.tiers, metricValue);
-  if (tierIdx >= 0) {
-    const tier = config.tiers[tierIdx];
-    const min = Number.isFinite(tier.min) ? tier.min : -Infinity;
-    const max = Number.isFinite(tier.max) ? tier.max : Infinity;
-    const basePayout = allRates ? tier.value * metricValue : tier.value;
-    return {
-      payout: basePayout,
-      details: {
-        metric: config.metric,
-        metricValue,
-        matchedTier: tier.label,
-        tierMin: min,
-        tierMax: max,
-        tierPayout: tier.value,
-        rateDetected: allRates,
-        rateApplied: allRates ? `${tier.value} × ${metricValue}` : undefined,
-      },
-    };
+export class LegacyEngineUnknownComponentTypeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LegacyEngineUnknownComponentTypeError';
   }
-
-  return { payout: 0, details: { metric: config.metric, metricValue, matchedTier: 'none' } };
-}
-
-export function evaluatePercentage(config: PercentageConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
-  const base = metrics[config.appliedTo] ?? metrics['amount'] ?? 0;
-  let payout = base * config.rate;
-
-  if (config.minThreshold && base < config.minThreshold) {
-    payout = 0;
-  }
-  if (config.maxPayout && payout > config.maxPayout) {
-    payout = config.maxPayout;
-  }
-
-  return {
-    payout,
-    details: {
-      appliedTo: config.appliedTo,
-      baseAmount: base,
-      rate: config.rate,
-      calculatedPayout: payout,
-    },
-  };
-}
-
-export function evaluateMatrixLookup(config: MatrixConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
-  const rowValue = metrics[config.rowMetric] ?? 0;
-  const colValue = metrics[config.columnMetric] ?? 0;
-
-  // OB-169: Use shared half-open interval resolution [min, max)
-  // Prevents boundary values (e.g., 80.0) from matching the lower band
-  // via first-match-wins with inclusive upper bounds.
-  const rowIdx = resolveBandIndex(config.rowBands, rowValue);
-  const colIdx = resolveBandIndex(config.columnBands, colValue);
-
-  const payout = (rowIdx >= 0 && colIdx >= 0) ? (config.values[rowIdx]?.[colIdx] ?? 0) : 0;
-
-  return {
-    payout,
-    details: {
-      rowMetric: config.rowMetric,
-      rowValue,
-      rowBand: rowIdx >= 0 ? config.rowBands[rowIdx].label : 'none',
-      colMetric: config.columnMetric,
-      colValue,
-      colBand: colIdx >= 0 ? config.columnBands[colIdx].label : 'none',
-      matrixPayout: payout,
-    },
-  };
-}
-
-export function evaluateConditionalPercentage(config: ConditionalConfig, metrics: Record<string, number>): { payout: number; details: Record<string, unknown> } {
-  const base = metrics[config.appliedTo] ?? metrics['amount'] ?? 0;
-
-  for (const condition of config.conditions) {
-    const conditionValue = metrics[condition.metric] ?? 0;
-    const min = Number.isFinite(condition.min) ? condition.min : -Infinity;
-    const max = Number.isFinite(condition.max) ? condition.max : Infinity;
-
-    if (conditionValue >= min && conditionValue <= max) {
-      // HF-117: Gate semantics — when base is 0, multiplication always yields 0.
-      // In that case, rate IS the fixed payout (e.g., safety gate: 0 incidents → $500 bonus).
-      // When base > 0, standard percentage semantics apply (base * rate).
-      const payout = base === 0 ? condition.rate : base * condition.rate;
-      return {
-        payout,
-        details: {
-          appliedTo: config.appliedTo,
-          baseAmount: base,
-          matchedCondition: condition.metricLabel,
-          conditionMetric: condition.metric,
-          conditionValue,
-          rate: condition.rate,
-          calculatedPayout: payout,
-          gateSemantics: base === 0,
-        },
-      };
-    }
-  }
-
-  return { payout: 0, details: { appliedTo: config.appliedTo, baseAmount: base, matchedCondition: 'none' } };
 }
 
 export function evaluateComponent(component: PlanComponent, metrics: Record<string, number>): ComponentResult {
@@ -360,53 +248,34 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
     };
   }
 
-  // OB-196 Phase 1.7 transitional: Phase 2 (E2 structured failure) refactors these
-  // legacy switch arms. Until then, cast to LegacyShapedPlanComponent for legacy
-  // SHAPE field access. componentType cast to string to admit legacy literal arms.
-  const legacy = component as LegacyShapedPlanComponent;
-  switch (legacy.componentType as string) {
-    case 'tier_lookup':
-      if (legacy.tierConfig) {
-        const r = evaluateTierLookup(legacy.tierConfig, metrics);
-        payout = r.payout;
-        details = r.details;
-      }
+  // OB-196 Phase 2: E2 structured failure on legacy engine arms (Decision 151 / T2-E25).
+  // Post-Phase-1.7, ComponentType union admits foundational identifiers only — legacy
+  // strings unreachable from rule_sets. If a legacy string surfaces here, it's a Phase
+  // 1.5/1.6.5/1.7 cleanup gap; throw structured error rather than silently evaluate.
+  switch (component.componentType) {
+    case 'bounded_lookup_1d':
+    case 'bounded_lookup_2d':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+    case 'linear_function':
+    case 'piecewise_linear':
+    case 'scope_aggregate':
+    case 'aggregate':
+    case 'ratio':
+    case 'constant':
+    case 'weighted_blend':
+    case 'temporal_window':
+      // Foundational primitive — calculation flows through intent-executor below.
       break;
-    case 'percentage':
-      if (legacy.percentageConfig) {
-        const r = evaluatePercentage(legacy.percentageConfig, metrics);
-        payout = r.payout;
-        details = r.details;
-      }
-      break;
-    case 'matrix_lookup':
-      if (legacy.matrixConfig) {
-        const r = evaluateMatrixLookup(legacy.matrixConfig, metrics);
-        payout = r.payout;
-        details = r.details;
-      }
-      break;
-    case 'conditional_percentage': {
-      // HF-120: If calculationIntent has a conditional_gate, use it as PRIMARY path.
-      const gateIntent = component.calculationIntent as unknown as Record<string, unknown> | undefined;
-      if (gateIntent?.operation === 'conditional_gate' && isIntentOperation(gateIntent as unknown as IntentOperation)) {
-        const entityData: EntityData = { entityId: '', metrics, attributes: {} };
-        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
-        const gatePayout = toNumber(executeOperation(gateIntent as unknown as IntentOperation, entityData, inputLog, {}));
-        payout = gatePayout;
-        details = {
-          source: 'calculationIntent',
-          operation: 'conditional_gate',
-          payout: gatePayout,
-          inputs: inputLog,
-        };
-      } else if (legacy.conditionalConfig) {
-        const r = evaluateConditionalPercentage(legacy.conditionalConfig, metrics);
-        payout = r.payout;
-        details = r.details;
-      }
-      break;
-    }
+    default:
+      throw new LegacyEngineUnknownComponentTypeError(
+        `[run-calculation] Unreachable componentType reached evaluateComponent: ` +
+        `"${component.componentType as string}" (componentId=${component.id}, ` +
+        `componentName=${component.name}). Foundational ComponentType union admits ` +
+        `only registered primitives post-Phase-1.7. A legacy identifier reaching this ` +
+        `point indicates an upstream cleanup gap (Phase 1.5 / 1.6.5 / 1.7 surface ` +
+        `producing legacy strings was missed).`
+      );
   }
 
   // OB-117: calculationIntent fallback — when legacy evaluator produces $0
@@ -564,19 +433,10 @@ export function findMatchingSheet(
  */
 export function getExpectedMetricNames(component: PlanComponent): string[] {
   const names: string[] = [];
-  // Phase 1.7 transitional: Phase 2 will refactor to read from foundational metadata.intent.
-  const legacy = component as LegacyShapedPlanComponent;
-  if (legacy.tierConfig?.metric) names.push(legacy.tierConfig.metric);
-  if (legacy.matrixConfig?.rowMetric) names.push(legacy.matrixConfig.rowMetric);
-  if (legacy.matrixConfig?.columnMetric) names.push(legacy.matrixConfig.columnMetric);
-  if (legacy.percentageConfig?.appliedTo) names.push(legacy.percentageConfig.appliedTo);
-  if (legacy.conditionalConfig?.appliedTo) names.push(legacy.conditionalConfig.appliedTo);
-  if (legacy.conditionalConfig?.conditions) {
-    for (const c of legacy.conditionalConfig.conditions) {
-      if (c.metric) names.push(c.metric);
-    }
-  }
 
+  // OB-196 Phase 2: foundational metadata.intent is the sole source. Legacy SHAPE
+  // fields (tierConfig/matrixConfig/percentageConfig/conditionalConfig) removed from
+  // PlanComponent in Phase 1.7; this function reads only intent.input/inputs/condition.
   // OB-121: Extract from calculationIntent (handles ratio sources, metric sources)
   const intent = (component as unknown as Record<string, unknown>).calculationIntent as Record<string, unknown> | undefined;
   if (intent) {
@@ -1489,12 +1349,11 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       }
       const result = evaluateComponent(component, metrics);
 
-      // HF-122: Per-component rounding (Decision 122)
+      // HF-122: Per-component rounding (Decision 122).
+      // OB-196 Phase 2: Legacy SHAPE fields removed; precision derives from foundational
+      // intent only. inferOutputPrecision tolerates undefined componentConfig.
       const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
-      const legacyShape = component as LegacyShapedPlanComponent;
-      const componentConfig = (legacyShape.tierConfig || legacyShape.matrixConfig ||
-        legacyShape.percentageConfig || legacyShape.conditionalConfig) as Record<string, unknown> | undefined;
-      const precision = inferOutputPrecision(componentIntent, componentConfig);
+      const precision = inferOutputPrecision(componentIntent, undefined);
       const { rounded } = roundComponentOutput(result.payout, componentResults.length, component.name, precision);
       result.payout = toNumber(rounded);
 

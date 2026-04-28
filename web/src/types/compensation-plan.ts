@@ -88,78 +88,10 @@ export interface PlanComponent {
   metadata?: Record<string, unknown>;
 }
 
-/**
- * OB-196 Phase 1.7 transitional type. Phase 2 (E2 structured failure) will refactor
- * the remaining legacy-shape read sites in run-calculation.ts and api/calculation/run
- * band-normalization. Until then, those callers cast PlanComponent to this widened
- * shape to access the legacy optional fields. New code MUST use foundational
- * metadata.intent shapes (Decision 151).
- */
-export interface LegacyShapedPlanComponent extends PlanComponent {
-  matrixConfig?: MatrixConfig;
-  tierConfig?: TierConfig;
-  percentageConfig?: PercentageConfig;
-  conditionalConfig?: ConditionalConfig;
-}
-
-// Matrix Lookup (e.g., Optical Sales with attainment x volume)
-export interface MatrixConfig {
-  rowMetric: string;
-  rowMetricLabel: string;
-  rowBands: Band[];
-  columnMetric: string;
-  columnMetricLabel: string;
-  columnBands: Band[];
-  values: number[][]; // values[rowIndex][colIndex]
-  currency: string;
-  columnMetricSource?: string; // OB-34: topology hint for column metric resolution (e.g. 'store_component')
-}
-
-export interface Band {
-  min: number;
-  max: number;
-  label: string;
-}
-
-// Tier Lookup (e.g., Store Sales tiers)
-export interface TierConfig {
-  metric: string;
-  metricLabel: string;
-  tiers: Tier[];
-  currency: string;
-}
-
-export interface Tier {
-  min: number;
-  max: number;
-  label: string;
-  value: number;
-}
-
-// Simple Percentage (e.g., Services at 4%)
-export interface PercentageConfig {
-  rate: number;
-  appliedTo: string;
-  appliedToLabel: string;
-  minThreshold?: number;
-  maxPayout?: number;
-}
-
-// Conditional Percentage (e.g., Insurance with collection thresholds)
-export interface ConditionalConfig {
-  conditions: ConditionalRate[];
-  appliedTo: string;
-  appliedToLabel: string;
-}
-
-export interface ConditionalRate {
-  metric: string;
-  metricLabel: string;
-  min: number;
-  max: number;
-  rate: number;
-  label: string;
-}
+// OB-196 Phase 2: LegacyShapedPlanComponent transitional type + legacy SHAPE interfaces
+// (MatrixConfig, TierConfig, PercentageConfig, ConditionalConfig, Band, Tier, ConditionalRate)
+// deleted post-E2 structured-failure cleanup. Foundational shape lives in metadata.intent
+// (Decision 151) — no parallel-authority SHAPE fields persist on PlanComponent.
 
 // ============================================
 // WEIGHTED KPI CONFIGURATION

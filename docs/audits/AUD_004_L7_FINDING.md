@@ -4,7 +4,7 @@
 **Originating audit:** AUD-004 (Phase 0 + Phase 0G)
 **Limiting factor cited:** L7 (AUD-004 v3 §6)
 **Closure work item:** OB-196 Phases 1.5, 1.6, 1.6.5, 1.7, 2
-**Status:** OPEN (closes when Phase 1.7 verification grep returns zero hits platform-wide)
+**Status:** CLOSED 2026-04-28
 
 ---
 
@@ -93,8 +93,8 @@ Recommendation: future audit specifications include a Phase L7 step that, after 
 - **Closure:** F-005 closed at the import boundary. Plan-agent prompt teaches AI to emit foundational identifiers directly. Importer accepts foundational only.
 
 ### Phase 1.6 (Trial/GPV/landing dead-code sweep + L7 capture)
-- **Commit:** [populated at commit time]
-- **PR:** [populated at PR creation]
+- **Commit:** `7fa598f6`
+- **PR:** https://github.com/CCAFRICA/spm-platform/pull/346 (merged)
 - **Deletions (~4,500+ lines, 6 directories):**
   - `GPVWizard.tsx` (792 lines)
   - `plan-interpreter.ts` (1521 lines, structurally indefensible heuristic per Option b)
@@ -169,8 +169,8 @@ Recommendation: future audit specifications include a Phase L7 step that, after 
 - **Compliance:** tsc clean (`npx tsc --noEmit` exit 0). Lint clean (`npx next lint` zero errors; pre-existing warnings on files Phase 1.6.5 didn't touch).
 
 ### Phase 1.7 (validation + forensics + UI consumers + plan-management era-artifact wholesale)
-- **Commit:** [populated post-merge]
-- **PR:** [populated at PR creation]
+- **Commit:** `25a32090` (merged via `6ead4def`)
+- **PR:** https://github.com/CCAFRICA/spm-platform/pull/348 (merged)
 - **Mechanical vocabulary-only refactors (8 files, self-dispositioned per Standing Rule 34):**
   - `lib/forensics/trace-builder.ts` (5 hits) — case arms renamed: `tier_lookup` → `bounded_lookup_1d`, `matrix_lookup` → `bounded_lookup_2d`, `percentage` → `scalar_multiply`, `conditional_percentage` → `conditional_gate`
   - `lib/calculation/results-formatter.ts` (1 hit) — currency-formatting check renamed
@@ -220,8 +220,31 @@ Recommendation: future audit specifications include a Phase L7 step that, after 
   Both hits are audit-trail comments documenting deletion history — within the architect's exempt categories. **F-005 platform-wide closure invariant holds.**
 - **Compliance:** tsc clean (`npx tsc --noEmit` exit 0). Lint clean (`npx next lint` zero errors; pre-existing warnings on files Phase 1.7 didn't touch).
 
-### Phase 2 (legacy engine arms)
-[To be populated when Phase 2 commits — E2 structured failure on run-calculation.ts legacy switch arms (lines 362-408) and api/calculation/run band-normalization legacy SHAPE reads]
+### Phase 2 (E2 structured failure on legacy engine arms + audit-trail integrity)
+- **Commit:** [populated post-merge]
+- **PR:** [populated at PR creation]
+- **Class A — audit-trail integrity (additive-only updates):**
+  - `OB-196_COMPLETION_REPORT.md`: backfilled stale SHA placeholders (Phase 1.7 row + substrate header + status); appended 9 missing sections (IRA Inv 1 alignment, commits-in-order, files-created, files-modified, proof gates HARD, proof gates SOFT, standing rule compliance, assumptions, known issues + carry-forward + reconciliation gate)
+  - `docs/audits/AUD_004_L7_FINDING.md`: Status header OPEN → CLOSED 2026-04-28; backfilled stale SHA placeholders (Phase 1.6 + Phase 1.7 rows)
+- **Class B — E2 structural cleanup:**
+  - `web/src/lib/calculation/run-calculation.ts`: `evaluateComponent()` switch refactored — foundational case arms fall through to intent-executor; `default:` arm throws `LegacyEngineUnknownComponentTypeError` with structured diagnostic. Legacy evaluators (`evaluateTierLookup`, `evaluatePercentage`, `evaluateMatrixLookup`, `evaluateConditionalPercentage`) **DELETED** — unreachable post-Phase-1.7 (foundational ComponentType union). `getExpectedMetricNames()` legacy SHAPE reads stripped (intent-only path remains). HF-122 rounding block uses foundational-only precision inference.
+  - `web/src/app/api/calculation/run/route.ts`: 3 sites refactored:
+    - Band-normalization (L1525-1565): reads `metadata.intent.boundaries[0].max` (1D) + `intent.rowBoundaries[0].max` / `intent.columnBoundaries[0].max` (2D), keyed by `intent.input.sourceSpec.field` / `intent.inputs.row.sourceSpec.field` / `intent.inputs.column.sourceSpec.field` (read-only projection per Decision 151)
+    - HF-122 rounding (legacy path): legacy SHAPE config arg replaced with `undefined` — precision derives from foundational intent only
+    - HF-188 intent rounding: same — `LegacyShapedPlanComponent` cast removed
+  - `LegacyShapedPlanComponent` transitional type **DELETED** from `types/compensation-plan.ts` (zero consumers post-B.1+B.2 refactor)
+  - Legacy SHAPE interfaces **DELETED**: `MatrixConfig`, `TierConfig`, `PercentageConfig`, `ConditionalConfig`, `Band`, `Tier`, `ConditionalRate` (all consumers were either inside the deleted evaluators or orphaned by the deletion)
+- **F-005 final closure invariant grep (run-calculation.ts INCLUDED):**
+  ```
+  grep -rnE "'matrix_lookup'|'tier_lookup'|'tiered_lookup'|'flat_percentage'|'conditional_percentage'" web/src/ \
+    | grep -v '__tests__' | grep -v '\.md:' | grep -v 'primitive-registry.ts'
+  →
+  web/src/types/compensation-plan.ts:55:// Legacy strings ('matrix_lookup' | 'tier_lookup' | 'percentage' | 'conditional_percentage')
+  web/src/lib/compensation/ai-plan-interpreter.ts:429:  // `|| 'tiered_lookup'` silent-fallback; if neither is present the default
+  ```
+  Both hits remain audit-trail comments documenting deletion history. **F-005 final closure invariant holds across `web/src/`** — including `run-calculation.ts`.
+- **B.3 + B.4 verification:** `LegacyShapedPlanComponent` and orphan legacy interfaces report zero non-self consumers.
+- **Compliance:** tsc clean (`npx tsc --noEmit` exit 0). Lint clean (`npx next lint` zero errors).
 
 ---
 
@@ -233,8 +256,8 @@ Closure trajectory:
 - Phase 1.5 (PR #345): import boundary
 - Phase 1.6 (PR #346): Trial/GPV/landing cluster
 - Phase 1.6.5 (PR #347): calc-side + demo-era wholesale + service-layer + database
-- Phase 1.7 (this commit): validation/forensics/UI consumer surfaces + plan-management era-artifact wholesale
-- Phase 2 (separate work item): legacy engine arms in run-calculation.ts (E2 structured failure)
+- Phase 1.7 (PR #348, merged via `6ead4def`): validation/forensics/UI consumer surfaces + plan-management era-artifact wholesale
+- Phase 2 (this commit): legacy engine arms in run-calculation.ts deleted; LegacyShapedPlanComponent transitional type removed; orphan legacy interfaces deleted (MatrixConfig, TierConfig, PercentageConfig, ConditionalConfig, Band, Tier, ConditionalRate). F-005 final closure invariant: zero hits across `web/src/` (excluding `__tests__`, `.md`, `primitive-registry.ts`). E2 structured failure operational across all dispatch surfaces.
 
 Status: F-005 closed; F-007 closed (subsumed); L7 widening discovery captured for future audit specifications.
 
