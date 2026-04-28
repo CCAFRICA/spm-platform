@@ -209,14 +209,31 @@ export function buildComponentMetrics(
 }
 
 /**
+ * OB-196 Phase 3 (E4 / Q-A.5.5): structured failure on missing intent at
+ * metric-extraction surface. Silent empty config produced silent zero-payout
+ * downstream — worst failure mode. Throw surfaces the shape violation.
+ */
+export class MetricResolverMissingIntentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MetricResolverMissingIntentError';
+  }
+}
+
+/**
  * Extract metric configuration from a plan component's foundational intent.
  *
  * OB-196 Phase 1.7: refactored to read metadata.intent (foundational shape) per
  * Decision 151 (read-only projection). Reads intent.input.sourceSpec.field for 1D
  * lookups + scalar_multiply, intent.inputs.row/column.sourceSpec.field for 2D
  * lookups, intent.condition.left.sourceSpec.field for conditional gates.
+ *
+ * OB-196 Phase 3: throws MetricResolverMissingIntentError when neither
+ * metadata.intent nor calculationIntent is present. Caller must guarantee shape.
  */
 export function extractMetricConfig(component: {
+  id?: string;
+  name?: string;
   metadata?: Record<string, unknown>;
   calculationIntent?: Record<string, unknown>;
 }): ComponentMetricConfig {
@@ -224,7 +241,14 @@ export function extractMetricConfig(component: {
 
   const meta = (component.metadata || {}) as Record<string, unknown>;
   const intent = (meta.intent || component.calculationIntent) as Record<string, unknown> | undefined;
-  if (!intent) return config;
+  if (!intent) {
+    throw new MetricResolverMissingIntentError(
+      `[metric-resolver] Missing metadata.intent and calculationIntent on component ` +
+      `${component.id ?? '<unknown id>'} (${component.name ?? '<unknown name>'}). ` +
+      `Foundational shape required for metric extraction; empty config produced ` +
+      `silent zero-payout downstream prior to Phase 3 hardening.`
+    );
+  }
 
   const op = intent.operation as string | undefined;
 

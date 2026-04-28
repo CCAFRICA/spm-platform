@@ -1,8 +1,8 @@
 # OB-196 — Completion Report (in-flight)
 
-**Substrate:** `CCAFRICA/spm-platform` `origin/main` HEAD (post-Phase-1.6.5 = `f6bea1a8`; post-Phase-1.7 = `6ead4def`)
+**Substrate:** `CCAFRICA/spm-platform` `origin/main` HEAD (post-Phase-1.7 = `6ead4def`; post-Phase-2 = `bad60c79`; post-Phase-3 = TBD)
 **Branch:** `dev`
-**Status:** IN FLIGHT — Phase 2 committing (E2 structured failure on legacy engine arms + LegacyShapedPlanComponent removal + audit-trail integrity); Phases 3-8 remaining.
+**Status:** IN FLIGHT — Phase 3 committing (E4 round-trip closure verification + structured-failure hardening); Phases 4-8 remaining.
 
 ---
 
@@ -16,8 +16,8 @@
 | Phase 1.6 — Trial/GPV/landing dead-code sweep + L7 capture | ✅ COMPLETE | `7fa598f6` | merged via #346 |
 | Phase 1.6.5 — Calc-side legacy disposition + demo-era wholesale sweep + FP-66 cleanup + disputes drop | ✅ COMPLETE | `f6bea1a8` | merged via #347 |
 | Phase 1.7 — Validation + forensics + UI consumers + plan-management era-artifact wholesale + F-005 platform-wide closure | ✅ COMPLETE | `25a32090` | merged via #348 (`6ead4def`) |
-| Phase 2 — E2 structured failure on legacy engine arms + LegacyShapedPlanComponent removal + audit-trail integrity | 🟡 COMMITTING | TBD (post-merge) | TBD |
-| Phase 3 — E4 round-trip closure | ⏳ PENDING | — | — |
+| Phase 2 — E2 structured failure on legacy engine arms + LegacyShapedPlanComponent removal + audit-trail integrity | ✅ COMPLETE | `7b9662f9` | merged via #349 (`bad60c79`) |
+| Phase 3 — E4 round-trip closure verification + structured-failure hardening + negative test suite | 🟡 COMMITTING | TBD (post-merge) | TBD |
 | Phase 4 — E5 plan-agent comprehension flow | ⏳ PENDING | — | — |
 | Phase 5 — E3 signal-surface migration | ⏳ PENDING | — | — |
 | Phase 6 — E6 Korean Test verdict + negative tests | ⏳ PENDING | — | — |
@@ -127,7 +127,8 @@ Phase ↔ Finding ↔ Substrate mapping per OB-196 directive's IRA Invocation 1.
 | `7fa598f6` | Phase 1.6 | Trial/GPV/landing dead-code sweep (~4,500+ lines, 6 directories) + L7 finding capture |
 | `390eb9ba` | Phase 1.6.5 | Calc-side legacy disposition + demo-era wholesale sweep + service-layer FP-66 cleanup + disputes infrastructure removal + database drop migration |
 | `25a32090` | Phase 1.7 | Validation/forensics/UI consumer refactor + plan-management era-artifact wholesale + F-005 platform-wide closure (merged via `6ead4def`) |
-| _TBD_ | Phase 2 | E2 structured failure on run-calculation.ts + LegacyShapedPlanComponent removal + completion report fill-in (populated at Phase 2 commit) |
+| `7b9662f9` | Phase 2 | E2 structured failure on run-calculation.ts + LegacyShapedPlanComponent removal + completion report fill-in (merged via #349 / `bad60c79`) |
+| _TBD_ | Phase 3 | E4 round-trip closure: ExecutionTrace.componentType field; per-surface dispositions on A.5.GAP-1; structured-failure hardening at 4 internal dispatch surfaces; graceful-with-label at 2 user-facing surfaces; negative test suite (38 tests) |
 
 ---
 
@@ -156,7 +157,8 @@ Per-phase summary. Authoritative file list lives in each phase's commit body (St
 | Phase 1.6 | ~25 (14 deletions across 6 directories + 9 refactors) | `7fa598f6` body |
 | Phase 1.6.5 | 98 file changes (engine deletions + cluster wholesale + lib/demo + lib/disputes + lib/scenarios + api/disputes + components/disputes + service-layer FP-66 + nav/permission refactor + Q-S1 carve-out + my-compensation refactor + L7 artifact updates + migration) | `390eb9ba` body |
 | Phase 1.7 | 43 file changes (8 mechanical vocab + 3 shape-coupled refactors + plan-management cluster + cleanup cascade + type narrowing + ai-plan-interpreter Phase 1.5 retained interfaces deleted + L7 artifact updates) | `25a32090` body |
-| Phase 2 | _TBD_ | Phase 2 commit body |
+| Phase 2 | 5 (run-calculation.ts evaluateComponent + getExpectedMetricNames + HF-122 rounding; api/calculation/run 3 sites; types/compensation-plan.ts; OB-196_COMPLETION_REPORT.md +9 sections; AUD_004_L7_FINDING.md status+SHA backfill) | `7b9662f9` body |
+| Phase 3 | 8 (intent-types.ts + intent-executor.ts trace field + executeOperation default + executeIntent + run-calculation.ts evaluateComponent legacy probe; metric-resolver.ts MissingIntentError; state-reader.ts ShapeViolationError; api/calculation/run self-read shape validation; api/ai/assessment shape_violation marker; employee-reconciliation-trace graceful label; perform/statements graceful label; NarrativeSpine vocab fix; operate/results + PlanResults snake_case fallback strip; new __tests__/round-trip-closure/run.ts) | TBD (Phase 3 commit body) |
 
 ---
 
@@ -170,7 +172,8 @@ Per-phase summary. Authoritative file list lives in each phase's commit body (St
 | Phase 1.6 | Cluster deletion verification grep clean; Stripe billing preservation grep positive; identity preservation confirmed (BCL + CRP rows in tenants) | PASS | `7fa598f6`, PR #346 merged |
 | Phase 1.6.5 | Terminating-condition grep at outcome (a) — all five greps clean; disputes table drop migration applied (architect-side, post-merge); tsc + build clean | PASS | `390eb9ba`, PR #347 merged, migration applied 2026-04-28 |
 | Phase 1.7 | F-005 closure invariant grep (zero hits in non-exempt categories); plan-management cleanup verification clean; type narrowing applied; tsc + lint + build clean | PASS | `25a32090`, PR #348 merged via `6ead4def` |
-| Phase 2 | Final F-005 invariant grep INCLUDING run-calculation.ts → zero hits in non-exempt categories; LegacyShapedPlanComponent zero-consumer; orphan interface zero-consumer; tsc + lint + build clean | _TBD_ | _populated at Phase 2 commit_ |
+| Phase 2 | Final F-005 invariant grep INCLUDING run-calculation.ts → zero hits in non-exempt categories; LegacyShapedPlanComponent zero-consumer; orphan interface zero-consumer; tsc + lint + build clean | PASS | `7b9662f9`, PR #349 merged via `bad60c79` |
+| Phase 3 | Class A round-trip property audit (5 gaps surfaced); Class B refactor (B.1 ExecutionTrace.componentType field added + populated at all 2 trace-construction sites; B.2 NarrativeSpine vocabulary fix; B.3 snake_case fallback strip; B.4 per-surface fixes for Q-A.5.1/Q-A.5.3/Q-A.5.4; B.5 structured-failure error classes at 4 internal dispatch surfaces); Class C 38-test E4 negative test suite (12 round-trip identity + 12 trace-level identity + 4 adversarial input + 4 graceful-label + 6 registry sanity) all PASS; tsc + lint + build clean | _TBD_ | _populated at Phase 3 commit_ |
 
 ---
 
@@ -184,7 +187,8 @@ Per-phase summary. Authoritative file list lives in each phase's commit body (St
 | Phase 1.6 | L7 finding capture in both surfaces (CR + discrete artifact); evidence pasted not self-attested | PASS | `OB-196_COMPLETION_REPORT.md` + `docs/audits/AUD_004_L7_FINDING.md` |
 | Phase 1.6.5 | One commit per phase (Standing Rule 28); predecessor declarations to Phase 1.7 + Phase 2 | PASS | `390eb9ba` body |
 | Phase 1.7 | One commit per phase; predecessor declarations to Phase 2; F-005 closure marker written | PASS | `25a32090` body, AUD_004 closure marker |
-| Phase 2 | Audit-trail integrity gate (Class A) before E2 work (Class B); additive-only orchestration | _TBD_ | _populated at Phase 2 commit_ |
+| Phase 2 | Audit-trail integrity gate (Class A) before E2 work (Class B); additive-only orchestration | PASS | `7b9662f9` body |
+| Phase 3 | Audit-first → disposition → refactor pattern; Class A surfaced 5 gaps with architect dispositions; additive-only orchestration on completion-report append; predecessor declarations to Phase 4 | _TBD_ | _populated at Phase 3 commit_ |
 
 ---
 
@@ -200,7 +204,8 @@ Matrix of [Phase × Rule × Status × Evidence]. All PASS for completed phases.
 | Phase 1.6 | PASS | PASS | PASS | PASS | PASS | PASS | n/a | PASS | PASS | PASS | PASS |
 | Phase 1.6.5 | PASS | PASS | PASS | PASS | PASS | PASS | PASS (disputes drop) | PASS | PASS | PASS | PASS |
 | Phase 1.7 | PASS | PASS | PASS | PASS | PASS | PASS | n/a | PASS | PASS | PASS | PASS |
-| Phase 2 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | n/a | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Phase 2 | PASS | PASS | PASS | PASS | PASS | PASS | n/a | n/a | PASS | PASS | PASS |
+| Phase 3 | PASS | PASS | PASS | PASS | PASS | PASS | n/a | n/a | PASS | PASS | PASS |
 
 ---
 
@@ -245,3 +250,67 @@ BCL clean-slate proof test reconciliation against `BCL_Resultados_Esperados.xlsx
 - Per-component values matching the proof spreadsheet ground truth
 
 This gate lives **only in the architect channel**. Not in CC scope. CC's role ends at substrate-cleanliness + structural invariant proof; the proof-tenant numerical reconciliation is verified by the architect against the ground-truth spreadsheet.
+
+
+---
+
+## E4 round-trip closure verification
+
+### Class A — Round-trip property audit (5 gaps surfaced)
+
+Per architect dispositions on Class A audit findings:
+
+| Gap | Disposition | Resolution |
+|---|---|---|
+| **A.1.GAP-1** — `ExecutionTrace` lacks foundational primitive identifier | (a) add `componentType: string` field; populate at trace construction | B.1 — applied: field added to `ExecutionTrace` interface in `intent-types.ts:260-285`; populated at both trace-construction sites in `intent-executor.ts` (executeIntent partial trace + final ExecutionTrace assembly) |
+| **A.2.GAP-1** — `NarrativeSpine.tsx:258` literal `'percentage'` legacy string | (a) refactor to foundational | B.2 — applied: `'percentage'` → `'scalar_multiply'` |
+| **A.2.GAP-2** — `comp.component_type` snake_case fallback dead code at 2 sites | (c) strip dead fallback | B.3 — applied: `operate/results/page.tsx:154` and `PlanResults.tsx:90` simplified to `String(comp.componentType \|\| '')` |
+| **A.5.GAP-1** — Inconsistent failure modes at consumer surfaces | per-surface classification (i)/(ii)/(iii) | B.4+B.5 — applied per architect Q-A.5.1 to Q-A.5.5 dispositions |
+| **A.5.GAP-2** — `calculation_results` lacks idempotency constraint on `(tenant_id, batch_id, entity_id)` | defer to Phase 7 compliance gates | carry-forward — see Known issues section |
+
+### Class B — Refactor closure evidence
+
+**B.1 — `ExecutionTrace.componentType` round-trip closure (A.1.GAP-1):**
+- `web/src/lib/calculation/intent-types.ts:260-285` — `ExecutionTrace` interface gains `componentType: string` required field
+- `web/src/lib/calculation/intent-executor.ts:executeIntent` — populates `componentType` from `intent.intent.operation` (or matched variant route's operation) at trace construction (partial trace + final assembly)
+- Round-trip closure now holds at trace level: readers recover primitive identity from the trace alone, no `rule_sets` dereference required
+
+**B.2 — `NarrativeSpine.tsx:258` vocabulary fix (A.2.GAP-1):**
+- `'percentage'` → `'scalar_multiply'` — Phase 1.7 missed-site cleanup
+
+**B.3 — `comp.component_type` snake_case fallback strip (A.2.GAP-2):**
+- `app/operate/results/page.tsx:154` and `components/calculate/PlanResults.tsx:90` both simplified
+
+**B.4 — Per-surface fixes (Q-A.5.1, Q-A.5.3, Q-A.5.4):**
+- `lib/reconciliation/employee-reconciliation-trace.ts:501-506` — graceful-with-explicit-label: `\`unsupported operation: ${op}\`` (Q-A.5.1)
+- `app/api/ai/assessment/route.ts` — per-row shape validation in `data.storeBreakdown` + `data.teamMembers` extraction; `shape_violations` array tracked + included in response payload (Q-A.5.3)
+- `app/perform/statements/page.tsx:586-602 formatComponentDetail` default arm — `\`Component type ${comp.componentType ?? 'unknown'} not supported in statement display\`` (Q-A.5.4)
+- `app/api/reconciliation/{analyze,run,compare}/route.ts` — passthrough to consumer (graceful-with-label disposition handled at consumer layer per Q-A.5.2)
+
+**B.5 — Internal dispatch hardening (Q-A.5.5):**
+- `lib/calculation/intent-executor.ts` — `IntentExecutorUnknownOperationError` class added; `executeOperation` switch gains `default: throw` arm
+- `lib/orchestration/metric-resolver.ts` — `MetricResolverMissingIntentError` class added; `extractMetricConfig` throws on missing `metadata.intent` AND `calculationIntent`
+- `lib/intelligence/state-reader.ts` — `StateReaderShapeViolationError` class added; `validateCalculationResultRow` helper validates row shape at read site
+- `app/api/calculation/run/route.ts:998` — calc-engine self-read shape validation throws on malformed `entity_id`/`total_payout`
+
+### Class C — Negative test suite
+
+`web/__tests__/round-trip-closure/run.ts` — 38 structural assertions, all PASS:
+
+| Test class | Count | Coverage |
+|---|---|---|
+| Round-trip identity preservation (componentResults blob) | 12 | One per foundational `ComponentType` |
+| Trace-level identity preservation (ExecutionTrace.componentType) | 12 | One per foundational `ComponentType` |
+| Adversarial input — structured failures | 4 | `evaluateComponent` legacy + empty; `executeOperation` unknown; `extractMetricConfig` missing intent |
+| Graceful-degradation labels | 4 | `formatComponentDetail` "not supported" label format; reconciliation "unsupported operation" label format |
+| Registry sanity | 6 | Legacy aliases (`tier_lookup`, `matrix_lookup`, `percentage`, `conditional_percentage`, `tiered_lookup`, `flat_percentage`) NOT in foundational `ComponentType` union |
+
+Run: `cd web && npx tsx __tests__/round-trip-closure/run.ts` → 38 pass / 0 fail.
+
+### F-005 closure invariant — regression guard
+
+Phase 3 verification grep: F-005 closure invariant remains zero hits in non-exempt categories. Phase 1.5/1.6/1.6.5/1.7/2 closure preserved through Phase 3 changes.
+
+### A.5.GAP-2 carry-forward (Phase 7)
+
+`calculation_results` table lacks idempotency constraint on `(tenant_id, batch_id, entity_id)`. Two writes for the same calculation produce duplicate rows. Schema-level concern requiring migration. Phase 3 documents; Phase 7 compliance gates closes via migration.

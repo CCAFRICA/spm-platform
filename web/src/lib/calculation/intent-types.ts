@@ -260,6 +260,13 @@ export function isIntentOperation(value: unknown): value is IntentOperation {
 export interface ExecutionTrace {
   entityId: string;
   componentIndex: number;
+  /**
+   * OB-196 Phase 3 (E4 round-trip closure): foundational primitive identifier
+   * persisted directly on the trace. Populated at trace construction in
+   * intent-executor. Trace is self-describing — readers recover primitive
+   * identity from the trace alone, no rule_sets dereference required.
+   */
+  componentType: string;
   variantRoute?: {
     attribute: string;
     value: string | number | boolean;

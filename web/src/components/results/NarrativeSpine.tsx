@@ -255,7 +255,7 @@ export function NarrativeSpine({
                   /* No attainment track — flat rate or no data */
                   <div className="absolute inset-0 rounded bg-zinc-800/30 flex items-center justify-center">
                     <span className="text-[10px] text-zinc-600 italic">
-                      {comp.componentType === 'percentage' ? 'flat rate' : 'no data'}
+                      {comp.componentType === 'scalar_multiply' ? 'flat rate' : 'no data'}
                     </span>
                   </div>
                 )}

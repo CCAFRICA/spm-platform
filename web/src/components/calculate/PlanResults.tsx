@@ -87,7 +87,7 @@ function mapResults(results: CalcResultRow[]): ResultRow[] {
         return {
           componentId: String(comp.componentId || comp.component_id || ''),
           componentName: String(comp.componentName || comp.component_name || ''),
-          componentType: String(comp.componentType || comp.component_type || ''),
+          componentType: String(comp.componentType || ''),
           outputValue: Number(comp.outputValue || comp.output_value || comp.payout || 0),
           goal: typeof details.goal === 'number' ? details.goal : typeof comp.goal === 'number' ? comp.goal : undefined,
           actual: typeof details.actual === 'number' ? details.actual : typeof comp.actual === 'number' ? comp.actual : undefined,

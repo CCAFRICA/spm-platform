@@ -498,8 +498,11 @@ function traceComponentCalculation(
       calculationFormula = `Gate ${condField} ${cond.operator} ${readConstantValue(cond.right)}: condValue=${condValue}`;
       lookupDetails = { conditionMetric: condField, conditionValue: condValue };
     } else {
-      calculationFormula = `(${op})`;
-      lookupDetails = { operation: op };
+      // OB-196 Phase 3 (E4 / Q-A.5.1): graceful-with-explicit-label.
+      // Reconciliation panel is single UI consumer; explicit "unsupported" label
+      // preserves the panel while flagging anomalies visibly. Never silent echo.
+      calculationFormula = `unsupported operation: ${op}`;
+      lookupDetails = { operation: op, status: 'unsupported' };
     }
   }
 

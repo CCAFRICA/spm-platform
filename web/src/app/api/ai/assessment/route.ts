@@ -89,25 +89,40 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // OB-72: Auto-invoke anomaly detection if payout data is available
+    // OB-72: Auto-invoke anomaly detection if payout data is available.
+    // OB-196 Phase 3 (E4 / Q-A.5.3): per-row shape validation. Rows with shape
+    // violations get tracked as shape_violation markers; clean rows feed the LLM.
+    // Better than silent filter that hallucinates assessment from partial data.
     let anomalies = clientAnomalies;
+    const shapeViolations: Array<{ source: string; index: number; reason: string }> = [];
     if (!anomalies && data) {
       try {
-        // Try to extract payout records from various data shapes
         const records: Array<{ entityId: string; totalPayout: number }> = [];
         if (Array.isArray(data.storeBreakdown)) {
-          for (const s of data.storeBreakdown) {
-            if (s.entityId && typeof s.totalPayout === 'number') {
+          data.storeBreakdown.forEach((s: Record<string, unknown>, idx: number) => {
+            if (typeof s.entityId === 'string' && typeof s.totalPayout === 'number') {
               records.push({ entityId: s.entityId, totalPayout: s.totalPayout });
+            } else {
+              shapeViolations.push({
+                source: 'storeBreakdown',
+                index: idx,
+                reason: `entityId=${typeof s.entityId} totalPayout=${typeof s.totalPayout}`,
+              });
             }
-          }
+          });
         }
         if (Array.isArray(data.teamMembers)) {
-          for (const m of data.teamMembers) {
-            if (m.entityId && typeof m.totalPayout === 'number') {
+          data.teamMembers.forEach((m: Record<string, unknown>, idx: number) => {
+            if (typeof m.entityId === 'string' && typeof m.totalPayout === 'number') {
               records.push({ entityId: m.entityId, totalPayout: m.totalPayout });
+            } else {
+              shapeViolations.push({
+                source: 'teamMembers',
+                index: idx,
+                reason: `entityId=${typeof m.entityId} totalPayout=${typeof m.totalPayout}`,
+              });
             }
-          }
+          });
         }
         if (records.length >= 3) {
           const report = detectAnomalies(records);
@@ -204,7 +219,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ assessment, cached: false, generatedAt });
+    return NextResponse.json({
+      assessment,
+      cached: false,
+      generatedAt,
+      shape_violations: shapeViolations.length > 0 ? shapeViolations : undefined,
+    });
   } catch (error) {
     console.error('Assessment API error:', error);
     return NextResponse.json(

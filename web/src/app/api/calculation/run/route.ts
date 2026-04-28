@@ -1003,7 +1003,16 @@ export async function POST(request: NextRequest) {
       .limit(TEMPORAL_WINDOW_MAX * Math.min(calculationEntityIds.length, 1000));
 
     if (priorPeriodResults && priorPeriodResults.length > 0) {
+      // OB-196 Phase 3 (E4 / Q-A.5.5): shape validation on calc-engine self-read.
+      // Calc engine produces these rows; shape violation here = bug.
       for (const row of priorPeriodResults) {
+        if (typeof row.entity_id !== 'string' || typeof row.total_payout !== 'number') {
+          throw new Error(
+            `[calc-engine self-read] calculation_results row shape violation: ` +
+            `entity_id=${typeof row.entity_id} total_payout=${typeof row.total_payout}. ` +
+            `Calc engine produced these results; shape mismatch is a bug.`
+          );
+        }
         if (!periodHistoryMap.has(row.entity_id)) {
           periodHistoryMap.set(row.entity_id, []);
         }
