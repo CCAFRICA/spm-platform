@@ -71,15 +71,9 @@ export async function GET(request: NextRequest) {
           display_name: displayName + "'s Organization",
           slug: slug + '-' + Date.now().toString(36),
           settings: {
+            // OB-196 Phase 1.6: tenant.settings.gpv block removed (cluster pathway deleted).
+            // Stripe billing state (billing.status='trialing', billing.trial_start) retained — separate concern.
             billing: { tier: 'free', status: 'trialing', trial_start: new Date().toISOString() },
-            gpv: {
-              plan_uploaded: false,
-              plan_confirmed: false,
-              data_uploaded: false,
-              data_confirmed: false,
-              first_calculation: false,
-              completed_at: null,
-            },
           },
         })
         .select('id')

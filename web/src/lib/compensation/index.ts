@@ -10,9 +10,7 @@ export * from '@/types/compensation-plan';
 // Calculation engine
 export * from './calculation-engine';
 
-// Plan interpreter (includes AI-powered interpretation)
-export * from './plan-interpreter';
-
+// OB-196 Phase 1.6: plan-interpreter.ts deleted (heuristic fallback per architect Option b).
 // AI Plan Interpreter (direct access)
 export * from './ai-plan-interpreter';
 

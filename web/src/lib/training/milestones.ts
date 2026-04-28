@@ -16,7 +16,7 @@ export const MILESTONES: Milestone[] = [
   // Onboarding
   { id: 'first_login', label: 'First Login', category: 'onboarding', persona: 'all' },
   { id: 'profile_viewed', label: 'Profile Viewed', category: 'onboarding', persona: 'all' },
-  { id: 'gpv_completed', label: 'GPV Completed', category: 'onboarding', persona: 'admin' },
+  // OB-196 Phase 1.6: gpv_completed milestone removed (cluster pathway deleted).
 
   // Data
   { id: 'plan_imported', label: 'Plan Imported', category: 'data', persona: 'admin' },

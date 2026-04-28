@@ -40,8 +40,7 @@ import {
   getAdminDashboardData,
   type AdminDashboardData,
 } from '@/lib/data/persona-queries';
-import { TrialGate } from '@/components/trial/TrialGate';
-import { useTrialStatus } from '@/hooks/useTrialStatus';
+// OB-196 Phase 1.6: TrialGate + useTrialStatus removed (cluster pathway deleted).
 import { AgentInbox } from '@/components/agents/AgentInbox';
 import { InsightPanel } from '@/components/intelligence/InsightPanel';
 import { computeAdminInsights } from '@/lib/intelligence/insight-engine';
@@ -86,8 +85,6 @@ export function AdminDashboard() {
   const userIsVLAdmin = user && isVLAdmin(user);
   const tenantId = currentTenant?.id ?? '';
   const hasFinancial = useFeature('financial');
-  const { checkGate } = useTrialStatus(currentTenant?.id);
-  const lifecycleGate = checkGate('lifecycle');
   const searchParams = useSearchParams();
 
   const [data, setData] = useState<AdminDashboardData | null>(null);
@@ -433,20 +430,18 @@ export function AdminDashboard() {
             </div>
           </div>
           {hasNextTransition && (
-            <TrialGate allowed={lifecycleGate.allowed} message={lifecycleGate.message}>
-              <button
-                className="mt-4 w-full py-2 rounded-lg text-sm font-medium transition-all"
-                style={{
-                  background: 'rgba(255,255,255,0.15)',
-                  color: '#ffffff',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                }}
-                onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.25)'; }}
-                onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.15)'; }}
-              >
-                {isSpanish ? transition.labelEs : transition.label} &rarr;
-              </button>
-            </TrialGate>
+            <button
+              className="mt-4 w-full py-2 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: 'rgba(255,255,255,0.15)',
+                color: '#ffffff',
+                border: '1px solid rgba(255,255,255,0.2)',
+              }}
+              onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.25)'; }}
+              onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.15)'; }}
+            >
+              {isSpanish ? transition.labelEs : transition.label} &rarr;
+            </button>
           )}
         </div>
 

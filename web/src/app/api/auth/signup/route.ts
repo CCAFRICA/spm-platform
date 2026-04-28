@@ -90,9 +90,8 @@ export async function POST(request: NextRequest) {
       : 'Empresarial';
 
     // ── 5. Create tenant ──
-    const now = new Date();
-    const trialEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 14 days
-
+    // OB-196 Phase 1.6: tenant.settings.trial block removed (GPV/Trial cluster deleted).
+    // Stripe billing trial (tenant.settings.billing.*) is a separate concern, retained.
     const { data: tenant, error: tenantError } = await supabase
       .from('tenants')
       .insert({
@@ -100,10 +99,6 @@ export async function POST(request: NextRequest) {
         slug,
         settings: {
           billing: { tier, experience_tier: 'self-service' },
-          trial: {
-            started_at: now.toISOString(),
-            expires_at: trialEnd.toISOString(),
-          },
           entity_estimate: count,
           created_via: 'self-service-signup',
         },
@@ -146,6 +141,7 @@ export async function POST(request: NextRequest) {
 
     // ── 7. Create metering entry ──
     try {
+      const now = new Date();
       const periodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       await supabase.from('usage_metering').insert({
         tenant_id: tenant.id,
