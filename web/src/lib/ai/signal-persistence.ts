@@ -25,6 +25,10 @@ export interface SignalData {
   source?: string;             // 'ai_prediction' | 'user_confirmed' | 'user_corrected' | 'ai'
   entityId?: string;
   context?: Record<string, unknown>;
+  // L2 Comprehension scoping (Decision 153 A2; populated only for metric_comprehension signals)
+  ruleSetId?: string;
+  metricName?: string;
+  componentIndex?: number;
 }
 
 // ============================================
@@ -54,6 +58,9 @@ export async function persistSignal(
         confidence: signal.confidence ?? null,
         source: signal.source ?? 'ai_prediction',
         context: (signal.context ?? {}) as Json,
+        rule_set_id: signal.ruleSetId ?? null,
+        metric_name: signal.metricName ?? null,
+        component_index: signal.componentIndex ?? null,
       });
 
     if (error) {
@@ -90,6 +97,9 @@ export async function persistSignalBatch(
       confidence: s.confidence ?? null,
       source: s.source ?? 'ai_prediction',
       context: (s.context ?? {}) as Json,
+      rule_set_id: s.ruleSetId ?? null,
+      metric_name: s.metricName ?? null,
+      component_index: s.componentIndex ?? null,
     }));
 
     const { error } = await supabase
