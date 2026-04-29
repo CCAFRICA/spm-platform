@@ -4,6 +4,13 @@
 
 *Source: Supabase live database (information_schema via OpenAPI spec)*
 
+*Partial refresh 2026-04-28 (AUD-004 Phase 4 Class B B.1): classification_signals
+section refreshed from Supabase SQL Editor output to reflect Decision 153 A2
+typed columns + partial composite index. Source-of-truth re-converged with
+live DB after CLT-197 wholesale revert (commit 314e8db0, 2026-04-26) deleted
+the migration file without rolling back live state. Other tables not refreshed
+in this turn.*
+
 ## Tables (36)
 
 ### agent_inbox (16 columns)
@@ -129,7 +136,7 @@
 | steps | jsonb | NO | |
 | created_at | timestamp with time zone | NO | now() |
 
-### classification_signals (20 columns)
+### classification_signals (23 columns)
 
 | Column | Type | Nullable | Default |
 |--------|------|----------|---------|
@@ -153,6 +160,13 @@
 | agent_scores | jsonb | YES | |
 | human_correction_from | text | YES | |
 | scope | text | YES | tenant |
+| rule_set_id | uuid | YES | |
+| metric_name | text | YES | |
+| component_index | integer | YES | |
+
+**Indexes:**
+
+- `idx_classification_signals_l2_lookup` — partial composite, btree, on `(signal_type, rule_set_id, metric_name, component_index) WHERE signal_type = 'metric_comprehension'`. Decision 153 A2 disposition (LOCKED 2026-04-20). Supports the composite-key lookup pattern shared by E1 convergence reads and C2 gates.
 
 ### committed_data (10 columns)
 
