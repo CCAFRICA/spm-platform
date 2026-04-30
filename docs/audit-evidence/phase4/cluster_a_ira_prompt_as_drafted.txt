@@ -1,0 +1,208 @@
+Cluster A (signal surface coherence) substrate-coherence review.
+
+The Phase 4 audit collected the following evidence against G7 (Single Canonical Signal Surface) and G11 (Read-Path Coherence at the Signal Surface):
+
+═══════════════════════════════════════════════════════════════════════
+PF-02 EVIDENCE (G11 Read-Path Coherence)
+═══════════════════════════════════════════════════════════════════════
+
+S-CODE-G11-01a (within-run reads of classification_signals in convergence service):
+  Convergence service file: web/src/lib/intelligence/convergence-service.ts (2104 lines).
+  All DB ops in file:
+    line 132: .from('rule_sets')
+    line 253: .from('classification_signals').insert({...})  ← ONLY classification_signals contact
+    line 627, 635, 1857: .from('committed_data')
+  Zero .select calls against classification_signals.
+  Zero `run_id` / `runId` references anywhere in file (grep returned no matches).
+  Verdict: ABSENT.
+
+S-CODE-G11-01b (cross-run reads of classification_signals in convergence service):
+  Same evidence as 11-01a — zero .select on classification_signals.
+  Verdict: ABSENT.
+
+S-CODE-G11-02 (flywheel aggregation read-path):
+  Flywheel files: web/src/lib/calculation/flywheel-pipeline.ts, web/src/lib/sci/fingerprint-flywheel.ts.
+  Zero references to classification_signals in either flywheel file.
+  Flywheel reads/writes go to foundational_patterns, domain_patterns, structural_fingerprints — NOT classification_signals.
+
+S-SIGNAL-G11-01 (cross-run aggregation evidence in signals):
+  Live classification_signals: 14 rows (single tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111).
+  Live column inventory of classification_signals:
+    [agent_scores, classification, classification_trace, component_index, confidence,
+     context, created_at, decision_source, entity_id, header_comprehension,
+     human_correction_from, id, metric_name, rule_set_id, scope, sheet_name,
+     signal_type, signal_value, source, source_file_name, structural_fingerprint,
+     tenant_id, vocabulary_bindings]
+  Columns matching /run/i: ZERO.
+  Schema-impossibility finding: classification_signals has no run_id, no calculation_run_id,
+    no batch_id, no session_id. Within-run filtering of the signal surface is structurally
+    impossible because the signal surface schema does not record which run produced each signal.
+
+═══════════════════════════════════════════════════════════════════════
+PF-01 EVIDENCE (G7 Single Canonical Signal Surface)
+═══════════════════════════════════════════════════════════════════════
+
+S-CODE-G7-01 (SCI agent signal-write paths):
+  Canonical writes (target classification_signals):
+    web/src/lib/sci/classification-signal-service.ts:89 (writeClassificationSignal)
+    web/src/lib/intelligence/convergence-service.ts:253
+    web/src/lib/intelligence/classification-signal-service.ts → persistSignal → classification_signals
+    web/src/lib/ai/signal-persistence.ts:48,96
+    web/src/lib/signals/briefing-signals.ts:60
+    web/src/lib/signals/stream-signals.ts:64
+    web/src/app/api/ingest/classification/route.ts:38
+
+  BYPASS writes (target tables OTHER than classification_signals):
+    web/src/lib/sci/classification-signal-service.ts:449 → INSERT foundational_patterns
+    web/src/lib/sci/classification-signal-service.ts:509 → INSERT domain_patterns
+    web/src/lib/sci/fingerprint-flywheel.ts:175 → INSERT structural_fingerprints
+    web/src/lib/sci/fingerprint-flywheel.ts:155 → UPDATE structural_fingerprints
+    web/src/lib/calculation/synaptic-density.ts:130 → UPSERT synaptic_density
+    web/src/lib/calculation/flywheel-pipeline.ts:131,186 → INSERT/UPDATE foundational_patterns/domain_patterns
+
+  BYPASS reads (these reads consume bypass channels, not classification_signals):
+    web/src/lib/sci/classification-signal-service.ts:205 (lookupFoundationalPriors)
+    web/src/lib/sci/classification-signal-service.ts:257 (lookupDomainPriors)
+    web/src/lib/sci/promoted-patterns.ts:69,127
+    web/src/lib/sci/fingerprint-flywheel.ts:45,87,141 (lookupFingerprint)
+    web/src/lib/agents/agent-memory.ts:131 (synaptic_density)
+    web/src/lib/agents/agent-memory.ts:152,166 (foundational_patterns, domain_patterns)
+    web/src/lib/calculation/synaptic-density.ts:67
+    web/src/lib/calculation/flywheel-pipeline.ts:106,163,228,242
+
+S-CODE-G7-02 Step 1 (JSONB column inventory from committed migrations):
+  Comprehensive inventory built from web/supabase/migrations/*.sql.
+  Key (c)-classified storage surfaces identified:
+    rule_sets.input_bindings (002_rule_sets_and_periods.sql) — architect-named bypass; verification
+      DEFERRED because rule_sets table is empty (0 rows) in this environment.
+    synaptic_density.learned_behaviors (015_synaptic_density.sql) — per-tenant pattern-density
+      learning that drives execution_mode (full_trace → light_trace → silent).
+    foundational_patterns.learned_behaviors (016_flywheel_tables.sql) — cross-tenant aggregated
+      structural learning, keyed by pattern_signature.
+    domain_patterns.learned_behaviors (016_flywheel_tables.sql) — domain-vertical aggregated learning.
+    structural_fingerprints.{classification_result, column_roles} (023) — per-fingerprint
+      classification reuse + column-role assignment carried across runs.
+
+S-CODE-G7-02 Step 2 (per-JSONB-column key vocabulary inspection):
+  classification_signals.signal_value: keys [aiOutput, estimatedCostUSD, eventType, inputTokens,
+    model, outputTokens, provider, purpose, requestId, signalId, signalType, task, userAction]
+    — on canonical surface, mixed (b)/(c).
+  classification_signals.context: keys [capturedAt, latencyMs, model, phase, provider, schema,
+    sciVersion, tokenUsage, userId] — on canonical surface.
+  synaptic_density.learned_behaviors (3 rows): empty objects in sample but table semantics are
+    run-to-run learned-behavior storage. Whole-table BYPASS.
+  foundational_patterns.learned_behaviors (29 rows): keys [classification_distribution]
+    — read by lookupFoundationalPriors as cold-start classifier prior. Whole-table BYPASS.
+  domain_patterns.learned_behaviors (50/858 sampled): empty objects in sample; table is
+    domain-vertical learning store. Whole-table BYPASS.
+  structural_fingerprints.classification_result (4 rows): keys [classification, confidence,
+    fieldBindings, tabName] — used by lookupFingerprint to skip Header Comprehension on Tier 1
+    matches. Whole-table BYPASS.
+  structural_fingerprints.column_roles (4 rows): keys are 25 actual column-header strings —
+    per-column role assignment carrying agent-derived classification across runs. Whole-table BYPASS.
+  import_batches.metadata (7 rows): keys [classification, contentUnitId, proposalId, source]
+    — `classification` and `contentUnitId` are agent-to-agent transport keys carried out-of-band
+    on import_batches, not on classification_signals. Per-key BYPASS.
+
+  Architect-named candidate plan_agent_seeds: rule_sets.input_bindings JSONB column EXISTS in
+  schema (migration 002 line 23) but rule_sets table is EMPTY in this environment (0 rows).
+  Live key vocabulary verification deferred per audit scope discipline.
+
+S-SCHEMA-G7-01 (three-level signal_type support):
+  signal_type column is TEXT — schema-permissive. No CHECK constraint enforcing the
+  classification:/comprehension:/convergence: three-level vocabulary from DS-021/Decision 64 v2.
+  Live signal_type distribution (14 rows):
+    sci:classification_outcome_v2: 6
+    training:plan_interpretation:  4
+    sci:cost_event:                4
+  Zero rows use classification:* / comprehension:* / convergence:* prefixes.
+  The single convergence-service-emitted type (convergence_calculation_validation, used at
+  convergence-service.ts:255) uses an underscore form rather than colon prefix and is not
+  present in current 14 rows.
+
+S-SIGNAL-G7-01 (signal-type distribution across SCI agents):
+  source column distribution: {sci_agent: 6, ai_prediction: 4, system: 4}
+  source attribution is monolithic across the five SCI agents (Plan/Entity/Target/Transaction/
+  Reference). Per-agent contribution is stored inside agent_scores JSONB sub-keys on each row
+  (each row carries scores for all five agents). There is no per-row column identifying which
+  SCI agent drove the classification — only an aggregate "sci_agent" tag.
+
+ADJACENT FINDING (schema/migration divergence — distinct from G7/G11):
+  Live classification_signals has 14 columns NOT in committed migrations:
+    classification, decision_source, structural_fingerprint, classification_trace,
+    vocabulary_bindings, agent_scores, human_correction_from, scope, source_file_name,
+    sheet_name, header_comprehension, rule_set_id, metric_name, component_index
+  These are written by writeClassificationSignal with the comment "HF-092: writes to DEDICATED
+  COLUMNS on classification_signals". Implies out-of-band migration channel.
+  Conversely: ingestion_events.classification_result and validation_result are in committed
+  migration 007 but DO NOT EXIST in live DB (column does not exist error from service-role
+  query). Substrate-coherence concern adjacent to but distinct from G7-02.
+
+═══════════════════════════════════════════════════════════════════════
+VERDICT MATRIX READOUT (per Plan v1.1 Section 3.2 R-2)
+═══════════════════════════════════════════════════════════════════════
+
+  11-01a (within-run read-path)     result: ABSENT
+  11-01b (cross-run read-path)      result: ABSENT
+  Aggregate G11 magnitude per matrix:        BLOCKING
+
+═══════════════════════════════════════════════════════════════════════
+BYPASS KEY LIST (per R-1 structural-not-lexical)
+═══════════════════════════════════════════════════════════════════════
+
+  Whole-table bypass channels (4):
+    synaptic_density
+    foundational_patterns
+    domain_patterns
+    structural_fingerprints
+
+  JSONB per-key bypasses (2):
+    import_batches.metadata.classification
+    import_batches.metadata.contentUnitId
+
+  Architect-named bypass (DEFERRED — rule_sets empty in env):
+    rule_sets.input_bindings.plan_agent_seeds — JSONB column confirmed present in schema,
+      live key inspection deferred per environment scope.
+
+═══════════════════════════════════════════════════════════════════════
+ARCHITECT-CHANNEL QUESTION
+═══════════════════════════════════════════════════════════════════════
+
+Given this evidence and the substrate's commitment to G7 (Single Canonical Signal Surface) and
+G11 (Read-Path Coherence at the Signal Surface), is Cluster A's compliance gap:
+
+  (a) remediable through architectural pattern change (severe magnitude — migrate the 4
+      whole-table bypass channels' write/read paths to flow through classification_signals,
+      add run_id-equivalent column to enable within-run filtering, build cross-run read-path
+      on convergence service in place; coordinated remediation)?
+
+  OR
+
+  (b) requires rebuild of the convergence service / signal surface architecture (blocking
+      magnitude — current convergence service is write-only on the signal surface and the
+      surface itself lacks run-scoping; in-place coherence is not architecturally reachable
+      without rebuilding both the signal-surface schema and the convergence read-path)?
+
+Substrate-bounded authority note: G11 enforcement mechanism specification is forward-looking
+architectural work (DS-021 v1.0 Section 14 FLI-1, Plan v1.1 Section 7 deferred). IRA review
+should flag if its disposition depends on enforcement-mechanism content not yet in substrate.
+
+Note on audit scope: this audit operates on code-and-schema evidence. Runtime confirmation
+(S-RUNTIME-G11-01 cross-run learning test) is deferred pending populated proof-data
+environment. IRA review should weight code-and-schema evidence accordingly.
+
+Bindings to load:
+  - DS-021 v1.0 Section 6 G7 commitment text
+  - DS-021 v1.0 Section 6 G11 commitment text
+  - DS-021 v1.0 Section 12 Substrate Bounded Authority methodology
+  - DS-021 v1.0 Section 14 FLI-1 (G11 enforcement mechanism — forward-looking)
+  - DIAG-DS021-Phase4 Section 4.7 G7 probe specifications
+  - DIAG-DS021-Phase4 Section 4.11 G11 probe specifications
+  - DIAG-DS021-Phase4 Section 8.5 Cluster A interconnection
+  - Plan v1.1 Section 3.1 R-1 G7-02 structural reframe
+  - Plan v1.1 Section 3.2 R-2 G11-01 within-run vs cross-run split
+  - AUD-002 v2 plan_agent_seeds finding
+  - AUD-002 v2 write-only signal surface finding (24% Decision 155 compliance)
+
+Expected output: substrate-grounded reasoning on (a) vs (b), with named bindings, magnitude
+justification, and any substrate-bounded-authority flags.

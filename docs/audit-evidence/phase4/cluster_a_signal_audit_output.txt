@@ -1,0 +1,514 @@
+
+========================================================================
+Row counts (substrate state snapshot)
+========================================================================
+classification_signals: 14 rows
+committed_data: 0 rows
+rule_sets: 0 rows
+calculation_results: 0 rows
+calculation_traces: 0 rows
+synaptic_density: 3 rows
+foundational_patterns: 29 rows
+domain_patterns: 858 rows
+structural_fingerprints: 4 rows
+processing_jobs: 0 rows
+ingestion_events: 0 rows
+import_batches: 7 rows
+entity_period_outcomes: 0 rows
+tenants: 3 rows
+
+========================================================================
+classification_signals — full inspection (S-SIGNAL-G11-01 + S-SIGNAL-G7-01 + S-SCHEMA-G7-01)
+========================================================================
+Total rows fetched: 14
+
+--- Sample row (full structure) ---
+{
+  "id": "bcdf8fc6-91d5-43b3-9cd0-35ba86ad30a1",
+  "tenant_id": "b1c2d3e4-aaaa-bbbb-cccc-111111111111",
+  "entity_id": null,
+  "signal_type": "sci:classification_outcome_v2",
+  "signal_value": {},
+  "confidence": 0.63,
+  "source": "sci_agent",
+  "context": {
+    "phase": "E",
+    "schema": "HF-092",
+    "sciVersion": "2.0"
+  },
+  "created_at": "2026-04-29T19:19:24.894336+00:00",
+  "source_file_name": "BCL_Plan_Comisiones_2025.xlsx",
+  "sheet_name": "Metas Mensuales",
+  "structural_fingerprint": {
+    "columnCount": 3,
+    "hasIdentifier": true,
+    "rowCountBucket": "small",
+    "hasStructuralName": true,
+    "hasTemporalColumns": false,
+    "identifierRepeatBucket": "0-1",
+    "numericFieldRatioBucket": "0-25",
+    "categoricalFieldRatioBucket": "0-25"
+  },
+  "classification": "plan",
+  "decision_source": "signature",
+  "classification_trace": {
+    "round1": [
+      {
+        "agent": "plan",
+        "signals": [
+          {
+            "signal": "signature:sparse_rule_structure",
+            "weight": 0.85,
+            "evidence": "sparse/auto headers: sparsity=0%, quality=auto_generated; rowCount: 3 (<50); noEntityIdentifier or very low rows"
+          },
+          {
+            "signal": "auto_generated_headers",
+            "weight": 0.25,
+            "evidence": "headers contain __EMPTY pattern"
+          },
+          {
+            "signal": "descriptive_labels",
+            "weight": 0.15,
+            "evidence": "low-cardinality descriptive text columns"
+          },
+          {
+            "signal": "low_row_count",
+            "weight": 0.1,
+            "evidence": "3 rows (reference)"
+          },
+          {
+            "signal": "has_entity_id",
+            "weight": -0.1,
+            "evidence": "entity identifier column present"
+          }
+        ],
+        "confidence": 0.85
+      },
+      {
+        "agent": "entity",
+        "signals": [
+          {
+            "signal": "has_entity_id",
+            "weight": 0.25,
+            "evidence": "entity identifier column present"
+          },
+          {
+            "signal": "has_structural_name",
+            "weight": 0.2,
+            "evidence": "structural name column detected (identifier-relative cardinality)"
+          },
+          {
+            "signal": "single_per_entity",
+            "weight": 0.15,
+            "evidence": "1.0 rows/entity (single — roster pattern)"
+          },
+          {
+            "signal": "no_date",
+            "weight": 0.05,
+            "evidence": "no date column"
+          },
+          {
+            "signal": "auto_generated_headers",
+            "weight": -0.2,
+            "evidence": "auto-generated headers"
+          }
+        ],
+        "confidence": 0.45
+      },
+      {
+        "agent": "target",
+        "signals": [
+          {
+            "signal": "has_entity_id",
+            "weight": 0.2,
+            "evidence": "entity identifier column present"
+          },
+          {
+            "signal": "single_or_few_per_entity",
+            "weight": 0.15,
+            "evidence": "1.0 rows/entity (single)"
+          },
+          {
+            "signal": "no_date",
+            "weight": 0.1,
+            "evidence": "no date column"
+          },
+          {
+            "signal": "auto_generated_headers",
+            "weight": -0.15,
+            "evidence": "auto-generated headers"
+          }
+        ],
+        "confidence": 0.29999999999999993
+      },
+      {
+        "agent": "transaction",
+        "signals": [
+          {
+            "signal": "has_entity_id",
+            "weight": 0.15,
+            "evidence": "entity identifier present"
+          },
+          {
+            "signal": "no_date",
+            "weight": -0.25,
+            "evidence": "no date column"
+          },
+          {
+            "signal": "single_per_entity",
+            "weight": -0.1,
+            "evidence": "1.0 rows/entity (single — not events)"
+          },
+          {
+            "signal": "auto_generated_headers",
+            "weight": -0.15,
+            "evidence": "auto-generated headers"
+          }
+        ],
+        "confidence": 0
+      },
+      {
+        "agent": "reference",
+        "signals": [
+          {
+            "signal": "high_key_uniqueness",
+            "weight": 0.25,
+            "evidence": "3/3 unique (100%)"
+          },
+          {
+            "signal": "descriptive_columns",
+            "weight": 0.2,
+            "evidence": "descriptive text columns present"
+          },
+          {
+            "signal": "low_row_count",
+            "weight": 0.15,
+            "evidence": "3 rows (reference)"
+          },
+          {
+            "signal": "no_date_column",
+            "weight": 0.1,
+            "evidence": "no date column"
+          },
+          {
+            "signal": "has_entity_identifier",
+            "weight": -0.1,
+            "evidence": "entity identifier present"
+          },
+          {
+            "signal": "auto_generated_headers",
+            "weight": -0.15,
+            "evidence": "auto-generated headers"
+          }
+        ],
+        "confidence": 0.44999999999999996
+      }
+    ],
+    "round2": [
+      {
+        "agent": "plan",
+        "reason": "CRR posterior: 2 signals, structural_heuristic@seed, structural_signature@seed",
+        "adjustment": -0.21996681160696097,
+        "evidenceValue": 0.630033188393039,
+        "evidenceProperty": "bayesian_posterior"
+      },
+      {
+        "agent": "entity",
+        "reason": "CRR posterior: 2 signals, structural_heuristic@seed, hc_contextual@seed, structural_signature@seed",
+        "adjustment": -0.4289357055103116,
+        "evidenceValue": 0.12106429448968843,
+        "evidenceProperty": "bayesian_posterior"
+      },
+      {
+        "agent": "reference",
+        "reason": "CRR posterior: 1 signals, structural_heuristic@seed, structural_signature@seed",
+        "adjustment": -0.3495335503895218,
+        "evidenceValue": 0.10046644961047818,
+        "evidenceProperty": "bayesian_posterior"
+      },
+      {
+        "agent": "target",
+        "reason": "CRR posterior: 1 signals, structural_heuristic@seed, structural_signature@seed",
+        "adjustment": -0.21953793194913024,
+        "evidenceValue": 0.0804620680508697,
+        "evidenceProperty": "bayesian_posterior"
+      },
+      {
+        "agent": "transaction",
+        "reason": "CRR posterior: 2 signals, structural_heuristic@seed, hc_contextual@seed, structural_signature@seed",
+        "adjustment": -0.012026000544075224,
+        "evidenceValue": 0.06797399945592478,
+        "evidenceProperty": "bayesian_posterior"
+      }
+    ],
+    "sheetName": "Metas Mensuales",
+    "priorSignals": [],
+    "contentUnitId": "Metas Mensuales",
+    "decisionSource": "signature",
+    "finalConfidence": 0.630033188393039,
+    "signatureChecks": [
+      {
+        "matched": true,
+        "conditions": [
+          {
+            "name": "sparse/auto headers: sparsity=0%, quality=auto_generated",
+            "value": true,
+            "passed": true
+          },
+          {
+            "name": "rowCount: 3 (<50)",
+            "value": true,
+            "passed": true
+          },
+          {
+            "name": "noEntityIdentifier or very low rows",
+            "value": true,
+            "passed": true
+          }
+        ],
+        "signatureName": "sparse_rule_structure",
+        "confidenceFloor": 0.85
+      }
+    ],
+    "structuralProfile": {
+      "rowCount": 3,
+      "columnCount": 3,
+      "volumePattern": "single",
+      "numericFieldRatio": 0,
+      "hasTemporalColumns": false,
+      "hasEntityIdentifier": true,
+      "categoricalFieldRatio": 0,
+      "identifierRepeatRatio": 1,
+      "hasStructuralNameColumn": true
+    },
+    "finalClassification": "plan",
+    "headerComprehension": {
+      "available": true,
+      "llmCalled": true,
+      "llmDuration": 14720,
+      "interpretations": {
+        "__EMPTY": {
+          "columnRole": "measure",
+          "confidence": 0.95,
+          "semanticMeaning": "credit_placement_target"
+        },
+        "__EMPTY_1": {
+          "columnRole": "measure",
+          "confidence": 0.95,
+          "semanticMeaning": "deposit_target"
+        },
+        "METAS MENSUALES POR NIVEL": {
+          "columnRole": "name",
+          "confidence": 0.95,
+          "semanticMeaning": "employee_level_name"
+        }
+      },
+      "crossSheetInsights": [
+        "All three sheets appear to be part of a bank commission plan document for 'Banco Cumbre del Litoral'",
+        "Sheet 'Plan General' contains document metadata and header information",
+        "Sheet 'Tablas de Tasas' contains commission rate tables with performance tiers and corresponding payment amounts",
+        "Sheet 'Metas Mensuales' defines monthly targets by employee level, with the same job levels referenced in the commission tables",
+        "The employee levels ('Ejecutivo Senior', 'Ejecutivo') appear to be consistent across sheets, suggesting a hierarchical commission structure",
+        "All monetary values are in USD format, indicating this is a US dollar-denominated commission plan"
+      ],
+      "fromVocabularyBinding": false
+    },
+    "requiresHumanReview": false
+  },
+  "header_comprehension": null,
+  "vocabulary_bindings": {
+    "__EMPTY": "credit_placement_target",
+    "__EMPTY_1": "deposit_target",
+    "METAS MENSUALES POR NIVEL": "employee_level_name"
+  },
+  "agent_scores": {
+    "plan": 0.85,
+    "entity": 0.45,
+    "target": 0.29999999999999993,
+    "reference": 0.44999999999999996,
+    "transaction": 0
+  },
+  "human_correction_from": null,
+  "scope": "tenant",
+  "rule_set_id": null,
+  "metric_name": null,
+  "component_index": null
+}
+
+--- All distinct top-level columns present in returned rows ---
+[
+  "agent_scores",
+  "classification",
+  "classification_trace",
+  "component_index",
+  "confidence",
+  "context",
+  "created_at",
+  "decision_source",
+  "entity_id",
+  "header_comprehension",
+  "human_correction_from",
+  "id",
+  "metric_name",
+  "rule_set_id",
+  "scope",
+  "sheet_name",
+  "signal_type",
+  "signal_value",
+  "source",
+  "source_file_name",
+  "structural_fingerprint",
+  "tenant_id",
+  "vocabulary_bindings"
+]
+
+--- run_id presence check (any column whose name matches /run/) ---
+Run-related columns: []
+
+--- Distinct signal_type values + counts ---
+{
+  "sci:classification_outcome_v2": 6,
+  "training:plan_interpretation": 4,
+  "sci:cost_event": 4
+}
+
+--- Three-level signal_type support (DS-021 / Decision 64 v2: classification: / comprehension: / convergence:) ---
+classification:* prefix → 0 types: []
+comprehension:* prefix → 0 types: []
+convergence:* / convergence_* → 0 types: []
+sci:* prefix → 2 types: ["sci:classification_outcome_v2","sci:cost_event"]
+training:* prefix → 1 types: ["training:plan_interpretation"]
+other → 0 types: []
+
+--- Distinct source values + counts ---
+{
+  "sci_agent": 6,
+  "ai_prediction": 4,
+  "system": 4
+}
+
+--- Distinct decision_source values + counts (if column exists) ---
+{
+  "signature": 6,
+  "<null>": 8
+}
+
+--- signal_value JSONB top-level keys (S-CODE-G7-02 Step 2) ---
+[
+  "aiOutput",
+  "estimatedCostUSD",
+  "eventType",
+  "inputTokens",
+  "model",
+  "outputTokens",
+  "provider",
+  "purpose",
+  "requestId",
+  "signalId",
+  "signalType",
+  "task",
+  "userAction"
+]
+
+--- context JSONB top-level keys (S-CODE-G7-02 Step 2) ---
+[
+  "capturedAt",
+  "latencyMs",
+  "model",
+  "phase",
+  "provider",
+  "schema",
+  "sciVersion",
+  "tokenUsage",
+  "userId"
+]
+
+--- Per-tenant row distribution ---
+{
+  "b1c2d3e4-aaaa-bbbb-cccc-111111111111": 14
+}
+
+========================================================================
+Candidate private signal channels (S-CODE-G7-02 Step 1+2)
+========================================================================
+
+--- synaptic_density.learned_behaviors ---
+synaptic_density.learned_behaviors: rows=3, arrays=0, objects=3
+top-level keys: []
+
+--- foundational_patterns.learned_behaviors ---
+foundational_patterns.learned_behaviors: rows=29, arrays=0, objects=29
+top-level keys: ["classification_distribution"]
+
+--- domain_patterns.learned_behaviors ---
+domain_patterns.learned_behaviors: rows=50, arrays=0, objects=50
+top-level keys: []
+
+--- structural_fingerprints.classification_result ---
+structural_fingerprints.classification_result: rows=4, arrays=0, objects=4
+top-level keys: ["classification","confidence","fieldBindings","tabName"]
+
+--- structural_fingerprints.column_roles ---
+structural_fingerprints.column_roles: rows=4, arrays=0, objects=4
+top-level keys: ["BANCO CUMBRE DEL LITORAL","C1: COLOCACIÓN DE CRÉDITO — Ejecutivo Senior","Cantidad_Productos_Cruzados","Cargo","Cumplimiento_Colocacion","Depositos_Nuevos_Netos","Fecha_Ingreso","ID_Empleado","ID_Gerente","Indice_Calidad_Cartera","Infracciones_Regulatorias","Meta_Colocacion","Meta_Depositos","Monto_Colocacion","Nivel_Cargo","Nombre_Completo","Pct_Meta_Depositos","Periodo","Region","Sucursal","Sucursal_ID","__EMPTY","__EMPTY_1","__EMPTY_2","__EMPTY_3","__EMPTY_4"]
+
+--- rule_sets.input_bindings ---
+rule_sets.input_bindings: no populated rows (limit 50)
+
+--- rule_sets.components ---
+rule_sets.components: no populated rows (limit 50)
+
+--- rule_sets.metadata ---
+rule_sets.metadata: no populated rows (limit 50)
+
+--- committed_data.metadata ---
+committed_data.metadata: no populated rows (limit 50)
+
+--- calculation_results.metrics ---
+calculation_results.metrics: no populated rows (limit 50)
+
+--- calculation_results.metadata ---
+calculation_results.metadata: no populated rows (limit 50)
+
+--- calculation_traces.inputs ---
+calculation_traces.inputs: no populated rows (limit 50)
+
+--- calculation_traces.output ---
+calculation_traces.output: no populated rows (limit 50)
+
+--- calculation_traces.steps ---
+calculation_traces.steps: no populated rows (limit 50)
+
+--- entity_period_outcomes.metadata ---
+entity_period_outcomes.metadata: no populated rows (limit 50)
+
+--- import_batches.metadata ---
+import_batches.metadata: rows=7, arrays=0, objects=7
+top-level keys: ["classification","contentUnitId","proposalId","source"]
+
+--- import_batches.error_summary ---
+import_batches.error_summary: rows=7, arrays=0, objects=7
+top-level keys: []
+
+--- ingestion_events.classification_result ---
+ERROR (ingestion_events.classification_result): column ingestion_events.classification_result does not exist
+
+--- ingestion_events.validation_result ---
+ERROR (ingestion_events.validation_result): column ingestion_events.validation_result does not exist
+
+--- processing_jobs.classification_result ---
+processing_jobs.classification_result: no populated rows (limit 50)
+
+--- processing_jobs.proposal ---
+processing_jobs.proposal: no populated rows (limit 50)
+
+--- tenants.settings ---
+tenants.settings: rows=3, arrays=0, objects=3
+top-level keys: ["admin_email","admin_name","country_code","display_name","industry","primary_color","timezone"]
+
+--- tenants.features ---
+tenants.features: rows=3, arrays=0, objects=3
+top-level keys: ["apiAccess","coaching","compensation","forecasting","gamification","learning","mobileApp","performance","salesFinance","transactions","whatsappIntegration"]
+
+=== END AUDIT ===
+
