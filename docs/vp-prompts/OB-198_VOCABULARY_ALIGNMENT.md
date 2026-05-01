@@ -47,7 +47,7 @@ OB-198 closes that gap:
 2. After EVERY push: kill dev server → `rm -rf .next` → `npm run build` → `npm run dev` → confirm localhost:3000 responds
 3. Final step: `gh pr create --base main --head ob-198-vocabulary-alignment` with descriptive title and body
 4. **Fix logic, not data.** No vocabulary literals invented beyond F-1_INVENTORY.md's proposed mapping; if a site doesn't map cleanly, HALT.
-5. **Commit this prompt to git as first action** at `docs/ob-prompts/OB-198_VOCABULARY_ALIGNMENT.md`.
+5. **Commit this prompt to git as first action** at `docs/vp-prompts/OB-198_VOCABULARY_ALIGNMENT.md`.
 6. **Git from repo root (spm-platform), NOT web/.**
 7. **Zero domain language introduced** at any modified site. Korean Test applies.
 8. SR-27 (paste evidence, not attestation), SR-34 (no bypass — HALT to architect), SR-35 (no behavioral changes beyond directive — only the literals named in F-1_INVENTORY.md), SR-44 (architect handles browser verification post-merge), SR-51v2 (lint and typecheck after stash).
