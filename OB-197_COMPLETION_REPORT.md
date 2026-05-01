@@ -54,7 +54,7 @@ Phase 1 was split (1A authored migration file, 1C verified post-application) bec
 | 7 | `npx next lint` exits 0 | PASS | Phase 2C and Phase 3E both produced exit 0. Warnings only (all pre-existing, none introduced by OB-197). |
 | 8 | `npm run build` exits 0 | PASS | Phase 4 final build: BUILD EXIT: 0. Last 3 lines: `+ First Load JS shared by all 88.1 kB / Middleware 76 kB / (Static)/(Dynamic) prerender legend`. |
 | 9 | `curl -I http://localhost:3000` returns 200 or 307 | PASS | `HTTP/1.1 307 Temporary Redirect / location: /login` — middleware redirects unauth users to /login. |
-| 10 | PR opened against main with descriptive title and body | (filled at PR creation) | PR URL appended after `gh pr create`. |
+| 10 | PR opened against main with descriptive title and body | PASS | https://github.com/CCAFRICA/spm-platform/pull/353 — title "OB-197: Signal Surface Rebuild — Import System Restoration"; body covers schema rebuild, write-site propagation, convergence read-path, out-of-scope items, F-1 out-of-band finding, SR-44 architect actions. |
 
 ### 8 write-site signatures (proof gate #3)
 
