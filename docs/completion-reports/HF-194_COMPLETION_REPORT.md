@@ -41,7 +41,7 @@ One HALT cycle fired: Phase 2A — three registry fields prescribed by HF (`prom
 | 5 | `npx next lint` exits 0 | PASS | Phase 1 verification: lint exit 0 (only pre-existing `react-hooks/exhaustive-deps` warnings in unrelated files). |
 | 6 | `npm run build` exits 0 | PASS | Phase 4 final build: `BUILD EXIT: 0`. Last 3 lines: `+ First Load JS shared by all 88.1 kB / Middleware 76 kB / (Static)/(Dynamic) prerender legend`. |
 | 7 | `curl -I http://localhost:3000` returns 200 or 307 | PASS | Phase 4 dev: `Ready in 1155ms`; `curl -I` → `HTTP/1.1 307 Temporary Redirect` (auth gate to `/login`). |
-| 8 | PR opened against main | (filled at PR creation) | PR URL appended after `gh pr create`. |
+| 8 | PR opened against main | PASS | https://github.com/CCAFRICA/spm-platform/pull/357 — title "HF-194: convertComponent Canonical Dispatch Pattern (OB-196 Phase 1.5 Closure — Importer Surface)"; body covers Phase 1 deliverable, empirical claim, out-of-band findings (F-194-1 fabricated registry fields, F-194-COLLISION prior HF-194 report, F-194-3 G8-03 deferred), SR-44 architect actions. |
 
 ## PROOF GATES — SOFT (1/1 PASS)
 
