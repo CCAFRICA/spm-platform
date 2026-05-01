@@ -244,137 +244,38 @@ cd ..
 
 ---
 
-## PHASE 2: PLAN AI OUTER WRAPPER REFACTOR (Phase 1.5.1.2 completion)
+## PHASES 2–3: DEFERRED PER ARCHITECT DISPOSITION (2A-iii)
 
-### 2A: Replace 4 worked examples (anthropic-adapter.ts lines 162–240)
+**Date deferred:** 2026-05-01
+**Disposition source:** Architect, post Phase 1 commit `1541e109`, in response to Phase 2A HALT.
 
-Each worked example currently teaches a legacy primitive name (`matrix_lookup`, `tiered_lookup`, `flat_percentage`, `conditional_percentage`). Replace with foundational-vocabulary worked examples that mirror each primitive's `promptStructuralExample` field already populated in `primitive-registry.ts` (per OB-196 Phase 1.5.1 architect-verified content).
+### What was deferred
 
-**Required transformation:**
+Phase 2 (plan-interpretation outer wrapper refactor) and Phase 3 (`document_analysis` prompt refactor) are dropped from HF-194's deliverable scope. The HF closes at Phase 1 + Phase 4 (build verification + completion report + PR against the reduced scope).
 
-| Old worked example | New worked example | Source for body |
-|---|---|---|
-| MATRIX LOOKUP (lines ~162–180) | BOUNDED_LOOKUP_2D | registry entry `bounded_lookup_2d.promptStructuralExample` |
-| TIERED LOOKUP (lines ~182–200) | BOUNDED_LOOKUP_1D | registry entry `bounded_lookup_1d.promptStructuralExample` |
-| FLAT PERCENTAGE (lines ~202–220) | SCALAR_MULTIPLY | registry entry `scalar_multiply.promptStructuralExample` |
-| CONDITIONAL (lines ~222–240) | CONDITIONAL_GATE | registry entry `conditional_gate.promptStructuralExample` |
+### Why the deferral
 
-**HALT discipline for 2A:** if any registry entry's `promptStructuralExample` field is empty or missing, HALT and surface — do not invent worked-example content. The registry is the source of truth per Decision 155.
+The HF Phase 2A directive prescribed worked-example bodies derived from a `promptStructuralExample` field on each `PrimitiveEntry`. Phase 2B prescribed RULES content derived from `promptSelectionGuidance`. Phase 2E prescribed field-presence comments derived from `metadata_keys`. CC verified all three field names with `grep -rn web/src` — zero hits anywhere. The `PrimitiveEntry` interface (`web/src/lib/calculation/primitive-registry.ts:74–93`) carries only `{id, kind, description, allowedKeys}`.
 
-### 2B: Refactor RULES section (lines 332, 340–356)
+The fabricated registry fields were architect error in HF-194 drafting; they do not exist on `PrimitiveEntry`. Two paths were available:
+- **Invent the worked-example / RULES / metadata content directly in the prompt.** Decision 155 violation: the registry is the canonical source of truth; bypassing it to embed prompt content directly creates a private vocabulary copy in `anthropic-adapter.ts`, which is exactly what Phase 2 was supposed to close.
+- **Populate the fields on `PrimitiveEntry` first, then refactor the prompt to read from them.** Substrate-extending design work (interface shape change + content authoring for 12 entries) — outside HF-194 scope per the HF's own "Out of scope: Registry expansion" wording.
 
-Drop RULE 2 / RULE 3 / RULE 5 references to legacy names entirely. Replace with foundational-vocabulary structural-pattern guidance derived from each primitive's `promptSelectionGuidance` field in the registry.
+Per Phase 2A HALT discipline ("if any registry entry's `promptStructuralExample` field is empty or missing, HALT and surface — do not invent worked-example content"), the architect dispositioned **2A-iii: reduce HF-194 scope to Phase 1**.
 
-If `promptSelectionGuidance` is not yet populated for all 12 primitives, HALT and surface.
+### What remains open
 
-### 2C: Refactor EXAMPLE calculationIntent labels (lines 388, 404, 425, 434)
+- **Plan AI outer wrapper drift (Violation 2)** — `anthropic-adapter.ts` lines 162–240 (4 worked examples), 332/340–356 (RULES), 388/404/425/434 (EXAMPLE labels), 779/986 (type-union strings), 989–992 (field-presence comments) still teach legacy vocabulary (`matrix_lookup`, `tiered_lookup`, `flat_percentage`, `conditional_percentage`). Tracked as substrate-population follow-up: register the prompt-content fields on `PrimitiveEntry`, populate for all 12 primitives, then refactor the prompt template.
 
-| Old label | New label |
-|---|---|
-| `EXAMPLE calculationIntent for a tiered_lookup:` | `EXAMPLE calculationIntent for bounded_lookup_1d:` |
-| `EXAMPLE calculationIntent for a matrix_lookup:` | `EXAMPLE calculationIntent for bounded_lookup_2d:` |
-| `EXAMPLE calculationIntent for a flat_percentage:` | `EXAMPLE calculationIntent for scalar_multiply:` |
-| `EXAMPLE calculationIntent for a conditional_percentage:` | `EXAMPLE calculationIntent for conditional_gate:` |
+- **`document_analysis` parallel calculationType (Violation 3 / Cluster B G8-03 finding)** — `anthropic-adapter.ts` `components: [{ "calculationType": "tiered_lookup|matrix_lookup|flat_percentage|conditional_percentage" }]` retained. Phase 4 audit Cluster B S-CODE-G8-03 finding remains open.
 
-The example bodies (calculationIntent payloads) already emit foundational `operation` values per OB-196 Phase 1.5 prior work — only the labels are stale.
+### Empirical claim being tested by Phase 1 alone
 
-### 2D: Drop type-union strings (lines 779, 986)
+The HF's "What this HF builds" section claims Phase 1 alone may unblock BCL plan import: the model emits foundational vocabulary in the inner `calculationIntent.operation` (per the existing prompt's example payloads at lines 388-422 + the registry-derived `<<FOUNDATIONAL_PRIMITIVES>>` placeholder substitution at line 810), and `convertComponent`'s `calcType` resolution prefers `calculationIntent.operation` over `calculationMethod.type`. Even if the outer `calculationMethod.type` is still emitted as a legacy alias, the inner operation should be foundational and convertComponent will dispatch on it correctly.
 
-Replace each with: `"see registry-derived <<FOUNDATIONAL_PRIMITIVES>> enumeration above"` (for runtime substitution) OR remove the line entirely if redundant with the placeholder.
-
-### 2E: Drop legacy field-presence comments (lines 989–992)
-
-```
-// For matrix_lookup: include rowAxis.ranges[]…
-// For tiered_lookup: include tiers[]…
-// For percentage/flat_percentage: include rate (as decimal)…
-// For conditional_percentage: include conditions[]…
-```
-
-Replace with foundational-keyed equivalents derived from each primitive's `metadata_keys` field (per registry shape definition in OB-196 Phase 1.5).
-
-### 2F: Verify Phase 2
-
-```bash
-# Zero legacy vocabulary in plan-interpretation prompt
-grep -nE "matrix_lookup|tiered_lookup|flat_percentage|conditional_percentage|'percentage'" web/src/lib/ai/providers/anthropic-adapter.ts
-# Expected: zero hits OR only hits within the document_analysis prompt section (Phase 3 will close those)
-
-# Inner placeholder substitution still intact
-grep -n "<<FOUNDATIONAL_PRIMITIVES>>\|buildPrimitiveVocabularyForPrompt" web/src/lib/ai/providers/anthropic-adapter.ts
-# Expected: placeholder still in template, builder still invoked at line ~810
-
-# Foundational vocabulary present in worked examples + labels
-grep -cE "bounded_lookup_1d|bounded_lookup_2d|scalar_multiply|conditional_gate" web/src/lib/ai/providers/anthropic-adapter.ts
-# Expected: ≥8 hits (4 worked-example headers + 4 example labels)
-
-cd web
-npx tsc --noEmit
-echo "tsc exit: $?"
-npx next lint
-echo "lint exit: $?"
-cd ..
-```
-
-**HALT if:** legacy vocabulary still present in plan-interpretation prompt sections; placeholder substitution broken; tsc/lint fails.
-
-**Commit:** `HF-194 Phase 2: plan-interpretation outer wrapper aligned with registry-derived vocabulary (Phase 1.5.1.2 completion)`
+This is an empirical claim verified by browser test post-merge (architect SR-44). If BCL still fails after merge, the Phase 2 outer-wrapper drift IS load-bearing and the deferred work moves to a higher priority.
 
 ---
-
-## PHASE 3: document_analysis PROMPT REFACTOR (Cluster B G8-03)
-
-### 3A: Refactor `document_analysis` calculationType field (anthropic-adapter.ts:766-786)
-
-Current:
-```
-calculationType: "tiered_lookup|matrix_lookup|flat_percentage|conditional_percentage"
-```
-
-This is a parallel pre-foundational vocabulary not registry-derived (Phase 4 audit Cluster B S-CODE-G8-03 finding).
-
-**Refactor to either:**
-
-**Option 3A-α (preferred — structural-pattern classification):** Replace the calculationType enumeration with structural-pattern fields the AI extracts WITHOUT naming a primitive. The AI describes the calculation's shape; the importer maps shape → registered primitive at the structural layer.
-
-```
-calculationStructure: {
-  inputCount: 1 | 2 | "n",          // 1 input → bounded_lookup_1d / scalar_multiply; 2 inputs → bounded_lookup_2d
-  outputType: "scalar" | "grid",     // grid → 2D lookup; scalar → 1D lookup or scalar_multiply
-  thresholdStructure: "tier_table" | "single_rate" | "conditional_rate" | "linear" | "piecewise" | "none",
-  hasConditions: boolean,             // true → conditional_gate involvement
-  hasAggregation: boolean             // true → scope_aggregate / aggregate involvement
-}
-```
-
-The importer side then maps the structural fields to a foundational primitive. This honors Korean Test (T1-E910) at the prompt construction layer — AI emits structural patterns, registry-vocabulary mapping happens in the importer using shape-matching against registered primitives' `inputs`/`outputs`/`metadata_keys` shape definitions.
-
-**Option 3A-β (interim — registry-derived enumeration):** Replace the legacy enumeration with the runtime-substituted `<<FOUNDATIONAL_PRIMITIVES>>` placeholder used by the plan-interpretation prompt. The AI emits a foundational primitive name directly. Lower-fidelity than 3A-α but immediately registry-grounded.
-
-**Architect disposition required between α and β before this phase commits.** Default if architect does not disposition: **Option 3A-β** (interim). Option 3A-α requires building the shape→primitive mapping function on the importer side which is broader scope; 3A-β closes the F-007 concern with the same pattern already used by plan-interpretation.
-
-**The HF default is 3A-β. CC pauses for architect disposition before Phase 3 commit. Architect may direct 3A-α inline at that pause.**
-
-### 3B: Verify Phase 3 (per chosen disposition)
-
-```bash
-grep -B2 -A8 "document_analysis\|calculationType" web/src/lib/ai/providers/anthropic-adapter.ts | head -60
-
-# All legacy vocabulary now removed
-grep -nE "matrix_lookup|tiered_lookup|flat_percentage|conditional_percentage" web/src/lib/ai/providers/anthropic-adapter.ts
-# Expected: zero hits
-
-cd web
-npx tsc --noEmit
-echo "tsc exit: $?"
-npx next lint
-echo "lint exit: $?"
-cd ..
-```
-
-**HALT if:** any legacy vocabulary remains; tsc/lint fails.
-
-**Commit:** `HF-194 Phase 3: document_analysis prompt refactored (Cluster B G8-03 closure, Option 3A-[α|β] per architect disposition)`
 
 ---
 
@@ -397,36 +298,45 @@ The completion report is created as a FILE: `docs/completion-reports/HF-194_COMP
 ## FILES MODIFIED
 | File | Change |
 
-## PROOF GATES — HARD
+## PROOF GATES — HARD (post architect disposition 2A-iii: reduced from 16 to 8)
 
 | # | Criterion | PASS/FAIL | Evidence |
 |---|---|---|---|
 | 1 | convertComponent uses 12-case registry-derived switch with structured-failure default | | (paste full switch + before/after diff) |
 | 2 | UnconvertibleComponentError class defined and thrown | | (paste class def + throw site) |
 | 3 | isRegisteredPrimitive imported and called as runtime guard in convertComponent | | (paste import + call site) |
-| 4 | 4 worked examples in plan-interpretation prompt use foundational vocabulary only | | (paste each worked-example header + first line of body) |
-| 5 | RULES section uses registry-derived structural-pattern guidance | | (paste new RULES section in full) |
-| 6 | 4 EXAMPLE calculationIntent labels use foundational vocabulary | | (paste each label line) |
-| 7 | Type-union strings at lines 779, 986 dropped or replaced with placeholder reference | | (paste new lines) |
-| 8 | Field-presence comments at lines 989–992 use foundational vocabulary | | (paste replacement comments) |
-| 9 | document_analysis prompt refactored per chosen Option (α or β) | | (paste Option choice + new prompt section) |
-| 10 | Zero legacy vocabulary literals in web/src/lib/ai/providers/anthropic-adapter.ts | | (paste grep result, zero hits) |
-| 11 | Zero legacy vocabulary literals in web/src/lib/compensation/ai-plan-interpreter.ts | | (paste grep result) |
-| 12 | `npx tsc --noEmit` exits 0 | | (paste exit code) |
-| 13 | `npx next lint` exits 0 | | (paste exit code) |
-| 14 | `npm run build` exits 0 | | (paste last 30 lines + exit code) |
-| 15 | `curl -I http://localhost:3000` returns 200 or 307 | | (paste HTTP response) |
-| 16 | PR opened against main | | (paste PR URL) |
+| 4 | `npx tsc --noEmit` exits 0 | | (paste exit code) |
+| 5 | `npx next lint` exits 0 | | (paste exit code) |
+| 6 | `npm run build` exits 0 | | (paste last 30 lines + exit code) |
+| 7 | `curl -I http://localhost:3000` returns 200 or 307 | | (paste HTTP response) |
+| 8 | PR opened against main | | (paste PR URL) |
 
-## PROOF GATES — SOFT
+## PROOF GATES — SOFT (post architect disposition 2A-iii: reduced from 5 to 1)
 
 | # | Criterion | PASS/FAIL | Evidence |
 |---|---|---|---|
-| 17 | convertComponent dispatch pattern matches intent-executor.ts:444-471 structure (case-per-primitive + structured-failure default + type-system enforcement) | | (paste side-by-side comparison) |
-| 18 | Worked-example bodies derived from registry's `promptStructuralExample` field (not architect-invented) | | (paste registry source line + worked-example line per primitive) |
-| 19 | RULES content derived from registry's `promptSelectionGuidance` field | | (paste registry source + RULES content) |
-| 20 | Field-presence comments derived from registry's `metadata_keys` field | | (paste registry source + comment content) |
-| 21 | document_analysis Option chosen with rationale | | (paste architect disposition + new prompt section) |
+| 9 | convertComponent dispatch pattern matches intent-executor.ts:444-471 structure (case-per-primitive + structured-failure default + type-system enforcement) | | (paste side-by-side comparison) |
+
+## DEFERRED FROM HF-194 (per architect disposition 2A-iii)
+
+The following gates were dropped because their underlying work was deferred:
+
+| Original gate | Phase | Reason for deferral |
+|---|---|---|
+| Hard 4 (worked examples foundational) | 2A | Required `promptStructuralExample` registry field that does not exist; substrate-population work outside HF scope |
+| Hard 5 (RULES registry-derived) | 2B | Required `promptSelectionGuidance` registry field that does not exist; same |
+| Hard 6 (EXAMPLE labels foundational) | 2C | Tied to Phase 2A/2B chain; deferred together |
+| Hard 7 (type-union strings dropped) | 2D | Same |
+| Hard 8 (field-presence foundational) | 2E | Required `metadata_keys` registry field that does not exist; same |
+| Hard 9 (document_analysis refactored) | 3A | Cluster B G8-03 remediation; tied to Phase 2 substrate population |
+| Hard 10 (zero legacy in anthropic-adapter.ts) | 2/3 | Outer wrapper retained; legacy vocabulary remains |
+| Hard 11 (zero legacy in ai-plan-interpreter.ts) | 1 fallthrough | Historical doc comments at lines 19, 264, 412 still reference legacy names; not a scope-creep concern |
+| Soft 18 (worked examples from promptStructuralExample) | 2A | Field doesn't exist |
+| Soft 19 (RULES from promptSelectionGuidance) | 2B | Field doesn't exist |
+| Soft 20 (field-presence from metadata_keys) | 2E | Field doesn't exist |
+| Soft 21 (document_analysis Option chosen) | 3A | Phase 3 deferred |
+
+**Tracked for follow-up:** Cluster B G8-03 finding remains open. Plan AI outer-wrapper drift remains. A follow-up HF or OB will populate `PrimitiveEntry` with prompt-content fields, then refactor the prompt template.
 
 ## STANDING RULE COMPLIANCE
 - Rule 1, 2, 5, 6, 7, 8 (Korean Test in refactored prompts), 25-28 (completion report)
