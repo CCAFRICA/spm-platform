@@ -5,7 +5,7 @@
  * Reuses the buffered async write pattern from OB-163 briefing-signals.
  * Signals are batched and sent asynchronously.
  *
- * Signal type: 'stream_interaction' (distinct from 'briefing_interaction')
+ * Signal type (OB-197): 'lifecycle:stream' (distinct from 'lifecycle:briefing')
  */
 
 import { createClient } from '@/lib/supabase/client';
@@ -21,6 +21,7 @@ export interface StreamSignal {
   tenantId: string;
   metadata?: Record<string, unknown>;
   timestamp: string;
+  calculationRunId?: string;  // OB-197 G11: NULL outside a calculation run
 }
 
 // ──────────────────────────────────────────────
@@ -46,7 +47,7 @@ async function flushSignals(): Promise<void> {
     const supabase = createClient();
     const rows = batch.map(s => ({
       tenant_id: s.tenantId,
-      signal_type: 'stream_interaction',
+      signal_type: 'lifecycle:stream',
       signal_value: {
         persona: s.persona,
         element_id: s.elementId,
@@ -58,6 +59,7 @@ async function flushSignals(): Promise<void> {
         element_id: s.elementId,
         action: s.action,
       },
+      calculation_run_id: s.calculationRunId ?? null,
       created_at: s.timestamp,
     }));
 

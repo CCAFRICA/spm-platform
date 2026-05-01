@@ -19,12 +19,13 @@ import type { Json } from '@/lib/supabase/database.types';
 
 export interface SignalData {
   tenantId: string;
-  signalType: string;          // 'sheet_classification' | 'field_mapping' | 'plan_interpretation' | 'training:*'
+  signalType: string;          // OB-197: prefix vocabulary — classification:* | comprehension:* | convergence:* | cost:* | lifecycle:*
   signalValue: Record<string, unknown>;
   confidence?: number;
   source?: string;             // 'ai_prediction' | 'user_confirmed' | 'user_corrected' | 'ai'
   entityId?: string;
   context?: Record<string, unknown>;
+  calculationRunId?: string;   // OB-197 G11: scope signal to a calculation run; null when emitted outside a run
 }
 
 // ============================================
@@ -54,6 +55,7 @@ export async function persistSignal(
         confidence: signal.confidence ?? null,
         source: signal.source ?? 'ai_prediction',
         context: (signal.context ?? {}) as Json,
+        calculation_run_id: signal.calculationRunId ?? null,
       });
 
     if (error) {
@@ -90,6 +92,7 @@ export async function persistSignalBatch(
       confidence: s.confidence ?? null,
       source: s.source ?? 'ai_prediction',
       context: (s.context ?? {}) as Json,
+      calculation_run_id: s.calculationRunId ?? null,
     }));
 
     const { error } = await supabase

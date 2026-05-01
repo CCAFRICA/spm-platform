@@ -2,9 +2,33 @@
 // Decision 30 — "Classification Signal" not "Training Signal"
 // CRITICAL: Fire-and-forget. NEVER throws. Import NEVER fails due to signal capture.
 // Zero domain vocabulary. Korean Test applies.
+//
+// OB-197: signal_type emitted to DB uses prefix vocabulary (classification:* /
+// comprehension:* / convergence:* / cost:*). The original sci internal type is
+// preserved in signal_value.sci_internal_type so existing reads can post-filter.
 
 import { persistSignal, persistSignalBatch, getTrainingSignals } from '@/lib/ai/signal-persistence';
 import type { SCISignalCapture, SCISignal } from './sci-signal-types';
+
+// OB-197: Map sci internal signal type → prefix-vocabulary signal_type.
+// Many-to-one is intentional: classification:* groups outcome + outcome-confirmation;
+// comprehension:* groups field-binding evidence; etc.
+function toPrefixSignalType(sciInternalType: SCISignal['signalType']): string {
+  switch (sciInternalType) {
+    case 'content_classification':
+    case 'content_classification_outcome':
+      return 'classification:outcome';
+    case 'field_binding':
+    case 'field_binding_outcome':
+      return 'comprehension:header_binding';
+    case 'negotiation_round':
+      return 'comprehension:plan_interpretation';
+    case 'convergence_outcome':
+      return 'convergence:calculation_validation';
+    case 'cost_event':
+      return 'cost:event';
+  }
+}
 
 // ============================================================
 // WRITE OPERATIONS
@@ -14,21 +38,29 @@ import type { SCISignalCapture, SCISignal } from './sci-signal-types';
  * Capture a single SCI signal. Maps SCISignalCapture → SignalData for persistence.
  * Returns signal_type on success, null on failure. NEVER throws.
  */
-export async function captureSCISignal(capture: SCISignalCapture): Promise<string | null> {
+export async function captureSCISignal(
+  capture: SCISignalCapture,
+  calculationRunId?: string,
+): Promise<string | null> {
   try {
     const confidence = extractConfidence(capture.signal);
+    const sciInternal = capture.signal.signalType;
     const result = await persistSignal({
       tenantId: capture.tenantId,
       entityId: capture.entityId,
-      signalType: `sci:${capture.signal.signalType}`,
-      signalValue: capture.signal as unknown as Record<string, unknown>,
+      signalType: toPrefixSignalType(sciInternal),
+      signalValue: {
+        ...(capture.signal as unknown as Record<string, unknown>),
+        sci_internal_type: sciInternal,
+      },
       confidence,
       source: getSource(capture.signal),
       context: { sciVersion: '1.0', capturedAt: new Date().toISOString() },
+      calculationRunId,
     }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     if (result.success) {
-      return capture.signal.signalType;
+      return sciInternal;
     }
     console.warn('[SCISignalCapture] Write failed:', result.error);
     return null;
@@ -42,19 +74,29 @@ export async function captureSCISignal(capture: SCISignalCapture): Promise<strin
  * Batch capture SCI signals. Returns count of successfully written signals.
  * NEVER throws.
  */
-export async function captureSCISignalBatch(captures: SCISignalCapture[]): Promise<number> {
+export async function captureSCISignalBatch(
+  captures: SCISignalCapture[],
+  calculationRunId?: string,
+): Promise<number> {
   if (captures.length === 0) return 0;
 
   try {
-    const signals = captures.map(c => ({
-      tenantId: c.tenantId,
-      entityId: c.entityId,
-      signalType: `sci:${c.signal.signalType}`,
-      signalValue: c.signal as unknown as Record<string, unknown>,
-      confidence: extractConfidence(c.signal),
-      source: getSource(c.signal),
-      context: { sciVersion: '1.0', capturedAt: new Date().toISOString() } as Record<string, unknown>,
-    }));
+    const signals = captures.map(c => {
+      const sciInternal = c.signal.signalType;
+      return {
+        tenantId: c.tenantId,
+        entityId: c.entityId,
+        signalType: toPrefixSignalType(sciInternal),
+        signalValue: {
+          ...(c.signal as unknown as Record<string, unknown>),
+          sci_internal_type: sciInternal,
+        } as Record<string, unknown>,
+        confidence: extractConfidence(c.signal),
+        source: getSource(c.signal),
+        context: { sciVersion: '1.0', capturedAt: new Date().toISOString() } as Record<string, unknown>,
+        calculationRunId,
+      };
+    });
 
     const result = await persistSignalBatch(signals, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     return result.count;
@@ -71,19 +113,27 @@ export async function captureSCISignalBatch(captures: SCISignalCapture[]): Promi
 /**
  * Get SCI signals for a tenant, optionally filtered by signal type.
  * Returns empty array on failure. NEVER throws.
+ *
+ * OB-197: filters by prefix signal_type at SQL, then by sci_internal_type
+ * (preserved in signal_value at write time) for final selection.
  */
 export async function getSCISignals(
   tenantId: string,
-  options?: { signalType?: string; limit?: number }
+  options?: { signalType?: SCISignal['signalType']; limit?: number }
 ): Promise<Array<{ signalType: string; signalValue: Record<string, unknown>; confidence: number | undefined; createdAt?: string }>> {
   try {
-    const typeFilter = options?.signalType ? `sci:${options.signalType}` : undefined;
-    const raw = await getTrainingSignals(tenantId, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, typeFilter, options?.limit || 200);
+    const prefixFilter = options?.signalType ? toPrefixSignalType(options.signalType) : undefined;
+    const raw = await getTrainingSignals(tenantId, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, prefixFilter, options?.limit || 200);
 
     return raw
-      .filter(r => r.signalType.startsWith('sci:'))
+      .filter(r => {
+        const sciType = (r.signalValue as Record<string, unknown>)?.sci_internal_type;
+        if (typeof sciType !== 'string') return false;
+        if (options?.signalType && sciType !== options.signalType) return false;
+        return true;
+      })
       .map(r => ({
-        signalType: r.signalType.replace('sci:', ''),
+        signalType: (r.signalValue as Record<string, unknown>).sci_internal_type as string,
         signalValue: r.signalValue,
         confidence: r.confidence,
       }));

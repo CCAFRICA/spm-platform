@@ -73,7 +73,13 @@ export async function POST(request: NextRequest) {
   const log: string[] = [];
   const addLog = (msg: string) => { log.push(msg); console.log(`[CalcAPI] ${msg}`); };
 
-  addLog(`Starting: tenant=${tenantId}, period=${periodId}, ruleSet=${ruleSetId}`);
+  // OB-197 G11: pre-generate the calculation run id at run-start so signals
+  // emitted during convergence (which runs before the calculation_batches row
+  // is inserted) share scope with the eventual batch row. The id is assigned
+  // to calculation_batches.id at insert time, making batch.id == calculationRunId.
+  const calculationRunId = crypto.randomUUID();
+
+  addLog(`Starting: tenant=${tenantId}, period=${periodId}, ruleSet=${ruleSetId}, run=${calculationRunId}`);
 
   // ── 1. Fetch rule set ──
   const { data: ruleSet, error: rsErr } = await supabase
@@ -131,7 +137,7 @@ export async function POST(request: NextRequest) {
     if (!hasMetricDerivations && !hasConvergenceBindings) {
       addLog('HF-165: input_bindings empty — running calc-time convergence');
       try {
-        const convResult = await convergeBindings(tenantId, ruleSetId, supabase);
+        const convResult = await convergeBindings(tenantId, ruleSetId, supabase, calculationRunId);
         const derivationCount = convResult.derivations.length;
         const bindingCount = Object.keys(convResult.componentBindings).length;
         const gapCount = convResult.gaps.length;
@@ -962,9 +968,12 @@ export async function POST(request: NextRequest) {
   addLog(`Pattern signatures: ${patternSignatures.length} generated`);
 
   // ── 5. Create calculation batch ──
+  // OB-197 G11: explicit id == calculationRunId so any signal scoped to the
+  // run (convergence, in-run SCI, lifecycle) joins back to this batch row.
   const { data: batch, error: batchErr } = await supabase
     .from('calculation_batches')
     .insert({
+      id: calculationRunId,
       tenant_id: tenantId,
       period_id: periodId,
       rule_set_id: ruleSetId,

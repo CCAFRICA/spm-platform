@@ -119,7 +119,8 @@ export interface ConvergenceResult {
 export async function convergeBindings(
   tenantId: string,
   ruleSetId: string,
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  calculationRunId?: string,  // OB-197 G11: scope signals emitted by this convergence to a calculation run
 ): Promise<ConvergenceResult> {
   const derivations: MetricDerivationRule[] = [];
   const matchReport: ConvergenceResult['matchReport'] = [];
@@ -252,7 +253,7 @@ export async function convergeBindings(
 
         await supabase.from('classification_signals').insert({
           tenant_id: tenantId,
-          signal_type: 'convergence_calculation_validation',
+          signal_type: 'convergence:calculation_validation',
           signal_value: {
             component_index: pr.componentIndex,
             component_name: pr.componentName,
@@ -273,6 +274,7 @@ export async function convergeBindings(
             bound_column: colName,
             value_distribution: dist ? { min: dist.min, max: dist.max, median: dist.median, scale: dist.scaleInference } : null,
           },
+          calculation_run_id: calculationRunId ?? null,
         });
       }
     }

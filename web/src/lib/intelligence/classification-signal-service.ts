@@ -51,8 +51,16 @@ export interface ConfidentMapping {
 /**
  * Record a classification signal for a field mapping.
  * Persists to Supabase via fire-and-forget (non-blocking).
+ *
+ * OB-197: signal_type emits prefix vocabulary 'classification:outcome'. The
+ * caller's `domain` (e.g., "employee_data", "reconciliation") is preserved in
+ * signal_value.domain so getSignals() can post-filter on it. calculationRunId,
+ * if supplied, scopes the signal to a calculation run.
  */
-export function recordSignal(signal: Omit<ClassificationSignal, 'id' | 'timestamp'>): string {
+export function recordSignal(
+  signal: Omit<ClassificationSignal, 'id' | 'timestamp'>,
+  calculationRunId?: string,
+): string {
   if (typeof window === 'undefined') return '';
 
   const id = `cs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -61,14 +69,16 @@ export function recordSignal(signal: Omit<ClassificationSignal, 'id' | 'timestam
   // HF-161: Pass credentials explicitly
   persistSignal({
     tenantId: signal.tenantId,
-    signalType: signal.domain,
+    signalType: 'classification:outcome',
     signalValue: {
+      domain: signal.domain,
       fieldName: signal.fieldName,
       semanticType: signal.semanticType,
     },
     confidence: signal.confidence,
     source: signal.source,
     context: signal.metadata ?? {},
+    calculationRunId,
   }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
     console.warn('[ClassificationSignalService] Persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
   });
@@ -80,12 +90,16 @@ export function recordSignal(signal: Omit<ClassificationSignal, 'id' | 'timestam
  * Record multiple signals from an AI classification batch.
  * Convenience wrapper for recording all mappings from a single file classification.
  * Persists entire batch to Supabase in one call.
+ *
+ * OB-197: signal_type emits 'classification:outcome'; caller's `domain` is
+ * preserved in signal_value.domain.
  */
 export function recordAIClassificationBatch(
   tenantId: string,
   domain: string,
   mappings: Array<{ fieldName: string; semanticType: string; confidence: number }>,
   metadata?: Record<string, unknown>,
+  calculationRunId?: string,
 ): string[] {
   if (typeof window === 'undefined') return [];
 
@@ -96,14 +110,16 @@ export function recordAIClassificationBatch(
   // HF-055: Batch persist to Supabase
   const signals = mappings.map(m => ({
     tenantId,
-    signalType: domain,
+    signalType: 'classification:outcome',
     signalValue: {
+      domain,
       fieldName: m.fieldName,
       semanticType: m.semanticType,
     },
     confidence: m.confidence,
     source: 'ai' as const,
     context: metadata ?? {},
+    calculationRunId,
   }));
 
   persistSignalBatch(signals, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
@@ -159,22 +175,34 @@ export function recordUserCorrection(
 
 /**
  * Get all signals for a tenant, optionally filtered by domain.
- * HF-055: Now reads from Supabase instead of returning [].
+ *
+ * OB-197: queries the prefix-vocabulary signal_type 'classification:outcome',
+ * then post-filters on signal_value.domain because multiple domains share the
+ * same prefix. Returned `domain` reads from signal_value.domain.
  */
 export async function getSignals(tenantId: string, domain?: string): Promise<ClassificationSignal[]> {
-  const rows = await getTrainingSignals(tenantId, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, domain, 500);
+  const rows = await getTrainingSignals(tenantId, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, 'classification:outcome', 500);
 
-  return rows.map(row => ({
-    id: `db-${Date.now()}`,
-    tenantId: row.tenantId,
-    domain: row.signalType,
-    fieldName: (row.signalValue as Record<string, unknown>)?.fieldName as string || '',
-    semanticType: (row.signalValue as Record<string, unknown>)?.semanticType as string || '',
-    confidence: row.confidence ?? 0,
-    source: (row.source as SignalSource) || 'ai',
-    timestamp: new Date().toISOString(),
-    metadata: row.context,
-  }));
+  return rows
+    .filter(row => {
+      if (!domain) return true;
+      const rowDomain = (row.signalValue as Record<string, unknown>)?.domain;
+      return rowDomain === domain;
+    })
+    .map(row => {
+      const value = (row.signalValue as Record<string, unknown>) ?? {};
+      return {
+        id: `db-${Date.now()}`,
+        tenantId: row.tenantId,
+        domain: (value.domain as string) ?? '',
+        fieldName: (value.fieldName as string) ?? '',
+        semanticType: (value.semanticType as string) ?? '',
+        confidence: row.confidence ?? 0,
+        source: (row.source as SignalSource) || 'ai',
+        timestamp: new Date().toISOString(),
+        metadata: row.context,
+      };
+    });
 }
 
 /**
