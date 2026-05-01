@@ -12,8 +12,8 @@ Before reading further, open and read these files COMPLETELY:
 1. `CC_STANDING_ARCHITECTURE_RULES.md` — all rules apply (SR-1 through SR-51v2)
 2. `SCHEMA_REFERENCE_LIVE.md` — authoritative column reference
 3. `DS-021_Substrate_Architecture_Biological_Lineage_v1_0_LOCKED_20260430.md` — §3 Role 4, §6 G7
-4. `OB-197_COMPLETION_REPORT.md` (project root) — the work that produced the CHECK constraint and the 8-site directive scope this OB extends
-5. `F-1_INVENTORY.md` (project root) — enumeration of every site OB-198 must touch, with proposed mapping
+4. `docs/completion-reports/OB-197_COMPLETION_REPORT.md` — the work that produced the CHECK constraint and the 8-site directive scope this OB extends
+5. `docs/directives/F-1_INVENTORY.md` — enumeration of every site OB-198 must touch, with proposed mapping
 6. `web/src/lib/sci/signal-capture-service.ts` — the `toPrefixSignalType` mapper that defines the prefix-vocabulary translation pattern OB-198 mirrors
 
 **Read all six before writing any code.**
@@ -75,13 +75,13 @@ git log --oneline -3
 # Expected: top commit is the merge of PR #353; HALT if PR #353 is not yet merged
 
 # Verify F-1_INVENTORY.md is on main (it landed via the OB-197 PR merge)
-ls F-1_INVENTORY.md OB-197_COMPLETION_REPORT.md 2>&1
+ls docs/directives/F-1_INVENTORY.md docs/completion-reports/OB-197_COMPLETION_REPORT.md 2>&1
 # HALT if either missing
 
 git checkout -b ob-198-vocabulary-alignment
-mkdir -p docs/ob-prompts
-# Place OB-198_VOCABULARY_ALIGNMENT.md prompt at docs/ob-prompts/
-git add docs/ob-prompts/OB-198_VOCABULARY_ALIGNMENT.md
+mkdir -p docs/vp-prompts
+# Place OB-198_VOCABULARY_ALIGNMENT.md prompt at docs/vp-prompts/
+git add docs/vp-prompts/OB-198_VOCABULARY_ALIGNMENT.md
 git commit -m "OB-198: commit prompt to git (Rule 5)"
 git push -u origin ob-198-vocabulary-alignment
 ```
@@ -303,7 +303,7 @@ gh pr create --base main --head ob-198-vocabulary-alignment \
 
 ### COMPLETION REPORT ENFORCEMENT
 
-The completion report is created as a FILE: `OB-198_COMPLETION_REPORT.md` in PROJECT ROOT.
+The completion report is created as a FILE: `docs/completion-reports/OB-198_COMPLETION_REPORT.md`.
 
 ### Required structure (mirrors OB-197 report)
 
