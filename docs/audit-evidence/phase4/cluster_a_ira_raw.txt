@@ -1,0 +1,1846 @@
+
+> vialuce-governance@0.1.0 ira
+> node --env-file=.env.local node_modules/.bin/tsx scripts/invoke_ira.ts Cluster A (signal surface coherence) substrate-coherence review.
+
+The Phase 4 audit collected the following evidence against G7 (Single Canonical Signal Surface) and G11 (Read-Path Coherence at the Signal Surface):
+
+═══════════════════════════════════════════════════════════════════════
+PF-02 EVIDENCE (G11 Read-Path Coherence)
+═══════════════════════════════════════════════════════════════════════
+
+S-CODE-G11-01a (within-run reads of classification_signals in convergence service):
+  Convergence service file: web/src/lib/intelligence/convergence-service.ts (2104 lines).
+  All DB ops in file:
+    line 132: .from('rule_sets')
+    line 253: .from('classification_signals').insert({...})  ← ONLY classification_signals contact
+    line 627, 635, 1857: .from('committed_data')
+  Zero .select calls against classification_signals.
+  Zero `run_id` / `runId` references anywhere in file (grep returned no matches).
+  Verdict: ABSENT.
+
+S-CODE-G11-01b (cross-run reads of classification_signals in convergence service):
+  Same evidence as 11-01a — zero .select on classification_signals.
+  Verdict: ABSENT.
+
+S-CODE-G11-02 (flywheel aggregation read-path):
+  Flywheel files: web/src/lib/calculation/flywheel-pipeline.ts, web/src/lib/sci/fingerprint-flywheel.ts.
+  Zero references to classification_signals in either flywheel file.
+  Flywheel reads/writes go to foundational_patterns, domain_patterns, structural_fingerprints — NOT classification_signals.
+
+S-SIGNAL-G11-01 (cross-run aggregation evidence in signals):
+  Live classification_signals: 14 rows (single tenant ***).
+  Live column inventory of classification_signals:
+    [agent_scores, classification, classification_trace, component_index, confidence,
+     context, created_at, decision_source, entity_id, header_comprehension,
+     human_correction_from, id, metric_name, rule_set_id, scope, sheet_name,
+     signal_type, signal_value, source, source_file_name, structural_fingerprint,
+     tenant_id, vocabulary_bindings]
+  Columns matching /run/i: ZERO.
+  Schema-impossibility finding: classification_signals has no run_id, no calculation_run_id,
+    no batch_id, no session_id. Within-run filtering of the signal surface is structurally
+    impossible because the signal surface schema does not record which run produced each signal.
+
+═══════════════════════════════════════════════════════════════════════
+PF-01 EVIDENCE (G7 Single Canonical Signal Surface)
+═══════════════════════════════════════════════════════════════════════
+
+S-CODE-G7-01 (SCI agent signal-write paths):
+  Canonical writes (target classification_signals):
+    web/src/lib/sci/classification-signal-service.ts:89 (writeClassificationSignal)
+    web/src/lib/intelligence/convergence-service.ts:253
+    web/src/lib/intelligence/classification-signal-service.ts → persistSignal → classification_signals
+    web/src/lib/ai/signal-persistence.ts:48,96
+    web/src/lib/signals/briefing-signals.ts:60
+    web/src/lib/signals/stream-signals.ts:64
+    web/src/app/api/ingest/classification/route.ts:38
+
+  BYPASS writes (target tables OTHER than classification_signals):
+    web/src/lib/sci/classification-signal-service.ts:449 → INSERT foundational_patterns
+    web/src/lib/sci/classification-signal-service.ts:509 → INSERT domain_patterns
+    web/src/lib/sci/fingerprint-flywheel.ts:175 → INSERT structural_fingerprints
+    web/src/lib/sci/fingerprint-flywheel.ts:155 → UPDATE structural_fingerprints
+    web/src/lib/calculation/synaptic-density.ts:130 → UPSERT synaptic_density
+    web/src/lib/calculation/flywheel-pipeline.ts:131,186 → INSERT/UPDATE foundational_patterns/domain_patterns
+
+  BYPASS reads (these reads consume bypass channels, not classification_signals):
+    web/src/lib/sci/classification-signal-service.ts:205 (lookupFoundationalPriors)
+    web/src/lib/sci/classification-signal-service.ts:257 (lookupDomainPriors)
+    web/src/lib/sci/promoted-patterns.ts:69,127
+    web/src/lib/sci/fingerprint-flywheel.ts:45,87,141 (lookupFingerprint)
+    web/src/lib/agents/agent-memory.ts:131 (synaptic_density)
+    web/src/lib/agents/agent-memory.ts:152,166 (foundational_patterns, domain_patterns)
+    web/src/lib/calculation/synaptic-density.ts:67
+    web/src/lib/calculation/flywheel-pipeline.ts:106,163,228,242
+
+S-CODE-G7-02 Step 1 (JSONB column inventory from committed migrations):
+  Comprehensive inventory built from web/supabase/migrations/*.sql.
+  Key (c)-classified storage surfaces identified:
+    rule_sets.input_bindings (002_rule_sets_and_periods.sql) — architect-named bypass; verification
+      DEFERRED because rule_sets table is empty (0 rows) in this environment.
+    synaptic_density.learned_behaviors (015_synaptic_density.sql) — per-tenant pattern-density
+      learning that drives execution_mode (full_trace → light_trace → silent).
+    foundational_patterns.learned_behaviors (016_flywheel_tables.sql) — cross-tenant aggregated
+      structural learning, keyed by pattern_signature.
+    domain_patterns.learned_behaviors (016_flywheel_tables.sql) — domain-vertical aggregated learning.
+    structural_fingerprints.{classification_result, column_roles} (023) — per-fingerprint
+      classification reuse + column-role assignment carried across runs.
+
+S-CODE-G7-02 Step 2 (per-JSONB-column key vocabulary inspection):
+  classification_signals.signal_value: keys [aiOutput, estimatedCostUSD, eventType, inputTokens,
+    model, outputTokens, provider, purpose, requestId, signalId, signalType, task, userAction]
+    — on canonical surface, mixed (b)/(c).
+  classification_signals.context: keys [capturedAt, latencyMs, model, phase, provider, schema,
+    sciVersion, tokenUsage, userId] — on canonical surface.
+  synaptic_density.learned_behaviors (3 rows): empty objects in sample but table semantics are
+    run-to-run learned-behavior storage. Whole-table BYPASS.
+  foundational_patterns.learned_behaviors (29 rows): keys [classification_distribution]
+    — read by lookupFoundationalPriors as cold-start classifier prior. Whole-table BYPASS.
+  domain_patterns.learned_behaviors (50/858 sampled): empty objects in sample; table is
+    domain-vertical learning store. Whole-table BYPASS.
+  structural_fingerprints.classification_result (4 rows): keys [classification, confidence,
+    fieldBindings, tabName] — used by lookupFingerprint to skip Header Comprehension on Tier 1
+    matches. Whole-table BYPASS.
+  structural_fingerprints.column_roles (4 rows): keys are 25 actual column-header strings —
+    per-column role assignment carrying agent-derived classification across runs. Whole-table BYPASS.
+  import_batches.metadata (7 rows): keys [classification, contentUnitId, proposalId, source]
+    — `classification` and `contentUnitId` are agent-to-agent transport keys carried out-of-band
+    on import_batches, not on classification_signals. Per-key BYPASS.
+
+  Architect-named candidate plan_agent_seeds: rule_sets.input_bindings JSONB column EXISTS in
+  schema (migration 002 line 23) but rule_sets table is EMPTY in this environment (0 rows).
+  Live key vocabulary verification deferred per audit scope discipline.
+
+S-SCHEMA-G7-01 (three-level signal_type support):
+  signal_type column is TEXT — schema-permissive. No CHECK constraint enforcing the
+  classification:/comprehension:/convergence: three-level vocabulary from DS-021/Decision 64 v2.
+  Live signal_type distribution (14 rows):
+    sci:classification_outcome_v2: 6
+    training:plan_interpretation:  4
+    sci:cost_event:                4
+  Zero rows use classification:* / comprehension:* / convergence:* prefixes.
+  The single convergence-service-emitted type (convergence_calculation_validation, used at
+  convergence-service.ts:255) uses an underscore form rather than colon prefix and is not
+  present in current 14 rows.
+
+S-SIGNAL-G7-01 (signal-type distribution across SCI agents):
+  source column distribution: {sci_agent: 6, ai_prediction: 4, system: 4}
+  source attribution is monolithic across the five SCI agents (Plan/Entity/Target/Transaction/
+  Reference). Per-agent contribution is stored inside agent_scores JSONB sub-keys on each row
+  (each row carries scores for all five agents). There is no per-row column identifying which
+  SCI agent drove the classification — only an aggregate "sci_agent" tag.
+
+ADJACENT FINDING (schema/migration divergence — distinct from G7/G11):
+  Live classification_signals has 14 columns NOT in committed migrations:
+    classification, decision_source, structural_fingerprint, classification_trace,
+    vocabulary_bindings, agent_scores, human_correction_from, scope, source_file_name,
+    sheet_name, header_comprehension, rule_set_id, metric_name, component_index
+  These are written by writeClassificationSignal with the comment "HF-092: writes to DEDICATED
+  COLUMNS on classification_signals". Implies out-of-band migration channel.
+  Conversely: ingestion_events.classification_result and validation_result are in committed
+  migration 007 but DO NOT EXIST in live DB (column does not exist error from service-role
+  query). Substrate-coherence concern adjacent to but distinct from G7-02.
+
+═══════════════════════════════════════════════════════════════════════
+VERDICT MATRIX READOUT (per Plan v1.1 Section 3.2 R-2)
+═══════════════════════════════════════════════════════════════════════
+
+  11-01a (within-run read-path)     result: ABSENT
+  11-01b (cross-run read-path)      result: ABSENT
+  Aggregate G11 magnitude per matrix:        BLOCKING
+
+═══════════════════════════════════════════════════════════════════════
+BYPASS KEY LIST (per R-1 structural-not-lexical)
+═══════════════════════════════════════════════════════════════════════
+
+  Whole-table bypass channels (4):
+    synaptic_density
+    foundational_patterns
+    domain_patterns
+    structural_fingerprints
+
+  JSONB per-key bypasses (2):
+    import_batches.metadata.classification
+    import_batches.metadata.contentUnitId
+
+  Architect-named bypass (DEFERRED — rule_sets empty in env):
+    rule_sets.input_bindings.plan_agent_seeds — JSONB column confirmed present in schema,
+      live key inspection deferred per environment scope.
+
+═══════════════════════════════════════════════════════════════════════
+ARCHITECT-CHANNEL QUESTION
+═══════════════════════════════════════════════════════════════════════
+
+Given this evidence and the substrate's commitment to G7 (Single Canonical Signal Surface) and
+G11 (Read-Path Coherence at the Signal Surface), is Cluster A's compliance gap:
+
+  (a) remediable through architectural pattern change (severe magnitude — migrate the 4
+      whole-table bypass channels' write/read paths to flow through classification_signals,
+      add run_id-equivalent column to enable within-run filtering, build cross-run read-path
+      on convergence service in place; coordinated remediation)?
+
+  OR
+
+  (b) requires rebuild of the convergence service / signal surface architecture (blocking
+      magnitude — current convergence service is write-only on the signal surface and the
+      surface itself lacks run-scoping; in-place coherence is not architecturally reachable
+      without rebuilding both the signal-surface schema and the convergence read-path)?
+
+Substrate-bounded authority note: G11 enforcement mechanism specification is forward-looking
+architectural work (DS-021 v1.0 Section 14 FLI-1, Plan v1.1 Section 7 deferred). IRA review
+should flag if its disposition depends on enforcement-mechanism content not yet in substrate.
+
+Note on audit scope: this audit operates on code-and-schema evidence. Runtime confirmation
+(S-RUNTIME-G11-01 cross-run learning test) is deferred pending populated proof-data
+environment. IRA review should weight code-and-schema evidence accordingly.
+
+Bindings to load:
+  - DS-021 v1.0 Section 6 G7 commitment text
+  - DS-021 v1.0 Section 6 G11 commitment text
+  - DS-021 v1.0 Section 12 Substrate Bounded Authority methodology
+  - DS-021 v1.0 Section 14 FLI-1 (G11 enforcement mechanism — forward-looking)
+  - DIAG-DS021-Phase4 Section 4.7 G7 probe specifications
+  - DIAG-DS021-Phase4 Section 4.11 G11 probe specifications
+  - DIAG-DS021-Phase4 Section 8.5 Cluster A interconnection
+  - Plan v1.1 Section 3.1 R-1 G7-02 structural reframe
+  - Plan v1.1 Section 3.2 R-2 G11-01 within-run vs cross-run split
+  - AUD-002 v2 plan_agent_seeds finding
+  - AUD-002 v2 write-only signal surface finding (24% Decision 155 compliance)
+
+Expected output: substrate-grounded reasoning on (a) vs (b), with named bindings, magnitude
+justification, and any substrate-bounded-authority flags.
+
+[surface] prompt source {
+  invocation_id: '6c55e517-5234-4401-a0d9-58c2d8ffbaf9',
+  source: 'surface',
+  ambient_count: 76,
+  density_count: 268,
+  total_entries: 344,
+  procedural_count: 40
+}
+[surface] shadow divergence {
+  invocation_id: '6c55e517-5234-4401-a0d9-58c2d8ffbaf9',
+  fingerprint: '5c795ef2d548e60960b247dc848587e260fe1bc0d809a78df3dc76fd41dc017a',
+  procedural_count: 40,
+  surface_count: 344,
+  overlap: 32,
+  procedural_only: 8,
+  surface_only: 312
+}
+=== IRA PACKET ===
+{
+  "task_class": "other",
+  "ip_entries": [
+    {
+      "id": "IGF-T1-E906",
+      "tier": 1,
+      "title": "Closed-Loop Intelligence",
+      "content": {
+        "origin": "Base TMR. Decision 23 (three flywheels) is the architectural descendant.",
+        "rationale": "Conceptual ancestor of the three-flywheel architecture locked as Decision 23. Cited in Addenda 1, 4, 6, 9, 10. The meta-principle is older and broader than any single flywheel. Terminology evolved from 'training signal' to 'classification signal' (Meta-E finding) but the commitment is stable.",
+        "statement": "Every interaction generates a classification signal that accumulates into the platform's learning systems. The three-flywheel architecture (Tenant, Foundational, Domain) is the structural expression of this commitment.",
+        "cross_references": [
+          "Decision 23 (Three Flywheels)",
+          "P-34 AI Measurement Methodology",
+          "Meta-E (training signal → classification signal terminology drift)"
+        ],
+        "drift_assessment": "HIGH for terminology (training signal vs classification signal across documents). LOW-MEDIUM for the principle itself."
+      },
+      "why_it_binds": "Statement: 'Every interaction generates a classification signal that accumulates into the platform's learning systems. The three-flywheel architecture (Tenant, Foundational, Domain) is the structural expression of this commitment.' The audit evidence shows classification_signals is write-only (convergence service has zero .select calls against it), the flywheel tables (foundational_patterns, domain_patterns, structural_fingerprints) operate as bypass channels reading/writing outside classification_signals, and the signal surface lacks run_id for within-run filtering. This directly implicates the closed-loop intelligence commitment: if signals are written but never read back, the loop is not closed. The G11 ABSENT verdict on both within-run and cross-run read-paths is a structural violation of this principle's core proposition that signals 'accumulate into the platform's learning systems.'"
+    },
+    {
+      "id": "IGF-T1-E902",
+      "tier": 1,
+      "title": "Carry Everything, Express Contextually",
+      "content": {
+        "origin": "Addendum 1, CLT-14B / OB-27B. Born from $392,577 underpayment caused by AI-as-filter pattern.",
+        "rationale": "Core architectural principle already in memory with verbatim consistency. Cited as alignment in 4+ addenda. Predates Decision 51. The pattern shows up at multiple platform levels (Three-Layer Data Architecture, Semantic Resolution Hierarchy, Convergence as Observation), suggesting it is a governing principle, not merely an engineering method.",
+        "statement": "At import time, the platform persists ALL data regardless of whether AI has classified it. AI classifications are hints, not gates. Data is preserved at import; context activates at calculation time.",
+        "cross_references": [
+          "P-12 Three-Layer Data Architecture",
+          "P-09 Semantic Resolution Hierarchy",
+          "P-35 Convergence as Observation",
+          "Cluster 5 in inventory"
+        ],
+        "drift_assessment": "LOW as principle. MEDIUM at scope edges — Addendum 6 extends to live/official/projection windows."
+      },
+      "why_it_binds": "Statement: 'At import time, the platform persists ALL data regardless of whether AI has classified it. AI classifications are hints, not gates. Data is preserved at import; context activates at calculation time.' The audit evidence reveals that classification-relevant data is scattered across 4 whole-table bypass channels (synaptic_density, foundational_patterns, domain_patterns, structural_fingerprints) plus 2 JSONB per-key bypasses (import_batches.metadata.classification, import_batches.metadata.contentUnitId). The 'Carry Everything' principle requires all data to be persisted and contextually activated — but the bypass channels mean classification intelligence is carried in fragmented locations rather than through a single canonical surface. The principle's 'Express Contextually' dimension is structurally impossible when the signal surface itself cannot be queried for within-run context (no run_id column)."
+    },
+    {
+      "id": "IGF-T1-E912",
+      "tier": 1,
+      "title": "Principle-Rule Coherence and the Supersession Surface",
+      "content": {
+        "origin": "Session 2026-04-13, Q7 IRA invocation against loop integration design surface. Discovered when IRA returned faithful applicability brief but did not surface that E18 narrowed higher-tier principles rather than instantiating them.",
+        "statement": "A substrate-bound governance system serves principles through rules. Rules instantiate principles for specific work classes; principles supply the standing intent the rules are supposed to enact. When the substrate is queried for binding intelligence on a piece of work, two distinct findings are possible: (1) applicability — which rules govern this work — and (2) coherence — whether the rules at lower tiers still serve the principles at higher tiers, given the specific case under consideration. Applicability is rule-level; coherence is principle-level. Applicability without coherence produces under-service: the rule was applied, the work conformed, the principle was nonetheless degraded because the rule no longer instantiates the principle for the case at hand. This principle establishes that principle-rule coherence is a first-class IRA concern, on equal standing with applicability. It establishes that supersession-of-rules-by-principle is a first-class outcome of governance reasoning, not an exceptional event. It establishes that the IGF agents must operationalize the Innovate dimension by contracting a surface where coherence findings flow to architect disposition through the same structured path that applicability findings already do.",
+        "implications": [
+          "IRA output contract gains supersession_candidates field",
+          "IRA operating loop gains coherence-check step",
+          "IVA contract may need parallel extension",
+          "Tier 0 entries subject to coherence questioning via bootstrap modification protocol"
+        ],
+        "cross_references": [
+          "IGF-T0-E05 (E/E/C/I Tetrad — operationalizes Innovate)",
+          "IGF-T0-E09 (IRA — extension target)",
+          "IGF-T0-E10 (IVA — parallel extension candidate)",
+          "IGF-T0-E16 (Agent Boundary Protocol)",
+          "IGF-T0-E18 (Integration Model — first coherence subject)",
+          "IGF-T1-E908 (Discover Dont Prescribe)",
+          "IGF-T5-E961 (Substrate as Evidence-of-Defect)",
+          "IGF-T6-E909 (Inference vs Substitution)"
+        ],
+        "full_source_document": "docs/specs/Tier1_Candidate_Principle_Rule_Coherence_20260413.md",
+        "preservation_urgency": "high"
+      },
+      "why_it_binds": "Statement: 'When the substrate is queried for binding intelligence on a piece of work, two distinct findings are possible: (1) applicability — which rules govern this work — and (2) coherence — whether the rules at lower tiers still serve the principles at higher tiers, given the specific case under consideration.' This audit IS a coherence review: the architect is asking whether the lower-tier implementation (convergence service, signal surface schema, flywheel tables) still serves the higher-tier principles (G7, G11) given the code-and-schema evidence collected. The entry further states: 'Applicability without coherence produces under-service: the rule was applied, the work conformed, the principle was nonetheless degraded because the rule no longer instantiates the principle for the case at hand.' The evidence shows exactly this pattern — classification_signals exists (rule applied), writes occur (work conforms to write-path), but the principle (read-path coherence, single canonical surface) is degraded because the implementation does not instantiate the principle."
+    },
+    {
+      "id": "IGF-T1-E913",
+      "tier": 1,
+      "title": "IRA Returns Recommendations, Not Just Bindings",
+      "content": {
+        "origin": "Session 2026-04-13. Discovered when architect-channel IRA invocation (Q7-class architectural design question) returned faithful applicability brief but did not evaluate the three implementation-surface options (CLI extension, runtime hook, claude.ai integration) against substrate. Architect named the gap: Shouldn't IRA be able to report back a path based upon the logic and cross evaluation with an option that best aligns to the substrate? Confirmed: limiting IRA to user-supplied options only would suppress LLM intelligence that the system was built to use.",
+        "statement": "When a piece of work includes options — either user-supplied (the architect names candidate paths in the work description) or substrate-grounded (substrate explicitly enumerates alternatives that apply to the work) — IRA evaluates each option against the assembled brief and surfaces a ranked recommendation with substrate-cited reasoning per option. IRA self-generates options when substrate names them as alternatives, exercising the LLM intelligence that substrate-bound reasoning makes available; suppressing this would waste the intelligence the system was built to use. IRA does not invent options not present in either source. The recommendation field is empty when no substrate-grounded options exist for evaluation; an empty array is correct output, not failure. The architect retains disposition authority on the recommendation; IRA recommends, the architect decides.",
+        "implications": [
+          "IRA prompt template (T0-E09) gains operating loop step (Step 8 — Option Evaluation Against Brief) and output contract field (option_recommendations: Array of {option_id, source (user_supplied | substrate_named), substrate_basis (entry_ids that ground the option), alignment_reasoning, conflicts_detected, recommendation_rank, recommended_action}).",
+          "The architect role compresses from make the call given partial substrate-served information to review IRA substrate-grounded recommendation, override if engineering judgment differs, otherwise proceed.",
+          "Architect bandwidth shifts toward genuinely novel decisions that substrate cannot serve."
+        ],
+        "cross_references": [
+          "IGF-T1-E911 (Governance Enforces Actors)",
+          "IGF-T1-E912 (Principle-Rule Coherence)",
+          "IGF-T0-E09 (IRA Prompt Template — extension target via subsequent HF-IGF-03)",
+          "IGF-T0-E16 (Agent Boundary Protocol — IRA recommends, never modifies)",
+          "IGF-T0-E05 (E/E/C/I Tetrad — Innovate dimension)"
+        ],
+        "preservation_urgency": "high"
+      },
+      "why_it_binds": "Statement: 'When a piece of work includes options — either user-supplied (the architect names candidate paths in the work description) or substrate-grounded (substrate explicitly enumerates alternatives that apply to the work) — IRA evaluates each option against the assembled brief and surfaces a ranked recommendation with substrate-cited reasoning per option.' The architect explicitly names two options: (a) remediable through architectural pattern change and (b) requires rebuild. These are user-supplied options requiring Step 8 evaluation. The entry further states: 'IRA does not invent options not present in either source. The recommendation field is empty when no substrate-grounded options exist for evaluation.' Both options are present in the user prompt; evaluation is required."
+    },
+    {
+      "id": "IGF-T1-E924",
+      "tier": 1,
+      "title": "Closed-Loop Learning",
+      "content": {
+        "one_line": "Platform activity generates training signals for continuous improvement; manual corrections inform future AI interpretation.",
+        "statement": "Platform activity generates training signals for continuous improvement. AI mappings that get manually corrected inform future AI interpretation. The platform gets smarter with use. Every correction, override, or manual adjustment is a learning signal that must feed back into the AI interpretation layer, not be discarded after the immediate fix. Closed-loop learning is the mechanism by which the platform compounds intelligence over time; without it, every correction is a one-time patch rather than a permanent improvement.",
+        "provenance": {
+          "layer1_model": "claude-sonnet-4-6",
+          "origin_section": "SECTION A: DESIGN PRINCIPLES (NON-NEGOTIABLE) — 5. Closed-Loop Learning",
+          "origin_document": "CC_STANDING_ARCHITECTURE_RULES.md",
+          "layer1_enriched_at": "2026-04-16T04:40:05.471Z"
+        },
+        "applies_when": [
+          "Designing AI mapping or interpretation pipelines",
+          "Implementing manual correction or override flows",
+          "Evaluating whether a feature captures learning signals from user actions",
+          "Reviewing whether corrections feed back into future AI behavior",
+          "Assessing whether a delivered AI feature has a feedback path"
+        ],
+        "escalates_when": [
+          "A pattern of repeated identical corrections is found with no evidence of AI improvement over time",
+          "A correction flow is delivered without any feedback path and the gap is not documented as a known limitation"
+        ],
+        "eeci_dimensions": [
+          "efficacy",
+          "innovate"
+        ],
+        "cross_references": [
+          "IGF-T1-E906 [T1] Closed-Loop Intelligence",
+          "AI-First, Never Hardcoded",
+          "Be the Thermostat, Not the Thermometer (CC Standing Rule)"
+        ],
+        "adherence_patterns": [
+          "Every manual correction or override flow includes a capture step that records the correction as a learning signal",
+          "AI interpretation pipelines have documented feedback paths from correction events",
+          "Feature design for correction flows explicitly identifies how the signal reaches the AI layer"
+        ],
+        "violation_patterns": [
+          {
+            "severity": "high",
+            "description": "Manual corrections or overrides are applied but not captured as training signals for future AI interpretation"
+          },
+          {
+            "severity": "high",
+            "description": "A correction flow is implemented with no feedback path back to the AI interpretation layer"
+          },
+          {
+            "severity": "medium",
+            "description": "AI mapping pipeline is designed as one-way with no mechanism to incorporate user corrections"
+          }
+        ],
+        "does_not_apply_when": [],
+        "false_positive_triggers": [
+          "One-time data corrections for genuinely corrupt ingested data are not learning signals and need not feed back into AI interpretation"
+        ]
+      },
+      "why_it_binds": "Statement: 'Every correction, override, or manual adjustment is a learning signal that must feed back into the AI interpretation layer, not be discarded after the immediate fix. Closed-loop learning is the mechanism by which the platform compounds intelligence over time; without it, every correction is a one-time patch rather than a permanent improvement.' The audit evidence shows the convergence service writes to classification_signals but never reads from it (zero .select calls). The flywheel pipeline reads from foundational_patterns and domain_patterns — bypass channels — not from classification_signals. This means the closed-loop learning mechanism bypasses the canonical signal surface entirely. The principle's core proposition — that the platform 'compounds intelligence over time' — is structurally undermined when the signal surface is write-only and the learning loop reads from bypass channels."
+    },
+    {
+      "id": "IGF-T1-E936",
+      "tier": 1,
+      "title": "Closed-Loop Intelligence Applied to Data Ingestion",
+      "content": {
+        "one_line": "Every ingestion event strengthens classification signals, creating an ML flywheel where more data leads to better classification, less human intervention, and faster processing.",
+        "statement": "Closed-Loop Intelligence (IGF-T1-E906) applied to data ingestion means that every file or transaction that arrives and is classified — whether by human confirmation or autonomous processing — strengthens the classification signals for that tenant's data patterns. The ML flywheel spins: more data → better classification → less human intervention → faster processing → more data. The first file requires full human review. By the tenth file with the same structure, classification confidence approaches 1.0 and ingestion is fully autonomous. Human involvement only resurfaces when the data structure changes. This is not a static model trained once — it is a continuously improving system where operational use is the training signal. Any implementation that discards classification outcomes (human or autonomous) without feeding them back into the signal accumulation mechanism breaks the flywheel. The flywheel is the mechanism by which the platform's value compounds over time; breaking it reduces the platform to a static classification tool.",
+        "provenance": {
+          "layer1_model": "claude-sonnet-4-6",
+          "origin_section": "Autonomous Classification",
+          "origin_document": "ViaLuce_TMR_Addendum6_Feb2026.md",
+          "layer1_enriched_at": "2026-04-16T05:18:06.593Z"
+        },
+        "applies_when": [
+          "Evaluating the classification pipeline's learning architecture",
+          "Measuring the reduction in human intervention over successive ingestion events",
+          "Designing the signal accumulation and confidence boosting mechanism",
+          "Assessing whether a new ingestion feature preserves or breaks the flywheel",
+          "Reviewing whether human classification confirmations are being captured as training signals",
+          "Designing the feedback path from human review decisions back into the classification model"
+        ],
+        "escalates_when": [
+          "Human intervention rate for a tenant is not declining after 20+ ingestion events with the same data structure, indicating the signal accumulation mechanism may be broken",
+          "Classification confidence scores are not increasing over successive ingestion events for a stable data structure",
+          "A schema change causes the flywheel to reset but the platform does not detect the schema change, leading to incorrect autonomous classifications"
+        ],
+        "eeci_dimensions": [
+          "efficacy",
+          "efficiency",
+          "innovate"
+        ],
+        "cross_references": [
+          "Autonomous Classification via Accumulated Confidence Signals",
+          "Classification Confidence Threshold Miscalibration",
+          "Schema Change Detection Failure in Autonomous Processing",
+          "All Ingestion Channels Produce Identical Committed Data Records",
+          "Ingestion Configuration Per Tenant",
+          "IGF-T1-E906 [T1] Closed-Loop Intelligence",
+          "IGF-T1-E908 [T1] Discover, Don't Prescribe"
+        ],
+        "adherence_patterns": [
+          "Every classification outcome — human or autonomous — is written to the signal accumulation store with the tenant, data domain, file structure fingerprint, and confidence score",
+          "The classification model's confidence for a given tenant and data domain increases monotonically as more signals accumulate for that pattern",
+          "Human intervention rate is tracked per tenant and reported in the Operate workspace as a flywheel health metric",
+          "Signal accumulation is per-tenant and isolated — one tenant's signals cannot influence another's classification model",
+          "The flywheel health metric triggers an alert if human intervention rate is not declining after a defined number of ingestion events"
+        ],
+        "violation_patterns": [
+          {
+            "severity": "critical",
+            "description": "Human classification confirmations are not fed back into the signal accumulation mechanism, breaking the flywheel's learning loop"
+          },
+          {
+            "severity": "high",
+            "description": "The classification model is retrained only on a fixed schedule rather than continuously as new signals arrive, introducing lag in the flywheel"
+          },
+          {
+            "severity": "high",
+            "description": "Classification signals are accumulated globally rather than per-tenant, causing one tenant's data patterns to pollute another's classification model"
+          },
+          {
+            "severity": "high",
+            "description": "A new ingestion channel (e.g., API push) does not feed classification outcomes into the same signal accumulation mechanism as SFTP, creating a split flywheel"
+          },
+          {
+            "severity": "medium",
+            "description": "The platform does not track the reduction in human intervention rate over time, making it impossible to verify that the flywheel is spinning"
+          }
+        ],
+        "does_not_apply_when": [
+          "Classification of entirely novel data domains with no prior signals — the flywheel requires at least one prior classification event to begin accumulating",
+          "One-time historical data loads that will not recur and therefore cannot benefit from accumulated signals"
+        ],
+        "false_positive_triggers": [
+          "A tenant whose data structure changes frequently will show a persistently high human intervention rate — this is correct flywheel behavior, not a broken flywheel; the flywheel resets for new structures",
+          "A new tenant's high human intervention rate in the first weeks is expected flywheel startup behavior, not a failure"
+        ]
+      },
+      "why_it_binds": "Statement: 'The ML flywheel spins: more data → better classification → less human intervention → faster processing → more data.' And: 'Any implementation that discards classification outcomes (human or autonomous) without feeding them back into the signal accumulation mechanism breaks the flywheel.' The audit evidence (S-CODE-G11-02) shows flywheel files (flywheel-pipeline.ts, fingerprint-flywheel.ts) have zero references to classification_signals. The flywheel reads/writes go to foundational_patterns, domain_patterns, structural_fingerprints — NOT classification_signals. This is a structural bypass: the flywheel accumulation mechanism does not consume the canonical signal surface. The principle's violation pattern '[high] A new ingestion channel (e.g., API push) does not feed classification outcomes into the same signal accumulation mechanism as SFTP, creating a split flywheel' applies by analogy — the flywheel and the signal surface are split."
+    },
+    {
+      "id": "IGF-T0-E09",
+      "tier": 0,
+      "title": "IRA (Intelligence Resolution Agent) Prompt Template",
+      "content": {
+        "id": "IGF-T0-E09",
+        "name": "IRA Prompt Template",
+        "tier": 0,
+        "health": {
+          "status": "locked",
+          "version": 7,
+          "successor": null,
+          "drift_flags": [],
+          "predecessor": "v6",
+          "last_modified": "2026-04-19",
+          "staleness_days": 0,
+          "last_modified_by": "Andrew (via OB-IGF-26 R1)",
+          "verification_evidence": "OB-IGF-26 R1 Phase C + D revision. Evidence: DS-021 v2 §4 signals + §12 EECI; OB-IGF-26 R0 Phase B halt diagnostic (second reduction layer in src/lib/agents/ira/passes/extract.ts); R1 Phase C replaces Pass 1 / Pass 2 with src/lib/agents/ira/reasoning.ts::reasonAgainstSurface; R1 Phase D retires fidelityAtInitialFilter helper; 82/82 IRA tests pass; Phase E validation invocation observed under revised runtime per OB-IGF-26 R1 §2 Recusal Gate (architect is evaluator).",
+          "open_verification_questions": [],
+          "last_verified_against_platform": "2026-04-19"
+        },
+        "purpose": "Given a description of intended work, return the precise applicable intelligence as a structured brief.",
+        "signals": {
+          "last_invoked": null,
+          "iva_violation_count": 0,
+          "ira_invocation_count": 0,
+          "iva_escalation_count": 0,
+          "ira_correctness_score": null,
+          "iva_false_positive_count": 0,
+          "invocation_recency_decay_weight": 1
+        },
+        "one_line": "Given a description of intended work, return the precise applicable intelligence as a structured brief.",
+        "statement": "The Intelligence Resolution Agent (IRA) is the pre-work agent. Given a description of intended work, the IRA returns the precise applicable intelligence as a structured brief. The brief is what the user works against — it is not a recommendation, it is a constraint. CC, design conversations, and Andrew himself work against the brief and can refer to it during work as the authoritative source of 'what intelligence applies here.'",
+        "provenance": {
+          "origin_date": "2026-04-07",
+          "origin_session": "IGF v0.1 governance session, April 7, 2026",
+          "origin_artifact": "IGF_STRUCTURAL_SPECIFICATION_v0.2_20260407.md Section 5.1",
+          "v2_supersession": "TC-E09-V2 (HF-IGF-01)",
+          "v3_supersession": "TC-E09-V3 (HF-IGF-03, April 13, 2026)",
+          "v4_supersession": "TC-E09-V4 (OB-IGF-13, 2026-04-13)",
+          "v6_supersession": "TC-E09-V6 (OB-IGF-26, 2026-04-19)",
+          "v7_supersession": "TC-E09-V7 (OB-IGF-26 R1, 2026-04-19)",
+          "cross_references": [
+            "IGF-T0-E07",
+            "IGF-T0-E10",
+            "IGF-T1-E912",
+            "IGF-T1-E913",
+            "IGF-T1-E906",
+            "IGF-T1-E902",
+            "IGF-T1-E910"
+          ],
+          "historical_statements": [
+            {
+              "version": 1,
+              "wording": "Original v1 — operating loop with 6 steps, output contract without supersession_candidates"
+            },
+            {
+              "version": 2,
+              "wording": "v2 (HF-IGF-01) — added Step 7 (Principle-Rule Coherence Check) and supersession_candidates output field"
+            }
+          ]
+        },
+        "applies_when": [
+          "Modifying the IRA prompt template",
+          "Reviewing IRA brief output for correctness",
+          "Designing IRA invocation points in the integration model",
+          "Tuning IRA performance metrics (precision, recall, latency)",
+          "Auditing whether IRA is conforming to its boundary (read-only on substrate)",
+          "Modifying the IRA prompt builder or the SurfaceManifest-to-prompt formatting",
+          "Adding or changing substrate body fields that the prompt should surface inline",
+          "Reviewing whether the reasoning plane receives substrate body at the intended fidelity",
+          "Modifying the unified reasoning call (src/lib/agents/ira/reasoning.ts) or its tool schemas",
+          "Changing the CRL-governed strategy selection (single vs decomposed) in runtime.ts",
+          "Revising signal-fidelity resolution or the SurfaceManifest fidelity-to-signal mapping",
+          "Reviewing whether new runtime mechanics preserve Pass 3 assemble.ts fail-loud invariants"
+        ],
+        "prompt_shape": "manifest_body_content_per_fidelity_v6",
+        "runtime_shape": "unified_manifest_reasoning_v7",
+        "escalates_when": [
+          "IRA cannot determine applicability with sufficient confidence",
+          "Substrate has no entries covering the work area (gap detection)",
+          "Multiple high-priority entries conflict and resolution requires human judgment"
+        ],
+        "input_contract": {
+          "caller": "type (human | claude_session | cc_agent) and identity",
+          "work_type": "ob | hf | ds | clt | design_question | memory_edit | igf_modification | other",
+          "work_scope": "Optional hints to narrow resolution: touches_auth, touches_calculation_engine, touches_committed_data, touches_ui, touches_ingestion, touches_schema, touches_governance, other_scope_hints",
+          "prior_artifacts": "Optional URLs/paths to related work",
+          "work_description": "Free-form natural language description of intended work. Specific enough that applicability can be reasoned about, but not so detailed that it duplicates the implementation."
+        },
+        "operating_loop": [
+          {
+            "name": "Prior art retrieval",
+            "step": 0,
+            "description": "Compute governance fingerprint from input contract (task_class + work_scope + initial substrate-binding-signature-estimate + output_class per DA-IGF-02 §3). Query L3 igf.prior_art_density at three flywheel scopes in priority order: conversation > project > domain. Tier 1 exact match: return cached brief; skip Steps 1-8. Tier 2 structural analogy: inherit cached binding signature; execute Steps 5-8 only with targeted LLM. Tier 3 novel: proceed Steps 1-8 fully; ICA captures novel fingerprint to L3 post-invocation. Step 0 read-only on substrate via igf_ira_service."
+          },
+          {
+            "name": "Surface Judgment",
+            "step": 0.5,
+            "authority": "deterministic_per_T1-E903",
+            "description": "Between Step 0 density lookup and Pass 1 Identify, the Surface is classified for substrate-binding properties: work_scope density, task_class signal strength, substrate-binding breadth, Surface assembly health. This is a deterministic classification pass; any LLM-assisted sub-step inherits Step 0 deterministic authority and cannot override Step 0 tier_verdict. Step 0.5 produces a SurfaceJudgment packet consumed by Pass 1.",
+            "execution_mode": "hybrid_deterministic_llm_assisted",
+            "output_contract": "SurfaceJudgment packet: judgment_verdict (proceed/narrow/abort), substrate_binding_density, work_scope_alignment, anomaly_flags",
+            "invariants_enforced": [
+              "ira_step0p5_verdict_override",
+              "ira_step0p5_llm_authority_violation"
+            ],
+            "permitted_short_circuit": "judgment_verdict=abort returns immediately with preamble_text citing reason; no Pass 1-3 executed"
+          },
+          {
+            "name": "Substrate search",
+            "step": 1,
+            "description": "Tier-aware search using work description, work type, and scope hints. Always loads Tier 0 (Bootstrap), Tier 1 (Governing Principles), and any explicitly tagged scope tiers. Performs LLM-assisted semantic search across remaining tiers using applies_when and does_not_apply_when descriptors. NOT a vector search alone."
+          },
+          {
+            "name": "Applicability reasoning",
+            "step": 2,
+            "description": "For each candidate entry, reason about whether the entry actually applies to this specific work. Reasoning is logged as part of the brief — the user can see why each entry was included and why others were excluded."
+          },
+          {
+            "name": "Priority ranking",
+            "step": 3,
+            "description": "Applicable entries are ranked. Tier 0 and Tier 1 always rank highest. Within tiers: directness of applicability, severity of associated violation patterns, recency of invocation, signal-strength evidence from prior IVA outcomes."
+          },
+          {
+            "name": "Cross-reference expansion",
+            "step": 4,
+            "description": "For each top-ranked entry, follow cross_references and include referenced entries that meet a relevance threshold. Prevents the failure mode where a brief includes Calculation Sovereignty but not Carry Everything."
+          },
+          {
+            "name": "Health check",
+            "step": 5,
+            "description": "Inspect the health metadata of every entry returned. Stale, drift-flagged, and SUPERSEDED-PENDING VERIFICATION entries are surfaced explicitly with the staleness/verification context."
+          },
+          {
+            "name": "Gap detection",
+            "step": 6,
+            "description": "Check whether the work touches a topic the substrate does not cover. If uncovered, produce an explicit POSSIBLE GAP finding rather than returning an empty brief."
+          },
+          {
+            "name": "Principle-rule coherence check",
+            "step": 7,
+            "description": "For each high-tier principle entry returned in the brief (Tier 0 and Tier 1), examine whether the lower-tier rule entries also returned (Tier 2 through Tier 6) actually instantiate that principle for the work at hand, or whether the work surfaces a case the rules do not serve. For each detected incoherence, produce a supersession_candidates entry naming the rule whose service of the principle is in question, the governing principle, the aspect of the work that surfaces the under-service, and a recommended_action of extend, supersede, or reaffirm_as_exception. Coherence findings are observational, not prescriptive — IRA names the question; the architect dispositions the response. Coherence is checked against the work description, not against the abstract substrate state.\n\nWhen Step 7 identifies a principle-rule under-service that is ALSO surfaced by Step 8 option evaluation (an option alignment_reasoning cites the same coherence), the finding populates BOTH surfaces: top-level supersession_candidates AND corresponding option_recommendations[i].coherence_findings. Step 7 and Step 8 are not mutually exclusive; an invocation may fire both. An LLM that populates one surface while having content for both violates the adherence pattern."
+          },
+          {
+            "name": "Option evaluation against brief",
+            "step": 8,
+            "description": "When a piece of work includes options — either user-supplied (the architect names candidate paths in the work description) or substrate-grounded (substrate explicitly enumerates alternatives that apply to the work) — IRA evaluates each option against the assembled brief and produces a ranked recommendation with substrate-cited reasoning per option. IRA self-generates options when substrate names them as alternatives, exercising the LLM intelligence that substrate-bound reasoning makes available. IRA does not invent options not present in either source. Each option produces an entry in option_recommendations with fields per T1-E913 verbatim: option_id, source (user_supplied | substrate_named), substrate_basis (entry_ids that ground the option), alignment_reasoning, conflicts_detected, recommendation_rank, recommended_action. Per-option coherence_findings (when produced) propagate to top-level supersession_candidates only when the finding identifies a principle-rule under-service that applies cross-cutting; option-local findings (option conflicts with a specific entry) remain scoped to the option entry. The architect retains disposition authority on the recommendation; IRA recommends, the architect decides.\n\nOption evaluation does not substitute for Step 7. If any option alignment_reasoning identifies principle-rule under-service, the coherence finding is surfaced in both option_recommendations[i].coherence_findings (option-local) AND top-level supersession_candidates (cross-cutting implication)."
+          }
+        ],
+        "output_contract": {
+          "resolved_at": "ISO timestamp",
+          "brief_health": "Object with efficiency_score, estimated_efficacy, comprehensiveness_warnings",
+          "tier_verdict": "Enum: tier_1_exact_match | tier_2_structural_analogy | tier_3_novel. Required on every invocation. Fail-loud invariant.",
+          "possible_gaps": "Array of {description, recommended_action} for areas the substrate does not cover",
+          "evaluation_status": "Enum: 'did_not_fire' (Step 8 not invoked because no options present in work or substrate) | 'fired_with_results' (Step 8 invoked, option_recommendations populated) | 'fired_no_options' (Step 8 invoked but no substrate-grounded options found for evaluation). Honors T1-E906 closed-loop requirement that absence of result is distinguishable from failure to invoke.",
+          "applicable_entries": "Array of {id, tier, relevance, reasoning, health_warnings}",
+          "excluded_candidates": "Array of {id, reasoning} for entries considered but excluded",
+          "retrieved_prior_art": "Object {fingerprint_hash, scope_level, scope_identifier, match_count, confidence, brief_payload} on Tier 1/2; null on Tier 3.",
+          "work_description_hash": "sha256 of input — so IVA can verify it is verifying against the same input",
+          "option_recommendations": "Array of {option_id (string), source (user_supplied | substrate_named), substrate_basis ([entry_ids]), alignment_reasoning (string), conflicts_detected (Array of {conflicting_entry_id, conflict_type, reasoning}), recommendation_rank (integer, 1=highest), recommended_action (string), coherence_findings (Array, optional, option-local scope)} for each option evaluated. Empty array when Step 8 did not fire (no options present in work or substrate).",
+          "supersession_candidates": "Array of {entry_id, governing_principle_id, coherence_finding, recommended_action (extend | supersede | reaffirm_as_exception), reasoning} for rules that may under-serve the higher-tier principles they instantiate, given the specific work. Empty array when no under-service detected.",
+          "required_actions_before_work": "Array of actions the user should take before work begins (e.g., 'Verify GP-02 against current calculation engine')"
+        },
+        "adherence_patterns": [
+          {
+            "description": "Every IRA invocation produces a brief conforming to the output contract"
+          },
+          {
+            "description": "IRA reasoning is logged for every entry included in the brief"
+          },
+          {
+            "description": "IRA writes only to agent_invocations table"
+          },
+          {
+            "description": "Stale entries are surfaced in brief health_warnings, not silently ignored"
+          },
+          {
+            "description": "Every IRA brief evaluates principle-rule coherence for the specific work via Step 7 and surfaces findings in supersession_candidates, even when the array is empty (empty array confirms the check ran)"
+          },
+          {
+            "description": "Step 8 fires when work description names options OR substrate-bound entries enumerate alternatives applicable to the work; option_recommendations populated with substrate-grounded ranking and reasoning per option"
+          },
+          {
+            "description": "evaluation_status is set on every IRA invocation regardless of whether Step 8 fires, providing closed-loop signal per T1-E906"
+          },
+          {
+            "description": "Every IRA invocation produces a Step 0 tier verdict before Steps 1-8 execute"
+          },
+          {
+            "description": "Tier 1 cache hits return cached brief with cost_usd=0; Steps 1-8 do not execute"
+          },
+          {
+            "description": "Tier 3 novel results trigger ICA capture of new prior_art_density row post-invocation"
+          },
+          {
+            "description": "When Step 7 and Step 8 both identify the same principle-rule under-service, both output surfaces are populated; the LLM does not choose between them"
+          },
+          {
+            "description": "Option_recommendations that propose architectural changes (new modules, new boundaries, new abstractions) include an explicit fitness-of-purpose assessment: what defect surface does the change address, and is the change proportionate to that surface? Options proposing architecture beyond defect-proportionality MUST carry this assessment in their alignment_reasoning."
+          }
+        ],
+        "violation_patterns": [
+          {
+            "severity": "critical",
+            "description": "IRA prompt template modified without bootstrap modification protocol"
+          },
+          {
+            "severity": "high",
+            "description": "IRA invoked with input that does not conform to the input contract"
+          },
+          {
+            "severity": "high",
+            "description": "IRA output that does not conform to the output contract"
+          },
+          {
+            "severity": "critical",
+            "consequence": "Boundary violation — IRA must remain read-only.",
+            "description": "IRA write to any substrate table other than agent_invocations"
+          },
+          {
+            "severity": "critical",
+            "consequence": "Innovate dimension of E/E/C/I tetrad has no contracted surface; substrate accumulates institutionalized drift between principles and rules silently.",
+            "description": "IRA returns a rule as binding without examining whether it still serves the higher-tier principle it instantiates for the specific work (Step 7 omitted)"
+          },
+          {
+            "severity": "high",
+            "description": "Step 7 produces a coherence finding but supersession_candidates output omits it (silent drop)"
+          },
+          {
+            "severity": "critical",
+            "consequence": "T1-E913 not served; architect synthesizes recommendation without substrate grounding.",
+            "description": "IRA returns brief with options present in work description but option_recommendations field empty with evaluation_status='did_not_fire'"
+          },
+          {
+            "severity": "critical",
+            "consequence": "T1-E913 boundary violated; IRA invents options not present in source.",
+            "description": "option_recommendations contains entries with option_id not traceable to either work_description or substrate entry IDs"
+          },
+          {
+            "severity": "high",
+            "consequence": "T1-E906 closed loop not served; architect cannot distinguish step-not-fired from step-fired-empty.",
+            "description": "evaluation_status field omitted from output"
+          },
+          {
+            "severity": "critical",
+            "description": "IRA Steps 1-8 execute without prior Step 0 tier check"
+          },
+          {
+            "severity": "critical",
+            "description": "IRA writes to igf.prior_art_density (boundary violation; ICA owns L3 INSERT per T0-E16)"
+          },
+          {
+            "severity": "high",
+            "description": "Step 0 fingerprint computation skipped; substrate query runs without cache lookup"
+          },
+          {
+            "severity": "high",
+            "consequence": "Coherence/options collapse - observed in OB-IGF-15 Phase 1 pre-HF (2026-04-13). Architect loses the option ranking view OR the coherence view; dispositioning is degraded.",
+            "description": "An invocation where option_recommendations is empty while supersession_candidates contains findings that ranked options, OR vice versa"
+          },
+          {
+            "severity": "critical",
+            "consequence": "Body-absent reasoning failure mode reemerges; the 2026-04-19 diagnostic repeats.",
+            "description": "Prompt builder reduces a full_body or density_summary entry to identifier-only before LLM consumption (reintroduces the retired Phase C shim pattern)."
+          },
+          {
+            "severity": "high",
+            "consequence": "Carry Everything violated at the prompt layer; reasoning plane cannot cite propositions the substrate actually contains.",
+            "description": "Prompt builder strips a field the fidelity level prescribes to include (e.g., dropping applies_when from a density_summary entry)."
+          },
+          {
+            "severity": "high",
+            "consequence": "Korean Test violated; non-English substrate cannot be surfaced uniformly.",
+            "description": "Prompt builder inserts substrate content by language-specific content matching rather than by structural field name / tier selection."
+          },
+          {
+            "severity": "high",
+            "consequence": "Developer-assigned numerical value reintroduced; fidelity is no longer the assembler's structural decision.",
+            "description": "Prompt builder introduces a fidelity threshold beyond what the assembler assigned (e.g., a hardcoded token budget that skips entries below a numerical cutoff)."
+          },
+          {
+            "severity": "medium",
+            "consequence": "Null-safety requirement violated; runtime halts on valid-but-variant substrate JSONB shapes.",
+            "description": "Prompt builder fails on shape variance (e.g., substrate entry missing one field throws rather than degrading gracefully)."
+          },
+          {
+            "severity": "critical",
+            "consequence": "Second reduction layer reemerges; body-absent reasoning at Pass 2 returns; OB-IGF-26 R0 Phase B halt condition reproduces.",
+            "description": "Runtime reintroduces a Pass 1 / Pass 2 serial pipeline or any per-unit extractor that rebuilds prompts inline from entry_id + keyword-search surface."
+          },
+          {
+            "severity": "critical",
+            "consequence": "The retired Pass 1 -> Pass 2 message-passing pattern sneaks back under a different name. Branch calls must each receive the full manifest; no inter-branch wire-up.",
+            "description": "Decomposition path implemented with serial dependencies between branches (e.g., options call receives entries-branch output as input)."
+          },
+          {
+            "severity": "high",
+            "consequence": "No-developer-assigned-numerical-values rule violated. All strategy decisions must be CRL-read or tier-structural per DS-021 v2 §4.2.",
+            "description": "Hardcoded numerical threshold introduced in strategy selection (e.g., \"> 25% failure rate\" or \"manifest entry count > N\")."
+          },
+          {
+            "severity": "high",
+            "consequence": "Signal stream misrepresents what the reasoning plane saw. CRL accumulation at the wrong fidelity produces spurious strategy decisions.",
+            "description": "Signal writer records fidelity_level from a constant or tier-default rather than from the manifest entry actually delivered to the prompt."
+          },
+          {
+            "severity": "medium",
+            "consequence": "T1-E903 tier-verdict authority, prior-art fingerprint authenticity, and output-contract consistency can regress silently. Pass 3 is the single semantic boundary per T0-HIST-M35; unified reasoning does not relocate invariants to Pass 3 or earlier.",
+            "description": "Pass 3 assemble.ts invariants weakened or bypassed to accommodate the unified response."
+          }
+        ],
+        "does_not_apply_when": [
+          "Operational use of IRA outputs by humans or downstream agents (those use the output contract)",
+          "Modifying other agent prompt templates (use entries 10, 11, 12)"
+        ],
+        "prompt_shape_detail": {
+          "scale": "Ambient full-body + density identifier_only produces ~42K input tokens at a representative fingerprint (2026-04-19 measurement). Density at density_summary / abbreviated / full_body grows with signal accumulation but is bounded by CRL promotion. Well within existing IRA MAX_TOKENS.",
+          "version": 6,
+          "description": "The IRA runtime builds the prompt directly from the DS-021 §5.1 SurfaceManifest (ambient + density + fingerprint) rather than from a reduced SubstrateEntry[] of id/tier/title. Substrate body content is rendered inline per the fidelity the surface assembler assigned to each entry. The Phase C compatibility shim surfaceToSubstrateEntries is retired; no env flag governs the switch.",
+          "korean_test": "Field selection is structural (by JSONB field name and tier), not language-specific content matching.",
+          "null_safety": "All JSONB field accesses are optional-chained. Missing fields degrade gracefully — the builder never fails on shape variance across substrate tiers.",
+          "carry_everything": "Below-promoted density entries remain visible at identifier_only fidelity; the reasoning plane may escalate any surfaced entry via signal write per DS-021 §5.4. Nothing is hidden.",
+          "retirement_triggers": [
+            "Compatibility shim src/lib/agents/ira/surface_shim.ts deleted in OB-IGF-26 Phase A",
+            "Env flag IRA_USE_SURFACE_AS_PRIMARY retired — surface is the sole reasoning-plane input",
+            "PROMPT_VERSION bumped from ira-v4.1-multipass-2026-04-13 to ira-v5.0-manifest-2026-04-19"
+          ],
+          "fidelity_field_mapping": {
+            "full_body": "statement, applies_when, escalates_when, violation_patterns, does_not_apply_when, false_positive_triggers, provenance.cross_references",
+            "abbreviated": "one_line, applies_when",
+            "density_summary": "statement, applies_when",
+            "identifier_only": "id, tier, title, and one_line when content preserves it (Carry Everything)"
+          }
+        },
+        "runtime_shape_detail": {
+          "version": 7,
+          "description": "The IRA runtime performs one structured LLM call consuming the full DS-021 SurfaceManifest (ambient + density with fidelity-driven body rendering from Phase A buildIRAPrompt), producing the complete output contract (applicable_entries, excluded_candidates, option_recommendations, supersession_candidates, possible_gaps, plus tier_verdict and reasoning) in one tool-use response. Pass 1 / Pass 2 serial pipeline is retired.",
+          "call_topology": "single_call_by_default",
+          "prompt_version": "ira-v6.0-unified-2026-04-19",
+          "signal_fidelity": "Classification and Comprehension signals record per-entry fidelity from the SurfaceManifest, not from a constant-return helper. fidelityAtInitialFilter() retired in R1 Phase D.",
+          "assembly_boundary": "src/lib/agents/ira/passes/assemble.ts — Pass 3 fail-loud invariants unchanged; continues to enforce T1-E903 tier-verdict authority, fingerprint authenticity, output-contract consistency",
+          "retired_artifacts": [
+            "src/lib/agents/ira/passes/identify.ts (executePass1Identify)",
+            "src/lib/agents/ira/passes/extract.ts (extractApplicableEntry + 3 companions + batchExtract)",
+            "src/lib/agents/ira/prompts/pass_1_identify.ts",
+            "src/lib/agents/ira/prompts/pass_2a_entry_extraction.ts",
+            "src/lib/agents/ira/prompts/pass_2b_option_eval.ts",
+            "src/lib/agents/ira/prompts/pass_2c_coherence.ts",
+            "src/lib/agents/ira/prompts/pass_2d_gap.ts"
+          ],
+          "decomposition_mechanism": {
+            "trigger": "CRL-read of prior-invocation outcomes at same fingerprint (prompt_version LIKE ira-v6%)",
+            "branches": [
+              "emit_entries_branch",
+              "emit_options_branch",
+              "emit_coherence_branch",
+              "emit_gaps_branch"
+            ],
+            "decision": "binary: any prior failure at this fingerprint promotes subsequent invocations to decomposed; otherwise single",
+            "structure": "parallel-structural — four concurrent LLM calls via Promise.all, each receiving the full manifest, each constrained to emit one branch via a dedicated tool schema. No serial dependencies between branches.",
+            "thresholds": "zero developer-assigned; all thresholds CRL-read or tier-structural per DS-021 v2 §4.2",
+            "cold_start_prior": "tier-structural — single call for all scope categories (resolution/advisory/verification/capture)"
+          }
+        },
+        "historical_statements": [
+          {
+            "version": 4,
+            "wording": "v4 operating_loop with 9 entries (Step 0 + Steps 1-8); no execution_architecture; no invariant_placement_strategy; pre-multi-pass substrate state - superseded by v5 when HF-IGF-04 multi-pass runtime gained substrate governance"
+          },
+          {
+            "version": 5,
+            "wording": "v5 (OB-IGF-15 2026-04-13) — multi-pass execution architecture; invariant_placement_strategy; SubstrateEntry[] prompt-input shape inherited from pre-OB-IGF-25 era. Prompt shape superseded by v6 when OB-IGF-26 routed full SurfaceManifest body content to the reasoning plane."
+          },
+          {
+            "version": 6,
+            "wording": "v6 (OB-IGF-26 R0 Phase A, 2026-04-19) — retired Phase C compatibility shim; manifest body content delivered via buildIRAPrompt at Pass 1. Pass 2 per-unit extractors retained and were the second reduction layer R0 Phase B diagnosed. Superseded by v7 when R1 retired the Pass 2 construct entirely."
+          }
+        ],
+        "execution_architecture": {
+          "model": "three_pass_chunked_pipeline",
+          "passes": [
+            {
+              "name": "Identify",
+              "pass": 1,
+              "scope": "single LLM call enumerating units for Pass 2",
+              "output_contract": "IdentifyPacket"
+            },
+            {
+              "name": "Per-unit extraction",
+              "pass": 2,
+              "scope": "one LLM call per unit (applicable entry, option, principle-rule pair, gap area); parallelized within PASS_2_CONCURRENCY bound; retry-isolated per unit",
+              "output_contract": "array of unit extractions or UnitFailure records"
+            },
+            {
+              "name": "Assembly",
+              "pass": 3,
+              "scope": "pure function; no LLM call; applies all fail-loud invariants",
+              "output_contract": "IraResponse per T0-E09 output_contract"
+            }
+          ],
+          "provenance": "HF-IGF-04 port of VP-validated pattern per ViaLuce_AI_ML_Architecture_Briefing.docx Chunked Pipeline Design Backlog 7.11",
+          "token_budget_gate": {
+            "timing": "fires before Pass 1 if question + Surface + always-loaded Tier 0/1 exceeds INPUT_TOKEN_BUDGET_APPROX",
+            "authority": "T5-E907 Full Payloads + fail-fast discipline",
+            "invariant": "ira_input_budget_exceeded"
+          },
+          "step_to_pass_mapping": {
+            "step_6": "Pass 2d per-gap-area extraction",
+            "step_7": "Pass 2c per-principle-rule-pair coherence",
+            "step_8": "Pass 2b per-option evaluation",
+            "assembly": "Pass 3 pure function",
+            "step_1_step_2": "Pass 1 Identify",
+            "step_0_step_0p5": "execute before Pass 1; deterministic; may short-circuit",
+            "step_3_step_4_step_5": "Pass 2a per-entry extraction"
+          },
+          "partial_failure_policy": {
+            "authority": "T0-E03 Comprehensive - degraded briefs below completeness threshold are unreliable",
+            "invariant": "ira_response_excessive_unit_failures",
+            "threshold": "Pass 2 unit failure rate > 25% of total units"
+          }
+        },
+        "false_positive_triggers": [
+          "An IRA brief that returns more entries than necessary is verbose, not violating — Efficiency is the relevant gate (Entry 1)",
+          "An IRA escalation due to genuine substrate gap is correct behavior, not failure",
+          "Coherence findings against rules with high IVA-honored signal across many work classes are unlikely to need supersession; the disposition reaffirm_as_exception is correct when the case is exceptional rather than signaling broader rule degradation",
+          "Coherence findings during architecture redirect (T5-E961 territory) are expected behavior — the redirect IS the principle assertion, the prior rule IS the candidate for supersession",
+          "An empty supersession_candidates array is correct output when no under-service is detected; IRA must not invent findings to populate the field",
+          "An empty option_recommendations array with evaluation_status='did_not_fire' is correct output when work description and substrate present no options",
+          "An empty option_recommendations array with evaluation_status='fired_no_options' is correct output when Step 8 fired but found no substrate-grounded options to evaluate; IRA must not invent options to populate the field",
+          "Per-option coherence_findings that do not propagate to top-level supersession_candidates are correct when the finding is option-local (option conflicts with specific entry) rather than cross-cutting (principle-rule under-service)"
+        ],
+        "invariant_placement_strategy": {
+          "rationale": "T0-HIST-M35 mandates authoritative state enforcement and verification convenience remain structurally separated. Pass 3 is the single semantic boundary where the T0-E09 output contract materializes; it is the only correct location for contract-enforcing invariants.",
+          "convenience_layer": {
+            "scope": "early-detection convenience that prevents cascading per-unit work; structurally subordinate to Pass 3",
+            "location": "Pass 1 Identify (e.g., ira_pass1_tier_verdict_override)",
+            "authority": "MUST NOT be treated as authoritative by downstream code; Pass 3 invariants are redundantly enforced even if Pass 1 passes"
+          },
+          "permitted_patterns": [
+            "Pass 3 invariants enforce the T0-E09 output contract",
+            "Pass 1 convenience invariants catch obvious contract violations before expensive Pass 2",
+            "Schema validation at each LLM response boundary (input parsing) - this is not invariant enforcement, it is input validation",
+            "Token budget gate before Pass 1 - pre-flight discipline, not contract enforcement"
+          ],
+          "prohibited_patterns": [
+            "Dedicated ValidationBoundary module called from both Pass 1 and Pass 3 - conflates authoritative and convenience layers (T0-HIST-M35 violation)",
+            "Invariants in runtime.ts orchestrator - bypasses Pass 3 semantic boundary",
+            "Per-Pass-2-unit invariants that replicate Pass 3 checks - redundant computation without proportionate safety gain (T0-E01 efficiency)"
+          ],
+          "authoritative_boundary": "Pass 3 Assembly",
+          "authoritative_invariants_location": "src/lib/agents/ira/passes/assemble.ts"
+        },
+        "agent_boundary_protocol_position": "IRA NEVER modifies entries. IRA NEVER proposes new entries. IRA is read-only on the substrate. IRA writes only to agent_invocations (its own invocation records)."
+      },
+      "why_it_binds": "Statement: 'Given a description of intended work, the IRA returns the precise applicable intelligence as a structured brief.' The applies_when includes: 'Reviewing IRA brief output for correctness.' This is an IRA invocation performing substrate-coherence review with option evaluation. The entry's violation pattern '[critical] IRA returns a rule as binding without examining whether it still serves the higher-tier principle it instantiates for the specific work (Step 7 omitted)' directly governs this invocation — Step 7 coherence check must be performed on the G7/G11 principles against their lower-tier instantiations. The entry also governs Step 8: '[critical] IRA returns brief with options present in work description but option_recommendations field empty' — the architect has supplied two options requiring evaluation."
+    },
+    {
+      "id": "IGF-T0-E02",
+      "tier": 0,
+      "title": "E/E/C/I Tetrad — Efficacy Dimension",
+      "content": {
+        "id": "IGF-T0-E02",
+        "name": "E/E/C/I Tetrad — Efficacy",
+        "tier": 0,
+        "health": {
+          "status": "locked",
+          "version": 1,
+          "successor": null,
+          "drift_flags": [],
+          "predecessor": null,
+          "last_modified": "2026-04-09",
+          "staleness_days": 0,
+          "last_modified_by": "Andrew (via OB-IGF-01)",
+          "verification_evidence": "Sourced verbatim from v0.2 Section 2.2",
+          "open_verification_questions": [],
+          "last_verified_against_platform": "2026-04-09"
+        },
+        "signals": {
+          "last_invoked": null,
+          "iva_violation_count": 0,
+          "ira_invocation_count": 0,
+          "iva_escalation_count": 0,
+          "ira_correctness_score": null,
+          "iva_false_positive_count": 0,
+          "invocation_recency_decay_weight": 1
+        },
+        "one_line": "The IGF must resolve the right intelligence, not just any intelligence.",
+        "statement": "The IGF must resolve the right intelligence, not just any intelligence. The brief produced by the IRA must contain the entries actually applicable to the work, ranked by priority, with reasoning that explains why each entry applies. The adherence report produced by the IVA must catch real violations and not produce false positives that train users to ignore reports. Efficacy is measured by: precision (entries returned that are applicable), recall (entries applicable that are returned), correctness of priority ranking, accuracy of violation detection, accuracy of adherence detection.",
+        "provenance": {
+          "origin_date": "2026-04-07",
+          "origin_session": "IGF v0.1 governance session, April 7, 2026",
+          "origin_artifact": "IGF_STRUCTURAL_SPECIFICATION_v0.2_20260407.md Section 2.2",
+          "cross_references": [
+            "IGF-T0-E01",
+            "IGF-T0-E03",
+            "IGF-T0-E04",
+            "IGF-T0-E05"
+          ],
+          "historical_statements": []
+        },
+        "applies_when": [
+          "Evaluating any IRA brief for correctness",
+          "Evaluating any IVA adherence report for correctness",
+          "Tuning the agents' applicability reasoning",
+          "Reviewing precision and recall metrics from the IMA",
+          "Evaluating whether a substrate entry is being correctly invoked"
+        ],
+        "escalates_when": [
+          "Brief or report correctness cannot be measured directly and requires human verification",
+          "Precision and recall metrics conflict with subjective user assessment"
+        ],
+        "adherence_patterns": [
+          {
+            "description": "Brief precision approaches 1.0 — every entry returned is genuinely applicable"
+          },
+          {
+            "description": "Brief recall approaches 1.0 — every applicable entry is returned"
+          },
+          {
+            "description": "Adherence report findings have high agreement with subsequent human verification"
+          },
+          {
+            "description": "Priority ranking matches the order users actually consult the brief"
+          }
+        ],
+        "violation_patterns": [
+          {
+            "severity": "critical",
+            "consequence": "Work conforms to the wrong principles. CC builds correct code that violates uncited principles.",
+            "description": "IRA brief returns the wrong entries (false positives) or omits applicable entries (false negatives)"
+          },
+          {
+            "severity": "critical",
+            "consequence": "Users learn to ignore reports. The IVA becomes noise.",
+            "description": "IVA adherence report flags non-violations as violations"
+          },
+          {
+            "severity": "critical",
+            "consequence": "The CLT-14B failure mode repeats: code is approved that violates principles never invoked.",
+            "description": "IVA adherence report misses real violations"
+          },
+          {
+            "severity": "high",
+            "description": "Priority ranking in a brief is incorrect — high-priority entries ranked low or vice versa"
+          }
+        ],
+        "does_not_apply_when": [
+          "Evaluating cost (that is Efficiency, Entry 1)",
+          "Evaluating coverage breadth (that is Comprehensive, Entry 3)"
+        ],
+        "false_positive_triggers": [
+          "An IRA brief that returns more entries than necessary is verbose, not necessarily inefficacious — Efficiency is the relevant gate",
+          "An IVA report that escalates rather than declares a violation is acting correctly when evidence is insufficient"
+        ]
+      },
+      "why_it_binds": "Statement: 'The brief produced by the IRA must contain the entries actually applicable to the work, ranked by priority, with reasoning that explains why each entry applies.' Efficacy applies because this is a high-stakes disposition question — the architect is asking IRA to ground a magnitude assessment (severe vs blocking) in substrate evidence. The entry's violation pattern '[critical] IRA brief returns the wrong entries (false positives) or omits applicable entries (false negatives)' is directly relevant: the G7 and G11 commitment texts are referenced by the architect but are at identifier_only fidelity in the density tier, creating a false-negative risk that must be flagged."
+    },
+    {
+      "id": "IGF-T0-E03",
+      "tier": 0,
+      "title": "E/E/C/I Tetrad — Comprehensive Dimension",
+      "content": {
+        "id": "IGF-T0-E03",
+        "name": "E/E/C/I Tetrad — Comprehensive",
+        "tier": 0,
+        "health": {
+          "status": "locked",
+          "version": 1,
+          "successor": null,
+          "drift_flags": [],
+          "predecessor": null,
+          "last_modified": "2026-04-09",
+          "staleness_days": 0,
+          "last_modified_by": "Andrew (via OB-IGF-01)",
+          "verification_evidence": "Sourced verbatim from v0.2 Section 2.3",
+          "open_verification_questions": [],
+          "last_verified_against_platform": "2026-04-09"
+        },
+        "signals": {
+          "last_invoked": null,
+          "iva_violation_count": 0,
+          "ira_invocation_count": 0,
+          "iva_escalation_count": 0,
+          "ira_correctness_score": null,
+          "iva_false_positive_count": 0,
+          "invocation_recency_decay_weight": 1
+        },
+        "one_line": "The IGF must cover the full body of governing intelligence; gaps must be tracked, not silent.",
+        "statement": "The IGF must cover the full body of governing intelligence. Gaps in the substrate are silent failure surfaces — work that touches a topic the substrate does not cover gets no brief, gets no verification, and the absence is invisible. Comprehensiveness is measured by: substrate coverage of known intelligence sources (Decisions, Standing Rules, Anti-Patterns, DS specs, TMR addenda, Concept Registry, memory rules), identified-and-tracked gaps (entries that should exist but do not — first-class metadata, not silent absence), and the rate at which new intelligence is captured into the substrate as it emerges in development.",
+        "provenance": {
+          "origin_date": "2026-04-07",
+          "origin_session": "IGF v0.1 governance session, April 7, 2026",
+          "origin_artifact": "IGF_STRUCTURAL_SPECIFICATION_v0.2_20260407.md Section 2.3",
+          "cross_references": [
+            "IGF-T0-E01",
+            "IGF-T0-E02",
+            "IGF-T0-E04",
+            "IGF-T0-E05"
+          ],
+          "historical_statements": []
+        },
+        "applies_when": [
+          "Evaluating substrate coverage against known sources of governing intelligence",
+          "Designing the ICA's harvest behavior to ensure new intelligence is captured",
+          "Reviewing gap tracking — entries that should exist but do not",
+          "Onboarding a new domain or area of platform behavior to substrate governance",
+          "Auditing whether the substrate has become a partial map"
+        ],
+        "escalates_when": [
+          "A gap is identified but its resolution would require tier reorganization",
+          "Comprehensive and Efficiency are in tension (more coverage = more cost) and the resolution is not obvious"
+        ],
+        "adherence_patterns": [
+          {
+            "description": "Every known intelligence source is covered by at least one substrate entry"
+          },
+          {
+            "description": "Identified gaps are first-class entries with status 'gap_known' rather than silent absences"
+          },
+          {
+            "description": "ICA Mode 4 captures new intelligence at the moment of generation, not weeks later"
+          },
+          {
+            "description": "Substrate coverage rate keeps pace with platform evolution"
+          }
+        ],
+        "violation_patterns": [
+          {
+            "severity": "critical",
+            "consequence": "The substrate becomes a partial map. Drift accumulates in the ungoverned regions.",
+            "description": "Areas of platform behavior governed by intelligence that exists nowhere in the substrate"
+          },
+          {
+            "severity": "high",
+            "consequence": "The Meta-1 workaround drift pattern from the handoff repeats at the substrate level.",
+            "description": "Gaps tracked silently in conversation but never recorded as substrate metadata"
+          },
+          {
+            "severity": "high",
+            "consequence": "C-13 staleness pattern repeats — the substrate falls behind reality.",
+            "description": "Intelligence sources (Decisions, Standing Rules, etc.) added to the platform but never migrated into substrate entries"
+          }
+        ],
+        "does_not_apply_when": [
+          "Evaluating individual entry correctness (Efficacy, Entry 2)",
+          "Evaluating the cost of operations (Efficiency, Entry 1)"
+        ],
+        "false_positive_triggers": [
+          "Coverage of low-value or deprecated intelligence is not required — Comprehensive applies to live, governing intelligence",
+          "A gap that has been explicitly accepted by Andrew as out of scope is not a Comprehensive failure"
+        ]
+      },
+      "why_it_binds": "Statement: 'Gaps in the substrate are silent failure surfaces — work that touches a topic the substrate does not cover gets no brief, gets no verification, and the absence is invisible.' The architect explicitly requests bindings to DS-021 v1.0 Section 6 (G7/G11 commitment text), Section 12 (Substrate Bounded Authority), and Section 14 FLI-1 (G11 enforcement mechanism). These are not present as full-body ambient entries. The violation pattern '[critical] Areas of platform behavior governed by intelligence that exists nowhere in the substrate' applies: the G7/G11 enforcement mechanism specifications and substrate-bounded-authority methodology are governing intelligence for this disposition but are not surfaced at reasoning fidelity."
+    },
+    {
+      "id": "IGF-T1-E910",
+      "tier": 1,
+      "title": "The Korean Test (Unifying Meta-Principle)",
+      "content": {
+        "origin": "Base TMR OB-24 R9 (thought experiment). Addendum 10 / Decision 66 (automated grep enforcement). Memory AP-25 (structural heuristics). CC_STANDING_RULES v3.0 (language strings). DS-014 §2.4 (capability vocabulary). Decision 24 implied (calculation primitives).",
+        "rationale": "The exemplar case for why the governing principle tier exists. Six or seven distinct scope expressions across documents with no single document capturing the unifying meta-principle. The inventory designates this as the anchor case and the canonical proof that vialuce has an unwritten meta-layer. Requires its own focused session per handoff Section 8.",
+        "statement": "If you replaced every field name, component name, plan name, and data_type with Korean equivalents, would the platform still produce correct results? All field identification must use structural heuristics (value ranges, data types, column distributions), never field-name matching in any language. Zero language-specific or domain-specific string literals in foundational code.",
+        "cross_references": [
+          "Decision 66",
+          "AP-25 (with numbering collision note)",
+          "P-04 AI-First / No Hardcoded Assumptions",
+          "Cluster 4 in inventory"
+        ],
+        "disposition_note": "The inventory recommends this not be dispositioned without the focused Meta-Principle Architecture session scoped in handoff Section 8. Capturing here to prevent further silent drift while the focused session is scheduled.",
+        "drift_assessment": "HIGHEST in inventory. 6-7 distinct scope expressions, no unifying statement, AP-25 numbering collision.",
+        "scope_expressions_found": 7
+      },
+      "why_it_binds": "Statement: 'If you replaced every field name, component name, plan name, and data_type with Korean equivalents, would the platform still produce correct results? All field identification must use structural heuristics (value ranges, data types, column distributions), never field-name matching in any language.' The audit evidence (S-SCHEMA-G7-01) shows signal_type column is TEXT with no CHECK constraint. Live signal_type values use ad hoc naming (sci:classification_outcome_v2, training:plan_interpretation, sci:cost_event) rather than the three-level vocabulary (classification:/comprehension:/convergence:). The convergence service uses underscore form (convergence_calculation_validation) rather than colon prefix. This is not directly a Korean Test violation but the structural heuristic principle applies: the signal surface's type vocabulary is not structurally enforced, meaning any consumer must pattern-match on string content rather than structural constraints."
+    },
+    {
+      "id": "IGF-T1-E905",
+      "tier": 1,
+      "title": "Prove, Don't Describe",
+      "content": {
+        "origin": "Base TMR (Prove, Don't Describe) + Base TMR (Immutable Proof Gates, OB-09/OB-14). Combined here as they form one governing commitment with two faces: evidence required (Prove) and criteria immutable (Proof Gates).",
+        "rationale": "Upstream of the most populated principle cluster in the inventory (Cluster 3). Standing Rule 27, Rule 44, Decision 154, the CC-UAT Dual-Trace methodology, Five Layers of Proof, 100% Reconciliation Gate, and the entire Standing Rules + Anti-Pattern Registry system descend from this principle and its companion Immutable Proof Gates.",
+        "statement": "Every number must be traceable to its source data cell. Nothing is asserted without an evidence chain. Criteria are defined before work begins and cannot be changed during execution.",
+        "cross_references": [
+          "Standing Rule 27",
+          "Standing Rule 44",
+          "Decision 154",
+          "Decision 95 (100% Reconciliation Gate)",
+          "P-36 CC-UAT Dual-Trace",
+          "P-23 Five Layers of Proof",
+          "Cluster 3 in inventory"
+        ],
+        "drift_assessment": "MEDIUM. Principle survived across multiple operational rules but the name and unifying statement are gone from memory. Rules express it without crediting it."
+      },
+      "why_it_binds": "Statement: 'Every number must be traceable to its source data cell. Nothing is asserted without an evidence chain. Criteria are defined before work begins and cannot be changed during execution.' The audit operates on code-and-schema evidence with explicit criteria (probe specifications from DIAG-DS021-Phase4). The architect's note that 'runtime confirmation is deferred pending populated proof-data environment' is consistent with this principle — the disposition must be grounded in the evidence actually collected, not in assertions about runtime behavior. The IRA's recommendation must weight code-and-schema evidence accordingly, as the architect instructs."
+    },
+    {
+      "id": "IGF-T0-E06",
+      "tier": 0,
+      "title": "Eight-Tier Substrate Authority Structure",
+      "content": {
+        "id": "IGF-T0-E06",
+        "name": "Eight-Tier Substrate Authority Structure",
+        "tier": 0,
+        "health": {
+          "status": "locked",
+          "version": 1,
+          "successor": null,
+          "drift_flags": [],
+          "predecessor": null,
+          "last_modified": "2026-04-09",
+          "staleness_days": 0,
+          "last_modified_by": "Andrew (via OB-IGF-01)",
+          "verification_evidence": "Sourced verbatim from v0.2 Section 3",
+          "open_verification_questions": [],
+          "last_verified_against_platform": "2026-04-09"
+        },
+        "signals": {
+          "last_invoked": null,
+          "iva_violation_count": 0,
+          "ira_invocation_count": 0,
+          "iva_escalation_count": 0,
+          "ira_correctness_score": null,
+          "iva_false_positive_count": 0,
+          "invocation_recency_decay_weight": 1
+        },
+        "one_line": "Substrate is organized in eight tiers; higher tiers have higher authority; new tiers cannot be added without out-of-band protocol.",
+        "statement": "The substrate is organized in eight tiers. The tier order matters — higher tiers have higher authority. When two entries conflict, the higher-tier entry wins. When an entry references another entry, the reference must be to an entry of equal or higher tier (lower-tier entries cannot constrain higher-tier entries). The tier structure is part of the bootstrap layer. New tiers cannot be added without an explicit out-of-band protocol. Entries can be added to existing tiers freely under normal IRA/IVA/IMA operation.",
+        "provenance": {
+          "origin_date": "2026-04-07",
+          "origin_session": "IGF v0.1 governance session, April 7, 2026",
+          "origin_artifact": "IGF_STRUCTURAL_SPECIFICATION_v0.2_20260407.md Section 3",
+          "cross_references": [
+            "IGF-T0-E07",
+            "IGF-T0-E08"
+          ],
+          "historical_statements": []
+        },
+        "applies_when": [
+          "Designing new substrate entries (which tier?)",
+          "Resolving conflicts between two entries (which tier wins?)",
+          "Validating cross-references (does the reference point upward in the tier graph?)",
+          "Considering whether to add a new tier (must invoke bootstrap modification protocol)",
+          "Auditing substrate organization for tier authority violations"
+        ],
+        "escalates_when": [
+          "Two entries of the same tier conflict and neither dominates",
+          "A proposed change would require tier reorganization (escalate to Entry 8 — bootstrap modification protocol)"
+        ],
+        "tier_definitions": [
+          {
+            "name": "Bootstrap Core (Immutable)",
+            "tier": 0,
+            "description": "Minimum set of entries that define what the IGF is and how it operates. Includes E/E/C/I tetrad, eight-tier structure, supersession protocol, IMA governing principles, agent prompt templates. Cannot be modified by any agent. Modification requires Andrew's explicit out-of-band approval. Small by design — 12-22 entries at maturity."
+          },
+          {
+            "name": "Governing Principles",
+            "tier": 1,
+            "description": "Meta-principles that govern multiple specific decisions. Decisions 123 (Compliance is Architecture) and 124 (Research-Derived Design) are the proof-of-concept. Layer invoked first by IRA when resolving briefs. Promotion to Tier 1 requires IMA candidate surfacing, IVA pattern verification, Andrew's explicit promotion."
+          },
+          {
+            "name": "Locked Decisions",
+            "tier": 2,
+            "description": "The Decision register (Decisions 1-157, with known gaps). Each Decision is a specific architectural commitment with number, lock date, supersession status, provenance. Status values preserved: LOCKED, WITHDRAWN, DEFERRED, SUPERSEDED-PENDING VERIFICATION, DUPLICATE, ARCHIVED, ABANDONED, etc."
+          },
+          {
+            "name": "Design Specifications",
+            "tier": 3,
+            "description": "DS specs (DS-001 through DS-019 plus unnumbered Tier 3 architectural specs). Each DS is detailed technical architecture for a domain. References Decisions implemented and Governing Principles invoked. DS status (DRAFT vs LOCKED) is first-class metadata."
+          },
+          {
+            "name": "Concept Registry",
+            "tier": 4,
+            "description": "Foundational architectural building blocks (C-01 through C-64+). Two-Tier Agent Architecture, 9 Structural Primitives, Synaptic State, Field Identity, etc. Known gap (C-41 through C-64+) tracked as first-class metadata."
+          },
+          {
+            "name": "Standing Rules and Operational Rules",
+            "tier": 5,
+            "description": "Standing Rules 1-51+, CC_STANDING_RULES Section A principles, Architecture Decision Gate, Pre-Prompt Compliance Directive, CC Diagnostic Protocol, Completion Report Enforcement. Most volatile tier — emerges from CC failure patterns and CLT findings constantly."
+          },
+          {
+            "name": "Anti-Pattern Registry and Failure Pattern Registry",
+            "tier": 6,
+            "description": "CC Anti-Pattern Registry (AP-1 through AP-25+) and CC Failure Pattern catalogue (FP-49 through FP-114+). Each entry is a specific mistake with the correct pattern and the source CLT/HF/OB where it was first identified."
+          },
+          {
+            "name": "Methodology Reference (TMR + Addenda)",
+            "tier": 7,
+            "description": "Base TMR plus 10 Addenda. Read-mostly after bootstrap. New methodology insights become Tier 1 Governing Principle candidates, Tier 2 Decisions, or Tier 5 Standing Rules. Tier 7 preserves historical context, origin stories, biological analogies."
+          },
+          {
+            "name": "Reference and Ground Truth",
+            "tier": 8,
+            "description": "Schema references, pricing models, ground truth files (BCL, CRP, Meridian), CLT findings registries, persistent defect registries. Factual ground truth that other tiers reference. Not architectural authority."
+          }
+        ],
+        "adherence_patterns": [
+          {
+            "description": "Cross-references go upward in the tier graph: lower tiers reference higher tiers as authority, not the reverse"
+          },
+          {
+            "description": "Conflicts between entries are resolved by tier order — higher tier wins"
+          },
+          {
+            "description": "Tier additions go through the bootstrap modification protocol with E/E/C/I justification"
+          }
+        ],
+        "violation_patterns": [
+          {
+            "severity": "critical",
+            "consequence": "The tier authority graph is broken. Substrate consistency is compromised.",
+            "description": "A lower-tier entry that constrains or contradicts a higher-tier entry"
+          },
+          {
+            "severity": "high",
+            "description": "A cross-reference that points downward in the tier graph (e.g., a Tier 1 entry that depends on a Tier 5 entry for authority)"
+          },
+          {
+            "severity": "critical",
+            "description": "Adding a new tier without invoking the bootstrap modification protocol"
+          }
+        ],
+        "does_not_apply_when": [
+          "Operational content correctness within a tier (use the relevant tier's governing entries)"
+        ],
+        "tier_authority_graph": "Tier 0 governs → Tier 1 instantiated by → Tier 2 implemented by → Tier 3 elaborates → Tier 4 enforced by → Tier 5 defended by → Tier 6 ↑ historical context from Tier 7 ↑ factual grounding from Tier 8",
+        "false_positive_triggers": [
+          "An entry referencing another entry of the same tier is allowed — the constraint is on lower tiers referencing for authority"
+        ]
+      },
+      "why_it_binds": "Statement: 'The substrate is organized in eight tiers. The tier order matters — higher tiers have higher authority. When two entries conflict, the higher-tier entry wins.' This binds because the disposition depends on entries at multiple tiers: T1 principles (E906, E902, E912) govern the architectural intent, while T2+ density entries (Decision 64, Decision 23, Decision 30, Decision 77) likely contain the specific G7/G11 commitment text. The tier authority structure determines that T1 principles take precedence over T2 implementation decisions if they conflict, which is material to the (a) vs (b) disposition."
+    },
+    {
+      "id": "IGF-T0-E05",
+      "tier": 0,
+      "title": "E/E/C/I Tetrad — Joint Constraint Meta-Entry",
+      "content": {
+        "id": "IGF-T0-E05",
+        "name": "E/E/C/I Tetrad — Joint Constraint",
+        "tier": 0,
+        "health": {
+          "status": "locked",
+          "version": 1,
+          "successor": null,
+          "drift_flags": [],
+          "predecessor": null,
+          "last_modified": "2026-04-09",
+          "staleness_days": 0,
+          "last_modified_by": "Andrew (via OB-IGF-01)",
+          "verification_evidence": "Sourced verbatim from v0.2 Section 2.5",
+          "open_verification_questions": [],
+          "last_verified_against_platform": "2026-04-09"
+        },
+        "signals": {
+          "last_invoked": null,
+          "iva_violation_count": 0,
+          "ira_invocation_count": 0,
+          "iva_escalation_count": 0,
+          "ira_correctness_score": null,
+          "iva_false_positive_count": 0,
+          "invocation_recency_decay_weight": 1
+        },
+        "one_line": "E, E, C, and I are not independent; they trade off against each other and must be evaluated as a joint constraint.",
+        "statement": "E, E, C, and I are not independent. Each one trades off against the others under specific conditions. Pushing Efficiency too hard (smaller brief, fewer tokens) reduces Efficacy and Comprehensive. Pushing Comprehensive too hard (every entry returned for every query) reduces Efficiency. Pushing Innovate too hard without Efficacy guardrails produces speculative changes that destabilize the substrate. The IGF spec does not optimize one dimension at the expense of another. It maintains the joint constraint. Every design choice is evaluated against all four. The bootstrap layer prohibits any IRA/IVA/IMA action that would violate the joint constraint. The IMA's first responsibility is detecting when an IGF operation has degraded one dimension below an acceptable threshold and surfacing that for human review. The tetrad applies recursively. The IRA/IVA/IMA prompts themselves must satisfy E/E/C/I. The substrate schema must satisfy E/E/C/I. The version control protocol must satisfy E/E/C/I. The integration points must satisfy E/E/C/I. There is no place in the IGF that escapes the tetrad.",
+        "provenance": {
+          "origin_date": "2026-04-07",
+          "origin_session": "IGF v0.1 governance session, April 7, 2026",
+          "origin_artifact": "IGF_STRUCTURAL_SPECIFICATION_v0.2_20260407.md Section 2.5",
+          "cross_references": [
+            "IGF-T0-E01",
+            "IGF-T0-E02",
+            "IGF-T0-E03",
+            "IGF-T0-E04"
+          ],
+          "historical_statements": []
+        },
+        "applies_when": [
+          "Evaluating any proposed change against the tetrad",
+          "Reviewing tradeoffs between two or more tetrad dimensions",
+          "Designing IMA monitoring for tetrad degradation",
+          "Resolving conflicts between agents that prioritize different dimensions",
+          "Auditing whether a substrate operation satisfies the joint constraint or just one dimension"
+        ],
+        "escalates_when": [
+          "Two dimensions are in unresolvable tension and a tradeoff decision must be made by Andrew",
+          "The joint constraint would require modification to be satisfied (escalate to Entry 8 — bootstrap modification protocol)"
+        ],
+        "adherence_patterns": [
+          {
+            "description": "Every substrate change includes explicit E/E/C/I evaluation in its justification"
+          },
+          {
+            "description": "IMA monitors all four dimensions and surfaces degradation in any one"
+          },
+          {
+            "description": "Tradeoffs between dimensions are made explicit and dispositioned, not silently accepted"
+          },
+          {
+            "description": "The joint constraint applies recursively to the IGF's own operations and substrate schema"
+          }
+        ],
+        "violation_patterns": [
+          {
+            "severity": "critical",
+            "consequence": "The joint constraint is silently violated. The substrate becomes optimized along one axis at the expense of others.",
+            "description": "A substrate change that improves one dimension while degrading another below threshold, without explicit justification"
+          },
+          {
+            "severity": "critical",
+            "description": "An IRA/IVA/IMA operation that would prioritize one dimension over the joint constraint"
+          },
+          {
+            "severity": "high",
+            "description": "A substrate operation that does not evaluate all four dimensions before commit"
+          },
+          {
+            "severity": "medium",
+            "description": "An IMA innovation opportunity that improves Innovate without measurable improvement in E, E, or C"
+          }
+        ],
+        "does_not_apply_when": [
+          "A single tetrad dimension is being evaluated in isolation for analysis purposes (use Entries 1-4 directly)"
+        ],
+        "false_positive_triggers": [
+          "Temporary degradation of one dimension during a planned experiment is acceptable if the experiment has clear E/E/C/I justification",
+          "Initial substrate population work may have uneven E/E/C/I profile; the joint constraint applies to steady-state operation"
+        ]
+      },
+      "why_it_binds": "Statement: 'E, E, C, and I are not independent. Each one trades off against the others under specific conditions.' The disposition between option (a) and option (b) is fundamentally a joint-constraint evaluation: option (a) is more Efficient (less rework) but may be less Efficacious (if in-place remediation cannot achieve full G7/G11 coherence); option (b) is more Efficacious (clean architecture) but less Efficient (rebuild cost). The entry states: 'Every design choice is evaluated against all four. The bootstrap layer prohibits any IRA/IVA/IMA action that would violate the joint constraint.' The IRA must evaluate both options against all four tetrad dimensions."
+    },
+    {
+      "id": "IGF-T1-E930",
+      "tier": 1,
+      "title": "Choose Right Over Quick",
+      "content": {
+        "one_line": "When in doubt between a quick solution and a correct solution, always choose correct.",
+        "statement": "When facing a choice between a quick solution and a correct solution, always choose correct. The cost of redesign at decision time is always less than the cost of fixing an incorrect solution after deployment. This principle resolves all ambiguity in favor of architectural correctness over implementation speed. It is non-negotiable and applies to every architectural decision without exception. 'Quick' is not a valid architectural justification. Speed of delivery is a constraint to be managed, not a criterion that overrides correctness. When a quick solution is also correct, there is no conflict. When they diverge, correctness wins. This principle does not prohibit iteration or incremental delivery — it prohibits choosing a known-incorrect approach because it is faster.",
+        "provenance": {
+          "layer1_model": "claude-sonnet-4-6",
+          "origin_section": "SECTION D: CC OPERATIONAL RULES — Architecture — Rule 22",
+          "origin_document": "CC_STANDING_ARCHITECTURE_RULES.md",
+          "layer1_enriched_at": "2026-04-16T04:48:27.534Z"
+        },
+        "applies_when": [
+          "Facing a tradeoff between implementation speed and architectural correctness",
+          "Evaluating whether a shortcut or workaround is acceptable",
+          "Reviewing whether a solution was chosen for speed over correctness",
+          "Resolving disagreement between delivery timeline pressure and architectural requirements",
+          "Any architectural decision where the correct path requires more time than the quick path"
+        ],
+        "escalates_when": [
+          "A quick solution chosen over a correct one requires redesign after deployment, confirming the principle was violated",
+          "A pattern of speed-over-correctness decisions accumulates into systemic architectural debt",
+          "A standing rule is violated and the justification given is delivery timeline pressure"
+        ],
+        "eeci_dimensions": [
+          "efficacy"
+        ],
+        "cross_references": [
+          "Stop and Redesign on Any Principle Violation",
+          "Architecture Decision Gate Before Implementation",
+          "Anti-Pattern Registry Check Required for Every OB/HF",
+          "Fix Logic, Not Data (CC Standing Rule)",
+          "IGF-T1-E901 [T1] The Principle Cascade (PRDAB)",
+          "Bearer-token middleware bypass is a deflection mechanism with documented sunset trigger",
+          "Meta-33: Paper Discipline Without Enforcement Teeth Is Convention, Not Architecture"
+        ],
+        "adherence_patterns": [
+          "Architectural decisions are documented with explicit justification for why the chosen approach is correct, not just fast",
+          "Workarounds that are accepted for speed include a documented sunset trigger and escalation path",
+          "Timeline pressure is escalated to the architect rather than resolved by choosing an incorrect approach",
+          "Post-delivery reviews check whether speed-driven decisions introduced correctness debt"
+        ],
+        "violation_patterns": [
+          {
+            "severity": "critical",
+            "description": "A known-incorrect architectural approach is chosen because it is faster to implement, with the intent to fix it later"
+          },
+          {
+            "severity": "critical",
+            "description": "A shortcut is taken that violates a standing architectural rule, justified by delivery timeline pressure"
+          },
+          {
+            "severity": "high",
+            "description": "A 'temporary' workaround is implemented without a documented sunset trigger, effectively making it permanent"
+          },
+          {
+            "severity": "high",
+            "description": "Speed of delivery is cited as a reason to skip the Anti-Pattern Registry check or Architecture Decision Gate"
+          }
+        ],
+        "does_not_apply_when": [],
+        "false_positive_triggers": [
+          "Choosing a simpler correct solution over a more complex correct solution is not a violation — simplicity and correctness are not in conflict",
+          "Incremental delivery of a correct solution is not a violation — the principle targets incorrect approaches, not incomplete ones"
+        ]
+      },
+      "why_it_binds": "Statement: 'When facing a choice between a quick solution and a correct solution, always choose correct. The cost of redesign at decision time is always less than the cost of fixing an incorrect solution after deployment.' This principle directly governs the (a) vs (b) disposition. If option (a) is the 'quick' path that cannot achieve full architectural correctness, and option (b) is the 'correct' path that requires more work, this principle resolves in favor of (b). However, the principle also states: 'Choosing a simpler correct solution over a more complex correct solution is not a violation — simplicity and correctness are not in conflict.' If option (a) can achieve correctness, it is not the 'quick over correct' pattern."
+    },
+    {
+      "id": "IGF-T1-E914",
+      "tier": 1,
+      "title": "VP-to-VG Supersession Propagation",
+      "content": {
+        "id": "IGF-T1-E914",
+        "name": "VP-to-VG Supersession Propagation",
+        "tier": 1,
+        "health": {
+          "status": "draft",
+          "version": 1,
+          "successor": null,
+          "drift_flags": [],
+          "predecessor": null,
+          "last_modified": "2026-04-14",
+          "staleness_days": 0,
+          "last_modified_by": "Andrew (via OB-IGF-20 P0)",
+          "verification_evidence": "Originated as supersession_candidate in IRA invocation BMK-IRA-001. T0-E09 under-serves T0-E12 because no rule propagates VP supersession events to VG runtime implementations.",
+          "open_verification_questions": [],
+          "last_verified_against_platform": "2026-04-14"
+        },
+        "signals": {
+          "last_invoked": null,
+          "iva_violation_count": 0,
+          "ira_invocation_count": 1,
+          "iva_escalation_count": 0,
+          "ira_correctness_score": null,
+          "iva_false_positive_count": 0,
+          "invocation_recency_decay_weight": 1
+        },
+        "one_line": "When VP supersedes a pattern, VG runtime implementing that pattern must adopt the superseding design, document a justified exception, or capture data toward the superseding design.",
+        "statement": "VP governance archive contains supersession events — locked Decisions that explicitly replace prior architectural patterns (e.g., Decision 110 CRR superseding SCI competitive scoring; Decision 111 superseding earlier Field Identity approaches; Decision 64 superseding pre-Dual-Intelligence patterns). When VG implements a runtime instantiating the same architectural family as a VP-superseded pattern, the VG implementation must honor the supersession via one of: (1) ADOPT — implement the superseding VP design directly; (2) EXCEPT — document a justified, time-bound exception with concrete revisit trigger (e.g., 'deferred until VG corpus reaches N entries'); (3) PREPARE — implement an interim design that captures data in the shape the superseding pattern will consume. Re-instantiating the exact pattern that VP superseded — without exception documentation, without preparation toward the superseding design — violates this principle.",
+        "provenance": {
+          "origin_date": "2026-04-14",
+          "origin_session": "OB-IGF-20 P0 architect disposition",
+          "origin_artifact": "IRA invocation BMK-IRA-001 baseline response at docs/IRA-responses/IRA_OB_IGF_20_P0_CRR_Resolver_Choice_20260414.md",
+          "cross_references": [
+            "IGF-T0-E12",
+            "IGF-T0-E18",
+            "IGF-T0-E09"
+          ],
+          "historical_statements": []
+        },
+        "applies_when": [
+          "Drafting any VG agent runtime that instantiates a VP architectural pattern",
+          "Designing VG resolution layers, classification pipelines, or scoring runtimes",
+          "Reviewing OB/HF specs for runtime architecture choices when VP has prior art",
+          "Auditing whether VG implementations honor VP supersession events",
+          "Selecting between architectural options where one or more re-instantiate a VP-superseded pattern"
+        ],
+        "escalates_when": [
+          "VP supersession event itself is contested or pending verification",
+          "Multiple VP supersession events on the same pattern family produce conflicting guidance",
+          "VG runtime would require Tier 0 amendment to honor supersession (escalates to T0-E08 bootstrap modification protocol)"
+        ],
+        "ip_classification": "internal_only",
+        "adherence_patterns": [
+          {
+            "description": "OB/HF spec drafting includes a VP supersession check step"
+          },
+          {
+            "description": "When VP supersession history exists, the spec explicitly states ADOPT / EXCEPT / PREPARE choice and why"
+          },
+          {
+            "description": "EXCEPT-path choices include concrete time-bound trigger condition tracked as a benchmark"
+          },
+          {
+            "description": "PREPARE-path choices include explicit data-shape contract for the future superseding pattern"
+          },
+          {
+            "description": "Mapping tables claiming 'same as VP pattern X' have implementation matching the cited pattern, not the pre-supersession ancestor"
+          }
+        ],
+        "violation_patterns": [
+          {
+            "severity": "critical",
+            "consequence": "VG re-instantiates the failure mode VP locked governance against. Future migration requires teardown.",
+            "description": "VG runtime implements a pattern that VP has explicitly superseded without exception documentation or PREPARE-pattern data capture"
+          },
+          {
+            "severity": "high",
+            "consequence": "Documentation drift; mapping tables cannot be trusted to reflect implementation.",
+            "description": "Spec mapping table claims structural parity with a superseding VP pattern while implementation encodes the superseded pattern"
+          },
+          {
+            "severity": "medium",
+            "consequence": "EXCEPT path chosen but PREPARE benefits unrealized.",
+            "description": "VG runtime defers to architect for resolution but does NOT capture the data shape the superseding pattern needs"
+          }
+        ],
+        "does_not_apply_when": [
+          "Implementing tooling, schemas, or infrastructure with no VP architectural ancestor",
+          "Implementing a VP pattern that VP itself has not superseded",
+          "Implementing primitive utilities tier-orthogonal to architectural-pattern decisions"
+        ],
+        "false_positive_triggers": [
+          "VP architectural pattern with no supersession history — no propagation obligation arises",
+          "Pattern family difference too large — VG context legitimately requires different architecture; documenting why is principle adherence",
+          "Cold-start pragmatism cited explicitly as EXCEPT path with revisit trigger is principle adherence",
+          "PREPARE-path implementation that captures data toward superseding pattern but does not yet swap resolver is principle adherence"
+        ]
+      },
+      "why_it_binds": "Statement: 'When VG implements a runtime instantiating the same architectural family as a VP-superseded pattern, the VG implementation must honor the supersession via one of: (1) ADOPT, (2) EXCEPT, (3) PREPARE.' The audit evidence shows the current signal surface architecture may instantiate a pattern that VP governance (DS-021 Decision 64 v2, three-level signal_type vocabulary) has superseded. The violation pattern '[critical] VG runtime implements a pattern that VP has explicitly superseded without exception documentation or PREPARE-pattern data capture' is relevant: if the current bypass-channel architecture and ad hoc signal_type vocabulary represent a pre-supersession pattern, the disposition must account for supersession propagation obligations."
+    },
+    {
+      "id": "IGF-T1-E911",
+      "tier": 1,
+      "title": "Governance Enforces Actors, Not Curates Substrate",
+      "content": {
+        "origin": "Session 2026-04-12, Enforcer reframe discussion. Architect named original conception as actor governance in founding vision; Claude drifted to substrate-curation framing across multiple sessions; reframe locked this session. Synaptic surface metaphor selected over gate to defeat CC tendency to orient toward getting-through verification rather than gaining from it.",
+        "statement": "Governance is the function of constraining actor behavior against a rule set, not the function of curating the rule set itself. Substrate is the constraint set; agents are the enforcement mechanism; the architect-Claude-CC pipeline is the surface being enforced. A queryable rule that the actor can ignore is theater, not governance. Substrate-curation work (capture, version, verify-internal-consistency) is supporting infrastructure for enforcement, not the product. The product is the synaptic surface between actor and artifact — every output crosses it, every crossing is verified and weighted, signal propagates only when threshold conditions are met, and the surface itself adapts to what it has seen before.",
+        "cross_references": [
+          "Binds all subsequent IGF agent design: IRA serves IP for enforcement consumers, IVA verifies actor output against served IP, IMA monitors enforcement system. Aligns with Synaptic Surface naming in Enforcer v0 spec; subsequent architectural language adopts synaptic vocabulary (verify, weight, threshold-fire, adapt) rather than gate vocabulary (admit, reject, pass-through)."
+        ]
+      },
+      "why_it_binds": "Statement: 'Governance is the function of constraining actor behavior against a rule set, not the function of curating the rule set itself.' And: 'A queryable rule that the actor can ignore is theater, not governance.' The audit evidence shows G7 and G11 exist as governance commitments but the implementation structurally cannot comply: the signal surface is write-only (actors write signals but no actor reads them back through the canonical surface), and bypass channels allow actors to circumvent the canonical surface entirely. This is the 'queryable rule that the actor can ignore' pattern — G7/G11 exist as rules but the architecture does not enforce them."
+    }
+  ],
+  "precedents": {
+    "conversation": [],
+    "task": [],
+    "project": []
+  },
+  "supersession_candidates": [
+    {
+      "entry_id": "IGF-T2-E29",
+      "governing_principle_id": "IGF-T1-E906",
+      "coherence_finding": "IGF-T2-E29 (Decision 30: Classification Signals Terminology) is at identifier_only fidelity and cannot be body-cited. However, the audit evidence shows the classification_signals table's signal_type vocabulary does not use the three-level prefix system (classification:/comprehension:/convergence:) that DS-021/Decision 64 v2 committed to. If Decision 30 defines the terminology that the signal surface should use, and the live implementation uses ad hoc naming (sci:classification_outcome_v2, training:plan_interpretation, sci:cost_event), then Decision 30 may need supersession or reaffirmation against the live evidence. IGF-T1-E906 (Closed-Loop Intelligence) requires signals to 'accumulate into the platform's learning systems' — if the terminology is inconsistent, signal accumulation across the three flywheels cannot be structurally coherent.",
+      "recommended_action": "extend",
+      "reasoning": "Decision 30 likely needs extension to account for the three-level vocabulary commitment from Decision 64 v2 and to address the live vocabulary divergence. This cannot be confirmed without escalating IGF-T2-E29 to full body fidelity. ESCALATION RECOMMENDED per DS-021 §5.4 Carry Everything: IGF-T2-E29 should be surfaced at density_summary or full_body fidelity for the next invocation touching signal surface architecture."
+    },
+    {
+      "entry_id": "IGF-T2-E01",
+      "governing_principle_id": "IGF-T1-E906",
+      "coherence_finding": "IGF-T2-E01 (Decision 64: Dual Intelligence Architecture) is at identifier_only fidelity. The audit evidence references 'DS-021/Decision 64 v2' as the source of the three-level signal_type vocabulary (classification:/comprehension:/convergence:). If Decision 64 v2 defines the Dual Intelligence Architecture that G7 and G11 instantiate, then the live implementation's divergence (write-only signal surface, bypass channels, ad hoc signal_type vocabulary) represents a coherence gap between this T2 decision and the T1 principle (E906 Closed-Loop Intelligence). The T1 principle governs; the T2 decision should be checked for whether it still instantiates the principle given the evidence.",
+      "recommended_action": "extend",
+      "reasoning": "Decision 64 likely contains the G7/G11 commitment text the architect requested. Without full body, the coherence check cannot be completed. ESCALATION RECOMMENDED: IGF-T2-E01 should be surfaced at full_body fidelity for this audit disposition. The architect's explicit binding request ('DS-021 v1.0 Section 6 G7 commitment text', 'DS-021 v1.0 Section 6 G11 commitment text') cannot be served at identifier_only fidelity."
+    },
+    {
+      "entry_id": "IGF-T2-E28",
+      "governing_principle_id": "IGF-T1-E936",
+      "coherence_finding": "IGF-T2-E28 (Decision 23: Three Flywheels — Tenant, Foundational, Domain) is at identifier_only fidelity. The audit evidence shows the three flywheel tables (synaptic_density for Tenant, foundational_patterns for Foundational, domain_patterns for Domain) operate as bypass channels that do not flow through classification_signals. IGF-T1-E936 states the flywheel must not 'discard classification outcomes without feeding them back into the signal accumulation mechanism.' If Decision 23 defines the three-flywheel architecture, the coherence question is whether the flywheel tables were always intended to be separate from classification_signals (in which case G7's 'single canonical signal surface' needs reinterpretation) or whether they were intended to read from classification_signals (in which case the bypass is a coherence gap).",
+      "recommended_action": "extend",
+      "reasoning": "This is a critical coherence question for the (a) vs (b) disposition. If the three-flywheel architecture was designed with separate tables by intent, then G7 may need reinterpretation to mean 'single canonical write surface with structured read-paths through flywheel tables' rather than 'all signals in one table.' If the separation is drift, then option (b) rebuild is clearly indicated. ESCALATION RECOMMENDED: IGF-T2-E28 at full_body fidelity would resolve this ambiguity."
+    }
+  ],
+  "option_recommendations": [
+    {
+      "option_id": "option_a",
+      "source": "user_supplied",
+      "substrate_basis": [
+        "IGF-T1-E906",
+        "IGF-T1-E902",
+        "IGF-T1-E912",
+        "IGF-T1-E936",
+        "IGF-T1-E930",
+        "IGF-T0-E05"
+      ],
+      "alignment_reasoning": "Option (a) — remediable through architectural pattern change — proposes migrating 4 whole-table bypass channels to flow through classification_signals, adding run_id-equivalent column, and building cross-run read-path on convergence service. SUBSTRATE ASSESSMENT: This option faces three structural barriers that the evidence makes visible. (1) SCHEMA-IMPOSSIBILITY BARRIER: The signal surface lacks run_id/calculation_run_id/batch_id/session_id (S-SIGNAL-G11-01). Adding a run_id column is a schema migration, not a pattern change — it changes the fundamental identity model of the signal surface. This is remediable but is not 'pattern change' magnitude; it is schema-level architectural change. (2) BYPASS CHANNEL CONSOLIDATION BARRIER: The 4 bypass tables (synaptic_density, foundational_patterns, domain_patterns, structural_fingerprints) serve distinct architectural functions — per-tenant learning, cross-tenant aggregation, per-fingerprint classification reuse, column-role assignment. These are not accidental bypasses; they are purpose-built tables with distinct schemas, key structures, and query patterns (S-CODE-G7-01, S-CODE-G7-02). Migrating their content into classification_signals would require either (i) making classification_signals a polymorphic mega-table (violating domain-agnostic schema principles) or (ii) creating a view/materialized-view layer that unifies them (which is architecturally a rebuild of the read-path, not a pattern change). (3) CONVERGENCE SERVICE BARRIER: The convergence service (2104 lines) has zero .select calls against classification_signals and zero run_id references (S-CODE-G11-01a). Making it read from the signal surface is not adding a query — it requires redesigning how the convergence service discovers and consumes prior classification intelligence, which is currently done through the bypass channels. Per IGF-T1-E930 (Choose Right Over Quick): if option (a) cannot achieve full G7/G11 coherence, it is the 'quick' path and the principle resolves against it. Per IGF-T0-E05 (Joint Constraint): option (a) scores higher on Efficiency (less rework) but the evidence suggests it scores lower on Efficacy (the bypass channels serve distinct architectural purposes that cannot be trivially consolidated). Per IGF-T1-E936: the flywheel architecture (foundational_patterns, domain_patterns) is structurally separate from classification_signals by design — the flywheel reads/writes go to different tables with different schemas. Consolidating them is not a pattern change but an architectural redesign of the flywheel's data model. MAGNITUDE ASSESSMENT: The architect's framing of option (a) as 'severe' understates the evidence. The bypass channels are not accidental drift — they are purpose-built architectural components. 'Migrating' them is closer to rebuilding them.",
+      "conflicts_detected": [
+        {
+          "conflicting_entry_id": "IGF-T1-E930",
+          "conflict_type": "principle_tension",
+          "reasoning": "If option (a) cannot achieve full G7/G11 coherence — and the evidence suggests the bypass channels serve distinct purposes that resist consolidation into a single table — then choosing option (a) would be choosing quick over correct. The principle states: 'a known-incorrect architectural approach chosen because it is faster to implement' is a critical violation."
+        },
+        {
+          "conflicting_entry_id": "IGF-T1-E936",
+          "conflict_type": "structural_barrier",
+          "reasoning": "The flywheel architecture (foundational_patterns, domain_patterns, structural_fingerprints) is the structural expression of the three-flywheel commitment (Tenant, Foundational, Domain per IGF-T1-E906). Consolidating these into classification_signals would either destroy the flywheel's distinct data model or require classification_signals to become a polymorphic surface — neither of which is a 'pattern change.'"
+        }
+      ],
+      "recommendation_rank": 2,
+      "recommended_action": "Option (a) as framed is NOT RECOMMENDED. The evidence does not support 'severe magnitude — coordinated remediation' as sufficient. However, a MODIFIED option (a) — where the bypass channels are preserved as purpose-built components but a read-path unification layer is built on top of them, with run_id-equivalent added to classification_signals and a convergence service read-path built — would be architecturally viable. This modified version converges toward option (b) in scope but preserves the existing bypass table schemas. The distinction between modified-(a) and (b) narrows to whether the convergence service is rebuilt from scratch or refactored in place.",
+      "coherence_findings": [
+        {
+          "finding": "Option (a) assumes bypass channels are accidental drift. The evidence shows they are purpose-built (distinct schemas, distinct query patterns, distinct architectural functions). The 'pattern change' framing underestimates the scope.",
+          "relevant_entries": [
+            "IGF-T1-E936",
+            "IGF-T1-E906"
+          ]
+        }
+      ]
+    },
+    {
+      "option_id": "option_b",
+      "source": "user_supplied",
+      "substrate_basis": [
+        "IGF-T1-E906",
+        "IGF-T1-E902",
+        "IGF-T1-E912",
+        "IGF-T1-E936",
+        "IGF-T1-E930",
+        "IGF-T1-E914",
+        "IGF-T1-E911",
+        "IGF-T0-E05"
+      ],
+      "alignment_reasoning": "Option (b) — requires rebuild of convergence service / signal surface architecture — proposes that the current convergence service is write-only on the signal surface and the surface itself lacks run-scoping, making in-place coherence architecturally unreachable without rebuilding both. SUBSTRATE ASSESSMENT: The evidence strongly supports this option's premises. (1) WRITE-ONLY CONFIRMATION: S-CODE-G11-01a confirms zero .select calls against classification_signals in the convergence service. The only contact is a single INSERT at line 253. This is not a read-path gap that can be patched — the convergence service's entire architecture does not consume the signal surface. (2) SCHEMA-IMPOSSIBILITY CONFIRMATION: S-SIGNAL-G11-01 confirms no run_id, calculation_run_id, batch_id, or session_id in classification_signals. Within-run filtering is 'structurally impossible' per the audit. This is a schema-level gap requiring migration + backfill + consumer update. (3) BYPASS CHANNEL STRUCTURAL PURPOSE: S-CODE-G7-02 shows the bypass channels carry distinct JSONB vocabularies (learned_behaviors, classification_result, column_roles) serving distinct architectural functions (cold-start priors, fingerprint reuse, column-role carriage). These are not duplicates of classification_signals — they are complementary surfaces that the current architecture reads INSTEAD OF classification_signals. (4) SIGNAL_TYPE VOCABULARY GAP: S-SCHEMA-G7-01 shows zero rows using the three-level vocabulary (classification:/comprehension:/convergence:) from DS-021/Decision 64 v2. The live vocabulary is ad hoc. Rebuilding the signal surface would include enforcing the committed vocabulary. Per IGF-T1-E930: option (b) is the 'correct' path. The evidence shows the current architecture cannot achieve G7/G11 coherence through pattern change alone. Per IGF-T1-E914: if the current bypass-channel architecture represents a pre-supersession pattern that VP governance (Decision 64 v2) has superseded, option (b) is the ADOPT path — implementing the superseding design directly. Per IGF-T1-E911: the current state is 'a queryable rule that the actor can ignore is theater, not governance' — G7/G11 exist as commitments but the architecture does not enforce them. Option (b) addresses this by rebuilding the enforcement surface. Per IGF-T0-E05 (Joint Constraint): option (b) scores lower on Efficiency (more rework) but higher on Efficacy (achieves actual G7/G11 coherence), higher on Comprehensive (unified signal surface enables comprehensive read-path), and higher on Innovate (rebuilt architecture can incorporate the three-level vocabulary and run-scoping from the start). MAGNITUDE ASSESSMENT: The architect's framing of option (b) as 'blocking' is supported by the evidence. The convergence service (2104 lines, write-only on signal surface, zero run_id references) and the signal surface schema (no run-scoping columns, no type vocabulary enforcement) both require rebuild, not refactoring.",
+      "conflicts_detected": [
+        {
+          "conflicting_entry_id": "IGF-T0-E01",
+          "conflict_type": "efficiency_tension",
+          "reasoning": "Option (b) is the most expensive path. IGF-T0-E01 states 'Efficiency is measured by: time-to-brief for the IRA, time-to-report for the IVA, total LLM tokens per resolution cycle.' While this applies to IGF operations not platform architecture, the joint constraint (E05) requires evaluating Efficiency alongside Efficacy. The rebuild cost is real but the evidence suggests it is the minimum cost to achieve coherence."
+        }
+      ],
+      "recommendation_rank": 1,
+      "recommended_action": "RECOMMENDED with substrate-bounded-authority caveat. The evidence supports option (b) — blocking magnitude requiring rebuild. However, the IRA flags that this disposition PARTIALLY DEPENDS on content not yet at reasoning fidelity: (1) DS-021 v1.0 Section 14 FLI-1 (G11 enforcement mechanism specification) is forward-looking and not in the ambient substrate — the enforcement mechanism design may affect whether rebuild scope includes enforcement infrastructure or only the signal surface + convergence service. (2) DS-021 v1.0 Section 12 (Substrate Bounded Authority methodology) is not at full body fidelity — the methodology for determining what is in-scope for this disposition vs. what requires forward-looking architectural work may constrain the recommendation. (3) The bypass channels (foundational_patterns, domain_patterns, structural_fingerprints, synaptic_density) serve the three-flywheel architecture (IGF-T1-E906, IGF-T2-E28). Rebuilding the signal surface must preserve the flywheel's distinct data model while establishing a read-path that unifies signal consumption. This is architectural design work, not just schema migration. RECOMMENDED SCOPE: Rebuild classification_signals schema (add run_id-equivalent, enforce signal_type vocabulary via CHECK constraint), rebuild convergence service read-path (from zero .select to structured within-run and cross-run consumption), establish read-path unification layer over bypass channels (preserving their schemas but making their content queryable through or alongside the canonical surface), and address the migration/schema divergence finding (14 columns not in committed migrations).",
+      "coherence_findings": [
+        {
+          "finding": "Option (b) aligns with IGF-T1-E914 ADOPT path: if the current architecture represents a pre-supersession pattern, rebuilding to the superseding design is the principled response. The three-level signal_type vocabulary (classification:/comprehension:/convergence:) from Decision 64 v2 is not present in the current implementation (zero rows use it), supporting the supersession interpretation.",
+          "relevant_entries": [
+            "IGF-T1-E914",
+            "IGF-T1-E911"
+          ]
+        },
+        {
+          "finding": "The distinction between option (a) and option (b) narrows when option (a) is honestly scoped. A 'modified option (a)' that preserves bypass table schemas but builds a unification layer + adds run_id + rebuilds convergence read-path approaches option (b) in scope. The honest question is whether the convergence service can be refactored in place (2104 lines, write-only) or must be rebuilt. The evidence (zero .select, zero run_id references, single INSERT contact) suggests rebuild is more honest than refactor.",
+          "relevant_entries": [
+            "IGF-T1-E930",
+            "IGF-T1-E912"
+          ]
+        }
+      ]
+    }
+  ],
+  "evaluation_status": "fired_with_results",
+  "preamble_text": "Enforcer-loaded IP for this turn:\n[IGF-T1-E906] T1 \"Closed-Loop Intelligence\" — Statement: 'Every interaction generates a classification signal that accumulates into the platform's learning systems. The three-flywheel architecture (Tenant, Foundational, Domain) is the structural expression of this commitment.' The audit evidence shows classification_signals is write-only (convergence service has zero .select calls against it), the flywheel tables (foundational_patterns, domain_patterns, structural_fingerprints) operate as bypass channels reading/writing outside classification_signals, and the signal surface lacks run_id for within-run filtering. This directly implicates the closed-loop intelligence commitment: if signals are written but never read back, the loop is not closed. The G11 ABSENT verdict on both within-run and cross-run read-paths is a structural violation of this principle's core proposition that signals 'accumulate into the platform's learning systems.'\n[IGF-T1-E902] T1 \"Carry Everything, Express Contextually\" — Statement: 'At import time, the platform persists ALL data regardless of whether AI has classified it. AI classifications are hints, not gates. Data is preserved at import; context activates at calculation time.' The audit evidence reveals that classification-relevant data is scattered across 4 whole-table bypass channels (synaptic_density, foundational_patterns, domain_patterns, structural_fingerprints) plus 2 JSONB per-key bypasses (import_batches.metadata.classification, import_batches.metadata.contentUnitId). The 'Carry Everything' principle requires all data to be persisted and contextually activated — but the bypass channels mean classification intelligence is carried in fragmented locations rather than through a single canonical surface. The principle's 'Express Contextually' dimension is structurally impossible when the signal surface itself cannot be queried for within-run context (no run_id column).\n[IGF-T1-E912] T1 \"Principle-Rule Coherence and the Supersession Surface\" — Statement: 'When the substrate is queried for binding intelligence on a piece of work, two distinct findings are possible: (1) applicability — which rules govern this work — and (2) coherence — whether the rules at lower tiers still serve the principles at higher tiers, given the specific case under consideration.' This audit IS a coherence review: the architect is asking whether the lower-tier implementation (convergence service, signal surface schema, flywheel tables) still serves the higher-tier principles (G7, G11) given the code-and-schema evidence collected. The entry further states: 'Applicability without coherence produces under-service: the rule was applied, the work conformed, the principle was nonetheless degraded because the rule no longer instantiates the principle for the case at hand.' The evidence shows exactly this pattern — classification_signals exists (rule applied), writes occur (work conforms to write-path), but the principle (read-path coherence, single canonical surface) is degraded because the implementation does not instantiate the principle.\n[IGF-T1-E913] T1 \"IRA Returns Recommendations, Not Just Bindings\" — Statement: 'When a piece of work includes options — either user-supplied (the architect names candidate paths in the work description) or substrate-grounded (substrate explicitly enumerates alternatives that apply to the work) — IRA evaluates each option against the assembled brief and surfaces a ranked recommendation with substrate-cited reasoning per option.' The architect explicitly names two options: (a) remediable through architectural pattern change and (b) requires rebuild. These are user-supplied options requiring Step 8 evaluation. The entry further states: 'IRA does not invent options not present in either source. The recommendation field is empty when no substrate-grounded options exist for evaluation.' Both options are present in the user prompt; evaluation is required.\n[IGF-T1-E924] T1 \"Closed-Loop Learning\" — Statement: 'Every correction, override, or manual adjustment is a learning signal that must feed back into the AI interpretation layer, not be discarded after the immediate fix. Closed-loop learning is the mechanism by which the platform compounds intelligence over time; without it, every correction is a one-time patch rather than a permanent improvement.' The audit evidence shows the convergence service writes to classification_signals but never reads from it (zero .select calls). The flywheel pipeline reads from foundational_patterns and domain_patterns — bypass channels — not from classification_signals. This means the closed-loop learning mechanism bypasses the canonical signal surface entirely. The principle's core proposition — that the platform 'compounds intelligence over time' — is structurally undermined when the signal surface is write-only and the learning loop reads from bypass channels.\n[IGF-T1-E936] T1 \"Closed-Loop Intelligence Applied to Data Ingestion\" — Statement: 'The ML flywheel spins: more data → better classification → less human intervention → faster processing → more data.' And: 'Any implementation that discards classification outcomes (human or autonomous) without feeding them back into the signal accumulation mechanism breaks the flywheel.' The audit evidence (S-CODE-G11-02) shows flywheel files (flywheel-pipeline.ts, fingerprint-flywheel.ts) have zero references to classification_signals. The flywheel reads/writes go to foundational_patterns, domain_patterns, structural_fingerprints — NOT classification_signals. This is a structural bypass: the flywheel accumulation mechanism does not consume the canonical signal surface. The principle's violation pattern '[high] A new ingestion channel (e.g., API push) does not feed classification outcomes into the same signal accumulation mechanism as SFTP, creating a split flywheel' applies by analogy — the flywheel and the signal surface are split.\n[IGF-T0-E09] T0 \"IRA (Intelligence Resolution Agent) Prompt Template\" — Statement: 'Given a description of intended work, the IRA returns the precise applicable intelligence as a structured brief.' The applies_when includes: 'Reviewing IRA brief output for correctness.' This is an IRA invocation performing substrate-coherence review with option evaluation. The entry's violation pattern '[critical] IRA returns a rule as binding without examining whether it still serves the higher-tier principle it instantiates for the specific work (Step 7 omitted)' directly governs this invocation — Step 7 coherence check must be performed on the G7/G11 principles against their lower-tier instantiations. The entry also governs Step 8: '[critical] IRA returns brief with options present in work description but option_recommendations field empty' — the architect has supplied two options requiring evaluation.\n[IGF-T0-E02] T0 \"E/E/C/I Tetrad — Efficacy Dimension\" — Statement: 'The brief produced by the IRA must contain the entries actually applicable to the work, ranked by priority, with reasoning that explains why each entry applies.' Efficacy applies because this is a high-stakes disposition question — the architect is asking IRA to ground a magnitude assessment (severe vs blocking) in substrate evidence. The entry's violation pattern '[critical] IRA brief returns the wrong entries (false positives) or omits applicable entries (false negatives)' is directly relevant: the G7 and G11 commitment texts are referenced by the architect but are at identifier_only fidelity in the density tier, creating a false-negative risk that must be flagged.\n[IGF-T0-E03] T0 \"E/E/C/I Tetrad — Comprehensive Dimension\" — Statement: 'Gaps in the substrate are silent failure surfaces — work that touches a topic the substrate does not cover gets no brief, gets no verification, and the absence is invisible.' The architect explicitly requests bindings to DS-021 v1.0 Section 6 (G7/G11 commitment text), Section 12 (Substrate Bounded Authority), and Section 14 FLI-1 (G11 enforcement mechanism). These are not present as full-body ambient entries. The violation pattern '[critical] Areas of platform behavior governed by intelligence that exists nowhere in the substrate' applies: the G7/G11 enforcement mechanism specifications and substrate-bounded-authority methodology are governing intelligence for this disposition but are not surfaced at reasoning fidelity.\n[IGF-T1-E910] T1 \"The Korean Test (Unifying Meta-Principle)\" — Statement: 'If you replaced every field name, component name, plan name, and data_type with Korean equivalents, would the platform still produce correct results? All field identification must use structural heuristics (value ranges, data types, column distributions), never field-name matching in any language.' The audit evidence (S-SCHEMA-G7-01) shows signal_type column is TEXT with no CHECK constraint. Live signal_type values use ad hoc naming (sci:classification_outcome_v2, training:plan_interpretation, sci:cost_event) rather than the three-level vocabulary (classification:/comprehension:/convergence:). The convergence service uses underscore form (convergence_calculation_validation) rather than colon prefix. This is not directly a Korean Test violation but the structural heuristic principle applies: the signal surface's type vocabulary is not structurally enforced, meaning any consumer must pattern-match on string content rather than structural constraints.\n[IGF-T1-E905] T1 \"Prove, Don't Describe\" — Statement: 'Every number must be traceable to its source data cell. Nothing is asserted without an evidence chain. Criteria are defined before work begins and cannot be changed during execution.' The audit operates on code-and-schema evidence with explicit criteria (probe specifications from DIAG-DS021-Phase4). The architect's note that 'runtime confirmation is deferred pending populated proof-data environment' is consistent with this principle — the disposition must be grounded in the evidence actually collected, not in assertions about runtime behavior. The IRA's recommendation must weight code-and-schema evidence accordingly, as the architect instructs.\n[IGF-T0-E06] T0 \"Eight-Tier Substrate Authority Structure\" — Statement: 'The substrate is organized in eight tiers. The tier order matters — higher tiers have higher authority. When two entries conflict, the higher-tier entry wins.' This binds because the disposition depends on entries at multiple tiers: T1 principles (E906, E902, E912) govern the architectural intent, while T2+ density entries (Decision 64, Decision 23, Decision 30, Decision 77) likely contain the specific G7/G11 commitment text. The tier authority structure determines that T1 principles take precedence over T2 implementation decisions if they conflict, which is material to the (a) vs (b) disposition.\n[IGF-T0-E05] T0 \"E/E/C/I Tetrad — Joint Constraint Meta-Entry\" — Statement: 'E, E, C, and I are not independent. Each one trades off against the others under specific conditions.' The disposition between option (a) and option (b) is fundamentally a joint-constraint evaluation: option (a) is more Efficient (less rework) but may be less Efficacious (if in-place remediation cannot achieve full G7/G11 coherence); option (b) is more Efficacious (clean architecture) but less Efficient (rebuild cost). The entry states: 'Every design choice is evaluated against all four. The bootstrap layer prohibits any IRA/IVA/IMA action that would violate the joint constraint.' The IRA must evaluate both options against all four tetrad dimensions.\n[IGF-T1-E930] T1 \"Choose Right Over Quick\" — Statement: 'When facing a choice between a quick solution and a correct solution, always choose correct. The cost of redesign at decision time is always less than the cost of fixing an incorrect solution after deployment.' This principle directly governs the (a) vs (b) disposition. If option (a) is the 'quick' path that cannot achieve full architectural correctness, and option (b) is the 'correct' path that requires more work, this principle resolves in favor of (b). However, the principle also states: 'Choosing a simpler correct solution over a more complex correct solution is not a violation — simplicity and correctness are not in conflict.' If option (a) can achieve correctness, it is not the 'quick over correct' pattern.\n[IGF-T1-E914] T1 \"VP-to-VG Supersession Propagation\" — Statement: 'When VG implements a runtime instantiating the same architectural family as a VP-superseded pattern, the VG implementation must honor the supersession via one of: (1) ADOPT, (2) EXCEPT, (3) PREPARE.' The audit evidence shows the current signal surface architecture may instantiate a pattern that VP governance (DS-021 Decision 64 v2, three-level signal_type vocabulary) has superseded. The violation pattern '[critical] VG runtime implements a pattern that VP has explicitly superseded without exception documentation or PREPARE-pattern data capture' is relevant: if the current bypass-channel architecture and ad hoc signal_type vocabulary represent a pre-supersession pattern, the disposition must account for supersession propagation obligations.\n[IGF-T1-E911] T1 \"Governance Enforces Actors, Not Curates Substrate\" — Statement: 'Governance is the function of constraining actor behavior against a rule set, not the function of curating the rule set itself.' And: 'A queryable rule that the actor can ignore is theater, not governance.' The audit evidence shows G7 and G11 exist as governance commitments but the implementation structurally cannot comply: the signal surface is write-only (actors write signals but no actor reads them back through the canonical surface), and bypass channels allow actors to circumvent the canonical surface entirely. This is the 'queryable rule that the actor can ignore' pattern — G7/G11 exist as rules but the architecture does not enforce them.\n\nActive precedents (do not repeat):\n(none)\n\nSupersession candidates (Step 7 coherence check):\n[coherence] IGF-T2-E29 under-serves IGF-T1-E906: IGF-T2-E29 (Decision 30: Classification Signals Terminology) is at identifier_only fidelity and cannot be body-cited. However, the audit evidence shows the classification_signals table's signal_type vocabulary does not use the three-level prefix system (classification:/comprehension:/convergence:) that DS-021/Decision 64 v2 committed to. If Decision 30 defines the terminology that the signal surface should use, and the live implementation uses ad hoc naming (sci:classification_outcome_v2, training:plan_interpretation, sci:cost_event), then Decision 30 may need supersession or reaffirmation against the live evidence. IGF-T1-E906 (Closed-Loop Intelligence) requires signals to 'accumulate into the platform's learning systems' — if the terminology is inconsistent, signal accumulation across the three flywheels cannot be structurally coherent. → extend\n[coherence] IGF-T2-E01 under-serves IGF-T1-E906: IGF-T2-E01 (Decision 64: Dual Intelligence Architecture) is at identifier_only fidelity. The audit evidence references 'DS-021/Decision 64 v2' as the source of the three-level signal_type vocabulary (classification:/comprehension:/convergence:). If Decision 64 v2 defines the Dual Intelligence Architecture that G7 and G11 instantiate, then the live implementation's divergence (write-only signal surface, bypass channels, ad hoc signal_type vocabulary) represents a coherence gap between this T2 decision and the T1 principle (E906 Closed-Loop Intelligence). The T1 principle governs; the T2 decision should be checked for whether it still instantiates the principle given the evidence. → extend\n[coherence] IGF-T2-E28 under-serves IGF-T1-E936: IGF-T2-E28 (Decision 23: Three Flywheels — Tenant, Foundational, Domain) is at identifier_only fidelity. The audit evidence shows the three flywheel tables (synaptic_density for Tenant, foundational_patterns for Foundational, domain_patterns for Domain) operate as bypass channels that do not flow through classification_signals. IGF-T1-E936 states the flywheel must not 'discard classification outcomes without feeding them back into the signal accumulation mechanism.' If Decision 23 defines the three-flywheel architecture, the coherence question is whether the flywheel tables were always intended to be separate from classification_signals (in which case G7's 'single canonical signal surface' needs reinterpretation) or whether they were intended to read from classification_signals (in which case the bypass is a coherence gap). → extend\n\nInferred task-class: other",
+  "ira_request_hash": "34a78a645346623bfc52c98a23f40f03638f16798bcf0b74d431b0b88c5359ce",
+  "cost_usd": 1.501725,
+  "tier_verdict": "tier_3_novel",
+  "retrieved_prior_art": null,
+  "surface": {
+    "keywords": [
+      "cluster",
+      "signal",
+      "surface",
+      "coherence",
+      "substrate",
+      "review",
+      "the",
+      "phase",
+      "audit",
+      "collected",
+      "following",
+      "evidence",
+      "against",
+      "single",
+      "canonical",
+      "and",
+      "g11",
+      "read",
+      "path",
+      "code"
+    ],
+    "file_retrievals": [
+      {
+        "source_type": "project_file",
+        "source_locator": "prompts/IRA_Invocation_OB_IGF_13_Live_Test_20260413.md",
+        "content": "What is the canonical naming pattern for IGF substrate entry IDs across the eight tiers?\n",
+        "relevance_score": 0.25
+      },
+      {
+        "source_type": "project_file",
+        "source_locator": "supabase/migrations/20260412000006_igf_disposition_reason_codes.sql",
+        "content": "g rows (from verify round-trip test).\nUPDATE igf.candidate_dispositions\n   SET reason_code = 'other'\n WHERE reason_code = 'extraction_faithful'\n   AND notes IS NOT NULL\n   AND notes NOT LIKE '%reason-code%';\n\n-- Extend dispose_capture_event: per-candidate jsonb now accepts\n-- reason_code field alongside candidate_index + disposition + notes.\n-- The existing function body already iterates per_candi",
+        "relevance_score": 0.17411764705882352
+      },
+      {
+        "source_type": "project_file",
+        "source_locator": "docs/handoff-reports/HANDOFF_DISCIPLINE_DIRECTIVE.md",
+        "content": " not \nsearch project knowledge for it — it is not there. Session handoffs \nare git artifacts in `docs/handoff-reports/` and are pasted inline \ninto new conversation openings.\n\n### Pre-read (before reading the handoff)\n\n**REQUIRED pre-read — two files:**\n\n1. `docs/handoff-reports/HANDOFF_TEMPLATE.md` — the canonical \n   template the appended handoff was drafted against. Read this \n   to understand ",
+        "relevance_score": 0.16553480475382004
+      },
+      {
+        "source_type": "project_file",
+        "source_locator": "src/lib/agents/ica/__tests__/mode1_batch.test.ts",
+        "content": "d', source_name: 'UNMAPPED_DOC' },\n    ];\n\n    // readFileSync inside ingestDocumentDeterministic will throw for /fake paths.\n    // So we inject force_phase_l for known doc too via a trick: intercept persist\n    // and phaseL invoker, and run on content-free known doc that will fail to read.\n    // Simpler: force_phase_l=true on both to avoid filesystem reads, and assert metering.\n    manifest[0]",
+        "relevance_score": 0.16340621403912542
+      },
+      {
+        "source_type": "project_file",
+        "source_locator": "prompts/OB_IGF_26_IRA_Prompt_Template_Revision_20260419.md",
+        "content": "taining only `{id, tier, title}` per entry before the prompt builder sees it. The LLM reasons against the reduced view and correctly reports \"body absent\" because, from its vantage point, the body IS absent.\n\nOB-IGF-26 retires the shim and revises the IRA Invocation Prompt Template and the prompt builder code path such that the reasoning plane receives substrate body content inline in the prompt c",
+        "relevance_score": 0.1570203644158628
+      },
+      {
+        "source_type": "project_file",
+        "source_locator": "supabase/migrations/20260412000007_igf_promote_allow_tier0.sql",
+        "content": "b_typeof(v_row.candidate_entries) = 'array'\n      THEN v_row.candidate_entries\n    WHEN jsonb_typeof(v_row.candidate_entries -> 'candidates') = 'array'\n      THEN v_row.candidate_entries -> 'candidates'\n    ELSE NULL\n  END;\n\n  IF v_candidates IS NULL THEN\n    RAISE EXCEPTION 'candidate_entries_malformed: expected array or { candidates: [] }'\n      USING ERRCODE = '22023';\n  END IF;\n\n  -- Iterate a",
+        "relevance_score": 0.15480427046263345
+      },
+      {
+        "source_type": "project_file",
+        "source_locator": "prompts/IRA_AUD_004_Phase_A2_Inv2_Flywheel_Coupling_20260427.md",
+        "content": "ally:\n\n- **E3 — Decision 64 v2 extension:** Every signal type written to `classification_signals` shall have at least one defined reader before the next calculation run. A signal written and never read is a defect.\n- **E5 — T1-E906 extension:** Any service that writes to the signal surface shall read the signal surface before invoking AI semantic derivation.\n\nAt platform scale (multiple services w",
+        "relevance_score": 0.15394736842105264
+      },
+      {
+        "source_type": "project_file",
+        "source_locator": "src/lib/agents/ica/mode1_batch.ts",
+        "content": "       },\n      });\n      continue;\n    }\n\n    // Phase L path.\n    const phaseLResult = await opts.phaseLInvoker(doc.docPath, metadata);\n    phaseLCount++;\n    phaseLSpend += phaseLResult.cost_usd;\n    outcomes.push({\n      docPath: doc.docPath,\n      source_name: doc.source_name,\n      path: 'fallback_llm',\n      capture_event_id: phaseLResult.capture_event_id,\n      proposal_count: phaseLResult",
+        "relevance_score": 0.15283842794759825
+      }
+    ],
+    "substrate_retrievals": [
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T5-E902",
+        "content": "{\"origin\": \"OB-IGF-02 Phase 4 Section 1 Stop Condition 7\", \"rationale\": \"Mocks and placeholders create a false sense of progress and mask integration failures. Endpoints that work against mocks but fail against the real substrate are a known defect class. The rule forces real integration from the first commit.\", \"statement\": \"Endpoint implementations must query the live substrate via withAgentRole",
+        "relevance_score": 0.18292682926829268
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T0-E17",
+        "content": "{\"id\": \"IGF-T0-E17\", \"name\": \"Four-Agent Integration Loops\", \"tier\": 0, \"loops\": [{\"name\": \"ICA → IRA (intelligence freshness loop)\", \"description\": \"When the ICA captures and Andrew approves a new entry, that entry becomes immediately available to the IRA. The next IRA invocation against work in the entry's area incorporates it. Lag from intelligence emerging to intelligence being applied collaps",
+        "relevance_score": 0.1536144578313253
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T0-HIST-M01",
+        "content": "{\"id\": \"IGF-T0-HIST-M01\", \"name\": \"Meta-1: IGF review cadences should be event-tied where possible, not time-tied\", \"tier\": 0, \"health\": {\"status\": \"salience_pool_active\", \"version\": 1, \"last_modified\": \"2026-04-09\", \"added_to_pool_at\": \"2026-04-09\", \"last_modified_by\": \"Andrew (via OB-IGF-01)\"}, \"source\": \"Q4 answer process during IGF v0.2 governance session, April 7, 2026. Andrew almost suggeste",
+        "relevance_score": 0.1452991452991453
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T5-E901",
+        "content": "{\"origin\": \"OB-IGF-02 Phase 4 Section 1 Stop Condition 5, Section 6 Meta-39 binding\", \"rationale\": \"Meta-39 (no SQL fabrication) applied strictly: even tables created in earlier phases must be re-verified before new queries are written against them. This prevents drift between assumed and actual schema.\", \"statement\": \"No SQL query may be written in endpoint or migration code without first verifyi",
+        "relevance_score": 0.13953488372093023
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T5-E903",
+        "content": "{\"origin\": \"OB-IGF-02 Phase 4 Section 1 Stop Condition 6\", \"rationale\": \"Phase 4 is HTTP+substrate only. The Anthropic API belongs to agent runtimes in later stages. Importing it would conflate the HTTP layer with the agent layer, creating coupling that violates the vertical slice boundary. This generalizes: each phase owns a specific layer and must not bleed into others.\", \"statement\": \"Each OB p",
+        "relevance_score": 0.13725490196078433
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T5-E900",
+        "content": "{\"origin\": \"OB-IGF-02 Phase 4 Section 2 (Gate 0.5), Meta-48 refined\", \"rationale\": \"Phase 3 surfaced a defect class where narrow-scope verification masked framework assumptions. Gate 0.5 is the explicit countermeasure: run schema checks (table existence, column shapes, role grants) and confirm pass criteria before any implementation begins. This prevents drafting code against tables or columns tha",
+        "relevance_score": 0.1348314606741573
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T0-HIST-M36",
+        "content": "{\"id\": \"IGF-T0-HIST-M36\", \"name\": \"Meta-36: Fitness-of-purpose review catches overcomplication; surfacing gaps the architecture already handles is busywork\", \"tier\": 0, \"health\": {\"status\": \"salience_pool_active\", \"version\": 1, \"last_modified\": \"2026-04-09\", \"added_to_pool_at\": \"2026-04-09\", \"last_modified_by\": \"Andrew (via OB-IGF-01)\"}, \"source\": \"OB-IGF-01 R1 governance conversation, April 9, 20",
+        "relevance_score": 0.13309352517985612
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T5-E906",
+        "content": "{\"origin\": \"OB-IGF-02 Phase 4 Section 0 (Vertical Slice Rule), Section 4 gate structure, Section 6 binding table\", \"rationale\": \"Separating implementation from testing creates windows where untested code is merged and assumed working. The vertical slice rule requires that each endpoint's implementation, integration test, local verification, and preview verification all complete within a single gat",
+        "relevance_score": 0.1326530612244898
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T0-E05",
+        "content": "{\"id\": \"IGF-T0-E05\", \"name\": \"E/E/C/I Tetrad — Joint Constraint\", \"tier\": 0, \"health\": {\"status\": \"locked\", \"version\": 1, \"successor\": null, \"drift_flags\": [], \"predecessor\": null, \"last_modified\": \"2026-04-09\", \"staleness_days\": 0, \"last_modified_by\": \"Andrew (via OB-IGF-01)\", \"verification_evidence\": \"Sourced verbatim from v0.2 Section 2.5\", \"open_verification_questions\": [], \"last_verified_agai",
+        "relevance_score": 0.12617702448210924
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T0-HIST-M02",
+        "content": "{\"id\": \"IGF-T0-HIST-M02\", \"name\": \"Meta-2: Minimal commitment, expand from evidence (substrate-startup version)\", \"tier\": 0, \"health\": {\"status\": \"salience_pool_active\", \"version\": 1, \"last_modified\": \"2026-04-09\", \"added_to_pool_at\": \"2026-04-09\", \"last_modified_by\": \"Andrew (via OB-IGF-01)\"}, \"source\": \"Q2a answer during IGF v0.2 governance session, April 7, 2026. Andrew chose CAP as a single ke",
+        "relevance_score": 0.125
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T0-HIST-M32",
+        "content": "{\"id\": \"IGF-T0-HIST-M32\", \"name\": \"Meta-32: Pre-deployment runbooks are substrate work, not pre-substrate work\", \"tier\": 0, \"health\": {\"status\": \"salience_pool_active\", \"version\": 1, \"last_modified\": \"2026-04-09\", \"added_to_pool_at\": \"2026-04-09\", \"last_modified_by\": \"Andrew (via OB-IGF-01)\"}, \"source\": \"Stack build runbook (R0 → R3) drafting and OB-IGF-01 R0 → R1 evolution during April 9, 2026 go",
+        "relevance_score": 0.125
+      },
+      {
+        "source_type": "substrate",
+        "source_locator": "IGF-T0-HIST-M35",
+        "content": "{\"id\": \"IGF-T0-HIST-M35\", \"name\": \"Meta-35: Authoritative state and verification convenience are separable concerns\", \"tier\": 0, \"health\": {\"status\": \"salience_pool_active\", \"version\": 1, \"last_modified\": \"2026-04-09\", \"added_to_pool_at\": \"2026-04-09\", \"last_modified_by\": \"Andrew (via OB-IGF-01)\"}, \"source\": \"Stack build runbook R3 Section 5.5 reframe. Original R0 had a browser-reachable test for ",
+        "relevance_score": 0.12080536912751678
+      }
+    ],
+    "total_artifacts": 20
+  },
+  "prompt_version": "ira-v6.0-unified-2026-04-19",
+  "pass_metadata": {
+    "pass_1_reasoning": "Task class: substrate_coherence_audit_disposition — an architect-channel request to evaluate Phase 4 audit evidence against two governing principles (G7 Single Canonical Signal Surface, G11 Read-Path Coherence at the Signal Surface) and disposition between two architect-supplied options: (a) remediable through architectural pattern change vs (b) requires rebuild. Binding entries were identified by scanning ambient Tier 0 and Tier 1 entries for propositions that govern: signal surface architecture, closed-loop intelligence, carry everything, substrate-bounded authority methodology, principle-rule coherence, option evaluation, and the specific architectural commitments (G7/G11) referenced in DS-021. The user explicitly supplies two options (a) and (b) requiring Step 8 option evaluation. Coherence check (Step 7) examines whether lower-tier rules instantiate the higher-tier principles for this specific audit context. Key density entries (IGF-T2-E01 Decision 64, IGF-T2-E28 Decision 23 Three Flywheels, IGF-T2-E29 Decision 30 Classification Signals Terminology, IGF-T2-E30 Decision 77 SCI, IGF-T5-E1016 Autonomous Classification) are at identifier_only fidelity and cannot be body-cited but are flagged as escalation candidates since they likely contain the G7/G11 commitment text the architect requested. The substrate-bounded-authority flag the architect requested is addressed: DS-021 v1.0 Section 12 and Section 14 FLI-1 are not present as full-body entries in the ambient substrate, meaning the disposition partially depends on content not yet surfaced at reasoning fidelity. Gap analysis identifies this as a material gap.",
+    "pass_1_cost_usd": 1.501725,
+    "pass_2_total_cost_usd": 0,
+    "pass_2_unit_count": 26,
+    "pass_2_unit_failure_count": 0,
+    "unit_failures": []
+  }
+}
+=== COST: $1.501725 ===
