@@ -6,7 +6,22 @@
  */
 
 import { getAIService } from '@/lib/ai';
-import { isRegisteredPrimitive } from '@/lib/calculation/primitive-registry';
+import {
+  isRegisteredPrimitive,
+  getOperationPrimitives,
+  type FoundationalPrimitive,
+} from '@/lib/calculation/primitive-registry';
+
+// HF-194: typed structured-failure surface for the importer dispatch boundary.
+// Phase 1.5's prior throw at convertComponent's default branch named this class
+// in its message ("Phase 2 replaces this throw with UnconvertibleComponentError");
+// HF-194 ships that promise.
+export class UnconvertibleComponentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnconvertibleComponentError';
+  }
+}
 
 // ============================================
 // TYPES
@@ -36,8 +51,11 @@ import { isRegisteredPrimitive } from '@/lib/calculation/primitive-registry';
 // PercentageCalculation, ConditionalPercentageCalculation, AxisRange) deleted.
 // plan-interpreter.ts (the consumer that needed them) was deleted in Phase 1.6.
 // Foundational-only envelope post-narrowing.
+//
+// HF-194: type field derives from FoundationalPrimitive (registry-canonical 12 primitives)
+// instead of carrying a private subset. Closes Rule 8 violation (no private vocabulary copies).
 export interface GenericCalculation {
-  type: 'bounded_lookup_1d' | 'bounded_lookup_2d' | 'scalar_multiply' | 'conditional_gate' | 'linear_function' | 'piecewise_linear' | 'scope_aggregate';
+  type: FoundationalPrimitive;
   [key: string]: unknown;
 }
 
@@ -229,32 +247,19 @@ export class AIPlainInterpreter {
 
   private normalizeComponentType(type: unknown): ComponentCalculation['type'] {
     // OB-196 Phase 1.5 (Decision 155 fully closed): every recognized identifier
-    // is sourced from primitive-registry.ts. No private alias lists. Foundational
-    // identifiers exclusively expected. Phase 2 replaces this throw with the
-    // typed UnconvertibleComponentError at the convertComponent default branch.
+    // is sourced from primitive-registry.ts. No private alias lists.
+    //
+    // HF-194: prior 5-of-12 importable subset Set deleted (Rule 8 violation —
+    // private vocabulary copy of registry primitives). All 12 registered
+    // primitives are now importable; convertComponent's canonical-dispatch
+    // switch handles all of them. Throw replaced with UnconvertibleComponentError.
     const typeStr = String(type ?? '');
     if (!isRegisteredPrimitive(typeStr)) {
-      throw new Error(
+      throw new UnconvertibleComponentError(
         `[ai-plan-interpreter] non-foundational componentType "${typeStr}". ` +
-          `Phase 1.5 expects foundational identifiers from primitive-registry.ts; ` +
-          `Phase 2 replaces this throw with UnconvertibleComponentError.`,
-      );
-    }
-    // Only the GenericCalculation-importable subset is acceptable as a
-    // calculationMethod.type; others (bounded_lookup_1d, aggregate, ratio, etc.)
-    // are dispatch-surface operations the importer doesn't model as a shape.
-    const importable: ReadonlySet<GenericCalculation['type']> = new Set([
-      'linear_function',
-      'piecewise_linear',
-      'scope_aggregate',
-      'scalar_multiply',
-      'conditional_gate',
-    ] as const satisfies readonly GenericCalculation['type'][]);
-    if (!(importable as ReadonlySet<string>).has(typeStr)) {
-      throw new Error(
-        `[ai-plan-interpreter] foundational identifier "${typeStr}" recognized ` +
-          `by registry but is not importable as a calculationMethod shape. ` +
-          `Phase 2 replaces this throw with UnconvertibleComponentError.`,
+          `The registry holds ${getOperationPrimitives().length} foundational primitives; ` +
+          `AI emission and persisted rule_sets must match. ` +
+          `This is an OB-196 Phase 1.5 closure invariant.`,
       );
     }
     return typeStr as ComponentCalculation['type'];
@@ -436,27 +441,50 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
       `(from calcMethod.type="${calcMethod?.type}", calculationIntent.operation="${base.calculationIntent?.operation}")`,
   );
 
-  switch (calcType) {
+  // HF-194: canonical 12-case dispatch pattern, mirroring intent-executor.ts:444-471
+  // and run-calculation.ts:255-280. Vocabulary derivation is type-level
+  // (FoundationalPrimitive union from primitive-registry.ts); structured-failure
+  // default for runtime safety beyond compile-time enforcement, per Decision 154.
+  if (!isRegisteredPrimitive(calcType)) {
+    throw new UnconvertibleComponentError(
+      `[convertComponent] componentType "${calcType}" for component "${base.name}" ` +
+      `is not a registered foundational primitive. The registry holds ` +
+      `${getOperationPrimitives().length} primitives; AI emission and persisted rule_sets ` +
+      `must match. This is an OB-196 Phase 1.5 closure invariant.`,
+    );
+  }
+
+  switch (calcType as FoundationalPrimitive) {
+    case 'bounded_lookup_1d':
+    case 'bounded_lookup_2d':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+    case 'aggregate':
+    case 'ratio':
+    case 'constant':
+    case 'weighted_blend':
+    case 'temporal_window':
     case 'linear_function':
     case 'piecewise_linear':
     case 'scope_aggregate':
-    case 'scalar_multiply':
-    case 'conditional_gate':
       return {
         ...base,
-        componentType: calcType,
+        componentType: calcType as FoundationalPrimitive,
         metadata: {
           ...(base.metadata || {}),
           intent: base.calculationIntent, // copy for transformFromMetadata
         },
       };
-
-    default:
-      throw new Error(
-        `[convertComponent] non-foundational calcType "${calcType}" for component "${base.name}". ` +
-          `Phase 1.5 expects foundational identifiers from primitive-registry.ts; ` +
-          `Phase 2 replaces this throw with UnconvertibleComponentError.`,
+    default: {
+      // Unreachable per type-system + isRegisteredPrimitive guard above.
+      // Structured failure for runtime safety per Decision 154.
+      const _exhaustive: never = calcType as never;
+      void _exhaustive;
+      throw new UnconvertibleComponentError(
+        `[convertComponent] exhaustive guard failed for "${calcType}" on component "${base.name}". ` +
+        `Registry/dispatch divergence; this is a Decision 154 violation requiring architect attention.`,
       );
+    }
   }
 }
 

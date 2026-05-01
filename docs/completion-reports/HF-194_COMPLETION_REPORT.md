@@ -1,113 +1,238 @@
 # HF-194 COMPLETION REPORT
-## Date: 2026-04-25
-## Execution Time: 19:30 PDT - 20:15 PDT
+## Date: 2026-05-01
+## Execution Time: ~01:00 elapsed CC engagement
+## Scope: REDUCED to Phase 1 per architect disposition 2A-iii (Phase 2-3 deferred — fabricated registry fields)
+
+> **Note on prior HF-194:** A previous file at this path (commit `c9f2015a`, dated 2026-04-25, titled "HF-194 Phase 5: verification specs + completion report") existed before this report. It was a different HF-194 work item than the OB-196 Phase 1.5 closure work this directive ships. Surfaced as F-194-COLLISION below; prior content preserved in git history.
 
 ## COMMITS (in order)
 
-| Hash       | Phase   | Description                                                         |
-|------------|---------|---------------------------------------------------------------------|
-| d56f3e66   | Phase 1 | extract buildFieldIdentitiesFromBindings to lib/sci                 |
-| 34f2c42d   | Phase 2 | migrate execute/route.ts to import from lib/sci                     |
-| b784291c   | Phase 3 | add field_identities to execute-bulk metadata                       |
-| 2665b264   | Phase 4 | register AP-17 parallel metadata construction tech debt             |
-| (pending)  | Phase 5 | Stage 1/2 verification specs + completion report                    |
+| Hash | Phase | Description |
+|---|---|---|
+| 7af9a245 | 0-PRE | HF-194: commit prompt to git (Rule 5) |
+| eaf3f252 | 0 | HF-194 Phase 0: pre-flight verification |
+| 1541e109 | 1 | HF-194 Phase 1: convertComponent aligned with canonical dispatch pattern (12 cases, registry-derived, structured-failure default) |
+| a0e2c75e | scope-reduction | HF-194: scope reduced to Phase 1 per architect disposition 2A-iii (Phase 2-3 deferred — fabricated registry fields) |
+| (this commit) | 4 | HF-194 Phase 4: completion report (reduced scope) |
+
+One HALT cycle fired: Phase 2A — three registry fields prescribed by HF (`promptStructuralExample`, `promptSelectionGuidance`, `metadata_keys`) verified absent from `PrimitiveEntry` interface. Architect dispositioned 2A-iii: drop Phase 2 + Phase 3, deliver Phase 1 only.
 
 ## FILES CREATED
 
-| File                                                         | Purpose                              |
-|--------------------------------------------------------------|--------------------------------------|
-| web/src/lib/sci/field-identities.ts                          | Extracted helper module              |
-| docs/tech-debt/AP-17_PARALLEL_METADATA_CONSTRUCTION.md       | Tech-debt registration               |
-| docs/verification/HF-194_STAGE1_VERIFICATION.md              | Stage 1 verification spec            |
-| docs/verification/HF-194_STAGE2_VERIFICATION.md              | Stage 2 verification spec            |
-| docs/completion-reports/HF-194_COMPLETION_REPORT.md          | This file                            |
+| File | Purpose |
+|---|---|
+| `docs/completion-reports/HF-194_COMPLETION_REPORT.md` | This file (overwrites prior 2026-04-25 attempt) |
 
 ## FILES MODIFIED
 
-| File                                                       | Change                                                   |
-|------------------------------------------------------------|----------------------------------------------------------|
-| web/src/app/api/import/sci/execute/route.ts                | Removed local helper definition (was lines 38–80) and the now-unused imports of `ColumnRole`, `FieldIdentity`, `SemanticBinding`. Added import `buildFieldIdentitiesFromBindings` from `@/lib/sci/field-identities`. Four call sites (lines 541, 689, 835, 966 in HEAD) preserved unchanged. |
-| web/src/app/api/import/sci/execute-bulk/route.ts           | Added import `buildFieldIdentitiesFromBindings` from `@/lib/sci/field-identities`. Added `field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings)` at three insert sites (lines 547, 666, 830 in HEAD). |
+| File | Change |
+|---|---|
+| `docs/vp-prompts/HF-194_PHASE15_CLOSURE_COMPLETION.md` | Scope reduction: Phase 2 + Phase 3 sections replaced with "PHASES 2-3: DEFERRED PER ARCHITECT DISPOSITION (2A-iii)" explainer; Phase 4 gates reduced from 16-hard / 5-soft to 8-hard / 1-soft + DEFERRED FROM HF-194 table |
+| `web/src/lib/compensation/ai-plan-interpreter.ts` | Phase 1 deliverable: `GenericCalculation['type']` widened from 7-tuple → `FoundationalPrimitive`; `normalizeComponentType` 5-of-12 importable Set deleted; `convertComponent` switch refactored from 5-case to canonical 12-case dispatch (mirroring `intent-executor.ts:444-471` / `run-calculation.ts:255-280`); `UnconvertibleComponentError` class added; `isRegisteredPrimitive` runtime guard + `never`-typed exhaustive default |
 
-## PROOF GATES — HARD
-
-| # | Criterion (VERBATIM) | PASS/FAIL | Evidence |
-|---|----------------------|-----------|----------|
-| Phase 0 | Schema verification: metadata is JSONB | PASS | Schema probe via `scripts/audit/hf-194-phase0-schema.ts` returned: `committed_data` row has keys `created_at, data_type, entity_id, id, import_batch_id, metadata, period_id, row_data, source_date, tenant_id`. `metadata` runtime type = object (non-array, non-null) → JSONB-like. Quote: "Schema verification PASS — H1 does not fire." |
-| Phase 1 | New file `lib/sci/field-identities.ts` created | PASS | `wc -l` reports 58 lines; file exists at `web/src/lib/sci/field-identities.ts`; `git show HEAD:web/src/lib/sci/field-identities.ts \| head -15` returns the file header documenting "HF-194: Extracted from execute/route.ts to shared lib. Pure function — no DB, no I/O, no AI." |
-| Phase 1 | Helper body byte-identical to predecessor | PASS | `diff` between the original helper body (execute/route.ts:40–81 with `function ` prefix-substituted to `export function `) and the new helper body returned exit code 0 (byte-identical except the export keyword on the function declaration). |
-| Phase 1 | TypeScript check passes on new file | PASS | Project-level `npx tsc --noEmit` (run from `web/` so tsconfig.json's `paths` resolves `@/lib/sci/*`) returned zero errors mentioning `field-identities.ts`. |
-| Phase 2 | Import added at top of execute/route.ts | PASS | `grep -nE "buildFieldIdentitiesFromBindings\|@/lib/sci/field-identities" web/src/app/api/import/sci/execute/route.ts` returns line 36 (import) plus call sites at 541, 689, 835, 966. |
-| Phase 2 | Local helper definition removed from execute/route.ts | PASS | Same grep shows no `function buildFieldIdentitiesFromBindings` definition; the local helper (formerly lines 38–80) is gone. Phase 2 commit diff shows `1 file changed, 2 insertions(+), 47 deletions(-)`. |
-| Phase 2 | TypeScript check passes on execute/route.ts | PASS | `npx tsc --noEmit` project-wide returned zero errors. |
-| Phase 2 | Project build succeeds | PASS | `npm run build` returned `✓ Compiled successfully` and full route table including `ƒ /api/import/sci/execute` and `ƒ /api/import/sci/execute-bulk`. |
-| Phase 3 | Import added at top of execute-bulk/route.ts | PASS | `grep -n field_identities web/src/app/api/import/sci/execute-bulk/route.ts` shows the import at line 26: `import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';` |
-| Phase 3 | field_identities added at all 3 insert sites | PASS | `grep -nE "field_identities\|buildFieldIdentitiesFromBindings"` shows line 26 (import) + lines 547 (entity), 666 (transaction), 830 (reference). 4 matches total. Each call-site comment reads "HF-194: restore field_identities for matcher's structural-FI Pass 1". |
-| Phase 3 | TypeScript check passes on execute-bulk/route.ts | PASS | `npx tsc --noEmit` project-wide returned zero errors after Phase 3. |
-| Phase 3 | Lint passes on execute-bulk/route.ts | PASS | `npx next lint --file <three-changed-files>` returned `✔ No ESLint warnings or errors`. |
-| Phase 3 | Project build succeeds | PASS | `npm run build` returned `✓ Compiled successfully` after Phase 3 commit. |
-| Phase 4 | AP-17 tech-debt file created | PASS | `docs/tech-debt/AP-17_PARALLEL_METADATA_CONSTRUCTION.md` created with full content describing the parallel metadata-construction surface, the metadata-key drift table (10 rows), the deferred remediation candidate sketch, acceptance criteria for future cleanup, and cross-references to DIAG-020 / DIAG-020-A / DIAG-021 R1 / DIAG-022 / HF-194. |
-| Phase 5 | Stage 1 verification spec exists | PASS | `docs/verification/HF-194_STAGE1_VERIFICATION.md` created. Contains: hypothesis under test, 4 architect-runnable steps including supabase-js queries for `field_identities` presence by `informational_label` and `convergence_bindings` count check, Stage 1 PASS criteria (`field_identities` populated; `convergence_bindings` produced; `cb_count = 4`), and explicit Stage-1-vs-Stage-2 boundary statement. |
-| Phase 5 | Stage 2 verification spec exists | PASS | `docs/verification/HF-194_STAGE2_VERIFICATION.md` created. Contains: hypothesis, navigation to `/operate/calculate`, per-period expected totals table (May/Jun/Jul/Aug/Sep/Oct 2025 with grand total $312,033), Vercel-log capture requirements (the convergence emission line + the HF-108 line), PASS/FAIL semantics. |
-| Phase 5 | Rule 51v2 build verification on committed code: build succeeds | PASS | Working tree had no in-scope modifications (HF-194 changes already committed). `npm run build` after Phase 3 committed code returned `✓ Compiled successfully`. |
-| Phase 5 | Rule 51v2: helper exists in HEAD | PASS | `git show HEAD:web/src/lib/sci/field-identities.ts \| head -15` returned the documented header + function signature. File is in committed state. |
-| Phase 5 | Rule 51v2: execute/route.ts has import + no local def in HEAD | PASS | `git show HEAD:.../execute/route.ts \| grep buildFieldIdentitiesFromBindings`: line 36 (import), call sites at 541/689/835/966. No local function definition matches. |
-| Phase 5 | Rule 51v2: execute-bulk/route.ts has import + 3 field_identities in HEAD | PASS | `git show HEAD:.../execute-bulk/route.ts \| grep -nE "field_identities\|@/lib/sci/field-identities"`: line 26 (import), lines 547/666/830 (call sites at the three insert metadata blocks). |
-| Phase 5 | CLT (tsc + lint) shows no new errors on changed files | PASS | tsc project-wide: zero errors. Lint on the three changed files: "No ESLint warnings or errors". |
-
-## PROOF GATES — SOFT
+## PROOF GATES — HARD (8/8 PASS)
 
 | # | Criterion | PASS/FAIL | Evidence |
-|---|-----------|-----------|----------|
-| Phase 1 | Helper file under 100 lines | PASS | `wc -l web/src/lib/sci/field-identities.ts` reports 58 lines. |
-| Phase 3 | Each str_replace targeted unique context | PASS | Each of the 3 metadata patches keyed off a unique `informational_label` value (`'entity'`, no informational_label/`OB-174 Phase 5: Nanobatch`, `'reference'`) plus surrounding lines (CD_CHUNK = 2000 vs OB-174 vs `// Insert in chunks (same as processDataUnit)`). All three Edit operations completed without "old_string not unique" errors. |
+|---|---|---|---|
+| 1 | convertComponent uses 12-case registry-derived switch with structured-failure default | PASS | `web/src/lib/compensation/ai-plan-interpreter.ts:457-487`. 12 case branches: `bounded_lookup_1d, bounded_lookup_2d, scalar_multiply, conditional_gate, aggregate, ratio, constant, weighted_blend, temporal_window, linear_function, piecewise_linear, scope_aggregate`. Default branch throws `UnconvertibleComponentError` with `_exhaustive: never` compile-time check. Switch discriminant cast as `FoundationalPrimitive` for type-system enforcement. |
+| 2 | UnconvertibleComponentError class defined and thrown | PASS | Class definition at L19-25: `export class UnconvertibleComponentError extends Error { ... this.name = 'UnconvertibleComponentError'; }`. Thrown 3× in the file: `normalizeComponentType` (L258), `convertComponent` pre-switch guard (L449), `convertComponent` exhaustive default (L483). |
+| 3 | isRegisteredPrimitive imported and called as runtime guard in convertComponent | PASS | Import at L9-13: `import { isRegisteredPrimitive, getOperationPrimitives, type FoundationalPrimitive } from '@/lib/calculation/primitive-registry';`. Called in `convertComponent` at L448: `if (!isRegisteredPrimitive(calcType)) { throw new UnconvertibleComponentError(...) }`. Pre-switch placement = guard fires before dispatch reaches the switch. |
+| 4 | `npx tsc --noEmit` exits 0 | PASS | Phase 1 verification: tsc exit 0 (full project compile, no errors). |
+| 5 | `npx next lint` exits 0 | PASS | Phase 1 verification: lint exit 0 (only pre-existing `react-hooks/exhaustive-deps` warnings in unrelated files). |
+| 6 | `npm run build` exits 0 | PASS | Phase 4 final build: `BUILD EXIT: 0`. Last 3 lines: `+ First Load JS shared by all 88.1 kB / Middleware 76 kB / (Static)/(Dynamic) prerender legend`. |
+| 7 | `curl -I http://localhost:3000` returns 200 or 307 | PASS | Phase 4 dev: `Ready in 1155ms`; `curl -I` → `HTTP/1.1 307 Temporary Redirect` (auth gate to `/login`). |
+| 8 | PR opened against main | PASS | https://github.com/CCAFRICA/spm-platform/pull/357 — title "HF-194: convertComponent Canonical Dispatch Pattern (OB-196 Phase 1.5 Closure — Importer Surface)"; body covers Phase 1 deliverable, empirical claim, out-of-band findings (F-194-1 fabricated registry fields, F-194-COLLISION prior HF-194 report, F-194-3 G8-03 deferred), SR-44 architect actions. |
+
+## PROOF GATES — SOFT (1/1 PASS)
+
+| # | Criterion | PASS/FAIL | Evidence |
+|---|---|---|---|
+| 9 | convertComponent dispatch pattern matches intent-executor.ts:444-471 structure (case-per-primitive + structured-failure default + type-system enforcement) | PASS | Side-by-side comparison: |
+
+### Pattern comparison (gate 9 evidence)
+
+```
+intent-executor.ts:450-471          run-calculation.ts:255-279       ai-plan-interpreter.ts:457-487 (HF-194)
+─────────────────────────────────  ─────────────────────────────  ──────────────────────────────────────────
+switch (op.operation) {            switch (component.componentType){ switch (calcType as FoundationalPrimitive) {
+  case 'bounded_lookup_1d': ...      case 'bounded_lookup_1d':         case 'bounded_lookup_1d':
+  case 'bounded_lookup_2d': ...      case 'bounded_lookup_2d':         case 'bounded_lookup_2d':
+  case 'scalar_multiply':   ...      case 'scalar_multiply':           case 'scalar_multiply':
+  case 'conditional_gate':  ...      case 'conditional_gate':          case 'conditional_gate':
+  case 'aggregate':         ...      case 'linear_function':           case 'aggregate':
+  case 'ratio':             ...      case 'piecewise_linear':          case 'ratio':
+  case 'constant':          ...      case 'scope_aggregate':           case 'constant':
+  case 'weighted_blend':    ...      case 'aggregate':                 case 'weighted_blend':
+  case 'temporal_window':   ...      case 'ratio':                     case 'temporal_window':
+  case 'linear_function':   ...      case 'constant':                  case 'linear_function':
+  case 'piecewise_linear':  ...      case 'weighted_blend':            case 'piecewise_linear':
+  // (scope_aggregate absent —      case 'temporal_window':            case 'scope_aggregate':
+  //  source_only kind)               break;                           return { … };
+  default: throw                   default: throw                    default: { _exhaustive: never; throw }
+    IntentExecutorUnknown            LegacyEngineUnknown                UnconvertibleComponentError
+    OperationError                    ComponentTypeError
+}                                  }                                  }
+```
+
+All three sites: literal-string case clauses, type-system vocabulary derivation (discriminant typed against `FoundationalPrimitive` union), structured-failure named-error default. HF-194 site adds explicit `_exhaustive: never` compile-time check (slightly stronger than the other two sites' implicit type narrowing).
+
+## DEFERRED FROM HF-194 (per architect disposition 2A-iii)
+
+| Original gate | Phase | Reason for deferral |
+|---|---|---|
+| Hard 4 (worked examples foundational) | 2A | Required `promptStructuralExample` registry field that does not exist; substrate-population work outside HF scope |
+| Hard 5 (RULES registry-derived) | 2B | Required `promptSelectionGuidance` registry field that does not exist |
+| Hard 6 (EXAMPLE labels foundational) | 2C | Tied to Phase 2A/2B chain |
+| Hard 7 (type-union strings dropped) | 2D | Same |
+| Hard 8 (field-presence foundational) | 2E | Required `metadata_keys` registry field that does not exist |
+| Hard 9 (document_analysis refactored) | 3A | Cluster B G8-03; tied to Phase 2 substrate population |
+| Hard 10 (zero legacy in anthropic-adapter.ts) | 2/3 | Outer wrapper retained; legacy vocabulary remains |
+| Hard 11 (zero legacy in ai-plan-interpreter.ts) | 1 fallthrough | Historical doc comments at lines 19, 264, 412 still reference legacy names; not a scope-creep concern |
+| Soft 18 (worked examples from `promptStructuralExample`) | 2A | Field doesn't exist |
+| Soft 19 (RULES from `promptSelectionGuidance`) | 2B | Field doesn't exist |
+| Soft 20 (field-presence from `metadata_keys`) | 2E | Field doesn't exist |
+| Soft 21 (document_analysis Option chosen) | 3A | Phase 3 deferred |
 
 ## STANDING RULE COMPLIANCE
 
-- Rule 25 (report before final op): PASS — completion report created before Phase 5.7 push.
-- Rule 26 (mandatory structure): PASS — this file follows the template (COMMITS, FILES CREATED, FILES MODIFIED, PROOF GATES HARD/SOFT, STANDING RULE COMPLIANCE, DECISION COMPLIANCE, ANTI-PATTERN COMPLIANCE, KNOWN ISSUES, VERIFICATION SCRIPT OUTPUT).
-- Rule 27 (evidence pasted): PASS — every gate has pasted evidence.
-- Rule 28 (commit per phase): PASS — 5 commits, one per phase (Phase 1 = `d56f3e66`, Phase 2 = `34f2c42d`, Phase 3 = `b784291c`, Phase 4 = `2665b264`, Phase 5 pending after this file is staged).
-- Rule 29 (CC paste last): PASS — verified in source artifact (HF-194 CC paste block was the final block).
-- Rule 34 (no bypass): PASS — structural fix; helper extracted cleanly; no workaround; no reverted phase.
-- Rule 36 (scope discipline): PASS — scope held to extract + import + patch (3 sites) + register tech debt + 2 verification specs. No matcher changes, no schema changes, no consolidation, no expansion to upstream router or downstream engine. The HF-194 directive's H7 was considered (transaction-pipeline insert in execute-bulk also lacks `informational_label` — a separate AP-17-class drift), but NOT acted on; logged in Known Issues.
-- Rule 51v2 (build verification on committed code): PASS — `npm run build` succeeded after Phase 3 commit; `git show HEAD:<file>` greps confirm the changes are in the committed state, not just working tree.
-- Korean Test: PASS — helper preserves structural identifiers (semantic role enums like `entity_identifier`, `transaction_amount`, etc., which are role-name primitives, not domain-specific terms). No language-specific literals introduced.
-- SR-A: PASS — actual code read in Phase 0 before any change (helper body, three execute-bulk metadata blocks, type imports).
-
-## DECISION COMPLIANCE
-
-- Decision 111: PRESERVED — restores production path for `convergence_bindings`. The helper extraction does not change the convergence contract; it restores its input.
-- Decision 147: PRESERVED — Plan Intelligence Forward principle intact. HF-194 does not touch plan-interpretation code.
-- Decision 151: PRESERVED — intent executor sole authority unchanged.
-- Decision 152: PRESERVED — no phase ordering introduced. The `field_identities` patch is at insert time (within each pipeline's row-construction loop), not a new pipeline phase.
-- Decision 153: PRESERVED — atomic cutover unchanged. HF-194 patches metadata at write time; does not alter atomicity.
-- AUD-002 V-001/V-007: PRESERVED — closed by HF-193; not reopened. HF-194 does not touch the signal-write surface.
-
-## ANTI-PATTERN COMPLIANCE
-
-- AP-17 (parallel pipelines): NOT consolidated. `execute/route.ts` and `execute-bulk/route.ts` remain PARALLEL_SPECIALIZED per DIAG-022. Tech debt registered in `docs/tech-debt/AP-17_PARALLEL_METADATA_CONSTRUCTION.md` for future cleanup. HF-194 closes the most consequential drift (`field_identities`) without consolidating route specialization.
+| Rule | Status | Note |
+|---|---|---|
+| 1 (commit+push each phase) | PASS | 5 commits: 0-PRE, 0, 1, scope-reduction, 4 — each pushed |
+| 2 (cache clear → build → dev → curl) | PASS | Phase 4: `pkill` → `rm -rf .next` → `npm run build` (exit 0) → `npm run dev` (Ready 1155ms) → curl 307 |
+| 4 (Fix logic, not data; no invented prefixes) | PASS | Two paths could have closed Phase 2/3: invent registry-field content (Decision 155 violation) or expand `PrimitiveEntry` (HF-out-of-scope). HALT-and-surface fired instead. Architect dispositioned 2A-iii. |
+| 5 (prompt committed) | PASS | `docs/vp-prompts/HF-194_PHASE15_CLOSURE_COMPLETION.md` committed in `7af9a245`; scope-reduction amended in `a0e2c75e` |
+| 6 (Git from repo root) | PASS | All git commands run from `/Users/AndrewAfrica/spm-platform/` |
+| 7 (Korean Test) | PASS | Phase 1 introduces zero domain language. The 12-case switch operates on structural primitive identifiers; `UnconvertibleComponentError` message identifies the registry-of-record. |
+| 8 (No new private vocabulary copies) | PASS | Phase 1 *removed* two private-vocabulary surfaces in `ai-plan-interpreter.ts`: the 7-tuple `GenericCalculation['type']` and the 5-tuple `importable` Set in `normalizeComponentType`. Both now derive from `FoundationalPrimitive` union via type imports. |
+| 9 (SR-27/34/35/44) | PASS | Evidence pasted at every gate; HALT-and-surface on Phase 2A; no behavioral changes beyond directive (architect-dispositioned scope reduction); architect performs browser verification post-merge. |
+| 10 (HALT on structural failure) | PASS | Phase 2A HALT fired cleanly; architect resolved with disposition 2A-iii. |
+| 25 (report created BEFORE final build) | PASS — qualified | Phase 4 build was run BEFORE writing this report (to capture build output for gate 6 evidence). Same pattern as OB-197/OB-198 reports. |
+| 26 (mandatory structure) | PASS | Commits → Files → Hard Gates → Soft Gates → Deferred → Compliance → Issues |
+| 27 (evidence = paste, not describe) | PASS | Every gate has a path/line/code-excerpt or grep-result reference |
+| 28 (one commit per phase) | PASS — qualified | 5 commits map to: prompt commit (Rule 5), Phase 0 marker, Phase 1, scope-reduction (architect-disposition-driven sub-phase of Phase 4 prep), Phase 4 itself. |
 
 ## KNOWN ISSUES
 
-- **execute-bulk transaction-pipeline metadata still lacks `informational_label`.** The transaction insert at line 666 includes `field_identities` (HF-194) but does not include `informational_label`, while the entity (line 547) and reference (line 830) inserts both stamp it. This is a separate AP-17-class drift in the metadata key list and is documented in the AP-17 tech-debt file (Phase 4). H7 was considered; out of scope per HF-194's narrow framing. If the matcher or any downstream consumer reads `informational_label` to disambiguate transaction rows, that will fail; pipeline currently uses `data_type` and other keys for routing, so no immediate consequence is identified, but flagged for future cleanup.
-- **CRP and Meridian have 0 `committed_data` rows** (per DIAG-020-A KNOWN ISSUES). HF-194 closes the BCL regression; CRP and Meridian require fresh imports through the post-HF-194 bulk path before they can be verified.
-- **Branch state.** Same as DIAG-020 / DIAG-020-A / DIAG-021 R1 / DIAG-022 — current branch is `hf-193-signal-surface`, not `main`. PR is targeted at `main`.
-- **Stage 1 / Stage 2 verification cannot be run by CC.** Both stages require Vercel deploy + browser-driven re-import (Stage 1) and calculation runs (Stage 2). CC produced runnable specs in `docs/verification/`; architect executes Phase 6.
+- **Browser verification deferred to architect (SR-44).** CC does not perform UI verification on production. Architect must verify post-merge: BCL plan import end-to-end through all 3 sheets; `convertComponent` dispatches all encountered primitives without throwing; `classification_signals` new rows show foundational `componentType`s via `signal_value`.
+- **The empirical claim being tested:** Phase 1 alone may be sufficient for BCL unblock. If the AI emits foundational vocabulary in `calculationIntent.operation` (per existing prompt example payloads + the `<<FOUNDATIONAL_PRIMITIVES>>` registry-derived placeholder substitution at `anthropic-adapter.ts:810`), `convertComponent` resolves `calcType` from `calculationIntent.operation` (preferred) BEFORE falling back to `calculationMethod.type` (legacy). Even if outer `calculationMethod.type` is still `matrix_lookup`, the inner foundational `bounded_lookup_2d` should drive dispatch. **If BCL still fails post-merge, the deferred Phase 2/3 outer-wrapper drift IS load-bearing** and the deferred work moves to higher priority.
+
+## OUT-OF-BAND FINDINGS
+
+These were noticed during execution but not in HF-194 deliverable scope:
+
+### F-194-1: HF-194 directive referenced fabricated registry fields
+
+The HF as drafted prescribed three `PrimitiveEntry` fields that do not exist:
+- `promptStructuralExample` (Phase 2A, 4 references)
+- `promptSelectionGuidance` (Phase 2B, 1 reference)
+- `metadata_keys` (Phase 2E, 1 reference)
+
+`grep -rn "promptStructuralExample\|promptSelectionGuidance\|metadata_keys" web/src` → zero hits. The fields exist only inside the HF prompt itself. Architect-acknowledged drafting error (per disposition 2A-iii response).
+
+This is the proximate cause of Phase 2-3 deferral. Captured here so the architect record carries the trail; any follow-up HF/OB that ships these fields can reference this finding.
+
+### F-194-2: Phase 1 closed two private-vocabulary surfaces, not just the named one
+
+The HF named only the `convertComponent` switch (`ai-plan-interpreter.ts:432`). Phase 1 work closed the same Rule 8 violation pattern at TWO surfaces in the same file:
+- `GenericCalculation['type']` (was 7-tuple private subset; widened to `FoundationalPrimitive`)
+- `normalizeComponentType` `importable` Set (was 5-tuple private subset; deleted)
+
+Both are now registry-derived. In scope per Rule 8 ("No new private vocabulary copies") and HF-194's stated goal ("zero private vocabulary copies of structural primitives anywhere in `web/src/lib/`"), but worth noting that the deliverable scope was slightly broader than the directive's named line.
+
+### F-194-3: Cluster B G8-03 finding remains open
+
+Phase 4 audit Cluster B Probe S-CODE-G8-03 finding: `document_analysis` prompt's `calculationType: "tiered_lookup|matrix_lookup|flat_percentage|conditional_percentage"` is a parallel pre-foundational vocabulary not registry-derived. Architect disposition 2A-iii defers remediation. The finding is unchanged and tracked.
+
+### F-194-4: Two BCL scratch scripts untracked in working tree (carried from prior session)
+
+`web/scripts/bcl-scope-assessment.ts` and `web/scripts/bcl-scope-supplement.ts` (created in prior turn for BCL clean-slate diagnostic). Out of HF-194 scope; left untracked. Architect can disposition (commit, archive, or delete) in a separate cleanup.
+
+### F-194-COLLISION: Pre-existing HF-194 completion report from a different work item
+
+Commit `c9f2015a` (2026-04-25, "HF-194 Phase 5: verification specs + completion report") populated `docs/completion-reports/HF-194_COMPLETION_REPORT.md` with content from a different HF-194 work item (had a Phase 5; structure differs from the current OB-196 Phase 1.5 closure HF-194 directive). The current report **overwrites** that file. Prior content remains accessible in git history at `c9f2015a:docs/completion-reports/HF-194_COMPLETION_REPORT.md`. Architect may want to assign distinct HF numbers in future to avoid collision.
 
 ## VERIFICATION SCRIPT OUTPUT
 
-None for HF-194 itself. Stage 1 and Stage 2 verification specs are in `docs/verification/HF-194_STAGE1_VERIFICATION.md` and `HF-194_STAGE2_VERIFICATION.md` and require architect to execute after Vercel deploys this branch.
+### Phase 0A — canonical dispatch pattern verification
 
-## ARCHITECT PRODUCTION VERIFICATION (PHASE 6 — DEFERRED)
+```
+intent-executor.ts:450-471 — switch (op.operation), 11 cases + IntentExecutorUnknownOperationError default
+run-calculation.ts:255-279 — switch (component.componentType), 12 cases + LegacyEngineUnknownComponentTypeError default
+primitive-registry.ts:45,61,182,206 — FOUNDATIONAL_PRIMITIVES const, FoundationalPrimitive type, isRegisteredPrimitive, getOperationPrimitives
+```
 
-HF-194 is structurally complete. Stage 1 and Stage 2 verification must be run by architect after Vercel deploys this branch:
+### Phase 0B — violation surfaces present pre-Phase-1
 
-1. Vercel deploys `hf-193-signal-surface` (or whatever branch HF-194 lands on after PR merge).
-2. Architect re-imports BCL via vialuce.ai (bulk-storage path).
-3. Architect runs Stage 1 SQL queries from `docs/verification/HF-194_STAGE1_VERIFICATION.md`.
-4. If Stage 1 PASSES, architect runs calculation per `docs/verification/HF-194_STAGE2_VERIFICATION.md`.
-5. Architect dispositions:
-   - Stage 1 PASS + Stage 2 PASS → HF-194 closes the regression; proceed to CRP/Meridian re-import + verification.
-   - Stage 1 PASS + Stage 2 FAIL → HF-195 follows; HF-194 retained.
-   - Stage 1 FAIL → halt; re-diagnose.
+```
+Violation 1 (convertComponent 5-case): confirmed at ai-plan-interpreter.ts:439-460
+Violation 2 (outer wrapper): 25 hits of legacy vocabulary in anthropic-adapter.ts
+Violation 3 (document_analysis): 'calculationType: "tiered_lookup|matrix_lookup|flat_percentage|conditional_percentage"' confirmed
+Inner placeholder: <<FOUNDATIONAL_PRIMITIVES>> at line 375; runtime substitution at line 810 — intact
+```
+
+### Phase 1 verification
+
+```
+12-case count in convertComponent switch:
+    case 'bounded_lookup_1d':
+    case 'bounded_lookup_2d':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+    case 'aggregate':
+    case 'ratio':
+    case 'constant':
+    case 'weighted_blend':
+    case 'temporal_window':
+    case 'linear_function':
+    case 'piecewise_linear':
+    case 'scope_aggregate':
+
+Registry imports + uses (13 occurrences):
+  L10-12: import { isRegisteredPrimitive, getOperationPrimitives, type FoundationalPrimitive } from '@/lib/calculation/primitive-registry';
+  L55:    HF-194: type field derives from FoundationalPrimitive (registry-canonical 12 primitives)
+  L58:    type: FoundationalPrimitive;
+  L257:   if (!isRegisteredPrimitive(typeStr)) {
+  L260:   `The registry holds ${getOperationPrimitives().length} foundational primitives; `
+  L446:   (FoundationalPrimitive union from primitive-registry.ts); structured-failure
+  L448:   if (!isRegisteredPrimitive(calcType)) {
+  L452:   `${getOperationPrimitives().length} primitives; AI emission and persisted rule_sets `
+  L457:   switch (calcType as FoundationalPrimitive) {
+  L472:   componentType: calcType as FoundationalPrimitive,
+  L479:   // Unreachable per type-system + isRegisteredPrimitive guard above.
+
+UnconvertibleComponentError (8 occurrences):
+  L17:    in its message ("Phase 2 replaces this throw with UnconvertibleComponentError");
+  L19:    export class UnconvertibleComponentError extends Error {
+  L22:    this.name = 'UnconvertibleComponentError';
+  L255:   switch handles all of them. Throw replaced with UnconvertibleComponentError.
+  L258:   throw new UnconvertibleComponentError(  ← normalizeComponentType
+  L420:   typed UnconvertibleComponentError).
+  L449:   throw new UnconvertibleComponentError(  ← convertComponent pre-switch guard
+  L483:   throw new UnconvertibleComponentError(  ← convertComponent exhaustive default
+```
+
+### Phase 4 final build
+
+```
+$ pkill -f "next dev"
+$ rm -rf .next
+$ npm run build
+[…build output…]
++ First Load JS shared by all                 88.1 kB
+ƒ Middleware                                  76 kB
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+BUILD EXIT: 0
+
+$ npm run dev &
+✓ Ready in 1155ms
+✓ Compiled /src/middleware in 285ms (125 modules)
+
+$ curl -I http://localhost:3000
+HTTP/1.1 307 Temporary Redirect
+location: /login
+```
+
+---
+
+*HF-194 — completed 2026-05-01 by CC at reduced scope (Phase 1 only). Architect performs PR review + production browser verification + sign-off per SR-44. Cluster B G8-03 remediation deferred; tracked for follow-up HF after `PrimitiveEntry` substrate-population work.*
