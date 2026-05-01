@@ -8,6 +8,17 @@
 //   (d) Three indexes present — DEFERRED: pg_indexes / information_schema not
 //       exposed via PostgREST. Architect must verify via SQL Editor paste; this
 //       script emits the query.
+//
+// Phase 1C architect confirmation — 3/3 indexes verified via SQL Editor:
+//   SELECT indexname FROM pg_indexes
+//    WHERE tablename = 'classification_signals'
+//      AND indexname IN ('idx_cs_run_id', 'idx_cs_tenant_run_type', 'idx_cs_tenant_type_created')
+//    ORDER BY indexname;
+//   Result:
+//     idx_cs_run_id
+//     idx_cs_tenant_run_type
+//     idx_cs_tenant_type_created
+//   Phase 1C closed. All four checks (a)(b)(c)(d) PASS.
 
 import { createClient } from '@supabase/supabase-js';
 
