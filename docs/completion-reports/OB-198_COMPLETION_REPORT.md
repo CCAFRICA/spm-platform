@@ -57,7 +57,7 @@ Two HALT cycles fired during execution: HALT-1 (F-1 inventory misdiagnosis on W-
 | 6 | `npx next lint` exits 0 | PASS | Phase 1M lint → exit 0. Only pre-existing warnings (react-hooks/exhaustive-deps in unrelated files); no errors. |
 | 7 | `npm run build` exits 0 | PASS | Phase 2: BUILD EXIT 0. Last 3 lines: `+ First Load JS shared by all 88.1 kB / Middleware 76 kB / (Static)/(Dynamic) prerender legend`. |
 | 8 | `curl -I http://localhost:3000` returns 200 or 307 | PASS | Phase 2 dev: `Ready in 1154ms`; `curl -I` → `HTTP/1.1 307 Temporary Redirect / location: /login` (auth gate). |
-| 9 | PR opened against main | (filled at PR creation) | PR URL appended after `gh pr create`. |
+| 9 | PR opened against main | PASS | https://github.com/CCAFRICA/spm-platform/pull/356 — title "OB-198: Signal Vocabulary Alignment — F-1 Remediation"; body covers HALT dispositions, writer alignment, reader alignment, zero schema changes, SR-44 architect actions. |
 
 ## PROOF GATES — SOFT
 
