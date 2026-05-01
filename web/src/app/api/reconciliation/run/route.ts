@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
   // Write training signal (fire-and-forget)
   persistSignal({
     tenantId,
-    signalType: 'training:reconciliation_outcome',
+    signalType: 'convergence:reconciliation_outcome',
     signalValue: {
       batchId,
       matchCount: report.classifications.match,

@@ -2249,7 +2249,7 @@ function DataPackageImportPageInner() {
             .filter(m => m.targetField) // Only confirmed mappings
             .map(m => ({
               tenant_id: tenantId,
-              signal_type: 'field_mapping',
+              signal_type: 'comprehension:header_binding',
               signal_value: {
                 source_column: m.sourceColumn,
                 target_field: m.targetField,

@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
     if (tenantId) {
       persistSignal({
         tenantId,
-        signalType: 'training:assessment_generated',
+        signalType: 'lifecycle:assessment_generated',
         signalValue: {
           persona,
           domainId,

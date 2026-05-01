@@ -164,7 +164,7 @@ export async function PATCH(
     // OB-77: Training signal — lifecycle approval/rejection (fire-and-forget)
     persistSignal({
       tenantId: profile.tenant_id,
-      signalType: 'training:lifecycle_transition',
+      signalType: 'lifecycle:transition',
       signalValue: {
         batchId: batch_id,
         fromState: beforeState,
