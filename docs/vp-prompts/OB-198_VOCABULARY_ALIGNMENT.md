@@ -133,19 +133,21 @@ If 0A and 0B pass, paste output and proceed.
 
 Execute the F-1_INVENTORY.md mapping. Each site below has a HARD proof gate — paste before/after diff in the verification step.
 
-### 1A — W-1, W-2 (reconciliation/run/route.ts)
+### 1A — W-1 (reconciliation/run/route.ts)
 
 ```ts
 // L132: 'training:reconciliation_outcome' → 'convergence:reconciliation_outcome'
-// L161: 'convergence_outcome' → 'convergence:calculation_validation'
 ```
 
-### 1B — W-3, W-4 (reconciliation/compare/route.ts)
+W-2 (L161) is reclassified — `captureSCISignal` route, `toPrefixSignalType()` mapper handles it. No change.
+
+### 1B — W-3 (reconciliation/compare/route.ts)
 
 ```ts
 // L159: 'training:reconciliation_comparison' → 'convergence:reconciliation_comparison'
-// L195: 'convergence_outcome' → 'convergence:calculation_validation'
 ```
+
+W-4 (L195) is reclassified — `captureSCISignal` route, mapper handles it. No change.
 
 ### 1C — W-5, W-6 (calculation/run/route.ts)
 
@@ -174,13 +176,39 @@ Execute the F-1_INVENTORY.md mapping. Each site below has a HARD proof gate — 
 
 ### 1G — W-10, W-11, W-12 (lib/ai/training-signal-service.ts)
 
+Architect-disposed Option A: structured `Record<AITaskType, string>` map at top of `training-signal-service.ts` keyed by task, valued by prefix-form `signal_type`. The `AITaskType` enum's 16 members span four DS-021 §3 Role 4 levels (classification / comprehension / convergence / lifecycle); a single dynamic prefix cannot honor all four cleanly.
+
 ```ts
-// L39: `training:${response.task}` → `comprehension:ai_${response.task}`
+// Add at top of file (near existing imports):
+const AI_TASK_LEVEL_MAP: Record<AITaskType, string> = {
+  // classification: Level 1 — "what kind?"
+  file_classification:        'classification:ai_file_classification',
+  sheet_classification:       'classification:ai_sheet_classification',
+  document_analysis:          'classification:ai_document_analysis',
+  // comprehension: Level 2 — "how does it behave?"
+  field_mapping:              'comprehension:ai_field_mapping',
+  field_mapping_second_pass:  'comprehension:ai_field_mapping_second_pass',
+  import_field_mapping:       'comprehension:ai_import_field_mapping',
+  header_comprehension:       'comprehension:ai_header_comprehension',
+  plan_interpretation:        'comprehension:ai_plan_interpretation',
+  workbook_analysis:          'comprehension:ai_workbook_analysis',
+  entity_extraction:          'comprehension:ai_entity_extraction',
+  // convergence: Level 3 — "what connects to what?"
+  convergence_mapping:        'convergence:ai_convergence_mapping',
+  anomaly_detection:          'convergence:ai_anomaly_detection',
+  // lifecycle: platform output events
+  recommendation:             'lifecycle:ai_recommendation',
+  narration:                  'lifecycle:ai_narration',
+  dashboard_assessment:       'lifecycle:ai_dashboard_assessment',
+  natural_language_query:     'lifecycle:ai_natural_language_query',
+};
+
+// L39: signalType: `training:${response.task}` → signalType: AI_TASK_LEVEL_MAP[response.task]
 // L80: 'training:user_action' → 'lifecycle:user_action'
 // L110: 'training:outcome' → 'lifecycle:outcome'
 ```
 
-**HALT discipline for W-10:** before applying, grep `web/src/lib/ai/types.ts` for the `AITaskType` union. For each member, decide whether `comprehension:ai_${member}` is the right prefix. If any member's semantic level is unambiguously not comprehension (e.g., a member named `cost_estimation` that should land in `cost:`), HALT and surface — do not invent a special-case branch.
+**HALT discipline for W-10:** the structured map IS the disposition. The `Record<AITaskType, string>` typing makes the map exhaustive — adding a new `AITaskType` member without extending the map produces a `tsc` error. No per-task branching beyond the map.
 
 ### 1H — W-13 (lib/calculation/synaptic-surface.ts) — paired with W-5
 
@@ -194,11 +222,7 @@ Execute the F-1_INVENTORY.md mapping. Each site below has a HARD proof gate — 
 // L457: 'training:lifecycle_transition' → 'lifecycle:transition'
 ```
 
-### 1J — W-15 (lib/ai/ai-service.ts)
-
-```ts
-// L125: 'cost_event' → 'cost:event'
-```
+W-15 (lib/ai/ai-service.ts:125) is reclassified — `captureSCISignal` route, mapper handles it. No change. Sub-phase 1J removed.
 
 ### 1K — R-1 (lib/ai/training-signal-service.ts:142)
 
