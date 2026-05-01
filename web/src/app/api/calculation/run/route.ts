@@ -1861,7 +1861,7 @@ export async function POST(request: NextRequest) {
     for (const signal of signalBatch) {
       persistSignal({
         tenantId,
-        signalType: (signal.signalType as string) ?? 'training:synaptic_density',
+        signalType: (signal.signalType as string) ?? 'lifecycle:synaptic_consolidation',
         signalValue: (signal.signalValue as Record<string, unknown>) ?? {},
         source: 'ai_prediction',
         context: { trigger: 'synaptic_consolidation', batchId: undefined },
@@ -1874,7 +1874,7 @@ export async function POST(request: NextRequest) {
   // ── OB-77: Training signal — dual-path concordance (fire-and-forget) ──
   persistSignal({
     tenantId,
-    signalType: 'training:dual_path_concordance',
+    signalType: 'convergence:dual_path_concordance',
     signalValue: {
       matchCount: intentMatchCount,
       mismatchCount: intentMismatchCount,

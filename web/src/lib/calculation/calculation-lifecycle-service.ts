@@ -454,7 +454,7 @@ export async function performLifecycleTransition(
   // HF-161: Pass credentials explicitly
   persistSignal({
     tenantId,
-    signalType: 'training:lifecycle_transition',
+    signalType: 'lifecycle:transition',
     signalValue: {
       batchId,
       fromState: currentState,

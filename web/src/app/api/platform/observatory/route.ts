@@ -387,7 +387,7 @@ function buildOperationsQueue(
 async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntelligenceData> {
   const { data: signals, error } = await supabase
     .from('classification_signals')
-    .select('id, tenant_id, signal_type, confidence')
+    .select('id, tenant_id, signal_type, confidence, signal_value')
     .limit(1000);
 
   if (error) {
@@ -425,8 +425,15 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
 
   // OB-86: Compute enhanced metrics in parallel
   // OB-135: Add SCI-specific metrics (per-tenant, pick first tenant with SCI signals)
+  // OB-198 R-2: SCI-originated signals are identified by signal_value.sci_internal_type,
+  // preserved at write time by signal-capture-service.ts toPrefixSignalType (OB-197 Phase 2),
+  // not by a 'sci:' signal_type prefix (which no longer exists under the prefix vocabulary).
   const sciTenantId = tenantIds.find(tid =>
-    safeSignals.some(s => s.tenant_id === tid && s.signal_type.startsWith('sci:'))
+    safeSignals.some(s => {
+      if (s.tenant_id !== tid) return false;
+      const sv = s.signal_value as Record<string, unknown> | undefined;
+      return typeof sv?.sci_internal_type === 'string';
+    })
   ) || tenantIds[0] || '';
 
   const [accuracy, calibration, flywheel, health, sciAccuracy, sciFlywheel, sciCostCurve, sciWeightEvo] = await Promise.all([

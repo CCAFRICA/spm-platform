@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
     const userOverrides = mappings.filter(m => m.isUserOverride);
     persistSignal({
       tenantId,
-      signalType: 'training:reconciliation_comparison',
+      signalType: 'convergence:reconciliation_comparison',
       signalValue: {
         batchId,
         matchedCount: comparisonResult.summary.matched,

@@ -12,6 +12,32 @@
 import { AIResponse, AITaskType, TrainingSignal } from './types';
 import { persistSignal, getTrainingSignals } from './signal-persistence';
 
+// OB-198: AI task → DS-021 §3 Role 4 semantic level (architect-disposed Option A).
+// Record<AITaskType, string> typing makes the map exhaustive — adding a new
+// AITaskType member without extending the map produces a tsc error.
+const AI_TASK_LEVEL_MAP: Record<AITaskType, string> = {
+  // classification: Level 1 — "what kind?"
+  file_classification:        'classification:ai_file_classification',
+  sheet_classification:       'classification:ai_sheet_classification',
+  document_analysis:          'classification:ai_document_analysis',
+  // comprehension: Level 2 — "how does it behave?"
+  field_mapping:              'comprehension:ai_field_mapping',
+  field_mapping_second_pass:  'comprehension:ai_field_mapping_second_pass',
+  import_field_mapping:       'comprehension:ai_import_field_mapping',
+  header_comprehension:       'comprehension:ai_header_comprehension',
+  plan_interpretation:        'comprehension:ai_plan_interpretation',
+  workbook_analysis:          'comprehension:ai_workbook_analysis',
+  entity_extraction:          'comprehension:ai_entity_extraction',
+  // convergence: Level 3 — "what connects to what?"
+  convergence_mapping:        'convergence:ai_convergence_mapping',
+  anomaly_detection:          'convergence:ai_anomaly_detection',
+  // lifecycle: platform output events
+  recommendation:             'lifecycle:ai_recommendation',
+  narration:                  'lifecycle:ai_narration',
+  dashboard_assessment:       'lifecycle:ai_dashboard_assessment',
+  natural_language_query:     'lifecycle:ai_natural_language_query',
+};
+
 export class TrainingSignalService {
   private tenantId: string;
 
@@ -36,7 +62,7 @@ export class TrainingSignalService {
     // HF-161: Pass credentials explicitly (no dynamic imports)
     persistSignal({
       tenantId,
-      signalType: `training:${response.task}`,
+      signalType: AI_TASK_LEVEL_MAP[response.task],
       signalValue: {
         signalId,
         requestId: response.requestId,
@@ -77,7 +103,7 @@ export class TrainingSignalService {
     // HF-161: Pass credentials explicitly
     persistSignal({
       tenantId: tid,
-      signalType: 'training:user_action',
+      signalType: 'lifecycle:user_action',
       signalValue: {
         signalId,
         userAction: action,
@@ -107,7 +133,7 @@ export class TrainingSignalService {
     // HF-161: Pass credentials explicitly
     persistSignal({
       tenantId: tid,
-      signalType: 'training:outcome',
+      signalType: 'lifecycle:outcome',
       signalValue: {
         signalId,
         wasCorrect,
@@ -139,7 +165,15 @@ export class TrainingSignalService {
     const rows = await getTrainingSignals(tid, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, undefined, 200);
 
     return rows
-      .filter(row => row.signalType.startsWith('training:'))
+      .filter(row => {
+        // OB-198 R-1: training-signal-service writes preserve `signalId` in
+        // signal_value across every captureAIResponse / recordUserAction /
+        // recordOutcome path. Filter on that durable identifier rather than
+        // the dynamic prefix space (classification:* / comprehension:* /
+        // convergence:* / lifecycle:* per AI_TASK_LEVEL_MAP).
+        const sv = row.signalValue as Record<string, unknown> | undefined;
+        return typeof sv?.signalId === 'string';
+      })
       .map(row => ({
         signalId: (row.signalValue as Record<string, unknown>)?.signalId as string || '',
         requestId: (row.signalValue as Record<string, unknown>)?.requestId as string || '',

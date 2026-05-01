@@ -201,7 +201,7 @@ export function consolidateSurface(surface: SynapticSurface): {
 
     // Training signal per component (not per entity)
     signalBatch.push({
-      signalType: 'training:synaptic_density',
+      signalType: 'lifecycle:synaptic_consolidation',
       signalValue: {
         signature,
         previousConfidence: existing.confidence,
