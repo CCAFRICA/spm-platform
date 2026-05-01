@@ -16,22 +16,71 @@ import {
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
-// === FOUNDATIONAL PRIMITIVE VOCABULARY (OB-196 E1 / Decision 155) ===
+// === FOUNDATIONAL PRIMITIVE VOCABULARY (OB-196 E1 / Decisions 154 + 155) ===
 //
-// The plan-agent prompt is the Domain Agent translation surface — Decision 154
-// permits domain language here for translation purposes. However, the LIST of
-// foundational primitives the AI may emit must derive from the canonical
-// registry, not be hardcoded in the prompt template (closes F-005:
-// prompt vocabulary drift). The prompt template carries the placeholder
-// `<<FOUNDATIONAL_PRIMITIVES>>`; at lookup time, the placeholder is replaced
-// with the registry-derived enumeration.
+// The plan-agent prompt is a documenting boundary — per Decision 155, every
+// boundary that names, dispatches on, validates, or documents structural
+// primitives derives from the registry surface, not from a private copy.
+// Phase 1.5.1 closes the remainder of the prompt body (legacy per-primitive
+// sections, type-selection rules, calculationIntent example payloads,
+// type-enum union, per-type comments) by replacing them with template
+// rendering of registry content. The plan-interpretation system prompt
+// carries the placeholder `<<PRIMITIVE_STRUCTURAL_SECTION>>`; at lookup
+// time, the placeholder is replaced with the per-primitive blocks emitted
+// by `buildPrimitiveStructuralSection()` below — promptDescription,
+// promptSelectionGuidance, promptEmissionPattern, promptStructuralExample,
+// promptIntentExample for each registered primitive in canonical order.
 
-import { getOperationPrimitives } from '@/lib/calculation/primitive-registry';
+import { getRegistry, getOperationPrimitives, type PrimitiveEntry } from '@/lib/calculation/primitive-registry';
 
-function buildPrimitiveVocabularyForPrompt(): string {
-  const ops = getOperationPrimitives();
-  const lines = ops.map((p, i) => `${i + 1}. ${p.id} — ${p.description}`);
-  return `${ops.length} PRIMITIVE OPERATIONS:\n${lines.join('\n')}`;
+/**
+ * Render the per-primitive structural-section block for the
+ * plan-interpretation system prompt. Loops over `getRegistry()` (all
+ * primitives — operation and source_only — appear in the rendered section
+ * via one unified template). `promptEmissionPattern` carries the
+ * data-level discrimination the AI consumes.
+ */
+function buildPrimitiveStructuralSection(): string {
+  return getRegistry()
+    .map((p: PrimitiveEntry) => `=== ${p.id.toUpperCase()} ===
+
+${p.promptDescription}
+
+When to emit: ${p.promptSelectionGuidance}
+
+Emission pattern: ${p.promptEmissionPattern}
+
+Structural shape:
+${p.promptStructuralExample}
+
+calculationIntent example:
+${p.promptIntentExample}
+`)
+    .join('\n');
+}
+
+/**
+ * Render per-type comments for the buildUserPrompt plan_interpretation
+ * response-shape JSON. One comment per operation primitive, listing the
+ * non-`type` keys present in that primitive's calculationMethod payload
+ * (extracted structurally from the registry's promptStructuralExample).
+ * source_only primitives (e.g., scope_aggregate) are excluded — they
+ * cannot appear as a component's top-level `type`.
+ */
+function buildPerTypeCommentBlock(): string {
+  const lines = getOperationPrimitives().map((p: PrimitiveEntry) => {
+    let keys: string[] = [];
+    try {
+      const parsed = JSON.parse(p.promptStructuralExample) as Record<string, unknown>;
+      const cm = (parsed.calculationMethod as Record<string, unknown> | undefined) ?? parsed;
+      keys = Object.keys(cm).filter(k => k !== 'type');
+    } catch {
+      // Fall back to the structural-shape note if JSON.parse fails for any reason.
+    }
+    const keyList = keys.length > 0 ? keys.join(', ') : 'structural shape per registry';
+    return `        // For ${p.id}: include ${keyList}`;
+  });
+  return lines.join('\n');
 }
 
 // === SYSTEM PROMPTS BY TASK ===
@@ -157,204 +206,11 @@ CRITICAL REQUIREMENTS:
 3. Detect ALL employee types/classifications if the document has different payout levels for different roles
 4. CRITICAL: Extract ALL numeric payout values from every table - do NOT just identify structure
 
-FOR EACH COMPONENT TYPE, EXTRACT COMPLETE DATA:
+FOR EACH COMPONENT, SELECT THE STRUCTURAL PRIMITIVE WHOSE PATTERN MATCHES THE PLAN'S INTENT:
 
-MATRIX LOOKUP (2D tables with row and column axes):
-- Extract row axis: metric name, label, and ALL range boundaries
-- Extract column axis: metric name, label, and ALL range boundaries
-- Extract the COMPLETE values matrix - every cell value as a number
-- Example structure:
-  {
-    "type": "matrix_lookup",
-    "calculationMethod": {
-      "type": "matrix_lookup",
-      "rowAxis": {
-        "metric": "optical_attainment",
-        "label": "% Cumplimiento de meta Optica",
-        "ranges": [
-          { "min": 0, "max": 80, "label": "Menos de 80%" },
-          { "min": 80, "max": 90, "label": "80% a menos de 90%" },
-          { "min": 90, "max": 100, "label": "90% a menos de 100%" },
-          { "min": 100, "max": 150, "label": "100% a menos de 150%" },
-          { "min": 150, "max": 999999, "label": "150% o mas" }
-        ]
-      },
-      "columnAxis": {
-        "metric": "store_optical_sales",
-        "label": "Venta de Optica de la tienda",
-        "ranges": [
-          { "min": 0, "max": 60000, "label": "Menos de $60k" },
-          { "min": 60000, "max": 100000, "label": "$60k-$100K" }
-        ]
-      },
-      "values": [[0, 0], [200, 300], [300, 500]]
-    }
-  }
+The following primitives are the foundational structural operations the engine recognizes. For each component, select the primitive whose "When to emit" guidance fits and emit per its "Emission pattern" and "Structural shape" — substituting plan-specific values for the neutral placeholders shown.
 
-TIERED LOOKUP (1D tables with ranges and payouts):
-- Extract metric name and label
-- Extract EVERY tier with min, max, and payout value
-- Example:
-  {
-    "type": "tiered_lookup",
-    "calculationMethod": {
-      "type": "tiered_lookup",
-      "metric": "store_sales_attainment",
-      "metricLabel": "% Cumplimiento de meta de venta de tienda",
-      "tiers": [
-        { "min": 0, "max": 100, "payout": 0, "label": "<100%" },
-        { "min": 100, "max": 105, "payout": 150, "label": "100%-104.99%" },
-        { "min": 105, "max": 110, "payout": 300, "label": "105%-109.99%" },
-        { "min": 110, "max": 999999, "payout": 500, "label": ">=110%" }
-      ]
-    }
-  }
-
-FLAT PERCENTAGE (simple rate applied to a base):
-- Extract the rate as a decimal (4% = 0.04)
-- Extract what it applies to
-- Example:
-  {
-    "type": "flat_percentage",
-    "calculationMethod": {
-      "type": "flat_percentage",
-      "metric": "warranty_sales",
-      "metricLabel": "Garantia Extendida",
-      "rate": 0.04
-    }
-  }
-
-CONDITIONAL PERCENTAGE (different rates based on conditions):
-- Extract each condition with threshold, operator, and rate
-- Extract what the percentage applies to
-- Example:
-  {
-    "type": "conditional_percentage",
-    "calculationMethod": {
-      "type": "conditional_percentage",
-      "metric": "insurance_sales",
-      "metricLabel": "Venta de Seguros",
-      "conditionMetric": "store_goal_attainment",
-      "conditionMetricLabel": "Cumplimiento Meta",
-      "conditions": [
-        { "threshold": 100, "operator": "<", "rate": 0.03, "label": "<100% cumplimiento" },
-        { "threshold": 100, "operator": ">=", "rate": 0.05, "label": ">=100% cumplimiento" }
-      ]
-    }
-  }
-
-LINEAR FUNCTION (continuous formula: y = slope × input + intercept):
-- For commissions calculated as rate × revenue + base draw, or any linear formula
-- Use when the plan describes: "X% of revenue plus $Y base", "commission rate times sales plus guaranteed draw"
-- Example:
-  {
-    "type": "linear_function",
-    "calculationMethod": {
-      "type": "linear_function",
-      "slope": 0.06,
-      "intercept": 200,
-      "inputMetric": "period_equipment_revenue",
-      "inputMetricLabel": "Equipment Revenue"
-    }
-  }
-
-PIECEWISE LINEAR (accelerator curve: rate changes at attainment breakpoints):
-- For commissions where the rate INCREASES as attainment exceeds quota thresholds
-- The rate applies to the ENTIRE base amount (not marginal/incremental)
-- Use when the plan describes: "3% below quota, 5% at quota, 8% above 120%"
-- Example:
-  {
-    "type": "piecewise_linear",
-    "calculationMethod": {
-      "type": "piecewise_linear",
-      "ratioMetric": "quota_attainment",
-      "ratioMetricLabel": "Quota Attainment",
-      "baseMetric": "consumable_revenue",
-      "baseMetricLabel": "Consumable Revenue",
-      "segments": [
-        { "min": 0, "max": 1.0, "rate": 0.03, "label": "Below Quota" },
-        { "min": 1.0, "max": 1.2, "rate": 0.05, "label": "At/Above Quota" },
-        { "min": 1.2, "max": null, "rate": 0.08, "label": "Super Accelerator" }
-      ]
-    }
-  }
-
-SCOPE AGGREGATE (management override on team/district/region totals):
-- For managers who earn a percentage of their team's aggregate metric
-- Use when the plan describes: "1.5% of district total equipment revenue"
-- Example:
-  {
-    "type": "scope_aggregate",
-    "calculationMethod": {
-      "type": "scope_aggregate",
-      "scope": "district",
-      "metric": "equipment_revenue",
-      "metricLabel": "District Equipment Revenue",
-      "rate": 0.015
-    }
-  }
-
-SCALAR MULTIPLY (simple rate × base amount, no tiers or conditions):
-- For flat commission percentages without tiers, thresholds, or conditions
-- Example:
-  {
-    "type": "scalar_multiply",
-    "calculationMethod": {
-      "type": "scalar_multiply",
-      "metric": "sales_amount",
-      "metricLabel": "Sales Amount",
-      "rate": 0.04
-    }
-  }
-
-CONDITIONAL GATE (eligibility gate that depends on meeting a prerequisite):
-- For bonuses that require meeting a condition before any payout
-- Use when the plan describes: "must have at least 1 equipment sale to earn cross-sell bonus"
-- Example:
-  {
-    "type": "conditional_gate",
-    "calculationMethod": {
-      "type": "conditional_gate",
-      "conditionMetric": "equipment_deal_count",
-      "conditionOperator": ">=",
-      "conditionThreshold": 1,
-      "payoutPerUnit": 50,
-      "payoutMetric": "cross_sell_count",
-      "payoutMetricLabel": "Cross-Sell Transactions"
-    }
-  }
-
-TYPE SELECTION RULES (MANDATORY — resolve ambiguity between similar types):
-
-RULE 1 — QUOTA ATTAINMENT RATE CURVES → ALWAYS piecewise_linear:
-When a plan describes rates (percentages) that change based on quota attainment
-(actual performance divided by a target/quota), ALWAYS use "piecewise_linear".
-NEVER use "conditional_percentage" or nested "conditional_gate" for quota-attainment
-rate curves. The structural signal is: there is a DENOMINATOR (quota/target) that
-creates a RATIO, and the rate applies to a BASE AMOUNT (usually revenue).
-Examples that MUST be piecewise_linear:
-- "3% if below quota, 5% if at/above quota, 8% if above 120% of quota"
-- "Commission rate increases with quota attainment"
-- Any structure with a quota/target that creates attainment tiers with different rates
-
-RULE 2 — FIXED DOLLAR PAYOUTS → tiered_lookup, RATE PERCENTAGES → piecewise_linear:
-When tiers produce FIXED DOLLAR AMOUNTS ($0, $150, $300), use "tiered_lookup".
-When tiers produce RATES (3%, 5%, 8%) applied to a revenue base, use "piecewise_linear".
-
-RULE 3 — BINARY PREREQUISITE → conditional_gate, RATE SELECTION → conditional_percentage:
-Use "conditional_gate" when there is ONE condition that gates ALL payout (must qualify to earn anything).
-Use "conditional_percentage" when MULTIPLE conditions select DIFFERENT RATES on the same metric.
-If you are building a nested chain of conditions to select a rate, ask: is this really a
-piecewise_linear? (See Rule 1 — if rates change with attainment, it IS piecewise_linear.)
-
-RULE 4 — NO INTERCEPT → scalar_multiply, HAS INTERCEPT → linear_function:
-If the plan has a fixed base draw plus a commission rate, use "linear_function".
-If there is only a commission rate with no base draw, use "scalar_multiply".
-Do NOT use "linear_function" with intercept=0 — use "scalar_multiply" instead.
-
-RULE 5 — flat_percentage is a LEGACY ALIAS for scalar_multiply:
-Always prefer "scalar_multiply". If you would have used "flat_percentage",
-use "scalar_multiply" instead.
+<<PRIMITIVE_STRUCTURAL_SECTION>>
 
 NUMERIC PARSING RULES:
 - Currency: Remove $ and commas. "$1,500" or "$1.500" -> 1500 (handle both comma and period as thousand separator)
@@ -370,9 +226,7 @@ IMPORTANT GUIDELINES:
 
 === CALCULATION INTENT (STRUCTURAL VOCABULARY) ===
 
-FOR EACH COMPONENT, also produce a "calculationIntent" field using this domain-agnostic structural vocabulary. This is the contract between the AI (Domain Agent) and the execution engine (Foundational Agent).
-
-<<FOUNDATIONAL_PRIMITIVES>>
+FOR EACH COMPONENT, also produce a "calculationIntent" field using this domain-agnostic structural vocabulary. This is the contract between the AI (Domain Agent) and the execution engine (Foundational Agent). The "calculationIntent example" provided in each primitive's structural section above is the canonical shape — emit per that example, substituting plan-specific values.
 
 INPUT SOURCES (how values are resolved):
 - { "source": "metric", "sourceSpec": { "field": "metric_name" } } — from data row
@@ -385,157 +239,7 @@ BOUNDARY FORMAT:
 { "min": number|null, "max": number|null, "minInclusive": true, "maxInclusive": true }
 Use null for unbounded (no lower/upper limit). Both inclusive to match >= min AND <= max.
 
-EXAMPLE calculationIntent for a tiered_lookup:
-{
-  "calculationIntent": {
-    "operation": "bounded_lookup_1d",
-    "input": { "source": "metric", "sourceSpec": { "field": "store_sales_attainment" } },
-    "boundaries": [
-      { "min": 0, "max": 99.999, "minInclusive": true, "maxInclusive": true },
-      { "min": 100, "max": 104.999, "minInclusive": true, "maxInclusive": true },
-      { "min": 105, "max": 109.999, "minInclusive": true, "maxInclusive": true },
-      { "min": 110, "max": null, "minInclusive": true, "maxInclusive": true }
-    ],
-    "outputs": [0, 150, 300, 500],
-    "noMatchBehavior": "zero"
-  }
-}
-
-EXAMPLE calculationIntent for a matrix_lookup:
-{
-  "calculationIntent": {
-    "operation": "bounded_lookup_2d",
-    "inputs": {
-      "row": { "source": "metric", "sourceSpec": { "field": "attainment" } },
-      "column": { "source": "metric", "sourceSpec": { "field": "store_volume" } }
-    },
-    "rowBoundaries": [
-      { "min": 0, "max": 79.999, "minInclusive": true, "maxInclusive": true },
-      { "min": 80, "max": 89.999, "minInclusive": true, "maxInclusive": true }
-    ],
-    "columnBoundaries": [
-      { "min": 0, "max": 59999, "minInclusive": true, "maxInclusive": true },
-      { "min": 60000, "max": 99999, "minInclusive": true, "maxInclusive": true }
-    ],
-    "outputGrid": [[0, 0], [200, 300]],
-    "noMatchBehavior": "zero"
-  }
-}
-
-EXAMPLE calculationIntent for a flat_percentage:
-{
-  "calculationIntent": {
-    "operation": "scalar_multiply",
-    "input": { "source": "metric", "sourceSpec": { "field": "warranty_sales" } },
-    "rate": 0.04
-  }
-}
-
-EXAMPLE calculationIntent for a conditional_percentage (2 conditions, sorted by threshold descending):
-{
-  "calculationIntent": {
-    "operation": "conditional_gate",
-    "condition": {
-      "left": { "source": "metric", "sourceSpec": { "field": "store_goal_attainment" } },
-      "operator": ">=",
-      "right": { "source": "constant", "value": 100 }
-    },
-    "onTrue": {
-      "operation": "scalar_multiply",
-      "input": { "source": "metric", "sourceSpec": { "field": "insurance_sales" } },
-      "rate": 0.05
-    },
-    "onFalse": {
-      "operation": "conditional_gate",
-      "condition": {
-        "left": { "source": "metric", "sourceSpec": { "field": "store_goal_attainment" } },
-        "operator": ">=",
-        "right": { "source": "constant", "value": 85 }
-      },
-      "onTrue": {
-        "operation": "scalar_multiply",
-        "input": { "source": "metric", "sourceSpec": { "field": "insurance_sales" } },
-        "rate": 0.03
-      },
-      "onFalse": { "operation": "constant", "value": 0 }
-    }
-  }
-}
-
-EXAMPLE calculationIntent for a linear_function:
-{
-  "calculationIntent": {
-    "operation": "linear_function",
-    "input": { "source": "metric", "sourceSpec": { "field": "period_equipment_revenue" } },
-    "slope": 0.06,
-    "intercept": 200
-  }
-}
-
-EXAMPLE calculationIntent for a piecewise_linear:
-{
-  "calculationIntent": {
-    "operation": "piecewise_linear",
-    "ratioInput": { "source": "ratio", "sourceSpec": { "numerator": "consumable_revenue", "denominator": "monthly_quota" } },
-    "baseInput": { "source": "metric", "sourceSpec": { "field": "consumable_revenue" } },
-    "segments": [
-      { "min": 0, "max": 1.0, "rate": 0.03 },
-      { "min": 1.0, "max": 1.2, "rate": 0.05 },
-      { "min": 1.2, "max": null, "rate": 0.08 }
-    ]
-  }
-}
-
-EXAMPLE calculationIntent for a scope_aggregate:
-{
-  "calculationIntent": {
-    "operation": "scope_aggregate",
-    "input": { "source": "scope_aggregate", "sourceSpec": { "scope": "district", "field": "equipment_revenue", "aggregation": "sum" } },
-    "rate": 0.015
-  }
-}
-
-EXAMPLE calculationIntent for a conditional_gate (binary prerequisite):
-{
-  "calculationIntent": {
-    "operation": "conditional_gate",
-    "condition": {
-      "left": { "source": "metric", "sourceSpec": { "field": "equipment_deal_count" } },
-      "operator": ">=",
-      "right": { "source": "constant", "value": 1 }
-    },
-    "onTrue": {
-      "operation": "scalar_multiply",
-      "input": { "source": "metric", "sourceSpec": { "field": "cross_sell_count" } },
-      "rate": 50
-    },
-    "onFalse": { "operation": "constant", "value": 0 }
-  }
-}
-
-EXAMPLE calculationIntent for a scalar_multiply:
-{
-  "calculationIntent": {
-    "operation": "scalar_multiply",
-    "input": { "source": "metric", "sourceSpec": { "field": "sales_amount" } },
-    "rate": 0.04
-  }
-}
-
-EXAMPLE calculationIntent for a linear_function with cap modifier:
-{
-  "calculationIntent": {
-    "operation": "linear_function",
-    "input": { "source": "metric", "sourceSpec": { "field": "revenue" } },
-    "slope": 0.06,
-    "intercept": 200,
-    "modifiers": [
-      { "modifier": "cap", "maxValue": 5000 }
-    ]
-  }
-}
-
-CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
+CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the structural primitives in the section above.
 
 Return your analysis as valid JSON.`,
 
@@ -776,7 +480,7 @@ Return your analysis as JSON with this exact structure:
 {
   "documentType": "plan" | "roster" | "data" | "unknown",
   "componentCount": number,
-  "components": [{ "name": "component name", "calculationType": "tiered_lookup|matrix_lookup|flat_percentage|conditional_percentage" }],
+  "components": [{ "name": "component name", "calculationType": "<<DOCUMENT_ANALYSIS_TYPE_ENUM>>" }],
   "hasVariants": boolean,
   "variantDescriptions": ["description of each variant"],
   "language": "en" | "es" | "mixed",
@@ -801,14 +505,24 @@ export class AnthropicAdapter implements AIProviderAdapter {
       throw new Error('Anthropic API key not configured');
     }
 
-    // OB-196 E1: registry-derived vocabulary substitution at call time. The
-    // placeholder `<<FOUNDATIONAL_PRIMITIVES>>` (only present in plan_interpretation)
-    // is replaced with `buildPrimitiveVocabularyForPrompt()`'s output sourced
-    // from the canonical primitive registry. Closes F-005 (prompt vocabulary drift).
+    // OB-196 Phase 1.5.1: registry-derived placeholder substitution at call time.
+    // Two placeholders extend the documenting-boundary closure across both task
+    // surfaces (plan_interpretation + document_analysis); per Decision 155, every
+    // boundary that names structural primitives derives from the registry surface.
+    //   <<PRIMITIVE_STRUCTURAL_SECTION>> — plan_interpretation: full per-primitive
+    //   block (promptDescription, promptSelectionGuidance, promptEmissionPattern,
+    //   promptStructuralExample, promptIntentExample) for each registered primitive.
+    //   <<DOCUMENT_ANALYSIS_TYPE_ENUM>> — document_analysis: pipe-delimited operation
+    //   primitive identifiers (source_only excluded). Mirrors the foundational-only
+    //   enum the engine consumer (getRequiredMetrics in enhanced/page.tsx) already
+    //   expected.
+    // Chained .replace() is idempotent on prompts without the placeholder, so the
+    // pipeline applies uniformly across all tasks. Closes F-005 (prompt vocabulary
+    // drift) at all documenting-boundary surfaces.
     const rawPrompt = SYSTEM_PROMPTS[request.task];
-    const systemPrompt = rawPrompt.includes('<<FOUNDATIONAL_PRIMITIVES>>')
-      ? rawPrompt.replace('<<FOUNDATIONAL_PRIMITIVES>>', buildPrimitiveVocabularyForPrompt())
-      : rawPrompt;
+    const systemPrompt = rawPrompt
+      .replace('<<PRIMITIVE_STRUCTURAL_SECTION>>', buildPrimitiveStructuralSection())
+      .replace('<<DOCUMENT_ANALYSIS_TYPE_ENUM>>', getOperationPrimitives().map(p => p.id).join('|'));
 
     // Build message content — supports both plain text and document blocks (PDF)
     const pdfBase64 = request.input.pdfBase64 as string | undefined;
@@ -961,6 +675,13 @@ Return the mapping JSON.`;
           ? 'The compensation plan document has been provided above. Analyze it thoroughly.'
           : `DOCUMENT CONTENT:\n---\n${input.content}\n---\nFormat: ${input.format}`;
 
+        // OB-196 Phase 1.5.1: type-enum union and per-type comments derived from
+        // the registry surface (Decision 155). Operation primitives appear in the
+        // type union; source_only primitives (e.g., scope_aggregate) are excluded
+        // because they cannot be emitted as a top-level component type.
+        const typeEnum = getOperationPrimitives().map(p => p.id).join(' | ');
+        const perTypeComments = buildPerTypeCommentBlock();
+
         return `Analyze the following compensation plan document and extract its COMPLETE structure INCLUDING ALL PAYOUT VALUES FROM EVERY TABLE.
 
 ${contentSection}
@@ -983,15 +704,10 @@ Return a JSON object with:
       "id": "unique-id",
       "name": "Component Name",
       "nameEs": "Spanish name",
-      "type": "matrix_lookup | tiered_lookup | percentage | flat_percentage | conditional_percentage | linear_function | piecewise_linear | scope_aggregate | scalar_multiply | conditional_gate",
+      "type": "${typeEnum}",
       "appliesToEmployeeTypes": ["certified"] or ["all"],
       "calculationMethod": {
-        // For matrix_lookup: include rowAxis.ranges[], columnAxis.ranges[], values[][]
-        // For tiered_lookup: include tiers[] with min, max, payout for EACH tier
-        // For percentage/flat_percentage: include rate (as decimal) and metric
-        // For conditional_percentage: include conditions[] and metric
-        // For piecewise_linear: include segments[], baseMetric, AND targetValue (quota/goal amount per variant)
-        // For scope_aggregate: include scope (district/region), metric to aggregate, rate
+${perTypeComments}
       },
       "confidence": 0-100,
       "reasoning": "How you extracted this component"

@@ -6,7 +6,7 @@
  */
 
 import { getAIService } from '@/lib/ai';
-import { isRegisteredPrimitive } from '@/lib/calculation/primitive-registry';
+import { isRegisteredPrimitive, lookupPrimitive, InvalidPrimitiveShapeError, type FoundationalPrimitive } from '@/lib/calculation/primitive-registry';
 
 // ============================================
 // TYPES
@@ -36,8 +36,14 @@ import { isRegisteredPrimitive } from '@/lib/calculation/primitive-registry';
 // PercentageCalculation, ConditionalPercentageCalculation, AxisRange) deleted.
 // plan-interpreter.ts (the consumer that needed them) was deleted in Phase 1.6.
 // Foundational-only envelope post-narrowing.
+// OB-196 Phase 1.5.1 — Decision 155 surface-derivation extends to the type
+// system. GenericCalculation['type'] derives from the FoundationalPrimitive
+// type, which is itself derived from the FOUNDATIONAL_PRIMITIVES registry
+// array via `(typeof FOUNDATIONAL_PRIMITIVES)[number]`. Future Domain Agent
+// primitives (per Decision 154's narrow exemption) extend the registry array;
+// the type union extends automatically with no manual type-system update.
 export interface GenericCalculation {
-  type: 'bounded_lookup_1d' | 'bounded_lookup_2d' | 'scalar_multiply' | 'conditional_gate' | 'linear_function' | 'piecewise_linear' | 'scope_aggregate';
+  type: FoundationalPrimitive;
   [key: string]: unknown;
 }
 
@@ -223,37 +229,44 @@ export class AIPlainInterpreter {
         confidence: Number(c.confidence) || 50,
         reasoning: String(c.reasoning || ''),
       };
+
+      // OB-196 Phase 1.5.1 — Decision 154 structured-failure obligation: validate
+      // structural invariants on the emitted calculationMethod payload that
+      // allowedKeys cannot catch (weights summing to 1.0, axis dimensions
+      // matching grid dimensions, segments contiguous, etc.). Recursive primitives
+      // (conditional_gate.onTrue / onFalse) recurse inside their own validate body.
+      const primitiveEntry = lookupPrimitive(comp.type);
+      if (primitiveEntry) {
+        const validationResult = primitiveEntry.validate(
+          (comp.calculationMethod ?? {}) as Record<string, unknown>,
+        );
+        if (!validationResult.valid) {
+          throw new InvalidPrimitiveShapeError(
+            comp.type,
+            validationResult.violations,
+            { boundary: 'ai_plan_interpreter.normalizeComponents' },
+          );
+        }
+      }
+
       return comp;
     });
   }
 
   private normalizeComponentType(type: unknown): ComponentCalculation['type'] {
-    // OB-196 Phase 1.5 (Decision 155 fully closed): every recognized identifier
-    // is sourced from primitive-registry.ts. No private alias lists. Foundational
-    // identifiers exclusively expected. Phase 2 replaces this throw with the
-    // typed UnconvertibleComponentError at the convertComponent default branch.
+    // OB-196 Phase 1.5.1 — Decisions 154 + 155 closure: import boundary
+    // accepts every registered foundational primitive structurally. No private
+    // allow-list. The registry IS the canonical recognition surface; structural
+    // correctness of the calculationMethod payload is enforced by
+    // primitive-registry's validate function (called downstream by the bridge
+    // wiring in normalizeComponents per P1.5.1.1's edit). Dispatch-time
+    // failures (executor handler missing for a registered primitive) surface
+    // via the executor's structured-failure surface, not at the import boundary.
     const typeStr = String(type ?? '');
     if (!isRegisteredPrimitive(typeStr)) {
       throw new Error(
         `[ai-plan-interpreter] non-foundational componentType "${typeStr}". ` +
-          `Phase 1.5 expects foundational identifiers from primitive-registry.ts; ` +
-          `Phase 2 replaces this throw with UnconvertibleComponentError.`,
-      );
-    }
-    // Only the GenericCalculation-importable subset is acceptable as a
-    // calculationMethod.type; others (bounded_lookup_1d, aggregate, ratio, etc.)
-    // are dispatch-surface operations the importer doesn't model as a shape.
-    const importable: ReadonlySet<GenericCalculation['type']> = new Set([
-      'linear_function',
-      'piecewise_linear',
-      'scope_aggregate',
-      'scalar_multiply',
-      'conditional_gate',
-    ] as const satisfies readonly GenericCalculation['type'][]);
-    if (!(importable as ReadonlySet<string>).has(typeStr)) {
-      throw new Error(
-        `[ai-plan-interpreter] foundational identifier "${typeStr}" recognized ` +
-          `by registry but is not importable as a calculationMethod shape. ` +
+          `Phase 1.5.1 expects foundational identifiers from primitive-registry.ts; ` +
           `Phase 2 replaces this throw with UnconvertibleComponentError.`,
       );
     }
@@ -261,15 +274,17 @@ export class AIPlainInterpreter {
   }
 
   private normalizeCalculationMethod(type: unknown, method: unknown): ComponentCalculation {
-    // OB-196 Phase 1.5: legacy switch arms (matrix_lookup, tier_lookup,
-    // tiered_lookup, percentage, flat_percentage, conditional_percentage)
-    // deleted entirely. Foundational 5-tuple expected exclusively.
-    // normalizeComponentType throws if the input falls outside the importable
-    // foundational subset, so by the time control reaches the spread below,
-    // typeStr is guaranteed to be one of the five canonical identifiers.
+    // OB-196 Phase 1.5.1 — registry-validated passthrough. normalizeComponentType
+    // gates registry membership (Decision 154's recognition obligation). The
+    // primitive-registry's validate function (called by the bridge wiring in
+    // normalizeComponents per P1.5.1.1's edit) enforces structural correctness
+    // via InvalidPrimitiveShapeError. The importer's contract is structural
+    // acceptance + structural validation; per-primitive shape conversion is
+    // removed (Decision 155's no-private-copy obligation applied at the
+    // importer boundary).
     const typeStr = this.normalizeComponentType(type);
     const m = (method || {}) as Record<string, unknown>;
-    return { type: typeStr, ...m } as GenericCalculation;
+    return { type: typeStr, ...m } as ComponentCalculation;
   }
 
   private normalizeRequiredInputs(inputs: unknown): RequiredInput[] {
@@ -426,7 +441,7 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
 
   // calcType derives from calculationIntent.operation (primary) with
   // calculationMethod.type as transitional fallback. Phase 1.5 removed the
-  // `|| 'tiered_lookup'` silent-fallback; if neither is present the default
+  // silent fallback to a legacy alias; if neither is present the default
   // branch throws.
   const calcMethod = comp?.calculationMethod;
   const calcType = (base.calculationIntent?.operation as string) || calcMethod?.type || '';

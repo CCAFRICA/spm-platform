@@ -1,3 +1,22 @@
+# Revised primitive-registry.ts — Phase 1.5.1 P1.5.1.1 proposed final state
+
+**Path:** `web/src/lib/calculation/primitive-registry.ts`
+
+**Phase:** OB-196 Phase 1.5.1 — Plan-agent prompt closure (Decisions 154 + 155).
+
+**Diff vs HEAD `61496dde` (228 lines):** ~3.2× expansion. New surface area:
+- 3 sub-vocabulary `as const` arrays (Polish 2)
+- 1 import (Decimal from `./decimal-precision`, per Decision 122)
+- 1 helper (`isFiniteNum`)
+- 1 new interface (`ValidationResult`)
+- 1 new error class (`InvalidPrimitiveShapeError`, co-located per Polish 3 disposition)
+- 5 new prompt-facing fields on `PrimitiveEntry` (`promptDescription`, `promptStructuralExample`, `promptIntentExample`, `promptSelectionGuidance`, `promptEmissionPattern`)
+- 1 new `validate` field on `PrimitiveEntry`
+- 12 entries in REGISTRY each populated with all 9 fields (existing 4 + 4 prompt-facing + emissionPattern + validate)
+
+Existing surface (FOUNDATIONAL_PRIMITIVES array, type alias, public API functions, registerDomainPrimitive stub) unchanged.
+
+```typescript
 /**
  * Foundational Primitive Registry — OB-196 E1 (Decision 24 + Decision 155)
  *
@@ -956,3 +975,16 @@ export function registerDomainPrimitive(owner: string, entry: PrimitiveEntry): n
       'is a separate work item beyond OB-196 scope.',
   );
 }
+```
+
+## Key changes vs HEAD `61496dde`
+
+- **Decimal import** added (`from './decimal-precision'`), per Decision 122 + Polish 1.
+- **3 sub-vocabulary `as const` arrays** declared module-private (Polish 2): `FOUNDATIONAL_AGGREGATIONS`, `LINEAR_FUNCTION_MODIFIERS`, `RATIO_ZERO_DENOMINATOR_BEHAVIORS`.
+- **`ValidationResult` interface + `InvalidPrimitiveShapeError` class** added (revisions 6.1, 6.3 — co-located).
+- **`isFiniteNum` helper** added (private to module).
+- **`PrimitiveEntry` interface** extended with 5 new prompt-facing fields + `validate` field. Existing 4 fields unchanged.
+- **REGISTRY array** retains the original 12 entries in the same order, each entry now carrying all 9 fields populated. `scope_aggregate.promptStructuralExample` shows its own source-spec shape (Revision 1.A); `bounded_lookup_2d` simplified to 2×2 with parity row/column labels (Revision 4); `bounded_lookup_2d.promptIntentExample` adds `inputs.row` (Revision 2); `linear_function.promptStructuralExample` adds `modifiers` (Revision 3); `piecewise_linear.promptSelectionGuidance` adds `linear_function` cross-reference (Revision 5); `weighted_blend.validate` uses Decimal arithmetic (Polish 1); `temporal_window`/`scope_aggregate`/`linear_function`/`ratio` validate bodies reference sub-vocabulary constants (Polish 2).
+- **Public API functions** unchanged: `isRegisteredPrimitive`, `lookupPrimitive`, `getRegistry`, `getOperationPrimitives`, `registerDomainPrimitive` stub.
+
+Final line count target: ≈ 730 lines (vs 228 at HEAD; ~3.2× expansion driven by per-primitive populated content).
