@@ -23,6 +23,7 @@ export interface BriefingSignal {
   tenantId: string;
   metadata?: Record<string, unknown>;
   timestamp: string;
+  calculationRunId?: string;  // OB-197 G11: NULL outside a calculation run
 }
 
 // ──────────────────────────────────────────────
@@ -45,15 +46,21 @@ async function flushSignals(): Promise<void> {
     const supabase = createClient();
     const rows = batch.map(s => ({
       tenant_id: s.tenantId,
-      signal_type: 'briefing_interaction',
-      signal_subtype: s.signalType,
+      signal_type: 'lifecycle:briefing',
       entity_id: s.entityId || null,
-      period_id: s.periodId || null,
+      signal_value: {
+        action: s.signalType,
+        persona: s.persona,
+        section: s.section,
+        period_id: s.periodId || null,
+        ...s.metadata,
+      },
       context: {
         persona: s.persona,
         section: s.section,
         ...s.metadata,
       },
+      calculation_run_id: s.calculationRunId ?? null,
       created_at: s.timestamp,
     }));
 

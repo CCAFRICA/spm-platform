@@ -103,6 +103,19 @@ export interface ConvergenceGap {
   referenceDataAvailable?: boolean;
 }
 
+// OB-197 G11: shape of observations surfaced from the canonical signal surface.
+// Convergence is observation, not computation (DS-021 §7) — these rows are surfaced
+// alongside the matching algorithm output, not consumed by the matching algorithm.
+export interface ConvergenceSignalObservation {
+  signal_type: string;
+  signal_value: Record<string, unknown> | null;
+  decision_source: string | null;
+  classification: string | null;
+  structural_fingerprint: Record<string, unknown> | null;
+  agent_scores: Record<string, unknown> | null;
+  confidence: number | null;
+}
+
 export interface ConvergenceResult {
   derivations: MetricDerivationRule[];
   matchReport: Array<{ component: string; dataType: string; confidence: number; reason: string }>;
@@ -110,6 +123,12 @@ export interface ConvergenceResult {
   gaps: ConvergenceGap[];
   // OB-162: Per-component input bindings (Decision 111)
   componentBindings: Record<string, Record<string, ComponentBinding>>;
+  // OB-197 G11: signal-surface observations (within-run + cross-run).
+  // Surfaced for downstream consumers; matching algorithm itself is unchanged.
+  observations: {
+    withinRun: ConvergenceSignalObservation[];
+    crossRun: ConvergenceSignalObservation[];
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -119,13 +138,17 @@ export interface ConvergenceResult {
 export async function convergeBindings(
   tenantId: string,
   ruleSetId: string,
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  calculationRunId?: string,  // OB-197 G11: scope signals emitted by this convergence to a calculation run
 ): Promise<ConvergenceResult> {
   const derivations: MetricDerivationRule[] = [];
   const matchReport: ConvergenceResult['matchReport'] = [];
   const signals: ConvergenceResult['signals'] = [];
   const gaps: ConvergenceGap[] = [];
   const componentBindings: Record<string, Record<string, ComponentBinding>> = {};
+  // OB-197 G11: observations populated from the canonical signal surface
+  // before matching begins. Empty when no calculationRunId is supplied.
+  const observations: ConvergenceResult['observations'] = { withinRun: [], crossRun: [] };
 
   // 1. Fetch rule set
   const { data: ruleSet } = await supabase
@@ -134,11 +157,11 @@ export async function convergeBindings(
     .eq('id', ruleSetId)
     .single();
 
-  if (!ruleSet) return { derivations, matchReport, signals, gaps, componentBindings };
+  if (!ruleSet) return { derivations, matchReport, signals, gaps, componentBindings, observations };
 
   // 2. Extract plan requirements
   const components = extractComponents(ruleSet.components);
-  if (components.length === 0) return { derivations, matchReport, signals, gaps, componentBindings };
+  if (components.length === 0) return { derivations, matchReport, signals, gaps, componentBindings, observations };
 
   // 3. Inventory data capabilities (OB-162: includes field identities)
   const capabilities = await inventoryData(tenantId, supabase);
@@ -153,7 +176,43 @@ export async function convergeBindings(
         resolution: `Import data for this plan's components`,
       });
     }
-    return { derivations, matchReport, signals, gaps, componentBindings };
+    return { derivations, matchReport, signals, gaps, componentBindings, observations };
+  }
+
+  // OB-197 G11: signal-surface observation (DS-021 §7 — convergence observes,
+  // does not compute). Reads are gated on calculationRunId; outside a run the
+  // observations stay empty and matching proceeds unchanged.
+  if (calculationRunId) {
+    // OB-197 G11: within-run signal observation. Surface what has been observed
+    // earlier in THIS calculation run for this tenant. Per DS-021 §7, convergence
+    // uses this output for OBSERVATION (matches/gaps/opportunities) — NOT for scoring.
+    const { data: withinRunPriors } = await supabase
+      .from('classification_signals')
+      .select('signal_type, signal_value, decision_source, classification, structural_fingerprint, agent_scores, confidence')
+      .eq('tenant_id', tenantId)
+      .eq('calculation_run_id', calculationRunId)
+      .order('created_at', { ascending: true });
+
+    // OB-197 G11: cross-run signal observation. Surface this tenant's signals from
+    // prior runs that match the current convergence context. Per DS-021 §7,
+    // observation only — not consumed by matching algorithm.
+    const { data: crossRunPriors } = await supabase
+      .from('classification_signals')
+      .select('signal_type, signal_value, decision_source, classification, structural_fingerprint, agent_scores, confidence')
+      .eq('tenant_id', tenantId)
+      .in('signal_type', [
+        'classification:outcome',
+        'comprehension:plan_interpretation',
+        'comprehension:header_binding',
+        'classification:human_correction',
+      ])
+      .not('calculation_run_id', 'is', null)
+      .neq('calculation_run_id', calculationRunId)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    observations.withinRun = (withinRunPriors ?? []) as ConvergenceSignalObservation[];
+    observations.crossRun = (crossRunPriors ?? []) as ConvergenceSignalObservation[];
   }
 
   // 4. OB-162: 3-pass matching — field identities first, token overlap fallback
@@ -252,7 +311,7 @@ export async function convergeBindings(
 
         await supabase.from('classification_signals').insert({
           tenant_id: tenantId,
-          signal_type: 'convergence_calculation_validation',
+          signal_type: 'convergence:calculation_validation',
           signal_value: {
             component_index: pr.componentIndex,
             component_name: pr.componentName,
@@ -273,6 +332,7 @@ export async function convergeBindings(
             bound_column: colName,
             value_distribution: dist ? { min: dist.min, max: dist.max, median: dist.median, scale: dist.scaleInference } : null,
           },
+          calculation_run_id: calculationRunId ?? null,
         });
       }
     }
@@ -482,7 +542,7 @@ export async function convergeBindings(
   }
 
   console.log(`[Convergence] ${ruleSet.name}: ${derivations.length} derivations, ${gaps.length} gaps, ${Object.keys(componentBindings).length} component bindings`);
-  return { derivations, matchReport, signals, gaps, componentBindings };
+  return { derivations, matchReport, signals, gaps, componentBindings, observations };
 }
 
 // ──────────────────────────────────────────────

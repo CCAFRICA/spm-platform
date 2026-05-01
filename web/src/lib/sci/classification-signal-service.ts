@@ -75,6 +75,7 @@ export interface ClassificationSignalPayload {
   vocabularyBindings: Record<string, string> | null;
   agentScores: Record<string, number>;
   humanCorrectionFrom: string | null;
+  calculationRunId?: string;  // OB-197 G11: NULL for ingestion writes; populated when invoked from a calculation run
 }
 
 export async function writeClassificationSignal(
@@ -89,7 +90,7 @@ export async function writeClassificationSignal(
       .from('classification_signals')
       .insert({
         tenant_id: payload.tenantId,
-        signal_type: 'sci:classification_outcome_v2',
+        signal_type: 'classification:outcome',
         source_file_name: payload.sourceFileName,
         sheet_name: payload.sheetName,
         structural_fingerprint: payload.fingerprint,
@@ -103,6 +104,7 @@ export async function writeClassificationSignal(
         scope: 'tenant',
         source: payload.humanCorrectionFrom ? 'user_corrected' : 'sci_agent',
         context: { sciVersion: '2.0', phase: 'E', schema: 'HF-092' },
+        calculation_run_id: payload.calculationRunId ?? null,
       })
       .select('id')
       .single();
