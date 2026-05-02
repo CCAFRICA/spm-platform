@@ -499,14 +499,14 @@ function formatPeriodLabel(period: string, locale: string = 'en-US'): string {
 }
 
 function formatComponentType(type: string): string {
-  const typeLabels: Record<string, string> = {
-    matrix_lookup: 'Matrix Lookup',
-    tier_lookup: 'Tier Lookup',
-    percentage: 'Percentage',
-    conditional_percentage: 'Conditional %',
-  };
-
-  return typeLabels[type] || type;
+  // HF-195: registry-derived display label. Falls back to the raw identifier
+  // when the input is not a registered primitive (e.g., during transition or
+  // for unknown values). No legacy alias keys per Korean Test E910 + Rule 27.
+  const formatted = type
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+  return formatted;
 }
 
 function formatLabel(key: string): string {
