@@ -35,6 +35,10 @@ import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/li
 import type { Json } from '@/lib/supabase/database.types';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { persistSignal } from '@/lib/ai/signal-persistence';
+// HF-196 Phase 2: calc-time entity resolution per Decision 92 + OB-182 stated intent.
+// Closes Break #2 (entity binding gap) by populating committed_data.entity_id at
+// calc time for any rows where the import-time path didn't already resolve.
+import { resolveEntitiesAtCalcTime } from '@/lib/sci/calc-time-entity-resolution';
 import { loadDensity, persistDensityUpdates } from '@/lib/calculation/synaptic-density';
 import {
   createSynapticSurface,
@@ -80,6 +84,31 @@ export async function POST(request: NextRequest) {
   const calculationRunId = crypto.randomUUID();
 
   addLog(`Starting: tenant=${tenantId}, period=${periodId}, ruleSet=${ruleSetId}, run=${calculationRunId}`);
+
+  // ── HF-196 Phase 2: Calc-time entity resolution (Break #2 closure) ──
+  // Per Decision 92 + OB-182 stated intent. Idempotent — does nothing if all
+  // rows already have entity_id resolved. Surfaces unmatched rows as a data-
+  // quality signal but does not halt the calc run.
+  try {
+    const entityResolution = await resolveEntitiesAtCalcTime(tenantId, supabase);
+    addLog(
+      `Calc-time entity resolution: tenant=${tenantId} ` +
+      `null_rows_before=${entityResolution.totalNullRowsBefore} ` +
+      `matched=${entityResolution.matched} ` +
+      `unmatched=${entityResolution.unmatched} ` +
+      `(${entityResolution.durationMs}ms)`,
+    );
+    if (entityResolution.unmatched > 0) {
+      addLog(
+        `[DATA QUALITY] ${entityResolution.unmatched} committed_data rows still have ` +
+        `entity_id NULL after calc-time resolution; calc will skip these rows`,
+      );
+    }
+  } catch (err) {
+    // Non-blocking: calc proceeds even if resolution fails. Engine will
+    // attribute only resolved rows to entities; unresolved rows skipped.
+    addLog(`Calc-time entity resolution failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // ── 1. Fetch rule set ──
   const { data: ruleSet, error: rsErr } = await supabase
