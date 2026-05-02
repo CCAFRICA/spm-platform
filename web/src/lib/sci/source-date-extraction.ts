@@ -13,17 +13,29 @@
  *
  * OB-157: Added periodMarkerHint for year+month column composition.
  */
-// HF-185: Semantic roles that indicate a date field is NOT a business event date.
-// Entity attributes that happen to be dates (hire_date, birth_date) must not become source_date.
-// Korean Test: uses SEMANTIC ROLES from SCI classification, not field names.
-const NON_TEMPORAL_ROLES = new Set([
-  'entity_attribute',
-  'entity_identifier',
-  'entity_name',
-  'transaction_identifier',
-  'category_code',
-  'descriptive_label',
-  'entity_license',
+// HF-196 Phase 1C: positive whitelist of temporal semantic roles per April 1 EFG analysis
+// + Decision 92 + OB-107. Only columns with these roles are eligible to become source_date,
+// regardless of whether the value parses as a date. Entity attributes that happen to be
+// dates (hire_date, birth_date) and entity relationships (manager_ref, branch_ref) where
+// V8 Date parser is lenient (e.g., new Date("BCL-GYE-001") returns a 2001 date) are
+// excluded by construction. Korean Test compliant: role drives the gate, not field name.
+//
+// Predecessor: HF-185 introduced a NON_TEMPORAL_ROLES blacklist (entity_attribute,
+// entity_identifier, entity_name, transaction_identifier, category_code,
+// descriptive_label, entity_license). Phase 1B added entity_relationship which the
+// blacklist did not enumerate, leaving Sucursal_ID/ID_Gerente exposed to the OB-183
+// platformType='date' fallback in findDateColumnFromBindings. The whitelist closes
+// this whole class of regression: any future role additions are excluded by default.
+const TEMPORAL_ROLES = new Set([
+  'temporal',
+  'date',
+  'timestamp',
+  'transaction_date',
+  'event_date',
+  'event_timestamp',
+  'effective_date',
+  'period_marker',
+  'cutoff_date',
 ]);
 
 export function extractSourceDate(
@@ -32,28 +44,25 @@ export function extractSourceDate(
   semanticRoles: Record<string, string> | null,
   periodMarkerHint?: { yearColumn: string; monthColumn: string } | null,
 ): string | null {
-  // Strategy 1: Content Profile identified date column
+  // Strategy 1: Content Profile identified date column.
+  // HF-196 Phase 1C: whitelist guard — accept only if the column's semantic role
+  // is in TEMPORAL_ROLES. This rejects findDateColumnFromBindings's
+  // platformType='date' fallback when the column is structurally a relationship
+  // or attribute (e.g., Sucursal_ID parsing leniently as a date in V8).
   if (dateColumnHint && rowData[dateColumnHint] != null) {
-    // HF-185: Check if semantic roles classify this field as non-temporal.
-    // Entity attributes that happen to be dates (hire_date, birth_date) are NOT source_dates.
     const hintRole = semanticRoles?.[dateColumnHint];
-    if (hintRole && NON_TEMPORAL_ROLES.has(hintRole)) {
-      // Skip — fall through to Strategy 2+ to find an actual temporal column
-    } else {
+    if (hintRole && TEMPORAL_ROLES.has(hintRole)) {
       const parsed = parseAnyDateValue(rowData[dateColumnHint]);
       if (parsed) return parsed;
     }
+    // No role or non-temporal role → skip the hint entirely; do not fall through to
+    // parseAnyDateValue. Fall through to Strategy 2+ to find an explicit temporal column.
   }
 
-  // Strategy 2: Semantic role tagged as temporal
+  // Strategy 2: Semantic role tagged as temporal (whitelist matches TEMPORAL_ROLES).
   if (semanticRoles) {
-    // OB-195 Layer 3: Comprehensive temporal role set (aligned with findDateColumnFromBindings)
-    const temporalRoles = new Set([
-      'date', 'transaction_date', 'event_date', 'cutoff_date', 'period_marker',
-      'event_timestamp', 'temporal', 'timestamp', 'effective_date',
-    ]);
     for (const [field, role] of Object.entries(semanticRoles)) {
-      if (temporalRoles.has(role) && rowData[field] != null) {
+      if (TEMPORAL_ROLES.has(role) && rowData[field] != null) {
         const parsed = parseAnyDateValue(rowData[field]);
         if (parsed) return parsed;
       }
@@ -74,15 +83,16 @@ export function extractSourceDate(
     }
   }
 
-  // Strategy 4: Structural scan — string/Date values only (OB-157: skip numbers)
-  // Numbers are too ambiguous (financial values, IDs, quantities can look like serial dates)
-  // HF-185: Object.entries (not Object.values) so we can check semantic roles per field
+  // Strategy 4: Structural scan — only fields with explicit TEMPORAL_ROLES
+  // contribute. HF-196 Phase 1C: whitelist enforced — fields without a role
+  // mapping or with a non-temporal role are excluded, even if their value
+  // parses as a date.
   for (const [key, value] of Object.entries(rowData)) {
     if (value == null) continue;
-    if (typeof value === 'number') continue; // OB-157: skip numeric values
+    if (typeof value === 'number') continue; // OB-157: skip numeric values (ambiguous serials)
     if (typeof value === 'object' && !(value instanceof Date)) continue;
-    // HF-185: Skip fields with non-temporal semantic roles
-    if (semanticRoles?.[key] && NON_TEMPORAL_ROLES.has(semanticRoles[key])) continue;
+    const role = semanticRoles?.[key];
+    if (!role || !TEMPORAL_ROLES.has(role)) continue;
     const parsed = parseAnyDateValue(value);
     if (parsed) {
       const y = new Date(parsed).getFullYear();
