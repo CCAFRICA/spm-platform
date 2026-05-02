@@ -90,6 +90,23 @@ export interface PrimitiveEntry {
    * Used by validation paths to detect extra / missing keys.
    */
   readonly allowedKeys: readonly string[];
+  /**
+   * HF-195: optional STRUCTURAL worked example for prompt construction.
+   *
+   * Content discipline (Korean Test, AP-25): describe value-distribution
+   * shapes, data-type signatures, input/output cardinality. Do NOT use
+   * domain-named keywords (e.g., 'commission', 'sales', 'tier'). The
+   * build-time gate scans for forbidden literal patterns; populated
+   * fields that violate the discipline fail the gate at HF-195 Phase 4.
+   *
+   * Empty/absent for primitives that don't need disambiguation examples.
+   * The plan-interpretation prompt builder iterates registry entries and
+   * emits a structural-examples block at construction time — entries
+   * without this field are silently skipped, leaving an empty section
+   * placeholder slot per the option_b_plus_c PREPARE-path hook
+   * (IRA-HF-195 Inv-2 rank 1; Inv-3 rank 1 = sub_option_b_beta).
+   */
+  readonly promptStructuralExample?: string;
 }
 
 // ──────────────────────────────────────────────
@@ -102,24 +119,44 @@ const REGISTRY: readonly PrimitiveEntry[] = Object.freeze([
     kind: 'operation',
     description: '1D threshold table — maps a single input value to an output via boundary array.',
     allowedKeys: ['operation', 'input', 'boundaries', 'outputs', 'noMatchBehavior', 'isMarginal'],
+    promptStructuralExample:
+      'Single numeric input mapped to numeric output via boundary array. Shape: ' +
+      'input value falls into one of N non-overlapping range bands; output is the value ' +
+      'associated with the matching band. Example signature: input∈ℝ, ' +
+      'boundaries∈[(min,max,minInclusive,maxInclusive)]ⁿ, outputs∈ℝⁿ. Selection is a ' +
+      'range-membership test on a single dimension.',
   },
   {
     id: 'bounded_lookup_2d',
     kind: 'operation',
     description: '2D grid lookup — maps two input values (row, column) to a grid output.',
     allowedKeys: ['operation', 'inputs', 'rowBoundaries', 'columnBoundaries', 'outputGrid', 'noMatchBehavior'],
+    promptStructuralExample:
+      'Two numeric inputs mapped to numeric output via row × column grid. Shape: ' +
+      'input₁ falls into row band, input₂ falls into column band, output = grid[row_idx][col_idx]. ' +
+      'Example signature: rowBoundaries∈[(min,max)]ʳ, columnBoundaries∈[(min,max)]ᶜ, ' +
+      'outputGrid∈ℝʳˣᶜ. Two-dimensional range-membership test.',
   },
   {
     id: 'scalar_multiply',
     kind: 'operation',
     description: 'Fixed rate multiplication: input × rate.',
     allowedKeys: ['operation', 'input', 'rate'],
+    promptStructuralExample:
+      'Single numeric input multiplied by fixed numeric rate. Shape: ' +
+      'output = input × rate. Example signature: input∈ℝ, rate∈ℝ. ' +
+      'No conditional logic, no thresholds, no piecewise structure.',
   },
   {
     id: 'conditional_gate',
     kind: 'operation',
     description: 'If/then/else: evaluate condition, execute one of two operations.',
     allowedKeys: ['operation', 'condition', 'onTrue', 'onFalse'],
+    promptStructuralExample:
+      'Conditional dispatch on boolean predicate. Shape: ' +
+      'if condition then operation_A else operation_B. Example signature: ' +
+      'condition∈Boolean, onTrue∈IntentOperation, onFalse∈IntentOperation. ' +
+      'Used when a single binary criterion selects between two distinct calculation paths.',
   },
   {
     id: 'aggregate',
@@ -156,12 +193,23 @@ const REGISTRY: readonly PrimitiveEntry[] = Object.freeze([
     kind: 'operation',
     description: 'Linear function — y = slope * x + intercept.',
     allowedKeys: ['operation', 'input', 'slope', 'intercept', 'modifiers'],
+    promptStructuralExample:
+      'Continuous linear function of a single numeric input. Shape: ' +
+      'output = slope × input + intercept. Example signature: input∈ℝ, slope∈ℝ, ' +
+      'intercept∈ℝ. Continuous over the input range; no stepped boundaries.',
   },
   {
     id: 'piecewise_linear',
     kind: 'operation',
     description: 'Piecewise linear — attainment ratio selects rate segment, applied to base input.',
     allowedKeys: ['operation', 'ratioInput', 'baseInput', 'segments', 'targetValue'],
+    promptStructuralExample:
+      'Two-input piecewise computation. Shape: ratioInput selects a rate segment from ' +
+      'a non-overlapping band array; baseInput is multiplied by that selected rate. ' +
+      'Example signature: ratioInput∈ℝ, baseInput∈ℝ, segments∈[{min,max,rate}]ⁿ, ' +
+      'optional targetValue∈ℝ. Distinguished from bounded_lookup_1d by the second ' +
+      'input (base) that the selected segment rate operates on, rather than returning ' +
+      'a fixed output per band.',
   },
   {
     id: 'scope_aggregate',
