@@ -812,11 +812,17 @@ Determine:
 4. Are there variant/segmentation rules (e.g., different rates for different roles)?
 5. What language is the document in?
 
+Allowed component "calculationType" values are derived from the canonical primitive
+registry (single canonical surface per Decision 154/155); the enumeration is
+substituted at prompt-construction time from the registry IDs:
+
+<<COMPONENT_TYPE_LIST>>
+
 Return your analysis as JSON with this exact structure:
 {
   "documentType": "plan" | "roster" | "data" | "unknown",
   "componentCount": number,
-  "components": [{ "name": "component name", "calculationType": "tiered_lookup|matrix_lookup|flat_percentage|conditional_percentage" }],
+  "components": [{ "name": "component name", "calculationType": "<one of the registered foundational primitives — see enumeration above>" }],
   "hasVariants": boolean,
   "variantDescriptions": ["description of each variant"],
   "language": "en" | "es" | "mixed",
