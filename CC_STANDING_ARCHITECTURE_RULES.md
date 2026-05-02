@@ -258,6 +258,11 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 25. Every OB/HF touching data pipeline: include scale analysis (current volume vs 10x vs 100x)
 26. **Governing Principles Evaluation (G1-G6) required** for decisions touching architecture, UX, or visualization (Section B)
 
+### Prompt-layer registry derivation (HF-195)
+27. **Any LLM prompt that emits componentType (or any other registry-governed vocabulary) MUST derive its allowed values from the canonical registry (`PrimitiveEntry` or equivalent) at prompt-construction time.** Parallel hardcoded vocabulary lists in prompt content are prohibited. Build-time gate (`web/scripts/verify-korean-test.sh`, wired as `prebuild` in `web/package.json`) enforces zero quoted legacy primitive-name string literals outside `primitive-registry.ts`. Instantiates IGF-T1-E902 (Carry Everything, Express Contextually) and IGF-T1-E910 (Korean Test) at the prompt-layer surface. Recommended action `extend` per IRA-HF-195 Inv-1 supersession_candidate 1.
+
+28. **Any dispatch consuming LLM-emitted vocabulary MUST honor three-tier resolution (LLM-Primary, Deterministic Fallback, Human Authority).** Exhaustive-switch patterns with `_exhaustive: never` compile-time guards are permitted ONLY when paired with EITHER (a) upstream constraint — the prompt that produces the input emits only registry-valid strings (Rule 27 holds), OR (b) downstream fallback — unrecognized strings map to a default primitive with a classification signal written. Naked `_exhaustive: never` patterns without one of these two conditions are prohibited. Instantiates IGF-T1-E903 (No Hardcoded Assumptions / Three-Tier Resolution Chain) at the prompt-layer surface. Recommended action `extend` per IRA-HF-195 Inv-1 supersession_candidate 2.
+
 ---
 
 ## SECTION E: SCALE REFERENCE
