@@ -37,20 +37,15 @@ import {
 import { extractFieldIdentitiesFromTrace } from '@/lib/sci/header-comprehension';
 // HF-194: extracted helper — shared with execute-bulk/route.ts
 import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
+// HF-196 Phase 1D — D154/D155 single canonical declaration of data_type:
+// derived from SCI classification via the shared resolver. No private copies.
+import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 
-// Normalize filename to semantic data_type (same logic as import/commit)
-function normalizeFileNameToDataType(fn: string): string {
-  let stem = fn.replace(/\.[^.]+$/, '');
-  stem = stem.replace(/^[A-Z]{2,5}_/, '');
-  stem = stem.replace(/_?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{4}$/i, '');
-  stem = stem.replace(/_?Q[1-4]_?\d{4}$/i, '');
-  stem = stem.replace(/_?\d{4}[-_]\d{2}$/i, '');
-  stem = stem.replace(/_?\d{4}$/i, '');
-  stem = stem.replace(/_+$/, '');
-  return stem.toLowerCase().replace(/[\s-]+/g, '_');
-}
+// HF-196 Phase 1D: normalizeFileNameToDataType deleted — D154 violation removed.
+// data_type now derives from SCI classification via @/lib/sci/data-type-resolver
+// (single canonical surface).
 
 export async function POST(req: NextRequest) {
   try {
@@ -513,15 +508,10 @@ async function executeTargetPipeline(
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
-  // Resolve data_type from contentUnitId (format: fileName::tabName::tabIndex)
-  const parts = unit.contentUnitId.split('::');
-  const fileName = parts[0] || 'unknown';
-  const tabName = parts[1] || 'Sheet1';
-  const normalized = normalizeFileNameToDataType(fileName);
-  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
-  const dataType = !isGenericTab && normalized.length > 2
-    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
-    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type === SCI classification per D154/D155 (target pipeline).
+  const dataType = resolveDataTypeFromClassification('target');
+  // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
+  const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -664,12 +654,10 @@ async function executeTransactionPipeline(
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
-  // Resolve data_type
-  const parts = unit.contentUnitId.split('::');
-  const fileName = parts[0] || 'unknown';
-  const tabName = parts[1] || 'Sheet1';
-  const normalized = normalizeFileNameToDataType(fileName);
-  const dataType = normalized.length > 2 ? normalized : tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type === SCI classification per D154/D155 (transaction pipeline).
+  const dataType = resolveDataTypeFromClassification('transaction');
+  // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
+  const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
   // Build semantic_roles map from bindings (same as target pipeline)
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -807,15 +795,10 @@ async function executeEntityPipeline(
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
-  // Resolve data_type from contentUnitId
-  const parts = unit.contentUnitId.split('::');
-  const fileName = parts[0] || 'unknown';
-  const tabName = parts[1] || 'Sheet1';
-  const normalized = normalizeFileNameToDataType(fileName);
-  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
-  const dataType = !isGenericTab && normalized.length > 2
-    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
-    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type === SCI classification per D154/D155 (entity pipeline).
+  const dataType = resolveDataTypeFromClassification('entity');
+  // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
+  const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -938,15 +921,10 @@ async function executeReferencePipeline(
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
   });
 
-  // Resolve data_type from contentUnitId (same as transaction/target pipelines)
-  const parts = unit.contentUnitId.split('::');
-  const fileName = parts[0] || 'unknown';
-  const tabName = parts[1] || 'Sheet1';
-  const normalized = normalizeFileNameToDataType(fileName);
-  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
-  const dataType = !isGenericTab && normalized.length > 2
-    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
-    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type === SCI classification per D154/D155 (reference pipeline).
+  const dataType = resolveDataTypeFromClassification('reference');
+  // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
+  const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};

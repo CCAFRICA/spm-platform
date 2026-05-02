@@ -24,6 +24,9 @@ import {
 } from '@/lib/sci/source-date-extraction';
 // HF-194: extracted helper — also used by execute/route.ts
 import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
+// HF-196 Phase 1D — D154/D155 single canonical declaration of data_type:
+// derived from SCI classification via the shared resolver. No private copies.
+import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
 // HF-196 Phase 1: post-commit construction unified across both import endpoints.
 // Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
 // post-commit work as execute (entity resolution + entity_id back-link).
@@ -40,17 +43,12 @@ const PROCESSING_ORDER: Record<AgentType, number> = {
   reference: 4,
 };
 
-// Normalize filename to semantic data_type (same logic as execute route)
-function normalizeFileNameToDataType(fn: string): string {
-  let stem = fn.replace(/\.[^.]+$/, '');
-  stem = stem.replace(/^[A-Z]{2,5}_/, '');
-  stem = stem.replace(/_?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{4}$/i, '');
-  stem = stem.replace(/_?Q[1-4]_?\d{4}$/i, '');
-  stem = stem.replace(/_?\d{4}[-_]\d{2}$/i, '');
-  stem = stem.replace(/_?\d{4}$/i, '');
-  stem = stem.replace(/_+$/, '');
-  return stem.toLowerCase().replace(/[\s-]+/g, '_');
-}
+// HF-196 Phase 1D: normalizeFileNameToDataType deleted — D154 violation removed.
+// data_type now derives from SCI classification via @/lib/sci/data-type-resolver
+// (single canonical surface). Function definition still present in commit/route.ts
+// and intelligence/wire/route.ts; those paths use commit's distinct vocabulary
+// ('roster' | 'component_data' | ...) and are out of HF-196 scope per architect-
+// disposition surface (see commit message + carry-forward).
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 const ROLE_TARGETS = ['role', 'position', 'puesto', 'title', 'cargo'];
@@ -518,11 +516,9 @@ async function processEntityUnit(
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'entity' } as unknown as Json,
   });
 
-  const normalized = normalizeFileNameToDataType(fileName);
-  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
-  const dataType = !isGenericTab && normalized.length > 2
-    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
-    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
+  // Identity: data_type === informational_label === 'entity' for this pipeline.
+  const dataType = resolveDataTypeFromClassification('entity');
 
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
   for (const binding of unit.confirmedBindings) {
@@ -624,12 +620,9 @@ async function processDataUnit(
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
-  // Resolve data_type
-  const normalized = normalizeFileNameToDataType(fileName);
-  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
-  const dataType = !isGenericTab && normalized.length > 2
-    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
-    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
+  // Identity: data_type === informational_label === classification ('target' | 'transaction').
+  const dataType = resolveDataTypeFromClassification(classification);
 
   // Build semantic_roles map
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -670,6 +663,10 @@ async function processDataUnit(
         semantic_roles: semanticRoles,
         resolved_data_type: dataType,
         entity_id_field: entityIdField || null, // preserve which field is the entity identifier
+        // HF-196 Phase 1D — D155 boundary parity: informational_label was missing
+        // here while present at processEntityUnit/processReferenceUnit. Now uniformly
+        // recorded across all 3 execute-bulk pipelines.
+        informational_label: classification,
         // HF-194: restore field_identities for matcher's structural-FI Pass 1
         field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
       },
@@ -786,12 +783,9 @@ async function processReferenceUnit(
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
   });
 
-  // Resolve data_type (same pattern as processDataUnit)
-  const normalized = normalizeFileNameToDataType(fileName);
-  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
-  const dataType = !isGenericTab && normalized.length > 2
-    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
-    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
+  // Identity: data_type === informational_label === 'reference' for this pipeline.
+  const dataType = resolveDataTypeFromClassification('reference');
 
   // Build semantic_roles map
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
