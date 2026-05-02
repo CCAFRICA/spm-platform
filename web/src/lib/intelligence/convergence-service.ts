@@ -125,10 +125,29 @@ export interface ConvergenceResult {
   componentBindings: Record<string, Record<string, ComponentBinding>>;
   // OB-197 G11: signal-surface observations (within-run + cross-run).
   // Surfaced for downstream consumers; matching algorithm itself is unchanged.
+  // HF-196 Phase 3: D153 B-E4 atomic cutover — metricComprehension is the
+  // operative signal-surface input. The legacy private-JSONB-key path was
+  // eradicated by PR #342 cutover-revert; signal surface is now the path.
   observations: {
     withinRun: ConvergenceSignalObservation[];
     crossRun: ConvergenceSignalObservation[];
+    // HF-196 Phase 3: rule-set-scoped metric comprehension signals read from
+    // classification_signals WHERE signal_type='comprehension:plan_interpretation'
+    // (OB-198 vocabulary aligned). These signals carry plan-agent metric
+    // semantics that the legacy private-key path used to provide. The legacy
+    // path was eradicated PR #342; signal surface now operative per D153 B-E4.
+    metricComprehension: MetricComprehensionSignal[];
   };
+}
+
+// HF-196 Phase 3: shape of metric_comprehension signals consumed as operative
+// input to convergence. These signals replace the legacy private-JSONB path
+// (eradicated by PR #342 cutover-revert). Read scoped to (tenant_id,
+// rule_set_id, signal_type='comprehension:plan_interpretation').
+export interface MetricComprehensionSignal {
+  signal_value: Record<string, unknown> | null;
+  confidence: number | null;
+  rule_set_id: string | null;
 }
 
 // ──────────────────────────────────────────────
@@ -148,7 +167,9 @@ export async function convergeBindings(
   const componentBindings: Record<string, Record<string, ComponentBinding>> = {};
   // OB-197 G11: observations populated from the canonical signal surface
   // before matching begins. Empty when no calculationRunId is supplied.
-  const observations: ConvergenceResult['observations'] = { withinRun: [], crossRun: [] };
+  // HF-196 Phase 3: metricComprehension is read unconditionally (not gated on
+  // calculationRunId) because it is the operative input replacing seeds.
+  const observations: ConvergenceResult['observations'] = { withinRun: [], crossRun: [], metricComprehension: [] };
 
   // 1. Fetch rule set
   const { data: ruleSet } = await supabase
@@ -162,6 +183,17 @@ export async function convergeBindings(
   // 2. Extract plan requirements
   const components = extractComponents(ruleSet.components);
   if (components.length === 0) return { derivations, matchReport, signals, gaps, componentBindings, observations };
+
+  // HF-196 Phase 3: D153 B-E4 atomic cutover — read metric_comprehension signals
+  // as the operative signal-surface input. These signals (signal_type=
+  // 'comprehension:plan_interpretation') carry plan-agent metric semantics that
+  // the eradicated seeds path used to provide. Read scoped to (tenant_id, rule_set_id).
+  // Per D153 B-E4: "signal surface as the operative path. No parallel paths."
+  const metricComprehensionSignals = await loadMetricComprehensionSignals(tenantId, ruleSetId, supabase);
+  observations.metricComprehension = metricComprehensionSignals;
+  if (metricComprehensionSignals.length > 0) {
+    console.log(`[Convergence] HF-196 D153 cutover: ${metricComprehensionSignals.length} metric_comprehension signals loaded as operative input (rule_set=${ruleSetId})`);
+  }
 
   // 3. Inventory data capabilities (OB-162: includes field identities)
   const capabilities = await inventoryData(tenantId, supabase);
@@ -669,6 +701,42 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
   }
 
   return result;
+}
+
+// ──────────────────────────────────────────────
+// HF-196 Phase 3: Load metric_comprehension signals (D153 B-E4 atomic cutover)
+//
+// Reads classification_signals scoped to (tenant_id, rule_set_id, signal_type
+// = 'comprehension:plan_interpretation') — the OB-198-aligned vocabulary for
+// plan-agent metric semantics. The legacy private-JSONB-key path that HF-191
+// introduced was eradicated by PR #342 cutover-revert; this read replaces it
+// as the operative signal-surface input per Decision 153 B-E4.
+//
+// Per Decision 153 B-E4: "atomic cutover to L2 Comprehension signals on
+// classification_signals. Signal surface as the operative path."
+//
+// Korean Test (IGF-T1-E910) compliance: signal_type is a stable governance string,
+// not a domain-name literal. tenant_id + rule_set_id are runtime parameters.
+// ──────────────────────────────────────────────
+
+async function loadMetricComprehensionSignals(
+  tenantId: string,
+  ruleSetId: string,
+  supabase: SupabaseClient,
+): Promise<MetricComprehensionSignal[]> {
+  const { data, error } = await supabase
+    .from('classification_signals')
+    .select('signal_value, confidence, rule_set_id')
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('signal_type', 'comprehension:plan_interpretation')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.warn(`[Convergence] metric_comprehension signal read failed (non-blocking): ${error.message}`);
+    return [];
+  }
+  return (data ?? []) as MetricComprehensionSignal[];
 }
 
 // ──────────────────────────────────────────────
