@@ -11,7 +11,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
-import { resolveEntitiesFromCommittedData } from '@/lib/sci/entity-resolution';
+// HF-196 Phase 1: post-commit construction unified via shared module.
+// Replaces direct call to resolveEntitiesFromCommittedData; the library function
+// is now invoked indirectly through the shared module to keep both import
+// endpoints' post-commit work identical.
+import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { writeClassificationSignal, aggregateToFoundational, aggregateToDomain } from '@/lib/sci/classification-signal-service';
 import { writeFingerprint } from '@/lib/sci/fingerprint-flywheel';
 import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
@@ -226,14 +230,9 @@ export async function POST(req: NextRequest) {
       console.error('[SCI Execute] Post-execute convergence failed (non-blocking):', convErr);
     }
 
-    // HF-109: Post-import entity resolution (DS-009 3.3)
-    // Scans ALL committed_data for person identifiers, creates entities, backfills entity_id
-    try {
-      const entityResult = await resolveEntitiesFromCommittedData(supabase, tenantId);
-      console.log(`[SCI Execute] HF-109 Entity resolution: ${entityResult.created} created, ${entityResult.linked} rows linked`);
-    } catch (entityErr) {
-      console.error('[SCI Execute] Post-import entity resolution failed (non-blocking):', entityErr);
-    }
+    // HF-196 Phase 1: post-commit construction via shared module (Break #3 closure).
+    // Entity resolution + entity_id back-link runs identically for both import endpoints.
+    await executePostCommitConstruction({ supabase, tenantId, source: 'sci-execute' });
 
     // HF-126: Auto-create rule_set_assignments after entity resolution.
     // The calculation engine requires assignments to route entities to plans.

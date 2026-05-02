@@ -24,6 +24,12 @@ import {
 } from '@/lib/sci/source-date-extraction';
 // HF-194: extracted helper — also used by execute/route.ts
 import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
+// HF-196 Phase 1: post-commit construction unified across both import endpoints.
+// Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
+// post-commit work as execute (entity resolution + entity_id back-link).
+// This restores OB-182's stated calc-time intent at the import side AND closes
+// Break #2 by ensuring entity_id is populated for bulk-imported rows.
+import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 
 // Processing order: plan first, then entity, then data
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -226,6 +232,12 @@ export async function POST(req: NextRequest) {
         });
       }
     }
+
+    // HF-196 Phase 1: post-commit construction (Break #3 closure).
+    // Run entity resolution + entity_id back-link via shared module after all
+    // content units processed. This is the symmetry that was missing from
+    // execute-bulk after OB-182; restores it via the shared post-commit module.
+    await executePostCommitConstruction({ supabase, tenantId, source: 'sci-bulk' });
 
     const totalMs = Date.now() - startTime;
     const totalProcessed = results.reduce((s, r) => s + r.rowsProcessed, 0);
@@ -860,226 +872,13 @@ async function processReferenceUnit(
   return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: totalInserted, pipeline: 'reference' };
 }
 
-// ── Post-commit construction — REMOVED by OB-182 (sequence-independence)
-// Entity binding, assignments, and store metadata deferred to calculation time.
-// Function retained as dead code reference until calc-time equivalents verified.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function _postCommitConstruction_REMOVED(
-  supabase: SupabaseClient,
-  tenantId: string,
-  importBatchId: string,
-  entityIdField: string | undefined,
-  unit: BulkContentUnit,
-  rows: Record<string, unknown>[],
-): Promise<void> {
-  const BATCH = 200;
-
-  if (!entityIdField) return;
-
-  // OB-157: Entity creation removed from postCommitConstruction.
-  // Only entity-classified content units create entities (via processEntityUnit).
-  // Target/transaction units bind to existing entities only.
-
-  // Collect unique identifiers
-  const allIdentifiers = new Set<string>();
-  for (const row of rows) {
-    const val = row[entityIdField];
-    if (val != null && String(val).trim()) {
-      allIdentifiers.add(String(val).trim());
-    }
-  }
-
-  if (allIdentifiers.size === 0) return;
-
-  const allIds = Array.from(allIdentifiers);
-
-  // Create rule_set_assignments for unassigned entities
-  const { data: ruleSets } = await supabase
-    .from('rule_sets')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .in('status', ['active', 'draft']);
-
-  if (ruleSets && ruleSets.length > 0) {
-    const allEntityIds: string[] = [];
-    for (let i = 0; i < allIds.length; i += BATCH) {
-      const slice = allIds.slice(i, i + BATCH);
-      const { data } = await supabase
-        .from('entities')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .in('external_id', slice);
-      if (data) allEntityIds.push(...data.map(e => e.id));
-    }
-
-    const assignedEntityIds = new Set<string>();
-    for (let i = 0; i < allEntityIds.length; i += BATCH) {
-      const slice = allEntityIds.slice(i, i + BATCH);
-      const { data } = await supabase
-        .from('rule_set_assignments')
-        .select('entity_id')
-        .eq('tenant_id', tenantId)
-        .in('entity_id', slice);
-      if (data) {
-        for (const a of data) assignedEntityIds.add(a.entity_id);
-      }
-    }
-
-    const unassigned = allEntityIds.filter(id => !assignedEntityIds.has(id));
-    if (unassigned.length > 0) {
-      for (const rs of ruleSets) {
-        for (let i = 0; i < unassigned.length; i += BATCH) {
-          const slice = unassigned.slice(i, i + BATCH);
-          const assignments = slice.map(entityId => ({
-            tenant_id: tenantId,
-            rule_set_id: rs.id,
-            entity_id: entityId,
-          }));
-          await supabase.from('rule_set_assignments').insert(assignments);
-        }
-      }
-      console.log(`[SCI Bulk] Created assignments for ${unassigned.length} entities × ${ruleSets.length} rule sets`);
-    }
-  }
-
-  // Bind entity_id on committed_data rows
-  const entityIdMap = new Map<string, string>();
-  for (let i = 0; i < allIds.length; i += BATCH) {
-    const slice = allIds.slice(i, i + BATCH);
-    const { data } = await supabase
-      .from('entities')
-      .select('id, external_id')
-      .eq('tenant_id', tenantId)
-      .in('external_id', slice);
-    if (data) {
-      for (const e of data) {
-        if (e.external_id) entityIdMap.set(e.external_id, e.id);
-      }
-    }
-  }
-
-  let entityBound = 0;
-  let page = 0;
-  while (true) {
-    const { data: unboundRows } = await supabase
-      .from('committed_data')
-      .select('id, row_data')
-      .eq('tenant_id', tenantId)
-      .eq('import_batch_id', importBatchId)
-      .is('entity_id', null)
-      .limit(500);
-
-    if (!unboundRows || unboundRows.length === 0) break;
-
-    const groups = new Map<string, string[]>();
-    for (const r of unboundRows) {
-      const rd = r.row_data as Record<string, unknown>;
-      const extId = String(rd[entityIdField] ?? '').trim();
-      const eid = entityIdMap.get(extId);
-      if (eid) {
-        if (!groups.has(eid)) groups.set(eid, []);
-        groups.get(eid)!.push(r.id);
-      }
-    }
-
-    for (const [entityId, ids] of Array.from(groups.entries())) {
-      for (let i = 0; i < ids.length; i += BATCH) {
-        const slice = ids.slice(i, i + BATCH);
-        await supabase.from('committed_data').update({ entity_id: entityId }).in('id', slice);
-        entityBound += slice.length;
-      }
-    }
-
-    page++;
-    if (unboundRows.length < 500 || page > 500) break;
-  }
-  if (entityBound > 0) {
-    console.log(`[SCI Bulk] Bound entity_id on ${entityBound} committed_data rows`);
-  }
-
-  // OB-146: Populate entity store metadata
-  const STORE_FIELDS = ['storeId', 'num_tienda', 'No_Tienda', 'Tienda'];
-  const TIER_FIELDS = ['store_volume_tier', 'Rango_Tienda', 'Rango de Tienda'];
-  const VOLUME_KEY_FIELDS = ['LLave Tamaño de Tienda'];
-
-  const empToStore = new Map<string, string>();
-  const empToTier = new Map<string, string>();
-  const empToVolumeKey = new Map<string, string>();
-
-  for (const row of rows) {
-    const empId = String(row[entityIdField] ?? '').trim();
-    if (!empId) continue;
-
-    if (!empToStore.has(empId)) {
-      for (const f of STORE_FIELDS) {
-        const val = row[f];
-        if (val != null && String(val).trim()) {
-          empToStore.set(empId, String(val).trim());
-          break;
-        }
-      }
-    }
-
-    if (!empToTier.has(empId)) {
-      for (const f of TIER_FIELDS) {
-        const val = row[f];
-        if (val != null && String(val).trim()) {
-          empToTier.set(empId, String(val).trim());
-          break;
-        }
-      }
-    }
-
-    if (!empToVolumeKey.has(empId)) {
-      for (const f of VOLUME_KEY_FIELDS) {
-        const val = row[f];
-        if (val != null && String(val).trim()) {
-          empToVolumeKey.set(empId, String(val).trim());
-          break;
-        }
-      }
-    }
-  }
-
-  if (empToStore.size > 0) {
-    const allEmpIds = Array.from(empToStore.keys());
-    let storeUpdated = 0;
-
-    for (let i = 0; i < allEmpIds.length; i += BATCH) {
-      const slice = allEmpIds.slice(i, i + BATCH);
-      const { data: ents } = await supabase
-        .from('entities')
-        .select('id, external_id, metadata')
-        .eq('tenant_id', tenantId)
-        .in('external_id', slice);
-
-      if (!ents) continue;
-
-      for (const ent of ents) {
-        const extId = ent.external_id ?? '';
-        const store = empToStore.get(extId);
-        if (!store) continue;
-
-        const existingMeta = (ent.metadata ?? {}) as Record<string, unknown>;
-        if (existingMeta.store_id === store) continue;
-
-        const newMeta: Record<string, unknown> = { ...existingMeta, store_id: store };
-        const tier = empToTier.get(extId);
-        if (tier) newMeta.volume_tier = tier;
-        const volKey = empToVolumeKey.get(extId);
-        if (volKey) newMeta.volume_key = volKey;
-
-        await supabase
-          .from('entities')
-          .update({ metadata: newMeta })
-          .eq('id', ent.id)
-          .eq('tenant_id', tenantId);
-        storeUpdated++;
-      }
-    }
-
-    if (storeUpdated > 0) {
-      console.log(`[SCI Bulk] Updated store metadata for ${storeUpdated} entities`);
-    }
-  }
-}
+// HF-196 Phase 1: dead-code retirement.
+// The legacy `_postCommitConstruction_REMOVED` function (deferred-by-OB-182,
+// retained as dead code reference at this position pending calc-time
+// replacement) is superseded by `executePostCommitConstruction` in
+// `@/lib/sci/post-commit-construction`. It carried Korean-Test violations
+// (hardcoded Spanish/English store-metadata field names) that must not
+// be re-introduced. Deleted in HF-196 Phase 1 per directive SR-41 disposition
+// (function never reached production under this name; clean deletion).
+// Any future store-metadata population must derive field names from
+// field_identities metadata (Korean Test compliant) rather than hardcoded lists.
