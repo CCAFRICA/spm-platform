@@ -52,7 +52,7 @@ export interface PlanVariant {
 }
 
 // OB-196 Phase 1.7: foundational primitive vocabulary only.
-// Legacy strings ('matrix_lookup' | 'tier_lookup' | 'percentage' | 'conditional_percentage')
+// Legacy strings (matrix_lookup, tier_lookup, percentage, conditional_percentage)
 // removed. F-005 platform-wide closure invariant.
 export type ComponentType =
   | 'bounded_lookup_1d'

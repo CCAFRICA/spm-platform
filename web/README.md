@@ -1,5 +1,17 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Build-time Korean Test gate (HF-195)
+
+`npm run build` runs a `prebuild` hook (`scripts/verify-korean-test.sh`) that scans `src/` for quoted string literals of legacy primitive names (`matrix_lookup`, `tiered_lookup`, `tier_lookup`, `flat_percentage`, `conditional_percentage`). The gate excludes the canonical surface (`primitive-registry.ts`).
+
+What triggers the gate:
+- Adding a new file that contains a quoted legacy primitive-name literal anywhere in `src/`
+- Re-introducing a parallel hardcoded vocabulary in any prompt content, display label, or dispatch table
+
+Why: HF-195 Rule 27 (T5 standing rule) mandates that componentType vocabulary derive from the canonical `PrimitiveEntry` registry, not from private hardcoded copies. The gate enforces this at build time so that drift can't ship.
+
+Manual run: `npm run korean-test`.
+
 ## Getting Started
 
 First, run the development server:

@@ -431,7 +431,7 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
 
   // calcType derives from calculationIntent.operation (primary) with
   // calculationMethod.type as transitional fallback. Phase 1.5 removed the
-  // `|| 'tiered_lookup'` silent-fallback; if neither is present the default
+  // tiered_lookup silent-fallback (legacy) removed; if neither is present the default
   // branch throws.
   const calcMethod = comp?.calculationMethod;
   const calcType = (base.calculationIntent?.operation as string) || calcMethod?.type || '';
