@@ -26,12 +26,45 @@ const ANTHROPIC_VERSION = '2023-06-01';
 // `<<FOUNDATIONAL_PRIMITIVES>>`; at lookup time, the placeholder is replaced
 // with the registry-derived enumeration.
 
-import { getOperationPrimitives } from '@/lib/calculation/primitive-registry';
+import { getOperationPrimitives, getRegistry } from '@/lib/calculation/primitive-registry';
 
 function buildPrimitiveVocabularyForPrompt(): string {
   const ops = getOperationPrimitives();
   const lines = ops.map((p, i) => `${i + 1}. ${p.id} — ${p.description}`);
   return `${ops.length} PRIMITIVE OPERATIONS:\n${lines.join('\n')}`;
+}
+
+// HF-195: registry-derived componentType enumeration for the plan-interpretation
+// prompt's outer wrapper. The "type" field on each component, and the
+// document_analysis prompt's calculationType field, derive from this enumeration —
+// not from a private hardcoded list. Closes Korean Test (E910) at the prompt-layer
+// surface; instantiates Rule 27 (T5 standing rule). Per IRA-HF-195 Inv-2 rank 1
+// (option_b_plus_c) Phase 1 b-component.
+function buildComponentTypeListForPrompt(): string {
+  const ids = getRegistry().map((p) => p.id);
+  return `Allowed component "type" values (${ids.length} foundational primitives):\n${ids.map((id) => `  - ${id}`).join('\n')}`;
+}
+
+// HF-195: registry-derived structural-examples block. Iterates registered
+// primitives and emits the promptStructuralExample field where populated.
+// PREPARE-path hook for IRA-HF-195 Inv-3 rank 1 (sub_option_b_beta) — entries
+// without an example are silently skipped; if zero entries carry examples the
+// section emits an explicit empty-section placeholder so Phase 2 follow-on OB
+// (option_c flywheel population) has the slot to populate.
+function buildStructuralExamplesForPrompt(): string {
+  const withExamples = getRegistry().filter((p) => typeof p.promptStructuralExample === 'string' && p.promptStructuralExample.length > 0);
+  if (withExamples.length === 0) {
+    return [
+      'Structural examples per primitive (use these to classify by value-distribution and shape signature):',
+      '  [No primitives currently carry promptStructuralExample content.',
+      '   This section is populated as registry entries gain content via',
+      '   Phase 2 follow-on work (option_c flywheel population from vocabulary_bindings).]',
+    ].join('\n');
+  }
+  return [
+    'Structural examples per primitive (use these to classify by value-distribution and shape signature):',
+    ...withExamples.map((p) => `  - ${p.id}:\n    ${p.promptStructuralExample!.replace(/\n/g, '\n    ')}`),
+  ].join('\n');
 }
 
 // === SYSTEM PROMPTS BY TASK ===
@@ -157,88 +190,99 @@ CRITICAL REQUIREMENTS:
 3. Detect ALL employee types/classifications if the document has different payout levels for different roles
 4. CRITICAL: Extract ALL numeric payout values from every table - do NOT just identify structure
 
-FOR EACH COMPONENT TYPE, EXTRACT COMPLETE DATA:
+FOR EACH COMPONENT TYPE, EXTRACT COMPLETE DATA.
+The "type" field MUST be a registered foundational primitive identifier — see the
+"Allowed component type values" enumeration below (registry-derived at prompt-construction
+time; this is the single canonical surface).
 
-MATRIX LOOKUP (2D tables with row and column axes):
+<<COMPONENT_TYPE_LIST>>
+
+<<STRUCTURAL_EXAMPLES>>
+
+WORKED EXAMPLES (use these to populate calculationMethod payloads correctly):
+
+bounded_lookup_2d (2D grid: two range-banded inputs → grid output):
 - Extract row axis: metric name, label, and ALL range boundaries
 - Extract column axis: metric name, label, and ALL range boundaries
-- Extract the COMPLETE values matrix - every cell value as a number
+- Extract the COMPLETE values matrix — every cell value as a number
 - Example structure:
   {
-    "type": "matrix_lookup",
+    "type": "bounded_lookup_2d",
     "calculationMethod": {
-      "type": "matrix_lookup",
+      "type": "bounded_lookup_2d",
       "rowAxis": {
-        "metric": "optical_attainment",
-        "label": "% Cumplimiento de meta Optica",
+        "metric": "row_axis_metric",
+        "label": "row axis label preserved verbatim from document",
         "ranges": [
-          { "min": 0, "max": 80, "label": "Menos de 80%" },
-          { "min": 80, "max": 90, "label": "80% a menos de 90%" },
-          { "min": 90, "max": 100, "label": "90% a menos de 100%" },
-          { "min": 100, "max": 150, "label": "100% a menos de 150%" },
-          { "min": 150, "max": 999999, "label": "150% o mas" }
+          { "min": 0, "max": 80, "label": "verbatim band label 1" },
+          { "min": 80, "max": 90, "label": "verbatim band label 2" },
+          { "min": 90, "max": 100, "label": "verbatim band label 3" },
+          { "min": 100, "max": 150, "label": "verbatim band label 4" },
+          { "min": 150, "max": 999999, "label": "verbatim band label 5" }
         ]
       },
       "columnAxis": {
-        "metric": "store_optical_sales",
-        "label": "Venta de Optica de la tienda",
+        "metric": "column_axis_metric",
+        "label": "column axis label preserved verbatim from document",
         "ranges": [
-          { "min": 0, "max": 60000, "label": "Menos de $60k" },
-          { "min": 60000, "max": 100000, "label": "$60k-$100K" }
+          { "min": 0, "max": 60000, "label": "verbatim band label 1" },
+          { "min": 60000, "max": 100000, "label": "verbatim band label 2" }
         ]
       },
       "values": [[0, 0], [200, 300], [300, 500]]
     }
   }
 
-TIERED LOOKUP (1D tables with ranges and payouts):
+bounded_lookup_1d (1D table: one range-banded input → numeric output):
 - Extract metric name and label
 - Extract EVERY tier with min, max, and payout value
 - Example:
   {
-    "type": "tiered_lookup",
+    "type": "bounded_lookup_1d",
     "calculationMethod": {
-      "type": "tiered_lookup",
-      "metric": "store_sales_attainment",
-      "metricLabel": "% Cumplimiento de meta de venta de tienda",
+      "type": "bounded_lookup_1d",
+      "metric": "input_metric_name",
+      "metricLabel": "metric label preserved verbatim from document",
       "tiers": [
-        { "min": 0, "max": 100, "payout": 0, "label": "<100%" },
-        { "min": 100, "max": 105, "payout": 150, "label": "100%-104.99%" },
-        { "min": 105, "max": 110, "payout": 300, "label": "105%-109.99%" },
-        { "min": 110, "max": 999999, "payout": 500, "label": ">=110%" }
+        { "min": 0, "max": 100, "payout": 0, "label": "verbatim band label 1" },
+        { "min": 100, "max": 105, "payout": 150, "label": "verbatim band label 2" },
+        { "min": 105, "max": 110, "payout": 300, "label": "verbatim band label 3" },
+        { "min": 110, "max": 999999, "payout": 500, "label": "verbatim band label 4" }
       ]
     }
   }
 
-FLAT PERCENTAGE (simple rate applied to a base):
+scalar_multiply (single rate × single base; no thresholds, no conditions):
 - Extract the rate as a decimal (4% = 0.04)
 - Extract what it applies to
 - Example:
   {
-    "type": "flat_percentage",
+    "type": "scalar_multiply",
     "calculationMethod": {
-      "type": "flat_percentage",
-      "metric": "warranty_sales",
-      "metricLabel": "Garantia Extendida",
+      "type": "scalar_multiply",
+      "metric": "input_metric_name",
+      "metricLabel": "metric label preserved verbatim from document",
       "rate": 0.04
     }
   }
 
-CONDITIONAL PERCENTAGE (different rates based on conditions):
-- Extract each condition with threshold, operator, and rate
-- Extract what the percentage applies to
+conditional_gate (binary predicate selects between two operations):
+- Extract the predicate condition (left value, operator, right value)
+- Extract the onTrue branch and onFalse branch
+- Use this when ONE binary criterion gates the entire payout, OR when
+  MULTIPLE thresholds are nested as if/then/else chains
 - Example:
   {
-    "type": "conditional_percentage",
+    "type": "conditional_gate",
     "calculationMethod": {
-      "type": "conditional_percentage",
-      "metric": "insurance_sales",
-      "metricLabel": "Venta de Seguros",
-      "conditionMetric": "store_goal_attainment",
-      "conditionMetricLabel": "Cumplimiento Meta",
+      "type": "conditional_gate",
+      "metric": "rate_target_metric",
+      "metricLabel": "metric label preserved verbatim from document",
+      "conditionMetric": "predicate_metric",
+      "conditionMetricLabel": "predicate label preserved verbatim from document",
       "conditions": [
-        { "threshold": 100, "operator": "<", "rate": 0.03, "label": "<100% cumplimiento" },
-        { "threshold": 100, "operator": ">=", "rate": 0.05, "label": ">=100% cumplimiento" }
+        { "threshold": 100, "operator": "<", "rate": 0.03, "label": "verbatim band label 1" },
+        { "threshold": 100, "operator": ">=", "rate": 0.05, "label": "verbatim band label 2" }
       ]
     }
   }
@@ -324,37 +368,33 @@ CONDITIONAL GATE (eligibility gate that depends on meeting a prerequisite):
     }
   }
 
-TYPE SELECTION RULES (MANDATORY — resolve ambiguity between similar types):
+TYPE SELECTION RULES (MANDATORY — resolve ambiguity between structurally similar primitives):
 
-RULE 1 — QUOTA ATTAINMENT RATE CURVES → ALWAYS piecewise_linear:
-When a plan describes rates (percentages) that change based on quota attainment
-(actual performance divided by a target/quota), ALWAYS use "piecewise_linear".
-NEVER use "conditional_percentage" or nested "conditional_gate" for quota-attainment
-rate curves. The structural signal is: there is a DENOMINATOR (quota/target) that
-creates a RATIO, and the rate applies to a BASE AMOUNT (usually revenue).
-Examples that MUST be piecewise_linear:
+RULE 1 — RATIO INPUT SELECTING A RATE APPLIED TO A BASE → "piecewise_linear":
+When the plan describes rates (percentages) that change based on a ratio input
+(actual performance divided by a target/quota), and the selected rate is multiplied
+by a BASE amount (usually revenue), use "piecewise_linear". Structural signal: a
+DENOMINATOR (quota/target) creates a RATIO; the rate applies to a separate BASE
+amount.
+Examples that MUST be "piecewise_linear":
 - "3% if below quota, 5% if at/above quota, 8% if above 120% of quota"
-- "Commission rate increases with quota attainment"
-- Any structure with a quota/target that creates attainment tiers with different rates
+- Any structure with a ratio input that creates attainment bands with different rates
+  applied to a base amount
 
-RULE 2 — FIXED DOLLAR PAYOUTS → tiered_lookup, RATE PERCENTAGES → piecewise_linear:
-When tiers produce FIXED DOLLAR AMOUNTS ($0, $150, $300), use "tiered_lookup".
-When tiers produce RATES (3%, 5%, 8%) applied to a revenue base, use "piecewise_linear".
+RULE 2 — FIXED OUTPUT PER BAND → "bounded_lookup_1d", RATE PER BAND APPLIED TO BASE → "piecewise_linear":
+When bands produce FIXED OUTPUT VALUES ($0, $150, $300), use "bounded_lookup_1d".
+When bands produce RATES (3%, 5%, 8%) applied to a separate base amount, use "piecewise_linear".
 
-RULE 3 — BINARY PREREQUISITE → conditional_gate, RATE SELECTION → conditional_percentage:
-Use "conditional_gate" when there is ONE condition that gates ALL payout (must qualify to earn anything).
-Use "conditional_percentage" when MULTIPLE conditions select DIFFERENT RATES on the same metric.
-If you are building a nested chain of conditions to select a rate, ask: is this really a
-piecewise_linear? (See Rule 1 — if rates change with attainment, it IS piecewise_linear.)
+RULE 3 — BINARY GATE ON ENTIRE PAYOUT → "conditional_gate":
+Use "conditional_gate" when one or more nested binary criteria gate the calculation.
+A nested chain of "conditional_gate" expressions can encode multi-tier conditional
+selection. Before nesting, check Rule 1: if rates change with a ratio input applied
+to a base, it is "piecewise_linear", not nested "conditional_gate".
 
-RULE 4 — NO INTERCEPT → scalar_multiply, HAS INTERCEPT → linear_function:
-If the plan has a fixed base draw plus a commission rate, use "linear_function".
-If there is only a commission rate with no base draw, use "scalar_multiply".
+RULE 4 — NO INTERCEPT → "scalar_multiply", HAS INTERCEPT → "linear_function":
+If the plan has a fixed base value plus a rate × input, use "linear_function".
+If there is only a rate × input with no base value, use "scalar_multiply".
 Do NOT use "linear_function" with intercept=0 — use "scalar_multiply" instead.
-
-RULE 5 — flat_percentage is a LEGACY ALIAS for scalar_multiply:
-Always prefer "scalar_multiply". If you would have used "flat_percentage",
-use "scalar_multiply" instead.
 
 NUMERIC PARSING RULES:
 - Currency: Remove $ and commas. "$1,500" or "$1.500" -> 1500 (handle both comma and period as thousand separator)
@@ -385,7 +425,7 @@ BOUNDARY FORMAT:
 { "min": number|null, "max": number|null, "minInclusive": true, "maxInclusive": true }
 Use null for unbounded (no lower/upper limit). Both inclusive to match >= min AND <= max.
 
-EXAMPLE calculationIntent for a tiered_lookup:
+EXAMPLE calculationIntent for bounded_lookup_1d:
 {
   "calculationIntent": {
     "operation": "bounded_lookup_1d",
@@ -401,7 +441,7 @@ EXAMPLE calculationIntent for a tiered_lookup:
   }
 }
 
-EXAMPLE calculationIntent for a matrix_lookup:
+EXAMPLE calculationIntent for bounded_lookup_2d:
 {
   "calculationIntent": {
     "operation": "bounded_lookup_2d",
@@ -422,7 +462,7 @@ EXAMPLE calculationIntent for a matrix_lookup:
   }
 }
 
-EXAMPLE calculationIntent for a flat_percentage:
+EXAMPLE calculationIntent for scalar_multiply:
 {
   "calculationIntent": {
     "operation": "scalar_multiply",
@@ -431,7 +471,7 @@ EXAMPLE calculationIntent for a flat_percentage:
   }
 }
 
-EXAMPLE calculationIntent for a conditional_percentage (2 conditions, sorted by threshold descending):
+EXAMPLE calculationIntent for conditional_gate (2 conditions, sorted by threshold descending):
 {
   "calculationIntent": {
     "operation": "conditional_gate",
@@ -801,14 +841,26 @@ export class AnthropicAdapter implements AIProviderAdapter {
       throw new Error('Anthropic API key not configured');
     }
 
-    // OB-196 E1: registry-derived vocabulary substitution at call time. The
-    // placeholder `<<FOUNDATIONAL_PRIMITIVES>>` (only present in plan_interpretation)
-    // is replaced with `buildPrimitiveVocabularyForPrompt()`'s output sourced
-    // from the canonical primitive registry. Closes F-005 (prompt vocabulary drift).
+    // OB-196 E1 + HF-195: registry-derived vocabulary substitution at call time.
+    // Three placeholders are replaced from the canonical primitive registry:
+    //   <<FOUNDATIONAL_PRIMITIVES>>  — operation list (description per primitive)
+    //   <<COMPONENT_TYPE_LIST>>      — HF-195: outer-wrapper componentType enumeration
+    //   <<STRUCTURAL_EXAMPLES>>      — HF-195: structural worked examples per primitive
+    //                                 (PREPARE-path slot for option_c flywheel population)
+    // Closes F-005 (prompt vocabulary drift) at every documenting boundary in
+    // plan_interpretation + document_analysis. Korean Test (E910) holds at the
+    // prompt-construction layer.
     const rawPrompt = SYSTEM_PROMPTS[request.task];
-    const systemPrompt = rawPrompt.includes('<<FOUNDATIONAL_PRIMITIVES>>')
-      ? rawPrompt.replace('<<FOUNDATIONAL_PRIMITIVES>>', buildPrimitiveVocabularyForPrompt())
-      : rawPrompt;
+    let systemPrompt = rawPrompt;
+    if (systemPrompt.includes('<<FOUNDATIONAL_PRIMITIVES>>')) {
+      systemPrompt = systemPrompt.replace('<<FOUNDATIONAL_PRIMITIVES>>', buildPrimitiveVocabularyForPrompt());
+    }
+    if (systemPrompt.includes('<<COMPONENT_TYPE_LIST>>')) {
+      systemPrompt = systemPrompt.replace('<<COMPONENT_TYPE_LIST>>', buildComponentTypeListForPrompt());
+    }
+    if (systemPrompt.includes('<<STRUCTURAL_EXAMPLES>>')) {
+      systemPrompt = systemPrompt.replace('<<STRUCTURAL_EXAMPLES>>', buildStructuralExamplesForPrompt());
+    }
 
     // Build message content — supports both plain text and document blocks (PDF)
     const pdfBase64 = request.input.pdfBase64 as string | undefined;
@@ -983,15 +1035,18 @@ Return a JSON object with:
       "id": "unique-id",
       "name": "Component Name",
       "nameEs": "Spanish name",
-      "type": "matrix_lookup | tiered_lookup | percentage | flat_percentage | conditional_percentage | linear_function | piecewise_linear | scope_aggregate | scalar_multiply | conditional_gate",
+      "type": "<one of the registered foundational primitives — see <<COMPONENT_TYPE_LIST>> enumeration above>",
       "appliesToEmployeeTypes": ["certified"] or ["all"],
       "calculationMethod": {
-        // For matrix_lookup: include rowAxis.ranges[], columnAxis.ranges[], values[][]
-        // For tiered_lookup: include tiers[] with min, max, payout for EACH tier
-        // For percentage/flat_percentage: include rate (as decimal) and metric
-        // For conditional_percentage: include conditions[] and metric
-        // For piecewise_linear: include segments[], baseMetric, AND targetValue (quota/goal amount per variant)
-        // For scope_aggregate: include scope (district/region), metric to aggregate, rate
+        // The "type" field MUST match the component's outer "type" above.
+        // Required keys per primitive (registry allowedKeys at construction time):
+        //   bounded_lookup_1d:  metric, metricLabel, tiers[] with {min, max, payout}
+        //   bounded_lookup_2d:  rowAxis{metric, ranges[]}, columnAxis{metric, ranges[]}, values[][]
+        //   scalar_multiply:    metric, metricLabel, rate
+        //   conditional_gate:   conditionMetric, conditions[] with {threshold, operator, rate}
+        //   piecewise_linear:   ratioMetric, baseMetric, segments[] with {min, max, rate}, targetValue
+        //   linear_function:    inputMetric, slope, intercept
+        //   scope_aggregate:    scope, metric, rate
       },
       "confidence": 0-100,
       "reasoning": "How you extracted this component"
