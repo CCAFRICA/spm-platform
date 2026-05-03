@@ -27,9 +27,11 @@ import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
 // HF-196 Phase 1D — D154/D155 single canonical declaration of data_type:
 // derived from SCI classification via the shared resolver. No private copies.
 import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
-// HF-196 Phase 1E — Rule 30 + DS-017 supersession on fingerprint match.
-// Closes Memory Entry 30 commit-layer gap (Phase 5-RESET-3 PARTIAL verdict).
-import { linkFingerprintAndSupersedePriorBatch } from '@/lib/sci/import-batch-supersession';
+// HF-196 Phase 1F — supersession trigger via SHA-256 content hash (replaces 1E fingerprint trigger).
+// Closes Phase 5C-2 misfire (monthly transactions sharing structural_fingerprint per DS-017 §2.3
+// wrongly fired 1E supersession). 1F retains 1E architecture; only the trigger primitive changes.
+import { supersedePriorBatchOnContentMatch } from '@/lib/sci/import-batch-supersession';
+import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
 // HF-196 Phase 1: post-commit construction unified across both import endpoints.
 // Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
 // post-commit work as execute (entity resolution + entity_id back-link).
@@ -134,6 +136,9 @@ export async function POST(req: NextRequest) {
     const parseStart = Date.now();
     const XLSX = await import('xlsx');
     const buffer = await fileData.arrayBuffer();
+    // HF-196 Phase 1F: compute SHA-256 of file content bytes ONCE; thread to all
+    // process functions for import_batches.file_hash_sha256 + supersession trigger.
+    const fileHashSha256 = computeFileHashSha256(buffer);
     const workbook = XLSX.read(buffer, { type: 'array' });
 
     // Build sheet data map: sheetName → rows
@@ -219,7 +224,8 @@ export async function POST(req: NextRequest) {
 
         const result = await processContentUnit(
           supabase, tenantId, proposalId, profileId,
-          effectiveUnit.unit, effectiveUnit.rows, fileNameFromPath, tabName
+          effectiveUnit.unit, effectiveUnit.rows, fileNameFromPath, tabName,
+          fileHashSha256,
         );
         results.push(result);
       } catch (err) {
@@ -304,16 +310,17 @@ async function processContentUnit(
   rows: Record<string, unknown>[],
   fileName: string,
   tabName: string,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   switch (unit.confirmedClassification) {
     case 'entity':
-      return processEntityUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName);
+      return processEntityUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, fileHashSha256);
     case 'target':
-      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'target');
+      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'target', fileHashSha256);
     case 'transaction':
-      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'transaction');
+      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'transaction', fileHashSha256);
     case 'reference':
-      return processReferenceUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, profileId);
+      return processReferenceUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, profileId, fileHashSha256);
     default:
       return {
         contentUnitId: unit.contentUnitId,
@@ -336,6 +343,7 @@ async function processEntityUnit(
   rows: Record<string, unknown>[],
   fileName: string,
   tabName: string,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   if (rows.length === 0) {
     return { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: 0, pipeline: 'entity' };
@@ -516,6 +524,8 @@ async function processEntityUnit(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    // HF-196 Phase 1F: SHA-256 of file content bytes — supersession trigger primitive.
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'entity' } as unknown as Json,
   });
 
@@ -523,9 +533,9 @@ async function processEntityUnit(
   // Identity: data_type === informational_label === 'entity' for this pipeline.
   const dataType = resolveDataTypeFromClassification('entity');
 
-  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
-  // Idempotent + non-blocking. Returns null on empty rows or supersession failure.
-  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, cdBatchId, rows);
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  // Idempotent + non-blocking. Returns null on supersession failure.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, cdBatchId, fileHashSha256, rows);
 
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
   for (const binding of unit.confirmedBindings) {
@@ -610,6 +620,7 @@ async function processDataUnit(
   fileName: string,
   tabName: string,
   classification: 'target' | 'transaction',
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   if (rows.length === 0) {
     return { contentUnitId: unit.contentUnitId, classification, success: true, rowsProcessed: 0, pipeline: classification };
@@ -624,6 +635,8 @@ async function processDataUnit(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    // HF-196 Phase 1F: SHA-256 of file content bytes — supersession trigger primitive.
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
@@ -631,8 +644,8 @@ async function processDataUnit(
   // Identity: data_type === informational_label === classification ('target' | 'transaction').
   const dataType = resolveDataTypeFromClassification(classification);
 
-  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
-  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, rows);
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, rows);
 
   // Build semantic_roles map
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -773,6 +786,7 @@ async function processReferenceUnit(
   tabName: string,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _userId: string,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   // OB-195 Layer 1: Reference pipeline → committed_data (Decision 111)
   // Previously wrote to reference_data + reference_items (deprecated).
@@ -790,6 +804,8 @@ async function processReferenceUnit(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    // HF-196 Phase 1F: SHA-256 of file content bytes — supersession trigger primitive.
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
   });
 
@@ -797,8 +813,8 @@ async function processReferenceUnit(
   // Identity: data_type === informational_label === 'reference' for this pipeline.
   const dataType = resolveDataTypeFromClassification('reference');
 
-  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
-  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, rows);
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, rows);
 
   // Build semantic_roles map
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};

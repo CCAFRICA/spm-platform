@@ -40,8 +40,9 @@ import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
 // HF-196 Phase 1D — D154/D155 single canonical declaration of data_type:
 // derived from SCI classification via the shared resolver. No private copies.
 import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
-// HF-196 Phase 1E — Rule 30 + DS-017 supersession on fingerprint match.
-import { linkFingerprintAndSupersedePriorBatch } from '@/lib/sci/import-batch-supersession';
+// HF-196 Phase 1F — Rule 30 + SHA-256 content hash supersession (replaces 1E fingerprint trigger).
+import { supersedePriorBatchOnContentMatch } from '@/lib/sci/import-batch-supersession';
+import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 
@@ -500,6 +501,10 @@ async function executeTargetPipeline(
 
   // Create import batch
   const batchId = crypto.randomUUID();
+  // HF-196 Phase 1F: SHA-256 over canonical row content (execute path uses parsed
+  // rawData, not raw file bytes — file is fetched per-pipeline elsewhere; same
+  // content yields same hash for supersession purposes).
+  const fileHashSha256 = computeFileHashSha256(Buffer.from(JSON.stringify(unit.rawData)));
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -507,6 +512,7 @@ async function executeTargetPipeline(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
@@ -515,8 +521,8 @@ async function executeTargetPipeline(
   // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
   const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
-  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
-  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, unit.rawData);
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, unit.rawData);
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -649,6 +655,8 @@ async function executeTransactionPipeline(
   }
 
   const batchId = crypto.randomUUID();
+  // HF-196 Phase 1F: SHA-256 over canonical row content (execute path uses parsed rawData).
+  const fileHashSha256 = computeFileHashSha256(Buffer.from(JSON.stringify(unit.rawData)));
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -656,6 +664,7 @@ async function executeTransactionPipeline(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
@@ -664,8 +673,8 @@ async function executeTransactionPipeline(
   // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
   const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
-  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
-  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, unit.rawData);
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, unit.rawData);
 
   // Build semantic_roles map from bindings (same as target pipeline)
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -793,6 +802,8 @@ async function executeEntityPipeline(
 
   // Create import batch for entity data
   const batchId = crypto.randomUUID();
+  // HF-196 Phase 1F: SHA-256 over canonical row content (execute path uses parsed rawData).
+  const fileHashSha256 = computeFileHashSha256(Buffer.from(JSON.stringify(unit.rawData)));
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -800,6 +811,7 @@ async function executeEntityPipeline(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
@@ -808,8 +820,8 @@ async function executeEntityPipeline(
   // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
   const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
-  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
-  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, unit.rawData);
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, unit.rawData);
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -922,6 +934,8 @@ async function executeReferencePipeline(
 
   // Create import batch
   const batchId = crypto.randomUUID();
+  // HF-196 Phase 1F: SHA-256 over canonical row content (execute path uses parsed rawData).
+  const fileHashSha256 = computeFileHashSha256(Buffer.from(JSON.stringify(unit.rawData)));
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -929,6 +943,7 @@ async function executeReferencePipeline(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
   });
 
@@ -937,8 +952,8 @@ async function executeReferencePipeline(
   // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
   const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
-  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
-  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, unit.rawData);
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, unit.rawData);
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
