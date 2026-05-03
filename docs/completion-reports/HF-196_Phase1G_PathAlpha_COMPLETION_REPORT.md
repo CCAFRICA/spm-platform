@@ -289,6 +289,71 @@ Sections 1G-0 through 1G-11 populated. Phase 5-RESET-7 + final verdict sections 
 
 ---
 
+## Phase 1G-15: Decision 127 Structural Adoption
+
+**Commit:** `6f46c58e` (2026-05-03)
+**Files:** 4 (`boundary-canonicalizer.ts` NEW; `intent-executor.ts`, `ai-plan-interpreter.ts`, `anthropic-adapter.ts` modified)
+**Line counts:** +245 / -29
+
+### Defect grounding
+- Phase 5-RESET-8 architect-channel reconciliation against `BCL_Resultados_Esperados.xlsx` Detalle: 4 entity-component C1 mismatches across 6 months × 85 entities × 4 components (2,040 cells). All 4 mismatches concentrated in C1 Colocación de Crédito (`bounded_lookup_2d`); each calculates C1 = $0; ground truth expects positive amount.
+- Forensic chain (CC-localized):
+  1. AI plan interpreter persisted `columnBoundaries` with `.X99` inclusive-end pattern: `[..0.899] [0.9..0.949] [0.95..]` (each `maxInclusive: true`).
+  2. Persisted boundaries form non-contiguous partition: gap between `boundary[i].max=0.X99` and `boundary[i+1].min=0.X+1`.
+  3. Source `Indice_Calidad_Cartera` for 4 entity-periods: 0.8992, 0.8994, 0.8996, 0.9491 — all values fall in gap regions.
+  4. `findBoundaryIndex` (`intent-executor.ts:165-191`) returns `-1` for gap-falling values.
+  5. OB-169 `.999` snap heuristic only fires for `(1 - frac) < 0.01`: detects `0.999` patterns but not `.X99` patterns where X≠9 (frac=0.899 → (1-0.899)=0.101 > 0.01 → no snap).
+  6. `executeBoundedLookup2D`: `colIdx < 0` → `outputValue: 0`; final calc value 0 regardless of `rowBoundaryMatched`.
+- Empirical confirmation: BCL-5071 intentTrace `columnBoundaryMatched: undefined`, `outputValue: 0`, `rowBoundaryMatched: { min: 100, max: 119.999, index: 4 }`.
+
+### Decision 127 implementation gap
+- Decision 127 LOCKED 2026-03-16: half-open intervals `[min, max)` throughout; final band inclusive at max.
+- OB-169 implementation: pattern-detection heuristic for `.999` truncation at integer ceilings only.
+- `grep -rnE "Decision 127|D127|half-open|halfOpen" web/src/` → **zero matches** prior to Phase 1G-15.
+- Pattern-detection heuristic shipped as compromise; remained latent until substrate evolution moved boundary representation onto path heuristic doesn't cover.
+
+### Architectural shape (Approach 4 — full structural adoption)
+
+1. **Plan interpreter prompt amended** (`anthropic-adapter.ts:424-471`): half-open boundary directive with `maxInclusive: false` consistently; explicit ceilings (no `.999`/`.X99` truncation); final boundary `max: null` or `maxInclusive: true`. Worked examples rewritten with consecutive `max === next.min` contiguous partitions. Explicit DO NOT directives forbid truncation patterns, gaps, overlaps.
+
+2. **Boundary canonicalization layer** (`boundary-canonicalizer.ts` NEW): exports `canonicalizeBoundaries(input)` and `assertCanonicalBoundaries(boundaries)`.
+   - Validates non-empty input; sorts by min ascending.
+   - Forces non-final `maxInclusive: false`.
+   - Detects gap (`current.max < next.min`): auto-closes if `relativeGap <= 0.05`; throws `BoundaryCanonicalizationError` if too large.
+   - Detects overlap: throws structured error.
+   - Final boundary: `max: null` OR `maxInclusive: true` (sets if missing).
+   - `assertCanonicalBoundaries`: invariant check post-canonicalization.
+
+3. **Plan persistence integration** (`ai-plan-interpreter.ts:convertComponent`): for `calcType ∈ {bounded_lookup_1d, bounded_lookup_2d}`, invokes `canonicalizeBoundaries` on `intent.boundaries` / `rowBoundaries` / `columnBoundaries`. `BoundaryCanonicalizationError` wrapped in `UnconvertibleComponentError` for unified plan-import error surface.
+
+4. **`findBoundaryIndex` resolver simplified** (`intent-executor.ts:165-194`): pure half-open semantics — `value >= b.min && (isLast && maxInclusive ? value <= b.max : value < b.max)`. OB-169 `.999` snap heuristic removed (redundant — canonicalizer at persistence guarantees half-open invariant; resolver applies pure comparison without pattern detection).
+
+5. **Existing rule_sets** handled via Phase 5-RESET-9 BCL re-import. Canonicalizer runs at plan-persistence time, not retroactively. Fresh import produces canonical rule_set.
+
+### Verification
+- `npx tsc --noEmit`: **EXIT 0**
+- `npm run build`: **EXIT 0**
+- Korean Test gate: **PASS**
+- Synthetic boundary tests: **19/19 PASS**
+  - Test 1: BCL-shape `.X99` input → canonicalized half-open (gap closed at 0.9 + 0.95)
+  - Test 2: Already-canonical no-op (regression)
+  - Test 3: Overlap → reject with `BoundaryCanonicalizationError`
+  - Test 4: Gap too large to auto-close → reject
+  - Tests 5a-c: BCL-mismatch values 0.8996, 0.9491, 0.7139 resolve to boundary indices 2, 3, 1 (all `-1` pre-1G-15)
+  - Tests 5d-g: boundary-edge values 0.899, 0.9, 0.95, 0.99 resolve correctly under half-open semantics
+  - Tests 6a-g: 1D bounded lookup canonical example (regression for prompt-shape boundaries)
+
+### Substrate citations
+- **Decision 127** LOCKED 2026-03-16 (half-open interval convention) — implementation gap closed; locked semantic now operative
+- **Adjacent-Arm Drift discipline:** close defect class at construction layer, not pattern-detection at resolver
+- **SR-34:** no bypass; OB-169 heuristic deprecated as redundant rather than retained as defensive code
+- **Korean Test (T1-E910):** half-open intervals are domain-agnostic mathematical convention; canonicalizer validates structural property (contiguous partition); zero domain literals introduced
+
+### Phase 1G-15 status
+**Decision 127 structurally adopted.** `OB-169` deprecated. `trajectory-engine.ts` has parallel `findBoundaryIndex` implementation (line 63-78) — not on operative calc path; deferred unless surfaced live.
+
+---
+
 ## Phase 5-RESET-7: Empirical Verification (PENDING)
 
 Per §11.13 amendment — reconciliation discipline:
