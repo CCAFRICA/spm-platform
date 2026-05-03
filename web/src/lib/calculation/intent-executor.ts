@@ -158,31 +158,36 @@ function resolveValue(
 }
 
 // ──────────────────────────────────────────────
-// Boundary Matching
-// Boundary values are exact plan constants — native number comparison is sufficient.
+// Boundary Matching — Decision 127 (LOCKED 2026-03-16): half-open intervals
+// [min, max) — inclusive lower bound, exclusive upper bound. The final band
+// in any sequence uses inclusive upper bound [min, max] to capture the ceiling
+// (or max=null for open-ended).
+//
+// Boundaries reaching this resolver are canonicalized at plan persistence per
+// HF-196 Phase 1G-15: contiguous partition (b[i].max === b[i+1].min);
+// non-final boundaries have maxInclusive: false; final boundary either
+// max: null or maxInclusive: true. The OB-169 .999 snap heuristic is removed
+// (redundant; canonicalizer at persistence guarantees the invariant).
 // ──────────────────────────────────────────────
 
 export function findBoundaryIndex(boundaries: Boundary[], value: number): number {
   for (let i = 0; i < boundaries.length; i++) {
     const b = boundaries[i];
-    const minOk = b.min === null || (b.minInclusive !== false ? value >= b.min : value > b.min);
+    const isLast = i === boundaries.length - 1;
 
-    // OB-169: Handle .999 approximation in AI-extracted boundaries.
-    // When maxInclusive is true and max has a fractional part within 0.01
-    // of the next integer (e.g., 79.999), the AI meant the boundary to be
-    // exclusive at the ceiling value. Snap to ceiling and use strict less-than.
+    const minOk = b.min === null
+      ? true
+      : (b.minInclusive !== false ? value >= b.min : value > b.min);
+
     let maxOk: boolean;
     if (b.max === null) {
       maxOk = true;
+    } else if (isLast && b.maxInclusive === true) {
+      // Final capped band: inclusive
+      maxOk = value <= b.max;
     } else {
-      let effectiveMax = b.max;
-      let effectiveInclusive = b.maxInclusive === true;
-      const frac = effectiveMax % 1;
-      if (frac > 0 && (1 - frac) < 0.01 && effectiveInclusive) {
-        effectiveMax = Math.ceil(effectiveMax);
-        effectiveInclusive = false;
-      }
-      maxOk = effectiveInclusive ? value <= effectiveMax : value < effectiveMax;
+      // Half-open per Decision 127
+      maxOk = value < b.max;
     }
 
     if (minOk && maxOk) return i;

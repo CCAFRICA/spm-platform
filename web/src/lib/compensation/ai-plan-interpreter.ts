@@ -11,6 +11,11 @@ import {
   getOperationPrimitives,
   type FoundationalPrimitive,
 } from '@/lib/calculation/primitive-registry';
+import {
+  canonicalizeBoundaries,
+  BoundaryCanonicalizationError,
+} from '@/lib/calculation/boundary-canonicalizer';
+import type { Boundary } from '@/lib/calculation/intent-types';
 
 // HF-194: typed structured-failure surface for the importer dispatch boundary.
 // Phase 1.5's prior throw at convertComponent's default branch named this class
@@ -452,6 +457,36 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
       `${getOperationPrimitives().length} primitives; AI emission and persisted rule_sets ` +
       `must match. This is an OB-196 Phase 1.5 closure invariant.`,
     );
+  }
+
+  // HF-196 Phase 1G-15 — Decision 127 structural enforcement at plan persistence.
+  // Canonicalize bounded_lookup boundaries to half-open partition form before
+  // the rule_set lands in the database. AI-emitted .X99 inclusive-end shapes
+  // (which produce non-contiguous partitions and engine resolver gap-misses)
+  // are normalized; structurally malformed shapes throw with named error.
+  if (calcType === 'bounded_lookup_1d' || calcType === 'bounded_lookup_2d') {
+    const intent = base.calculationIntent as Record<string, unknown> | undefined;
+    if (intent) {
+      try {
+        if (calcType === 'bounded_lookup_1d') {
+          const bs = intent.boundaries as Boundary[] | undefined;
+          if (bs && bs.length > 0) intent.boundaries = canonicalizeBoundaries(bs);
+        }
+        if (calcType === 'bounded_lookup_2d') {
+          const rb = intent.rowBoundaries as Boundary[] | undefined;
+          const cb = intent.columnBoundaries as Boundary[] | undefined;
+          if (rb && rb.length > 0) intent.rowBoundaries = canonicalizeBoundaries(rb);
+          if (cb && cb.length > 0) intent.columnBoundaries = canonicalizeBoundaries(cb);
+        }
+      } catch (err) {
+        if (err instanceof BoundaryCanonicalizationError) {
+          throw new UnconvertibleComponentError(
+            `[convertComponent] "${base.name}" boundary canonicalization failed (Decision 127): ${err.message}`,
+          );
+        }
+        throw err;
+      }
+    }
   }
 
   switch (calcType as FoundationalPrimitive) {

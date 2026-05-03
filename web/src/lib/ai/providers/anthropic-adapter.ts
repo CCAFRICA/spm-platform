@@ -421,27 +421,36 @@ INPUT SOURCES (how values are resolved):
 - { "source": "entity_attribute", "sourceSpec": { "attribute": "attr_name" } } — from entity record
 - { "source": "prior_component", "sourceSpec": { "componentIndex": 0 } } — output from previous component
 
-BOUNDARY FORMAT:
-{ "min": number|null, "max": number|null, "minInclusive": true, "maxInclusive": true }
-Use null for unbounded (no lower/upper limit). Both inclusive to match >= min AND <= max.
+BOUNDARY FORMAT (Decision 127 — half-open intervals):
+{ "min": number|null, "max": number|null, "minInclusive": true, "maxInclusive": false }
 
-EXAMPLE calculationIntent for bounded_lookup_1d:
+Convention: half-open intervals [min, max). Inclusive lower bound; exclusive upper bound.
+Each boundary's max equals the next boundary's min EXACTLY (contiguous partition; no gaps).
+The FINAL boundary in any sequence uses one of:
+  - max: null (open-ended; no upper limit)
+  - maxInclusive: true (capped; includes the ceiling)
+
+DO NOT use .999 / .X99 / decimal-truncation patterns. Express "less than X" as max: X with maxInclusive: false.
+DO NOT leave gaps between consecutive boundaries.
+DO NOT overlap consecutive boundaries.
+
+EXAMPLE calculationIntent for bounded_lookup_1d (half-open partition, open-ended ceiling):
 {
   "calculationIntent": {
     "operation": "bounded_lookup_1d",
     "input": { "source": "metric", "sourceSpec": { "field": "store_sales_attainment" } },
     "boundaries": [
-      { "min": 0, "max": 99.999, "minInclusive": true, "maxInclusive": true },
-      { "min": 100, "max": 104.999, "minInclusive": true, "maxInclusive": true },
-      { "min": 105, "max": 109.999, "minInclusive": true, "maxInclusive": true },
-      { "min": 110, "max": null, "minInclusive": true, "maxInclusive": true }
+      { "min": 0,   "max": 100,  "minInclusive": true, "maxInclusive": false },
+      { "min": 100, "max": 105,  "minInclusive": true, "maxInclusive": false },
+      { "min": 105, "max": 110,  "minInclusive": true, "maxInclusive": false },
+      { "min": 110, "max": null, "minInclusive": true, "maxInclusive": true  }
     ],
     "outputs": [0, 150, 300, 500],
     "noMatchBehavior": "zero"
   }
 }
 
-EXAMPLE calculationIntent for bounded_lookup_2d:
+EXAMPLE calculationIntent for bounded_lookup_2d (half-open partitions on both axes):
 {
   "calculationIntent": {
     "operation": "bounded_lookup_2d",
@@ -450,14 +459,18 @@ EXAMPLE calculationIntent for bounded_lookup_2d:
       "column": { "source": "metric", "sourceSpec": { "field": "store_volume" } }
     },
     "rowBoundaries": [
-      { "min": 0, "max": 79.999, "minInclusive": true, "maxInclusive": true },
-      { "min": 80, "max": 89.999, "minInclusive": true, "maxInclusive": true }
+      { "min": 0,   "max": 80,   "minInclusive": true, "maxInclusive": false },
+      { "min": 80,  "max": 90,   "minInclusive": true, "maxInclusive": false },
+      { "min": 90,  "max": 100,  "minInclusive": true, "maxInclusive": false },
+      { "min": 100, "max": 120,  "minInclusive": true, "maxInclusive": false },
+      { "min": 120, "max": null, "minInclusive": true, "maxInclusive": true  }
     ],
     "columnBoundaries": [
-      { "min": 0, "max": 59999, "minInclusive": true, "maxInclusive": true },
-      { "min": 60000, "max": 99999, "minInclusive": true, "maxInclusive": true }
+      { "min": 0,     "max": 60000,  "minInclusive": true, "maxInclusive": false },
+      { "min": 60000, "max": 100000, "minInclusive": true, "maxInclusive": false },
+      { "min": 100000, "max": null,  "minInclusive": true, "maxInclusive": true  }
     ],
-    "outputGrid": [[0, 0], [200, 300]],
+    "outputGrid": [[0, 0, 0], [200, 300, 400], [300, 500, 700], [400, 600, 800], [500, 700, 900]],
     "noMatchBehavior": "zero"
   }
 }
