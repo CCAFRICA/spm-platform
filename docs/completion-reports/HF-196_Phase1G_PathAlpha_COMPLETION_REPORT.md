@@ -230,6 +230,65 @@ Sections 1G-0 through 1G-11 populated. Phase 5-RESET-7 + final verdict sections 
 
 ---
 
+## Phase 1G-14: HF-204 Absorption — Visitor-Pattern Metadata Extraction
+
+**Commit:** `88e93fa3` (2026-05-03)
+**Files:** `web/src/lib/calculation/run-calculation.ts` (+72 / -49)
+
+### Defect grounding
+- Phase 5-RESET-7 architect-channel reconciliation: October calc total `$45,790`. C4 Cumplimiento Regulatorio overshoot $1,200 across 11 entities — entities with `Infracciones_Regulatorias > 0` paid full bonus instead of disqualified to $0.
+- Forensic chain (CC-localized, read-only):
+  1. C4 component declares `componentType: 'conditional_gate'` with `intent.condition.left.sourceSpec.field = 'infracciones_regulatorias'` (lowercase, AI-plan-interpreter convention).
+  2. Source data column: `Infracciones_Regulatorias` (Title_Snake_Case in `committed_data.row_data`).
+  3. `getExpectedMetricNames` (run-calculation.ts:434-491) walked `intent.input` and `intent.inputs` — did NOT walk `intent.condition.left/right`.
+  4. For conditional_gate components, `getExpectedMetricNames` returned `[]`.
+  5. `buildMetricsForComponent`'s expectedNames-driven semantic-key normalization loop skipped — no lowercase semantic key inserted into `resolvedMetrics`.
+  6. `data.metrics` reaching executor contained only Title_Snake_Case keys; no lowercase `infracciones_regulatorias`.
+  7. `resolveSource` (intent-executor.ts:71): direct case-sensitive `data.metrics[key]` lookup returned `undefined` → `?? 0` fallback returned `0` for all entities.
+  8. `executeConditionalGate`: `0 < 1` → always TRUE → onTrue branch → 100/150 paid regardless of source value.
+- Empirical confirmation: `intentTraces.inputs.infracciones_regulatorias = { source: 'metric', resolvedValue: 0 }` with `rawValue` JSON-stripped (`undefined` → stripped on serialization).
+
+### Architectural shape
+- `getExpectedMetricNames` rewritten as recursive visitor over `IntentOperation` AST.
+- Surfaces every `IntentSource` of `source ∈ {'metric', 'ratio', 'aggregate'}` regardless of position.
+- Adjacent-Arm Drift defect class structurally closed at metadata-extraction layer.
+- Future operation types automatically covered (visitor walks AST shape, not enumerated positions).
+
+### Orphans closed (per IntentOperation AST inventory)
+- `conditional_gate.condition.left/right` (DIAGNOSED INSTANCE)
+- `conditional_gate.onTrue/onFalse` (nested IntentOperations with embedded metrics)
+- `aggregate.source` (top-level)
+- `ratio.numerator/denominator` (top-level)
+- `scalar_multiply.rate` when IntentSource
+- `weighted_blend.inputs[i].source` (array of objects)
+- `piecewise_linear.ratioInput/baseInput`
+- Modifier positions (`proration.numerator/denominator`, `temporal_adjustment.triggerCondition`)
+- Variant routing positions (`routingAttribute`, `routes[i].intent`)
+
+### Verification
+- `npx tsc --noEmit`: **EXIT 0**
+- `npm run build`: **EXIT 0**
+- Korean Test gate: **PASS**
+- Self-test (8 synthetic cases): **8 PASS / 0 FAIL**
+  - PASS: conditional_gate (diagnosed defect — visitor surfaces `infracciones_regulatorias`)
+  - PASS: bounded_lookup_2d (regression check)
+  - PASS: scalar_multiply singular input (regression check)
+  - PASS: scalar_multiply metric-rate (was orphan — now covered)
+  - PASS: conditional_gate with nested metric in onTrue (was orphan — now covered)
+  - PASS: weighted_blend with inputs array (was orphan — now covered)
+  - PASS: piecewise_linear ratioInput/baseInput (was orphan — now covered)
+  - PASS: top-level ratio numerator/denominator (was orphan — now covered)
+
+### Substrate citations
+- **Decision 108** (HC Override Authority Hierarchy LOCKED): operative across full SCI + calculation surface
+- **SR-34** (product-readiness; no known defects shipped at HF-196 closure)
+- **Adjacent-Arm Drift discipline:** fix structural shape, not diagnosed instance
+
+### HF-204 status
+**ABSORBED into HF-196 Phase 1G** (no longer carry-forward).
+
+---
+
 ## Phase 5-RESET-7: Empirical Verification (PENDING)
 
 Per §11.13 amendment — reconciliation discipline:
