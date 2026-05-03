@@ -140,11 +140,20 @@ export function computeEntityIdOverlap(
 ): EntityIdOverlap | null {
   if (!profile.patterns.hasEntityIdentifier) return null;
 
-  // Find the identifier field from Phase A structural detection
-  const idField = profile.fields.find(f =>
-    f.nameSignals.containsId ||
-    (f.dataType === 'integer' && f.distribution.isSequential)
-  );
+  // HF-196 Phase 1G Path α — Find the identifier field with HC primacy (Decision 108).
+  // Reads profile.headerComprehension if available; gates structural arms on HC silence.
+  const hcInterpretations = profile.headerComprehension?.interpretations;
+  const getHCRole = (fieldName: string) => hcInterpretations?.get(fieldName)?.columnRole;
+
+  const idField =
+    // HC-primary: HC said this is an identifier
+    profile.fields.find(f => getHCRole(f.fieldName) === 'identifier') ??
+    // HC-silent fallback: structural detection (Site 8 — gated on HC silence)
+    profile.fields.find(f => {
+      const hcRole = getHCRole(f.fieldName);
+      if (hcRole && hcRole !== 'unknown') return false; // HC said something other than identifier — yield.
+      return f.nameSignals.containsId || (f.dataType === 'integer' && f.distribution.isSequential);
+    });
   if (!idField) return null;
 
   const identifierColumn = idField.fieldName;

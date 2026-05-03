@@ -431,62 +431,85 @@ export function findMatchingSheet(
  * Get all metric names a component expects from its configuration.
  * OB-121: Also extracts from calculationIntent for ratio and metric sources.
  */
+/**
+ * HF-196 HF-204 absorption — Phase 1G-14.
+ *
+ * Recursive visitor over the IntentOperation AST. Surfaces every IntentSource
+ * of source ∈ {'metric', 'ratio', 'aggregate'} regardless of position in the
+ * AST. Closes Adjacent-Arm Drift defect class at the metadata-extraction layer
+ * per Decision 108 architectural discipline.
+ *
+ * Replaces position-by-position enumeration that orphaned conditional_gate's
+ * condition.left/right plus several other operation variants whose metric
+ * sources live outside intent.input/intent.inputs (top-level aggregate.source,
+ * ratio.numerator/denominator, weighted_blend.inputs[], piecewise_linear's
+ * ratioInput/baseInput, modifier positions, variant routing, nested
+ * onTrue/onFalse IntentOperations, etc.).
+ *
+ * Future operation types added to IntentOperation are automatically covered
+ * because the visitor walks the AST shape, not enumerated positions.
+ */
 export function getExpectedMetricNames(component: PlanComponent): string[] {
-  const names: string[] = [];
-
-  // OB-196 Phase 2: foundational metadata.intent is the sole source. Legacy SHAPE
-  // fields (tierConfig/matrixConfig/percentageConfig/conditionalConfig) removed from
-  // PlanComponent in Phase 1.7; this function reads only intent.input/inputs/condition.
-  // OB-121: Extract from calculationIntent (handles ratio sources, metric sources)
+  const names = new Set<string>();
   const intent = (component as unknown as Record<string, unknown>).calculationIntent as Record<string, unknown> | undefined;
-  if (intent) {
-    // Handle singular input (e.g., tiered_lookup with single metric)
-    const input = intent.input as Record<string, unknown> | undefined;
-    const sourceSpec = input?.sourceSpec as Record<string, unknown> | undefined;
-    if (sourceSpec) {
-      // Direct metric field
-      if (sourceSpec.field) {
-        const field = String(sourceSpec.field).replace(/^metric:/, '');
-        if (!names.includes(field)) names.push(field);
-      }
-      // Ratio: numerator and denominator
-      if (sourceSpec.numerator) {
-        const num = String(sourceSpec.numerator).replace(/^metric:/, '');
-        if (!names.includes(num)) names.push(num);
-      }
-      if (sourceSpec.denominator) {
-        const den = String(sourceSpec.denominator).replace(/^metric:/, '');
-        if (!names.includes(den)) names.push(den);
-      }
-    }
+  if (!intent) return [];
+  visitNode(intent, names);
+  return Array.from(names);
+}
 
-    // OB-153: Handle plural inputs (e.g., matrix_lookup with row/column)
-    const inputs = intent.inputs as Record<string, Record<string, unknown>> | undefined;
-    if (inputs) {
-      for (const val of Object.values(inputs)) {
-        if (val?.source === 'metric') {
-          const spec = val.sourceSpec as Record<string, unknown> | undefined;
-          if (spec?.field) {
-            const field = String(spec.field).replace(/^metric:/, '');
-            if (!names.includes(field)) names.push(field);
-          }
-        }
-        if (val?.source === 'ratio') {
-          const spec = val.sourceSpec as Record<string, unknown> | undefined;
-          if (spec?.numerator) {
-            const num = String(spec.numerator).replace(/^metric:/, '');
-            if (!names.includes(num)) names.push(num);
-          }
-          if (spec?.denominator) {
-            const den = String(spec.denominator).replace(/^metric:/, '');
-            if (!names.includes(den)) names.push(den);
-          }
-        }
-      }
-    }
+function visitNode(node: unknown, names: Set<string>): void {
+  if (node === null || node === undefined) return;
+  if (typeof node !== 'object') return;
+
+  if (Array.isArray(node)) {
+    for (const child of node) visitNode(child, names);
+    return;
   }
 
-  return names;
+  const obj = node as Record<string, unknown>;
+
+  // IntentSource of source='metric' — harvest field reference.
+  if (obj.source === 'metric' && obj.sourceSpec && typeof obj.sourceSpec === 'object') {
+    const spec = obj.sourceSpec as Record<string, unknown>;
+    if (typeof spec.field === 'string') {
+      names.add(spec.field.replace(/^metric:/, ''));
+    }
+    return;
+  }
+
+  // IntentSource of source='ratio' — harvest both operand field names.
+  if (obj.source === 'ratio' && obj.sourceSpec && typeof obj.sourceSpec === 'object') {
+    const spec = obj.sourceSpec as Record<string, unknown>;
+    if (typeof spec.numerator === 'string') {
+      names.add(spec.numerator.replace(/^metric:/, ''));
+    }
+    if (typeof spec.denominator === 'string') {
+      names.add(spec.denominator.replace(/^metric:/, ''));
+    }
+    return;
+  }
+
+  // IntentSource of source='aggregate' — harvest field (entity scope reads data.metrics).
+  if (obj.source === 'aggregate' && obj.sourceSpec && typeof obj.sourceSpec === 'object') {
+    const spec = obj.sourceSpec as Record<string, unknown>;
+    if (typeof spec.field === 'string') {
+      names.add(spec.field.replace(/^metric:/, ''));
+    }
+    return;
+  }
+
+  // IntentSource of other kinds (constant, entity_attribute, prior_component,
+  // cross_data, scope_aggregate) do not resolve via data.metrics — skip harvest
+  // but do not recurse into sourceSpec (they don't carry nested operations).
+  if (typeof obj.source === 'string') {
+    return;
+  }
+
+  // Generic node — could be an IntentOperation, modifier, route, or plain
+  // object with nested fields. Recurse into all values.
+  for (const value of Object.values(obj)) {
+    visitNode(value, names);
+  }
 }
 
 /**
@@ -786,6 +809,14 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   console.log(`[RunCalculation] Starting: tenant=${tenantId}, period=${periodId}, ruleSet=${ruleSetId}`);
 
+  // HF-196 Phase 1E: fetch superseded import_batch ids once; engine queries below
+  // exclude these ids via NOT IN — operative-batch-only data per Rule 30.
+  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+  if (supersededIds.length > 0) {
+    console.log(`[RunCalculation] Phase 1E: ${supersededIds.length} superseded batches excluded from engine reads`);
+  }
+
   // ── 1. Fetch rule set ──
   const { data: ruleSet, error: rsErr } = await supabase
     .from('rule_sets')
@@ -909,7 +940,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     while (true) {
       const from = sdPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
-      const { data: page } = await supabase
+      // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+      let q = supabase
         .from('committed_data')
         .select('entity_id, data_type, row_data')
         .eq('tenant_id', tenantId)
@@ -917,6 +949,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         .gte('source_date', period.start_date)
         .lte('source_date', period.end_date)
         .range(from, to);
+      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      const { data: page } = await q;
 
       if (!page || page.length === 0) break;
       committedData.push(...page);
@@ -935,12 +969,15 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     while (true) {
       const from = dataPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
-      const { data: page } = await supabase
+      // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+      let q = supabase
         .from('committed_data')
         .select('entity_id, data_type, row_data')
         .eq('tenant_id', tenantId)
         .eq('period_id', periodId)
         .range(from, to);
+      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      const { data: page } = await q;
 
       if (!page || page.length === 0) break;
       committedData.push(...page);
@@ -1011,7 +1048,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       while (true) {
         const from = sdPage * PAGE_SIZE;
         const to = from + PAGE_SIZE - 1;
-        const { data: page } = await supabase
+        // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+        let q = supabase
           .from('committed_data')
           .select('entity_id, data_type, row_data')
           .eq('tenant_id', tenantId)
@@ -1019,6 +1057,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
           .gte('source_date', priorPeriodInfo.start_date)
           .lte('source_date', priorPeriodInfo.end_date)
           .range(from, to);
+        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        const { data: page } = await q;
 
         if (!page || page.length === 0) break;
         priorCommittedData.push(...page);
@@ -1034,12 +1074,15 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       while (true) {
         const from = priorPage * PAGE_SIZE;
         const to = from + PAGE_SIZE - 1;
-        const { data: page } = await supabase
+        // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+        let q = supabase
           .from('committed_data')
           .select('entity_id, data_type, row_data')
           .eq('tenant_id', tenantId)
           .eq('period_id', priorPeriodId)
           .range(from, to);
+        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        const { data: page } = await q;
 
         if (!page || page.length === 0) break;
         priorCommittedData.push(...page);
@@ -1186,21 +1229,26 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   // ── 4b. Fetch AI Import Context (OB-75: Korean Test) ──
   const aiContextSheets: AIContextSheet[] = [];
   try {
-    const { data: batchRows } = await supabase
+    // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+    let bq = supabase
       .from('committed_data')
       .select('import_batch_id')
       .eq('tenant_id', tenantId)
       .eq('period_id', periodId)
       .not('import_batch_id', 'is', null)
       .limit(100);
+    if (supersededIds.length > 0) bq = bq.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+    const { data: batchRows } = await bq;
 
     const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));
 
     if (batchIds.length > 0) {
+      // HF-196 Phase 1E: also filter the import_batches lookup itself to operative.
       const { data: batches } = await supabase
         .from('import_batches')
         .select('id, metadata')
-        .in('id', batchIds);
+        .in('id', batchIds)
+        .is('superseded_by', null);
 
       for (const b of (batches ?? [])) {
         const meta = b.metadata as Record<string, unknown> | null;

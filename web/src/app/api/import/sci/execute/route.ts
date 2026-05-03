@@ -11,7 +11,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
-import { resolveEntitiesFromCommittedData } from '@/lib/sci/entity-resolution';
+// HF-196 Phase 1: post-commit construction unified via shared module.
+// Replaces direct call to resolveEntitiesFromCommittedData; the library function
+// is now invoked indirectly through the shared module to keep both import
+// endpoints' post-commit work identical.
+import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { writeClassificationSignal, aggregateToFoundational, aggregateToDomain } from '@/lib/sci/classification-signal-service';
 import { writeFingerprint } from '@/lib/sci/fingerprint-flywheel';
 import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
@@ -33,20 +37,18 @@ import {
 import { extractFieldIdentitiesFromTrace } from '@/lib/sci/header-comprehension';
 // HF-194: extracted helper — shared with execute-bulk/route.ts
 import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
+// HF-196 Phase 1D — D154/D155 single canonical declaration of data_type:
+// derived from SCI classification via the shared resolver. No private copies.
+import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
+// HF-196 Phase 1F — Rule 30 + SHA-256 content hash supersession (replaces 1E fingerprint trigger).
+import { supersedePriorBatchOnContentMatch } from '@/lib/sci/import-batch-supersession';
+import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 
-// Normalize filename to semantic data_type (same logic as import/commit)
-function normalizeFileNameToDataType(fn: string): string {
-  let stem = fn.replace(/\.[^.]+$/, '');
-  stem = stem.replace(/^[A-Z]{2,5}_/, '');
-  stem = stem.replace(/_?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{4}$/i, '');
-  stem = stem.replace(/_?Q[1-4]_?\d{4}$/i, '');
-  stem = stem.replace(/_?\d{4}[-_]\d{2}$/i, '');
-  stem = stem.replace(/_?\d{4}$/i, '');
-  stem = stem.replace(/_+$/, '');
-  return stem.toLowerCase().replace(/[\s-]+/g, '_');
-}
+// HF-196 Phase 1D: normalizeFileNameToDataType deleted — D154 violation removed.
+// data_type now derives from SCI classification via @/lib/sci/data-type-resolver
+// (single canonical surface).
 
 export async function POST(req: NextRequest) {
   try {
@@ -74,6 +76,37 @@ export async function POST(req: NextRequest) {
 
     // HF-090: Use auth.uid() directly for created_by attribution (JWT-verified identity)
     const profileId = authUser.id;
+
+    // HF-196 Phase 1F-corrective: Compute SHA-256 over RAW FILE BYTES (not parsed
+    // JSON intermediates per FP-43 / AP-34 / OB-50). Single canonical computation
+    // per request; threaded through all dispatch pipelines that insert into
+    // import_batches. Plan path goes through executeBatchedPlanInterpretation /
+    // executePlanPipeline and uses HF-132 rule_sets-layer supersession (not
+    // import_batches Phase 1F supersession), so plan-only requests do not require
+    // SHA. Non-plan requests REQUIRE storagePath + successful download.
+    let fileHashSha256: string | null = null;
+    if (storagePath) {
+      try {
+        const { data: fileData, error: dlErr } = await supabase.storage
+          .from('ingestion-raw')
+          .download(storagePath);
+        if (dlErr || !fileData) {
+          console.error(`[SCI Execute Phase 1F] file download failed for SHA: ${dlErr?.message ?? 'no data'}`);
+        } else {
+          const fileBuffer = Buffer.from(await fileData.arrayBuffer());
+          fileHashSha256 = computeFileHashSha256(fileBuffer);
+        }
+      } catch (err) {
+        console.error(`[SCI Execute Phase 1F] file fetch threw (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    const nonPlanExists = contentUnits.some(u => u.confirmedClassification !== 'plan');
+    if (nonPlanExists && !fileHashSha256) {
+      return NextResponse.json(
+        { error: 'Phase 1F: storagePath required for non-plan import (file_hash_sha256 mandatory per Rule 30 + OB-50 supersession primitive)' },
+        { status: 400 }
+      );
+    }
 
     // Verify tenant exists + read industry for domain flywheel (OB-160J)
     const { data: tenant } = await supabase
@@ -121,7 +154,7 @@ export async function POST(req: NextRequest) {
     for (const unit of sorted) {
       if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-130: already handled in batch
       try {
-        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId, storagePath);
+        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId, storagePath, fileHashSha256);
         results.push(result);
       } catch (err) {
         results.push({
@@ -226,14 +259,9 @@ export async function POST(req: NextRequest) {
       console.error('[SCI Execute] Post-execute convergence failed (non-blocking):', convErr);
     }
 
-    // HF-109: Post-import entity resolution (DS-009 3.3)
-    // Scans ALL committed_data for person identifiers, creates entities, backfills entity_id
-    try {
-      const entityResult = await resolveEntitiesFromCommittedData(supabase, tenantId);
-      console.log(`[SCI Execute] HF-109 Entity resolution: ${entityResult.created} created, ${entityResult.linked} rows linked`);
-    } catch (entityErr) {
-      console.error('[SCI Execute] Post-import entity resolution failed (non-blocking):', entityErr);
-    }
+    // HF-196 Phase 1: post-commit construction via shared module (Break #3 closure).
+    // Entity resolution + entity_id back-link runs identically for both import endpoints.
+    await executePostCommitConstruction({ supabase, tenantId, source: 'sci-execute' });
 
     // HF-126: Auto-create rule_set_assignments after entity resolution.
     // The calculation engine requires assignments to route entities to plans.
@@ -430,22 +458,24 @@ async function executeContentUnit(
   proposalId: string,
   unit: ContentUnitExecution,
   userId: string,
-  storagePath?: string,
+  storagePath: string | undefined,
+  fileHashSha256: string | null,
 ): Promise<ContentUnitResult> {
   // OB-134: For PARTIAL claims, filter rawData to only include owned + shared fields
   const effectiveUnit = filterFieldsForPartialClaim(unit);
 
   switch (effectiveUnit.confirmedClassification) {
     case 'target':
-      return executeTargetPipeline(supabase, tenantId, proposalId, effectiveUnit);
+      // POST handler validation guarantees fileHashSha256 non-null for non-plan classifications.
+      return executeTargetPipeline(supabase, tenantId, proposalId, effectiveUnit, fileHashSha256!);
     case 'transaction':
-      return executeTransactionPipeline(supabase, tenantId, proposalId, effectiveUnit);
+      return executeTransactionPipeline(supabase, tenantId, proposalId, effectiveUnit, fileHashSha256!);
     case 'entity':
-      return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit);
+      return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit, fileHashSha256!);
     case 'plan':
       return executePlanPipeline(supabase, tenantId, effectiveUnit, userId, storagePath);
     case 'reference':
-      return executeReferencePipeline(supabase, tenantId, proposalId, effectiveUnit, userId);
+      return executeReferencePipeline(supabase, tenantId, proposalId, effectiveUnit, userId, fileHashSha256!);
   }
 }
 
@@ -490,6 +520,7 @@ async function executeTargetPipeline(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -504,6 +535,8 @@ async function executeTargetPipeline(
 
   // Create import batch
   const batchId = crypto.randomUUID();
+  // HF-196 Phase 1F-corrective: fileHashSha256 computed at POST handler over RAW
+  // FILE BYTES (FP-43 / AP-34 / OB-50 compliant); threaded in as parameter.
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -511,18 +544,17 @@ async function executeTargetPipeline(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
-  // Resolve data_type from contentUnitId (format: fileName::tabName::tabIndex)
-  const parts = unit.contentUnitId.split('::');
-  const fileName = parts[0] || 'unknown';
-  const tabName = parts[1] || 'Sheet1';
-  const normalized = normalizeFileNameToDataType(fileName);
-  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
-  const dataType = !isGenericTab && normalized.length > 2
-    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
-    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type === SCI classification per D154/D155 (target pipeline).
+  const dataType = resolveDataTypeFromClassification('target');
+  // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
+  const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
+
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, unit.rawData);
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -642,6 +674,7 @@ async function executeTransactionPipeline(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -655,6 +688,8 @@ async function executeTransactionPipeline(
   }
 
   const batchId = crypto.randomUUID();
+  // HF-196 Phase 1F-corrective: fileHashSha256 computed at POST handler over RAW
+  // FILE BYTES (FP-43 / AP-34 / OB-50 compliant); threaded in as parameter.
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -662,15 +697,17 @@ async function executeTransactionPipeline(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
-  // Resolve data_type
-  const parts = unit.contentUnitId.split('::');
-  const fileName = parts[0] || 'unknown';
-  const tabName = parts[1] || 'Sheet1';
-  const normalized = normalizeFileNameToDataType(fileName);
-  const dataType = normalized.length > 2 ? normalized : tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type === SCI classification per D154/D155 (transaction pipeline).
+  const dataType = resolveDataTypeFromClassification('transaction');
+  // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
+  const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
+
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, unit.rawData);
 
   // Build semantic_roles map from bindings (same as target pipeline)
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -784,6 +821,7 @@ async function executeEntityPipeline(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -798,6 +836,8 @@ async function executeEntityPipeline(
 
   // Create import batch for entity data
   const batchId = crypto.randomUUID();
+  // HF-196 Phase 1F-corrective: fileHashSha256 computed at POST handler over RAW
+  // FILE BYTES (FP-43 / AP-34 / OB-50 compliant); threaded in as parameter.
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -805,18 +845,17 @@ async function executeEntityPipeline(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
-  // Resolve data_type from contentUnitId
-  const parts = unit.contentUnitId.split('::');
-  const fileName = parts[0] || 'unknown';
-  const tabName = parts[1] || 'Sheet1';
-  const normalized = normalizeFileNameToDataType(fileName);
-  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
-  const dataType = !isGenericTab && normalized.length > 2
-    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
-    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type === SCI classification per D154/D155 (entity pipeline).
+  const dataType = resolveDataTypeFromClassification('entity');
+  // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
+  const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
+
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, unit.rawData);
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -914,6 +953,7 @@ async function executeReferencePipeline(
   proposalId: string,
   unit: ContentUnitExecution,
   userId: string,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   void userId; // No longer needed — reference_data.created_by not used
   const rows = unit.rawData;
@@ -929,6 +969,8 @@ async function executeReferencePipeline(
 
   // Create import batch
   const batchId = crypto.randomUUID();
+  // HF-196 Phase 1F-corrective: fileHashSha256 computed at POST handler over RAW
+  // FILE BYTES (FP-43 / AP-34 / OB-50 compliant); threaded in as parameter.
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -936,18 +978,17 @@ async function executeReferencePipeline(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
+    file_hash_sha256: fileHashSha256,
     metadata: { source: 'sci', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
   });
 
-  // Resolve data_type from contentUnitId (same as transaction/target pipelines)
-  const parts = unit.contentUnitId.split('::');
-  const fileName = parts[0] || 'unknown';
-  const tabName = parts[1] || 'Sheet1';
-  const normalized = normalizeFileNameToDataType(fileName);
-  const isGenericTab = tabName === 'Sheet1' || tabName === 'Hoja1';
-  const dataType = !isGenericTab && normalized.length > 2
-    ? `${normalized}__${tabName.toLowerCase().replace(/[\s\-]+/g, '_')}`
-    : normalized || tabName.toLowerCase().replace(/[\s\-]+/g, '_');
+  // HF-196 Phase 1D: data_type === SCI classification per D154/D155 (reference pipeline).
+  const dataType = resolveDataTypeFromClassification('reference');
+  // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
+  const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
+
+  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, unit.rawData);
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};

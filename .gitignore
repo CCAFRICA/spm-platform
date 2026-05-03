@@ -4,3 +4,9 @@
 
 # Claude Code session-local state (CLN-001)
 .claude/settings.local.json
+
+# HF-196 CC_INV_3: architect-supplied expected-results test fixtures MUST NEVER reach git.
+# These files are GT data used only for component-level reconciliation verification.
+# Verification scripts read the file at runtime via runtime-supplied path; file
+# content is never persisted to repo or to chat.
+test-fixtures/

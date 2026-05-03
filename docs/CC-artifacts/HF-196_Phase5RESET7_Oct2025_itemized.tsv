@@ -1,0 +1,86 @@
+external_id	display_name	role	c1_colocacion_credito_ejecutivo	c1_colocacion_credito_senior	c2_captacion_depositos_ejecutivo	c2_captacion_depositos_senior	c3_productos_cruzados_ejecutivo	c3_productos_cruzados_senior	c4_cumplimiento_regulatorio_ejecutivo	c4_cumplimiento_regulatorio_senior	Total_calc
+BCL-5001	Adriana Reyes Molina	Ejecutivo Senior		180.00		400.00		250.00		150.00	980.00
+BCL-5002	Fernando Hidalgo Paredes	Ejecutivo Senior		80.00		0.00		150.00		150.00	380.00
+BCL-5003	Gabriela Vascones Delgado	Ejecutivo Senior		600.00		400.00		250.00		150.00	1400.00
+BCL-5004	Santiago Alarcón Vega	Ejecutivo Senior		260.00		120.00		175.00		150.00	705.00
+BCL-5005	Carlos Mauricio Reyes Vega	Ejecutivo Senior		240.00		120.00		225.00		150.00	735.00
+BCL-5006	Ricardo José Andrade Mendieta	Ejecutivo	240.00		80.00		144.00		100.00		564.00
+BCL-5007	Mauricio Sebastián Ochoa Ibarra	Ejecutivo	260.00		180.00		72.00		100.00		612.00
+BCL-5008	Laura Elena Suárez Hidalgo	Ejecutivo	260.00		80.00		90.00		100.00		530.00
+BCL-5009	Roberto Fernando Mora Cortés	Ejecutivo	170.00		80.00		126.00		100.00		476.00
+BCL-5010	Marcela Alejandra Andrade Quinde	Ejecutivo	180.00		80.00		108.00		100.00		468.00
+BCL-5011	Valentina Valentina Ortiz García	Ejecutivo	120.00		80.00		90.00		100.00		390.00
+BCL-5012	Valentina Salazar Mendieta	Ejecutivo	80.00		0.00		18.00		100.00		198.00
+BCL-5013	Pablo Mauricio Herrera García	Ejecutivo	80.00		0.00		162.00		100.00		342.00
+BCL-5014	Isabella Alejandra Naranjo Macías	Ejecutivo	260.00		0.00		72.00		100.00		432.00
+BCL-5015	Mauricio Sebastián Hidalgo Herrera	Ejecutivo Senior		340.00		0.00		225.00		150.00	715.00
+BCL-5016	Emilio Fernando Torres Villavicencio	Ejecutivo	350.00		180.00		36.00		100.00		666.00
+BCL-5017	Lorena Alejandra Paredes Alarcón	Ejecutivo	400.00		300.00		54.00		100.00		854.00
+BCL-5018	Lorena Patricia Delgado Molina	Ejecutivo	170.00		80.00		54.00		100.00		404.00
+BCL-5019	Claudia Andrea Solís Castillo	Ejecutivo	240.00		180.00		90.00		100.00		610.00
+BCL-5020	Esteban Antonio Cortés Suárez	Ejecutivo	260.00		180.00		72.00		100.00		612.00
+BCL-5021	Iván José Domínguez Paredes	Ejecutivo	330.00		0.00		108.00		100.00		538.00
+BCL-5022	Elena Alejandra Álvarez Salazar	Ejecutivo	350.00		80.00		90.00		100.00		620.00
+BCL-5023	Mónica Isabel Jaramillo Ortiz	Ejecutivo	240.00		0.00		72.00		100.00		412.00
+BCL-5024	Gonzalo Mauricio Cárdenas Suárez	Ejecutivo Senior		260.00		120.00		175.00		150.00	705.00
+BCL-5025	Teresa Valentina Domínguez Guerrero	Ejecutivo	240.00		80.00		72.00		100.00		492.00
+BCL-5026	Mauricio Miguel Salazar Domínguez	Ejecutivo	430.00		80.00		90.00		100.00		700.00
+BCL-5027	Roberto Andrade Villavicencio	Ejecutivo	430.00		300.00		108.00		100.00		938.00
+BCL-5028	Fernando Antonio Paredes Suárez	Ejecutivo	120.00		80.00		72.00		100.00		372.00
+BCL-5029	Paola Fernanda Molina Trujillo	Ejecutivo	120.00		180.00		108.00		100.00		508.00
+BCL-5030	Fabián Mauricio Montero Loor	Ejecutivo	170.00		0.00		90.00		100.00		360.00
+BCL-5031	Gabriela Sofía Vega Paredes	Ejecutivo	80.00		180.00		36.00		100.00		396.00
+BCL-5032	Ricardo Sebastián Salazar Paredes	Ejecutivo	120.00		180.00		126.00		100.00		526.00
+BCL-5033	Kevin Fernando Paredes Cárdenas	Ejecutivo Senior		120.00		120.00		125.00		150.00	515.00
+BCL-5034	Isabella Valentina Vascones Quinde	Ejecutivo	330.00		80.00		126.00		100.00		636.00
+BCL-5035	Laura Carolina Guerrero Mora	Ejecutivo	120.00		180.00		90.00		100.00		490.00
+BCL-5036	Fernanda Carolina Herrera Quinde	Ejecutivo	80.00		0.00		90.00		100.00		270.00
+BCL-5037	Diego José Quinde Benítez	Ejecutivo	120.00		180.00		126.00		100.00		526.00
+BCL-5038	Mauricio Antonio Vascones Solís	Ejecutivo	120.00		0.00		108.00		100.00		328.00
+BCL-5039	Kevin Alejandro Rojas Álvarez	Ejecutivo	260.00		180.00		72.00		100.00		612.00
+BCL-5040	Fernando Sebastián Hidalgo Palacios	Ejecutivo	260.00		80.00		72.00		100.00		512.00
+BCL-5041	Ana Lucía Paredes Cortés	Ejecutivo	110.00		0.00		72.00		100.00		282.00
+BCL-5042	Andrea Carolina Naranjo Quinde	Ejecutivo	50.00		80.00		72.00		100.00		302.00
+BCL-5043	Isabella Elena Castillo Rivera	Ejecutivo Senior		260.00		120.00		75.00		150.00	605.00
+BCL-5044	Ana Elena Castillo Chávez	Ejecutivo	350.00		80.00		108.00		100.00		638.00
+BCL-5045	Kevin Andrés Paredes Domínguez	Ejecutivo	80.00		0.00		72.00		100.00		252.00
+BCL-5046	Pablo Alejandro Barrera Reyes	Ejecutivo	430.00		300.00		126.00		100.00		956.00
+BCL-5047	Silvia Andrea Barrera Trujillo	Ejecutivo	180.00		80.00		108.00		100.00		468.00
+BCL-5048	Daniela Alejandra Montero Vascones	Ejecutivo	330.00		80.00		144.00		100.00		654.00
+BCL-5049	Carlos Antonio Escobar Barrera	Ejecutivo	240.00		180.00		144.00		100.00		664.00
+BCL-5050	Esteban Mauricio Vascones Aguirre	Ejecutivo	80.00		180.00		90.00		100.00		450.00
+BCL-5051	Sofía Patricia Peñaherrera Ochoa	Ejecutivo	120.00		300.00		36.00		100.00		556.00
+BCL-5052	Emilio Miguel Córdova Loor	Ejecutivo Senior		180.00		120.00		225.00		150.00	675.00
+BCL-5053	Leonardo Alejandro Rivera Álvarez	Ejecutivo	50.00		180.00		36.00		100.00		366.00
+BCL-5054	Fabián Fernando Alarcón Macías	Ejecutivo	120.00		80.00		108.00		100.00		408.00
+BCL-5055	Cristina Elena Cortés García	Ejecutivo	120.00		80.00		36.00		100.00		336.00
+BCL-5056	Sebastián Andrés García Molina	Ejecutivo	120.00		0.00		72.00		100.00		292.00
+BCL-5057	Paola Elena Jaramillo Paredes	Ejecutivo	430.00		300.00		54.00		100.00		884.00
+BCL-5058	Diana Valentina Delgado Solís	Ejecutivo	180.00		300.00		90.00		100.00		670.00
+BCL-5059	Cristina Elena Aguirre Alarcón	Ejecutivo	260.00		180.00		144.00		100.00		684.00
+BCL-5060	Mónica Valentina Palacios Escobar	Ejecutivo	240.00		80.00		108.00		100.00		528.00
+BCL-5061	Iván Andrés Palacios Mendieta	Ejecutivo Senior		260.00		0.00		250.00		150.00	660.00
+BCL-5062	Laura Sofía Zambrano Hidalgo	Ejecutivo	80.00		180.00		54.00		100.00		414.00
+BCL-5063	Diego Mora Jaramillo	Ejecutivo	350.00		180.00		72.00		100.00		702.00
+BCL-5064	Miguel Eduardo Loor Guerrero	Ejecutivo	330.00		0.00		72.00		100.00		502.00
+BCL-5065	Héctor Mauricio Aguirre Ibarra	Ejecutivo	120.00		180.00		126.00		100.00		526.00
+BCL-5066	María Lucía Molina Espinoza	Ejecutivo	170.00		180.00		54.00		100.00		504.00
+BCL-5067	Patricia Isabel Solís Domínguez	Ejecutivo	50.00		80.00		108.00		100.00		338.00
+BCL-5068	Jorge Eduardo Ochoa Solís	Ejecutivo	170.00		0.00		72.00		100.00		342.00
+BCL-5069	Martín José Paredes Loor	Ejecutivo Senior		360.00		0.00		225.00		150.00	735.00
+BCL-5070	Gonzalo Mauricio Cárdenas Córdova	Ejecutivo	120.00		80.00		54.00		100.00		354.00
+BCL-5071	Paola Fernanda Guerrero Palacios	Ejecutivo	500.00		180.00		18.00		100.00		798.00
+BCL-5072	Tomás Luis Córdova Montero	Ejecutivo	180.00		80.00		108.00		100.00		468.00
+BCL-5073	David Luis Domínguez Ibarra	Ejecutivo	120.00		80.00		72.00		100.00		372.00
+BCL-5074	Silvia Sofía Cárdenas Chávez	Ejecutivo	120.00		80.00		72.00		100.00		372.00
+BCL-5075	Elena Andrea Benítez Cortés	Ejecutivo	180.00		300.00		54.00		100.00		634.00
+BCL-5076	Iván Sebastián Delgado Mendieta	Ejecutivo	110.00		180.00		54.00		100.00		444.00
+BCL-5077	Alejandro José García Barrera	Ejecutivo Senior		260.00		250.00		100.00		150.00	760.00
+BCL-5078	Rosa Carolina Reyes Delgado	Ejecutivo	400.00		180.00		36.00		100.00		716.00
+BCL-5079	Daniela Fernanda Naranjo Trujillo	Ejecutivo	80.00		80.00		72.00		100.00		332.00
+BCL-5080	Nicolás Alejandro Herrera Vascones	Ejecutivo	180.00		180.00		72.00		100.00		532.00
+BCL-5081	Mónica Patricia Escobar Quinde	Ejecutivo	180.00		0.00		54.00		100.00		334.00
+BCL-5082	Gonzalo Antonio Rojas Molina	Ejecutivo	260.00		180.00		108.00		100.00		648.00
+BCL-5083	Verónica Sofía Zambrano Rojas	Ejecutivo	180.00		0.00		72.00		100.00		352.00
+BCL-5084	Jorge Fernando Carrión Peñaherrera	Ejecutivo	180.00		80.00		90.00		100.00		450.00
+BCL-5085	Pablo Andrés Ochoa Alarcón	Ejecutivo	50.00		80.00		72.00		100.00		302.00

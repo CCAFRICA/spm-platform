@@ -62,7 +62,20 @@ export async function resolveEntitiesFromCommittedData(
       let idColumn: string | null = null;
       let nameColumn: string | null = null;
 
-      // Primary: field_identities (DS-009)
+      // HF-196 Phase 1B (HF-110 Fix C pattern extended): metadata.entity_id_field
+      // is the SCI agent's already-recorded choice (set by processEntityUnit/processDataUnit
+      // during import). When present, honor it directly — it is the authoritative
+      // selection, downstream of HF-186-aware role assignment. Falling back to
+      // field_identities re-derivation here was the regression that caused the
+      // 11/85 collapse on the BCL roster (resolver picked Sucursal_ID via no-break
+      // last-match-wins over field_identities; SCI agent had correctly chosen
+      // ID_Empleado but resolver ignored it).
+      const recordedIdField = (meta.entity_id_field as string | null | undefined) ?? null;
+      if (recordedIdField && typeof recordedIdField === 'string' && recordedIdField.length > 0) {
+        idColumn = recordedIdField;
+      }
+
+      // Primary fallback: field_identities (DS-009)
       const fieldIds = meta.field_identities as Record<string, {
         structuralType?: string;
         contextualIdentity?: string;
@@ -70,14 +83,20 @@ export async function resolveEntitiesFromCommittedData(
 
       if (fieldIds && Object.keys(fieldIds).length > 0) {
         // Korean Test: match on structuralType, not column names
-        for (const [colName, fi] of Object.entries(fieldIds)) {
-          if (fi.structuralType === 'identifier' &&
-              fi.contextualIdentity?.toLowerCase().includes('person')) {
-            idColumn = colName;
+        if (!idColumn) {
+          for (const [colName, fi] of Object.entries(fieldIds)) {
+            if (fi.structuralType === 'identifier' &&
+                fi.contextualIdentity?.toLowerCase().includes('person')) {
+              idColumn = colName;
+              break; // HF-196 Phase 1B: first-match-wins (was: last-match-wins, source of regression)
+            }
           }
+        }
+        for (const [colName, fi] of Object.entries(fieldIds)) {
           if (fi.structuralType === 'name' &&
               fi.contextualIdentity?.toLowerCase().includes('person')) {
             nameColumn = colName;
+            break;
           }
         }
         // Fallback within field_identities: any name column
@@ -105,7 +124,7 @@ export async function resolveEntitiesFromCommittedData(
         const semanticRoles = meta.semantic_roles as Record<string, { role?: string }> | undefined;
         if (semanticRoles) {
           for (const [colName, sr] of Object.entries(semanticRoles)) {
-            if (sr.role === 'entity_identifier') idColumn = colName;
+            if (sr.role === 'entity_identifier' && !idColumn) idColumn = colName;
             if (sr.role === 'entity_name' && !nameColumn) nameColumn = colName;
           }
         }

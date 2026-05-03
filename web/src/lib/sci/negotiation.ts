@@ -29,9 +29,12 @@ interface HCFieldAffinityRule {
 }
 
 const FIELD_AFFINITY_RULES: HCFieldAffinityRule[] = [
-  // Entity identifier — HC 'identifier' or structural uniqueness
+  // HF-196 Phase 1G Path α — Site 4: HC-primacy gating on entity-identifier affinity (Decision 108).
+  // HC 'identifier' produces affinity. Structural arm (integer && isSequential) only contributes
+  // when HC is silent on that column (preserves cold-start / flywheel-roleMap-miss capability).
   {
-    test: (f, hcRole) => hcRole === 'identifier' || (f.dataType === 'integer' && !!f.distribution.isSequential),
+    test: (f, hcRole) => hcRole === 'identifier' ||
+      ((!hcRole || hcRole === 'unknown') && f.dataType === 'integer' && !!f.distribution.isSequential),
     affinities: { entity: 0.90, target: 0.70, transaction: 0.70, plan: 0.10, reference: 0.30 },
   },
   // Name fields → entity (HC 'name' or structural person-name detection)
@@ -74,9 +77,10 @@ const FIELD_AFFINITY_RULES: HCFieldAffinityRule[] = [
     test: f => f.dataType === 'text' && f.distinctCount > 0 && f.distinctCount < 20,
     affinities: { entity: 0.60, transaction: 0.40, target: 0.30, plan: 0.20, reference: 0.40 },
   },
-  // Sequential integers → likely IDs
+  // HF-196 Phase 1G Path α — Site 5: Sequential integers → IDs (HC silent only) per Decision 108.
   {
-    test: f => f.dataType === 'integer' && !!f.distribution.isSequential,
+    test: (f, hcRole) => (!hcRole || hcRole === 'unknown') &&
+      f.dataType === 'integer' && !!f.distribution.isSequential,
     affinities: { entity: 0.70, target: 0.40, transaction: 0.40, plan: 0.10, reference: 0.30 },
   },
 ];
@@ -121,8 +125,10 @@ export function computeFieldAffinities(profile: ContentProfile): FieldAffinity[]
     const entries = Object.entries(affinities) as [AgentType, number][];
     entries.sort((a, b) => b[1] - a[1]);
     const winner = entries[0][0];
-    // Shared fields: HC 'identifier' or structural sequential integer
-    const isShared = hcRole === 'identifier' || (field.dataType === 'integer' && !!field.distribution.isSequential);
+    // HF-196 Phase 1G Path α — Site 6: Shared-field flag with HC primacy (Decision 108).
+    // HC 'identifier' marks the field shared. Structural arm marks shared only when HC is silent.
+    const isShared = hcRole === 'identifier' ||
+      ((!hcRole || hcRole === 'unknown') && field.dataType === 'integer' && !!field.distribution.isSequential);
 
     return {
       fieldName: field.fieldName,
@@ -296,7 +302,10 @@ function inferRoleForAgent(
   const ENTITY_TYPES = ['person', 'employee', 'organization', 'account', 'customer', 'client', 'member'];
   const RECORD_TYPES = ['transaction', 'order', 'invoice', 'receipt', 'record', 'ticket'];
 
-  if (hcRole === 'identifier' || (field.dataType === 'integer' && !!field.distribution.isSequential)) {
+  // HF-196 Phase 1G — HC-primary identifier branch (Decision 108: HC Override Authority Hierarchy LOCKED).
+  // HC primacy: structural arm previously coupled here via OR-peer construction is split into a separate
+  // HC-silence-gated branch below, restoring HF-095 Phase 2 stated intent ("HC primary, structural fallback").
+  if (hcRole === 'identifier') {
     // LLM-Primary
     if (identifiesWhat) {
       const iw = identifiesWhat.toLowerCase();
@@ -314,6 +323,19 @@ function inferRoleForAgent(
       return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%, no LLM context)`, confidence: 0.80 };
     }
     return { role: 'entity_identifier', context: `${field.fieldName} — identifier (cardinality fallback, uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.85 };
+  }
+
+  // HF-196 Phase 1G — Structural fallback ONLY when HC is silent (Decision 108).
+  // Preserves classification capability for cold-start / flywheel-roleMap-miss / LLM-error scenarios
+  // while preventing structural override of HC-confident measure/attribute interpretations
+  // (closes Cantidad_Productos_Cruzados misclassification: HC said measure@0.90; OR-peer arm
+  // overrode to entity_identifier because distinct integer values formed consecutive sequence).
+  if ((!hcRole || hcRole === 'unknown') && field.dataType === 'integer' && !!field.distribution.isSequential) {
+    const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
+    if (uniquenessRatio > 0.8) {
+      return { role: 'transaction_identifier', context: `${field.fieldName} — sequential per-row identifier (HC silent, uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.75 };
+    }
+    return { role: 'entity_identifier', context: `${field.fieldName} — sequential identifier (HC silent, cardinality ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.75 };
   }
 
   // HC reference_key → agent-aware mapping

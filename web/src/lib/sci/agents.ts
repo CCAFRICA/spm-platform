@@ -482,7 +482,8 @@ function assignSemanticRole(
   const ENTITY_TYPES = ['person', 'employee', 'organization', 'account', 'customer', 'client', 'member'];
   const RECORD_TYPES = ['transaction', 'order', 'invoice', 'receipt', 'record', 'ticket'];
 
-  if (hcRole === 'identifier' || hcRole === 'reference_key') {
+  // HF-171: hcRole === 'identifier' — this row's own primary identifier
+  if (hcRole === 'identifier') {
     // LLM-Primary: use identifiesWhat if available
     if (identifiesWhat) {
       const iw = identifiesWhat.toLowerCase();
@@ -503,13 +504,44 @@ function assignSemanticRole(
     }
     return { role: 'entity_identifier', context: `${field.fieldName} — identifier (cardinality fallback, uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.85 };
   }
-  // Structural sequential integer → cardinality check
-  if (field.dataType === 'integer' && field.distribution.isSequential) {
+
+  // HF-186: hcRole === 'reference_key' — agent-aware mapping.
+  // For ENTITY agent, reference_key means hierarchical link (e.g., reports_to → manager,
+  // store_id → branch). NOT this row's own identifier. Maps to entity_relationship.
+  // For other agents, reference_key IS the link to the entity that owns this row.
+  // HF-196 Phase 1B: regression fix — this branch was previously merged with hcRole==='identifier'
+  // in assignSemanticRole, causing entity-classified files to label all reference_keys as
+  // entity_identifier. inferRoleForAgent in negotiation.ts had the agent-aware mapping;
+  // assignSemanticRole did not. Now ported here for FULL-claim path symmetry.
+  if (hcRole === 'reference_key') {
+    if (agent === 'entity') {
+      return { role: 'entity_relationship', context: `${field.fieldName} — hierarchical reference (HF-186: entity-agent reference_key → entity_relationship)`, confidence: 0.75 };
+    }
+    if (identifiesWhat) {
+      const iw = identifiesWhat.toLowerCase();
+      if (ENTITY_TYPES.some(t => iw.includes(t))) {
+        return { role: 'entity_identifier', context: `${field.fieldName} — entity ref key (LLM: ${identifiesWhat})`, confidence: 0.95 };
+      }
+      if (RECORD_TYPES.some(t => iw.includes(t))) {
+        return { role: 'transaction_identifier', context: `${field.fieldName} — record ref key (LLM: ${identifiesWhat})`, confidence: 0.95 };
+      }
+    }
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
-      return { role: 'transaction_identifier', context: `${field.fieldName} — sequential per-row identifier`, confidence: 0.85 };
+      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row reference key`, confidence: 0.90 };
     }
-    return { role: 'entity_identifier', context: `${field.fieldName} — sequential entity identifier`, confidence: 0.85 };
+    return { role: 'entity_identifier', context: `${field.fieldName} — reference key`, confidence: 0.90 };
+  }
+  // HF-196 Phase 1G — Structural fallback ONLY when HC is silent (Decision 108: HC Override Authority Hierarchy LOCKED).
+  // Twin of negotiation.ts:299 fix. Preserves entity-id classification for cold-start /
+  // flywheel-roleMap-miss / LLM-error scenarios; prevents structural override of HC-confident
+  // measure/attribute interpretations (closes Adjacent-Arm Drift on assignSemanticRole).
+  if ((!hcRole || hcRole === 'unknown') && field.dataType === 'integer' && field.distribution.isSequential) {
+    const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
+    if (uniquenessRatio > 0.8) {
+      return { role: 'transaction_identifier', context: `${field.fieldName} — sequential per-row identifier (HC silent)`, confidence: 0.75 };
+    }
+    return { role: 'entity_identifier', context: `${field.fieldName} — sequential entity identifier (HC silent)`, confidence: 0.75 };
   }
 
   switch (agent) {

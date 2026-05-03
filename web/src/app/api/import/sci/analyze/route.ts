@@ -9,7 +9,7 @@ export const maxDuration = 300; // Vercel Pro max
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { generateContentProfile } from '@/lib/sci/content-profile';
+import { generateContentProfileStats, generateContentProfilePatterns } from '@/lib/sci/content-profile';
 import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
@@ -82,13 +82,16 @@ export async function POST(req: NextRequest) {
     );
 
     for (const file of files) {
-      // Phase A: Generate Content Profiles for all sheets
+      // Phase A: Generate Content Profile STATS for all sheets (no patterns yet — HC primacy per Decision 108)
+      // HF-196 Phase 1G Path α: Two-phase split. Stats are deterministic; patterns are computed
+      // in Phase B after HC has run (Phase B receives HC interpretations and gates structural arms on HC silence).
       const profileMap = new Map<string, ContentProfile>();
+      const sheetRowsBySheet = new Map<string, Record<string, unknown>[]>();
       const fileSheets: Array<{ sourceFile: string; sheetName: string }> = [];
 
       for (let tabIndex = 0; tabIndex < file.sheets.length; tabIndex++) {
         const sheet = file.sheets[tabIndex];
-        const profile = generateContentProfile(
+        const profile = generateContentProfileStats(
           sheet.sheetName,
           tabIndex,
           file.fileName,
@@ -97,6 +100,7 @@ export async function POST(req: NextRequest) {
           sheet.totalRowCount,
         );
         profileMap.set(sheet.sheetName, profile);
+        sheetRowsBySheet.set(sheet.sheetName, sheet.rows);
         fileSheets.push({ sourceFile: file.fileName, sheetName: sheet.sheetName });
       }
 
@@ -170,6 +174,15 @@ export async function POST(req: NextRequest) {
             console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${file.sheets[0].sheetName}`);
           }
         }
+      }
+
+      // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
+      // HC has run (or been injected from Tier 1 flywheel); now compute patterns +
+      // idField-derived structure fields with HC primacy. Structural arms gate on HC silence.
+      for (const [sheetName, profile] of Array.from(profileMap.entries())) {
+        const hcInterpretations = profile.headerComprehension?.interpretations;
+        const sheetRows = sheetRowsBySheet.get(sheetName) ?? [];
+        generateContentProfilePatterns(profile, hcInterpretations, sheetRows);
       }
 
       // ── HF-096: HC Diagnostic Logging (visible in Vercel Runtime Logs) ──

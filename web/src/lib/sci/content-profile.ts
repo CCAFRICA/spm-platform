@@ -6,7 +6,45 @@
 // Decision 104: Temporal detection is type-agnostic (raw values)
 // Decision 105: Cardinality relative to identifier column
 
-import type { ContentProfile, FieldProfile, ProfileObservation } from './sci-types';
+import type { ContentProfile, FieldProfile, ProfileObservation, HeaderInterpretation, ColumnRole } from './sci-types';
+
+// ============================================================
+// HF-196 Phase 1G Path α — Two-phase content-profile split (Decision 108).
+// Phase A: deterministic statistics. Phase B: HC-aware patterns.
+// HC runs between phases; pattern detection consumes HC interpretations
+// and gates structural arms on HC silence (!hcRole || hcRole === 'unknown').
+// ============================================================
+
+/**
+ * Phase A output: ContentProfile shape with structure / fields / observations
+ * populated from deterministic statistics. Pattern derivations + idField-dependent
+ * structure fields are placeholders (filled by Phase B).
+ *
+ * Pattern-derived structure fields (numericFieldRatio, categoricalFieldRatio,
+ * categoricalFieldCount, identifierRepeatRatio) are zero-initialized; they are
+ * computed in Phase B because they depend on idField selection, which depends
+ * on HC primacy.
+ *
+ * patterns object is zero-initialized (placeholder).
+ */
+export type ContentProfileStats = ContentProfile;
+
+/**
+ * Phase B output: HC-aware pattern derivations + structure extensions.
+ * Mutates a ContentProfileStats in place to populate patterns + structure-derived fields,
+ * adds Phase B observations, and applies field-level mutations (looksLikePersonName).
+ */
+export interface ContentProfilePatterns {
+  patterns: ContentProfile['patterns'];
+  structureExtensions: {
+    numericFieldRatio: number;
+    categoricalFieldRatio: number;
+    categoricalFieldCount: number;
+    identifierRepeatRatio: number;
+  };
+  observations: ProfileObservation[];
+  fieldMutations: Array<{ fieldName: string; looksLikePersonName: boolean }>;
+}
 
 // ============================================================
 // NAME SIGNAL PATTERNS (multilingual, case-insensitive)
@@ -207,14 +245,28 @@ function scoreTextPlausibility(nonNull: unknown[]): number {
 
 // ============================================================
 // STRUCTURAL IDENTIFIER DETECTION (Korean Test compliant)
+// HF-196 Phase 1G Path α — HC-aware per Decision 108.
+// Sites 3 (uniquenessRatio > 0.90) and 7 (isSequential) gate on HC silence.
 // ============================================================
 
-function detectStructuralIdentifier(field: FieldProfile, rowCount: number): boolean {
+function detectStructuralIdentifier(
+  field: FieldProfile,
+  rowCount: number,
+  hcRole?: ColumnRole,
+): boolean {
+  // HF-196 Phase 1G — HC primacy: if HC has any role except 'unknown',
+  // structural arm yields. HC may say 'identifier' (caller-handled upstream),
+  // 'measure', 'attribute', etc. — none of those should be overridden by
+  // structural integer/cardinality heuristics.
+  if (hcRole && hcRole !== 'unknown') return false;
+
   if (field.distinctCount === 0 || rowCount === 0) return false;
   const uniquenessRatio = field.distinctCount / rowCount;
   if (uniquenessRatio < 0.70) return false;
   if (field.dataType === 'date' || field.dataType === 'boolean') return false;
+  // Site 7 — sequential integer (HC silent only)
   if (field.dataType === 'integer' && field.distribution.isSequential) return true;
+  // Site 3 — high-cardinality integer (HC silent only)
   if (field.dataType === 'integer' && uniquenessRatio > 0.90) return true;
   if (field.dataType === 'text' && uniquenessRatio > 0.70 && !field.nameSignals.looksLikePersonName) return true;
   return false;
@@ -345,16 +397,28 @@ function detectStructuralNameColumn(
 
 // ============================================================
 // CONTENT PROFILE GENERATOR
+// HF-196 Phase 1G Path α — Two-phase split per Decision 108.
+//   Phase A: generateContentProfileStats — deterministic statistics, no patterns.
+//   Phase B: generateContentProfilePatterns(stats, hcInterpretations?) — HC-aware patterns.
+// Composite wrapper generateContentProfile preserved for backward compatibility
+// (calls Phase B with hcInterpretations=undefined → structural fallback only).
 // ============================================================
 
-export function generateContentProfile(
+/**
+ * Phase A — deterministic statistics. Runs BEFORE HC.
+ *
+ * Returns ContentProfile shape; pattern derivations are placeholder/zero
+ * (filled by Phase B). Stats fields (rowCount, columnCount, sparsity, headerQuality,
+ * fields, observations) are final.
+ */
+export function generateContentProfileStats(
   tabName: string,
   tabIndex: number,
   sourceFile: string,
   columns: string[],
   rows: Record<string, unknown>[],
   totalRowCount?: number,
-): ContentProfile {
+): ContentProfileStats {
   const contentUnitId = `${sourceFile}::${tabName}::${tabIndex}`;
   const rowCount = totalRowCount || rows.length;
   const columnCount = columns.length;
@@ -447,30 +511,112 @@ export function generateContentProfile(
         containsDate: headerContains(col, DATE_SIGNALS),
         containsAmount: headerContains(col, AMOUNT_SIGNALS),
         containsRate: headerContains(col, RATE_SIGNALS),
-        looksLikePersonName: false, // set below after identifier detection
+        looksLikePersonName: false, // set in Phase B after identifier detection
       },
     };
   });
 
-  // ── Structural Pattern Detection ──
+  // Phase A returns ContentProfile shape with placeholder pattern derivations.
+  // Phase B mutates this object to compute final patterns + idField-derived structure fields.
+  return {
+    contentUnitId,
+    sourceFile,
+    tabName,
+    tabIndex,
+    structure: {
+      rowCount,
+      columnCount,
+      sparsity,
+      headerQuality,
+      // Phase B will overwrite these idField-derived fields:
+      numericFieldRatio: 0,
+      categoricalFieldRatio: 0,
+      categoricalFieldCount: 0,
+      identifierRepeatRatio: 0,
+    },
+    fields,
+    patterns: {
+      // Phase B will overwrite these:
+      hasEntityIdentifier: false,
+      hasDateColumn: false,
+      hasTemporalColumns: false,
+      hasCurrencyColumns: 0,
+      hasPercentageValues: false,
+      hasDescriptiveLabels: false,
+      hasStructuralNameColumn: false,
+      rowCountCategory: rowCount < 50 ? 'reference' : rowCount <= 500 ? 'moderate' : 'transactional',
+      volumePattern: 'unknown',
+    },
+    observations,
+  };
+}
 
-  // Entity identifier
-  const hasEntityIdentifier = fields.some(f =>
-    detectStructuralIdentifier(f, rowCount) || f.nameSignals.containsId ||
-    (f.dataType === 'integer' && f.distribution.isSequential)
-  );
+/**
+ * Phase B — HC-aware pattern derivations. Runs AFTER HC.
+ *
+ * Mutates `stats` in place to:
+ *   - Set patterns.{hasEntityIdentifier, hasDateColumn, hasTemporalColumns, ...}
+ *   - Set structure.{numericFieldRatio, categoricalFieldRatio, categoricalFieldCount, identifierRepeatRatio}
+ *   - Append Phase B observations (temporal_detection, name_detection)
+ *   - Mutate fields[i].nameSignals.looksLikePersonName for the structural name column
+ *
+ * `hcInterpretations` is the HC's per-column role assignments. When undefined or
+ * a column is missing from the map, the column is treated as HC-silent and
+ * structural arms apply (legacy behavior preserved).
+ *
+ * Returns the same `stats` object (now with patterns), typed as ContentProfile.
+ */
+export function generateContentProfilePatterns(
+  stats: ContentProfileStats,
+  hcInterpretations?: Map<string, HeaderInterpretation>,
+  rows: Record<string, unknown>[] = [],
+): ContentProfile {
+  const fields = stats.fields;
+  const rowCount = stats.structure.rowCount;
+  const columnCount = stats.structure.columnCount;
 
-  // Identifier field for cardinality computations
-  const idField = fields.find(f => detectStructuralIdentifier(f, rowCount)) ||
-    fields.find(f => f.nameSignals.containsId);
+  // HC role lookup helper — returns columnRole or undefined.
+  const getHCRole = (fieldName: string): ColumnRole | undefined =>
+    hcInterpretations?.get(fieldName)?.columnRole;
+
+  // ── Structural Pattern Detection (HC-aware per Decision 108) ──
+
+  // Entity identifier OR-fold (HC primacy: HC 'identifier' wins; HC any-other-role suppresses;
+  // HC silent → structural fallback via detectStructuralIdentifier + nameSignals + 461-inline).
+  const hasEntityIdentifier = fields.some(f => {
+    const hcRole = getHCRole(f.fieldName);
+    // HC primary: HC said this is an identifier → present.
+    if (hcRole === 'identifier') return true;
+    // HC primary: HC said something else → structural arms yield.
+    if (hcRole && hcRole !== 'unknown') return false;
+    // HC silent: structural fallback (Site 7 inline + nameSignals + detectStructuralIdentifier covering Sites 3+7).
+    return (
+      detectStructuralIdentifier(f, rowCount, hcRole) ||
+      f.nameSignals.containsId ||
+      (f.dataType === 'integer' && f.distribution.isSequential)
+    );
+  });
+
+  // Identifier field for cardinality computations (HC-aware).
+  // HC 'identifier' columns chosen first; structural fallback only when HC silent across all fields.
+  const idField =
+    fields.find(f => getHCRole(f.fieldName) === 'identifier') ??
+    fields.find(f => {
+      const hcRole = getHCRole(f.fieldName);
+      if (hcRole && hcRole !== 'unknown') return false; // HC said something other than identifier — yield.
+      return detectStructuralIdentifier(f, rowCount, hcRole);
+    }) ??
+    fields.find(f => {
+      const hcRole = getHCRole(f.fieldName);
+      if (hcRole && hcRole !== 'unknown') return false;
+      return f.nameSignals.containsId;
+    });
   const idDistinct = idField?.distinctCount ?? 0;
 
-  // Temporal detection (Decision 104: type-agnostic)
+  // Temporal detection (Decision 104: type-agnostic). Structural; HC-orthogonal.
   const temporal = detectTemporalColumns(fields, rows);
-
-  // Emit temporal observation
   if (temporal.hasTemporalColumns) {
-    observations.push({
+    stats.observations.push({
       columnName: null,
       observationType: 'temporal_detection',
       observedValue: true,
@@ -532,7 +678,7 @@ export function generateContentProfile(
     if (nameField) {
       nameField.nameSignals.looksLikePersonName = true;
     }
-    observations.push({
+    stats.observations.push({
       columnName: structuralNameField,
       observationType: 'name_detection',
       observedValue: true,
@@ -549,33 +695,43 @@ export function generateContentProfile(
     identifierRepeatRatio <= 3.0 ? 'few' :
     'many';
 
-  return {
-    contentUnitId,
-    sourceFile,
-    tabName,
-    tabIndex,
-    structure: {
-      rowCount,
-      columnCount,
-      sparsity,
-      headerQuality,
-      numericFieldRatio,
-      categoricalFieldRatio,
-      categoricalFieldCount,
-      identifierRepeatRatio,
-    },
-    fields,
-    patterns: {
-      hasEntityIdentifier,
-      hasDateColumn,
-      hasTemporalColumns: temporal.hasTemporalColumns,
-      hasCurrencyColumns,
-      hasPercentageValues,
-      hasDescriptiveLabels,
-      hasStructuralNameColumn,
-      rowCountCategory,
-      volumePattern,
-    },
-    observations,
+  // Mutate stats in place — Phase B fills patterns + idField-derived structure fields.
+  stats.structure.numericFieldRatio = numericFieldRatio;
+  stats.structure.categoricalFieldRatio = categoricalFieldRatio;
+  stats.structure.categoricalFieldCount = categoricalFieldCount;
+  stats.structure.identifierRepeatRatio = identifierRepeatRatio;
+  stats.patterns = {
+    hasEntityIdentifier,
+    hasDateColumn,
+    hasTemporalColumns: temporal.hasTemporalColumns,
+    hasCurrencyColumns,
+    hasPercentageValues,
+    hasDescriptiveLabels,
+    hasStructuralNameColumn,
+    rowCountCategory,
+    volumePattern,
   };
+
+  return stats;
+}
+
+/**
+ * Backward-compatible composite generator — runs Phase A + Phase B with no HC.
+ *
+ * Production import paths (analyze/route.ts, process-job/route.ts) MUST invoke
+ * the two-phase form explicitly (stats → HC → patterns) to gain HC primacy
+ * per Decision 108. This wrapper is retained for legacy callers / test fixtures
+ * that cannot be updated atomically; it computes patterns with HC silent
+ * (structural arms fire — legacy behavior preserved).
+ */
+export function generateContentProfile(
+  tabName: string,
+  tabIndex: number,
+  sourceFile: string,
+  columns: string[],
+  rows: Record<string, unknown>[],
+  totalRowCount?: number,
+): ContentProfile {
+  const stats = generateContentProfileStats(tabName, tabIndex, sourceFile, columns, rows, totalRowCount);
+  return generateContentProfilePatterns(stats, undefined, rows);
 }

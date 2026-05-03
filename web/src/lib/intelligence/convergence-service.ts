@@ -80,10 +80,12 @@ export interface ComponentBinding {
   source_batch_id: string;
   column: string;
   field_identity: FieldIdentity;
-  match_pass: number;  // 1=structural/boundary, 2=contextual/AI, 3=token
+  match_pass: number | 'failed';  // 1=structural/boundary, 2=contextual/AI, 3=token, 'failed'=HF-203 binding rejection
   confidence: number;
   // HF-111: Scale factor for percentage columns (e.g., 100 when column is 0-1 ratio but boundary is 0-100)
   scale_factor?: number;
+  // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
+  failure_reason?: string;
 }
 
 interface BindingMatch {
@@ -125,10 +127,29 @@ export interface ConvergenceResult {
   componentBindings: Record<string, Record<string, ComponentBinding>>;
   // OB-197 G11: signal-surface observations (within-run + cross-run).
   // Surfaced for downstream consumers; matching algorithm itself is unchanged.
+  // HF-196 Phase 3: D153 B-E4 atomic cutover — metricComprehension is the
+  // operative signal-surface input. The legacy private-JSONB-key path was
+  // eradicated by PR #342 cutover-revert; signal surface is now the path.
   observations: {
     withinRun: ConvergenceSignalObservation[];
     crossRun: ConvergenceSignalObservation[];
+    // HF-196 Phase 3: rule-set-scoped metric comprehension signals read from
+    // classification_signals WHERE signal_type='comprehension:plan_interpretation'
+    // (OB-198 vocabulary aligned). These signals carry plan-agent metric
+    // semantics that the legacy private-key path used to provide. The legacy
+    // path was eradicated PR #342; signal surface now operative per D153 B-E4.
+    metricComprehension: MetricComprehensionSignal[];
   };
+}
+
+// HF-196 Phase 3: shape of metric_comprehension signals consumed as operative
+// input to convergence. These signals replace the legacy private-JSONB path
+// (eradicated by PR #342 cutover-revert). Read scoped to (tenant_id,
+// rule_set_id, signal_type='comprehension:plan_interpretation').
+export interface MetricComprehensionSignal {
+  signal_value: Record<string, unknown> | null;
+  confidence: number | null;
+  rule_set_id: string | null;
 }
 
 // ──────────────────────────────────────────────
@@ -148,7 +169,9 @@ export async function convergeBindings(
   const componentBindings: Record<string, Record<string, ComponentBinding>> = {};
   // OB-197 G11: observations populated from the canonical signal surface
   // before matching begins. Empty when no calculationRunId is supplied.
-  const observations: ConvergenceResult['observations'] = { withinRun: [], crossRun: [] };
+  // HF-196 Phase 3: metricComprehension is read unconditionally (not gated on
+  // calculationRunId) because it is the operative input replacing seeds.
+  const observations: ConvergenceResult['observations'] = { withinRun: [], crossRun: [], metricComprehension: [] };
 
   // 1. Fetch rule set
   const { data: ruleSet } = await supabase
@@ -162,6 +185,17 @@ export async function convergeBindings(
   // 2. Extract plan requirements
   const components = extractComponents(ruleSet.components);
   if (components.length === 0) return { derivations, matchReport, signals, gaps, componentBindings, observations };
+
+  // HF-196 Phase 3: D153 B-E4 atomic cutover — read metric_comprehension signals
+  // as the operative signal-surface input. These signals (signal_type=
+  // 'comprehension:plan_interpretation') carry plan-agent metric semantics that
+  // the eradicated seeds path used to provide. Read scoped to (tenant_id, rule_set_id).
+  // Per D153 B-E4: "signal surface as the operative path. No parallel paths."
+  const metricComprehensionSignals = await loadMetricComprehensionSignals(tenantId, ruleSetId, supabase);
+  observations.metricComprehension = metricComprehensionSignals;
+  if (metricComprehensionSignals.length > 0) {
+    console.log(`[Convergence] HF-196 D153 cutover: ${metricComprehensionSignals.length} metric_comprehension signals loaded as operative input (rule_set=${ruleSetId})`);
+  }
 
   // 3. Inventory data capabilities (OB-162: includes field identities)
   const capabilities = await inventoryData(tenantId, supabase);
@@ -281,31 +315,38 @@ export async function convergeBindings(
       components, componentBindings, distributions
     );
 
-    // Apply corrections to bindings
+    // HF-196 Phase 1G Path α (HF-203): apply binding rejections — mark match_pass='failed' on
+    // misaligned bindings; surface as convergence gap. Do NOT patch scale_factor. Engine reads
+    // operate only on bindings with legitimate scale_factor values from the column-mapping
+    // process (set in generateAllComponentBindings); rejected bindings either have failed
+    // match_pass (downstream consumers must skip / surface gap) or get re-mapped via convergence
+    // gap surface (caller-driven, out of scope for this function).
     for (const pr of plausibilityResults) {
-      if (pr.isAnomaly && pr.proposedCorrection) {
+      if (pr.isAnomaly && pr.proposedAction?.type === 'binding_rejection') {
         const compKey = `component_${pr.componentIndex}`;
         const cb = componentBindings[compKey];
         if (cb) {
-          const role = pr.proposedCorrection.bindingRole;
+          const role = pr.proposedAction.bindingRole;
           const binding = cb[role];
           if (binding) {
-            binding.scale_factor = pr.proposedCorrection.proposedScale;
+            binding.match_pass = 'failed';
+            binding.failure_reason = pr.proposedAction.rationale;
             console.log(
-              `[CONVERGENCE-VALIDATION]   Applying correction to ${compKey}:${role} ` +
-              `(decision_source: structural_anomaly)`
+              `[CONVERGENCE-VALIDATION]   Binding rejected on ${compKey}:${role} ` +
+              `(decision_source: binding_misalignment, rejected_column: ${pr.proposedAction.rejectedColumn}, ` +
+              `ratio: ${pr.ratioToMedian.toFixed(1)}x)`
             );
           }
         }
       }
     }
 
-    // Capture classification signals
+    // Capture classification signals (HF-203 inversion: signal carries binding rejection, not scale correction)
     for (const pr of plausibilityResults) {
       if (pr.isAnomaly) {
         const compKey = `component_${pr.componentIndex}`;
         const cb = componentBindings[compKey];
-        const bindingRole = pr.proposedCorrection?.bindingRole ?? 'actual';
+        const bindingRole = pr.proposedAction?.bindingRole ?? 'actual';
         const colName = cb?.[bindingRole]?.column ?? 'unknown';
         const dist = distributions[colName];
 
@@ -317,15 +358,15 @@ export async function convergeBindings(
             component_name: pr.componentName,
             anomaly_type: pr.anomalyType,
             detected_result: pr.sampleResult,
-            corrected_result: pr.proposedCorrection?.correctedResult,
             peer_median: pr.medianPeerResult,
             ratio_to_median: pr.ratioToMedian,
-            correction_applied: !!pr.proposedCorrection,
-            correction_type: pr.proposedCorrection?.type,
+            action_applied: !!pr.proposedAction,
+            action_type: pr.proposedAction?.type,
+            rejected_column: pr.proposedAction?.rejectedColumn,
           },
           confidence: 0.85,
           source: 'convergence_validation',
-          decision_source: 'structural_anomaly',
+          decision_source: 'binding_misalignment',
           context: {
             plan_id: ruleSetId,
             component_type: components[pr.componentIndex]?.calculationOp ?? 'unknown',
@@ -672,6 +713,42 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
 }
 
 // ──────────────────────────────────────────────
+// HF-196 Phase 3: Load metric_comprehension signals (D153 B-E4 atomic cutover)
+//
+// Reads classification_signals scoped to (tenant_id, rule_set_id, signal_type
+// = 'comprehension:plan_interpretation') — the OB-198-aligned vocabulary for
+// plan-agent metric semantics. The legacy private-JSONB-key path that HF-191
+// introduced was eradicated by PR #342 cutover-revert; this read replaces it
+// as the operative signal-surface input per Decision 153 B-E4.
+//
+// Per Decision 153 B-E4: "atomic cutover to L2 Comprehension signals on
+// classification_signals. Signal surface as the operative path."
+//
+// Korean Test (IGF-T1-E910) compliance: signal_type is a stable governance string,
+// not a domain-name literal. tenant_id + rule_set_id are runtime parameters.
+// ──────────────────────────────────────────────
+
+async function loadMetricComprehensionSignals(
+  tenantId: string,
+  ruleSetId: string,
+  supabase: SupabaseClient,
+): Promise<MetricComprehensionSignal[]> {
+  const { data, error } = await supabase
+    .from('classification_signals')
+    .select('signal_value, confidence, rule_set_id')
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('signal_type', 'comprehension:plan_interpretation')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.warn(`[Convergence] metric_comprehension signal read failed (non-blocking): ${error.message}`);
+    return [];
+  }
+  return (data ?? []) as MetricComprehensionSignal[];
+}
+
+// ──────────────────────────────────────────────
 // Step 2: Inventory Data Capabilities
 // OB-162: Enhanced with field identity extraction
 // ──────────────────────────────────────────────
@@ -682,22 +759,30 @@ async function inventoryData(
 ): Promise<DataCapability[]> {
   const capabilities: DataCapability[] = [];
 
+  // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+
   // OB-162: Also read import_batch_id for convergence bindings
-  const { data: rows } = await supabase
+  let q = supabase
     .from('committed_data')
     .select('data_type, row_data, metadata, import_batch_id')
     .eq('tenant_id', tenantId)
     .not('data_type', 'is', null)
     .limit(500);
+  if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+  const { data: rows } = await q;
 
   // OB-128: Separately fetch rows with semantic_roles (SCI-committed data)
-  const { data: sciRows } = await supabase
+  let q2 = supabase
     .from('committed_data')
     .select('data_type, row_data, metadata, import_batch_id')
     .eq('tenant_id', tenantId)
     .not('data_type', 'is', null)
     .not('metadata->semantic_roles', 'is', null)
     .limit(50);
+  if (supersededIds.length > 0) q2 = q2.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+  const { data: sciRows } = await q2;
 
   const allRows = [...(rows || [])];
   if (sciRows) {
@@ -1306,13 +1391,15 @@ interface PlausibilityResult {
   medianPeerResult: number;
   ratioToMedian: number;
   isAnomaly: boolean;
-  anomalyType?: 'scale_mismatch' | 'rate_outlier' | 'unknown';
-  proposedCorrection?: {
-    type: 'scale_factor';
-    currentScale: number;
-    proposedScale: number;
-    correctedResult: number;
+  anomalyType?: 'scale_mismatch' | 'rate_outlier' | 'binding_misalignment' | 'unknown';
+  // HF-196 Phase 1G Path α (HF-203): architectural inversion — ratio>10 vs peer median is binding
+  // misalignment evidence, not magnitude error. Reject binding (mark match_pass='failed') and
+  // surface convergence gap; do NOT patch scale_factor.
+  proposedAction?: {
+    type: 'binding_rejection';
+    rejectedColumn: string;
     bindingRole: string;
+    rationale: string;
   };
 }
 
@@ -1484,31 +1571,29 @@ function checkCalculationPlausibility(
     if (result.sampleResult > 0 && medianResult > 0) {
       result.ratioToMedian = result.sampleResult / medianResult;
       if (result.ratioToMedian > 10) {
+        // HF-196 Phase 1G Path α (HF-203): ratio>10 vs peer median is evidence of binding
+        // misalignment (wrong column bound), NOT magnitude error. Reject binding; surface
+        // convergence gap; do NOT patch scale_factor. Auto-correction masks the misalignment
+        // as silent-failure mode (Cantidad_Productos_Cruzados defect: ratio=2636.4 →
+        // scale_factor=0.001 → engine reads deposits values × 0.001 → plausible-shaped wrong result).
         result.isAnomaly = true;
-        result.anomalyType = 'scale_mismatch';
+        result.anomalyType = 'binding_misalignment';
 
-        // Propose correction: try dividing by powers of 10 to bring within range
         const comp = components[result.componentIndex];
         const compKey = `component_${comp.index}`;
         const cb = componentBindings[compKey];
 
-        for (const scaleDivisor of [100, 10, 1000]) {
-          const correctedResult = result.sampleResult / scaleDivisor;
-          const correctedRatio = correctedResult / medianResult;
-          if (correctedRatio >= 0.1 && correctedRatio <= 10) {
-            // Find which binding role carries the value that needs scaling
-            const bindingRole = cb.numerator ? 'numerator' : cb.actual ? 'actual' : 'row';
-            const binding = cb[bindingRole];
-            const currentScale = binding?.scale_factor ?? 1;
-
-            result.proposedCorrection = {
-              type: 'scale_factor',
-              currentScale,
-              proposedScale: currentScale / scaleDivisor,
-              correctedResult,
+        if (cb) {
+          // Find which binding role carries the misaligned value
+          const bindingRole = cb.numerator ? 'numerator' : cb.actual ? 'actual' : 'row';
+          const binding = cb[bindingRole];
+          if (binding) {
+            result.proposedAction = {
+              type: 'binding_rejection',
+              rejectedColumn: binding.column,
               bindingRole,
+              rationale: `ratio ${result.ratioToMedian.toFixed(1)}x peer median indicates wrong column bound, not wrong scale`,
             };
-            break;
           }
         }
       }
@@ -1517,17 +1602,16 @@ function checkCalculationPlausibility(
 
   // Log all results
   for (const r of results) {
-    const status = r.isAnomaly ? 'SCALE ANOMALY' : 'OK';
+    const status = r.isAnomaly ? 'BINDING MISALIGNMENT' : 'OK';
     console.log(
       `[CONVERGENCE-VALIDATION] Component ${r.componentIndex} (${r.componentName}): ` +
       `sample=${r.sampleResult.toFixed(0)}, median_peer=${r.medianPeerResult.toFixed(0)}, ` +
       `ratio=${r.ratioToMedian.toFixed(1)} — ${status}`
     );
-    if (r.proposedCorrection) {
+    if (r.proposedAction) {
       console.log(
-        `[CONVERGENCE-VALIDATION]   Proposed correction: scale_factor ${r.proposedCorrection.currentScale}→${r.proposedCorrection.proposedScale}, ` +
-        `corrected=${r.proposedCorrection.correctedResult.toFixed(0)}, ` +
-        `new_ratio=${(r.proposedCorrection.correctedResult / r.medianPeerResult).toFixed(1)}`
+        `[CONVERGENCE-VALIDATION]   Proposed action: binding_rejection on column "${r.proposedAction.rejectedColumn}" ` +
+        `(role=${r.proposedAction.bindingRole}); rationale: ${r.proposedAction.rationale}`
       );
     }
   }
@@ -1913,12 +1997,17 @@ async function generateAISemanticDerivations(
   }
 
   // 2. Get sample rows
-  const { data: sampleRows } = await supabase
+  // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+  const { fetchSupersededBatchIds: fetchSupersededBatchIds2 } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds3 = await fetchSupersededBatchIds2(supabase, tenantId);
+  let q3 = supabase
     .from('committed_data')
     .select('row_data')
     .eq('tenant_id', tenantId)
     .not('row_data', 'is', null)
     .limit(3);
+  if (supersededIds3.length > 0) q3 = q3.not('import_batch_id', 'in', `(${supersededIds3.join(',')})`);
+  const { data: sampleRows } = await q3;
 
   const sampleData = (sampleRows || []).map(r => r.row_data);
 

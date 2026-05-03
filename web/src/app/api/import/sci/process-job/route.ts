@@ -15,7 +15,7 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { generateContentProfile } from '@/lib/sci/content-profile';
+import { generateContentProfileStats, generateContentProfilePatterns } from '@/lib/sci/content-profile';
 import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
@@ -142,16 +142,19 @@ export async function POST(req: NextRequest) {
     // Old regex ^\d+_[a-f0-9]{8}_ failed because _index_ between timestamp and uuid breaks the pattern.
     const fileName = job.file_name.replace(/^\d+_\d+_[a-f0-9]{8}_/, '');
     const profileMap = new Map<string, ContentProfile>();
+    const sheetSampleRowsBySheet = new Map<string, Record<string, unknown>[]>();
     const fileSheets: Array<{ sourceFile: string; sheetName: string }> = [];
 
+    // HF-196 Phase 1G Path α — Phase A: deterministic stats only (no patterns yet).
     for (let tabIndex = 0; tabIndex < sheets.length; tabIndex++) {
       const sheet = sheets[tabIndex];
       const sampleRows = sheet.rows.slice(0, ANALYSIS_SAMPLE_SIZE);
-      const profile = generateContentProfile(
+      const profile = generateContentProfileStats(
         sheet.sheetName, tabIndex, fileName,
         sheet.columns, sampleRows, sheet.totalRowCount,
       );
       profileMap.set(sheet.sheetName, profile);
+      sheetSampleRowsBySheet.set(sheet.sheetName, sampleRows);
       fileSheets.push({ sourceFile: fileName, sheetName: sheet.sheetName });
     }
 
@@ -168,6 +171,13 @@ export async function POST(req: NextRequest) {
         })),
         tenantId,
       );
+    }
+
+    // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
+    for (const [sheetName, profile] of Array.from(profileMap.entries())) {
+      const hcInterpretations = profile.headerComprehension?.interpretations;
+      const sampleRows = sheetSampleRowsBySheet.get(sheetName) ?? [];
+      generateContentProfilePatterns(profile, hcInterpretations, sampleRows);
     }
 
     console.log(`[SCI-WORKER] Job ${jobId.substring(0, 8)}: HC ${skipHC ? 'SKIPPED (Tier 1)' : 'completed'}`);
