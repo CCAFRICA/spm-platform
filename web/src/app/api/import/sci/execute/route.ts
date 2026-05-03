@@ -77,6 +77,37 @@ export async function POST(req: NextRequest) {
     // HF-090: Use auth.uid() directly for created_by attribution (JWT-verified identity)
     const profileId = authUser.id;
 
+    // HF-196 Phase 1F-corrective: Compute SHA-256 over RAW FILE BYTES (not parsed
+    // JSON intermediates per FP-43 / AP-34 / OB-50). Single canonical computation
+    // per request; threaded through all dispatch pipelines that insert into
+    // import_batches. Plan path goes through executeBatchedPlanInterpretation /
+    // executePlanPipeline and uses HF-132 rule_sets-layer supersession (not
+    // import_batches Phase 1F supersession), so plan-only requests do not require
+    // SHA. Non-plan requests REQUIRE storagePath + successful download.
+    let fileHashSha256: string | null = null;
+    if (storagePath) {
+      try {
+        const { data: fileData, error: dlErr } = await supabase.storage
+          .from('ingestion-raw')
+          .download(storagePath);
+        if (dlErr || !fileData) {
+          console.error(`[SCI Execute Phase 1F] file download failed for SHA: ${dlErr?.message ?? 'no data'}`);
+        } else {
+          const fileBuffer = Buffer.from(await fileData.arrayBuffer());
+          fileHashSha256 = computeFileHashSha256(fileBuffer);
+        }
+      } catch (err) {
+        console.error(`[SCI Execute Phase 1F] file fetch threw (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    const nonPlanExists = contentUnits.some(u => u.confirmedClassification !== 'plan');
+    if (nonPlanExists && !fileHashSha256) {
+      return NextResponse.json(
+        { error: 'Phase 1F: storagePath required for non-plan import (file_hash_sha256 mandatory per Rule 30 + OB-50 supersession primitive)' },
+        { status: 400 }
+      );
+    }
+
     // Verify tenant exists + read industry for domain flywheel (OB-160J)
     const { data: tenant } = await supabase
       .from('tenants')
@@ -123,7 +154,7 @@ export async function POST(req: NextRequest) {
     for (const unit of sorted) {
       if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-130: already handled in batch
       try {
-        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId, storagePath);
+        const result = await executeContentUnit(supabase, tenantId, proposalId, unit, profileId, storagePath, fileHashSha256);
         results.push(result);
       } catch (err) {
         results.push({
@@ -427,22 +458,24 @@ async function executeContentUnit(
   proposalId: string,
   unit: ContentUnitExecution,
   userId: string,
-  storagePath?: string,
+  storagePath: string | undefined,
+  fileHashSha256: string | null,
 ): Promise<ContentUnitResult> {
   // OB-134: For PARTIAL claims, filter rawData to only include owned + shared fields
   const effectiveUnit = filterFieldsForPartialClaim(unit);
 
   switch (effectiveUnit.confirmedClassification) {
     case 'target':
-      return executeTargetPipeline(supabase, tenantId, proposalId, effectiveUnit);
+      // POST handler validation guarantees fileHashSha256 non-null for non-plan classifications.
+      return executeTargetPipeline(supabase, tenantId, proposalId, effectiveUnit, fileHashSha256!);
     case 'transaction':
-      return executeTransactionPipeline(supabase, tenantId, proposalId, effectiveUnit);
+      return executeTransactionPipeline(supabase, tenantId, proposalId, effectiveUnit, fileHashSha256!);
     case 'entity':
-      return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit);
+      return executeEntityPipeline(supabase, tenantId, proposalId, effectiveUnit, fileHashSha256!);
     case 'plan':
       return executePlanPipeline(supabase, tenantId, effectiveUnit, userId, storagePath);
     case 'reference':
-      return executeReferencePipeline(supabase, tenantId, proposalId, effectiveUnit, userId);
+      return executeReferencePipeline(supabase, tenantId, proposalId, effectiveUnit, userId, fileHashSha256!);
   }
 }
 
@@ -487,6 +520,7 @@ async function executeTargetPipeline(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -501,10 +535,8 @@ async function executeTargetPipeline(
 
   // Create import batch
   const batchId = crypto.randomUUID();
-  // HF-196 Phase 1F: SHA-256 over canonical row content (execute path uses parsed
-  // rawData, not raw file bytes — file is fetched per-pipeline elsewhere; same
-  // content yields same hash for supersession purposes).
-  const fileHashSha256 = computeFileHashSha256(Buffer.from(JSON.stringify(unit.rawData)));
+  // HF-196 Phase 1F-corrective: fileHashSha256 computed at POST handler over RAW
+  // FILE BYTES (FP-43 / AP-34 / OB-50 compliant); threaded in as parameter.
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -642,6 +674,7 @@ async function executeTransactionPipeline(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -655,8 +688,8 @@ async function executeTransactionPipeline(
   }
 
   const batchId = crypto.randomUUID();
-  // HF-196 Phase 1F: SHA-256 over canonical row content (execute path uses parsed rawData).
-  const fileHashSha256 = computeFileHashSha256(Buffer.from(JSON.stringify(unit.rawData)));
+  // HF-196 Phase 1F-corrective: fileHashSha256 computed at POST handler over RAW
+  // FILE BYTES (FP-43 / AP-34 / OB-50 compliant); threaded in as parameter.
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -788,6 +821,7 @@ async function executeEntityPipeline(
   tenantId: string,
   proposalId: string,
   unit: ContentUnitExecution,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   const rows = unit.rawData;
   if (!rows || rows.length === 0) {
@@ -802,8 +836,8 @@ async function executeEntityPipeline(
 
   // Create import batch for entity data
   const batchId = crypto.randomUUID();
-  // HF-196 Phase 1F: SHA-256 over canonical row content (execute path uses parsed rawData).
-  const fileHashSha256 = computeFileHashSha256(Buffer.from(JSON.stringify(unit.rawData)));
+  // HF-196 Phase 1F-corrective: fileHashSha256 computed at POST handler over RAW
+  // FILE BYTES (FP-43 / AP-34 / OB-50 compliant); threaded in as parameter.
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -919,6 +953,7 @@ async function executeReferencePipeline(
   proposalId: string,
   unit: ContentUnitExecution,
   userId: string,
+  fileHashSha256: string,
 ): Promise<ContentUnitResult> {
   void userId; // No longer needed — reference_data.created_by not used
   const rows = unit.rawData;
@@ -934,8 +969,8 @@ async function executeReferencePipeline(
 
   // Create import batch
   const batchId = crypto.randomUUID();
-  // HF-196 Phase 1F: SHA-256 over canonical row content (execute path uses parsed rawData).
-  const fileHashSha256 = computeFileHashSha256(Buffer.from(JSON.stringify(unit.rawData)));
+  // HF-196 Phase 1F-corrective: fileHashSha256 computed at POST handler over RAW
+  // FILE BYTES (FP-43 / AP-34 / OB-50 compliant); threaded in as parameter.
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
