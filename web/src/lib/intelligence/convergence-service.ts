@@ -80,10 +80,12 @@ export interface ComponentBinding {
   source_batch_id: string;
   column: string;
   field_identity: FieldIdentity;
-  match_pass: number;  // 1=structural/boundary, 2=contextual/AI, 3=token
+  match_pass: number | 'failed';  // 1=structural/boundary, 2=contextual/AI, 3=token, 'failed'=HF-203 binding rejection
   confidence: number;
   // HF-111: Scale factor for percentage columns (e.g., 100 when column is 0-1 ratio but boundary is 0-100)
   scale_factor?: number;
+  // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
+  failure_reason?: string;
 }
 
 interface BindingMatch {
@@ -313,31 +315,38 @@ export async function convergeBindings(
       components, componentBindings, distributions
     );
 
-    // Apply corrections to bindings
+    // HF-196 Phase 1G Path α (HF-203): apply binding rejections — mark match_pass='failed' on
+    // misaligned bindings; surface as convergence gap. Do NOT patch scale_factor. Engine reads
+    // operate only on bindings with legitimate scale_factor values from the column-mapping
+    // process (set in generateAllComponentBindings); rejected bindings either have failed
+    // match_pass (downstream consumers must skip / surface gap) or get re-mapped via convergence
+    // gap surface (caller-driven, out of scope for this function).
     for (const pr of plausibilityResults) {
-      if (pr.isAnomaly && pr.proposedCorrection) {
+      if (pr.isAnomaly && pr.proposedAction?.type === 'binding_rejection') {
         const compKey = `component_${pr.componentIndex}`;
         const cb = componentBindings[compKey];
         if (cb) {
-          const role = pr.proposedCorrection.bindingRole;
+          const role = pr.proposedAction.bindingRole;
           const binding = cb[role];
           if (binding) {
-            binding.scale_factor = pr.proposedCorrection.proposedScale;
+            binding.match_pass = 'failed';
+            binding.failure_reason = pr.proposedAction.rationale;
             console.log(
-              `[CONVERGENCE-VALIDATION]   Applying correction to ${compKey}:${role} ` +
-              `(decision_source: structural_anomaly)`
+              `[CONVERGENCE-VALIDATION]   Binding rejected on ${compKey}:${role} ` +
+              `(decision_source: binding_misalignment, rejected_column: ${pr.proposedAction.rejectedColumn}, ` +
+              `ratio: ${pr.ratioToMedian.toFixed(1)}x)`
             );
           }
         }
       }
     }
 
-    // Capture classification signals
+    // Capture classification signals (HF-203 inversion: signal carries binding rejection, not scale correction)
     for (const pr of plausibilityResults) {
       if (pr.isAnomaly) {
         const compKey = `component_${pr.componentIndex}`;
         const cb = componentBindings[compKey];
-        const bindingRole = pr.proposedCorrection?.bindingRole ?? 'actual';
+        const bindingRole = pr.proposedAction?.bindingRole ?? 'actual';
         const colName = cb?.[bindingRole]?.column ?? 'unknown';
         const dist = distributions[colName];
 
@@ -349,15 +358,15 @@ export async function convergeBindings(
             component_name: pr.componentName,
             anomaly_type: pr.anomalyType,
             detected_result: pr.sampleResult,
-            corrected_result: pr.proposedCorrection?.correctedResult,
             peer_median: pr.medianPeerResult,
             ratio_to_median: pr.ratioToMedian,
-            correction_applied: !!pr.proposedCorrection,
-            correction_type: pr.proposedCorrection?.type,
+            action_applied: !!pr.proposedAction,
+            action_type: pr.proposedAction?.type,
+            rejected_column: pr.proposedAction?.rejectedColumn,
           },
           confidence: 0.85,
           source: 'convergence_validation',
-          decision_source: 'structural_anomaly',
+          decision_source: 'binding_misalignment',
           context: {
             plan_id: ruleSetId,
             component_type: components[pr.componentIndex]?.calculationOp ?? 'unknown',
@@ -1382,13 +1391,15 @@ interface PlausibilityResult {
   medianPeerResult: number;
   ratioToMedian: number;
   isAnomaly: boolean;
-  anomalyType?: 'scale_mismatch' | 'rate_outlier' | 'unknown';
-  proposedCorrection?: {
-    type: 'scale_factor';
-    currentScale: number;
-    proposedScale: number;
-    correctedResult: number;
+  anomalyType?: 'scale_mismatch' | 'rate_outlier' | 'binding_misalignment' | 'unknown';
+  // HF-196 Phase 1G Path α (HF-203): architectural inversion — ratio>10 vs peer median is binding
+  // misalignment evidence, not magnitude error. Reject binding (mark match_pass='failed') and
+  // surface convergence gap; do NOT patch scale_factor.
+  proposedAction?: {
+    type: 'binding_rejection';
+    rejectedColumn: string;
     bindingRole: string;
+    rationale: string;
   };
 }
 
@@ -1560,31 +1571,29 @@ function checkCalculationPlausibility(
     if (result.sampleResult > 0 && medianResult > 0) {
       result.ratioToMedian = result.sampleResult / medianResult;
       if (result.ratioToMedian > 10) {
+        // HF-196 Phase 1G Path α (HF-203): ratio>10 vs peer median is evidence of binding
+        // misalignment (wrong column bound), NOT magnitude error. Reject binding; surface
+        // convergence gap; do NOT patch scale_factor. Auto-correction masks the misalignment
+        // as silent-failure mode (Cantidad_Productos_Cruzados defect: ratio=2636.4 →
+        // scale_factor=0.001 → engine reads deposits values × 0.001 → plausible-shaped wrong result).
         result.isAnomaly = true;
-        result.anomalyType = 'scale_mismatch';
+        result.anomalyType = 'binding_misalignment';
 
-        // Propose correction: try dividing by powers of 10 to bring within range
         const comp = components[result.componentIndex];
         const compKey = `component_${comp.index}`;
         const cb = componentBindings[compKey];
 
-        for (const scaleDivisor of [100, 10, 1000]) {
-          const correctedResult = result.sampleResult / scaleDivisor;
-          const correctedRatio = correctedResult / medianResult;
-          if (correctedRatio >= 0.1 && correctedRatio <= 10) {
-            // Find which binding role carries the value that needs scaling
-            const bindingRole = cb.numerator ? 'numerator' : cb.actual ? 'actual' : 'row';
-            const binding = cb[bindingRole];
-            const currentScale = binding?.scale_factor ?? 1;
-
-            result.proposedCorrection = {
-              type: 'scale_factor',
-              currentScale,
-              proposedScale: currentScale / scaleDivisor,
-              correctedResult,
+        if (cb) {
+          // Find which binding role carries the misaligned value
+          const bindingRole = cb.numerator ? 'numerator' : cb.actual ? 'actual' : 'row';
+          const binding = cb[bindingRole];
+          if (binding) {
+            result.proposedAction = {
+              type: 'binding_rejection',
+              rejectedColumn: binding.column,
               bindingRole,
+              rationale: `ratio ${result.ratioToMedian.toFixed(1)}x peer median indicates wrong column bound, not wrong scale`,
             };
-            break;
           }
         }
       }
@@ -1593,17 +1602,16 @@ function checkCalculationPlausibility(
 
   // Log all results
   for (const r of results) {
-    const status = r.isAnomaly ? 'SCALE ANOMALY' : 'OK';
+    const status = r.isAnomaly ? 'BINDING MISALIGNMENT' : 'OK';
     console.log(
       `[CONVERGENCE-VALIDATION] Component ${r.componentIndex} (${r.componentName}): ` +
       `sample=${r.sampleResult.toFixed(0)}, median_peer=${r.medianPeerResult.toFixed(0)}, ` +
       `ratio=${r.ratioToMedian.toFixed(1)} — ${status}`
     );
-    if (r.proposedCorrection) {
+    if (r.proposedAction) {
       console.log(
-        `[CONVERGENCE-VALIDATION]   Proposed correction: scale_factor ${r.proposedCorrection.currentScale}→${r.proposedCorrection.proposedScale}, ` +
-        `corrected=${r.proposedCorrection.correctedResult.toFixed(0)}, ` +
-        `new_ratio=${(r.proposedCorrection.correctedResult / r.medianPeerResult).toFixed(1)}`
+        `[CONVERGENCE-VALIDATION]   Proposed action: binding_rejection on column "${r.proposedAction.rejectedColumn}" ` +
+        `(role=${r.proposedAction.bindingRole}); rationale: ${r.proposedAction.rationale}`
       );
     }
   }

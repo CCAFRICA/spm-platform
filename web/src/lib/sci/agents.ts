@@ -532,13 +532,16 @@ function assignSemanticRole(
     }
     return { role: 'entity_identifier', context: `${field.fieldName} — reference key`, confidence: 0.90 };
   }
-  // Structural sequential integer → cardinality check
-  if (field.dataType === 'integer' && field.distribution.isSequential) {
+  // HF-196 Phase 1G — Structural fallback ONLY when HC is silent (Decision 108: HC Override Authority Hierarchy LOCKED).
+  // Twin of negotiation.ts:299 fix. Preserves entity-id classification for cold-start /
+  // flywheel-roleMap-miss / LLM-error scenarios; prevents structural override of HC-confident
+  // measure/attribute interpretations (closes Adjacent-Arm Drift on assignSemanticRole).
+  if ((!hcRole || hcRole === 'unknown') && field.dataType === 'integer' && field.distribution.isSequential) {
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
-      return { role: 'transaction_identifier', context: `${field.fieldName} — sequential per-row identifier`, confidence: 0.85 };
+      return { role: 'transaction_identifier', context: `${field.fieldName} — sequential per-row identifier (HC silent)`, confidence: 0.75 };
     }
-    return { role: 'entity_identifier', context: `${field.fieldName} — sequential entity identifier`, confidence: 0.85 };
+    return { role: 'entity_identifier', context: `${field.fieldName} — sequential entity identifier (HC silent)`, confidence: 0.75 };
   }
 
   switch (agent) {
