@@ -354,7 +354,7 @@ Sections 1G-0 through 1G-11 populated. Phase 5-RESET-7 + final verdict sections 
 
 ---
 
-## Phase 5-RESET-7: Empirical Verification (PENDING)
+## Phase 5-RESET-7: Empirical Verification
 
 Per §11.13 amendment — reconciliation discipline:
 - CC verifies structural correctness; CC reports raw calculated values.
@@ -362,81 +362,177 @@ Per §11.13 amendment — reconciliation discipline:
 - CC does not author or load any reference dataset; CC does not produce reconciliation interpretation.
 
 ### Architect signal 1 — wipe applied
-- Wipe verification (10-table count = 0): _pending_
+- Wipe verification (10-table count = 0): **PASS** — all 10 tables verified empty for BCL tenant pre-import.
 
 ### Architect signal 2 — 7 imports done
-- Operative import_batches count: _pending_
-- committed_data total + data_type distribution: _pending_
-- Transaction source_date histogram: _pending_
-- DS-017 fingerprint flywheel state: _pending_
-- **Persisted field_identities — Phase 1G empirical confirmation:**
-  - `Cantidad_Productos_Cruzados.structuralType`: _pending_
-  - `Depositos_Nuevos_Netos.structuralType`: _pending_
-  - `ID_Empleado.structuralType`: _pending_
+- Operative `import_batches` count: **7**
+- `committed_data` total: **595** (85 entity + 510 transaction)
+- Transaction `source_date` histogram: 6 contiguous months × 85 each
+- DS-017 fingerprint flywheel: roster `a94f3b01211a` cls=entity match=1; transaction `fbead6eed137` cls=transaction match=6
+- **Persisted field_identities — Phase 1G HC primacy empirical confirmation:**
+  - `Cantidad_Productos_Cruzados.structuralType`: **`measure`** ✓
+  - `Depositos_Nuevos_Netos.structuralType`: **`measure`** ✓
+  - `ID_Empleado.structuralType`: **`identifier`** ✓
 
 ### Architect signal 3 — plan import done
-- rule_sets state: _pending_
-- convergence_bindings per component: _pending_
-- **Productos Cruzados component → bound column:** _pending_
-- scale_factor presence on bindings: _pending_
-- HF-203 emissions (match_pass='failed', binding_misalignment): _pending_
-- Plan-import emission scan (seeds, UnconvertibleComponentError, SCALE ANOMALY): _pending_
+- `rule_sets` count: **1 active** ("Plan de Comisiones — Banca Minorista 2025-2026", v=1)
+- Convergence bindings: 4 component bindings populated
+- **Productos Cruzados (component_2) → bound column: `Cantidad_Productos_Cruzados`** ✓ (was `Depositos_Nuevos_Netos` pre-1G)
+- `scale_factor` on component_2: **absent** (no anomaly correction needed; HF-203 inversion present, inert)
+- HF-203 emissions (`match_pass='failed'`, `binding_misalignment`): **0**
+- Plan-import emission scan (`seeds`, `UnconvertibleComponentError`, `SCALE ANOMALY`): **0/0/0**
 
-### Architect signal 4 — calc done
-- calculation_batches count + lifecycle states: _pending_
-- calculation_results total count + per-period count: _pending_
-- **Per-period calculated totals (calculated values surfaced to architect channel):** _pending_
-- **Grand total calculated:** _pending_
-- Component-variant aggregates (across 6 periods × 85 entities): _pending_
-- Calc emission scan (SCALE ANOMALY, binding_misalignment, concordance): _pending_
-- Calc-time entity resolver matched/unmatched: _pending_
+### Architect signal 4 — calc done (Phase 5-RESET-7 — Oct calc only at this signal)
+- `calculation_batches` for Oct 2025: 1 (`5de6d77e…`, lifecycle_state=PREVIEW)
+- Oct 2025 calculated total: **$45,790** (CC reported value verbatim)
+- 100% intent-executor concordance (85 match, 0 mismatch)
 
 ### Architect signal 5 — architect-reconcile complete
-- **Architect-channel reconciliation verdict (architect supplies):**
-  - Reconciliation reference: `BCL_Resultados_Esperados.xlsx`
-  - Verdict: _pending_
-  - Defect findings (if any, architect-supplied): _pending_
-  - Disposition (if FAIL): _pending_
+- **Architect-channel verdict (Phase 5-RESET-7):** Oct calc surfaced C4 Cumplimiento Regulatorio overshoot $1,200 across 11 entities — defect localized; Phase 1G-14 (HF-204) absorbed for resolution. Reconciliation discipline: not architecturally complete on Phase 5-RESET-7 alone — Phase 1G-14 + Phase 5-RESET-8 follow.
 
 ---
 
-## Phase 1G Path α Closure Verdict (PENDING)
+## Phase 5-RESET-8: Empirical Verification (post-HF-204)
 
-Structural gates (CC self-asserts):
-- HC primacy operative at `field_identities`: _pending_
-- Pipeline reordering operative (α-1 two-phase split): _pending_
-- Convergence binding correctness: _pending_
-- HF-203 architectural inversion present + correctly inert on this substrate: _pending_
-- Calc completes across 6 periods: _pending_
+### Architect signal 1 — Oct re-calc done
+- Oct 2025 calculated total: **$44,590** (Δ −$1,200 vs Phase 5-RESET-7; 11 entities × {100, 150} now correctly disqualified per `Infracciones_Regulatorias > 0`)
+- C4 component sums per period: ejecutivo 6,300 / senior 1,650 (was 7,200 / 1,950 pre-HF-204)
+- HF-204 visitor pattern operative end-to-end: `getExpectedMetricNames` walks AST including `intent.condition.left/right`; `data.metrics` populated with lowercase `infracciones_regulatorias`; resolveSource direct-key lookup hits; conditional_gate evaluates correctly per source value.
 
-Reconciliation gate (architect-channel):
-- Architect reconciliation verdict: _pending_
+### Architect signal 2 — Nov-Mar periods+calc done
+- Per-period totals: Nov 45,681 / Dic 61,986 / Ene 47,285 / Feb 53,215 / Mar 57,976
+- 6-month grand: **$310,733**
+- 6 calc batches × 85 entities × 100% concordance
 
-Phase 1G Path α: _pending_ (PASS requires all structural gates + architect-channel PASS-RECONCILED)
-
----
-
-## HF-196 Closure (PENDING)
-
-- All architectural breaks closed: _pending_
-- Phase 5-RESET-7 PASS (structural + reconciliation): _pending_
-- PR #359 ready for Ready-for-Review transition: _pending_
+### Architect signal 3 — architect-reconcile complete
+- **Architect-channel verdict (Phase 5-RESET-8):** 4 entity-component C1 mismatches across Nov / Ene / Mar — boundary-gap defect localized; Phase 1G-15 (Decision 127 structural adoption) absorbed for resolution.
 
 ---
 
-## Out-of-Scope Carry-Forward
+## Phase 5-RESET-9: Empirical Verification (post-Decision-127)
+
+### Architect signal 1 — wipe applied
+- Wipe verification (10-table count = 0): **PASS** — all 10 tables verified empty for BCL tenant pre-import.
+
+### Architect signal 2 — imports done
+- Operative `import_batches` count: **7**
+- `committed_data` total: **595** (85 entity + 510 transaction)
+- Transaction `source_date` histogram: 6 contiguous months × 85 each
+- `entities` count: **85**
+- `rule_sets` count: **1 active** (`bceb9330`, "Plan de Comisiones — Banca Minorista 2025-2026", v=1)
+- Phase 1G HC primacy gate: `Cantidad_Productos_Cruzados.structuralType = 'measure'` ✓
+- **Phase 1G-15 critical gate — boundary canonicalization (Decision 127):**
+  - All 8 boundary arrays (2 variants × 4 components × {row+col / single}) pass `assertCanonicalBoundaries`
+  - All `bounded_lookup_2d` and `bounded_lookup_1d` boundaries are contiguous half-open partitions (`max === next.min`, `maxInclusive: false` on non-final, final `max: null` or `maxInclusive: true`)
+  - Zero `.X99` truncation patterns; zero gaps; zero overlaps
+  - Example (`colocacion_credito_senior` columnBoundaries): `[0..0.7) [0.7..0.8) [0.8..0.9) [0.9..0.95) [0.95..]`
+
+### Architect signal 3 — periods+calc done
+
+| Period | Calculated Total | Entities | Batch | Concordance |
+|---|---:|---:|---|---|
+| Oct 2025 | 44,590.00 | 85 | `d18fd35b…` | 100% |
+| Nov 2025 | 46,291.00 | 85 | `09a17393…` | 100% |
+| Dic 2025 | 61,986.00 | 85 | `fee26b11…` | 100% |
+| Ene 2026 | 47,545.00 | 85 | `6cf17714…` | 100% |
+| Feb 2026 | 53,215.00 | 85 | `9d148825…` | 100% |
+| Mar 2026 | 58,406.00 | 85 | `5eed594e…` | 100% |
+| **GRAND (Oct-Mar)** | **312,033.00** | | | |
+
+Component-variant aggregates (8 componentIds across 6 periods × 85 entities): 6 itemized TSVs at `docs/CC-artifacts/HF-196_Phase5RESET9_<period>_itemized.tsv` (commit `55209cda`).
+
+Decision 127 closure verification — 4 C1 boundary-gap entity-period cells now resolve to non-zero values:
+- BCL-5071 + BCL-5077 (Nov 2025): Δ +610 in Nov c1 sums
+- BCL-5061 (Ene 2026): Δ +260 in Ene c1_senior
+- BCL-5046 (Mar 2026): Δ +430 in Mar c1_ejecutivo
+- Net Δ +1,300 vs Phase 5-RESET-8 (matches architect-channel reconciliation gap)
+
+### Architect signal 4 — architect-reconcile complete
+
+**Architect-channel reconciliation verdict (2026-05-03):**
+- Reconciliation reference: `BCL_Resultados_Esperados.xlsx` Detalle
+- Coverage: **6 periods × 4 components × 85 entities × 2 variants = 2,040 cells**
+- Verdict: **PASS-RECONCILED**
+- Match precision: **All 2,040 cells exact match**
+- Grand total calculated: **$312,033.00** = Grand total ground truth: **$312,033.00**
+
+---
+
+## Phase 1G Path α Closure Verdict
+
+**Structural gates (CC self-asserts):**
+
+| Gate | Verdict |
+|---|---|
+| HC primacy operative at `field_identities` (Phase 1G Path α — Sites 1-8 + α-1 pipeline reordering) | **PASS** |
+| Pipeline reordering operative (α-1 two-phase content-profile split) | **PASS** |
+| Convergence binding correctness (Productos Cruzados → `Cantidad_Productos_Cruzados`) | **PASS** |
+| HF-203 architectural inversion present + correctly inert on this substrate | **PASS** |
+| Calc completes across 6 periods (100% concordance, zero anomalies) | **PASS** |
+| HF-204 visitor-pattern metadata extraction (Phase 1G-14) | **PASS** |
+| Decision 127 structural adoption (Phase 1G-15 boundary canonicalization) | **PASS** |
+
+**Reconciliation gate (architect-channel):**
+
+| Gate | Verdict |
+|---|---|
+| Architect reconciliation verdict against `BCL_Resultados_Esperados.xlsx` Detalle | **PASS-RECONCILED** |
+| All 2,040 cells exact match | **PASS** |
+| Grand total $312,033 = ground truth | **PASS** |
+
+**Phase 1G Path α: PASS** ✓ (all structural gates + architect-channel PASS-RECONCILED)
+
+---
+
+## HF-196 Closure
+
+| Closure dimension | Status |
+|---|---|
+| Break #1 — Convergence path drift (D153 atomic cutover) | **CLOSED** (Phase 3) |
+| Break #2 — Entity binding gap (calc-time resolver) | **CLOSED** (Phase 2) |
+| Break #3 — Import surface fragmentation | **CLOSED** (Phase 1) |
+| Phase 1B — HF-186/HF-110 regressions | **CLOSED** |
+| Phase 1C — TEMPORAL_ROLES whitelist | **CLOSED** |
+| Phase 1D — D154/D155 single-canonical data_type | **CLOSED** |
+| Phase 1E — import_batches supersession schema | **CLOSED** |
+| Phase 1F + 1F-corrective — SHA-256 supersession primitive (raw file bytes) | **CLOSED** |
+| Phase 1G Path α — HC primacy + pipeline reordering + HF-203 inversion | **CLOSED** |
+| Phase 1G-14 — HF-204 absorption (visitor-pattern metadata extraction) | **CLOSED** |
+| Phase 1G-15 — Decision 127 structural adoption (boundary canonicalization) | **CLOSED** |
+| Phase 5-RESET-9 reconciliation (Oct-Mar 2,040 cells) | **PASS-RECONCILED** |
+
+**HF-196: ARCHITECTURALLY COMPLETE.**
+**PR #359: Ready for Ready-for-Review transition.**
+
+---
+
+## Out-of-Scope Carry-Forward (post-HF-196)
 
 - **HF-198 candidate** — `calculation_batches.superseded_at` + `supersession_reason` audit-column gap (logged Phase 1E-1).
 - **HF-199 candidate** — OB-50 surface restoration (15 schema columns missing on `ingestion_events`; SCI flow bypasses).
 - **Plan-path data_type vocabulary** (`commit/route.ts` + `intelligence/wire/route.ts`) — Phase 5D verified non-blocking; carry-forward.
-- **HF-202 — ABSORBED into Phase 1G Path α** (no longer carry-forward).
-- **HF-203 — ABSORBED into Phase 1G Path α** (no longer carry-forward).
-- **HF-205 — ABSORBED into Phase 1G Path α** (no longer carry-forward).
+- **HF-202** — ABSORBED into Phase 1G Path α (no longer carry-forward).
+- **HF-203** — ABSORBED into Phase 1G Path α (no longer carry-forward).
+- **HF-204** — ABSORBED into Phase 1G-14 (no longer carry-forward).
+- **HF-205** — ABSORBED into Phase 1G Path α (no longer carry-forward).
+- **trajectory-engine.ts parallel `findBoundaryIndex`** (line 63-78) — not on operative calc path; deferred unless surfaced live (not blocking HF-196 closure).
 
 ---
 
 ## Memory Entry 30 Closure Verification
 
-Phase 1G Path α is **substrate-APPLYING** (Decision 108 to predicates that always violated it) AND **substrate-EXTENDING** (pipeline reordering modifies SCI architecture). Authorial intent of HF-095 Phase 2 ("HC primary, structural fallback") restored across the entire SCI classification surface; Adjacent-Arm Drift defect-class structurally closed via pipeline-ordering fix.
+Phase 1G Path α + Phase 1G-14 + Phase 1G-15 are collectively **substrate-APPLYING** (Decision 108 to predicates that always violated it; Decision 127 to boundary representation that never realized its locked semantic) AND **substrate-EXTENDING** (α-1 pipeline reordering modifies SCI architecture; HF-204 visitor pattern replaces position-by-position enumeration; Phase 1G-15 introduces canonicalization layer at plan persistence).
 
-**End of report (interim — pending Phase 5-RESET-7 architect signals).**
+**Authorial intent restoration:**
+- HF-095 Phase 2 ("HC primary, structural fallback") restored across the entire SCI classification surface
+- Decision 127 (LOCKED 2026-03-16 half-open intervals) implementation gap closed; locked semantic now operative
+
+**Adjacent-Arm Drift defect-class structurally closed at four layers:**
+1. Pipeline ordering (Phase 1G α-1 two-phase split)
+2. Role-binding predicates (Phase 1G Sites 1-8 HC-silence gating)
+3. Metadata extraction (Phase 1G-14 visitor pattern over IntentOperation AST)
+4. Boundary representation (Phase 1G-15 canonicalization layer at plan persistence)
+
+Each prior partial fix (HF-169, HF-171, HF-186, HF-196 Phase 1B, OB-169) closed an adjacent arm without addressing the structural defect class. Phase 1G-* phases close the defect class at the construction layer; future operation types and AI emission patterns automatically covered.
+
+**End of report — HF-196 architecturally complete; Phase 5-RESET-9 PASS-RECONCILED.**
