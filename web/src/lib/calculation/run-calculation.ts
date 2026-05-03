@@ -786,6 +786,14 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   console.log(`[RunCalculation] Starting: tenant=${tenantId}, period=${periodId}, ruleSet=${ruleSetId}`);
 
+  // HF-196 Phase 1E: fetch superseded import_batch ids once; engine queries below
+  // exclude these ids via NOT IN — operative-batch-only data per Rule 30.
+  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+  if (supersededIds.length > 0) {
+    console.log(`[RunCalculation] Phase 1E: ${supersededIds.length} superseded batches excluded from engine reads`);
+  }
+
   // ── 1. Fetch rule set ──
   const { data: ruleSet, error: rsErr } = await supabase
     .from('rule_sets')
@@ -909,7 +917,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     while (true) {
       const from = sdPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
-      const { data: page } = await supabase
+      // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+      let q = supabase
         .from('committed_data')
         .select('entity_id, data_type, row_data')
         .eq('tenant_id', tenantId)
@@ -917,6 +926,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         .gte('source_date', period.start_date)
         .lte('source_date', period.end_date)
         .range(from, to);
+      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      const { data: page } = await q;
 
       if (!page || page.length === 0) break;
       committedData.push(...page);
@@ -935,12 +946,15 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     while (true) {
       const from = dataPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
-      const { data: page } = await supabase
+      // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+      let q = supabase
         .from('committed_data')
         .select('entity_id, data_type, row_data')
         .eq('tenant_id', tenantId)
         .eq('period_id', periodId)
         .range(from, to);
+      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      const { data: page } = await q;
 
       if (!page || page.length === 0) break;
       committedData.push(...page);
@@ -1011,7 +1025,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       while (true) {
         const from = sdPage * PAGE_SIZE;
         const to = from + PAGE_SIZE - 1;
-        const { data: page } = await supabase
+        // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+        let q = supabase
           .from('committed_data')
           .select('entity_id, data_type, row_data')
           .eq('tenant_id', tenantId)
@@ -1019,6 +1034,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
           .gte('source_date', priorPeriodInfo.start_date)
           .lte('source_date', priorPeriodInfo.end_date)
           .range(from, to);
+        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        const { data: page } = await q;
 
         if (!page || page.length === 0) break;
         priorCommittedData.push(...page);
@@ -1034,12 +1051,15 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       while (true) {
         const from = priorPage * PAGE_SIZE;
         const to = from + PAGE_SIZE - 1;
-        const { data: page } = await supabase
+        // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+        let q = supabase
           .from('committed_data')
           .select('entity_id, data_type, row_data')
           .eq('tenant_id', tenantId)
           .eq('period_id', priorPeriodId)
           .range(from, to);
+        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        const { data: page } = await q;
 
         if (!page || page.length === 0) break;
         priorCommittedData.push(...page);
@@ -1186,21 +1206,26 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   // ── 4b. Fetch AI Import Context (OB-75: Korean Test) ──
   const aiContextSheets: AIContextSheet[] = [];
   try {
-    const { data: batchRows } = await supabase
+    // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+    let bq = supabase
       .from('committed_data')
       .select('import_batch_id')
       .eq('tenant_id', tenantId)
       .eq('period_id', periodId)
       .not('import_batch_id', 'is', null)
       .limit(100);
+    if (supersededIds.length > 0) bq = bq.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+    const { data: batchRows } = await bq;
 
     const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));
 
     if (batchIds.length > 0) {
+      // HF-196 Phase 1E: also filter the import_batches lookup itself to operative.
       const { data: batches } = await supabase
         .from('import_batches')
         .select('id, metadata')
-        .in('id', batchIds);
+        .in('id', batchIds)
+        .is('superseded_by', null);
 
       for (const b of (batches ?? [])) {
         const meta = b.metadata as Record<string, unknown> | null;

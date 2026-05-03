@@ -40,6 +40,8 @@ import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
 // HF-196 Phase 1D — D154/D155 single canonical declaration of data_type:
 // derived from SCI classification via the shared resolver. No private copies.
 import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
+// HF-196 Phase 1E — Rule 30 + DS-017 supersession on fingerprint match.
+import { linkFingerprintAndSupersedePriorBatch } from '@/lib/sci/import-batch-supersession';
 
 // Generic role detection targets (AP-5/AP-6: no hardcoded language-specific names)
 
@@ -513,6 +515,9 @@ async function executeTargetPipeline(
   // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
   const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
+  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
+  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, unit.rawData);
+
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
   for (const binding of unit.confirmedBindings) {
@@ -659,6 +664,9 @@ async function executeTransactionPipeline(
   // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
   const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
+  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
+  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, unit.rawData);
+
   // Build semantic_roles map from bindings (same as target pipeline)
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
   for (const binding of unit.confirmedBindings) {
@@ -800,6 +808,9 @@ async function executeEntityPipeline(
   // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
   const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
 
+  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
+  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, unit.rawData);
+
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
   for (const binding of unit.confirmedBindings) {
@@ -925,6 +936,9 @@ async function executeReferencePipeline(
   const dataType = resolveDataTypeFromClassification('reference');
   // tabName retained for row_data._sheetName provenance (separate from data_type derivation).
   const tabName = unit.contentUnitId.split('::')[1] || 'Sheet1';
+
+  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
+  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, unit.rawData);
 
   // Build semantic_roles map from bindings
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};

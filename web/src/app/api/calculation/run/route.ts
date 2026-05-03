@@ -77,6 +77,14 @@ export async function POST(request: NextRequest) {
   const log: string[] = [];
   const addLog = (msg: string) => { log.push(msg); console.log(`[CalcAPI] ${msg}`); };
 
+  // HF-196 Phase 1E: fetch superseded import_batch ids; engine queries below
+  // exclude these via NOT IN — operative-batch-only data per Rule 30.
+  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+  if (supersededIds.length > 0) {
+    addLog(`Phase 1E: ${supersededIds.length} superseded batches excluded from engine reads`);
+  }
+
   // OB-197 G11: pre-generate the calculation run id at run-start so signals
   // emitted during convergence (which runs before the calculation_batches row
   // is inserted) share scope with the eventual batch row. The id is assigned
@@ -420,7 +428,8 @@ export async function POST(request: NextRequest) {
     while (true) {
       const from = sdPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
-      const { data: page } = await supabase
+      // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+      let q = supabase
         .from('committed_data')
         .select('entity_id, data_type, row_data, import_batch_id, metadata')
         .eq('tenant_id', tenantId)
@@ -428,6 +437,8 @@ export async function POST(request: NextRequest) {
         .gte('source_date', period.start_date)
         .lte('source_date', period.end_date)
         .range(from, to);
+      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      const { data: page } = await q;
 
       if (!page || page.length === 0) break;
       committedData.push(...page);
@@ -446,12 +457,15 @@ export async function POST(request: NextRequest) {
     while (true) {
       const from = dataPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
-      const { data: page } = await supabase
+      // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+      let q = supabase
         .from('committed_data')
         .select('entity_id, data_type, row_data, import_batch_id, metadata')
         .eq('tenant_id', tenantId)
         .eq('period_id', periodId)
         .range(from, to);
+      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      const { data: page } = await q;
 
       if (!page || page.length === 0) break;
       committedData.push(...page);
@@ -467,13 +481,16 @@ export async function POST(request: NextRequest) {
   while (true) {
     const from = nullPeriodPage * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
-    const { data: page } = await supabase
+    // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+    let q = supabase
       .from('committed_data')
       .select('entity_id, data_type, row_data, import_batch_id, metadata')
       .eq('tenant_id', tenantId)
       .is('period_id', null)
       .is('source_date', null)
       .range(from, to);
+    if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+    const { data: page } = await q;
 
     if (!page || page.length === 0) break;
     committedData.push(...page);
@@ -673,7 +690,8 @@ export async function POST(request: NextRequest) {
       while (true) {
         const from = sdPage * PAGE_SIZE;
         const to = from + PAGE_SIZE - 1;
-        const { data: page } = await supabase
+        // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+        let q = supabase
           .from('committed_data')
           .select('entity_id, data_type, row_data, import_batch_id, metadata')
           .eq('tenant_id', tenantId)
@@ -681,6 +699,8 @@ export async function POST(request: NextRequest) {
           .gte('source_date', priorPeriod.start_date)
           .lte('source_date', priorPeriod.end_date)
           .range(from, to);
+        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        const { data: page } = await q;
 
         if (!page || page.length === 0) break;
         priorCommittedData.push(...page);
@@ -696,12 +716,15 @@ export async function POST(request: NextRequest) {
       while (true) {
         const from = priorPage * PAGE_SIZE;
         const to = from + PAGE_SIZE - 1;
-        const { data: page } = await supabase
+        // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+        let q = supabase
           .from('committed_data')
           .select('entity_id, data_type, row_data, import_batch_id, metadata')
           .eq('tenant_id', tenantId)
           .eq('period_id', priorPeriodId)
           .range(from, to);
+        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        const { data: page } = await q;
 
         if (!page || page.length === 0) break;
         priorCommittedData.push(...page);
@@ -923,20 +946,25 @@ export async function POST(request: NextRequest) {
   const aiContextSheets: AIContextSheet[] = [];
   try {
     // Get distinct batch IDs from committed_data (OB-153: also check period-agnostic data)
-    const { data: batchRows } = await supabase
+    // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+    let bq = supabase
       .from('committed_data')
       .select('import_batch_id')
       .eq('tenant_id', tenantId)
       .not('import_batch_id', 'is', null)
       .limit(100);
+    if (supersededIds.length > 0) bq = bq.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+    const { data: batchRows } = await bq;
 
     const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));
 
     if (batchIds.length > 0) {
+      // HF-196 Phase 1E: also filter the import_batches lookup itself to operative.
       const { data: batches } = await supabase
         .from('import_batches')
         .select('id, metadata')
-        .in('id', batchIds);
+        .in('id', batchIds)
+        .is('superseded_by', null);
 
       for (const b of (batches ?? [])) {
         const meta = b.metadata as Record<string, unknown> | null;

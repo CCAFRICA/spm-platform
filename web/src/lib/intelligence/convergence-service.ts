@@ -750,22 +750,30 @@ async function inventoryData(
 ): Promise<DataCapability[]> {
   const capabilities: DataCapability[] = [];
 
+  // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+
   // OB-162: Also read import_batch_id for convergence bindings
-  const { data: rows } = await supabase
+  let q = supabase
     .from('committed_data')
     .select('data_type, row_data, metadata, import_batch_id')
     .eq('tenant_id', tenantId)
     .not('data_type', 'is', null)
     .limit(500);
+  if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+  const { data: rows } = await q;
 
   // OB-128: Separately fetch rows with semantic_roles (SCI-committed data)
-  const { data: sciRows } = await supabase
+  let q2 = supabase
     .from('committed_data')
     .select('data_type, row_data, metadata, import_batch_id')
     .eq('tenant_id', tenantId)
     .not('data_type', 'is', null)
     .not('metadata->semantic_roles', 'is', null)
     .limit(50);
+  if (supersededIds.length > 0) q2 = q2.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+  const { data: sciRows } = await q2;
 
   const allRows = [...(rows || [])];
   if (sciRows) {
@@ -1981,12 +1989,17 @@ async function generateAISemanticDerivations(
   }
 
   // 2. Get sample rows
-  const { data: sampleRows } = await supabase
+  // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+  const { fetchSupersededBatchIds: fetchSupersededBatchIds2 } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds3 = await fetchSupersededBatchIds2(supabase, tenantId);
+  let q3 = supabase
     .from('committed_data')
     .select('row_data')
     .eq('tenant_id', tenantId)
     .not('row_data', 'is', null)
     .limit(3);
+  if (supersededIds3.length > 0) q3 = q3.not('import_batch_id', 'in', `(${supersededIds3.join(',')})`);
+  const { data: sampleRows } = await q3;
 
   const sampleData = (sampleRows || []).map(r => r.row_data);
 

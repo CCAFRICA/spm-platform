@@ -27,6 +27,9 @@ import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
 // HF-196 Phase 1D — D154/D155 single canonical declaration of data_type:
 // derived from SCI classification via the shared resolver. No private copies.
 import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
+// HF-196 Phase 1E — Rule 30 + DS-017 supersession on fingerprint match.
+// Closes Memory Entry 30 commit-layer gap (Phase 5-RESET-3 PARTIAL verdict).
+import { linkFingerprintAndSupersedePriorBatch } from '@/lib/sci/import-batch-supersession';
 // HF-196 Phase 1: post-commit construction unified across both import endpoints.
 // Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
 // post-commit work as execute (entity resolution + entity_id back-link).
@@ -520,6 +523,10 @@ async function processEntityUnit(
   // Identity: data_type === informational_label === 'entity' for this pipeline.
   const dataType = resolveDataTypeFromClassification('entity');
 
+  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
+  // Idempotent + non-blocking. Returns null on empty rows or supersession failure.
+  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, cdBatchId, rows);
+
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
   for (const binding of unit.confirmedBindings) {
     semanticRoles[binding.sourceField] = {
@@ -623,6 +630,9 @@ async function processDataUnit(
   // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
   // Identity: data_type === informational_label === classification ('target' | 'transaction').
   const dataType = resolveDataTypeFromClassification(classification);
+
+  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
+  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, rows);
 
   // Build semantic_roles map
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -786,6 +796,9 @@ async function processReferenceUnit(
   // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
   // Identity: data_type === informational_label === 'reference' for this pipeline.
   const dataType = resolveDataTypeFromClassification('reference');
+
+  // HF-196 Phase 1E: Rule 30 supersession on fingerprint match.
+  await linkFingerprintAndSupersedePriorBatch(supabase, tenantId, batchId, rows);
 
   // Build semantic_roles map
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};

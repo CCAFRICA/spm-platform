@@ -110,6 +110,21 @@ export interface TenantContext {
 export async function getStateReader(tenantId: string): Promise<TenantContext> {
   const supabase = createClient();
 
+  // HF-196 Phase 1E: pre-fetch superseded batch ids for committed_data filtering.
+  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+
+  // Build committed_data query — apply Phase 1E supersession filter if any prior batches superseded.
+  let committedDataQuery = supabase
+    .from('committed_data')
+    .select('period_id, source_date, data_type')
+    .eq('tenant_id', tenantId)
+    .not('data_type', 'eq', 'personal') // personal rows don't have source_date
+    .limit(1000);
+  if (supersededIds.length > 0) {
+    committedDataQuery = committedDataQuery.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+  }
+
   // Batch all queries in parallel
   const [
     periodsResult,
@@ -150,13 +165,8 @@ export async function getStateReader(tenantId: string): Promise<TenantContext> {
       .eq('tenant_id', tenantId)
       .eq('status', 'completed'),
 
-    // Check committed_data: group by source_date to know which months have data
-    supabase
-      .from('committed_data')
-      .select('period_id, source_date, data_type')
-      .eq('tenant_id', tenantId)
-      .not('data_type', 'eq', 'personal') // personal rows don't have source_date
-      .limit(1000),
+    // Check committed_data (HF-196 Phase 1E supersession filter applied via committedDataQuery)
+    committedDataQuery,
   ]);
 
   const periods = periodsResult.data || [];
