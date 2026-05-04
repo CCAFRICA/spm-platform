@@ -1315,6 +1315,23 @@ async function executeBatchedPlanInterpretation(
   const componentCount = variants.reduce((sum: number, v: { components?: unknown[] }) => sum + (v.components?.length || 0), 0);
   console.log(`[SCI Execute] Batched plan saved: ${planName} (${ruleSetId}), ${variants.length} variants, ${componentCount} components from ${planUnits.length} sheets`);
 
+  // HF-198 E5: Emit per-component comprehension:plan_interpretation signals (L2)
+  // so convergence Pass 4 reads authoritative semantic intent before AI derivation.
+  // Read-coupling per AUD-004 v3 §2 E3 — declared reader: convergence-service.ts
+  // loadMetricComprehensionSignals. Fire-and-forget; rule_set save already committed.
+  try {
+    const { emitPlanComprehensionSignals } = await import('@/lib/compensation/plan-comprehension-emitter');
+    const componentsForSignals = variants.flatMap(v => v.components ?? []);
+    void emitPlanComprehensionSignals({
+      tenantId,
+      ruleSetId,
+      interpretation: { components: componentsForSignals as unknown as Array<Record<string, unknown>> },
+      planConfidence: response.confidence,
+    });
+  } catch (sigErr) {
+    console.warn('[SCI Execute] Plan comprehension signal emission threw (non-blocking):', sigErr instanceof Error ? sigErr.message : String(sigErr));
+  }
+
   // Return results: primary unit gets full result, others marked as included in batch
   return planUnits.map((u, i) => ({
     contentUnitId: u.contentUnitId,
@@ -1549,6 +1566,20 @@ async function executePlanPipeline(
   const variants = engineFormat.components.variants || [];
   const componentCount = variants.reduce((sum: number, v: { components?: unknown[] }) => sum + (v.components?.length || 0), 0);
   console.log(`[SCI Execute] Plan saved: ${planName} (${ruleSetId}), ${variants.length} variants, ${componentCount} components`);
+
+  // HF-198 E5: Emit per-component comprehension:plan_interpretation signals (L2).
+  try {
+    const { emitPlanComprehensionSignals } = await import('@/lib/compensation/plan-comprehension-emitter');
+    const componentsForSignals = variants.flatMap(v => v.components ?? []);
+    void emitPlanComprehensionSignals({
+      tenantId,
+      ruleSetId,
+      interpretation: { components: componentsForSignals as unknown as Array<Record<string, unknown>> },
+      planConfidence: response.confidence,
+    });
+  } catch (sigErr) {
+    console.warn('[SCI Execute] Plan comprehension signal emission threw (non-blocking):', sigErr instanceof Error ? sigErr.message : String(sigErr));
+  }
 
   return {
     contentUnitId: unit.contentUnitId,
