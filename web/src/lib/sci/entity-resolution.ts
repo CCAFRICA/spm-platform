@@ -8,6 +8,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js';
+import type { Json } from '@/lib/supabase/database.types';
 
 // HF-110: Guard against row index misidentification
 // If most values are sequential small integers (0,1,2... or 1,2,3...), it's likely row indices
@@ -30,7 +31,8 @@ export async function resolveEntitiesFromCommittedData(
 
   // Step 1: Discover which batches have person identifier columns
   // Priority: entity batches first, then transaction/target, then reference
-  const batchIdentifiers = new Map<string, { idColumn: string; nameColumn: string | null }>();
+  // HF-199 D3: also discover attribute columns per batch for entities.materializedState projection
+  const batchIdentifiers = new Map<string, { idColumn: string; nameColumn: string | null; attributeColumns: string[] }>();
   const batchLabels = new Map<string, string>(); // batchId -> informational_label
   const BATCH_SIZE = 200;
 
@@ -131,7 +133,20 @@ export async function resolveEntitiesFromCommittedData(
       }
 
       if (idColumn) {
-        batchIdentifiers.set(batchId, { idColumn, nameColumn });
+        // HF-199 D3: discover attribute columns from field_identities (Korean Test compliant —
+        // iterates structuralType only; no language-specific column-name matching).
+        // Only entity-typed batches (Plantilla / roster) carry attribute projections — exclude
+        // identifier/name (already used for entity identity) and exclude HF-199 entity-batch-only
+        // restriction is implicit because we only project from rows of label='entity' batches below.
+        const attributeColumns: string[] = [];
+        if (fieldIds && Object.keys(fieldIds).length > 0) {
+          for (const [colName, fi] of Object.entries(fieldIds)) {
+            if (fi.structuralType === 'attribute') {
+              attributeColumns.push(colName);
+            }
+          }
+        }
+        batchIdentifiers.set(batchId, { idColumn, nameColumn, attributeColumns });
       }
     }
 
@@ -151,9 +166,15 @@ export async function resolveEntitiesFromCommittedData(
 
   // Step 2: Scan committed_data for unique entity identifiers
   const allEntities = new Map<string, string>(); // external_id -> display_name
+  // HF-199 D3: per-entity attribute projection. Map external_id → { attrCol → value }.
+  // Populated from rows whose batch is data_type='entity' (Plantilla / roster sheets).
+  // Iterates field_identities-marked attribute columns only — no language-specific
+  // column-name matching. Korean Test compliant.
+  const entityAttributes = new Map<string, Record<string, unknown>>();
 
   for (const batchId of discoveryBatchIds) {
-    const { idColumn, nameColumn } = batchIdentifiers.get(batchId)!;
+    const { idColumn, nameColumn, attributeColumns } = batchIdentifiers.get(batchId)!;
+    const isEntityBatch = batchLabels.get(batchId) === 'entity';
     let batchOffset = 0;
     const sampleValues: string[] = [];
 
@@ -176,6 +197,23 @@ export async function resolveEntitiesFromCommittedData(
         if (!allEntities.has(extId)) {
           allEntities.set(extId, name);
         }
+
+        // HF-199 D3: project attribute columns from entity-typed batches only.
+        // For each attribute column flagged by HC (structuralType==='attribute'),
+        // capture row's value. Stored per external_id; later written to
+        // entities.temporal_attributes (calc-time materialization surface).
+        if (isEntityBatch && attributeColumns.length > 0) {
+          const existing = entityAttributes.get(extId) ?? {};
+          for (const col of attributeColumns) {
+            const val = rd[col];
+            if (val != null && val !== '' && existing[col] == null) {
+              existing[col] = val;
+            }
+          }
+          if (Object.keys(existing).length > 0) {
+            entityAttributes.set(extId, existing);
+          }
+        }
       }
 
       if (rows.length < 1000) break;
@@ -188,6 +226,7 @@ export async function resolveEntitiesFromCommittedData(
       // Remove entities that came from this batch
       for (const val of sampleValues) {
         allEntities.delete(val);
+        entityAttributes.delete(val); // HF-199 D3: also drop spurious attribute projections
       }
     }
   }
@@ -212,7 +251,19 @@ export async function resolveEntitiesFromCommittedData(
     }
   }
 
-  // Step 4: Create new entities
+  // Step 4: Create new entities (HF-199 D3: include attribute projections in temporal_attributes)
+  const importDate = new Date().toISOString().split('T')[0];
+  const buildTemporalAttrs = (extId: string): Array<{ key: string; value: unknown; effective_from: string; effective_to: null }> => {
+    const attrs = entityAttributes.get(extId);
+    if (!attrs) return [];
+    return Object.entries(attrs).map(([key, value]) => ({
+      key,
+      value,
+      effective_from: importDate,
+      effective_to: null,
+    }));
+  };
+
   const newEntities: Array<{
     tenant_id: string;
     external_id: string;
@@ -231,7 +282,11 @@ export async function resolveEntitiesFromCommittedData(
         display_name: name,
         entity_type: 'individual',
         status: 'active',
-        temporal_attributes: [],
+        // HF-199 D3: temporal_attributes populated from field_identities-marked attribute
+        // columns. Each attribute becomes a temporal record { key, value, effective_from,
+        // effective_to } per the calc-time materialization surface (run/route.ts:1308-1326).
+        // Korean Test: keys are column names from HC; no language-specific filtering.
+        temporal_attributes: buildTemporalAttrs(extId),
         metadata: {},
       });
     }
@@ -249,6 +304,50 @@ export async function resolveEntitiesFromCommittedData(
       }
       created += chunk.length;
     }
+  }
+
+  // Step 4.5 (HF-199 D3): Update EXISTING entities with attribute projections.
+  // Idempotent merge: for each existing entity that has attribute values from
+  // this run, fetch current temporal_attributes, merge new attribute values
+  // (close prior records on value change; add new for unseen keys; idempotent
+  // for unchanged values). Per OB-177 pattern at processEntityUnit:461-509.
+  let updated = 0;
+  for (const [extId, attrs] of Array.from(entityAttributes.entries())) {
+    const entityId = existingMap.get(extId);
+    if (!entityId) continue; // newly-created entities already include attrs in INSERT
+    if (!attrs || Object.keys(attrs).length === 0) continue;
+
+    const { data: current } = await supabase
+      .from('entities')
+      .select('temporal_attributes')
+      .eq('id', entityId)
+      .single();
+
+    const existingAttrs = (current?.temporal_attributes || []) as Array<{ key: string; value: unknown; effective_from: string; effective_to: string | null }>;
+    const newAttrs = [...existingAttrs];
+    let changed = false;
+
+    for (const [key, value] of Object.entries(attrs)) {
+      const existingOpen = newAttrs.find(a => a.key === key && a.effective_to === null);
+      if (existingOpen && existingOpen.value === value) continue; // idempotent
+      if (existingOpen) {
+        // Close prior open record on value change
+        existingOpen.effective_to = importDate;
+      }
+      newAttrs.push({ key, value, effective_from: importDate, effective_to: null });
+      changed = true;
+    }
+
+    if (changed) {
+      await supabase
+        .from('entities')
+        .update({ temporal_attributes: newAttrs as unknown as Json })
+        .eq('id', entityId);
+      updated++;
+    }
+  }
+  if (updated > 0) {
+    console.log(`[Entity Resolution] HF-199 D3: ${updated} existing entities enriched with attribute projections`);
   }
 
   // Step 5: Re-fetch full entity lookup (including newly created)
