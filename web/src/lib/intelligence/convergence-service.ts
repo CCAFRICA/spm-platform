@@ -289,10 +289,12 @@ export async function convergeBindings(
     // Note: per-component bindings generated in bulk below (HF-111)
   }
 
-  // HF-112: Generate all component bindings with AI mapping + boundary validation
+  // HF-112 / HF-199 D2: Generate all component bindings with AI mapping + boundary validation.
+  // metricComprehension signals (HF-198 E5) flow through as authoritative semantic intent,
+  // raising binding accuracy and the boundary-fallback acceptance threshold.
   const existingConvergenceBindings = (ruleSet.input_bindings as Record<string, unknown>)?.convergence_bindings as
     Record<string, Record<string, unknown>> | undefined;
-  await generateAllComponentBindings(components, matches, capabilities, componentBindings, existingConvergenceBindings);
+  await generateAllComponentBindings(components, matches, capabilities, componentBindings, existingConvergenceBindings, observations.metricComprehension);
 
   // HF-115: Cross-component plausibility check — detect scale anomalies
   // Skip if reusing existing bindings (already validated in prior run)
@@ -1680,22 +1682,57 @@ async function resolveColumnMappingsViaAI(
   components: PlanComponent[],
   allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
   measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats }>,
+  metricComprehension: MetricComprehensionSignal[] = [], // HF-199 D2
 ): Promise<Record<string, string>> {
   const metricFields = allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown');
   const columnNames = measureColumns.map(c => c.name);
 
-  // Build compact metric list
-  const metricList = metricFields.map((f, i) => `${i + 1}. "${f}"`).join('\n');
+  // HF-199 D2: Build per-metric semantic intent map from comprehension signals.
+  // Match by component name (signal.metric_label) and then by metricField. Per
+  // AUD-004 v3 §2 E5, plan-agent semantic intent is authoritative; AI prompt
+  // includes it so column-to-metric binding has structured plan context.
+  const semanticIntentByMetricField = new Map<string, { intent: string; inputs: string }>();
+  for (const r of allRequirements) {
+    const ownerComp = components.find(c => c.name === r.compName);
+    const matchedSignal = metricComprehension.find(sig => {
+      const sv = sig.signal_value as Record<string, unknown> | null;
+      if (!sv) return false;
+      const sigLabel = (sv.metric_label as string | undefined) ?? '';
+      return sigLabel === r.compName || sigLabel === ownerComp?.name;
+    });
+    if (matchedSignal) {
+      const sv = (matchedSignal.signal_value ?? {}) as Record<string, unknown>;
+      const intent = (sv.semantic_intent as string | undefined) ?? '';
+      const inputs = sv.metric_inputs ? JSON.stringify(sv.metric_inputs).slice(0, 200) : '';
+      if (intent || inputs) {
+        semanticIntentByMetricField.set(r.req.metricField, { intent, inputs });
+      }
+    }
+  }
+
+  // Build metric list with semantic intent annotations when available
+  const metricList = metricFields.map((f, i) => {
+    const ctx = semanticIntentByMetricField.get(f);
+    if (ctx) {
+      const parts = [`${i + 1}. "${f}"`];
+      if (ctx.intent) parts.push(`   plan-agent intent: ${ctx.intent}`);
+      if (ctx.inputs) parts.push(`   plan-agent inputs: ${ctx.inputs}`);
+      return parts.join('\n');
+    }
+    return `${i + 1}. "${f}"`;
+  }).join('\n');
 
   // Build column list with contextual identities
   const columnList = measureColumns.map((c, i) =>
     `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})`
   ).join('\n');
 
-  // HF-114: User prompt passed straight through to AI via convergence_mapping task type.
+  // HF-114 / HF-199 D2: User prompt now carries plan-agent semantic intent per metric
+  // when comprehension:plan_interpretation signals are present (HF-198 E5 read).
   // System prompt is defined in SYSTEM_PROMPTS['convergence_mapping'] (anthropic-adapter.ts).
-  // Mirrors HC pattern: system prompt defines schema, user prompt provides raw context.
   const userPrompt = `Match each metric field to the best data column. Each column used at most once.
+Plan-agent intent and inputs (when shown) are AUTHORITATIVE — bind columns that
+satisfy the stated intent over columns that merely share contextual labels.
 
 METRIC FIELDS:
 ${metricList}
@@ -1750,6 +1787,7 @@ async function generateAllComponentBindings(
   capabilities: DataCapability[],
   bindings: Record<string, Record<string, ComponentBinding>>,
   existingConvergenceBindings: Record<string, Record<string, unknown>> | undefined,
+  metricComprehension: MetricComprehensionSignal[] = [], // HF-199 D2: E5 signals threaded through
 ): Promise<void> {
   // HF-112: Reuse existing bindings if complete (zero AI cost)
   if (hasCompleteBindings(existingConvergenceBindings, components.length)) {
@@ -1807,9 +1845,10 @@ async function generateAllComponentBindings(
     }
   }
 
-  // HF-112: AI-assisted column mapping (ONE call)
+  // HF-112 / HF-199 D2: AI-assisted column mapping (ONE call) with metric_comprehension
+  // signals as authoritative semantic intent.
   console.log('[Convergence] HF-112 Requesting AI column mapping');
-  const aiMapping = await resolveColumnMappingsViaAI(components, allRequirements, measureColumns);
+  const aiMapping = await resolveColumnMappingsViaAI(components, allRequirements, measureColumns, metricComprehension);
   console.log(`[Convergence] HF-112 AI proposed ${Object.keys(aiMapping).length} mappings`);
 
   // Build bindings using AI mapping + boundary validation
@@ -1851,6 +1890,13 @@ async function generateAllComponentBindings(
       }
 
       // Fallback: boundary matching for unmapped requirements (HF-111 logic)
+      // HF-199 D2: structured threshold raised from `> 0` to `>= 0.50`. Below
+      // threshold, the boundary fallback is structurally too weak to bind reliably
+      // (DIAG evidence: New Accounts:actual → Año at score=0.10 produced
+      // 506× peer-median ratio anomaly). Below-threshold candidates are rejected
+      // and the requirement remains unbound; downstream gap detection records
+      // it as a convergence gap rather than silently binding the wrong column.
+      const BOUNDARY_FALLBACK_MIN_SCORE = 0.50;
       const candidates = measureColumns
         .filter(mc => !boundColumns.has(mc.name))
         .map(mc => {
@@ -1859,7 +1905,7 @@ async function generateAllComponentBindings(
         })
         .sort((a, b) => b.score - a.score);
 
-      if (candidates.length > 0 && candidates[0].score > 0) {
+      if (candidates.length > 0 && candidates[0].score >= BOUNDARY_FALLBACK_MIN_SCORE) {
         const best = candidates[0];
         bindings[compKey][req.role] = {
           source_batch_id: best.batchId,
@@ -1871,6 +1917,8 @@ async function generateAllComponentBindings(
         };
         boundColumns.add(best.name);
         console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${best.name} (boundary fallback, score=${best.score.toFixed(2)})`);
+      } else if (candidates.length > 0) {
+        console.log(`[Convergence] HF-199 D2: ${comp.name}:${req.role} boundary candidate "${candidates[0].name}" rejected (score=${candidates[0].score.toFixed(2)} < ${BOUNDARY_FALLBACK_MIN_SCORE} threshold). Requirement left unbound; gap will be recorded.`);
       }
     }
 
