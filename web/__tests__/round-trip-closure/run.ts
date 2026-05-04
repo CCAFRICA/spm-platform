@@ -193,11 +193,138 @@ for (const legacy of legacyAliases) {
 }
 
 // ──────────────────────────────────────────────
+// 6. HF-198 E5 — Plan-agent comprehension signal emission shape
+//    (structural — does not hit network/DB; verifies emitter constructs the
+//    expected SignalData shape per metric)
+// ──────────────────────────────────────────────
+
+console.log('6. HF-198 E5 plan-comprehension emitter shape');
+
+// Emitter is async (calls persistSignalBatch which calls supabase). For a
+// no-network unit test we instead verify the registry presence of the signal
+// type and the read surface in convergence-service that consumes it.
+import { isRegistered as isSignalRegistered, lookup as lookupSignalDecl } from '../../src/lib/intelligence/signal-registry';
+
+assert(
+  isSignalRegistered('comprehension:plan_interpretation'),
+  '6.1 comprehension:plan_interpretation is registered',
+);
+const planSig = lookupSignalDecl('comprehension:plan_interpretation');
+assert(planSig !== null, '6.2 lookup returns declaration for comprehension:plan_interpretation');
+assert(
+  planSig?.signal_level === 'L2',
+  `6.3 comprehension:plan_interpretation is L2 (got: ${planSig?.signal_level})`,
+);
+assert(
+  (planSig?.declared_readers ?? []).some(r => r.includes('convergence-service.ts')),
+  '6.4 comprehension:plan_interpretation has convergence-service declared reader',
+);
+assert(
+  (planSig?.declared_writers ?? []).some(w => w.includes('plan-comprehension-emitter.ts')),
+  '6.5 comprehension:plan_interpretation has plan-comprehension-emitter declared writer',
+);
+
+// ──────────────────────────────────────────────
+// 7. HF-198 E3 — Signal-type registry validation
+// ──────────────────────────────────────────────
+
+console.log('7. HF-198 E3 signal-type registry');
+
+import { all as allSignalDecls, register as registerSignal, SignalNotRegisteredError, assertRegistered as assertSigRegistered } from '../../src/lib/intelligence/signal-registry';
+
+// 7.1 Registry has the foundational signal types
+const operativeSignalTypes = [
+  'classification:outcome',
+  'classification:human_correction',
+  'comprehension:plan_interpretation',
+  'comprehension:header_binding',
+  'convergence:calculation_validation',
+  'convergence:reconciliation_outcome',
+  'convergence:reconciliation_comparison',
+  'convergence:dual_path_concordance', // F-011 closure
+  'cost:event',
+  'lifecycle:assessment_generated',
+  'lifecycle:transition',
+  'lifecycle:stream',
+  'lifecycle:briefing',
+  'lifecycle:synaptic_consolidation',
+  'lifecycle:user_action',
+];
+for (const sigType of operativeSignalTypes) {
+  assert(
+    isSignalRegistered(sigType),
+    `7.1 ${sigType} registered`,
+  );
+}
+
+// 7.2 Every registered signal_type has at least one declared reader (E3 rule)
+for (const decl of allSignalDecls()) {
+  assert(
+    decl.declared_readers.length > 0,
+    `7.2 ${decl.identifier} has ≥1 declared reader (got: ${decl.declared_readers.length})`,
+  );
+}
+
+// 7.3 register() throws on zero declared readers (negative test)
+assertThrows(
+  () => registerSignal({
+    identifier: 'test_e3_negative_no_readers',
+    signal_level: 'L1',
+    originating_flywheel: 'tenant',
+    declared_writers: ['test'],
+    declared_readers: [], // VIOLATION: zero readers
+    description: 'negative test fixture',
+  }),
+  Error,
+  '7.3 register() throws Error on zero declared readers',
+);
+
+// 7.4 assertRegistered throws SignalNotRegisteredError for unregistered signal_type
+assertThrows(
+  () => assertSigRegistered('test_e3_negative_unregistered', 'unit-test'),
+  SignalNotRegisteredError,
+  '7.4 assertRegistered() throws SignalNotRegisteredError for unregistered signal_type',
+);
+
+// 7.5 F-011 closure: convergence:dual_path_concordance declared reader present
+const dualPath = lookupSignalDecl('convergence:dual_path_concordance');
+assert(
+  dualPath !== null && dualPath.declared_readers.length > 0,
+  '7.5 F-011 closure: convergence:dual_path_concordance has declared reader',
+);
+
+// ──────────────────────────────────────────────
+// 8. HF-198 E6 — Korean Test verdict at registry layer
+// ──────────────────────────────────────────────
+
+console.log('8. HF-198 E6 Korean Test verdict at registry');
+
+// 8.1 Every registered signal_type follows prefix vocabulary (Decision 154)
+for (const decl of allSignalDecls()) {
+  const prefixOk =
+    decl.identifier.startsWith('classification:') ||
+    decl.identifier.startsWith('comprehension:') ||
+    decl.identifier.startsWith('convergence:') ||
+    decl.identifier.startsWith('cost:') ||
+    decl.identifier.startsWith('lifecycle:');
+  assert(prefixOk, `8.1 ${decl.identifier} follows Decision 154 prefix vocabulary`);
+}
+
+// 8.2 Every operation primitive in FOUNDATIONAL_TYPES is structurally identifiable
+//     (already covered in section 5, here we re-assert as Korean Test verdict)
+for (const t of FOUNDATIONAL_TYPES) {
+  assert(
+    typeof t === 'string' && t.length > 0 && t === t.toLowerCase(),
+    `8.2 ${t} is structural identifier (snake_case lowercase)`,
+  );
+}
+
+// ──────────────────────────────────────────────
 // Summary
 // ──────────────────────────────────────────────
 
 console.log('');
-console.log(`Phase 3 E4 round-trip closure tests: ${pass} pass, ${fail} fail`);
+console.log(`HF-198 + OB-196 round-trip + signal-registry tests: ${pass} pass, ${fail} fail`);
 if (fail > 0) {
   console.log('Failures:');
   for (const f of failures) console.log(`  - ${f}`);
