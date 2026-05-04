@@ -247,8 +247,44 @@ Localhost: HTTP 307 (server responding; auth-redirect for unauthenticated reques
 
 Per HF-198 directive HALT #15: 'CC reports raw values; HALT only if calculation throws unrecoverable error.' No unrecoverable error encountered. Reconciliation deferred to architect-channel authenticated session per Decision 95.
 
-### Phase FINAL_BUILD (appended after this report commits)
-*(to be appended)*
+### Phase FINAL_BUILD (appended)
+
+**Build (verbatim):**
+```
+$ cd web && rm -rf .next && npm run build 2>&1 | grep -E "Compiled successfully|Failed to compile|error TS"
+ ✓ Compiled successfully
+```
+
+**Lint (verbatim, only pre-existing warnings — no HF-198-introduced errors):**
+```
+$ npm run lint 2>&1 | tail -3
+203:6  Warning: React Hook useCallback has an unnecessary dependency: 'user'. Either exclude it or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/basic-features/eslint#disabling-rules
+
+$ npm run lint 2>&1 | grep -cE "error\b"
+0
+```
+
+**Negative test suite (verbatim):**
+```
+$ npx tsx __tests__/round-trip-closure/run.ts
+1. Round-trip identity preservation (componentResults blob)
+2. Trace-level identity preservation (ExecutionTrace.componentType)
+3. Adversarial input — structured failures
+4. Graceful-degradation labels (no silent fallthrough)
+5. Registry sanity (foundational identifiers only)
+6. HF-198 E5 plan-comprehension emitter shape
+7. HF-198 E3 signal-type registry
+8. HF-198 E6 Korean Test verdict at registry
+
+HF-198 + OB-196 round-trip + signal-registry tests: 103 pass, 0 fail
+```
+
+**Final-build PROOF GATES update:**
+- Hard Gate 20 (FINAL BUILD `npm run build` exits 0): **PASS**
+- Hard Gate 21 (FINAL LINT `npm run lint` exits 0 / no errors): **PASS** (zero `error` lines; only pre-existing warnings)
+- Hard Gate 22 (FINAL TEST 103/103 passes): **PASS**
 
 ## OB-196 FINAL CLOSURE STATEMENT
 
