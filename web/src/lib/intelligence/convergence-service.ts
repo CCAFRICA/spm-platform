@@ -34,12 +34,17 @@ interface PlanComponent {
 }
 
 // OB-191: Enriched metric context for Pass 4 AI prompt
+// HF-198 E5: extended with semantic_intent from comprehension:plan_interpretation
+// signals so AI prompt receives authoritative plan-agent semantic intent (read
+// before derive — declared reader for L2 Comprehension signals).
 interface MetricContext {
   name: string;          // Programmatic metric name (e.g., "period_equipment_revenue")
   label: string;         // Human-readable label (e.g., "Period Equipment Revenue")
   componentName: string; // Owning component name for additional context
   operation: string;     // Calculation operation (e.g., "linear_function")
   scope?: string;        // Scope level for scope_aggregate (e.g., "district")
+  semanticIntent?: string;             // HF-198 E5: AI plan-agent reasoning text (per metric_comprehension signal)
+  metricInputs?: Record<string, unknown> | null;  // HF-198 E5: input shape from plan-agent (per metric_comprehension signal)
 }
 
 /** Convert programmatic metric name to human-readable label */
@@ -496,7 +501,10 @@ export async function convergeBindings(
   const unresolvedForAI = allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
 
   if (unresolvedForAI.length > 0 && capabilities.length > 0) {
-    // OB-191: Build enriched metric context from calculationIntent
+    // OB-191 / HF-198 E5: Build enriched metric context from calculationIntent
+    // and from comprehension:plan_interpretation signals (read before derive).
+    // The metric_comprehension signals carry plan-agent semantic intent that the
+    // legacy private-JSONB path used to provide; consumed here per AUD-004 v3 §2 E5.
     const metricContexts: MetricContext[] = unresolvedForAI.map(metricName => {
       const ownerComp = components.find(c => c.expectedMetrics.includes(metricName));
       const intent = ownerComp?.calculationIntent;
@@ -505,12 +513,25 @@ export async function convergeBindings(
         const inputSpec = (intent.input as Record<string, unknown> | undefined)?.sourceSpec as Record<string, unknown> | undefined;
         if (inputSpec?.scope) scope = String(inputSpec.scope);
       }
+      // HF-198 E5: Find matching metric_comprehension signal by metric label / component name.
+      const matchedSignal = observations.metricComprehension.find(sig => {
+        const sv = sig.signal_value as Record<string, unknown> | null;
+        if (!sv) return false;
+        const sigLabel = (sv.metric_label as string | undefined) ?? '';
+        const ownerName = ownerComp?.name ?? '';
+        return sigLabel === ownerName || sigLabel === metricName;
+      });
+      const sigValue = (matchedSignal?.signal_value ?? {}) as Record<string, unknown>;
+      const semanticIntent = (sigValue.semantic_intent as string | undefined) ?? undefined;
+      const metricInputs = (sigValue.metric_inputs as Record<string, unknown> | null | undefined) ?? null;
       return {
         name: metricName,
         label: humanizeMetricName(metricName),
         componentName: ownerComp?.name || 'Unknown',
         operation: ownerComp?.calculationOp || 'unknown',
         scope,
+        semanticIntent,
+        metricInputs,
       };
     });
 
@@ -2011,11 +2032,19 @@ async function generateAISemanticDerivations(
 
   const sampleData = (sampleRows || []).map(r => r.row_data);
 
-  // 3. Build AI prompt — enriched with metric labels and component context (OB-191)
+  // 3. Build AI prompt — enriched with metric labels, component context (OB-191),
+  // and HF-198 E5 plan-agent semantic intent from comprehension:plan_interpretation
+  // signals (read before derive per AUD-004 v3 §2 E5).
   // Korean Test: No hardcoded field names. AI receives column metadata and sample values at runtime.
   const metricDescriptions = metricContexts.map(mc => {
     let desc = `- ${mc.name} (label: "${mc.label}", used in: ${mc.operation}, component: "${mc.componentName}")`;
     if (mc.scope) desc += `\n  NOTE: This metric should be aggregated at the ${mc.scope} scope level`;
+    if (mc.semanticIntent) desc += `\n  PLAN-AGENT INTENT: ${mc.semanticIntent}`;
+    if (mc.metricInputs && Object.keys(mc.metricInputs).length > 0) {
+      try {
+        desc += `\n  PLAN-AGENT INPUTS: ${JSON.stringify(mc.metricInputs).slice(0, 240)}`;
+      } catch {}
+    }
     return desc;
   }).join('\n');
 

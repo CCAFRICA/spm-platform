@@ -26,6 +26,7 @@ export interface SignalData {
   entityId?: string;
   context?: Record<string, unknown>;
   calculationRunId?: string;   // OB-197 G11: scope signal to a calculation run; null when emitted outside a run
+  ruleSetId?: string;          // HF-198 E5: scope signal to a rule_set (e.g., 'comprehension:plan_interpretation' per-component emissions)
 }
 
 // ============================================
@@ -56,6 +57,7 @@ export async function persistSignal(
         source: signal.source ?? 'ai_prediction',
         context: (signal.context ?? {}) as Json,
         calculation_run_id: signal.calculationRunId ?? null,
+        rule_set_id: signal.ruleSetId ?? null,
       });
 
     if (error) {
@@ -93,6 +95,7 @@ export async function persistSignalBatch(
       source: s.source ?? 'ai_prediction',
       context: (s.context ?? {}) as Json,
       calculation_run_id: s.calculationRunId ?? null,
+      rule_set_id: s.ruleSetId ?? null,
     }));
 
     const { error } = await supabase
