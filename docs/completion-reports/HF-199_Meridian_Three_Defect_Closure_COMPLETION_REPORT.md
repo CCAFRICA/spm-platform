@@ -208,9 +208,43 @@ Post-merge architect-channel checks:
 3. Trigger calc against BCL → reconcile against $312,033 fixture (HALT #17 if regresses)
 4. CRP: substrate empty; defer
 
-### Phase FINAL_BUILD (appended after this report commits)
+### Phase FINAL_BUILD (appended)
 
-*(to be appended)*
+**Build:**
+```
+$ cd web && rm -rf .next && npm run build 2>&1 | grep -E "Compiled successfully|Failed|Type error"
+ ✓ Compiled successfully
+```
+
+**Lint (only pre-existing warnings; zero errors):**
+```
+$ npm run lint 2>&1 | grep -cE "error\b"
+0
+$ npm run lint 2>&1 | tail -3
+203:6  Warning: React Hook useCallback has an unnecessary dependency: 'user'. Either exclude it or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/basic-features/eslint#disabling-rules
+```
+
+**Negative test suite:**
+```
+$ npx tsx __tests__/round-trip-closure/run.ts
+1. Round-trip identity preservation (componentResults blob)
+2. Trace-level identity preservation (ExecutionTrace.componentType)
+3. Adversarial input — structured failures
+4. Graceful-degradation labels (no silent fallthrough)
+5. Registry sanity (foundational identifiers only)
+6. HF-198 E5 plan-comprehension emitter shape
+7. HF-198 E3 signal-type registry
+8. HF-198 E6 Korean Test verdict at registry
+
+HF-198 + OB-196 round-trip + signal-registry tests: 103 pass, 0 fail
+```
+
+**Final-build PROOF GATES update:**
+- Hard Gate 14 (FINAL BUILD): **PASS**
+- Hard Gate 15 (FINAL LINT): **PASS** (zero errors; only pre-existing warnings)
+- Hard Gate 16 (FINAL TEST): **PASS** (103 / 103)
 
 ## OB-196 + HF-199 STATUS SUMMARY
 
