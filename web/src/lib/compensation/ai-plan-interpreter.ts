@@ -355,11 +355,31 @@ export function interpretationToPlanConfig(
         return convertComponent(compCopy, index);
       });
 
-    // Log variant components with tier counts
+    // Log variant components with tier-data presence (HF-199 D1: foundational primitives
+    // store tier data in calculationIntent.outputGrid (2d) / .outputs (1d) / .rate (scalar)
+    // — the legacy tierConfig.tiers field was removed in OB-196 Phase 1.5. Diagnostic
+    // updated to inspect calculationIntent shape per primitive).
     console.log(`[variant ${empType.id}] ${components.length} components:`);
     components.forEach((c, i) => {
-      const tc = 'tierConfig' in c ? (c.tierConfig as { tiers?: unknown[] }) : undefined;
-      console.log(`  [${i}] ${c.name}: ${tc?.tiers?.length ?? 'no tiers'}`);
+      const intent = c.calculationIntent as Record<string, unknown> | undefined;
+      const op = (intent?.operation as string) ?? c.componentType;
+      let tierShape = 'n/a';
+      if (intent) {
+        if (op === 'bounded_lookup_2d') {
+          const og = intent.outputGrid as unknown[][] | undefined;
+          tierShape = og ? `outputGrid=${og.length}x${og[0]?.length ?? 0}` : 'outputGrid=absent';
+        } else if (op === 'bounded_lookup_1d') {
+          const outs = intent.outputs as unknown[] | undefined;
+          tierShape = outs ? `outputs=${outs.length}` : 'outputs=absent';
+        } else if (op === 'scalar_multiply') {
+          tierShape = `rate=${intent.rate ? 'present' : 'absent'}`;
+        } else if (op === 'conditional_gate') {
+          tierShape = intent.condition ? 'condition=present' : 'condition=absent';
+        } else {
+          tierShape = `op=${op}`;
+        }
+      }
+      console.log(`  [${i}] ${c.name}: componentType=${c.componentType}, ${tierShape}`);
     });
 
     return {
