@@ -104,33 +104,48 @@ export async function POST(req: NextRequest) {
         fileSheets.push({ sourceFile: file.fileName, sheetName: sheet.sheetName });
       }
 
-      // OB-174 Phase 3: DS-017 Tier Routing — check fingerprint BEFORE LLM call
-      // Compute fingerprint from the first sheet (primary content) for file-level matching
-      const primarySheet = file.sheets[0];
-      let flywheelResult: FlywheelLookupResult | null = null;
-      if (primarySheet) {
+      // OB-174 Phase 3 / HF-197B: DS-017 Tier Routing — PER-SHEET fingerprint lookup BEFORE LLM call.
+      // Pre-HF-197B: a single H(sheets[0]) was used for the entire file, causing cross-sheet
+      // binding injection (DIAG-021 H3+H4). Per-sheet keying restores DS-017 §3.1 semantics.
+      const sheetFlywheelResults = new Map<string, FlywheelLookupResult>();
+      for (const sheet of file.sheets) {
         try {
-          flywheelResult = await lookupFingerprint(
+          const result = await lookupFingerprint(
             tenantId,
-            primarySheet.columns,
-            primarySheet.rows,
+            sheet.columns,
+            sheet.rows,
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!,
           );
-          console.log(`[SCI-FINGERPRINT] file=${file.fileName} fingerprint=${flywheelResult.fingerprintHash.substring(0, 12)} tier=${flywheelResult.tier} match=${flywheelResult.match} confidence=${flywheelResult.confidence}`);
+          sheetFlywheelResults.set(sheet.sheetName, result);
+          console.log(`[SCI-FINGERPRINT] file=${file.fileName} sheet=${sheet.sheetName} fingerprint=${result.fingerprintHash.substring(0, 12)} tier=${result.tier} match=${result.match} confidence=${result.confidence}`);
         } catch (fpErr) {
-          console.warn(`[SCI-FINGERPRINT] Lookup failed (non-blocking): ${fpErr instanceof Error ? fpErr.message : 'unknown'}`);
+          console.warn(`[SCI-FINGERPRINT] Lookup failed for sheet=${sheet.sheetName} (non-blocking): ${fpErr instanceof Error ? fpErr.message : 'unknown'}`);
         }
       }
 
-      // Phase B: Enhance with header comprehension (one LLM call for all sheets)
-      // OB-174: Skip LLM for Tier 1 matches — classification already known
-      const skipHC = flywheelResult?.tier === 1 && flywheelResult.match;
-      const hcMetrics = skipHC
-        ? { llmCalled: false, llmCallDuration: 0, averageConfidence: flywheelResult!.confidence, columnsInterpreted: 0, crossSheetInsightCount: 0 }
+      // HF-197B: per-sheet skipHC determination (was: single file-level skipHC).
+      const sheetSkipHC = (sheetName: string) => {
+        const r = sheetFlywheelResults.get(sheetName);
+        return r?.tier === 1 && r.match;
+      };
+
+      // Phase B: Enhance with header comprehension — only for sheets where Tier 1 did not hit.
+      const sheetsNeedingHC = file.sheets.filter(s => !sheetSkipHC(s.sheetName));
+      const hcMetrics = sheetsNeedingHC.length === 0
+        ? {
+            llmCalled: false,
+            llmCallDuration: 0,
+            averageConfidence: (() => {
+              const confs = Array.from(sheetFlywheelResults.values()).map(r => r.confidence);
+              return confs.length > 0 ? confs.reduce((s, c) => s + c, 0) / confs.length : 0;
+            })(),
+            columnsInterpreted: 0,
+            crossSheetInsightCount: 0,
+          }
         : await enhanceWithHeaderComprehension(
             profileMap,
-            file.sheets.map(s => ({
+            sheetsNeedingHC.map(s => ({
               sheetName: s.sheetName,
               columns: s.columns,
               sampleRows: s.rows.slice(0, 5),
@@ -139,41 +154,44 @@ export async function POST(req: NextRequest) {
             tenantId,
           );
 
-      // HF-181 Layer 1: For Tier 1 matches, inject flywheel fieldBindings as synthetic headerComprehension
-      // Without this, generateSemanticBindings() runs on structural heuristics only → entity_identifier lost
-      if (skipHC && flywheelResult?.classificationResult) {
+      // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
+      // fieldBindings into that sheet's OWN profile (was: always injected into sheets[0]).
+      for (const sheet of file.sheets) {
+        const flywheelResult = sheetFlywheelResults.get(sheet.sheetName);
+        if (!sheetSkipHC(sheet.sheetName) || !flywheelResult?.classificationResult) continue;
+
         const flywheelBindings = (flywheelResult.classificationResult as Record<string, unknown>)?.fieldBindings as Array<{ sourceField: string; semanticRole: string; confidence: number; displayContext?: string }> | undefined;
-        if (flywheelBindings && flywheelBindings.length > 0) {
-          const primaryProfile = profileMap.get(file.sheets[0]?.sheetName);
-          if (primaryProfile) {
-            // Map semanticRole → ColumnRole for HeaderInterpretation
-            const roleMap: Record<string, 'identifier' | 'name' | 'temporal' | 'measure' | 'attribute' | 'reference_key' | 'unknown'> = {
-              entity_identifier: 'identifier', entity_name: 'name',
-              transaction_date: 'temporal', period: 'temporal',
-              transaction_amount: 'measure', transaction_count: 'measure',
-              category_code: 'attribute', entity_attribute: 'attribute',
-            };
-            const interpretations = new Map<string, import('@/lib/sci/sci-types').HeaderInterpretation>();
-            for (const fb of flywheelBindings) {
-              const columnRole = roleMap[fb.semanticRole] ?? 'unknown';
-              interpretations.set(fb.sourceField, {
-                columnName: fb.sourceField,
-                semanticMeaning: fb.displayContext || fb.semanticRole,
-                dataExpectation: '',
-                columnRole,
-                confidence: fb.confidence,
-              });
-            }
-            primaryProfile.headerComprehension = {
-              interpretations,
-              crossSheetInsights: [],
-              llmCallDuration: 0,
-              llmModel: 'flywheel-tier1',
-              fromVocabularyBinding: false,
-            };
-            console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${file.sheets[0].sheetName}`);
-          }
+        if (!flywheelBindings || flywheelBindings.length === 0) continue;
+
+        const sheetProfile = profileMap.get(sheet.sheetName);
+        if (!sheetProfile) continue;
+
+        // Map semanticRole → ColumnRole for HeaderInterpretation
+        const roleMap: Record<string, 'identifier' | 'name' | 'temporal' | 'measure' | 'attribute' | 'reference_key' | 'unknown'> = {
+          entity_identifier: 'identifier', entity_name: 'name',
+          transaction_date: 'temporal', period: 'temporal',
+          transaction_amount: 'measure', transaction_count: 'measure',
+          category_code: 'attribute', entity_attribute: 'attribute',
+        };
+        const interpretations = new Map<string, import('@/lib/sci/sci-types').HeaderInterpretation>();
+        for (const fb of flywheelBindings) {
+          const columnRole = roleMap[fb.semanticRole] ?? 'unknown';
+          interpretations.set(fb.sourceField, {
+            columnName: fb.sourceField,
+            semanticMeaning: fb.displayContext || fb.semanticRole,
+            dataExpectation: '',
+            columnRole,
+            confidence: fb.confidence,
+          });
         }
+        sheetProfile.headerComprehension = {
+          interpretations,
+          crossSheetInsights: [],
+          llmCallDuration: 0,
+          llmModel: 'flywheel-tier1',
+          fromVocabularyBinding: false,
+        };
+        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName}`);
       }
 
       // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
@@ -387,7 +405,9 @@ export async function POST(req: NextRequest) {
       density: Object.keys(densitySummary).length > 0 ? densitySummary : undefined,
     };
 
-    // OB-174 Phase 3: Write fingerprints to flywheel after classification (fire-and-forget)
+    // OB-174 Phase 3 / HF-197B: Write fingerprints to flywheel after classification (fire-and-forget).
+    // Per-sheet keying — each unit writes its OWN sheet's hash (was: always sheets[0]),
+    // so each (tenant_id, fingerprint_hash) row reflects exactly one sheet's classification.
     try {
       for (const unit of proposal.contentUnits) {
         if (!unit.fieldBindings || unit.fieldBindings.length === 0) continue;
@@ -396,28 +416,31 @@ export async function POST(req: NextRequest) {
         for (const binding of unit.fieldBindings) {
           columnRoles[binding.sourceField] = binding.semanticRole;
         }
-        // Find the file's primary sheet columns for fingerprint hash
+        // HF-197B: locate the unit's OWN sheet for the hash, not sheets[0].
         const sourceFile = files.find(f => f.fileName === unit.sourceFile);
-        if (sourceFile && sourceFile.sheets[0]) {
-          const hash = (await import('@/lib/sci/structural-fingerprint')).computeFingerprintHashSync(
-            sourceFile.sheets[0].columns,
-            sourceFile.sheets[0].rows,
-          );
-          writeFingerprint(
-            tenantId,
-            hash,
-            {
-              classification: unit.classification,
-              confidence: unit.confidence,
-              fieldBindings: unit.fieldBindings,
-              tabName: unit.tabName,
-            },
-            columnRoles,
-            unit.sourceFile,
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!,
-          ).catch(() => {}); // Fire-and-forget
+        const sheetForUnit = sourceFile?.sheets.find(s => s.sheetName === unit.tabName);
+        if (!sheetForUnit) {
+          console.warn(`[SCI-FINGERPRINT] Could not locate sheet for unit sourceFile=${unit.sourceFile} tabName=${unit.tabName} — skipping flywheel write`);
+          continue;
         }
+        const hash = (await import('@/lib/sci/structural-fingerprint')).computeFingerprintHashSync(
+          sheetForUnit.columns,
+          sheetForUnit.rows,
+        );
+        writeFingerprint(
+          tenantId,
+          hash,
+          {
+            classification: unit.classification,
+            confidence: unit.confidence,
+            fieldBindings: unit.fieldBindings,
+            tabName: unit.tabName,
+          },
+          columnRoles,
+          unit.sourceFile,
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        ).catch(() => {}); // Fire-and-forget
       }
     } catch {
       // Flywheel write failure must NEVER block import

@@ -25,7 +25,7 @@ import type { ClassificationSignalPayload } from '@/lib/sci/classification-signa
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
 import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
-import { lookupFingerprint, writeFingerprint } from '@/lib/sci/fingerprint-flywheel';
+import { lookupFingerprint, writeFingerprint, type FlywheelLookupResult } from '@/lib/sci/fingerprint-flywheel';
 import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
 import type { ContentProfile } from '@/lib/sci/sci-types';
 
@@ -111,7 +111,11 @@ export async function POST(req: NextRequest) {
 
     console.log(`[SCI-WORKER] Job ${jobId.substring(0, 8)}: Parsed ${sheets.reduce((s, sh) => s + sh.totalRowCount, 0)} rows across ${sheets.length} sheets`);
 
-    // Compute structural fingerprint
+    // HF-197B: per-sheet fingerprint computation (was: single H(sheets[0]) for entire job).
+    // The processing_jobs.structural_fingerprint row column retains primarySheet's hash for
+    // backward compatibility with the trace surface (trace/route.ts reads one fingerprint
+    // per job). Per-sheet caching operates at the structural_fingerprints flywheel layer
+    // via the per-sheet writes below.
     const primarySheet = sheets[0];
     const fingerprintHash = primarySheet
       ? computeFingerprintHashSync(primarySheet.columns, primarySheet.rows)
@@ -121,21 +125,33 @@ export async function POST(req: NextRequest) {
       structural_fingerprint: fingerprintHash,
     }).eq('id', jobId);
 
-    // Check flywheel (DS-017 Tier Routing)
-    let recognitionTier: 1 | 2 | 3 = 3;
-    let flywheelResult = null;
-    if (primarySheet) {
+    // Per-sheet flywheel lookup (DIAG-021 H3 fix). Each sheet hashes its own columns/rows.
+    const sheetFlywheelResults = new Map<string, FlywheelLookupResult>();
+    for (const sheet of sheets) {
       try {
-        flywheelResult = await lookupFingerprint(
-          tenantId, primarySheet.columns, primarySheet.rows,
+        const result = await lookupFingerprint(
+          tenantId, sheet.columns, sheet.rows,
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
         );
-        recognitionTier = flywheelResult.tier;
+        sheetFlywheelResults.set(sheet.sheetName, result);
+        console.log(`[SCI-WORKER] sheet=${sheet.sheetName} fingerprint=${result.fingerprintHash.substring(0, 12)} tier=${result.tier} match=${result.match} confidence=${result.confidence}`);
       } catch (fpErr) {
-        console.warn(`[SCI-WORKER] Flywheel lookup failed (non-blocking):`, fpErr);
+        console.warn(`[SCI-WORKER] Flywheel lookup failed for sheet=${sheet.sheetName} (non-blocking):`, fpErr instanceof Error ? fpErr.message : 'unknown');
       }
     }
+
+    // Per-sheet helpers (DIAG-021 H3 fix).
+    const sheetTier = (sheetName: string): 1 | 2 | 3 => (sheetFlywheelResults.get(sheetName)?.tier ?? 3);
+    const sheetMatchTier1 = (sheetName: string) => {
+      const r = sheetFlywheelResults.get(sheetName);
+      return r?.tier === 1 && r.match;
+    };
+
+    // Job-level tier retained for processing_jobs.recognition_tier column backward compat
+    // (trace surface and downstream consumers expect a single tier per job). Use primarySheet's
+    // tier as the canonical job-level value; per-content-unit tier is set below.
+    const recognitionTier: 1 | 2 | 3 = primarySheet ? sheetTier(primarySheet.sheetName) : 3;
 
     // Classify: generate profiles + (optionally) call LLM
     // HF-142: Strip HF-141 prefix format: timestamp_index_uuid8_originalFilename.xlsx
@@ -158,12 +174,12 @@ export async function POST(req: NextRequest) {
       fileSheets.push({ sourceFile: fileName, sheetName: sheet.sheetName });
     }
 
-    // Header comprehension — skip for Tier 1
-    const skipHC = recognitionTier === 1 && flywheelResult?.match;
-    if (!skipHC) {
+    // Header comprehension — HF-197B: skip per-sheet (was: file-level skip on primary tier).
+    const sheetsNeedingHC = sheets.filter(s => !sheetMatchTier1(s.sheetName));
+    if (sheetsNeedingHC.length > 0) {
       await enhanceWithHeaderComprehension(
         profileMap,
-        sheets.map(s => ({
+        sheetsNeedingHC.map(s => ({
           sheetName: s.sheetName,
           columns: s.columns,
           sampleRows: s.rows.slice(0, 5),
@@ -172,6 +188,7 @@ export async function POST(req: NextRequest) {
         tenantId,
       );
     }
+    const skipHC = sheetsNeedingHC.length === 0;
 
     // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
     for (const [sheetName, profile] of Array.from(profileMap.entries())) {
@@ -257,12 +274,17 @@ export async function POST(req: NextRequest) {
     const contentUnits = buildProposalFromState(state, fileSheets)
       .filter(cu => !cu.contentUnitId.includes('::split'));
 
-    // OB-176: For Tier 1 matches, override CRR posterior with flywheel confidence
-    // and tag each content unit with its recognition tier
+    // OB-176 / HF-197B: Per-sheet recognitionTier and confidence override.
+    // Each unit is tagged with ITS OWN sheet's tier (was: file-level tier for all units).
+    // Tier 1 confidence override uses the unit's own flywheel confidence (was: primary's).
     for (const unit of contentUnits) {
-      (unit as unknown as { recognitionTier: number }).recognitionTier = recognitionTier;
-      if (recognitionTier === 1 && flywheelResult?.confidence) {
-        unit.confidence = Math.max(unit.confidence, flywheelResult.confidence);
+      const unitTier = sheetTier(unit.tabName);
+      (unit as unknown as { recognitionTier: number }).recognitionTier = unitTier;
+      if (unitTier === 1) {
+        const unitFlywheel = sheetFlywheelResults.get(unit.tabName);
+        if (unitFlywheel?.confidence) {
+          unit.confidence = Math.max(unit.confidence, unitFlywheel.confidence);
+        }
       }
     }
 
@@ -289,13 +311,21 @@ export async function POST(req: NextRequest) {
     const totalMs = Date.now() - startTime;
     console.log(`[SCI-WORKER] Job ${jobId.substring(0, 8)}: Classified in ${totalMs}ms (Tier ${recognitionTier})`);
 
-    // Flywheel write (fire-and-forget)
+    // Flywheel write (fire-and-forget) — HF-197B: per-sheet keying.
+    // Each unit writes its OWN sheet's hash (was: reused fingerprintHash from sheets[0]),
+    // so each (tenant_id, fingerprint_hash) row reflects exactly one sheet's classification.
     for (const unit of contentUnits) {
       if (!unit.fieldBindings || unit.fieldBindings.length === 0) continue;
+      const sheetForUnit = sheets.find(s => s.sheetName === unit.tabName);
+      if (!sheetForUnit) {
+        console.warn(`[SCI-WORKER] Could not locate sheet for unit tabName=${unit.tabName} — skipping flywheel write`);
+        continue;
+      }
+      const unitHash = computeFingerprintHashSync(sheetForUnit.columns, sheetForUnit.rows);
       const columnRoles: Record<string, string> = {};
       for (const b of unit.fieldBindings) columnRoles[b.sourceField] = b.semanticRole;
       writeFingerprint(
-        tenantId, fingerprintHash,
+        tenantId, unitHash,
         { classification: unit.classification, confidence: unit.confidence, fieldBindings: unit.fieldBindings, tabName: unit.tabName },
         columnRoles, fileName,
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -315,7 +345,7 @@ export async function POST(req: NextRequest) {
         fingerprint: fp,
         classification: unit.classification,
         confidence: unit.confidence,
-        decisionSource: recognitionTier === 1 ? 'fingerprint_tier1' : 'crr_bayesian',
+        decisionSource: sheetTier(unit.tabName) === 1 ? 'fingerprint_tier1' : 'crr_bayesian',
         classificationTrace: (unit.classificationTrace as unknown as ClassificationTrace) ?? ({} as unknown as ClassificationTrace),
         vocabularyBindings: null,
         agentScores: Object.fromEntries(unit.allScores.map(s => [s.agent, s.confidence])),
