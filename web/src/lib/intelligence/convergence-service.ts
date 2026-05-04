@@ -244,6 +244,9 @@ export async function convergeBindings(
         'comprehension:plan_interpretation',
         'comprehension:header_binding',
         'classification:human_correction',
+        // HF-198 E3 / F-011 closure: declared reader for convergence:dual_path_concordance.
+        // Cross-run observation surface for dual-path agreement-rate trend.
+        'convergence:dual_path_concordance',
       ])
       .not('calculation_run_id', 'is', null)
       .neq('calculation_run_id', calculationRunId)

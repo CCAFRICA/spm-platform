@@ -12,6 +12,11 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
+// HF-198 E3: signal-type read-coupling — every signal_type validated against
+// the registry before persist. Unregistered writes log a soft warn (signal
+// writes are fire-and-forget; discipline preserved). Hard-failure path is
+// available via assertRegistered() at call sites that require it.
+import { isRegistered as isSignalTypeRegistered, all as allRegisteredSignalTypes } from '@/lib/intelligence/signal-registry';
 
 // ============================================
 // TYPES
@@ -42,6 +47,14 @@ export async function persistSignal(
   supabaseUrl: string,
   supabaseServiceKey: string,
 ): Promise<{ success: boolean; error?: string }> {
+  // HF-198 E3: read-coupling soft validation — surface unregistered signal_types.
+  if (!isSignalTypeRegistered(signal.signalType)) {
+    console.warn(
+      `[SignalRegistry] persistSignal: signal_type '${signal.signalType}' not registered. ` +
+      `Per AUD-004 v3 §2 E3, every signal_type should declare ≥1 reader. ` +
+      `Available: ${allRegisteredSignalTypes().map(d => d.identifier).join(', ')}`,
+    );
+  }
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -81,6 +94,18 @@ export async function persistSignalBatch(
   supabaseServiceKey: string,
 ): Promise<{ success: boolean; count: number; error?: string }> {
   if (signals.length === 0) return { success: true, count: 0 };
+
+  // HF-198 E3: read-coupling soft validation — surface unregistered signal_types.
+  const unregistered = new Set<string>();
+  for (const s of signals) {
+    if (!isSignalTypeRegistered(s.signalType)) unregistered.add(s.signalType);
+  }
+  if (unregistered.size > 0) {
+    console.warn(
+      `[SignalRegistry] persistSignalBatch: unregistered signal_type(s): ${Array.from(unregistered).join(', ')}. ` +
+      `Per AUD-004 v3 §2 E3, every signal_type should declare ≥1 reader.`,
+    );
+  }
 
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
