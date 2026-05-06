@@ -1052,8 +1052,18 @@ export async function POST(request: NextRequest) {
 
   addLog(`Batch created: ${batch.id}`);
 
+  // HF-207: Fetch tenant name for trace context (best-effort; non-blocking).
+  // Required for log-based diagnostics across multiple concurrent tenants.
+  const { data: tenantRow } = await supabase
+    .from('tenants')
+    .select('name')
+    .eq('id', tenantId)
+    .single();
+  const tenantName = tenantRow?.name ?? '(unknown)';
+
   // HF-204: Inline trace context as standard log lines (Vercel log stream)
-  addLog(`[CalcTrace] context tenantId=${tenantId} periodId=${periodId} periodLabel=${period?.canonical_key ?? 'n/a'} ruleSetId=${ruleSetId} ruleSetName=${ruleSet?.name ?? 'n/a'} calcBatchId=${batch.id}`);
+  // HF-207: tenantName added to context for cross-tenant log diagnostics
+  addLog(`[CalcTrace] context tenantId=${tenantId} tenantName=${tenantName} periodId=${periodId} periodLabel=${period?.canonical_key ?? 'n/a'} ruleSetId=${ruleSetId} ruleSetName=${ruleSet?.name ?? 'n/a'} calcBatchId=${batch.id}`);
 
   // ── 5a. OB-83: Domain Agent dispatch — create negotiation request ──
   const negotiationRequest = createCalculationRequest(dispatchContext, batch.id, periodId);
@@ -2208,6 +2218,38 @@ export async function POST(request: NextRequest) {
     producedLearning
   );
   addLog(`IAP score: I=${dispatchResult.negotiation.iapScore.intelligence.toFixed(2)} A=${dispatchResult.negotiation.iapScore.acceleration.toFixed(2)} P=${dispatchResult.negotiation.iapScore.performance.toFixed(2)} composite=${dispatchResult.negotiation.iapScore.composite.toFixed(3)}`);
+
+  // HF-207 §3.1: period_complete — structured summary for log-based reconciliation.
+  // Emits per-entity breakdown via JSON.stringify for grep-parseability. Keys are
+  // entity external IDs (e.g., BCL-5003) for direct log-to-ground-truth reconciliation.
+  const perEntityTotals: Record<string, number> = {};
+  for (const r of entityResults) {
+    const externalId = ((r.metadata as Record<string, unknown>)?.externalId as string) || (r.entity_id as string);
+    perEntityTotals[externalId] = r.total_payout;
+  }
+  const periodLabel = period?.canonical_key ?? 'n/a';
+  addLog(
+    `[CalcTrace] runCalculation:period_complete` +
+    ` | period=${periodLabel}` +
+    ` | tenantId=${tenantId}` +
+    ` | entitiesCalculated=${entityResults.length}` +
+    ` | grandTotal=${grandTotal}` +
+    ` | perEntityTotals=${JSON.stringify(perEntityTotals)}`
+  );
+
+  // HF-207 §3.2: batch_complete — terminal sentinel for downstream parsers.
+  // Always-emit policy (single-period-per-call architecture: periodsCalculated=1).
+  // Forward-compatible if a future architectural change introduces in-handler
+  // multi-period iteration: only the perPeriodGrandTotals payload changes.
+  addLog(
+    `[CalcTrace] runCalculation:batch_complete` +
+    ` | batchId=${batch.id}` +
+    ` | tenantId=${tenantId}` +
+    ` | ruleSetId=${ruleSetId}` +
+    ` | periodsCalculated=1` +
+    ` | crossPeriodGrandTotal=${grandTotal}` +
+    ` | perPeriodGrandTotals=${JSON.stringify({ [periodLabel]: grandTotal })}`
+  );
 
   addLog(`COMPLETE: batch=${batch.id}, entities=${entityResults.length}, total=${grandTotal}`);
 
