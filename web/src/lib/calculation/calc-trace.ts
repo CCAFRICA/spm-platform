@@ -1,9 +1,9 @@
 // HF-202 — Calc-Execution Trace Capability
 // Reusable instrumented diagnostic. Off by default; zero overhead when disabled.
 // Substrate: T1-E910 Korean Test (generic trace fields), Decision 124 (research-derived).
-
-import * as fs from 'fs';
-import * as path from 'path';
+// HF-203: trace MD content emitted via per-line console.log (Vercel log stream)
+// rather than fs.writeFileSync — Vercel serverless filesystem is ephemeral and
+// inaccessible post-invocation. Architect retrieves between START/END delimiters.
 
 export interface TraceEvent {
   ts: string;
@@ -79,11 +79,8 @@ export function traceEvent(
 }
 
 export function flushTraceToMD(filename?: string): string {
-  const outDir = config.outputPath ?? path.resolve(process.cwd(), 'docs/calc-traces');
-  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const fname = filename ?? `calc-trace-${ts}.md`;
-  const fp = path.join(outDir, fname);
 
   const lines: string[] = [];
   const ctx = config.context ?? {};
@@ -127,8 +124,15 @@ export function flushTraceToMD(filename?: string): string {
     }
   }
 
-  fs.writeFileSync(fp, lines.join('\n'), 'utf8');
-  return fp;
+  // HF-203: emit MD content to Vercel log stream rather than ephemeral filesystem.
+  // Per-line console.log keeps individual log entries below Vercel's per-line cap.
+  // Architect retrieves the block between START/END delimiters from Vercel logs.
+  console.log('=== CALC-TRACE-MD-START ===');
+  console.log(`# fname=${fname} tenant=${ctx.tenantId ?? 'n/a'} period=${ctx.periodLabel ?? 'n/a'} ruleSet=${ctx.ruleSetName ?? 'n/a'} batch=${ctx.calcBatchId ?? 'n/a'} events=${buffer.length}`);
+  for (const line of lines) console.log(line);
+  console.log('=== CALC-TRACE-MD-END ===');
+
+  return fname;
 }
 
 export function getBufferSize(): number {
