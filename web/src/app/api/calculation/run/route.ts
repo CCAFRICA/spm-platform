@@ -1610,10 +1610,15 @@ export async function POST(request: NextRequest) {
         addLog(`HF-108 Resolution path: ${usedConvergenceBindings ? 'convergence_bindings (Decision 111)' : 'sheet-matching (fallback)'}`);
       }
 
-      // OB-118: Merge derived metrics into component metrics
-      // Derived metrics take precedence (they're specifically configured)
+      // OB-118 / HF-206: Convergence-resolved metrics are authoritative (Decision 111 /
+      // Decision 153 atomic cutover completion). Derivation fills gaps only — a metric
+      // resolved by convergence cannot be overwritten by Pass 4 derivation output.
+      // IRA HF-206 (2026-05-06, $1.671075; ira_request_hash cfcef09e02e70710dbd5e523b1eb4ef27aedf50ccb6776ed75784c8963d9bb43)
+      // recommended Shape A as minimum-viable coherence restoration.
       for (const [key, value] of Object.entries(derivedMetrics)) {
-        metrics[key] = value;
+        if (!(key in metrics)) {
+          metrics[key] = value;  // derivation fills gaps only; convergence values preserved
+        }
       }
       // OB-167: Band-aware normalization — replaces inferSemanticType-gated normalization.
       // Compare metric values against the component's band ranges (from the plan spec).
