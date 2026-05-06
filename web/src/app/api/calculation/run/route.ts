@@ -1784,7 +1784,20 @@ export async function POST(request: NextRequest) {
     let intentTotalDecimal = ZERO;
     addLog(`[CalcTrace] runCalculation:entity_start entity=${entityInfo?.external_id ?? ''} entityName=${JSON.stringify(entityInfo?.display_name ?? entityId)} | variantSelected=${selectedVariantIndex} | flatDataRowCount=${entityRowsFlat.length} | metricsKeys=[${Object.keys(allEntityMetrics).join(',')}]`);
     for (const ci of entityIntents) {
-      const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
+      // HF-205 Shape C: convergence is sole metrics authority (Decision 153 atomic
+      // cutover completion). Per-component metrics map MUST be populated; fail fast
+      // if not (rather than silently falling back to seeds-era raw-row-value map).
+      // DIAG-033 verified: all metric keys consumed by intent-executor are
+      // convergence-resolvable for tenants with convergence_bindings.
+      const metrics = perComponentMetrics[ci.componentIndex];
+      if (!metrics) {
+        throw new Error(
+          `HF-205 invariant: per-component metrics missing for component ${ci.componentIndex} ` +
+          `(entity=${entityInfo?.external_id ?? entityId}). Convergence binding resolution ` +
+          `must populate metrics for every component before intent-executor handoff. ` +
+          `Decision 153 / Decision 111 violation.`
+        );
+      }
       const entityData: EntityData = {
         entityId,
         metrics,
