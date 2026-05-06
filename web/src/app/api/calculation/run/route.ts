@@ -35,6 +35,8 @@ import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/li
 import type { Json } from '@/lib/supabase/database.types';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
 import { persistSignal } from '@/lib/ai/signal-persistence';
+// HF-202: calc-execution trace capability (off by default; zero overhead when disabled)
+import { traceEvent, isTraceEnabled, setTraceContext, flushTraceToMD } from '@/lib/calculation/calc-trace';
 // HF-196 Phase 2: calc-time entity resolution per Decision 92 + OB-182 stated intent.
 // Closes Break #2 (entity binding gap) by populating committed_data.entity_id at
 // calc time for any rows where the import-time path didn't already resolve.
@@ -1052,6 +1054,19 @@ export async function POST(request: NextRequest) {
 
   addLog(`Batch created: ${batch.id}`);
 
+  // HF-202: Set trace context for runtime data-flow inspection (no-op when disabled)
+  if (isTraceEnabled()) {
+    setTraceContext({
+      tenantId,
+      periodId,
+      periodLabel: period?.canonical_key ?? undefined,
+      ruleSetId,
+      ruleSetName: ruleSet?.name ?? undefined,
+      calcBatchId: batch.id,
+    });
+    addLog(`[CalcTrace] Trace mode active for batch=${batch.id}`);
+  }
+
   // ── 5a. OB-83: Domain Agent dispatch — create negotiation request ──
   const negotiationRequest = createCalculationRequest(dispatchContext, batch.id, periodId);
   addLog(`Domain dispatch: ${negotiationRequest.domainId} → ${negotiationRequest.requestType} (request=${negotiationRequest.requestId})`);
@@ -1114,7 +1129,12 @@ export async function POST(request: NextRequest) {
     compBindings: Record<string, unknown>,
     component: PlanComponent,
     entityExternalId: string,
+    componentIdx?: number,
   ): Record<string, number> | null {
+    const traceScope = { entityExternalId, componentIdx, componentName: component.name };
+    if (isTraceEnabled()) {
+      traceEvent('resolveMetricsFromConvergenceBindings', 'entry', { compBindings }, traceScope);
+    }
     // HF-111: Support multiple binding roles — actual, row, column, numerator, denominator
     const actualBinding = (compBindings.actual || compBindings.row) as ConvergenceBindingEntry | undefined;
     const targetBinding = (compBindings.target || compBindings.column) as ConvergenceBindingEntry | undefined;
@@ -1132,40 +1152,73 @@ export async function POST(request: NextRequest) {
     // HF-111: Ratio input — resolve both numerator and denominator
     if (numBinding?.source_batch_id && numBinding?.column &&
         denBinding?.source_batch_id && denBinding?.column) {
-      let numValue = resolveColumnFromBatch(
+      const rawNumValue = resolveColumnFromBatch(
         numBinding.source_batch_id, numBinding.column, entityExternalId
       );
-      let denValue = resolveColumnFromBatch(
+      const rawDenValue = resolveColumnFromBatch(
         denBinding.source_batch_id, denBinding.column, entityExternalId
       );
 
+      let numValue = rawNumValue;
+      let denValue = rawDenValue;
       if (numBinding.scale_factor) numValue = numValue !== null ? numValue * numBinding.scale_factor : null;
       if (denBinding.scale_factor) denValue = denValue !== null ? denValue * denBinding.scale_factor : null;
+
+      if (isTraceEnabled()) {
+        traceEvent('resolveMetricsFromConvergenceBindings', 'scale_applied_ratio', {
+          rawNumValue, numScale: numBinding.scale_factor, postNum: numValue,
+          rawDenValue, denScale: denBinding.scale_factor, postDen: denValue,
+        }, traceScope);
+      }
 
       if (numValue !== null && denValue !== null && denValue !== 0) {
         metrics[expectedMetrics[0]] = numValue / denValue;
       }
-      return Object.keys(metrics).length > 0 ? metrics : null;
+      const result = Object.keys(metrics).length > 0 ? metrics : null;
+      if (isTraceEnabled()) {
+        traceEvent('resolveMetricsFromConvergenceBindings', 'exit', { metrics, returnedNull: result === null, path: 'ratio' }, traceScope);
+      }
+      return result;
     }
 
     // Single or dual input (actual + target, or row + column)
     if (actualBinding?.source_batch_id && actualBinding?.column) {
-      let actualValue = resolveColumnFromBatch(
+      const rawActualValue = resolveColumnFromBatch(
         actualBinding.source_batch_id, actualBinding.column, entityExternalId
       );
-      if (actualValue === null) return null;
+      if (rawActualValue === null) {
+        if (isTraceEnabled()) {
+          traceEvent('resolveMetricsFromConvergenceBindings', 'exit', { metrics: null, returnedNull: true, path: 'single_actual_null' }, traceScope);
+        }
+        return null;
+      }
 
       // HF-111: Apply scale factor (e.g., 0.85 ratio → 85 percentage)
+      let actualValue = rawActualValue;
       if (actualBinding.scale_factor) actualValue *= actualBinding.scale_factor;
+
+      if (isTraceEnabled()) {
+        traceEvent('resolveMetricsFromConvergenceBindings', 'scale_applied_actual', {
+          rawActualValue, actualScale: actualBinding.scale_factor, postActual: actualValue,
+          metricKey: expectedMetrics[0],
+        }, traceScope);
+      }
 
       metrics[expectedMetrics[0]] = actualValue;
 
       // Resolve target/column value if binding exists
       if (targetBinding?.source_batch_id && targetBinding?.column) {
-        let targetValue = resolveColumnFromBatch(
+        const rawTargetValue = resolveColumnFromBatch(
           targetBinding.source_batch_id, targetBinding.column, entityExternalId
         );
+        let targetValue = rawTargetValue;
         if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
+
+        if (isTraceEnabled()) {
+          traceEvent('resolveMetricsFromConvergenceBindings', 'scale_applied_target', {
+            rawTargetValue, targetScale: targetBinding.scale_factor, postTarget: targetValue,
+          }, traceScope);
+        }
 
         if (targetValue !== null && targetValue !== 0) {
           const targetMetricName = expectedMetrics.length > 1
@@ -1176,12 +1229,21 @@ export async function POST(request: NextRequest) {
           // Only compute attainment for actual+target pairs, NOT row+column 2D lookups
           if (compBindings.actual && compBindings.target) {
             metrics['attainment'] = actualValue / targetValue;
+            if (isTraceEnabled()) {
+              traceEvent('resolveMetricsFromConvergenceBindings', 'attainment_computed', {
+                actualValue, targetValue, attainment: metrics['attainment'],
+              }, traceScope);
+            }
           }
         }
       }
     }
 
-    return Object.keys(metrics).length > 0 ? metrics : null;
+    const result = Object.keys(metrics).length > 0 ? metrics : null;
+    if (isTraceEnabled()) {
+      traceEvent('resolveMetricsFromConvergenceBindings', 'exit', { metrics: result, returnedNull: result === null, path: 'single_or_dual' }, traceScope);
+    }
+    return result;
   }
 
   // HF-109: Resolve a single column value for an entity from the batch data cache (DS-009 5.1).
@@ -1192,29 +1254,53 @@ export async function POST(request: NextRequest) {
     column: string,
     entityExternalId: string,
   ): number | null {
+    const initialBatchPresent = dataByBatch.has(batchId);
     let batchEntityMap = dataByBatch.get(batchId);
+    const initialEntityPresent = !!batchEntityMap?.has(entityExternalId);
 
     // DIAG-003: If the binding's source_batch_id doesn't have data (different period),
     // search ALL cached batches for this entity's data. The column names are the same
     // across batches — only the batch_id differs between periods.
+    let diag003Fallback = false;
     if (!batchEntityMap || !batchEntityMap.has(entityExternalId)) {
       for (const [, map] of Array.from(dataByBatch.entries())) {
         if (map.has(entityExternalId)) {
           batchEntityMap = map;
+          diag003Fallback = true;
           break;
         }
       }
     }
-    if (!batchEntityMap) return null;
+    if (!batchEntityMap) {
+      if (isTraceEnabled()) {
+        traceEvent('resolveColumnFromBatch', 'exit', {
+          batchId, column,
+          initialBatchPresent, initialEntityPresent, diag003Fallback,
+          returned: null, reason: 'no_batch_map',
+        }, { entityExternalId });
+      }
+      return null;
+    }
 
     // DS-009 5.1: look up by external_id — the cache key IS the entity identifier value
     const rows = batchEntityMap.get(entityExternalId);
-    if (!rows || rows.length === 0) return null;
+    if (!rows || rows.length === 0) {
+      if (isTraceEnabled()) {
+        traceEvent('resolveColumnFromBatch', 'exit', {
+          batchId, column,
+          initialBatchPresent, initialEntityPresent, diag003Fallback,
+          returned: null, reason: 'no_rows',
+        }, { entityExternalId });
+      }
+      return null;
+    }
 
     let sum = 0;
     let found = false;
+    const perRowValues: unknown[] = [];
     for (const rd of rows) {
       const val = rd[column];
+      perRowValues.push(val);
       if (val === null || val === undefined) continue;
       if (typeof val === 'number') {
         sum += val;
@@ -1226,6 +1312,15 @@ export async function POST(request: NextRequest) {
           found = true;
         }
       }
+    }
+
+    if (isTraceEnabled()) {
+      traceEvent('resolveColumnFromBatch', 'exit', {
+        batchId, column,
+        initialBatchPresent, initialEntityPresent, diag003Fallback,
+        rowCount: rows.length, perRowValues, sum, found,
+        returned: found ? sum : null,
+      }, { entityExternalId });
     }
 
     return found ? sum : null;
@@ -1542,7 +1637,7 @@ export async function POST(request: NextRequest) {
 
       if (compBindings && dataByBatch.size > 0) {
         const cbMetrics = resolveMetricsFromConvergenceBindings(
-          compBindings, component, entityInfo?.external_id ?? ''
+          compBindings, component, entityInfo?.external_id ?? '', compIdx
         );
         if (cbMetrics && Object.keys(cbMetrics).length > 0) {
           metrics = cbMetrics;
@@ -1745,8 +1840,17 @@ export async function POST(request: NextRequest) {
 
     // HF-188: Intent executor is sole authority. Rounding applied here.
     let intentTotalDecimal = ZERO;
+    if (isTraceEnabled()) {
+      traceEvent('runCalculation', 'entity_start', {
+        variantSelected: selectedVariantIndex,
+        flatDataRowCount: entityRowsFlat.length,
+        metricsKeys: Object.keys(allEntityMetrics),
+        entityName: entityInfo?.display_name ?? entityId,
+      }, { entityExternalId: entityInfo?.external_id ?? '' });
+    }
     for (const ci of entityIntents) {
       const metrics = perComponentMetrics[ci.componentIndex] ?? allEntityMetrics;
+      const componentForCi = selectedComponents[ci.componentIndex];
       const entityData: EntityData = {
         entityId,
         metrics,
@@ -1755,6 +1859,12 @@ export async function POST(request: NextRequest) {
         periodHistory: periodHistoryMap.get(entityId),
         crossDataCounts: entityCrossData,
         scopeAggregates: entityScopeAgg,
+        // HF-202: Trace context for runtime data-flow inspection (off by default)
+        _traceContext: {
+          entityExternalId: entityInfo?.external_id ?? '',
+          componentIdx: ci.componentIndex,
+          componentName: componentForCi?.name,
+        },
       };
       const intentResult = executeIntent(ci, entityData);
       intentTraces.push(intentResult.trace);
@@ -1776,6 +1886,18 @@ export async function POST(request: NextRequest) {
 
       intentTotalDecimal = intentTotalDecimal.plus(rounded);
       priorResults[ci.componentIndex] = roundedValue;
+
+      if (isTraceEnabled()) {
+        traceEvent('runCalculation', 'component_complete', {
+          rawOutcome: intentResult.outcome,
+          rounded: roundedValue,
+          metricsForComponent: metrics,
+        }, {
+          entityExternalId: entityInfo?.external_id ?? '',
+          componentIdx: ci.componentIndex,
+          componentName: comp?.name,
+        });
+      }
     }
 
     // HF-188: Intent executor is authoritative — legacy is concordance shadow
@@ -2152,6 +2274,16 @@ export async function POST(request: NextRequest) {
   addLog(`IAP score: I=${dispatchResult.negotiation.iapScore.intelligence.toFixed(2)} A=${dispatchResult.negotiation.iapScore.acceleration.toFixed(2)} P=${dispatchResult.negotiation.iapScore.performance.toFixed(2)} composite=${dispatchResult.negotiation.iapScore.composite.toFixed(3)}`);
 
   addLog(`COMPLETE: batch=${batch.id}, entities=${entityResults.length}, total=${grandTotal}`);
+
+  // HF-202: Flush trace buffer to MD if trace mode was enabled
+  if (isTraceEnabled()) {
+    try {
+      const tracePath = flushTraceToMD();
+      addLog(`[CalcTrace] Trace written to: ${tracePath}`);
+    } catch (traceErr) {
+      addLog(`[CalcTrace] Flush failed (non-blocking): ${traceErr instanceof Error ? traceErr.message : String(traceErr)}`);
+    }
+  }
 
   return NextResponse.json({
     success: true,

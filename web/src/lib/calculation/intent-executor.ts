@@ -29,6 +29,8 @@ import type {
 } from './intent-types';
 import { isIntentOperation } from './intent-types';
 import { Decimal, toDecimal, toNumber, ZERO } from './decimal-precision';
+// HF-202: calc-execution trace capability (off by default; zero overhead when disabled)
+import { traceEvent, isTraceEnabled } from './calc-trace';
 
 // ──────────────────────────────────────────────
 // Entity Data — the executor's view of an entity
@@ -45,6 +47,12 @@ export interface EntityData {
   crossDataCounts?: Record<string, number>;  // key: "dataType:count" or "dataType:sum:field" → value
   // OB-181: Scope aggregates — pre-computed sums across entities in hierarchical scope
   scopeAggregates?: Record<string, number>;  // key: "scope:field:aggregation" → value
+  // HF-202: Optional trace context — set by orchestrator for runtime data-flow inspection
+  _traceContext?: {
+    entityExternalId?: string;
+    componentIdx?: number;
+    componentName?: string;
+  };
 }
 
 export interface ExecutionResult {
@@ -70,6 +78,14 @@ function resolveSource(
       const key = field.startsWith('metric:') ? field.slice(7) : field;
       const raw = data.metrics[key] ?? 0;
       inputLog[field] = { source: 'metric', rawValue: data.metrics[key], resolvedValue: raw };
+      if (isTraceEnabled()) {
+        traceEvent('resolveSource', 'metric_lookup', {
+          field, key,
+          rawValueInMetrics: data.metrics[key],
+          resolvedValue: raw,
+          metricsKeys: Object.keys(data.metrics),
+        }, data._traceContext);
+      }
       return toDecimal(raw);
     }
     case 'ratio': {
@@ -211,6 +227,13 @@ function executeBoundedLookup1D(
 
   if (idx < 0) {
     trace.lookupResolution = { outputValue: 0 };
+    if (isTraceEnabled()) {
+      traceEvent('executeBoundedLookup1D', 'no_band_match', {
+        inputValue: toNumber(inputValue),
+        boundaries: op.boundaries,
+        outputValue: 0,
+      }, data._traceContext);
+    }
     return ZERO;
   }
 
@@ -226,6 +249,18 @@ function executeBoundedLookup1D(
     outputValue: toNumber(output),
     ...(op.isMarginal ? { isMarginal: true, rate: toNumber(rawOutput), inputValue: toNumber(inputValue) } : {}),
   };
+  if (isTraceEnabled()) {
+    traceEvent('executeBoundedLookup1D', 'execution', {
+      inputValue: toNumber(inputValue),
+      boundaries: op.boundaries,
+      outputs: op.outputs,
+      bandIndex: idx,
+      bandRange: { min: op.boundaries[idx].min, max: op.boundaries[idx].max },
+      rawOutput: toNumber(rawOutput),
+      isMarginal: !!op.isMarginal,
+      outputValue: toNumber(output),
+    }, data._traceContext);
+  }
   return output;
 }
 
@@ -247,6 +282,16 @@ function executeBoundedLookup2D(
       columnBoundaryMatched: colIdx >= 0 ? { min: op.columnBoundaries[colIdx].min, max: op.columnBoundaries[colIdx].max, index: colIdx } : undefined,
       outputValue: 0,
     };
+    if (isTraceEnabled()) {
+      traceEvent('executeBoundedLookup2D', 'no_band_match', {
+        rowValue: toNumber(rowValue),
+        colValue: toNumber(colValue),
+        rowBoundaries: op.rowBoundaries,
+        columnBoundaries: op.columnBoundaries,
+        rowIdx, colIdx,
+        outputValue: 0,
+      }, data._traceContext);
+    }
     return ZERO;
   }
 
@@ -256,6 +301,17 @@ function executeBoundedLookup2D(
     columnBoundaryMatched: { min: op.columnBoundaries[colIdx].min, max: op.columnBoundaries[colIdx].max, index: colIdx },
     outputValue: toNumber(output),
   };
+  if (isTraceEnabled()) {
+    traceEvent('executeBoundedLookup2D', 'execution', {
+      rowValue: toNumber(rowValue),
+      colValue: toNumber(colValue),
+      rowBoundaries: op.rowBoundaries,
+      columnBoundaries: op.columnBoundaries,
+      rowIdx, colIdx,
+      outputGridCell: op.outputGrid[rowIdx]?.[colIdx] ?? 0,
+      outputValue: toNumber(output),
+    }, data._traceContext);
+  }
   return output;
 }
 
