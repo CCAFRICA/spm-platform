@@ -1315,17 +1315,18 @@ async function executeBatchedPlanInterpretation(
   const componentCount = variants.reduce((sum: number, v: { components?: unknown[] }) => sum + (v.components?.length || 0), 0);
   console.log(`[SCI Execute] Batched plan saved: ${planName} (${ruleSetId}), ${variants.length} variants, ${componentCount} components from ${planUnits.length} sheets`);
 
-  // HF-198 E5: Emit per-component comprehension:plan_interpretation signals (L2)
+  // HF-198 E5 + HF-201: Emit per-component comprehension:plan_interpretation signals (L2)
   // so convergence Pass 4 reads authoritative semantic intent before AI derivation.
-  // Read-coupling per AUD-004 v3 §2 E3 — declared reader: convergence-service.ts
-  // loadMetricComprehensionSignals. Fire-and-forget; rule_set save already committed.
+  // HF-201 Shape B: pass plan-agent's original output (interpretation.components) so the
+  // signal carries plan-agent reasoning verbatim. PlanComponent (engine-format) drops
+  // reasoning during convertComponent; routing to interpretation.components preserves it.
   try {
     const { emitPlanComprehensionSignals } = await import('@/lib/compensation/plan-comprehension-emitter');
-    const componentsForSignals = variants.flatMap(v => v.components ?? []);
+    const componentsForSignals = (interpretation.components ?? []) as unknown as Array<Record<string, unknown>>;
     void emitPlanComprehensionSignals({
       tenantId,
       ruleSetId,
-      interpretation: { components: componentsForSignals as unknown as Array<Record<string, unknown>> },
+      interpretation: { components: componentsForSignals },
       planConfidence: response.confidence,
     });
   } catch (sigErr) {
@@ -1567,14 +1568,16 @@ async function executePlanPipeline(
   const componentCount = variants.reduce((sum: number, v: { components?: unknown[] }) => sum + (v.components?.length || 0), 0);
   console.log(`[SCI Execute] Plan saved: ${planName} (${ruleSetId}), ${variants.length} variants, ${componentCount} components`);
 
-  // HF-198 E5: Emit per-component comprehension:plan_interpretation signals (L2).
+  // HF-198 E5 + HF-201: Emit per-component comprehension:plan_interpretation signals (L2).
+  // HF-201 Shape B: pass plan-agent's original output (interpretation.components) so the
+  // signal carries plan-agent reasoning verbatim.
   try {
     const { emitPlanComprehensionSignals } = await import('@/lib/compensation/plan-comprehension-emitter');
-    const componentsForSignals = variants.flatMap(v => v.components ?? []);
+    const componentsForSignals = (interpretation.components ?? []) as unknown as Array<Record<string, unknown>>;
     void emitPlanComprehensionSignals({
       tenantId,
       ruleSetId,
-      interpretation: { components: componentsForSignals as unknown as Array<Record<string, unknown>> },
+      interpretation: { components: componentsForSignals },
       planConfidence: response.confidence,
     });
   } catch (sigErr) {
