@@ -45,6 +45,13 @@ export interface EntityData {
   crossDataCounts?: Record<string, number>;  // key: "dataType:count" or "dataType:sum:field" → value
   // OB-181: Scope aggregates — pre-computed sums across entities in hierarchical scope
   scopeAggregates?: Record<string, number>;  // key: "scope:field:aggregation" → value
+  // HF-211: Optional [CalcTrace] collector. When provided, intent-executor diagnostic
+  // emissions route through this callback (caller-controlled buffering / cap / suppression);
+  // when undefined, fall back to console.log for backward compatibility (test paths, other
+  // callers). Architectural compromise: diagnostic plumbing on EntityData avoids threading
+  // optional traceCollector through ~15 function signatures (executeIntent → executeOperation
+  // → execute* operations → resolveValue → resolveSource).
+  traceCollector?: (line: string) => void;
 }
 
 export interface ExecutionResult {
@@ -70,7 +77,10 @@ function resolveSource(
       const key = field.startsWith('metric:') ? field.slice(7) : field;
       const raw = data.metrics[key] ?? 0;
       inputLog[field] = { source: 'metric', rawValue: data.metrics[key], resolvedValue: raw };
-      console.log(`[CalcTrace] resolveSource:metric_lookup entity=${data.entityId} | field=${field} | key=${key} | rawValueInMetrics=${data.metrics[key]} | resolvedValue=${raw} | metricsKeys=[${Object.keys(data.metrics).join(',')}]`);
+      {
+        const _line = `[CalcTrace] resolveSource:metric_lookup entity=${data.entityId} | field=${field} | key=${key} | rawValueInMetrics=${data.metrics[key]} | resolvedValue=${raw} | metricsKeys=[${Object.keys(data.metrics).join(',')}]`;
+        if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+      }
       return toDecimal(raw);
     }
     case 'ratio': {
@@ -212,7 +222,10 @@ function executeBoundedLookup1D(
 
   if (idx < 0) {
     trace.lookupResolution = { outputValue: 0 };
-    console.log(`[CalcTrace] executeBoundedLookup1D:no_band_match entity=${data.entityId} | inputValue=${toNumber(inputValue)} | boundaries=${JSON.stringify(op.boundaries)} | outputValue=0`);
+    {
+      const _line = `[CalcTrace] executeBoundedLookup1D:no_band_match entity=${data.entityId} | inputValue=${toNumber(inputValue)} | boundaries=${JSON.stringify(op.boundaries)} | outputValue=0`;
+      if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+    }
     return ZERO;
   }
 
@@ -228,7 +241,10 @@ function executeBoundedLookup1D(
     outputValue: toNumber(output),
     ...(op.isMarginal ? { isMarginal: true, rate: toNumber(rawOutput), inputValue: toNumber(inputValue) } : {}),
   };
-  console.log(`[CalcTrace] executeBoundedLookup1D:execution entity=${data.entityId} | inputValue=${toNumber(inputValue)} | bandIndex=${idx} | bandRange=${JSON.stringify({min: op.boundaries[idx].min, max: op.boundaries[idx].max})} | rawOutput=${toNumber(rawOutput)} | isMarginal=${!!op.isMarginal} | outputValue=${toNumber(output)} | boundaries=${JSON.stringify(op.boundaries)} | outputs=${JSON.stringify(op.outputs)}`);
+  {
+    const _line = `[CalcTrace] executeBoundedLookup1D:execution entity=${data.entityId} | inputValue=${toNumber(inputValue)} | bandIndex=${idx} | bandRange=${JSON.stringify({min: op.boundaries[idx].min, max: op.boundaries[idx].max})} | rawOutput=${toNumber(rawOutput)} | isMarginal=${!!op.isMarginal} | outputValue=${toNumber(output)} | boundaries=${JSON.stringify(op.boundaries)} | outputs=${JSON.stringify(op.outputs)}`;
+    if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+  }
   return output;
 }
 
@@ -250,7 +266,10 @@ function executeBoundedLookup2D(
       columnBoundaryMatched: colIdx >= 0 ? { min: op.columnBoundaries[colIdx].min, max: op.columnBoundaries[colIdx].max, index: colIdx } : undefined,
       outputValue: 0,
     };
-    console.log(`[CalcTrace] executeBoundedLookup2D:no_band_match entity=${data.entityId} | rowValue=${toNumber(rowValue)} | colValue=${toNumber(colValue)} | rowIdx=${rowIdx} | colIdx=${colIdx} | rowBoundaries=${JSON.stringify(op.rowBoundaries)} | columnBoundaries=${JSON.stringify(op.columnBoundaries)} | outputValue=0`);
+    {
+      const _line = `[CalcTrace] executeBoundedLookup2D:no_band_match entity=${data.entityId} | rowValue=${toNumber(rowValue)} | colValue=${toNumber(colValue)} | rowIdx=${rowIdx} | colIdx=${colIdx} | rowBoundaries=${JSON.stringify(op.rowBoundaries)} | columnBoundaries=${JSON.stringify(op.columnBoundaries)} | outputValue=0`;
+      if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+    }
     return ZERO;
   }
 
@@ -260,7 +279,10 @@ function executeBoundedLookup2D(
     columnBoundaryMatched: { min: op.columnBoundaries[colIdx].min, max: op.columnBoundaries[colIdx].max, index: colIdx },
     outputValue: toNumber(output),
   };
-  console.log(`[CalcTrace] executeBoundedLookup2D:execution entity=${data.entityId} | rowValue=${toNumber(rowValue)} | colValue=${toNumber(colValue)} | rowIdx=${rowIdx} | colIdx=${colIdx} | outputGridCell=${op.outputGrid[rowIdx]?.[colIdx] ?? 0} | outputValue=${toNumber(output)}`);
+  {
+    const _line = `[CalcTrace] executeBoundedLookup2D:execution entity=${data.entityId} | rowValue=${toNumber(rowValue)} | colValue=${toNumber(colValue)} | rowIdx=${rowIdx} | colIdx=${colIdx} | outputGridCell=${op.outputGrid[rowIdx]?.[colIdx] ?? 0} | outputValue=${toNumber(output)}`;
+    if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+  }
   return output;
 }
 

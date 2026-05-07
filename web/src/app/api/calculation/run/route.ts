@@ -115,6 +115,20 @@ export async function POST(request: NextRequest) {
     return false;
   }
 
+  // HF-211: Trace buffer — collects all forensic [CalcTrace] emissions during entity loop.
+  // Flushed AFTER [CalcRecon] block emits at handler-exit so summary appears above forensics.
+  // Pre-HF-211 state: trace lines streamed in real-time, drowning [CalcRecon] block at
+  // handler-exit below Vercel paste truncation point.
+  const traceBuffer: string[] = [];
+  function bufferTrace(line: string): void {
+    traceBuffer.push(line);
+  }
+
+  // HF-211: Per-component totals accumulator — sum of rounded outcomes per component index.
+  // Populated at component_complete site UNCONDITIONALLY (every entity, every component);
+  // surfaced in [CalcRecon] block per-component breakdown for direct ground-truth reconciliation.
+  const componentTotals: Map<number, { name: string; total: number }> = new Map();
+
   // ── HF-196 Phase 2: Calc-time entity resolution (Break #2 closure) ──
   // Per Decision 92 + OB-182 stated intent. Idempotent — does nothing if all
   // rows already have entity_id resolved. Surfaces unmatched rows as a data-
@@ -1152,7 +1166,7 @@ export async function POST(request: NextRequest) {
     componentIdx?: number,
   ): Record<string, number> | null {
     if (shouldEmitTrace(entityExternalId)) {
-      addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:entry entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} componentName=${JSON.stringify(component.name)} | compBindingsKeys=${Object.keys(compBindings).join(',')}`);
+      bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:entry entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} componentName=${JSON.stringify(component.name)} | compBindingsKeys=${Object.keys(compBindings).join(',')}`);
     }
     // HF-111: Support multiple binding roles — actual, row, column, numerator, denominator
     const actualBinding = (compBindings.actual || compBindings.row) as ConvergenceBindingEntry | undefined;
@@ -1184,7 +1198,7 @@ export async function POST(request: NextRequest) {
       if (denBinding.scale_factor) denValue = denValue !== null ? denValue * denBinding.scale_factor : null;
 
       if (shouldEmitTrace(entityExternalId)) {
-        addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=ratio | rawNum=${rawNumValue} | numScale=${numBinding.scale_factor ?? 'undefined'} | postNum=${numValue} | rawDen=${rawDenValue} | denScale=${denBinding.scale_factor ?? 'undefined'} | postDen=${denValue}`);
+        bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=ratio | rawNum=${rawNumValue} | numScale=${numBinding.scale_factor ?? 'undefined'} | postNum=${numValue} | rawDen=${rawDenValue} | denScale=${denBinding.scale_factor ?? 'undefined'} | postDen=${denValue}`);
       }
 
       if (numValue !== null && denValue !== null && denValue !== 0) {
@@ -1192,7 +1206,7 @@ export async function POST(request: NextRequest) {
       }
       const result = Object.keys(metrics).length > 0 ? metrics : null;
       if (shouldEmitTrace(entityExternalId)) {
-        addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=ratio | metrics=${JSON.stringify(metrics)} | returnedNull=${result === null}`);
+        bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=ratio | metrics=${JSON.stringify(metrics)} | returnedNull=${result === null}`);
       }
       return result;
     }
@@ -1204,7 +1218,7 @@ export async function POST(request: NextRequest) {
       );
       if (rawActualValue === null) {
         if (shouldEmitTrace(entityExternalId)) {
-          addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
+          bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
         }
         return null;
       }
@@ -1214,7 +1228,7 @@ export async function POST(request: NextRequest) {
       if (actualBinding.scale_factor) actualValue *= actualBinding.scale_factor;
 
       if (shouldEmitTrace(entityExternalId)) {
-        addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=actual | rawActual=${rawActualValue} | actualScale=${actualBinding.scale_factor ?? 'undefined'} | postActual=${actualValue} | metricKey=${expectedMetrics[0]}`);
+        bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=actual | rawActual=${rawActualValue} | actualScale=${actualBinding.scale_factor ?? 'undefined'} | postActual=${actualValue} | metricKey=${expectedMetrics[0]}`);
       }
 
       metrics[expectedMetrics[0]] = actualValue;
@@ -1228,7 +1242,7 @@ export async function POST(request: NextRequest) {
         if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
 
         if (shouldEmitTrace(entityExternalId)) {
-          addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=target | rawTarget=${rawTargetValue} | targetScale=${targetBinding.scale_factor ?? 'undefined'} | postTarget=${targetValue}`);
+          bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=target | rawTarget=${rawTargetValue} | targetScale=${targetBinding.scale_factor ?? 'undefined'} | postTarget=${targetValue}`);
         }
 
         if (targetValue !== null && targetValue !== 0) {
@@ -1241,7 +1255,7 @@ export async function POST(request: NextRequest) {
           if (compBindings.actual && compBindings.target) {
             metrics['attainment'] = actualValue / targetValue;
             if (shouldEmitTrace(entityExternalId)) {
-              addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:attainment_computed entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | actualValue=${actualValue} | targetValue=${targetValue} | attainment=${metrics['attainment']}`);
+              bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:attainment_computed entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | actualValue=${actualValue} | targetValue=${targetValue} | attainment=${metrics['attainment']}`);
             }
           }
         }
@@ -1250,7 +1264,7 @@ export async function POST(request: NextRequest) {
 
     const result = Object.keys(metrics).length > 0 ? metrics : null;
     if (shouldEmitTrace(entityExternalId)) {
-      addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_or_dual | metrics=${JSON.stringify(result)} | returnedNull=${result === null}`);
+      bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_or_dual | metrics=${JSON.stringify(result)} | returnedNull=${result === null}`);
     }
     return result;
   }
@@ -1283,7 +1297,7 @@ export async function POST(request: NextRequest) {
     }
     if (!batchEntityMap) {
       if (shouldEmitTrace(entityExternalId)) {
-        addLog(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_batch_map | returned=null`);
+        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_batch_map | returned=null`);
       }
       return null;
     }
@@ -1292,7 +1306,7 @@ export async function POST(request: NextRequest) {
     const rows = batchEntityMap.get(entityExternalId);
     if (!rows || rows.length === 0) {
       if (shouldEmitTrace(entityExternalId)) {
-        addLog(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_rows | returned=null`);
+        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_rows | returned=null`);
       }
       return null;
     }
@@ -1317,7 +1331,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (shouldEmitTrace(entityExternalId)) {
-      addLog(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | rowCount=${rows.length} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
+      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | rowCount=${rows.length} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
     }
 
     return found ? sum : null;
@@ -1845,7 +1859,7 @@ export async function POST(request: NextRequest) {
     // HF-188: Intent executor is sole authority. Rounding applied here.
     let intentTotalDecimal = ZERO;
     if (shouldEmitTrace(entityInfo?.external_id ?? entityId)) {
-      addLog(`[CalcTrace] runCalculation:entity_start entity=${entityInfo?.external_id ?? ''} entityName=${JSON.stringify(entityInfo?.display_name ?? entityId)} | variantSelected=${selectedVariantIndex} | flatDataRowCount=${entityRowsFlat.length} | metricsKeys=[${Object.keys(allEntityMetrics).join(',')}]`);
+      bufferTrace(`[CalcTrace] runCalculation:entity_start entity=${entityInfo?.external_id ?? ''} entityName=${JSON.stringify(entityInfo?.display_name ?? entityId)} | variantSelected=${selectedVariantIndex} | flatDataRowCount=${entityRowsFlat.length} | metricsKeys=[${Object.keys(allEntityMetrics).join(',')}]`);
     }
     for (const ci of entityIntents) {
       // HF-205 Shape C: convergence is sole metrics authority (Decision 153 atomic
@@ -1870,6 +1884,9 @@ export async function POST(request: NextRequest) {
         periodHistory: periodHistoryMap.get(entityId),
         crossDataCounts: entityCrossData,
         scopeAggregates: entityScopeAgg,
+        // HF-211: Route intent-executor [CalcTrace] emissions through buffer (only for traced
+        // entities) so they flush after the [CalcRecon] block at handler exit.
+        traceCollector: shouldEmitTrace(entityInfo?.external_id ?? entityId) ? bufferTrace : undefined,
       };
       const intentResult = executeIntent(ci, entityData);
       intentTraces.push(intentResult.trace);
@@ -1892,8 +1909,16 @@ export async function POST(request: NextRequest) {
       intentTotalDecimal = intentTotalDecimal.plus(rounded);
       priorResults[ci.componentIndex] = roundedValue;
 
+      // HF-211: Accumulate per-component total UNCONDITIONALLY (every entity, every component).
+      // Source for [CalcRecon] block per-component breakdown — independent of trace cap.
+      const _existingCompTotal = componentTotals.get(ci.componentIndex);
+      componentTotals.set(ci.componentIndex, {
+        name: comp?.name ?? `component_${ci.componentIndex}`,
+        total: (_existingCompTotal?.total ?? 0) + (Number(roundedValue) || 0),
+      });
+
       if (shouldEmitTrace(entityInfo?.external_id ?? entityId)) {
-        addLog(`[CalcTrace] runCalculation:component_complete entity=${entityInfo?.external_id ?? ''} componentIdx=${ci.componentIndex} componentName=${JSON.stringify(comp?.name)} | rawOutcome=${intentResult.outcome} | rounded=${roundedValue} | metrics=${JSON.stringify(metrics)}`);
+        bufferTrace(`[CalcTrace] runCalculation:component_complete entity=${entityInfo?.external_id ?? ''} componentIdx=${ci.componentIndex} componentName=${JSON.stringify(comp?.name)} | rawOutcome=${intentResult.outcome} | rounded=${roundedValue} | metrics=${JSON.stringify(metrics)}`);
       }
     }
 
@@ -2270,10 +2295,9 @@ export async function POST(request: NextRequest) {
   );
   addLog(`IAP score: I=${dispatchResult.negotiation.iapScore.intelligence.toFixed(2)} A=${dispatchResult.negotiation.iapScore.acceleration.toFixed(2)} P=${dispatchResult.negotiation.iapScore.performance.toFixed(2)} composite=${dispatchResult.negotiation.iapScore.composite.toFixed(3)}`);
 
-  // HF-208: Reconciliation summary block. Greppable via [CalcRecon] prefix; emits
-  // grand total, per-entity totals, and three exception flag counters. Architect-
-  // channel reconciliation workflow: `grep CalcRecon` to extract this surface from
-  // any period's log, ignore the per-metric trace blizzard above it.
+  // ═══════════════════════════════════════════════════════════════
+  // HF-211: RECONCILIATION SUMMARY (TOP-VISIBLE — emits BEFORE forensic trace flush)
+  // ═══════════════════════════════════════════════════════════════
   // boundaryFallbackCount derived post-hoc from convergence_bindings.match_pass===3
   // (binding-level; one count per binding that used HF-199 boundary fallback).
   let boundaryFallbackCount = 0;
@@ -2289,21 +2313,46 @@ export async function POST(request: NextRequest) {
       }
     }
   } catch {
-    // Non-fatal — emit (unavailable) for the boundaryFallback counter
+    // Non-fatal — counter stays 0
   }
   const reconPeriodLabel = period?.canonical_key ?? 'n/a';
   const reconTotalLookups = entityResults.length * (((ruleSet.components as unknown[]) ?? []).length);
-  addLog(`[CalcRecon] === RECONCILIATION SUMMARY ===`);
-  addLog(`[CalcRecon] tenant=${tenantName} period=${reconPeriodLabel} ruleSet="${ruleSet?.name ?? 'n/a'}" batchId=${batch.id}`);
+  addLog(`[CalcRecon] ╔═══════════════════════════════════════════════════════════════╗`);
+  addLog(`[CalcRecon] ║              RECONCILIATION SUMMARY                           ║`);
+  addLog(`[CalcRecon] ╚═══════════════════════════════════════════════════════════════╝`);
+  addLog(`[CalcRecon] tenant=${tenantName ?? 'n/a'} period=${reconPeriodLabel} ruleSet="${ruleSet?.name ?? 'n/a'}"`);
+  addLog(`[CalcRecon] batchId=${batch.id} run=${calculationRunId ?? 'n/a'}`);
   addLog(`[CalcRecon] entitiesCalculated=${entityResults.length} grandTotal=${grandTotal}`);
-  addLog(`[CalcRecon] flags: diag003Fallback=${diag003FallbackCount}/${reconTotalLookups} boundaryFallback=${boundaryFallbackCount} ob118MergeGuardFired=${ob118MergeGuardFiredCount}/${reconTotalLookups}`);
-  addLog(`[CalcRecon] === PER-ENTITY TOTALS ===`);
+  addLog(`[CalcRecon] ─── Per-Component Totals ───`);
+  const sortedComponents = Array.from(componentTotals.entries()).sort((a, b) => a[0] - b[0]);
+  for (const [idx, info] of sortedComponents) {
+    addLog(`[CalcRecon]   c${idx} | ${info.name} | total=${info.total}`);
+  }
+  addLog(`[CalcRecon] ─── Exception Flags (HF-208 counters) ───`);
+  addLog(`[CalcRecon]   diag003Fallback=${diag003FallbackCount}/${reconTotalLookups}`);
+  addLog(`[CalcRecon]   boundaryFallback=${boundaryFallbackCount}`);
+  addLog(`[CalcRecon]   ob118MergeGuardFired=${ob118MergeGuardFiredCount}/${reconTotalLookups}`);
+  addLog(`[CalcRecon] ─── Trace Coverage (HF-210 cap) ───`);
+  addLog(`[CalcRecon]   tracedEntities=${tracedEntityIds.size} cap=${TRACE_CAP_N}`);
+  addLog(`[CalcRecon] ─── Per-Entity Totals ───`);
   for (const r of entityResults) {
     const externalId = ((r.metadata as Record<string, unknown>)?.externalId as string) || (r.entity_id as string);
     const entityName = ((r.metadata as Record<string, unknown>)?.entityName as string) || externalId;
-    addLog(`[CalcRecon] ${externalId} | ${entityName} | total=${r.total_payout}`);
+    addLog(`[CalcRecon]   ${externalId} | ${entityName} | total=${r.total_payout}`);
   }
-  addLog(`[CalcRecon] === END SUMMARY ===`);
+  addLog(`[CalcRecon] ╔═══════════════════════════════════════════════════════════════╗`);
+  addLog(`[CalcRecon] ║              END SUMMARY                                      ║`);
+  addLog(`[CalcRecon] ╚═══════════════════════════════════════════════════════════════╝`);
+
+  // ═══════════════════════════════════════════════════════════════
+  // HF-211: FORENSIC TRACE FLUSH (buffered during entity loop)
+  // Emits AFTER [CalcRecon] block so summary lands at top of forensics-section.
+  // ═══════════════════════════════════════════════════════════════
+  addLog(`[CalcTrace] ─── FORENSIC TRACE (capped: ${TRACE_CAP_N} entities) ───`);
+  for (const line of traceBuffer) {
+    addLog(line);
+  }
+  addLog(`[CalcTrace] ─── END FORENSIC TRACE ─── (${traceBuffer.length} lines)`);
 
   // HF-207 §3.1: period_complete — structured summary for log-based reconciliation.
   // Emits per-entity breakdown via JSON.stringify for grep-parseability. Keys are
