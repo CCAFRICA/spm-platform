@@ -99,6 +99,22 @@ export async function POST(request: NextRequest) {
   let ob118MergeGuardFiredCount = 0;
   // boundaryFallbackCount derived post-hoc from convergence_bindings.match_pass===3 at handler exit.
 
+  // HF-210: Cap route.ts [CalcTrace] emissions at first N entities for log visibility.
+  // The `[CalcRecon]` reconciliation block at handler exit becomes visible without
+  // truncation because per-entity trace volume drops from ~32×85 to ~32×5 lines.
+  // Counters above (HF-208) increment for ALL entities regardless of cap.
+  // intent-executor.ts traces are NOT capped here (separate-file scope per HF-210 §3).
+  const TRACE_CAP_N = 5;
+  const tracedEntityIds = new Set<string>();
+  function shouldEmitTrace(entityId: string): boolean {
+    if (tracedEntityIds.has(entityId)) return true;
+    if (tracedEntityIds.size < TRACE_CAP_N) {
+      tracedEntityIds.add(entityId);
+      return true;
+    }
+    return false;
+  }
+
   // ── HF-196 Phase 2: Calc-time entity resolution (Break #2 closure) ──
   // Per Decision 92 + OB-182 stated intent. Idempotent — does nothing if all
   // rows already have entity_id resolved. Surfaces unmatched rows as a data-
@@ -1135,7 +1151,9 @@ export async function POST(request: NextRequest) {
     entityExternalId: string,
     componentIdx?: number,
   ): Record<string, number> | null {
-    addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:entry entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} componentName=${JSON.stringify(component.name)} | compBindingsKeys=${Object.keys(compBindings).join(',')}`);
+    if (shouldEmitTrace(entityExternalId)) {
+      addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:entry entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} componentName=${JSON.stringify(component.name)} | compBindingsKeys=${Object.keys(compBindings).join(',')}`);
+    }
     // HF-111: Support multiple binding roles — actual, row, column, numerator, denominator
     const actualBinding = (compBindings.actual || compBindings.row) as ConvergenceBindingEntry | undefined;
     const targetBinding = (compBindings.target || compBindings.column) as ConvergenceBindingEntry | undefined;
@@ -1165,13 +1183,17 @@ export async function POST(request: NextRequest) {
       if (numBinding.scale_factor) numValue = numValue !== null ? numValue * numBinding.scale_factor : null;
       if (denBinding.scale_factor) denValue = denValue !== null ? denValue * denBinding.scale_factor : null;
 
-      addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=ratio | rawNum=${rawNumValue} | numScale=${numBinding.scale_factor ?? 'undefined'} | postNum=${numValue} | rawDen=${rawDenValue} | denScale=${denBinding.scale_factor ?? 'undefined'} | postDen=${denValue}`);
+      if (shouldEmitTrace(entityExternalId)) {
+        addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=ratio | rawNum=${rawNumValue} | numScale=${numBinding.scale_factor ?? 'undefined'} | postNum=${numValue} | rawDen=${rawDenValue} | denScale=${denBinding.scale_factor ?? 'undefined'} | postDen=${denValue}`);
+      }
 
       if (numValue !== null && denValue !== null && denValue !== 0) {
         metrics[expectedMetrics[0]] = numValue / denValue;
       }
       const result = Object.keys(metrics).length > 0 ? metrics : null;
-      addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=ratio | metrics=${JSON.stringify(metrics)} | returnedNull=${result === null}`);
+      if (shouldEmitTrace(entityExternalId)) {
+        addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=ratio | metrics=${JSON.stringify(metrics)} | returnedNull=${result === null}`);
+      }
       return result;
     }
 
@@ -1181,7 +1203,9 @@ export async function POST(request: NextRequest) {
         actualBinding.source_batch_id, actualBinding.column, entityExternalId
       );
       if (rawActualValue === null) {
-        addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
+        if (shouldEmitTrace(entityExternalId)) {
+          addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
+        }
         return null;
       }
 
@@ -1189,7 +1213,9 @@ export async function POST(request: NextRequest) {
       let actualValue = rawActualValue;
       if (actualBinding.scale_factor) actualValue *= actualBinding.scale_factor;
 
-      addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=actual | rawActual=${rawActualValue} | actualScale=${actualBinding.scale_factor ?? 'undefined'} | postActual=${actualValue} | metricKey=${expectedMetrics[0]}`);
+      if (shouldEmitTrace(entityExternalId)) {
+        addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=actual | rawActual=${rawActualValue} | actualScale=${actualBinding.scale_factor ?? 'undefined'} | postActual=${actualValue} | metricKey=${expectedMetrics[0]}`);
+      }
 
       metrics[expectedMetrics[0]] = actualValue;
 
@@ -1201,7 +1227,9 @@ export async function POST(request: NextRequest) {
         let targetValue = rawTargetValue;
         if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
 
-        addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=target | rawTarget=${rawTargetValue} | targetScale=${targetBinding.scale_factor ?? 'undefined'} | postTarget=${targetValue}`);
+        if (shouldEmitTrace(entityExternalId)) {
+          addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=target | rawTarget=${rawTargetValue} | targetScale=${targetBinding.scale_factor ?? 'undefined'} | postTarget=${targetValue}`);
+        }
 
         if (targetValue !== null && targetValue !== 0) {
           const targetMetricName = expectedMetrics.length > 1
@@ -1212,14 +1240,18 @@ export async function POST(request: NextRequest) {
           // Only compute attainment for actual+target pairs, NOT row+column 2D lookups
           if (compBindings.actual && compBindings.target) {
             metrics['attainment'] = actualValue / targetValue;
-            addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:attainment_computed entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | actualValue=${actualValue} | targetValue=${targetValue} | attainment=${metrics['attainment']}`);
+            if (shouldEmitTrace(entityExternalId)) {
+              addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:attainment_computed entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | actualValue=${actualValue} | targetValue=${targetValue} | attainment=${metrics['attainment']}`);
+            }
           }
         }
       }
     }
 
     const result = Object.keys(metrics).length > 0 ? metrics : null;
-    addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_or_dual | metrics=${JSON.stringify(result)} | returnedNull=${result === null}`);
+    if (shouldEmitTrace(entityExternalId)) {
+      addLog(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_or_dual | metrics=${JSON.stringify(result)} | returnedNull=${result === null}`);
+    }
     return result;
   }
 
@@ -1250,14 +1282,18 @@ export async function POST(request: NextRequest) {
       }
     }
     if (!batchEntityMap) {
-      addLog(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_batch_map | returned=null`);
+      if (shouldEmitTrace(entityExternalId)) {
+        addLog(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_batch_map | returned=null`);
+      }
       return null;
     }
 
     // DS-009 5.1: look up by external_id — the cache key IS the entity identifier value
     const rows = batchEntityMap.get(entityExternalId);
     if (!rows || rows.length === 0) {
-      addLog(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_rows | returned=null`);
+      if (shouldEmitTrace(entityExternalId)) {
+        addLog(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_rows | returned=null`);
+      }
       return null;
     }
 
@@ -1280,7 +1316,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    addLog(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | rowCount=${rows.length} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
+    if (shouldEmitTrace(entityExternalId)) {
+      addLog(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | rowCount=${rows.length} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
+    }
 
     return found ? sum : null;
   }
@@ -1806,7 +1844,9 @@ export async function POST(request: NextRequest) {
 
     // HF-188: Intent executor is sole authority. Rounding applied here.
     let intentTotalDecimal = ZERO;
-    addLog(`[CalcTrace] runCalculation:entity_start entity=${entityInfo?.external_id ?? ''} entityName=${JSON.stringify(entityInfo?.display_name ?? entityId)} | variantSelected=${selectedVariantIndex} | flatDataRowCount=${entityRowsFlat.length} | metricsKeys=[${Object.keys(allEntityMetrics).join(',')}]`);
+    if (shouldEmitTrace(entityInfo?.external_id ?? entityId)) {
+      addLog(`[CalcTrace] runCalculation:entity_start entity=${entityInfo?.external_id ?? ''} entityName=${JSON.stringify(entityInfo?.display_name ?? entityId)} | variantSelected=${selectedVariantIndex} | flatDataRowCount=${entityRowsFlat.length} | metricsKeys=[${Object.keys(allEntityMetrics).join(',')}]`);
+    }
     for (const ci of entityIntents) {
       // HF-205 Shape C: convergence is sole metrics authority (Decision 153 atomic
       // cutover completion). Per-component metrics map MUST be populated; fail fast
@@ -1852,7 +1892,9 @@ export async function POST(request: NextRequest) {
       intentTotalDecimal = intentTotalDecimal.plus(rounded);
       priorResults[ci.componentIndex] = roundedValue;
 
-      addLog(`[CalcTrace] runCalculation:component_complete entity=${entityInfo?.external_id ?? ''} componentIdx=${ci.componentIndex} componentName=${JSON.stringify(comp?.name)} | rawOutcome=${intentResult.outcome} | rounded=${roundedValue} | metrics=${JSON.stringify(metrics)}`);
+      if (shouldEmitTrace(entityInfo?.external_id ?? entityId)) {
+        addLog(`[CalcTrace] runCalculation:component_complete entity=${entityInfo?.external_id ?? ''} componentIdx=${ci.componentIndex} componentName=${JSON.stringify(comp?.name)} | rawOutcome=${intentResult.outcome} | rounded=${roundedValue} | metrics=${JSON.stringify(metrics)}`);
+      }
     }
 
     // HF-188: Intent executor is authoritative — legacy is concordance shadow
