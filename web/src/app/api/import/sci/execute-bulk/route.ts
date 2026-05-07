@@ -28,10 +28,11 @@ import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
 // derived from SCI classification via the shared resolver. No private copies.
 import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
 // HF-196 Phase 1F — supersession trigger via SHA-256 content hash (replaces 1E fingerprint trigger).
-// Closes Phase 5C-2 misfire (monthly transactions sharing structural_fingerprint per DS-017 §2.3
-// wrongly fired 1E supersession). 1F retains 1E architecture; only the trigger primitive changes.
+// HF-213 — Supersession scope changed from file-level to content-unit-level.
+// file_hash_sha256 retained for file-level audit (HF-196 Phase 1F audit intent preserved).
 import { supersedePriorBatchOnContentMatch } from '@/lib/sci/import-batch-supersession';
 import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
+import { computeContentUnitHashSha256 } from '@/lib/sci/content-unit-hash';
 // HF-196 Phase 1: post-commit construction unified across both import endpoints.
 // Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
 // post-commit work as execute (entity resolution + entity_id back-link).
@@ -517,6 +518,8 @@ async function processEntityUnit(
   // Classification is a hint, not a gate. All pipelines carry everything.
   // Entity creation above is a side effect. committed_data is the uniform data store.
   const cdBatchId = crypto.randomUUID();
+  // HF-213: content_unit_hash_sha256 — supersession identity primitive (supersedes Phase 1F file-level scope).
+  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
   await supabase.from('import_batches').insert({
     id: cdBatchId,
     tenant_id: tenantId,
@@ -524,8 +527,10 @@ async function processEntityUnit(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
-    // HF-196 Phase 1F: SHA-256 of file content bytes — supersession trigger primitive.
+    // HF-196 Phase 1F: SHA-256 of file content bytes — retained for file-level audit (no longer load-bearing for supersession).
     file_hash_sha256: fileHashSha256,
+    // HF-213: SHA-256 of normalized content unit — supersession identity primitive.
+    content_unit_hash_sha256: contentUnitHashSha256,
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'entity' } as unknown as Json,
   });
 
@@ -533,9 +538,9 @@ async function processEntityUnit(
   // Identity: data_type === informational_label === 'entity' for this pipeline.
   const dataType = resolveDataTypeFromClassification('entity');
 
-  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
+  // HF-213: Rule 30 supersession on content_unit_hash_sha256 match.
   // Idempotent + non-blocking. Returns null on supersession failure.
-  await supersedePriorBatchOnContentMatch(supabase, tenantId, cdBatchId, fileHashSha256, rows);
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, cdBatchId, contentUnitHashSha256, rows);
 
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
   for (const binding of unit.confirmedBindings) {
@@ -628,6 +633,8 @@ async function processDataUnit(
 
   // Create import batch
   const batchId = crypto.randomUUID();
+  // HF-213: content_unit_hash_sha256 — supersession identity primitive (supersedes Phase 1F file-level scope).
+  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -635,8 +642,10 @@ async function processDataUnit(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
-    // HF-196 Phase 1F: SHA-256 of file content bytes — supersession trigger primitive.
+    // HF-196 Phase 1F: SHA-256 of file content bytes — retained for file-level audit (no longer load-bearing for supersession).
     file_hash_sha256: fileHashSha256,
+    // HF-213: SHA-256 of normalized content unit — supersession identity primitive.
+    content_unit_hash_sha256: contentUnitHashSha256,
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
   });
 
@@ -644,8 +653,8 @@ async function processDataUnit(
   // Identity: data_type === informational_label === classification ('target' | 'transaction').
   const dataType = resolveDataTypeFromClassification(classification);
 
-  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
-  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, rows);
+  // HF-213: Rule 30 supersession on content_unit_hash_sha256 match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, contentUnitHashSha256, rows);
 
   // Build semantic_roles map
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
@@ -797,6 +806,8 @@ async function processReferenceUnit(
   }
 
   const batchId = crypto.randomUUID();
+  // HF-213: content_unit_hash_sha256 — supersession identity primitive (supersedes Phase 1F file-level scope).
+  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
   await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
@@ -804,8 +815,10 @@ async function processReferenceUnit(
     file_type: 'sci',
     status: 'processing',
     row_count: rows.length,
-    // HF-196 Phase 1F: SHA-256 of file content bytes — supersession trigger primitive.
+    // HF-196 Phase 1F: SHA-256 of file content bytes — retained for file-level audit (no longer load-bearing for supersession).
     file_hash_sha256: fileHashSha256,
+    // HF-213: SHA-256 of normalized content unit — supersession identity primitive.
+    content_unit_hash_sha256: contentUnitHashSha256,
     metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
   });
 
@@ -813,8 +826,8 @@ async function processReferenceUnit(
   // Identity: data_type === informational_label === 'reference' for this pipeline.
   const dataType = resolveDataTypeFromClassification('reference');
 
-  // HF-196 Phase 1F: Rule 30 supersession on SHA-256 content match.
-  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, fileHashSha256, rows);
+  // HF-213: Rule 30 supersession on content_unit_hash_sha256 match.
+  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, contentUnitHashSha256, rows);
 
   // Build semantic_roles map
   const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
