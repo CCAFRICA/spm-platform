@@ -1,27 +1,29 @@
 /**
- * HF-196 Phase 1F — Import batch supersession via SHA-256 content hash.
- * Replaces Phase 1E's structural_fingerprint trigger primitive (which wrongly
- * fired for monthly transaction files sharing column shape per DS-017 §2.3).
+ * HF-213 — Content unit hash supersession identity primitive.
+ * Supersedes HF-196 Phase 1F's (tenant_id, file_hash_sha256) supersession scope.
  *
- * Architecture: Path Z.1-A (architect-dispositioned 2026-05-03).
- *   import_batches.file_hash_sha256 is the dataset-content identity primitive.
- *   DS-017 structural_fingerprints stays unchanged for analyze-time Tier 1 immunity.
- *   Two surfaces, two primitives, two purposes — D154/D155 single-canonical preserved.
+ * Supersession scope: (tenant_id, content_unit_hash_sha256).
+ *   - Content units within the same file have distinct hashes — they do not
+ *     supersede each other (Manifestation 1 closure).
+ *   - Same content in different file containers has the same content unit hash —
+ *     supersession chains correctly across containers (Manifestation 2 closure).
  *
- * Phase 1E architecture preserved:
+ * file_hash_sha256 retained on import_batches for file-level audit per HF-196
+ * Phase 1F audit intent. No longer load-bearing for supersession decision.
+ *
+ * Phase 1E architecture preserved unchanged:
  *   - Supersession columns (superseded_by, supersedes, superseded_at, supersession_reason)
  *   - CHECK constraint on supersession integrity
  *   - Engine operative-only filter via fetchSupersededBatchIds + NOT IN
  *   - Audit trail discipline (nothing destroyed; SOC 2 CC7.2; GDPR Article 30)
  *
- * Phase 1F changes ONLY the supersession trigger primitive.
- *
- * Korean Test (T1-E910): SHA-256 is structural primitive (cryptographic hash of bytes);
- * tenantId, fileHashSha256, newBatchId are pure structural primitives. Zero domain literals.
+ * Korean Test (T1-E910): content_unit_hash_sha256 is structural primitive
+ * (cryptographic hash of normalized content); tenantId, contentUnitHashSha256,
+ * newBatchId are pure structural primitives. Zero domain literals.
  *
  * Path B-prime FK retained (architect invariant 3): structural_fingerprints.import_batch_id
  *   stays populated as lineage primitive for foundational flywheel work; not load-bearing
- *   for supersession decisions in Phase 1F.
+ *   for supersession decisions.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -38,12 +40,12 @@ export interface SupersessionResult {
 }
 
 /**
- * Find prior operative batch for this (tenant, file_hash_sha256), if any.
- * Single-query lookup on import_batches — Phase 1F primitive replaces Phase 1E
- * Path B-prime two-step JOIN through structural_fingerprints.
+ * Find prior operative batch for this (tenant, content_unit_hash_sha256), if any.
+ * Single-query lookup on import_batches.
  *
- * Match identifier: (tenant_id, file_hash_sha256). Same content bytes anywhere
- * in the tenant's import history → match. Different content → no match.
+ * Match identifier: (tenant_id, content_unit_hash_sha256). Same normalized content
+ * anywhere in the tenant's import history → match (regardless of file container).
+ * Different content → no match.
  *
  * Filters:
  *   - Operative only (superseded_by IS NULL)
@@ -53,21 +55,21 @@ export interface SupersessionResult {
 async function findPriorOperativeBatch(
   supabase: SupabaseClient,
   tenantId: string,
-  fileHashSha256: string,
+  contentUnitHashSha256: string,
   newBatchId: string,
 ): Promise<string | null> {
   const { data, error } = await supabase
     .from('import_batches')
     .select('id, created_at')
     .eq('tenant_id', tenantId)
-    .eq('file_hash_sha256', fileHashSha256)
+    .eq('content_unit_hash_sha256', contentUnitHashSha256)
     .is('superseded_by', null)
     .neq('id', newBatchId)
     .order('created_at', { ascending: false })
     .limit(1);
 
   if (error) {
-    console.warn(`[Phase 1F supersession] lookup failed: ${error.message}`);
+    console.warn(`[HF-213 supersession] lookup failed: ${error.message}`);
     return null;
   }
   if (!data || data.length === 0) return null;
@@ -75,7 +77,7 @@ async function findPriorOperativeBatch(
 }
 
 /**
- * Supersede prior operative batch if (tenant_id, file_hash_sha256) match exists.
+ * Supersede prior operative batch if (tenant_id, content_unit_hash_sha256) match exists.
  *
  * Returns supersession result for caller logging. Throws on update error
  * (caller should treat as non-blocking — original import succeeded; supersession
@@ -84,14 +86,14 @@ async function findPriorOperativeBatch(
 export async function supersedePriorBatchIfExists(
   supabase: SupabaseClient,
   tenantId: string,
-  fileHashSha256: string,
+  contentUnitHashSha256: string,
   newBatchId: string,
-  reason: string = 'content_hash_match_reimport',
+  reason: string = 'content_unit_hash_match_reimport',
 ): Promise<SupersessionResult> {
   const priorBatchId = await findPriorOperativeBatch(
     supabase,
     tenantId,
-    fileHashSha256,
+    contentUnitHashSha256,
     newBatchId,
   );
 
@@ -116,7 +118,7 @@ export async function supersedePriorBatchIfExists(
     .eq('id', priorBatchId);
 
   if (updateError) {
-    throw new Error(`[Phase 1F supersession] update of prior batch failed: ${updateError.message}`);
+    throw new Error(`[HF-213 supersession] update of prior batch failed: ${updateError.message}`);
   }
 
   // Link new batch back to predecessor (back-link is informational; not constrained
@@ -127,7 +129,7 @@ export async function supersedePriorBatchIfExists(
     .eq('id', newBatchId);
 
   if (linkError) {
-    throw new Error(`[Phase 1F supersession] back-link to predecessor failed: ${linkError.message}`);
+    throw new Error(`[HF-213 supersession] back-link to predecessor failed: ${linkError.message}`);
   }
 
   return {
@@ -160,30 +162,30 @@ export async function fetchSupersededBatchIds(
 }
 
 /**
- * HF-196 Phase 1F convenience wrapper — replaces Phase 1E's
- * linkFingerprintAndSupersedePriorBatch.
+ * HF-213 convenience wrapper — supersedes HF-196 Phase 1F's
+ * supersedePriorBatchOnContentMatch (file_hash scope).
  *
  * Called from each processX function in execute-bulk + execute after import_batches
- * insert (which itself includes file_hash_sha256 in the inserted row).
+ * insert (which itself includes content_unit_hash_sha256 in the inserted row).
  *
  * Two responsibilities:
  *   1. Lineage link: structural_fingerprints.import_batch_id ← newBatchId
  *      (Phase 1E Path B-prime FK preserved per architect invariant 3 — informational
  *       only; not load-bearing for supersession trigger.)
- *   2. Phase 1F supersession check by SHA-256 content hash.
+ *   2. HF-213 supersession check by content_unit_hash_sha256.
  *
  * Non-blocking: lineage link or supersession failure is logged but does not throw.
  *
  * Returns SupersessionResult for caller-side log emission, or null on failure or
- * empty rows (no fingerprint to link → still attempts supersession by SHA alone).
+ * empty rows (no fingerprint to link → still attempts supersession by content hash alone).
  */
 export async function supersedePriorBatchOnContentMatch(
   supabase: SupabaseClient,
   tenantId: string,
   newBatchId: string,
-  fileHashSha256: string,
+  contentUnitHashSha256: string,
   rows: Record<string, unknown>[],
-  reason: string = 'content_hash_match_reimport',
+  reason: string = 'content_unit_hash_match_reimport',
 ): Promise<SupersessionResult | null> {
   // 1. Lineage link (Phase 1E Path B-prime FK preserved — informational).
   if (rows.length > 0) {
@@ -197,31 +199,31 @@ export async function supersedePriorBatchOnContentMatch(
         .eq('fingerprint_hash', fingerprintHash)
         .is('import_batch_id', null);
       if (linkErr) {
-        console.warn(`[Phase 1F] structural_fingerprints lineage link failed (non-blocking): ${linkErr.message}`);
+        console.warn(`[HF-213] structural_fingerprints lineage link failed (non-blocking): ${linkErr.message}`);
       }
     } catch (err) {
-      console.warn(`[Phase 1F] fingerprint lineage computation failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[HF-213] fingerprint lineage computation failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  // 2. Phase 1F supersession check by SHA-256 content hash.
+  // 2. HF-213 supersession check by content_unit_hash_sha256.
   try {
     const result = await supersedePriorBatchIfExists(
       supabase,
       tenantId,
-      fileHashSha256,
+      contentUnitHashSha256,
       newBatchId,
       reason,
     );
     if (result.prior_batch_status === 'superseded') {
       console.log(
-        `[Phase 1F] Superseded prior batch ${result.prior_batch_id} → new batch ${result.new_batch_id} ` +
-        `(tenant=${tenantId} sha=${fileHashSha256.substring(0, 12)} reason=${result.reason})`,
+        `[HF-213] Superseded prior batch ${result.prior_batch_id} → new batch ${result.new_batch_id} ` +
+        `(tenant=${tenantId} content_unit_hash=${contentUnitHashSha256.substring(0, 12)} reason=${result.reason})`,
       );
     }
     return result;
   } catch (err) {
-    console.warn(`[Phase 1F] supersession failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[HF-213] supersession failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
