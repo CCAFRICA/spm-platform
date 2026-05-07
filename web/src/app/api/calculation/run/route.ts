@@ -93,6 +93,12 @@ export async function POST(request: NextRequest) {
 
   addLog(`Starting: tenant=${tenantId}, period=${periodId}, ruleSet=${ruleSetId}, run=${calculationRunId}`);
 
+  // HF-208: Reconciliation summary counters. Incremented at existing emission sites;
+  // surfaced in the [CalcRecon] summary block at handler exit. See HF-208 directive §3.
+  let diag003FallbackCount = 0;
+  let ob118MergeGuardFiredCount = 0;
+  // boundaryFallbackCount derived post-hoc from convergence_bindings.match_pass===3 at handler exit.
+
   // ── HF-196 Phase 2: Calc-time entity resolution (Break #2 closure) ──
   // Per Decision 92 + OB-182 stated intent. Idempotent — does nothing if all
   // rows already have entity_id resolved. Surfaces unmatched rows as a data-
@@ -1238,6 +1244,7 @@ export async function POST(request: NextRequest) {
         if (map.has(entityExternalId)) {
           batchEntityMap = map;
           diag003Fallback = true;
+          diag003FallbackCount++;  // HF-208: track per-call diag003 fallback engagements
           break;
         }
       }
@@ -1628,6 +1635,8 @@ export async function POST(request: NextRequest) {
       for (const [key, value] of Object.entries(derivedMetrics)) {
         if (!(key in metrics)) {
           metrics[key] = value;  // derivation fills gaps only; convergence values preserved
+        } else {
+          ob118MergeGuardFiredCount++;  // HF-208: track guard firings (convergence preserved over derivation)
         }
       }
       // OB-167: Band-aware normalization — replaces inferSemanticType-gated normalization.
@@ -2218,6 +2227,41 @@ export async function POST(request: NextRequest) {
     producedLearning
   );
   addLog(`IAP score: I=${dispatchResult.negotiation.iapScore.intelligence.toFixed(2)} A=${dispatchResult.negotiation.iapScore.acceleration.toFixed(2)} P=${dispatchResult.negotiation.iapScore.performance.toFixed(2)} composite=${dispatchResult.negotiation.iapScore.composite.toFixed(3)}`);
+
+  // HF-208: Reconciliation summary block. Greppable via [CalcRecon] prefix; emits
+  // grand total, per-entity totals, and three exception flag counters. Architect-
+  // channel reconciliation workflow: `grep CalcRecon` to extract this surface from
+  // any period's log, ignore the per-metric trace blizzard above it.
+  // boundaryFallbackCount derived post-hoc from convergence_bindings.match_pass===3
+  // (binding-level; one count per binding that used HF-199 boundary fallback).
+  let boundaryFallbackCount = 0;
+  try {
+    const rawBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+    const cb = rawBindings?.convergence_bindings as Record<string, Record<string, { match_pass?: number }>> | undefined;
+    if (cb) {
+      for (const compKey of Object.keys(cb)) {
+        const roleMap = cb[compKey];
+        for (const role of Object.keys(roleMap)) {
+          if (roleMap[role]?.match_pass === 3) boundaryFallbackCount++;
+        }
+      }
+    }
+  } catch {
+    // Non-fatal — emit (unavailable) for the boundaryFallback counter
+  }
+  const reconPeriodLabel = period?.canonical_key ?? 'n/a';
+  const reconTotalLookups = entityResults.length * (((ruleSet.components as unknown[]) ?? []).length);
+  addLog(`[CalcRecon] === RECONCILIATION SUMMARY ===`);
+  addLog(`[CalcRecon] tenant=${tenantName} period=${reconPeriodLabel} ruleSet="${ruleSet?.name ?? 'n/a'}" batchId=${batch.id}`);
+  addLog(`[CalcRecon] entitiesCalculated=${entityResults.length} grandTotal=${grandTotal}`);
+  addLog(`[CalcRecon] flags: diag003Fallback=${diag003FallbackCount}/${reconTotalLookups} boundaryFallback=${boundaryFallbackCount} ob118MergeGuardFired=${ob118MergeGuardFiredCount}/${reconTotalLookups}`);
+  addLog(`[CalcRecon] === PER-ENTITY TOTALS ===`);
+  for (const r of entityResults) {
+    const externalId = ((r.metadata as Record<string, unknown>)?.externalId as string) || (r.entity_id as string);
+    const entityName = ((r.metadata as Record<string, unknown>)?.entityName as string) || externalId;
+    addLog(`[CalcRecon] ${externalId} | ${entityName} | total=${r.total_payout}`);
+  }
+  addLog(`[CalcRecon] === END SUMMARY ===`);
 
   // HF-207 §3.1: period_complete — structured summary for log-based reconciliation.
   // Emits per-entity breakdown via JSON.stringify for grep-parseability. Keys are
