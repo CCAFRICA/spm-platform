@@ -115,12 +115,19 @@ export async function POST(request: NextRequest) {
     return false;
   }
 
+  // HF-212: Forensic verbosity gate. Default OFF — Tier 4 per-metric trace suppressed.
+  // Set CALC_TRACE_VERBOSE=true in Vercel env to enable forensic mode.
+  // Tier 1 (header/footer), Tier 2 (per-entity summary), Tier 3 (exception detail) always emit.
+  const CALC_TRACE_VERBOSE = process.env.CALC_TRACE_VERBOSE === 'true';
+
   // HF-211: Trace buffer — collects all forensic [CalcTrace] emissions during entity loop.
   // Flushed AFTER [CalcRecon] block emits at handler-exit so summary appears above forensics.
-  // Pre-HF-211 state: trace lines streamed in real-time, drowning [CalcRecon] block at
-  // handler-exit below Vercel paste truncation point.
+  // HF-212: Function-level verbosity gate. When CALC_TRACE_VERBOSE=false, bufferTrace is a
+  // no-op — Tier 4 emissions skip even the buffer push (cleaner than per-site wrapping at
+  // 13 call sites; satisfies directive §5.6 intent via single-source-of-truth gate).
   const traceBuffer: string[] = [];
   function bufferTrace(line: string): void {
+    if (!CALC_TRACE_VERBOSE) return;
     traceBuffer.push(line);
   }
 
@@ -128,6 +135,15 @@ export async function POST(request: NextRequest) {
   // Populated at component_complete site UNCONDITIONALLY (every entity, every component);
   // surfaced in [CalcRecon] block per-component breakdown for direct ground-truth reconciliation.
   const componentTotals: Map<number, { name: string; total: number }> = new Map();
+
+  // HF-212: Variant distribution accumulator — variantKey → count of entities matched.
+  // Populated at variant decision site (after exclusion check); surfaced in Tier 1 footer.
+  const variantCounts: Map<string, number> = new Map();
+
+  // HF-212: Per-entity flags collector. Handler-scope `let` so closures (resolveColumn
+  // FromBatch, etc.) capture the variable binding; reassigned at start of each entity
+  // iteration. Read by Tier 2 emission line. Push from any Tier 3 emission site.
+  let currentEntityFlags: string[] = [];
 
   // ── HF-196 Phase 2: Calc-time entity resolution (Break #2 closure) ──
   // Per Decision 92 + OB-182 stated intent. Idempotent — does nothing if all
@@ -1291,6 +1307,9 @@ export async function POST(request: NextRequest) {
           batchEntityMap = map;
           diag003Fallback = true;
           diag003FallbackCount++;  // HF-208: track per-call diag003 fallback engagements
+          // HF-212 TIER 3: emit exception detail inline (always visible) + push flag for Tier 2
+          addLog(`[CalcRecon-T3] EXCEPTION entity=${entityExternalId} type=diag003Fallback batchId=${batchId} column=${column}`);
+          currentEntityFlags.push('diag003Fallback');
           break;
         }
       }
@@ -1494,10 +1513,32 @@ export async function POST(request: NextRequest) {
   // OB-194: Track excluded entities
   const excludedEntities: Array<{ entityId: string; entityName: string; externalId: string; reason: string; tokens: string }> = [];
 
+  // ═══════════════════════════════════════════════════════════════
+  // HF-212 TIER 1 HEADER: emits BEFORE entity loop
+  // ═══════════════════════════════════════════════════════════════
+  addLog(`[CalcRecon-T1] ╔═══════════════════════════════════════════════════════════════╗`);
+  addLog(`[CalcRecon-T1] ║              CALC RECONCILIATION HEADER                       ║`);
+  addLog(`[CalcRecon-T1] ╚═══════════════════════════════════════════════════════════════╝`);
+  addLog(`[CalcRecon-T1] tenant=${tenantName ?? 'n/a'}`);
+  addLog(`[CalcRecon-T1] period=${period?.canonical_key ?? 'n/a'}`);
+  addLog(`[CalcRecon-T1] ruleSet="${ruleSet?.name ?? 'n/a'}"`);
+  addLog(`[CalcRecon-T1] batchId=${batch.id} run=${calculationRunId ?? 'n/a'}`);
+  addLog(`[CalcRecon-T1] entitiesAssigned=${calculationEntityIds.length} components=${defaultComponents.length}`);
+  const t1ComponentNames = defaultComponents.map((c, i) => `c${i}:${c.name ?? 'unnamed'}`).join(' | ');
+  addLog(`[CalcRecon-T1] componentList=[${t1ComponentNames}]`);
+  addLog(`[CalcRecon-T1] verbosityMode=${CALC_TRACE_VERBOSE ? 'FORENSIC (Tier 4 enabled)' : 'DEFAULT (Tier 1-3 only)'}`);
+  addLog(`[CalcRecon-T1] ─── Loop starts; Tier 2 lines emit per entity, Tier 3 emit on exceptions ───`);
+
   for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
+
+    // HF-212: Per-entity component breakdown. Cleared per iteration.
+    // Populated at component_complete site (per-component); consumed at Tier 2 emission.
+    const perEntityComponentBreakdown: Map<number, number> = new Map();
+    // HF-212: Reset handler-scope flags collector for this entity (closures see the same binding).
+    currentEntityFlags = [];
 
     // Find this entity's store ID and role (use FIRST occurrence, not sum)
     const allEntityMetrics = aggregateMetrics(entityRowsFlat);
@@ -1600,6 +1641,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // HF-212: Increment variant distribution counter for non-excluded entities.
+    // Variant key composition: variant_<index>(<role>) — index for engine routing,
+    // role for population-segment granularity. Surfaced in Tier 1 footer.
+    const variantKey = `variant_${selectedVariantIndex}(${(entityInfo as { metadata?: { role?: string } })?.metadata?.role ?? 'unknown'})`;
+    variantCounts.set(variantKey, (variantCounts.get(variantKey) ?? 0) + 1);
+
     // ── OB-118: Derive metrics once per entity from loaded data ──
     // OB-121: Pass prior period data for delta derivations
     // OB-146: Merge entity + store data for derivation so store-level metrics
@@ -1689,6 +1736,9 @@ export async function POST(request: NextRequest) {
           metrics[key] = value;  // derivation fills gaps only; convergence values preserved
         } else {
           ob118MergeGuardFiredCount++;  // HF-208: track guard firings (convergence preserved over derivation)
+          // HF-212 TIER 3: emit exception detail inline (always visible) + push flag for Tier 2
+          addLog(`[CalcRecon-T3] EXCEPTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} type=ob118MergeGuardFired existingKey=${key} preserved=convergence`);
+          currentEntityFlags.push('ob118MergeGuardFired');
         }
       }
       // OB-167: Band-aware normalization — replaces inferSemanticType-gated normalization.
@@ -1917,6 +1967,13 @@ export async function POST(request: NextRequest) {
         total: (_existingCompTotal?.total ?? 0) + (Number(roundedValue) || 0),
       });
 
+      // HF-212 TIER 2: Per-entity component breakdown — accumulate THIS entity's
+      // per-component totals for the Tier 2 summary line emitted after the per-entity total.
+      perEntityComponentBreakdown.set(
+        ci.componentIndex,
+        (perEntityComponentBreakdown.get(ci.componentIndex) ?? 0) + (Number(roundedValue) || 0),
+      );
+
       if (shouldEmitTrace(entityInfo?.external_id ?? entityId)) {
         bufferTrace(`[CalcTrace] runCalculation:component_complete entity=${entityInfo?.external_id ?? ''} componentIdx=${ci.componentIndex} componentName=${JSON.stringify(comp?.name)} | rawOutcome=${intentResult.outcome} | rounded=${roundedValue} | metrics=${JSON.stringify(metrics)}`);
       }
@@ -1990,6 +2047,19 @@ export async function POST(request: NextRequest) {
       addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} | intent=${intentTotal.toLocaleString()} ${matchLabel}`);
     } else if (entityResults.length === 21) {
       addLog(`  ... (${calculationEntityIds.length - 25} more entities) ...`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // HF-212 TIER 2: Per-entity summary line — always emits, one per entity
+    // ═══════════════════════════════════════════════════════════════
+    {
+      const t2ExternalId = entityInfo?.external_id ?? entityId;
+      const t2EntityName = entityInfo?.display_name ?? entityId;
+      const t2Breakdown = Array.from(perEntityComponentBreakdown.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([idx, val]) => `c${idx}:${val}`)
+        .join(',');
+      addLog(`[CalcRecon-T2] ${t2ExternalId} | ${t2EntityName} | variant=${variantKey} | total=${entityTotal} | components=[${t2Breakdown}] | flags=[${currentEntityFlags.join(',')}]`);
     }
   }
 
@@ -2296,10 +2366,11 @@ export async function POST(request: NextRequest) {
   addLog(`IAP score: I=${dispatchResult.negotiation.iapScore.intelligence.toFixed(2)} A=${dispatchResult.negotiation.iapScore.acceleration.toFixed(2)} P=${dispatchResult.negotiation.iapScore.performance.toFixed(2)} composite=${dispatchResult.negotiation.iapScore.composite.toFixed(3)}`);
 
   // ═══════════════════════════════════════════════════════════════
-  // HF-211: RECONCILIATION SUMMARY (TOP-VISIBLE — emits BEFORE forensic trace flush)
+  // HF-212 TIER 1 FOOTER: emits AFTER entity loop (paired with Tier 1 header at loop start)
   // ═══════════════════════════════════════════════════════════════
   // boundaryFallbackCount derived post-hoc from convergence_bindings.match_pass===3
   // (binding-level; one count per binding that used HF-199 boundary fallback).
+  // Each match_pass===3 binding additionally emits a Tier 3 EXCEPTION line for inline visibility.
   let boundaryFallbackCount = 0;
   try {
     const rawBindings = ruleSet.input_bindings as Record<string, unknown> | null;
@@ -2308,51 +2379,40 @@ export async function POST(request: NextRequest) {
       for (const compKey of Object.keys(cb)) {
         const roleMap = cb[compKey];
         for (const role of Object.keys(roleMap)) {
-          if (roleMap[role]?.match_pass === 3) boundaryFallbackCount++;
+          if (roleMap[role]?.match_pass === 3) {
+            boundaryFallbackCount++;
+            // HF-212 TIER 3: emit exception detail (binding-level, no per-entity attribution)
+            addLog(`[CalcRecon-T3] EXCEPTION component=${compKey} role=${role} type=boundaryFallback`);
+          }
         }
       }
     }
   } catch {
     // Non-fatal — counter stays 0
   }
-  const reconPeriodLabel = period?.canonical_key ?? 'n/a';
-  const reconTotalLookups = entityResults.length * (((ruleSet.components as unknown[]) ?? []).length);
-  addLog(`[CalcRecon] ╔═══════════════════════════════════════════════════════════════╗`);
-  addLog(`[CalcRecon] ║              RECONCILIATION SUMMARY                           ║`);
-  addLog(`[CalcRecon] ╚═══════════════════════════════════════════════════════════════╝`);
-  addLog(`[CalcRecon] tenant=${tenantName ?? 'n/a'} period=${reconPeriodLabel} ruleSet="${ruleSet?.name ?? 'n/a'}"`);
-  addLog(`[CalcRecon] batchId=${batch.id} run=${calculationRunId ?? 'n/a'}`);
-  addLog(`[CalcRecon] entitiesCalculated=${entityResults.length} grandTotal=${grandTotal}`);
-  addLog(`[CalcRecon] ─── Per-Component Totals ───`);
-  const sortedComponents = Array.from(componentTotals.entries()).sort((a, b) => a[0] - b[0]);
-  for (const [idx, info] of sortedComponents) {
-    addLog(`[CalcRecon]   c${idx} | ${info.name} | total=${info.total}`);
-  }
-  addLog(`[CalcRecon] ─── Exception Flags (HF-208 counters) ───`);
-  addLog(`[CalcRecon]   diag003Fallback=${diag003FallbackCount}/${reconTotalLookups}`);
-  addLog(`[CalcRecon]   boundaryFallback=${boundaryFallbackCount}`);
-  addLog(`[CalcRecon]   ob118MergeGuardFired=${ob118MergeGuardFiredCount}/${reconTotalLookups}`);
-  addLog(`[CalcRecon] ─── Trace Coverage (HF-210 cap) ───`);
-  addLog(`[CalcRecon]   tracedEntities=${tracedEntityIds.size} cap=${TRACE_CAP_N}`);
-  addLog(`[CalcRecon] ─── Per-Entity Totals ───`);
-  for (const r of entityResults) {
-    const externalId = ((r.metadata as Record<string, unknown>)?.externalId as string) || (r.entity_id as string);
-    const entityName = ((r.metadata as Record<string, unknown>)?.entityName as string) || externalId;
-    addLog(`[CalcRecon]   ${externalId} | ${entityName} | total=${r.total_payout}`);
-  }
-  addLog(`[CalcRecon] ╔═══════════════════════════════════════════════════════════════╗`);
-  addLog(`[CalcRecon] ║              END SUMMARY                                      ║`);
-  addLog(`[CalcRecon] ╚═══════════════════════════════════════════════════════════════╝`);
+  const t1FooterTotalLookups = entityResults.length * (((ruleSet.components as unknown[]) ?? []).length);
+  addLog(`[CalcRecon-T1] ─── Loop complete; reconciliation footer ───`);
+  addLog(`[CalcRecon-T1] entitiesCalculated=${entityResults.length} grandTotal=${grandTotal}`);
+  const t1SortedComponents = Array.from(componentTotals.entries()).sort((a, b) => a[0] - b[0]);
+  const t1ComponentSummary = t1SortedComponents.map(([idx, info]) => `c${idx}:${info.total}`).join(' | ');
+  addLog(`[CalcRecon-T1] componentTotals=[${t1ComponentSummary}]`);
+  addLog(`[CalcRecon-T1] flags={diag003Fallback:${diag003FallbackCount}/${t1FooterTotalLookups} boundaryFallback:${boundaryFallbackCount} ob118MergeGuardFired:${ob118MergeGuardFiredCount}/${t1FooterTotalLookups}}`);
+  const t1VariantBreakdown = Array.from(variantCounts.entries()).map(([k, v]) => `${k}:${v}`).join(' | ');
+  addLog(`[CalcRecon-T1] variantDistribution={${t1VariantBreakdown}}`);
+  addLog(`[CalcRecon-T1] ╔═══════════════════════════════════════════════════════════════╗`);
+  addLog(`[CalcRecon-T1] ║              END RECONCILIATION FOOTER                        ║`);
+  addLog(`[CalcRecon-T1] ╚═══════════════════════════════════════════════════════════════╝`);
 
   // ═══════════════════════════════════════════════════════════════
-  // HF-211: FORENSIC TRACE FLUSH (buffered during entity loop)
-  // Emits AFTER [CalcRecon] block so summary lands at top of forensics-section.
+  // HF-211 + HF-212: FORENSIC TRACE FLUSH (Tier 4) — gated by CALC_TRACE_VERBOSE
   // ═══════════════════════════════════════════════════════════════
-  addLog(`[CalcTrace] ─── FORENSIC TRACE (capped: ${TRACE_CAP_N} entities) ───`);
-  for (const line of traceBuffer) {
-    addLog(line);
+  if (CALC_TRACE_VERBOSE) {
+    addLog(`[CalcTrace] ─── FORENSIC TRACE (capped: ${TRACE_CAP_N} entities) ───`);
+    for (const line of traceBuffer) {
+      addLog(line);
+    }
+    addLog(`[CalcTrace] ─── END FORENSIC TRACE ─── (${traceBuffer.length} lines)`);
   }
-  addLog(`[CalcTrace] ─── END FORENSIC TRACE ─── (${traceBuffer.length} lines)`);
 
   // HF-207 §3.1: period_complete — structured summary for log-based reconciliation.
   // Emits per-entity breakdown via JSON.stringify for grep-parseability. Keys are

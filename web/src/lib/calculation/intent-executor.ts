@@ -79,7 +79,9 @@ function resolveSource(
       inputLog[field] = { source: 'metric', rawValue: data.metrics[key], resolvedValue: raw };
       {
         const _line = `[CalcTrace] resolveSource:metric_lookup entity=${data.entityId} | field=${field} | key=${key} | rawValueInMetrics=${data.metrics[key]} | resolvedValue=${raw} | metricsKeys=[${Object.keys(data.metrics).join(',')}]`;
-        if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+        if (process.env.CALC_TRACE_VERBOSE === 'true') {
+          if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+        }
       }
       return toDecimal(raw);
     }
@@ -224,7 +226,9 @@ function executeBoundedLookup1D(
     trace.lookupResolution = { outputValue: 0 };
     {
       const _line = `[CalcTrace] executeBoundedLookup1D:no_band_match entity=${data.entityId} | inputValue=${toNumber(inputValue)} | boundaries=${JSON.stringify(op.boundaries)} | outputValue=0`;
-      if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+      if (process.env.CALC_TRACE_VERBOSE === 'true') {
+        if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+      }
     }
     return ZERO;
   }
@@ -243,7 +247,9 @@ function executeBoundedLookup1D(
   };
   {
     const _line = `[CalcTrace] executeBoundedLookup1D:execution entity=${data.entityId} | inputValue=${toNumber(inputValue)} | bandIndex=${idx} | bandRange=${JSON.stringify({min: op.boundaries[idx].min, max: op.boundaries[idx].max})} | rawOutput=${toNumber(rawOutput)} | isMarginal=${!!op.isMarginal} | outputValue=${toNumber(output)} | boundaries=${JSON.stringify(op.boundaries)} | outputs=${JSON.stringify(op.outputs)}`;
-    if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+    if (process.env.CALC_TRACE_VERBOSE === 'true') {
+      if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+    }
   }
   return output;
 }
@@ -268,7 +274,9 @@ function executeBoundedLookup2D(
     };
     {
       const _line = `[CalcTrace] executeBoundedLookup2D:no_band_match entity=${data.entityId} | rowValue=${toNumber(rowValue)} | colValue=${toNumber(colValue)} | rowIdx=${rowIdx} | colIdx=${colIdx} | rowBoundaries=${JSON.stringify(op.rowBoundaries)} | columnBoundaries=${JSON.stringify(op.columnBoundaries)} | outputValue=0`;
-      if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+      if (process.env.CALC_TRACE_VERBOSE === 'true') {
+        if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+      }
     }
     return ZERO;
   }
@@ -281,7 +289,9 @@ function executeBoundedLookup2D(
   };
   {
     const _line = `[CalcTrace] executeBoundedLookup2D:execution entity=${data.entityId} | rowValue=${toNumber(rowValue)} | colValue=${toNumber(colValue)} | rowIdx=${rowIdx} | colIdx=${colIdx} | outputGridCell=${op.outputGrid[rowIdx]?.[colIdx] ?? 0} | outputValue=${toNumber(output)}`;
-    if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+    if (process.env.CALC_TRACE_VERBOSE === 'true') {
+      if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
+    }
   }
   return output;
 }
