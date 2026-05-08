@@ -75,6 +75,12 @@ export async function persistSignal(
 
     if (error) {
       console.error('[SignalPersistence] Failed to persist signal:', error.message, '| signal_type:', signal.signalType, '| tenant:', signal.tenantId);
+      const sv: Record<string, unknown> = signal.signalValue || {};
+      const metricName = sv['metric_name'] ?? null;
+      const componentIndex = sv['component_index'] ?? null;
+      const svJson = JSON.stringify(signal.signalValue ?? null);
+      const svTruncated = svJson.length > 200 ? svJson.slice(0, 200) + '…' : svJson;
+      console.error(`[SignalPersistence] signal_type=${signal.signalType} confidence=${String(signal.confidence)} metric_name=${String(metricName)} component_index=${String(componentIndex)} signal_value_truncated=${svTruncated}`);
       return { success: false, error: error.message };
     }
     return { success: true };
@@ -129,6 +135,15 @@ export async function persistSignalBatch(
 
     if (error) {
       console.error('[SignalPersistence] Batch failed:', error.message, '| count:', signals.length, '| tenant:', signals[0]?.tenantId);
+      for (let i = 0; i < signals.length; i++) {
+        const s = signals[i];
+        const sv: Record<string, unknown> = s.signalValue || {};
+        const metricName = sv['metric_name'] ?? null;
+        const componentIndex = sv['component_index'] ?? null;
+        const svJson = JSON.stringify(s.signalValue ?? null);
+        const svTruncated = svJson.length > 200 ? svJson.slice(0, 200) + '…' : svJson;
+        console.error(`[SignalPersistence] row=${i} signal_type=${s.signalType} confidence=${String(s.confidence)} metric_name=${String(metricName)} component_index=${String(componentIndex)} signal_value_truncated=${svTruncated}`);
+      }
       return { success: false, count: 0, error: error.message };
     }
     return { success: true, count: signals.length };
