@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-08T20:54:03Z
 **Branch:** `hf-214-phase1-signal-persistence-instrumentation`
-**Commit:** [populated post-commit at end of report]
+**Commit:** `d60d18e67dc2633df87d50fcd3b810a745850cce` (initial), see PR #380 for the full branch
 **Type:** Logging-only instrumentation; no behavioral change
 **Predecessor probes:** DIAG-035 (PR #377), DIAG-036 (PR #378), DIAG-037 (PR #379)
 
@@ -324,11 +324,13 @@ These determinations are architect-channel work per T2-E46 reconciliation-channe
 
 | Item | Value |
 |---|---|
-| PR number | [populated post-PR-creation] |
-| PR URL | [populated post-PR-creation] |
-| Vercel deploy preview status | [observed post-PR-creation] |
-| Build check status | [observed post-PR-creation] |
-| Mergeable | [observed post-PR-creation] |
+| PR number | #380 |
+| PR URL | https://github.com/CCAFRICA/spm-platform/pull/380 |
+| Vercel deploy preview status | PENDING at time of report (build in flight) |
+| Build check status | UNSTABLE at time of report (Vercel build queued); `Vercel Preview Comments` check SUCCESS |
+| Mergeable | MERGEABLE |
+| Branch | `hf-214-phase1-signal-persistence-instrumentation` |
+| Initial commit SHA | `d60d18e67dc2633df87d50fcd3b810a745850cce` |
 
 ---
 
@@ -362,7 +364,7 @@ The architect determines next phase shape based on the evidence captured by this
 - ☑ Section 4 build evidence pasted verbatim
 - ☑ `git diff` pasted in Section 3
 - ☑ Localhost dev server confirmed `Ready in 1449ms` + `HTTP 200` on `/login`
-- ☐ PR opened with `--base main --head hf-214-phase1-signal-persistence-instrumentation` *(populated at end)*
+- ☑ PR #380 opened with `--base main --head hf-214-phase1-signal-persistence-instrumentation`
 
 ---
 
