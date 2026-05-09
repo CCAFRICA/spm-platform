@@ -405,7 +405,7 @@ NUMERIC PARSING RULES:
 IMPORTANT GUIDELINES:
 1. Documents may be in ANY language. Preserve original language labels in component names and metric labels.
 2. Extract worked examples if present - these are critical for validation.
-3. Return confidence scores as a decimal probability ratio between 0.0 and 1.0 for each component and overall (e.g., 0.95 means high confidence; 0.50 means uncertain). Do NOT emit integer percentages such as 95 or 90 — emit ratio form 0.95 and 0.90 instead.
+3. Return confidence scores (0-100) for each component and overall.
 4. If a table has different values for different employee types/classifications, create SEPARATE components for each.
 
 === CALCULATION INTENT (STRUCTURAL VOCABULARY) ===
