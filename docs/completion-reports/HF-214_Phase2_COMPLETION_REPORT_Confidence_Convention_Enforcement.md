@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-09T13:02:52Z
 **Branch:** `hf-214-phase2-confidence-convention-enforcement`
-**Commit SHA:** [populated post-commit, see Section 6]
+**Commit SHA:** `72571889c5a8191e4bf5a90bf70bbfbeaf11a50b` (initial), see PR #381
 **Type:** Behavioral change — producer-side normalization (B1 prompt + B2 normalizer) + writer-side defense-in-depth clamp (A) with warning log
 **Predecessor:** HF-214 Phase 1 (PR #380, commit `7ca17c4a` — instrumentation preserved byte-identical)
 **Substrate authority:** IRA invocation HF-214 Phase 2 (`vialuce-governance` — `ira_request_hash db65a45f59c67bb334d5e4a99691d14038427e76be9075250bdf57122bae9a2b`, cost $1.354245, tier_3_novel)
@@ -415,13 +415,13 @@ The architect performs the reimport and observes the database. CC does NOT perfo
 
 | Item | Value |
 |---|---|
-| PR number | [populated post-PR-creation] |
-| PR URL | [populated post-PR-creation] |
-| Vercel deploy preview status | [observed post-PR-creation] |
-| Build check status | [observed post-PR-creation] |
-| Mergeable | [observed post-PR-creation] |
+| PR number | #381 |
+| PR URL | https://github.com/CCAFRICA/spm-platform/pull/381 |
+| Vercel deploy preview status | PENDING at time of report (build queued) |
+| Build check status | UNSTABLE at time of report (Vercel build pending); `Vercel Preview Comments` SUCCESS |
+| Mergeable | MERGEABLE |
 | Branch | `hf-214-phase2-confidence-convention-enforcement` |
-| Initial commit SHA | [populated post-commit] |
+| Initial commit SHA | `72571889c5a8191e4bf5a90bf70bbfbeaf11a50b` |
 
 ---
 
@@ -465,4 +465,4 @@ Architect dispositions ACT / DEFER / REJECT / WATCH per `IRA_INVOCATION_REFERENC
 - ☑ Section 5 architect-verifiable empirical assertion documented (forward-looking only)
 - ☑ "COMPLETION REPORT" appears in H1 title and filename
 - ☑ git diff pasted in Section 3
-- ☐ PR opened with `--base main --head hf-214-phase2-confidence-convention-enforcement` *(populated at PR creation)*
+- ☑ PR #381 opened with `--base main --head hf-214-phase2-confidence-convention-enforcement`
