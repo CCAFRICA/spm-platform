@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-09T20:35:33Z
 **Branch:** `hf-215-revert-anthropic-adapter-prompt`
-**Commit SHA:** [populated post-commit, see Section 6]
+**Commit SHA:** `efca0d3a58b774a021fcc9d4bb991d5dd9501d8b` (initial), see PR #383
 **Type:** Single-line revert; restores pre-Phase-2 confidence prompt at `anthropic-adapter.ts:408`
 **Reverts:** HF-214 Phase 2 B1 amendment (PR #381 squash-merged commit `5418f4f4`)
 **Predecessor diagnostic:** DIAG-038 (PR #382 squash-merged commit `a32fcd48`)
@@ -306,13 +306,13 @@ CC writes this section as forward-looking documentation; CC does NOT perform the
 
 | Item | Value |
 |---|---|
-| PR number | [populated post-PR-creation] |
-| PR URL | [populated post-PR-creation] |
-| Vercel deploy preview status | [observed post-PR-creation] |
-| Build check status | [observed post-PR-creation] |
-| Mergeable | [observed post-PR-creation] |
+| PR number | #383 |
+| PR URL | https://github.com/CCAFRICA/spm-platform/pull/383 |
+| Vercel deploy preview status | UNSTABLE at time of report (Vercel build pending) |
+| Build check status | (PR just opened; Vercel queued) |
+| Mergeable | MERGEABLE |
 | Branch | `hf-215-revert-anthropic-adapter-prompt` |
-| Initial commit SHA | [populated post-commit] |
+| Initial commit SHA | `efca0d3a58b774a021fcc9d4bb991d5dd9501d8b` |
 
 ---
 
@@ -332,4 +332,4 @@ CC writes this section as forward-looking documentation; CC does NOT perform the
 - ☑ Section 5 architect-verifiable empirical assertion documented
 - ☑ "COMPLETION REPORT" appears in H1 title and filename
 - ☑ git diff pasted in Section 2.3
-- ☐ PR opened with `--base main --head hf-215-revert-anthropic-adapter-prompt` (populated at PR creation)
+- ☑ PR #383 opened with `--base main --head hf-215-revert-anthropic-adapter-prompt`
