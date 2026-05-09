@@ -59,6 +59,21 @@ export async function persistSignal(
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+    // HF-214 Phase 2 (A): writer-side defense-in-depth clamp.
+    // Confidence is a probability ratio in [0, 1); clamp at the canonical writer
+    // protects every signal_type symmetrically against any upstream drift.
+    let clampedConfidence: number | null = signal.confidence ?? null;
+    if (clampedConfidence != null) {
+      const original = clampedConfidence;
+      const clamped = Math.min(Math.max(original, 0), 0.9999);
+      if (clamped !== original) {
+        const sv: Record<string, unknown> = signal.signalValue || {};
+        const metricName = sv['metric_name'] ?? null;
+        const componentIndex = sv['component_index'] ?? null;
+        console.warn(`[SignalPersistence] confidence clamped: original=${original} clamped=${clamped} signal_type=${signal.signalType} metric_name=${String(metricName)} component_index=${String(componentIndex)}`);
+      }
+      clampedConfidence = clamped;
+    }
     const { error } = await supabase
       .from('classification_signals')
       .insert({
@@ -66,7 +81,7 @@ export async function persistSignal(
         entity_id: signal.entityId || null,
         signal_type: signal.signalType,
         signal_value: (signal.signalValue || {}) as Json,
-        confidence: signal.confidence ?? null,
+        confidence: clampedConfidence,
         source: signal.source ?? 'ai_prediction',
         context: (signal.context ?? {}) as Json,
         calculation_run_id: signal.calculationRunId ?? null,
@@ -117,17 +132,34 @@ export async function persistSignalBatch(
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-    const rows = signals.map(s => ({
-      tenant_id: s.tenantId,
-      entity_id: s.entityId || null,
-      signal_type: s.signalType,
-      signal_value: (s.signalValue || {}) as Json,
-      confidence: s.confidence ?? null,
-      source: s.source ?? 'ai_prediction',
-      context: (s.context ?? {}) as Json,
-      calculation_run_id: s.calculationRunId ?? null,
-      rule_set_id: s.ruleSetId ?? null,
-    }));
+    // HF-214 Phase 2 (A): writer-side defense-in-depth clamp.
+    // Confidence is a probability ratio in [0, 1); clamp per-row protects every
+    // signal_type symmetrically against any upstream drift.
+    const rows = signals.map(s => {
+      let clampedConfidence: number | null = s.confidence ?? null;
+      if (clampedConfidence != null) {
+        const original = clampedConfidence;
+        const clamped = Math.min(Math.max(original, 0), 0.9999);
+        if (clamped !== original) {
+          const sv: Record<string, unknown> = s.signalValue || {};
+          const metricName = sv['metric_name'] ?? null;
+          const componentIndex = sv['component_index'] ?? null;
+          console.warn(`[SignalPersistence] confidence clamped: original=${original} clamped=${clamped} signal_type=${s.signalType} metric_name=${String(metricName)} component_index=${String(componentIndex)}`);
+        }
+        clampedConfidence = clamped;
+      }
+      return {
+        tenant_id: s.tenantId,
+        entity_id: s.entityId || null,
+        signal_type: s.signalType,
+        signal_value: (s.signalValue || {}) as Json,
+        confidence: clampedConfidence,
+        source: s.source ?? 'ai_prediction',
+        context: (s.context ?? {}) as Json,
+        calculation_run_id: s.calculationRunId ?? null,
+        rule_set_id: s.ruleSetId ?? null,
+      };
+    });
 
     const { error } = await supabase
       .from('classification_signals')

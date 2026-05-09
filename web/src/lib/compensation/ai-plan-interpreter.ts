@@ -210,9 +210,25 @@ export class AIPlainInterpreter {
       components: this.normalizeComponents(parsed.components),
       requiredInputs: this.normalizeRequiredInputs(parsed.requiredInputs),
       workedExamples: this.normalizeWorkedExamples(parsed.workedExamples),
-      confidence: Number(parsed.confidence) || 0,
+      confidence: this.normalizeConfidence(parsed.confidence, 'interpretation.confidence', 0),
       reasoning: String(parsed.reasoning || ''),
     };
+  }
+
+  // HF-214 Phase 2 (B2): structural normalization for AI-emitted confidence values.
+  // Confidence is a decimal probability ratio in [0, 1]. Values > 1 are treated as
+  // percentage-encoded and rescaled by /100; values < 0 clamp to 0. Original-vs-normalized
+  // divergence is logged so upstream prompt drift is observable.
+  private normalizeConfidence(raw: unknown, fieldPath: string, fallback: number): number {
+    const original = Number(raw);
+    if (!Number.isFinite(original)) return fallback;
+    let normalized = original;
+    if (normalized > 1) normalized = normalized / 100;
+    if (normalized < 0) normalized = 0;
+    if (normalized !== original) {
+      console.warn(`[AIPlanInterpreter] confidence normalized: field=${fieldPath} original=${original} normalized=${normalized}`);
+    }
+    return normalized;
   }
 
   private normalizeEmployeeTypes(types: unknown): EmployeeType[] {
@@ -243,7 +259,7 @@ export class AIPlainInterpreter {
         calculationIntent: c.calculationIntent && typeof c.calculationIntent === 'object'
           ? c.calculationIntent as Record<string, unknown>
           : undefined,
-        confidence: Number(c.confidence) || 50,
+        confidence: this.normalizeConfidence(c.confidence, `interpretation.components[${index}].confidence`, 0.5),
         reasoning: String(c.reasoning || ''),
       };
       return comp;
